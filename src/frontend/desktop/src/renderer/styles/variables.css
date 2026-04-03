@@ -1,0 +1,233 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TaskSail UI Standards Framework
+   ═══════════════════════════════════════════════════════════════════════════
+   Version:  2.0.0
+   Updated:  2026-03-22
+   Aesthetic: Refined nautical instrument panel
+   ─────────────────────────────────────────────────────────────────────────── */
+
+
+/* ── §1  Design Tokens ─────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap');
+
+:root {
+  color-scheme: light dark;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --ts-font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ts-font-mono: 'Source Code Pro', 'SF Mono', 'Cascadia Code',
+    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, monospace;
+  /* ── Light palette — slate & ivory ───────────────────────────────────── */
+  --ts-bg:               #f4f6fa;
+  --ts-overlay:          rgba(20, 30, 50, 0.03);
+  --ts-surface:          #ffffff;
+  --ts-surface-alt:      #ebeef5;
+  --ts-surface-strong:   #dde2ec;
+  --ts-surface-terminal: #0f1419;
+  --ts-bg-hover:         rgba(30, 50, 100, 0.05);
+
+  /* ── Section backgrounds ─────────────────────────────────────────────── */
+  --ts-header-bg:        #1e2a3a;
+  --ts-sidebar-bg:       #f8f9fc;
+  --ts-main-bg:          #eef0f6;
+  --ts-rail-bg:          #f8f9fc;
+
+  /* ── Header (dark header in light mode for contrast) ─────────────────── */
+  --ts-header-text:      #e8ecf2;
+  --ts-header-text-soft: #8b9bb5;
+  --ts-header-border:    rgba(255, 255, 255, 0.08);
+
+  /* ── Borders ─────────────────────────────────────────────────────────── */
+  --ts-border:           rgba(25, 40, 75, 0.09);
+  --ts-border-strong:    rgba(25, 40, 75, 0.16);
+
+  /* ── Text ────────────────────────────────────────────────────────────── */
+  --ts-text:             #1a2332;
+  --ts-text-muted:       #4e5d74;
+  --ts-text-soft:        #8292a8;
+  --ts-text-inverse:     #ffffff;
+
+  /* ── Accent — warm brass/amber ──────────────────────────────────────── */
+  --ts-accent:           #c8873a;
+  --ts-accent-hover:     #b5742e;
+  --ts-accent-subtle:    rgba(200, 135, 58, 0.10);
+  --ts-accent-tint:      rgba(200, 135, 58, 0.10);
+
+  /* ── Semantic status ─────────────────────────────────────────────────── */
+  --ts-success:          #2d9d5a;
+  --ts-warning:          #c8873a;
+  --ts-error:            #c44040;
+  --ts-info:             #4a7fd4;
+  --ts-danger:           #c44040;
+  --ts-danger-bg:        rgba(196, 64, 64, 0.06);
+  --ts-warning-tint:     rgba(217, 119, 6, 0.07);
+  --ts-danger-tint:      rgba(220, 38, 38, 0.06);
+  --ts-success-tint:     rgba(45, 157, 90, 0.08);
+
+  /* ── Elevation ───────────────────────────────────────────────────────── */
+  --ts-shadow-sm:  0 1px 2px rgba(15, 25, 45, 0.06);
+  --ts-shadow-md:  0 2px 6px rgba(15, 25, 45, 0.08), 0 4px 14px rgba(15, 25, 45, 0.05);
+  --ts-shadow-lg:  0 4px 16px rgba(15, 25, 45, 0.10), 0 12px 40px rgba(15, 25, 45, 0.08);
+  --ts-shadow-xl:  0 8px 28px rgba(15, 25, 45, 0.14), 0 20px 60px rgba(15, 25, 45, 0.10);
+
+  /* ── Z-index ────────────────────────────────────────────────────────── */
+  --ts-z-header: 2;
+  --ts-z-dropdown: 20;
+  --ts-z-modal: 100;
+  --ts-z-toast: 200;
+
+  /* ── Terminal tokens (untouched) ───────────────────────────────────── */
+  --terminal-bg:         #0f1419;
+  --terminal-chrome:     #161b22;
+  --terminal-drawer-bg:  #1c2129;
+  --terminal-border:     #21262d;
+  --terminal-text:       #c9d1d9;
+  --terminal-text-muted: #484f58;
+  --terminal-cyan:       #58a6ff;
+  --terminal-green:      #3fb950;
+  --terminal-amber:      #d29922;
+  --terminal-magenta:    #bc8cff;
+  --terminal-gray:       #8b949e;
+  --terminal-red:        #f85149;
+  --terminal-cyan-light:    #79c0ff;
+  --terminal-green-light:   #56d364;
+  --terminal-amber-light:   #e3b341;
+  --terminal-magenta-light: #d2a8ff;
+  --terminal-cyan-pale:     #a5d6ff;
+  --terminal-green-pale:    #7ee787;
+  --terminal-red-light:     #ffa198;
+
+  /* ── Scrollbar ──────────────────────────────────────────────────────── */
+  --ts-scrollbar-width:  6px;
+  --ts-scrollbar-track:  transparent;
+  --ts-scrollbar-thumb:  rgba(255, 255, 255, 0.10);
+  --ts-scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
+
+  /* ── Radii ───────────────────────────────────────────────────────────── */
+  --ts-radius-sm:  4px;
+  --ts-radius-md:  6px;
+  --ts-radius-lg:  10px;
+  --ts-radius-xl:  14px;
+  --ts-radius-pill: 999px;
+
+  /* ── Transitions ─────────────────────────────────────────────────────── */
+  --ts-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ts-duration: 180ms;
+
+  /* ── Button sizing ─────────────────────────────────────────────────── */
+  --ts-btn-sm: 24px;
+  --ts-btn-md: 32px;
+  --ts-btn-lg: 40px;
+
+  /* ── Font weights ──────────────────────────────────────────────────── */
+  --ts-weight-normal: 400;
+  --ts-weight-medium: 500;
+  --ts-weight-semibold: 600;
+  --ts-weight-bold: 700;
+
+  /* ── Mapped aliases (backward compat) ────────────────────────────────── */
+  --app-bg:              var(--ts-bg);
+  --app-surface:         var(--ts-surface);
+  --app-surface-alt:     var(--ts-surface-alt);
+  --app-surface-strong:  var(--ts-surface-strong);
+  --app-surface-terminal: var(--ts-surface-terminal);
+  --app-header-bg:       var(--ts-header-bg);
+  --app-header-text:     var(--ts-header-text);
+  --app-header-text-soft: var(--ts-header-text-soft);
+  --app-header-border:   var(--ts-header-border);
+  --app-border:          var(--ts-border);
+  --app-border-strong:   var(--ts-border-strong);
+  --app-text:            var(--ts-text);
+  --app-text-muted:      var(--ts-text-muted);
+  --app-text-soft:       var(--ts-text-soft);
+  --app-terminal-text:   var(--terminal-green);
+  --app-accent:          var(--ts-accent);
+  --app-accent-hover:    var(--ts-accent-hover);
+  --app-shadow:          var(--ts-shadow-md);
+
+  background: var(--ts-bg);
+  color: var(--ts-text);
+}
+
+
+/* ── §1.1  Dark mode ─────────────────────────────────────────────────── */
+/* Dark tokens are applied via .theme-dark on <html>. The useThemeToggle
+   hook manages the class based on user preference or OS setting.
+   No @media (prefers-color-scheme) blocks — the hook is the single
+   source of truth, eliminating duplication and specificity conflicts. */
+
+:root.theme-dark {
+  --ts-bg:               #0c1018;
+  --ts-overlay:          rgba(180, 200, 240, 0.02);
+  --ts-surface:          #151b26;
+  --ts-surface-alt:      #0c1018;
+  --ts-surface-strong:   #1f2736;
+  --ts-surface-terminal: #010409;
+  --ts-bg-hover:         rgba(180, 200, 240, 0.06);
+  --ts-header-bg:        #0e141e;
+  --ts-sidebar-bg:       #121a28;
+  --ts-main-bg:          #0c1220;
+  --ts-rail-bg:          #121a28;
+  --ts-header-text:      #c9d1d9;
+  --ts-header-text-soft: #7a8da6;
+  --ts-header-border:    rgba(180, 200, 240, 0.07);
+  --ts-border:           rgba(180, 200, 240, 0.06);
+  --ts-border-strong:    rgba(180, 200, 240, 0.12);
+  --ts-text:             #c9d1d9;
+  --ts-text-muted:       #8b949e;
+  --ts-text-soft:        #6e7681;
+  --ts-text-inverse:     #ffffff;
+  --ts-accent:           #d4954a;
+  --ts-accent-hover:     #e0a55a;
+  --ts-accent-subtle:    rgba(212, 149, 74, 0.12);
+  --ts-accent-tint:      rgba(212, 149, 74, 0.12);
+  --ts-shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.35);
+  --ts-shadow-md:  0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
+  --ts-shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.35), 0 12px 40px rgba(0, 0, 0, 0.30);
+  --ts-shadow-xl:  0 8px 28px rgba(0, 0, 0, 0.40), 0 20px 60px rgba(0, 0, 0, 0.35);
+  --ts-danger: #f85149;
+  --ts-danger-bg: rgba(248, 81, 73, 0.08);
+  --ts-warning-tint:     rgba(227, 179, 65, 0.10);
+  --ts-danger-tint:      rgba(248, 81, 73, 0.08);
+  --ts-success-tint:     rgba(63, 185, 80, 0.10);
+
+  color-scheme: dark;
+}
+
+
+/* ── Thin scrollbar for dark-background scroll containers ──────────── */
+
+.terminal-feed__scroll,
+.task-board-column__list,
+.sidebar-scroll-region {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
+}
+
+.terminal-feed__scroll::-webkit-scrollbar,
+.task-board-column__list::-webkit-scrollbar,
+.sidebar-scroll-region::-webkit-scrollbar {
+  width: var(--ts-scrollbar-width);
+}
+
+.terminal-feed__scroll::-webkit-scrollbar-track,
+.task-board-column__list::-webkit-scrollbar-track,
+.sidebar-scroll-region::-webkit-scrollbar-track {
+  background: var(--ts-scrollbar-track);
+}
+
+.terminal-feed__scroll::-webkit-scrollbar-thumb,
+.task-board-column__list::-webkit-scrollbar-thumb,
+.sidebar-scroll-region::-webkit-scrollbar-thumb {
+  background: var(--ts-scrollbar-thumb);
+  border-radius: var(--ts-radius-pill);
+}
+
+.terminal-feed__scroll::-webkit-scrollbar-thumb:hover,
+.task-board-column__list::-webkit-scrollbar-thumb:hover,
+.sidebar-scroll-region::-webkit-scrollbar-thumb:hover {
+  background: var(--ts-scrollbar-thumb-hover);
+}

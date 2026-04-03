@@ -1,0 +1,89 @@
+name: Docs Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  markdown-quality:
+    name: Markdown Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run markdownlint
+        run: npx --yes markdownlint-cli2
+
+  docs-and-contract-lane:
+    name: Docs and Contract Lane
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install pnpm dependencies
+        run: pnpm install
+
+      - name: Validate repository markdown links
+        run: python3 ./src/backend/scripts/python/validate-docs.py
+
+      - name: Validate handoff templates
+        run: pnpm exec tsx ./src/backend/platform/workflow-policy/cli.ts --mode ci --format text
+
+      - name: Run docs and contract lane
+        run: python3 ./src/backend/scripts/python/run-targeted-tests.py --manifest ./tests/test_manifest.json --lane contracts
+
+      - name: Install desktop dependencies
+        working-directory: src/frontend/desktop
+        run: npm ci
+
+      - name: TypeScript type check
+        working-directory: src/frontend/desktop
+        run: npm run lint
+
+      - name: Run desktop shell contract tests
+        working-directory: src/frontend/desktop
+        run: >-
+          npm test -- electron/main.test.ts
+          src/renderer/components/PlanningWorkspace.test.tsx
+          src/renderer/components/PlannerPanel.test.tsx
+          src/renderer/components/ContextPackSidepmr.test.tsx
+          src/renderer/components/ObservationPane.test.tsx
+          src/renderer/components/ObservabilityPanel.test.tsx
+          src/renderer/components/TerminalStreamPanel.test.tsx
+          src/renderer/hooks/useAppShell.test.tsx
+          src/renderer/hooks/useContextPackSelection.test.tsx
+          src/renderer/hooks/useFollowUpFlow.test.tsx
+          src/renderer/activityStream.test.ts
+
+      - name: Build desktop shell
+        working-directory: src/frontend/desktop
+        run: npm run build

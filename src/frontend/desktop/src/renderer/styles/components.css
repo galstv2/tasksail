@@ -1,0 +1,821 @@
+/* ── §2  Base & Reset ──────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: var(--ts-font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  background: var(--ts-bg);
+  color: var(--ts-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+#root {
+  height: 100vh;
+}
+
+
+/* ── §10  Panels & Cards ─────────────────────────────────────────────── */
+
+.panel {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  padding: 1rem;
+  background: var(--ts-surface);
+  box-shadow: none;
+}
+
+.panel__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.panel__title-row h2 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.panel__title-row h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.task-health-rollup__title-row {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.panel__meta {
+  color: var(--ts-text-soft);
+}
+
+.panel__lede {
+  margin: 0 0 1rem;
+  color: var(--ts-text-muted);
+}
+
+.panel__error {
+  margin: 0 0 1rem;
+  color: var(--ts-error);
+}
+
+
+
+/* ── §12  Status Chips ───────────────────────────────────────────────── */
+
+.status-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.stream-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--ts-text-muted);
+}
+
+.action-button {
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-md);
+  padding: 0.5rem 0.85rem;
+  background: var(--ts-surface);
+  color: var(--ts-text);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease),
+              box-shadow var(--ts-duration) var(--ts-ease);
+}
+
+.action-button--secondary {
+  background: transparent;
+}
+
+.action-button:hover {
+  background: var(--ts-surface);
+  border-color: var(--ts-accent);
+  box-shadow: var(--ts-shadow-sm);
+}
+
+.action-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.status-chip {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: var(--ts-radius-pill);
+  padding: 0.25rem 0.55rem;
+  background: var(--ts-surface-alt);
+}
+
+.status-chip--active {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent);
+}
+
+.status-chip--blocked {
+  background: rgba(217, 119, 6, 0.08);
+  color: var(--ts-warning);
+}
+
+.status-chip--completed {
+  background: rgba(22, 163, 74, 0.08);
+  color: var(--ts-success);
+}
+
+.status-chip--idle,
+.status-chip--owner {
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-soft);
+}
+
+
+/* ── §13  Grids & Lists ─────────────────────────────────────────────── */
+
+.mapping-list,
+.artifact-list,
+.observability-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.observability-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.composer-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.composer-field span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ts-text-muted);
+}
+
+.composer-field input,
+.composer-field textarea,
+.composer-field select {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  background: var(--ts-surface);
+  color: var(--ts-text);
+  resize: vertical;
+  transition: border-color var(--ts-duration) var(--ts-ease);
+}
+
+.composer-field input:focus,
+.composer-field textarea:focus,
+.composer-field select:focus {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 3px var(--ts-accent-subtle);
+}
+
+
+/* ── §15  Notes & Artifact Blocks ────────────────────────────────────── */
+
+.notes-block h3,
+.summary-panel__title {
+  margin: 0;
+}
+
+.artifact-card {
+  margin: 0.35rem 0 0;
+  color: var(--ts-text-muted);
+}
+
+.status-chip-row {
+  margin-bottom: 0.9rem;
+}
+
+.notes-block + .notes-block {
+  margin-top: 1.5rem;
+}
+
+.active-task-block,
+.related-thread-card {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  padding: 0.95rem 1rem;
+  background: var(--ts-surface-alt);
+}
+
+.active-task-block__meta {
+  margin-bottom: 0.75rem;
+}
+
+.related-thread-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.related-thread-card h4 {
+  margin: 0;
+}
+
+.related-thread-card__chips {
+  margin-bottom: 0;
+}
+
+.related-thread-card__session-list,
+.related-thread-card__event-list {
+  margin-top: 0.75rem;
+}
+
+.related-thread-card__session-copy {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--ts-text-muted);
+}
+
+.artifact-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.artifact-card__path {
+  margin: 0.45rem 0 0.25rem;
+  font-family: var(--ts-font-mono);
+  font-size: 0.84rem;
+  color: var(--ts-text-soft);
+}
+
+
+/* ── §18  Lists ──────────────────────────────────────────────────────── */
+
+.review-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ts-text-muted);
+}
+
+.review-list li + li {
+  margin-top: 0.45rem;
+}
+
+.mapping-list {
+  margin: 0;
+}
+
+.mapping-list div {
+  border-bottom: 1px solid var(--ts-border);
+  padding-bottom: 0.75rem;
+}
+
+.mapping-list div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.mapping-list dt {
+  color: var(--ts-text-soft);
+  font-size: 0.9rem;
+}
+
+.mapping-list dd {
+  margin: 0.2rem 0 0;
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.todo-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--ts-text-muted);
+}
+
+.todo-list li + li {
+  margin-top: 0.55rem;
+}
+
+.todo-list--dense li + li {
+  margin-top: 0.7rem;
+}
+
+
+/* ── §20  Toast Notifications ────────────────────────────────────────── */
+
+.toast-container {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: var(--ts-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 0.6rem 1rem;
+  border-radius: var(--ts-radius-md);
+  font-size: 0.85rem;
+  background: var(--ts-surface);
+  border: 1px solid var(--ts-border);
+  box-shadow: var(--ts-shadow-lg);
+  animation: toast-slide-in 200ms var(--ts-ease);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  color: var(--ts-text);
+}
+
+.toast--success { border-left: 3px solid var(--ts-success); }
+.toast--error   { border-left: 3px solid var(--ts-error); }
+.toast--warning { border-left: 3px solid var(--ts-warning); }
+.toast--info    { border-left: 3px solid var(--ts-info); }
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toast__message {
+  flex: 1;
+  font-size: 0.88rem;
+}
+
+.toast__dismiss {
+  border: none;
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+
+/* ── §23  Observability Drawer ───────────────────────────────────────── */
+
+.observability-drawer {
+  border-top: 1px solid var(--terminal-border);
+  background: var(--terminal-drawer-bg);
+  flex-shrink: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.observability-drawer__toggle {
+  width: 100%;
+  border: none;
+  padding: 0.45rem 0.75rem;
+  background: transparent;
+  color: var(--terminal-text-muted);
+  font-family: inherit;
+  font-size: 0.76rem;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--ts-duration) var(--ts-ease);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.observability-drawer__toggle:hover {
+  color: var(--terminal-text);
+}
+
+.observability-drawer__content {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  border-top: 1px solid var(--terminal-border);
+  animation: terminal-fade-in 200ms var(--ts-ease);
+  overflow-y: auto;
+  max-height: 40vh;
+}
+
+/* ── Observability sections ──────────────────────────────────────────── */
+
+.obs-section {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+.obs-section:last-child {
+  border-bottom: none;
+}
+
+.obs-section__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.obs-section__title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--terminal-text);
+  letter-spacing: 0.01em;
+}
+
+.obs-section__subtitle {
+  margin: 0.65rem 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--terminal-text-muted);
+}
+
+.obs-section__desc {
+  margin: 0.2rem 0 0;
+  font-size: 0.74rem;
+  color: var(--terminal-text-muted);
+  line-height: 1.4;
+}
+
+.obs-section__body {
+  margin: 0.4rem 0 0;
+  font-size: 0.76rem;
+  color: var(--terminal-gray);
+  line-height: 1.45;
+}
+
+.obs-section__empty {
+  margin: 0.3rem 0 0;
+  font-size: 0.74rem;
+  color: var(--terminal-text-muted);
+  font-style: italic;
+}
+
+/* ── Observability badges ────────────────────────────────────────────── */
+
+.obs-badge {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--ts-radius-sm);
+  white-space: nowrap;
+}
+
+.obs-badge--ok    { background: rgba(63, 185, 80, 0.15);  color: var(--terminal-green); }
+.obs-badge--warn  { background: rgba(210, 153, 34, 0.15); color: var(--terminal-amber); }
+.obs-badge--error { background: rgba(248, 81, 73, 0.15);  color: var(--terminal-red); }
+.obs-badge--idle  { background: rgba(139, 148, 158, 0.12); color: var(--terminal-gray); }
+
+/* ── Observability stat row ──────────────────────────────────────────── */
+
+.obs-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.obs-stat {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--terminal-gray);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--ts-radius-sm);
+  background: rgba(139, 148, 158, 0.1);
+}
+
+.obs-stat--ok    { color: var(--terminal-green); background: rgba(63, 185, 80, 0.1); }
+.obs-stat--warn  { color: var(--terminal-amber); background: rgba(210, 153, 34, 0.1); }
+.obs-stat--error { color: var(--terminal-red);   background: rgba(248, 81, 73, 0.1); }
+
+/* ── Observability timeline ──────────────────────────────────────────── */
+
+.obs-timeline {
+  display: grid;
+  gap: 0.1rem;
+  margin-top: 0.45rem;
+}
+
+.obs-timeline__entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+}
+
+.obs-timeline__icon {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+  width: 1.1rem;
+  text-align: center;
+}
+
+.obs-timeline__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.obs-timeline__state {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--terminal-text);
+}
+
+.obs-timeline__detail {
+  font-size: 0.72rem;
+  color: var(--terminal-text-muted);
+}
+
+/* ── Observability file list ─────────────────────────────────────────── */
+
+.obs-file-list {
+  display: grid;
+  gap: 0;
+  margin-top: 0.4rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  overflow: hidden;
+}
+
+.obs-file-row {
+  padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+.obs-file-row:last-child {
+  border-bottom: none;
+}
+
+.obs-file-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.obs-file-row__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.obs-file-row__name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--terminal-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.obs-file-row__status {
+  font-size: 0.64rem;
+  font-weight: 600;
+  padding: 0.08rem 0.3rem;
+  border-radius: var(--ts-radius-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.obs-file-row__status--ok      { color: var(--terminal-green); background: rgba(63, 185, 80, 0.12); }
+.obs-file-row__status--warn    { color: var(--terminal-amber); background: rgba(210, 153, 34, 0.12); }
+.obs-file-row__status--missing { color: var(--terminal-red);   background: rgba(248, 81, 73, 0.12); }
+
+.obs-file-row__detail {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--terminal-text-muted);
+  margin-top: 0.1rem;
+}
+
+/* ── Observability key-value list ────────────────────────────────────── */
+
+.obs-kv-list {
+  display: grid;
+  gap: 0;
+  margin-top: 0.4rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  overflow: hidden;
+}
+
+.obs-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0.55rem;
+  border-bottom: 1px solid var(--terminal-border);
+}
+
+.obs-kv:last-child {
+  border-bottom: none;
+}
+
+.obs-kv:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.obs-kv__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--terminal-text-muted);
+  flex-shrink: 0;
+  min-width: 5.5rem;
+}
+
+.obs-kv__value {
+  font-size: 0.72rem;
+  color: var(--terminal-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-kv__value--mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.7rem;
+}
+
+.operator-queue__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.operator-queue__status,
+.operator-queue__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ts-radius-pill);
+  padding: 0.15rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.operator-queue__status--ok,
+.operator-queue__pill--active {
+  color: var(--terminal-green);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.operator-queue__status--warn,
+.operator-queue__pill--pending {
+  color: var(--terminal-amber);
+  background: rgba(210, 153, 34, 0.12);
+}
+
+.operator-queue__status--error,
+.operator-queue__pill--failed {
+  color: var(--terminal-red);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.operator-queue__failure,
+.operator-queue__list {
+  margin-top: 0.55rem;
+}
+
+.operator-queue__failure {
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--ts-radius-md);
+  padding: 0.6rem;
+  background: rgba(248, 81, 73, 0.06);
+}
+
+.operator-queue__failure-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--terminal-text);
+}
+
+.operator-queue__failure-reason {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+  color: var(--terminal-text-muted);
+  white-space: pre-wrap;
+}
+
+.operator-queue__actions,
+.operator-queue__item-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.operator-queue__actions {
+  margin-top: 0.55rem;
+}
+
+.obs-action-btn {
+  border: 1px solid var(--terminal-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--terminal-text);
+  border-radius: var(--ts-radius-sm);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.obs-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.obs-action-btn--danger {
+  border-color: rgba(248, 81, 73, 0.4);
+  color: var(--terminal-red);
+}
+
+.obs-action-btn--ghost {
+  background: transparent;
+}
+
+.operator-queue__list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.operator-queue__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.45rem 0.55rem;
+}
+
+.operator-queue__item-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.operator-queue__item-copy strong,
+.operator-queue__item-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-queue__item-copy strong {
+  font-size: 0.73rem;
+  color: var(--terminal-text);
+}
+
+.operator-queue__item-copy span {
+  font-size: 0.68rem;
+  color: var(--terminal-text-muted);
+}
+
+
+/* ── Dark mode status chip overrides ─────────────────────────────────── */
+
+:root.theme-dark .status-chip { background: rgba(180, 200, 240, 0.06); }
+:root.theme-dark .status-chip--active { background: var(--ts-accent-subtle); color: var(--ts-accent); }
+:root.theme-dark .status-chip--blocked { background: rgba(210, 153, 34, 0.10); color: var(--terminal-amber-light); }
+:root.theme-dark .status-chip--completed { background: rgba(63, 185, 80, 0.08); color: var(--terminal-green-light); }
+:root.theme-dark .status-chip--idle,
+:root.theme-dark .status-chip--owner { background: rgba(180, 200, 240, 0.04); color: var(--terminal-gray); }
+

@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "lanes": {
+    "smoke": [
+      "tests.domains.docs_contracts.test_agent_registry_contract",
+      "tests.domains.context_estate.test_context_estate_draft_index",
+      "tests.domains.context_estate.test_context_estate_manifest",
+      "tests.domains.docs_contracts.test_copilot_agent_profiles",
+      "tests.domains.qmd.test_qmd_index_service",
+      "tests.domains.repo_context.test_repo_context_config",
+      "tests.domains.repo_context.test_repo_context_packaging",
+      "tests.domains.test_infra.test_run_targeted_tests",
+      "tests.domains.archive.test_task_archive_service",
+      "tests.domains.reinforcement.test_persistence",
+      "tests.domains.reinforcement.test_engine",
+      "tests.domains.reinforcement.test_reinforcement_context"
+    ],
+    "integration": [
+      "tests.domains.context_pack.test_activate_context_pack",
+      "tests.domains.qmd.test_live_qmd_seeding",
+      "tests.domains.queue.test_queue_runtime_integration",
+      "tests.domains.workflow.test_run_role_agent",
+      "tests.domains.context_pack.test_switch_context_pack_workspace",
+      "tests.domains.e2e.test_mvp_green_light"
+    ],
+    "contracts": [
+      "tests.domains.docs_contracts.test_agent_registry_contract",
+      "tests.domains.docs_contracts.test_copilot_agent_profiles",
+      "tests.domains.docs_contracts.test_docs_operating_model",
+      "tests.domains.docs_contracts.test_workflow_policy_docs"
+    ]
+  },
+  "domains": {
+    "workflow": [
+      "tests.domains.workflow.test_child_task_handoff_validation",
+      "tests.domains.workflow.test_run_role_agent",
+      "tests.domains.workflow.test_external_mcp_renderer",
+      "tests.domains.workflow.test_external_mcp_hardening",
+      "tests.domains.workflow.test_tests_md_append"
+    ],
+    "queue": [
+      "tests.domains.queue.test_create_dropbox_task",
+      "tests.domains.queue.test_create_followup_task",
+      "tests.domains.queue.test_queue_policy_transitions",
+      "tests.domains.queue.test_queue_runtime_integration",
+      "tests.domains.queue.test_task_completion_counter"
+    ],
+    "context_pack": [
+      "tests.domains.context_pack.test_activate_context_pack",
+      "tests.domains.context_pack.test_switch_context_pack_workspace",
+      "tests.domains.context_pack.test_workspace_context_sync_service"
+    ],
+    "context_estate": [
+      "tests.domains.context_estate.test_context_estate_draft_index",
+      "tests.domains.context_estate.test_context_estate_manifest",
+      "tests.domains.context_estate.test_discover_context_estate"
+    ],
+    "repo_context": [
+      "tests.domains.repo_context.test_repo_context_app_helpers",
+      "tests.domains.repo_context.test_repo_context_cli",
+      "tests.domains.repo_context.test_repo_context_config",
+      "tests.domains.repo_context.test_repo_context_http_transport",
+      "tests.domains.repo_context.test_repo_context_packaging",
+      "tests.domains.repo_context.test_repo_context_request_id",
+      "tests.domains.repo_context.test_repo_context_server_lifecycle"
+    ],
+    "archive": [
+      "tests.domains.archive.test_parent_archive_retrieval",
+      "tests.domains.archive.test_report_renderer",
+      "tests.domains.archive.test_task_archive_filing",
+      "tests.domains.archive.test_task_archive_lineage",
+      "tests.domains.archive.test_task_archive_service"
+    ],
+    "docs_contracts": [
+      "tests.domains.docs_contracts.test_agent_registry_contract",
+      "tests.domains.docs_contracts.test_copilot_agent_profiles",
+      "tests.domains.docs_contracts.test_docs_operating_model",
+      "tests.domains.docs_contracts.test_workflow_policy_docs"
+    ],
+    "qmd": [
+      "tests.domains.qmd.test_live_qmd_seeding",
+      "tests.domains.qmd.test_qmd_index_service",
+      "tests.domains.qmd.test_seeding_runtime_state"
+    ],
+    "test_infra": [
+      "tests.domains.test_infra.test_run_targeted_tests",
+      "tests.domains.test_infra.test_script_lib",
+      "tests.domains.test_infra.test_atomic_writes"
+    ],
+    "e2e": [
+      "tests.domains.e2e.test_mvp_green_light",
+      "tests.domains.e2e.test_live_pipeline"
+    ],
+    "reinforcement": [
+      "tests.domains.reinforcement.test_persistence",
+      "tests.domains.reinforcement.test_rewards",
+      "tests.domains.reinforcement.test_validation",
+      "tests.domains.reinforcement.test_engine",
+      "tests.domains.reinforcement.test_feedback",
+      "tests.domains.reinforcement.test_realignment",
+      "tests.domains.reinforcement.test_fairness",
+      "tests.domains.reinforcement.test_archive_integration",
+      "tests.domains.reinforcement.test_reinforcement_context"
+    ]
+  },
+  "path_rules": {
+    ".github/agents/": ["docs_contracts"],
+    ".github/copilot/": ["docs_contracts"],
+    "docker/repo-context-mcp/": ["repo_context"],
+    "docs/": ["docs_contracts"],
+    "AgentWorkSpace/handoffs/": ["workflow", "docs_contracts"],
+    "AgentWorkSpace/ImplementationSteps/": ["workflow"],
+    "qmd/": ["context_pack", "context_estate", "qmd"],
+    "src/backend/scripts/python/approve-context-estate-manifest.py": ["context_estate"],
+    "src/backend/scripts/python/discover-context-estate.py": ["context_estate"],
+    "src/backend/scripts/python/plan-qmd-seeding.py": ["qmd"],
+    "src/backend/scripts/python/run-role-agent-helper.py": ["workflow", "context_pack"],
+    "src/backend/scripts/python/run-targeted-tests.py": ["test_infra"],
+    "src/backend/scripts/python/sync-context-pack-workspace.py": ["context_pack"],
+    "src/backend/scripts/python/validate-docs.py": ["docs_contracts"],
+    "src/backend/platform/workflow-policy/": ["workflow"],
+    "src/backend/platform/agent-runner/guardrails.ts": ["workflow"],
+    "src/backend/platform/queue/policyValidation.ts": ["workflow", "queue"],
+    "src/backend/mcp/": ["repo_context"],
+    "src/backend/mcp/reinforcement/": ["reinforcement"],
+    "src/backend/scripts/python/submit-reinforcement-feedback.py": ["reinforcement"],
+    "src/backend/scripts/python/update-global-realignment-doc.py": ["reinforcement"],
+    "src/backend/scripts/python/lib/role_agent/reinforcement_cmds.py": ["reinforcement"],
+    "tests/test_manifest.json": ["test_infra"],
+    "tests/domains/workflow/": ["workflow"],
+    "tests/domains/queue/": ["queue"],
+    "tests/domains/context_pack/": ["context_pack"],
+    "tests/domains/context_estate/": ["context_estate"],
+    "tests/domains/repo_context/": ["repo_context"],
+    "tests/domains/archive/": ["archive"],
+    "tests/domains/docs_contracts/": ["docs_contracts"],
+    "tests/domains/qmd/": ["qmd"],
+    "tests/domains/test_infra/": ["test_infra"],
+    "tests/domains/e2e/": ["e2e"],
+    "tests/domains/reinforcement/": ["reinforcement"]
+  }
+}

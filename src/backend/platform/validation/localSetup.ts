@@ -1,0 +1,54 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+export interface ToolCheck {
+  name: string;
+  checkCmd: string[];
+}
+
+export const REQUIRED_TOOLS: ToolCheck[] = [
+  { name: 'git', checkCmd: ['git', '--version'] },
+  { name: 'node', checkCmd: ['node', '--version'] },
+  { name: 'python3', checkCmd: ['python3', '--version'] },
+  { name: 'pnpm', checkCmd: ['pnpm', '--version'] },
+];
+
+export interface LocalSetupResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+async function isToolAvailable(cmd: string[]): Promise<boolean> {
+  try {
+    await execFileAsync(cmd[0], cmd.slice(1), { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function validateLocalSetup(_repoRoot?: string): Promise<LocalSetupResult> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  for (const tool of REQUIRED_TOOLS) {
+    const available = await isToolAvailable(tool.checkCmd);
+    if (!available) {
+      errors.push(`Required tool not found: ${tool.name} (tried: ${tool.checkCmd.join(' ')})`);
+    }
+  }
+
+  // Check optional tools
+  const optionalTools = ['docker', 'ruff', 'gh'];
+  for (const tool of optionalTools) {
+    const available = await isToolAvailable([tool, '--version']);
+    if (!available) {
+      warnings.push(`Optional tool not found: ${tool}`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
+}

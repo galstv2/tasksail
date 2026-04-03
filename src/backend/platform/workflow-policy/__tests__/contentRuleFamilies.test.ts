@@ -1,0 +1,383 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { PolicyValidator } from '../index.js';
+import { evaluateIntakeQualityRules } from '../rules/intake.js';
+import { evaluateSliceQualityRules } from '../rules/slice.js';
+import { evaluateSpecQualityRules } from '../rules/spec.js';
+import { evaluateTaskQualityRules } from '../rules/taskQuality.js';
+
+function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
+  const absolutePath = path.join(repoRoot, relativePath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, content, 'utf-8');
+}
+
+function createRegistryFixture(repoRoot: string): void {
+  writeRepoFile(
+    repoRoot,
+    '.github/agents/registry.json',
+    JSON.stringify({
+      agents: [
+        {
+          agent_id: 'planning-agent',
+          role_name: 'Planning Specialist',
+          human_name: 'Lily',
+          instruction_path: '.github/copilot/instructions/planning-agent.instructions.md',
+          agent_profile_path: '.github/agents/planning-agent.md',
+          autonomy_profile: 'artifact-author',
+          workflow_order: 0,
+          required_model: 'gpt-5.4',
+        },
+        {
+          agent_id: 'product-manager',
+          role_name: 'Product Manager',
+          human_name: 'Alice',
+          instruction_path: '.github/copilot/instructions/product-manager.instructions.md',
+          agent_profile_path: '.github/agents/product-manager.md',
+          autonomy_profile: 'artifact-author',
+          workflow_order: 1,
+          required_model: 'gpt-5.4',
+        },
+        {
+          agent_id: 'software-engineer',
+          role_name: 'Software Engineer',
+          human_name: 'Dalton',
+          instruction_path: '.github/copilot/instructions/software-engineer.instructions.md',
+          agent_profile_path: '.github/agents/software-engineer.md',
+          autonomy_profile: 'repo-executor',
+          workflow_order: 2,
+          required_model: 'gpt-4.1',
+        },
+        {
+          agent_id: 'qa',
+          role_name: 'QA and Closeout',
+          human_name: 'Ron',
+          instruction_path: '.github/copilot/instructions/qa.instructions.md',
+          agent_profile_path: '.github/agents/qa.md',
+          autonomy_profile: 'artifact-author',
+          workflow_order: 3,
+          required_model: 'gpt-5.4',
+        },
+      ],
+    }, null, 2),
+  );
+}
+
+function createBlankHandoffs(repoRoot: string): void {
+  for (const fileName of [
+    'professional-task.md',
+    'implementation-spec.md',
+    'retrospective-input.md',
+    'final-summary.md',
+    'issues.md',
+  ]) {
+    writeRepoFile(repoRoot, `AgentWorkSpace/handoffs/${fileName}`, '');
+  }
+}
+
+function createActiveTask(repoRoot: string, extraLineage: string[] = []): void {
+  createBlankHandoffs(repoRoot);
+  writeRepoFile(
+    repoRoot,
+    'AgentWorkSpace/handoffs/professional-task.md',
+    [
+      '# Professional Task',
+      '',
+      '## Task Metadata',
+      '- Task ID: task-123',
+      '- Task Title: Workflow policy parity',
+      '',
+      '## Task Lineage',
+      ...extraLineage,
+      ...(extraLineage.length ? [''] : []),
+      '## Problem Statement',
+      'Port rule families without changing behavior.',
+      '',
+      '## Business Goal',
+      'Keep the TypeScript validator authoritative.',
+      '',
+      '## Scope',
+      'Workflow policy content rules only.',
+      '',
+      '## Non-Goals',
+      '- No queue caller changes.',
+      '',
+      '## Acceptance Criteria',
+      '- Representative policy tests pass.',
+      '',
+    ].join('\n'),
+  );
+}
+
+describe('workflow-policy content rule families', () => {
+  const createdRoots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(createdRoots.splice(0).map((repoRoot) => rm(repoRoot, { recursive: true, force: true })));
+  });
+
+  it('flags intake child-task and routing content gaps with Python-matching rule ids', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createBlankHandoffs(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/dropbox/request.md',
+      [
+        '## Request Summary',
+        'Too short.',
+        '',
+        '## Desired Outcome',
+        'Ship it.',
+        '',
+        '## Acceptance Signals',
+        'This should work end to end.',
+        '',
+        '## Suggested Routing',
+        'Use the complex path if needed.',
+        '',
+        '## Task Lineage',
+        '- Task Kind: child-task',
+        '- Parent Task ID: parent-123',
+        '',
+        '## Parent Task Carry-Forward Summary',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateIntakeQualityRules(validator);
+
+    expect(validator.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'intake.title-present',
+          artifact: 'AgentWorkSpace/dropbox/request.md',
+        }),
+        expect.objectContaining({
+          rule_id: 'intake.routing-recommendation-valid',
+          message:
+            "Suggested Routing should use the metadata line '- Recommended Execution: simple|complex'.",
+        }),
+        expect.objectContaining({
+          rule_id: 'intake.acceptance-signals-measurable',
+        }),
+        expect.objectContaining({
+          rule_id: 'intake.request-summary-substantive',
+        }),
+        expect.objectContaining({
+          rule_id: 'intake.child-lineage-required',
+          message:
+            "Task Kind is 'child-task' but required lineage fields are missing: Root Task ID, Follow-Up Reason.",
+        }),
+        expect.objectContaining({
+          rule_id: 'intake.child-carry-forward-required',
+        }),
+      ]),
+    );
+  });
+
+  it('enforces spec structure, executable validation strategy, and child carry-forward parity', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-spec-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot, [
+      '- Task Kind: child-task',
+      '- Parent Task ID: parent-1',
+      '- Root Task ID: root-1',
+      '- Parent QMD Record ID: qmd-1',
+      '- Parent QMD Scope: workflow-policy',
+      '- Follow-Up Reason: split the port into smaller slices',
+    ]);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '- Task ID: task-123',
+        '',
+        '## Problem Statement',
+        'Port the content rules.',
+        '',
+        '## Goals',
+        'Preserve parity.',
+        '',
+        '## Non-Goals',
+        '- No queue/runtime cutover.',
+        '',
+        '## Architecture Summary',
+        'Use the workflow-policy foundation.',
+        '',
+        '## Touched Systems',
+        '- workflow-policy',
+        '',
+        '## Change Boundaries',
+        'Rules and tests only.',
+        '',
+        '## Dependency Analysis',
+        'Depends on the current validator foundation.',
+        '',
+        '## Codebase Analysis',
+        'The content rules already live under rules/*.ts.',
+        '',
+        '## Proposed Structure',
+        'Keep one file per rule family.',
+        '',
+        '## Validation Strategy',
+        'Run the relevant tests before handoff.',
+        '',
+        '## Files or Areas Likely to Change',
+        '- src/backend/platform/workflow-policy/rules/',
+        '',
+        '## Parent Task Carry-Forward Context',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'spec.goals-measurable',
+          message: 'Goals must contain at least one numbered or bullet item.',
+        }),
+        expect.objectContaining({
+          rule_id: 'spec.validation-strategy-executable',
+        }),
+        expect.objectContaining({
+          rule_id: 'spec.dependency-analysis-structured',
+        }),
+        expect.objectContaining({
+          rule_id: 'spec.child-carry-forward-required',
+        }),
+      ]),
+    );
+  });
+
+  it('checks child-task lineage completeness and lineage consistency across handoffs', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-task-quality-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot, [
+      '- Task Kind: child-task',
+      '- Parent Task ID: parent-1',
+      '- Root Task ID: root-1',
+    ]);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '- Task ID: task-123',
+        '',
+        '## Task Lineage',
+        '- Parent Task ID: parent-2',
+        '- Root Task ID: root-1',
+        '',
+        '## Problem Statement',
+        'Still substantive so lineage consistency runs.',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateTaskQualityRules(validator);
+
+    expect(validator.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'task.child-lineage-required',
+          message:
+            "Task Kind is 'child-task' but required lineage fields are missing: Parent QMD Record ID, Parent QMD Scope, Follow-Up Reason.",
+        }),
+        expect.objectContaining({
+          rule_id: 'task.child-carry-forward-required',
+        }),
+        expect.objectContaining({
+          rule_id: 'task.lineage-consistency',
+          artifact: 'AgentWorkSpace/handoffs/implementation-spec.md',
+          message:
+            "Lineage field 'Parent Task ID' is 'parent-2' in AgentWorkSpace/handoffs/implementation-spec.md but 'parent-1' in AgentWorkSpace/handoffs/professional-task.md.",
+        }),
+      ]),
+    );
+  });
+
+  it('enforces slice file scope, measurable acceptance criteria, and executable validation commands', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-slice-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createBlankHandoffs(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/ImplementationSteps/content-slice.md',
+      [
+        '# Content Slice',
+        '',
+        '## Purpose',
+        'Port content rules.',
+        '',
+        '## Depends On',
+        '- core-foundation',
+        '',
+        '## Scope',
+        'workflow-policy content family only',
+        '',
+        '## Files',
+        '',
+        '## Acceptance Criteria',
+        'Everything should be good.',
+        '',
+        '## Unit Tests',
+        '- Add representative parity tests.',
+        '',
+        '## Validation Commands',
+        'Run the normal checks.',
+        '',
+        '## Guards',
+        '- Do not touch runtime callers.',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice' });
+    await validator.initialize();
+    await evaluateSliceQualityRules(validator);
+
+    expect(validator.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'slice.required-section-present',
+          artifact: 'AgentWorkSpace/ImplementationSteps/content-slice.md',
+          message: "Required section 'Files' is missing or empty.",
+        }),
+        expect.objectContaining({
+          rule_id: 'slice.file-scope-declared',
+        }),
+        expect.objectContaining({
+          rule_id: 'slice.acceptance-criteria-measurable',
+        }),
+        expect.objectContaining({
+          rule_id: 'slice.validation-commands-executable',
+        }),
+      ]),
+    );
+  });
+});

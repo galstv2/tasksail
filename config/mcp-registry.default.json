@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "services": [
+    {
+      "id": "repo-context-mcp",
+      "displayName": "Repository Context",
+      "kind": "container-http",
+      "enabled": true,
+      "builtin": true,
+      "compose": {
+        "serviceName": "repo-context-mcp",
+        "containerName": "repo-context-mcp",
+        "image": "tasksail/repo-context-mcp:local",
+        "dockerfile": "docker/repo-context-mcp/Dockerfile",
+        "buildContext": "../..",
+        "hostBind": "127.0.0.1",
+        "hostPort": 8811,
+        "containerPort": 8811,
+        "envFileRefs": [".env"],
+        "environment": {
+          "REPO_CONTEXT_MCP_HOST": "0.0.0.0"
+        },
+        "volumes": [
+          { "host": ".", "container": "/workspace", "mode": "ro" },
+          {
+            "host": "${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-AgentWorkSpace/qmd}",
+            "container": "${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}",
+            "mode": "rw"
+          },
+          {
+            "host": "AgentWorkSpace/dropbox",
+            "container": "/data/dropbox",
+            "mode": "rw"
+          }
+        ],
+        "memoryLimit": "512M",
+        "cpuLimit": "1.0",
+        "stopGracePeriod": "15s"
+      },
+      "health": {
+        "url": "http://localhost:8811/health",
+        "maxRetries": 10,
+        "retryIntervalMs": 2000
+      }
+    }
+  ]
+}

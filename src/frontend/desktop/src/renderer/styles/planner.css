@@ -1,0 +1,783 @@
+/* ── §24  Planner Modal ──────────────────────────────────────────────── */
+
+.planner-modal__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ts-z-modal);
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgba(15, 20, 30, 0);
+  backdrop-filter: blur(3px);
+  animation: plannerOverlayIn var(--ts-duration) var(--ts-ease) forwards;
+}
+
+@keyframes plannerOverlayIn {
+  to {
+    background: rgba(15, 20, 30, 0.48);
+  }
+}
+
+.planner-modal {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ts-radius-lg);
+  border: 1px solid var(--ts-border);
+  background: var(--ts-surface);
+  box-shadow: var(--ts-shadow-xl);
+  overflow: hidden;
+  animation: plannerModalIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.planner-modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--ts-accent) 20%,
+    var(--ts-accent) 80%,
+    transparent 100%
+  );
+  opacity: 0.55;
+  border-radius: var(--ts-radius-lg) var(--ts-radius-lg) 0 0;
+  z-index: 1;
+}
+
+@keyframes plannerModalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.planner-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface);
+}
+
+.planner-modal__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.planner-modal__icon {
+  color: var(--ts-accent);
+  flex-shrink: 0;
+}
+
+.planner-modal__header h2 {
+  margin: 0;
+  font-family: var(--ts-font-sans);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.planner-modal__header button {
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__header button:hover {
+  background: var(--ts-surface-alt);
+  border-color: var(--ts-border);
+  color: var(--ts-text);
+}
+
+.planner-modal__followup-banner {
+  padding: 0.4rem 0.85rem;
+  background: var(--ts-accent-subtle);
+  border-bottom: 1px solid var(--ts-border);
+  font-size: 0.74rem;
+  color: var(--ts-text-muted);
+}
+
+.planner-modal__stage-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.74rem;
+  color: var(--ts-text-soft);
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+}
+
+.planner-modal__stage-bar svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.planner-modal__error {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.76rem;
+  color: var(--ts-error);
+  background: rgba(220, 38, 38, 0.05);
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.planner-modal__conversation {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.85rem;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  background: var(--ts-surface);
+}
+
+.planner-modal__empty {
+  margin: auto 0;
+  color: var(--ts-text-soft);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 2rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.planner-modal__empty p {
+  margin: 0;
+}
+
+.planner-msg {
+  margin-bottom: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--ts-radius-md);
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.planner-msg--operator {
+  background: var(--ts-surface-alt);
+}
+
+.planner-msg--planner {
+  background: transparent;
+}
+
+.planner-msg:hover {
+  background: var(--ts-surface-strong);
+}
+
+.planner-msg p {
+  margin: 0.15rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.planner-msg__role {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.planner-msg--operator .planner-msg__role {
+  color: var(--terminal-magenta, #d2a8ff);
+}
+
+.planner-msg--planner .planner-msg__role {
+  color: var(--terminal-cyan, #79c0ff);
+}
+
+.planner-msg__cursor {
+  animation: terminal-blink 1s step-end infinite;
+}
+
+.planner-modal__composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45rem;
+  padding: 0.6rem 0.85rem;
+  border-top: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+}
+
+.planner-modal__composer textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.5rem 0.6rem;
+  background: var(--ts-surface);
+  color: var(--ts-text);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  min-height: 38px;
+  box-sizing: border-box;
+  transition: border-color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__composer textarea:focus {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 3px var(--ts-accent-subtle);
+}
+
+.planner-modal__composer button {
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.45rem;
+  background: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  flex-shrink: 0;
+  transition: opacity var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__composer button:hover {
+  opacity: 0.85;
+}
+
+/* ── §24.03  Header right group & child-task toggle ──────────────────── */
+
+.planner-modal__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.planner-modal__child-task-toggle {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__child-task-toggle:hover:not(:disabled) {
+  background: var(--ts-surface-alt);
+  color: var(--ts-text);
+}
+
+.planner-modal__child-task-toggle--active {
+  background: var(--ts-accent-subtle);
+  border-color: var(--ts-accent);
+  color: var(--ts-accent);
+}
+
+.planner-modal__child-task-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── §24.04  Parent task selection dropdown ───────────────────────────── */
+
+.planner-modal__parent-select {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.74rem;
+  color: var(--ts-text-soft);
+  background: var(--ts-accent-subtle);
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.planner-modal__parent-select label {
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.planner-modal__parent-select select {
+  flex: 1;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.25rem 0.4rem;
+  background: var(--ts-surface);
+  color: var(--ts-text);
+  font: inherit;
+  font-size: 0.74rem;
+  min-width: 0;
+}
+
+.planner-modal__parent-select select:focus {
+  outline: none;
+  border-color: var(--ts-accent);
+}
+
+.planner-modal__parent-select select:disabled {
+  opacity: 0.5;
+}
+
+/* ── §24.05  Attach button & selected file indicator ─────────────────── */
+
+.planner-modal__attach-btn {
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.45rem;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  flex-shrink: 0;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__attach-btn:hover {
+  background: var(--ts-surface-strong);
+  color: var(--ts-text);
+}
+
+.planner-modal__selected-file {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.74rem;
+  color: var(--ts-text-muted);
+  background: var(--ts-accent-subtle);
+  border-top: 1px solid var(--ts-border);
+}
+
+.planner-modal__selected-file-icon {
+  flex-shrink: 0;
+  color: var(--ts-accent);
+}
+
+.planner-modal__selected-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+}
+
+.planner-modal__selected-file-clear {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  padding: 0.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ts-radius-sm);
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__selected-file-clear:hover {
+  background: var(--ts-surface-strong);
+  color: var(--ts-text);
+}
+
+.planner-modal__advanced {
+  border-top: 1px solid var(--ts-border);
+  padding: 0.6rem 0.85rem;
+}
+
+.planner-modal__advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--ts-text-soft);
+  letter-spacing: 0.02em;
+}
+
+.planner-modal__advanced summary:hover {
+  color: var(--ts-text-muted);
+}
+
+.planner-modal__advanced-fields {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.planner-modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--ts-border);
+  background: var(--ts-surface);
+}
+
+.planner-modal__actions .action-button {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  border-radius: var(--ts-radius-md);
+}
+
+.planner-modal__footer-esc {
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--ts-text-soft);
+  opacity: 0.65;
+  margin-right: auto;
+}
+
+.planner-modal__actions .action-button--primary {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  font-weight: 600;
+  transition:
+    background var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease),
+    transform 120ms var(--ts-ease);
+}
+
+.planner-modal__actions .action-button--primary:hover:not(:disabled) {
+  background: var(--ts-accent-hover);
+  border-color: var(--ts-accent-hover);
+  box-shadow: var(--ts-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.planner-modal__actions .action-button--primary:disabled {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  opacity: 0.45;
+}
+
+/* ── §24.02a  Session status badge ──────────────────────────────────── */
+
+.planner-modal__session-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: var(--ts-radius-pill);
+  border: 1px solid var(--ts-border);
+  color: var(--ts-text-soft);
+  transition: color var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease),
+              background var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__session-status--connecting {
+  color: var(--ts-accent);
+  border-color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+.planner-modal__session-status--active {
+  color: var(--ts-success);
+  border-color: var(--ts-success);
+  background: rgba(63, 185, 80, 0.06);
+}
+
+.planner-modal__session-status--busy {
+  color: var(--ts-accent);
+  border-color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+.planner-modal__session-status--failed {
+  color: var(--ts-error);
+  border-color: var(--ts-error);
+  background: rgba(220, 38, 38, 0.05);
+}
+
+/* ── §24.02a1  Draft preview panel ──────────────────────────────────── */
+
+.planner-modal__draft-preview {
+  border-top: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+  overflow: hidden;
+}
+
+.planner-modal__draft-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.planner-modal__draft-preview-filename {
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ts-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-modal__draft-preview-time {
+  font-family: var(--ts-font-mono);
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
+  margin-left: auto;
+}
+
+.planner-modal__draft-preview-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  padding: 0.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ts-radius-sm);
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__draft-preview-dismiss:hover {
+  background: var(--ts-surface-strong);
+  color: var(--ts-text);
+}
+
+.planner-modal__draft-preview-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--ts-surface-strong);
+  border-radius: var(--ts-radius-sm);
+  padding: 2px;
+}
+
+.planner-modal__draft-preview-tab {
+  border: none;
+  background: transparent;
+  color: var(--ts-text-soft);
+  font-family: var(--ts-font-sans);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--ts-radius-sm);
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__draft-preview-tab:hover {
+  color: var(--ts-text-muted);
+}
+
+.planner-modal__draft-preview-tab--active {
+  background: var(--ts-surface);
+  color: var(--ts-accent);
+  box-shadow: var(--ts-shadow-sm);
+}
+
+.planner-modal__draft-preview-body {
+  padding: 0.65rem 0.85rem;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
+}
+
+.planner-modal__draft-preview-body::-webkit-scrollbar { width: var(--ts-scrollbar-width); }
+.planner-modal__draft-preview-body::-webkit-scrollbar-track { background: var(--ts-scrollbar-track); }
+.planner-modal__draft-preview-body::-webkit-scrollbar-thumb {
+  background: var(--ts-scrollbar-thumb);
+  border-radius: var(--ts-radius-pill);
+}
+.planner-modal__draft-preview-body::-webkit-scrollbar-thumb:hover {
+  background: var(--ts-scrollbar-thumb-hover);
+}
+
+.planner-modal__draft-preview-source {
+  margin: 0;
+  font-family: var(--ts-font-mono);
+  font-size: 0.73rem;
+  color: var(--ts-text);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── §24.02b  Reconnect bar ────────────────────────────────────────── */
+
+.planner-modal__reconnect {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.76rem;
+  color: var(--ts-error);
+  background: rgba(220, 38, 38, 0.05);
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.planner-modal__reconnect-btn {
+  margin-left: auto;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 600;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__reconnect-btn:hover {
+  background: var(--ts-surface-alt);
+  border-color: var(--ts-border-strong);
+  color: var(--ts-text);
+}
+
+/* ── §24.1  Sail-Away Screen ─────────────────────────────────────────── */
+
+.sail-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 180px;
+  background: var(--ts-surface);
+  user-select: none;
+}
+
+/* ── Countdown ───────────────────────────────────────────────────────── */
+
+.sail-countdown {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+}
+
+.sail-countdown__number {
+  font-family: var(--ts-font-sans);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ts-accent);
+  letter-spacing: -0.03em;
+  opacity: 0;
+  animation: sail-count-snap 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.sail-countdown__ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--ts-accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: sail-ring-pulse 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes sail-count-snap {
+  0%   { opacity: 0; transform: scale(1.4); }
+  25%  { opacity: 1; transform: scale(0.95); }
+  40%  { transform: scale(1); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; transform: scale(0.85); }
+}
+
+@keyframes sail-ring-pulse {
+  0%   { opacity: 0; transform: scale(0.6); }
+  25%  { opacity: 0.35; transform: scale(1); }
+  60%  { opacity: 0.15; }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* ── Sailing away ────────────────────────────────────────────────────── */
+
+.sail-away {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  animation: sail-away-slide 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes sail-away-slide {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.sail-away__boat {
+  color: var(--ts-accent);
+  flex-shrink: 0;
+  animation: sail-boat-rock 1.8s ease-in-out infinite;
+}
+
+@keyframes sail-boat-rock {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(2.5deg); }
+  70%      { transform: rotate(-2deg); }
+}
+
+.sail-away__label {
+  font-family: var(--ts-font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ts-text-muted);
+  letter-spacing: 0.01em;
+}
+
+.sail-away__dots {
+  display: flex;
+  gap: 3px;
+  margin-left: -0.2rem;
+}
+
+.sail-away__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ts-accent);
+  opacity: 0.3;
+  animation: sail-dot-blink 1.2s ease-in-out infinite;
+}
+
+.sail-away__dot:nth-child(2) { animation-delay: 200ms; }
+.sail-away__dot:nth-child(3) { animation-delay: 400ms; }
+
+@keyframes sail-dot-blink {
+  0%, 100% { opacity: 0.15; }
+  50%      { opacity: 0.7; }
+}
+

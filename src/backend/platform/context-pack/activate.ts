@@ -1,0 +1,93 @@
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import {
+  ensureEnvFile,
+  upsertEnvVar,
+  resolvePath,
+  findRepoRoot,
+} from '../core/index.js';
+import {
+  type ActivateOptions,
+  type ValidationResult,
+} from './types.js';
+
+/** Env var key for the active context pack directory. */
+export const ACTIVE_CONTEXT_PACK_DIR_KEY = 'ACTIVE_CONTEXT_PACK_DIR';
+
+/**
+ * Set or clear the ACTIVE_CONTEXT_PACK_DIR env var in the repo .env file.
+ * Pass an empty string to clear.
+ */
+export async function setActiveContextPackEnv(
+  repoRoot: string,
+  contextPackDir: string,
+): Promise<void> {
+  await ensureEnvFile(repoRoot);
+  const envPath = path.join(repoRoot, '.env');
+  await upsertEnvVar(envPath, ACTIVE_CONTEXT_PACK_DIR_KEY, contextPackDir);
+}
+
+/**
+ * Validate that a context pack directory has the expected structure.
+ *
+ * Checks for the qmd/repo-sources.json manifest.
+ * Returns a ValidationResult with errors and warnings.
+ */
+export function validatePackStructure(
+  contextPackDir: string,
+): ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!existsSync(contextPackDir)) {
+    errors.push(`Context pack directory does not exist: ${contextPackDir}`);
+    return { valid: false, errors, warnings };
+  }
+
+  let supportedInputs = 0;
+
+  const qmdManifest = path.join(contextPackDir, 'qmd', 'repo-sources.json');
+  if (existsSync(qmdManifest)) {
+    supportedInputs++;
+  } else {
+    warnings.push(
+      'Missing qmd/repo-sources.json. Dry-run seeding cannot be prepared.',
+    );
+  }
+
+  if (supportedInputs === 0) {
+    errors.push(
+      'Context pack contains no qmd/repo-sources.json.',
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Full activation flow: validate pack, update .env with active context pack dir.
+ */
+export async function activateContextPack(
+  options: ActivateOptions,
+): Promise<{
+  validation: ValidationResult;
+  contextPackDir?: string;
+}> {
+  const repoRoot = findRepoRoot();
+  const contextPackDir = resolvePath(repoRoot, options.contextPackDir);
+
+  const validation = validatePackStructure(contextPackDir);
+  if (!validation.valid) {
+    return { validation };
+  }
+
+  if (!options.dryRun) {
+    await setActiveContextPackEnv(repoRoot, contextPackDir);
+  }
+
+  return { validation, contextPackDir };
+}

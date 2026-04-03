@@ -1,0 +1,676 @@
+// @vitest-environment node
+
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const loadURL = vi.fn(async () => undefined);
+const loadFile = vi.fn(async () => undefined);
+const show = vi.fn();
+const once = vi.fn((event: string, callback: () => void) => {
+  if (event === 'ready-to-show') {
+    callback();
+  }
+});
+
+const browserWindowInstance = {
+  loadFile,
+  loadURL,
+  once,
+  show,
+};
+
+const BrowserWindowMock = vi.fn(() => browserWindowInstance) as unknown as {
+  (): typeof browserWindowInstance;
+  getAllWindows: ReturnType<typeof vi.fn>;
+};
+BrowserWindowMock.getAllWindows = vi.fn(() => []);
+
+const appMock = {
+  on: vi.fn(),
+  quit: vi.fn(),
+  whenReady: vi.fn(() => Promise.resolve()),
+};
+
+const dialogMock = {
+  showOpenDialog: vi.fn(),
+};
+
+const ipcMainMock = {
+  handle: vi.fn(),
+};
+
+vi.mock('electron', () => ({
+  app: appMock,
+  BrowserWindow: BrowserWindowMock,
+  dialog: dialogMock,
+  ipcMain: ipcMainMock,
+}));
+
+describe('electron main bootstrap — context pack operations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    BrowserWindowMock.getAllWindows.mockReturnValue([]);
+    dialogMock.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ['/tmp/selected-directory'],
+    });
+  });
+
+  it('executes reseed through the repo-context seed seam only for approved catalog entries', async () => {
+    const { buildContextPackReseedArgs, executeContextPackReseedAction } = await import('./main');
+
+    expect(
+      buildContextPackReseedArgs({
+        contextPackDir: '/tmp/context-packs/orders-estate',
+      }),
+    ).toEqual([
+      expect.stringContaining('src/backend/scripts/python/repo-context-app.py'),
+      'seed',
+      '--context-pack-dir',
+      '/tmp/context-packs/orders-estate',
+      '--format',
+      'json',
+    ]);
+
+    await expect(
+      executeContextPackReseedAction(
+        { contextPackDir: '/tmp/context-packs/orders-estate' },
+        vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            overall_status: 'seeded',
+            report_path: '/tmp/report.json',
+            seeded_repo_count: 2,
+            blocked_repo_count: 1,
+            conventions_summary: {
+              status: 'available',
+            },
+          }),
+          stderr: '',
+        }),
+        async () => new Set(['/tmp/context-packs/orders-estate']),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'contextPack.reseed',
+        mode: 'reseeded',
+        commandPath: 'src/backend/scripts/python/repo-context-app.py',
+        result: expect.objectContaining({
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          overallStatus: 'seeded',
+          seededRepoCount: 2,
+          blockedRepoCount: 1,
+          conventionsSummaryStatus: 'available',
+          conventionsPolicy: 'only-if-missing',
+        }),
+      }),
+    });
+
+    await expect(
+      executeContextPackReseedAction(
+        { contextPackDir: '/tmp/context-packs/orders-estate' },
+        vi.fn(),
+        async () => new Set(['/tmp/context-packs/billing-estate']),
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      action: 'contextPack.reseed',
+      error:
+        'Context-pack reseed is limited to approved catalog entries discovered through the desktop shell.',
+    });
+  });
+
+
+  it('lists context packs from approved configured sources', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-packs-'));
+    try {
+      const configuredPack = join(tempRoot, 'configured-pack');
+      const searchRoot = join(tempRoot, 'search-root');
+      const discoveredPack = join(searchRoot, 'orders-estate');
+
+      await mkdir(join(configuredPack, 'qmd'), { recursive: true });
+      await mkdir(join(discoveredPack, 'qmd'), { recursive: true });
+      await writeFile(
+        join(configuredPack, 'qmd', 'repo-sources.json'),
+        JSON.stringify({
+          context_pack_id: 'configured-pack',
+          display_name: 'Configured Pack',
+          repositories: [
+            {
+              repo_id: 'orders-api',
+              repo_name: 'Orders API',
+              repository_type: 'primary',
+              service_name: 'orders-api',
+            },
+          ],
+          primary_working_repo_ids: ['orders-api'],
+        }),
+      );
+        await writeFile(
+          join(discoveredPack, 'qmd', 'repo-sources.json'),
+          JSON.stringify({
+            context_pack_id: 'orders-estate',
+            display_name: 'Orders Estate',
+          repositories: [
+            {
+              repo_id: 'orders-web',
+              repo_name: 'Orders Web',
+              repository_type: 'support',
+            },
+          ],
+          }),
+        );
+        const monolithPack = join(searchRoot, 'monolith-estate');
+        await mkdir(join(monolithPack, 'qmd'), { recursive: true });
+        await writeFile(
+          join(monolithPack, 'qmd', 'repo-sources.json'),
+          JSON.stringify({
+            context_pack_id: 'monolith-estate',
+            display_name: 'Monolith Estate',
+            estate_type: 'monolith',
+            focusable_areas: [
+              {
+                focus_id: 'core',
+                focus_name: 'Core Module',
+                relative_path: 'src/core',
+                focus_type: 'service',
+                repository_type: 'primary',
+              },
+            ],
+            primary_focus_area_ids: ['core'],
+          }),
+        );
+
+        vi.stubEnv('COPILOT_CONTEXT_PACK_PATHS', configuredPack);
+        vi.stubEnv('COPILOT_CONTEXT_PACK_SEARCH_ROOTS', searchRoot);
+        vi.stubEnv('ACTIVE_CONTEXT_PACK_DIR', configuredPack);
+
+      const { listAvailableContextPacks } = await import('./main');
+      const response = await listAvailableContextPacks();
+
+      expect(response.action).toBe('contextPack.list');
+      expect(response.contextPacks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            contextPackId: 'configured-pack',
+            contextPackDir: configuredPack,
+            isActive: true,
+            source: 'configured-path',
+            primaryWorkingRepoIds: ['orders-api'],
+            focusTargets: [
+              expect.objectContaining({
+                repoId: 'orders-api',
+                repositoryType: 'primary',
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            contextPackId: 'orders-estate',
+            contextPackDir: discoveredPack,
+            source: 'search-root',
+            focusTargets: [
+              expect.objectContaining({
+                repoId: 'orders-web',
+                repositoryType: 'support',
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            contextPackId: 'monolith-estate',
+            contextPackDir: monolithPack,
+            source: 'search-root',
+            primaryWorkingRepoIds: ['core'],
+            focusTargets: [
+              expect.objectContaining({
+                focusId: 'core',
+                kind: 'focus-area',
+                repositoryType: 'primary',
+              }),
+            ],
+          }),
+        ]),
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('adds repo-local default context-pack search roots', async () => {
+    const { getDefaultContextPackSearchRoots } = await import('./main');
+
+    expect(
+      getDefaultContextPackSearchRoots('/tmp/workspaces/tasksail'),
+    ).toEqual([
+      '/tmp/workspaces/tasksail/contextpacks',
+      '/tmp/workspaces/tasksail/context-packs',
+      '/tmp/workspaces/context-packs',
+    ]);
+  });
+
+  it('builds context-pack workspace args with the required action flag', async () => {
+    const { buildContextPackWorkspaceArgs } = await import('./main');
+
+    expect(
+      buildContextPackWorkspaceArgs('clear'),
+    ).toEqual(['--action', 'clear']);
+
+    expect(
+      buildContextPackWorkspaceArgs('apply', {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        scopeMode: 'focused',
+        selectedRepoIds: ['orders-api'],
+        selectedFocusIds: ['orders-dashboard'],
+      }),
+    ).toEqual([
+      '--action',
+      'apply',
+      '--context-pack-dir',
+      '/tmp/context-packs/orders-estate',
+      '--scope-mode',
+      'focused',
+      '--selected-repo-id',
+      'orders-api',
+      '--selected-focus-id',
+      'orders-dashboard',
+    ]);
+  });
+
+  it('assigns repositoryType defaults during discovery prefill normalization', async () => {
+    const { executeContextPackDiscoveryAction } = await import('./main');
+
+    const result = await executeContextPackDiscoveryAction(
+      { rootPath: '/tmp/estate-root', mode: 'distributed' },
+      vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          discovery_mode: 'distributed',
+          estate_type: 'distributed',
+          warnings: [],
+          candidate_repos: [
+            {
+              repo_id: 'orders-api',
+              repo_name: 'Orders API',
+              path: '/tmp/estate-root/orders-api',
+              relative_path: 'orders-api',
+              high_signal_paths: ['src'],
+              repository_type: 'primary',
+              classification_confidence: 'high',
+            },
+            {
+              repo_id: 'orders-web',
+              repo_name: 'Orders Web',
+              path: '/tmp/estate-root/orders-web',
+              relative_path: 'orders-web',
+              high_signal_paths: ['web'],
+              repository_type: 'support',
+            },
+          ],
+          candidate_focus_areas: [],
+          high_signal_paths: [],
+        }),
+        stderr: '',
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'contextPack.discoverPrefill',
+        candidateRepos: [
+          expect.objectContaining({
+            repoId: 'orders-api',
+            repositoryType: 'primary',
+          }),
+          expect.objectContaining({
+            repoId: 'orders-web',
+            repositoryType: 'support',
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('merges configured context-pack search roots with repo-local defaults', async () => {
+    const { resolveContextPackSearchRoots } = await import('./main');
+
+    expect(
+      resolveContextPackSearchRoots(
+        [
+          '/tmp/custom-context-packs',
+          '/tmp/workspaces/context-packs',
+        ],
+        '/tmp/workspaces/tasksail',
+      ),
+    ).toEqual([
+      '/tmp/custom-context-packs',
+      '/tmp/workspaces/context-packs',
+      '/tmp/workspaces/tasksail/contextpacks',
+      '/tmp/workspaces/tasksail/context-packs',
+    ]);
+  });
+
+  it('surfaces drift and restore metadata from workspace sync state in the catalog', async () => {
+    const { deriveContextPackRuntimeState } = await import('./main');
+
+    const state = deriveContextPackRuntimeState(
+      '/tmp/context-packs/orders-estate',
+      null,
+      {
+        activeContextPackDir: '/tmp/context-packs/orders-estate',
+        activeContextPackId: 'orders-estate',
+        scopeMode: 'focused',
+        selectedRepoIds: ['orders-api'],
+        selectedFocusIds: [],
+        managedFolders: [
+          '/tmp/context-packs/orders-estate',
+          '/tmp/estate-root/orders-api',
+        ],
+        attachedManagedFolders: [],
+        missingManagedFolders: [
+          '/tmp/context-packs/orders-estate',
+          '/tmp/estate-root/orders-api',
+        ],
+        status: 'success',
+        lastSyncedAt: '2026-03-08T12:00:00Z',
+      },
+    );
+
+    expect(state).toEqual(
+      expect.objectContaining({
+        isActive: true,
+        status: 'active-dirty-workspace',
+        restoreAvailable: true,
+        driftDetected: true,
+        lastAppliedScopeMode: 'focused',
+        lastAppliedSelectedRepoIds: ['orders-api'],
+        lastSyncedAt: '2026-03-08T12:00:00Z',
+      }),
+    );
+  });
+
+  it('parses successful workspace wrapper output into a renderer-safe response', async () => {
+    const { executeContextPackWorkspaceAction } = await import('./main');
+
+    await expect(
+      executeContextPackWorkspaceAction(
+        'contextPack.previewSwitch',
+        'preview',
+        {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          scopeMode: 'focused',
+          selectedRepoIds: ['orders-api'],
+          selectedFocusIds: [],
+        },
+        async () => ({
+          stdout: JSON.stringify({
+            ok: true,
+            action: 'preview',
+            stage: 'complete',
+            status: 'success',
+            activation: {
+              performed: false,
+              exit_code: null,
+              output: '',
+            },
+            env_state_cleared: false,
+            workspace: {
+              context_pack_id: 'orders-estate',
+              context_pack_dir: '/tmp/context-packs/orders-estate',
+              workspace_file: '/repo/tasksail.code-workspace',
+              state_file: '/repo/.platform-state/workspace-context-sync.json',
+              scope_mode: 'expanded',
+              selected_repo_ids: ['orders-api'],
+              selected_focus_ids: ['services-billing'],
+              warnings: ['missing docs path'],
+              folders_to_add: ['/tmp/context-packs/orders-estate'],
+              folders_to_remove: [],
+              managed_folders: ['/tmp/context-packs/orders-estate'],
+              target_folders: ['/tmp/context-packs/orders-estate'],
+            },
+          }),
+          stderr: '',
+        }),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'contextPack.previewSwitch',
+        mode: 'preview',
+        result: expect.objectContaining({
+          ok: true,
+          contextPackId: 'orders-estate',
+          scopeMode: 'focused',
+          selectedRepoIds: ['orders-api'],
+          selectedFocusIds: ['services-billing'],
+          warnings: ['missing docs path'],
+        }),
+      }),
+    });
+  });
+
+  it('surfaces structured wrapper failures for context-pack workspace actions', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'contextPack.applySwitch',
+          payload: {
+            contextPackDir: '/tmp/context-packs/orders-estate',
+            scopeMode: 'focused',
+            selectedRepoIds: ['orders-api'],
+            selectedFocusIds: [],
+          },
+        },
+        {
+          applyContextPackSwitch: async () => ({
+            ok: false,
+            action: 'contextPack.applySwitch',
+            error: 'Activation failed.',
+            contextPackResult: {
+              ok: false,
+              wrapperAction: 'apply',
+              stage: 'activation',
+              status: 'error',
+              activation: {
+                performed: true,
+                exitCode: 1,
+                output: 'activation failed',
+              },
+              envStateCleared: false,
+              error: 'Activation failed.',
+              contextPackId: null,
+              contextPackDir: '/tmp/context-packs/orders-estate',
+              workspaceFile: null,
+              stateFile: null,
+              scopeMode: 'focused',
+              selectedRepoIds: ['orders-api'],
+              selectedFocusIds: [],
+              warnings: [],
+              foldersToAdd: [],
+              foldersToRemove: [],
+              managedFolders: [],
+              targetFolders: [],
+              lastSyncedAt: null,
+            },
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      action: 'contextPack.applySwitch',
+      error: 'Activation failed.',
+      contextPackResult: expect.objectContaining({
+        wrapperAction: 'apply',
+        stage: 'activation',
+        status: 'error',
+      }),
+    });
+  });
+
+  it('contextPack.activate with valid packId calls activation and returns activated response', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'contextPack.activate',
+          payload: {
+            packId: 'test-pack',
+            command: 'context-pack:activate',
+            mode: 'status-only',
+          },
+        },
+        {
+          activateContextPack: async () => ({
+            ok: true,
+            response: {
+              action: 'contextPack.activate',
+              mode: 'activated',
+              accepted: true,
+              message: "Context pack 'test-pack' activated and ACTIVE_CONTEXT_PACK_DIR updated.",
+              contextPackDir: '/tmp/context-packs/test-pack',
+              contextPackId: 'test-pack',
+            },
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'contextPack.activate',
+        mode: 'activated',
+        contextPackId: 'test-pack',
+        contextPackDir: '/tmp/context-packs/test-pack',
+      }),
+    });
+  });
+
+  it('contextPack.activate with unknown packId returns error', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'contextPack.activate',
+          payload: {
+            packId: 'nonexistent-pack',
+            command: 'context-pack:activate',
+            mode: 'status-only',
+          },
+        },
+        {
+          activateContextPack: async () => ({
+            ok: false,
+            action: 'contextPack.activate',
+            error: 'Unknown context pack: nonexistent-pack. Pack must appear in the catalog before activation.',
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      action: 'contextPack.activate',
+      error: 'Unknown context pack: nonexistent-pack. Pack must appear in the catalog before activation.',
+    });
+  });
+
+  it('normalizes discovered monolith focus area repository types', async () => {
+    const { executeContextPackDiscoveryAction } = await import('./main');
+
+    const result = await executeContextPackDiscoveryAction(
+      { rootPath: '/tmp/estate-root', mode: 'monolith' },
+      vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          discovery_mode: 'monolith',
+          estate_type: 'monolith',
+          warnings: [],
+          candidate_repos: [],
+          candidate_focus_areas: [
+            {
+              focus_id: 'core',
+              focus_name: 'Core',
+              focus_type: 'service',
+              path: '/tmp/estate-root/src/core',
+              relative_path: 'src/core',
+              repository_type: 'primary',
+            },
+          ],
+          high_signal_paths: [],
+        }),
+        stderr: '',
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'contextPack.discoverPrefill',
+        candidateFocusAreas: [
+          expect.objectContaining({
+            focusId: 'core',
+            repositoryType: 'primary',
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('updates monolith focus area repository type and primary focus ids together', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-mutation-'));
+    const contextPackDir = join(tempRoot, 'monolith-estate');
+    const manifestPath = join(contextPackDir, 'qmd', 'repo-sources.json');
+    try {
+      await mkdir(join(contextPackDir, 'qmd'), { recursive: true });
+      await writeFile(
+        manifestPath,
+        JSON.stringify({
+          context_pack_id: 'monolith-estate',
+          estate_type: 'monolith',
+          focusable_areas: [
+            {
+              focus_id: 'core',
+              focus_name: 'Core',
+              repository_type: 'support',
+            },
+            {
+              focus_id: 'docs',
+              focus_name: 'Docs',
+              repository_type: 'primary',
+            },
+          ],
+          primary_focus_area_ids: ['docs'],
+        }),
+      );
+
+      const { executeSetRepositoryTypeAction } = await import('./main.contextPack');
+      const result = await executeSetRepositoryTypeAction({
+        contextPackDir,
+        repoId: 'core',
+        repositoryType: 'primary',
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        response: expect.objectContaining({
+          action: 'contextPack.setRepositoryType',
+          mode: 'updated',
+        }),
+      });
+
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as {
+        focusable_areas: Array<{ focus_id: string; repository_type: string }>;
+        primary_focus_area_ids: string[];
+      };
+      expect(manifest.focusable_areas).toEqual([
+        expect.objectContaining({ focus_id: 'core', repository_type: 'primary' }),
+        expect.objectContaining({ focus_id: 'docs', repository_type: 'primary' }),
+      ]);
+      expect(manifest.primary_focus_area_ids).toEqual(['core', 'docs']);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});

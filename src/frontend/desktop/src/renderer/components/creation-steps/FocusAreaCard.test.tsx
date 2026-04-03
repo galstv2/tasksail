@@ -1,0 +1,69 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createFocusAreaEntry } from '../../hooks/useContextPackDraft';
+import FocusAreaCard from './FocusAreaCard';
+
+afterEach(() => {
+  cleanup();
+});
+
+const focusArea = createFocusAreaEntry({
+  key: 'f1',
+  focusId: 'core',
+  focusName: 'Core Module',
+  primary: false,
+  repositoryType: 'support',
+});
+
+const defaultProps = {
+  focusArea,
+  index: 0,
+  busy: false,
+  onFocusAreaFieldChange: vi.fn(),
+  onSetPrimaryFocusArea: vi.fn(),
+  onRemoveFocusArea: vi.fn(),
+};
+
+describe('FocusAreaCard', () => {
+  it('renders focus area heading with index', () => {
+    render(<FocusAreaCard {...defaultProps} />);
+    expect(screen.getByText('Focus area 1')).toBeInTheDocument();
+  });
+
+  it('remove button calls onRemoveFocusArea with key', () => {
+    const onRemoveFocusArea = vi.fn();
+    render(<FocusAreaCard {...defaultProps} onRemoveFocusArea={onRemoveFocusArea} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(onRemoveFocusArea).toHaveBeenCalledWith('f1');
+  });
+
+  it('primary radio calls onSetPrimaryFocusArea', () => {
+    const onSetPrimaryFocusArea = vi.fn();
+    render(<FocusAreaCard {...defaultProps} onSetPrimaryFocusArea={onSetPrimaryFocusArea} />);
+    fireEvent.click(screen.getByRole('radio'));
+    expect(onSetPrimaryFocusArea).toHaveBeenCalledWith('f1');
+  });
+
+  it('shows primary working folder label and repository type badge', () => {
+    render(
+      <FocusAreaCard
+        {...defaultProps}
+        focusArea={{ ...focusArea, primary: true, repositoryType: 'primary' }}
+      />,
+    );
+
+    expect(screen.getByText('Primary working folder')).toBeInTheDocument();
+    expect(screen.getByText('Primary')).toBeInTheDocument();
+  });
+
+  it('field change calls onFocusAreaFieldChange', () => {
+    const onFocusAreaFieldChange = vi.fn();
+    render(<FocusAreaCard {...defaultProps} onFocusAreaFieldChange={onFocusAreaFieldChange} />);
+    const focusIdInput = screen.getAllByRole('textbox').find(
+      (i) => (i as HTMLInputElement).value === 'core',
+    );
+    fireEvent.change(focusIdInput!, { target: { value: 'new-id' } });
+    expect(onFocusAreaFieldChange).toHaveBeenCalledWith('f1', 'focusId', 'new-id');
+  });
+});

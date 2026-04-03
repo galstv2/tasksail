@@ -1,0 +1,19 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": [
+    "core",
+    "queue",
+    "context-pack",
+    "agent-runner",
+    "workflow-policy",
+    "container",
+    "validation",
+    "setup",
+    "external-mcp-registry"
+  ],
+  "exclude": ["**/__tests__", "dist"]
+}

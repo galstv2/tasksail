@@ -1,0 +1,40 @@
+# Known file size violations — reduce over time.
+# Format: MAX_LINES PATH
+# Files listed here produce warnings instead of failures but cannot grow.
+
+# Python tests
+3424 tests/domains/workflow/test_workflow_policy_validator.py
+1835 tests/domains/workflow/test_run_role_agent.py
+1690 tests/domains/archive/test_task_archive_filing.py
+1424 tests/domains/workflow/test_workflow_policy_validator_branches.py
+1219 tests/domains/repo_context/test_repo_context_app_helpers.py
+940 tests/domains/qmd/test_live_qmd_seeding.py
+860 tests/domains/queue/test_queue_runtime_integration.py
+836 tests/domains/context_pack/test_workspace_context_sync_service.py
+751 tests/domains/queue/test_queue_policy_transitions.py
+665 tests/domains/context_pack/test_switch_context_pack_workspace.py
+631 tests/domains/context_pack/test_activate_context_pack.py
+518 tests/domains/repo_context/test_repo_context_http_transport.py
+772 tests/domains/e2e/test_live_pipeline.py
+783 tests/domains/qmd/test_qmd_index_service.py
+
+# Python backend
+768 src/backend/mcp/workspace_context_sync_service.py
+742 src/backend/mcp/repo_context_mcp/services/discovery_service.py
+740 src/backend/mcp/context_pack_bootstrap.py
+700 src/backend/mcp/repo_context_mcp/services/seeding_service.py
+693 src/backend/mcp/repo_context_mcp/transport/http.py
+605 src/backend/mcp/context_estate_manifest.py
+634 src/backend/mcp/repo_context_mcp/services/qmd_index_service.py
+580 src/backend/scripts/python/lib/policy/validator.py
+579 src/backend/mcp/repo_context_mcp/services/archive_service.py
+574 src/backend/mcp/context_estate_discovery.py
+
+# Python scripts
+645 src/backend/scripts/python/lib/policy/rules_transition.py
+572 src/backend/scripts/python/activate-context-pack-helper.py
+501 src/backend/scripts/python/lib/policy/rules_bootstrap.py
+
+# TypeScript
+2027 src/frontend/desktop/electron/main.ts
+1131 src/frontend/desktop/electron/repoObservability.ts

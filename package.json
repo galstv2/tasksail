@@ -1,0 +1,40 @@
+{
+  "name": "tasksail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p src/backend/platform/tsconfig.json",
+    "test": "vitest run --config src/backend/platform/vitest.config.ts",
+    "test:watch": "vitest --config src/backend/platform/vitest.config.ts",
+    "lint": "tsc --noEmit -p src/backend/platform/tsconfig.json",
+    "clean": "rm -rf src/backend/platform/dist",
+    "setup": "tsx src/backend/platform/setup/cli.ts",
+    "validate": "tsx src/backend/platform/validation/cli.ts validate",
+    "local-checks": "tsx src/backend/platform/validation/cli.ts local-checks",
+    "test:smoke": "tsx src/backend/platform/validation/cli.ts local-checks --profile smoke",
+    "test:domain": "tsx src/backend/platform/validation/cli.ts local-checks --profile full",
+    "test:integration": "tsx src/backend/platform/validation/cli.ts local-checks --profile integration",
+    "test:contracts": "tsx src/backend/platform/validation/cli.ts local-checks --profile contracts",
+    "check-sizes": "tsx src/backend/platform/validation/cli.ts check-sizes",
+    "lint:python": "ruff check .",
+    "new-task": "tsx src/backend/platform/queue/cli.ts init",
+    "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",
+    "watch-dropbox": "tsx src/backend/platform/queue/cli.ts poll",
+    "queue-status": "tsx src/backend/platform/queue/cli.ts status",
+    "complete-pending-item": "tsx src/backend/platform/queue/cli.ts complete",
+    "qmd:seed-dry-run": "tsx src/backend/platform/context-pack/cli.ts qmd-seed",
+    "agent": "tsx src/backend/platform/agent-runner/cli.ts run",
+    "agent:pipeline": "tsx src/backend/platform/agent-runner/cli.ts pipeline"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,127 @@
+/* ── §3  Shell Layout ──────────────────────────────────────────────────── */
+
+.shell {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  padding: 0;
+}
+
+.shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 42px;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ts-header-bg);
+  color: var(--ts-header-text);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  box-shadow: 0 2px 8px rgba(10, 18, 32, 0.25);
+  position: relative;
+  z-index: var(--ts-z-header);
+}
+
+.shell__header button,
+.shell__header .status-chip {
+  -webkit-app-region: no-drag;
+}
+
+.shell__header .status-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ts-header-text-soft);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.shell__header .status-chip--active {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent);
+  border-color: rgba(200, 135, 58, 0.20);
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.shell__logo {
+  color: var(--ts-accent);
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px rgba(200, 135, 58, 0.25));
+}
+
+.shell__title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ts-header-text);
+}
+
+.shell__status-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  flex: 1;
+  justify-content: center;
+}
+
+.shell__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.shell__refresh-btn {
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.3rem;
+  background: transparent;
+  color: var(--ts-header-text-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.shell__refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ts-header-text);
+}
+
+.shell__body {
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) 40px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.shell__body.sidebar--collapsed {
+  --sidebar-width: 48px;
+}
+
+.shell-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow: hidden;
+  height: 100%;
+  padding: 0.5rem 0.65rem;
+  background: var(--ts-main-bg);
+  box-sizing: border-box;
+}
+
+
+/* §19 — FAB Planner Button removed; Plan action lives in the context-pack sidebar. */

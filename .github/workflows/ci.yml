@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  repository-structure:
+    name: Repository Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Validate required repository structure
+        run: pnpm run validate
+
+  file-size-limits:
+    name: File Size Limits
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Check file sizes against limits
+        run: pnpm run check-sizes
+
+  python-smoke-lane:
+    name: Python Smoke Lane
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install pnpm dependencies
+        run: pnpm install
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff lint
+        run: ruff check .
+
+      - name: Run smoke lane and workflow policy validation
+        run: pnpm run test:smoke
+
+  changed-domain-lane:
+    name: Changed Domain Lane
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run manifest-targeted domain lane for changed files
+        shell: bash
+        env:
+          PMSE_SHA: ${{ github.event.pull_request.pmse.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t changed_files < <(git diff --name-only "$PMSE_SHA" "$HEAD_SHA")
+          if [[ ${#changed_files[@]} -eq 0 ]]; then
+            printf 'No changed files detected for pull request.\n'
+            exit 0
+          fi
+
+          resolve_args=(
+            python3
+            ./src/backend/scripts/python/run-targeted-tests.py
+            --manifest
+            ./tests/test_manifest.json
+            --resolve-only
+          )
+          for changed_file in "${changed_files[@]}"; do
+            resolve_args+=(--changed-path "$changed_file")
+          done
+
+          if ! resolution_output="$("${resolve_args[@]}" 2>&1)"; then
+            if [[ "$resolution_output" == *"No test modules were selected by the provided selectors."* ]]; then
+              printf 'No manifest-mapped domains matched changed files.\n'
+              exit 0
+            fi
+            printf '%s\n' "$resolution_output" >&2
+            exit 1
+          fi
+
+          printf 'Resolved changed-path modules:\n%s\n' "$resolution_output"
+
+          run_args=(
+            python3
+            ./src/backend/scripts/python/run-targeted-tests.py
+            --manifest
+            ./tests/test_manifest.json
+          )
+          for changed_file in "${changed_files[@]}"; do
+            run_args+=(--changed-path "$changed_file")
+          done
+
+          "${run_args[@]}"
+
+  full-python-suite:
+    name: Full Python Suite
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install coverage
+        run: pip install "coverage>=7.0"
+
+      - name: Run full Python suite with coverage
+        run: |
+          coverage run -m unittest discover -s tests -v
+          coverage report --fail-under=60

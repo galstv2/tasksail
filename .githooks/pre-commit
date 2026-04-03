@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec npx tsx "$(git rev-parse --show-toplevel)/src/backend/platform/validation/cli.ts" pre-commit

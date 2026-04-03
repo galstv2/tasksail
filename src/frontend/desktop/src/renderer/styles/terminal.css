@@ -1,0 +1,361 @@
+/* ── §11  Terminal Base ──────────────────────────────────────────────── */
+
+.terminal {
+  min-height: 18rem;
+  overflow: hidden;
+  border-radius: var(--ts-radius-lg);
+  padding: 1rem;
+  background: var(--ts-surface-terminal);
+  font-family: var(--ts-font-mono);
+  color: var(--app-terminal-text);
+}
+
+.terminal p {
+  margin: 0 0 0.5rem;
+}
+
+.terminal p:last-child {
+  margin-bottom: 0;
+}
+
+
+/* ── §16  Stream Events ──────────────────────────────────────────────── */
+
+.stream-event {
+  border-left: 3px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.75rem 0.8rem;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.stream-event__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stream-role,
+.stream-severity {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--ts-radius-pill);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.stream-role--planner,
+.stream-event--planner {
+  border-color: var(--terminal-cyan);
+}
+
+.stream-role--planner {
+  background: rgba(88, 166, 255, 0.16);
+  color: var(--terminal-cyan-light);
+}
+
+.stream-role--queue,
+.stream-event--queue {
+  border-color: var(--terminal-green);
+}
+
+.stream-role--queue {
+  background: rgba(63, 185, 80, 0.16);
+  color: var(--terminal-green-light);
+}
+
+.stream-role--workflow,
+.stream-event--workflow {
+  border-color: var(--terminal-amber);
+}
+
+.stream-role--workflow {
+  background: rgba(210, 153, 34, 0.16);
+  color: var(--terminal-amber-light);
+}
+
+.stream-role--operator,
+.stream-event--operator {
+  border-color: var(--terminal-magenta);
+}
+
+.stream-role--operator {
+  background: rgba(188, 140, 255, 0.16);
+  color: var(--terminal-magenta-light);
+}
+
+.stream-role--system,
+.stream-event--system {
+  border-color: var(--terminal-gray);
+}
+
+.stream-role--system {
+  background: rgba(139, 148, 158, 0.16);
+  color: var(--terminal-text);
+}
+
+.stream-severity--info {
+  background: rgba(88, 166, 255, 0.16);
+  color: var(--terminal-cyan-pale);
+}
+
+.stream-severity--success {
+  background: rgba(63, 185, 80, 0.16);
+  color: var(--terminal-green-pale);
+}
+
+.stream-severity--warning {
+  background: rgba(210, 153, 34, 0.16);
+  color: var(--terminal-amber-light);
+}
+
+.stream-severity--error {
+  background: rgba(248, 81, 73, 0.18);
+  color: var(--terminal-red-light);
+}
+
+.stream-event__metadata {
+  margin: 0.45rem 0 0;
+  font-size: 0.76rem;
+  color: var(--terminal-gray);
+}
+
+.stream-event__message {
+  margin: 0.35rem 0 0;
+  color: var(--terminal-text);
+}
+
+.task-lifecycle-chip-row,
+.stream-chip-row {
+  margin-top: 0.55rem;
+}
+
+
+/* ── §17  Terminal Sessions ──────────────────────────────────────────── */
+
+.terminal-session-card {
+  gap: 0.35rem;
+}
+
+.terminal-session-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
+}
+
+.terminal-session-grid--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.terminal-session-card--compact {
+  min-height: 100%;
+}
+
+.stream-event__excerpt {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border-radius: var(--ts-radius-md);
+  background: rgba(1, 4, 9, 0.48);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stream-event__excerpt--compact {
+  max-height: 5.5rem;
+  overflow: auto;
+  font-size: 0.82rem;
+}
+
+.stream-empty {
+  margin: 0;
+  color: var(--terminal-text);
+}
+
+
+/* ── §22  Terminal Feed ──────────────────────────────────────────────── */
+
+.terminal-feed {
+  display: flex;
+  flex-direction: column;
+  background: var(--terminal-bg);
+  border-radius: var(--ts-radius-lg);
+  border: 1px solid var(--terminal-border);
+  overflow: hidden;
+  min-height: 0;
+  flex: 1 1 0;
+  font-family: var(--ts-font-mono);
+  color: var(--terminal-text);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.terminal-feed__chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--terminal-chrome);
+  border-bottom: 1px solid var(--terminal-border);
+  flex-shrink: 0;
+}
+
+.terminal-feed__dots {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.terminal-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.terminal-dot--red    { background: var(--terminal-red); }
+.terminal-dot--yellow { background: var(--terminal-amber); }
+.terminal-dot--green  { background: var(--terminal-green); }
+
+.terminal-feed__tabs {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+}
+
+.terminal-tab {
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  padding: 0.2rem 0.55rem;
+  background: transparent;
+  color: var(--terminal-text-muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.terminal-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--terminal-text);
+}
+
+.terminal-tab--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--terminal-text);
+}
+
+.terminal-feed__severity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  color: var(--terminal-text-muted);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.terminal-feed__scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  min-height: 0;
+}
+
+.terminal-feed__empty {
+  margin: 0;
+  color: var(--terminal-text-muted);
+}
+
+.terminal-line {
+  display: flex;
+  gap: 0.5em;
+  padding: 1px 0;
+  animation: terminal-fade-in 200ms var(--ts-ease);
+}
+
+.terminal-timestamp {
+  color: var(--terminal-text-muted);
+  flex-shrink: 0;
+}
+
+.terminal-role {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.terminal-role--planner  { color: var(--terminal-cyan); }
+.terminal-role--queue    { color: var(--terminal-green); }
+.terminal-role--workflow { color: var(--terminal-amber); }
+.terminal-role--operator { color: var(--terminal-magenta); }
+.terminal-role--system   { color: var(--terminal-gray); }
+
+/* Runtime milestone lines get a subtle left accent to distinguish
+   backend pipeline progress from operator-initiated IPC events. */
+.terminal-line--runtime {
+  border-left: 2px solid rgba(210, 153, 34, 0.25);
+  padding-left: 0.5em;
+  margin-left: -0.5em;
+}
+
+.terminal-actor {
+  flex-shrink: 0;
+  color: var(--ts-accent);
+  font-weight: 600;
+}
+
+.terminal-actor::after {
+  content: ':';
+  color: var(--terminal-text-muted);
+}
+
+.terminal-message {
+  color: var(--terminal-text);
+  word-break: break-word;
+}
+
+.terminal-message--success { color: var(--terminal-green); }
+.terminal-message--warning { color: var(--terminal-amber); }
+.terminal-message--error   { color: var(--terminal-red); }
+
+.terminal-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  background: var(--terminal-text);
+  animation: terminal-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-top: 2px;
+}
+
+@keyframes terminal-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+@keyframes terminal-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.terminal-feed__scroll-btn {
+  position: absolute;
+  bottom: 3.5rem;
+  right: 1.5rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.25rem 0.65rem;
+  background: var(--terminal-chrome);
+  color: var(--terminal-text);
+  font-family: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.terminal-feed__scroll-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+

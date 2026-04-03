@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "default_wall_clock_timeout_s": 600,
+  "parallel_wall_clock_timeout_s": 1800,
+  "agents": [
+    {
+      "agent_id": "planning-agent",
+      "role_name": "Planning Specialist",
+      "human_name": "Lily",
+      "instruction_path": ".github/copilot/instructions/planning-agent.instructions.md",
+      "agent_profile_path": ".github/agents/planning-agent.md",
+      "autonomy_profile": "artifact-author",
+      "required_model": "gpt-4.1",
+      "pre_task": true,
+      "interactive": true,
+      "idle_timeout_s": 600,
+      "allowed_dirs": [
+        "AgentWorkSpace/dropbox",
+        "AgentWorkSpace/templates"
+      ],
+      "wall_clock_timeout_s": 1800,
+      "workflow_order": 0
+    },
+    {
+      "agent_id": "product-manager",
+      "role_name": "Product Manager",
+      "human_name": "Alice",
+      "instruction_path": ".github/copilot/instructions/product-manager.instructions.md",
+      "agent_profile_path": ".github/agents/product-manager.md",
+      "autonomy_profile": "artifact-author",
+      "required_model": "gpt-5.4",
+      "wall_clock_timeout_s": 900,
+      "workflow_order": 1
+    },
+    {
+      "agent_id": "software-engineer",
+      "role_name": "Software Engineer",
+      "human_name": "Dalton",
+      "instruction_path": ".github/copilot/instructions/software-engineer.instructions.md",
+      "agent_profile_path": ".github/agents/software-engineer.md",
+      "autonomy_profile": "repo-executor",
+      "required_model": "claude-sonnet-4.6",
+      "deny_rules": [
+        "shell(git add)",
+        "shell(git commit)",
+        "shell(git push)",
+        "shell(gh pr create)",
+        "shell(rm:*)",
+        "shell(sudo)",
+        "shell(su)",
+        "shell(doas)",
+        "shell(chown:*)"
+      ],
+      "wall_clock_timeout_s": 1800,
+      "workflow_order": 2
+    },
+    {
+      "agent_id": "qa",
+      "role_name": "QA and Closeout",
+      "human_name": "Ron",
+      "instruction_path": ".github/copilot/instructions/qa.instructions.md",
+      "agent_profile_path": ".github/agents/qa.md",
+      "autonomy_profile": "qa-executor",
+      "required_model": "gpt-5.4",
+      "deny_rules": [
+        "shell(git add)",
+        "shell(git commit)",
+        "shell(git push)",
+        "shell(gh pr create)",
+        "shell(rm:*)",
+        "shell(sudo)",
+        "shell(su)",
+        "shell(doas)",
+        "shell(chown:*)"
+      ],
+      "wall_clock_timeout_s": 900,
+      "workflow_order": 3
+    }
+  ]
+}
