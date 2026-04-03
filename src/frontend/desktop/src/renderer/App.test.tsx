@@ -38,7 +38,6 @@ describe("App", () => {
     });
 
     expect(screen.queryByText('Capstone safe operator controls')).not.toBeInTheDocument();
-    expect(screen.queryByText('TaskSail')).not.toBeInTheDocument();
     expect(screen.queryByText('Automated context-pack workspace control')).not.toBeInTheDocument();
   });
 

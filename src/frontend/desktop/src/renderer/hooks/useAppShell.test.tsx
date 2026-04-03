@@ -155,10 +155,12 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="active-task-label">{result.activeTaskLabel ?? 'none'}</div>
       <div data-testid="active-context-pack-label">{result.activeContextPackLabel ?? 'none'}</div>
       <div data-testid="planner-modal-open">{String(result.plannerModalProps.isOpen)}</div>
+      <div data-testid="agent-config-modal-open">{String(result.agentConfigModalProps.isOpen)}</div>
       <div data-testid="terminal-feed-events">{result.terminalFeedProps.activityStream.length}</div>
       <div data-testid="reinforcement-modal-open">{String(result.reinforcementModalProps.isOpen)}</div>
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
       <div data-testid="sidebar-has-open-reinforcement">{String(typeof result.contextPackSidebarProps.onOpenReinforcement === 'function')}</div>
+      <div data-testid="has-open-agent-config">{String(typeof result.openAgentConfigModal === 'function')}</div>
     </section>
   );
 }
@@ -200,6 +202,7 @@ describe('useAppShell', () => {
 
     expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('false');
     expect(screen.getByTestId('planner-modal-open')).toHaveTextContent('false');
+    expect(screen.getByTestId('agent-config-modal-open')).toHaveTextContent('false');
     expect(screen.getByTestId('terminal-feed-events')).toHaveTextContent('0');
     expect(screen.getByTestId('active-task-label')).toHaveTextContent('Observe queue artifacts');
     expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
@@ -219,6 +222,7 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('reinforcement-modal-open')).toHaveTextContent('false');
     expect(screen.getByTestId('reinforcement-has-context-pack')).toHaveTextContent('true');
     expect(screen.getByTestId('sidebar-has-open-reinforcement')).toHaveTextContent('true');
+    expect(screen.getByTestId('has-open-agent-config')).toHaveTextContent('true');
   });
 
   it('locks the planner when no active context pack is applied', async () => {

@@ -203,6 +203,79 @@ describe('validateDesktopActionRequest', () => {
     });
   });
 
+  describe('agentConfig.*', () => {
+    it('accepts payload-less read actions', () => {
+      expect(validateDesktopActionRequest({ action: 'agentConfig.loadAgents' })).toEqual([]);
+      expect(validateDesktopActionRequest({ action: 'agentConfig.loadModelCatalog' })).toEqual([]);
+    });
+
+    it('accepts valid write payloads', () => {
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.saveAgentModels',
+          payload: {
+            assignments: [
+              { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+              { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+            ],
+          },
+        }),
+      ).toEqual([]);
+
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.addModel',
+          payload: {
+            display_name: 'GPT 5.4',
+            model_id: 'gpt-5.4',
+          },
+        }),
+      ).toEqual([]);
+
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.removeModel',
+          payload: { model_id: 'gpt-5.4' },
+        }),
+      ).toEqual([]);
+    });
+
+    it('rejects malformed write payloads', () => {
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.saveAgentModels',
+          payload: {
+            assignments: [
+              { agent_id: '', model_id: 'bad model' },
+              null,
+            ],
+          },
+        }),
+      ).toEqual([
+        'payload.assignments[0].agent_id must be a non-empty string.',
+        'payload.assignments[0].model_id must match the approved agent model pattern.',
+        'payload.assignments[1] must be an object.',
+      ]);
+
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.addModel',
+          payload: { display_name: '', model_id: 'bad model' },
+        }),
+      ).toEqual([
+        'payload.display_name must be a non-empty string.',
+        'payload.model_id must match the approved agent model pattern.',
+      ]);
+
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.removeModel',
+          payload: { model_id: 'bad model' },
+        }),
+      ).toEqual(['payload.model_id must match the approved agent model pattern.']);
+    });
+  });
+
   describe('contextPack.create', () => {
     it('requires payload to be an object', () => {
       const errors = validateDesktopActionRequest({

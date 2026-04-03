@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { DesktopActionResponse, DesktopInvokeResult } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
 
 describe('desktopContract', () => {
@@ -294,4 +295,55 @@ describe('desktopContract', () => {
       }),
     ).toEqual(['action must be one of the approved desktop actions.']);
   });
+
+  it('models agentConfig success payloads as DesktopInvokeResult response variants', () => {
+    const response: DesktopActionResponse = {
+      action: 'agentConfig.loadAgents',
+      mode: 'read-only',
+      message: '4 agent(s) loaded.',
+      agents: [
+        {
+          agent_id: 'software-engineer',
+          human_name: 'Dalton',
+          role_name: 'Software Engineer',
+          required_model: 'claude-sonnet-4.6',
+          workflow_order: 2,
+        },
+      ],
+    };
+
+    const result: DesktopInvokeResult = {
+      ok: true,
+      response,
+    };
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('Expected ok desktop invoke result.');
+    }
+    expect(result.response.action).toBe('agentConfig.loadAgents');
+    expect(result.response.mode).toBe('read-only');
+  });
+
+  it('accepts agentConfig write requests with typed payloads', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveAgentModels',
+        payload: {
+          assignments: [
+            { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+            { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+          ],
+        },
+      }),
+    ).toEqual([]);
+
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.addModel',
+        payload: { display_name: 'Claude Sonnet 4.6', model_id: 'claude-sonnet-4.6' },
+      }),
+    ).toEqual([]);
+  });
+
 });

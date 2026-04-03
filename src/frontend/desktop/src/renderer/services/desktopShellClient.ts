@@ -1,5 +1,15 @@
+type DesktopShellSource = Window['desktopShell'] & {
+  loadAgentConfig: () => Promise<unknown>;
+  loadModelCatalog: () => Promise<unknown>;
+  saveAgentModels: (
+    assignments: Array<{ agent_id: string; model_id: string }>,
+  ) => Promise<unknown>;
+  addModel: (displayName: string, modelId: string) => Promise<unknown>;
+  removeModel: (modelId: string) => Promise<unknown>;
+};
+
 type DesktopShellClient = Pick<
-  Window['desktopShell'],
+  DesktopShellSource,
   | 'getBootstrapInfo'
   | 'getQueueStatus'
   | 'deletePendingItem'
@@ -31,6 +41,11 @@ type DesktopShellClient = Pick<
   | 'removeExternalMcpServer'
   | 'toggleExternalMcpServer'
   | 'validateExternalMcpConnection'
+  | 'loadAgentConfig'
+  | 'loadModelCatalog'
+  | 'saveAgentModels'
+  | 'addModel'
+  | 'removeModel'
   | 'submitReinforcementFeedback'
   | 'updateRealignmentDoc'
   | 'readReinforcementOverview'
@@ -53,36 +68,38 @@ type DesktopShellClient = Pick<
   | 'checkBackendHealth'
 >;
 
-type DesktopShellGetter = () => DesktopShellClient;
+type DesktopShellGetter = () => DesktopShellSource | Window['desktopShell'];
 
 export function createDesktopShellClient(
-  getDesktopShell: DesktopShellGetter = () => window.desktopShell,
+  getDesktopShell: DesktopShellGetter = () => window.desktopShell as unknown as DesktopShellSource,
 ): DesktopShellClient {
+  const readShell = (): DesktopShellClient => getDesktopShell() as DesktopShellClient;
+
   return {
-    getBootstrapInfo: () => getDesktopShell().getBootstrapInfo(),
-    getQueueStatus: () => getDesktopShell().getQueueStatus(),
-    deletePendingItem: (queueName) => getDesktopShell().deletePendingItem(queueName),
-    getEnvironmentStatus: () => getDesktopShell().getEnvironmentStatus(),
-    getObservabilitySnapshot: () => getDesktopShell().getObservabilitySnapshot(),
-    submitPlannerDraft: (draft, stage) => getDesktopShell().submitPlannerDraft(draft, stage),
-    initiateFollowUp: (draft, stage) => getDesktopShell().initiateFollowUp(draft, stage),
+    getBootstrapInfo: () => readShell().getBootstrapInfo(),
+    getQueueStatus: () => readShell().getQueueStatus(),
+    deletePendingItem: (queueName) => readShell().deletePendingItem(queueName),
+    getEnvironmentStatus: () => readShell().getEnvironmentStatus(),
+    getObservabilitySnapshot: () => readShell().getObservabilitySnapshot(),
+    submitPlannerDraft: (draft, stage) => readShell().submitPlannerDraft(draft, stage),
+    initiateFollowUp: (draft, stage) => readShell().initiateFollowUp(draft, stage),
     pickContextPackDirectory: (purpose, defaultPath) =>
-      getDesktopShell().pickContextPackDirectory(purpose, defaultPath),
+      readShell().pickContextPackDirectory(purpose, defaultPath),
     discoverContextPackPrefill: (rootPath, mode) =>
-      getDesktopShell().discoverContextPackPrefill(rootPath, mode),
-    createContextPack: (payload) => getDesktopShell().createContextPack(payload),
-    listContextPacks: () => getDesktopShell().listContextPacks(),
+      readShell().discoverContextPackPrefill(rootPath, mode),
+    createContextPack: (payload) => readShell().createContextPack(payload),
+    listContextPacks: () => readShell().listContextPacks(),
     reseedContextPack: (contextPackDir) =>
-      getDesktopShell().reseedContextPack(contextPackDir),
+      readShell().reseedContextPack(contextPackDir),
     setRepositoryType: (contextPackDir, repoId, repositoryType) =>
-      getDesktopShell().setRepositoryType(contextPackDir, repoId, repositoryType),
+      readShell().setRepositoryType(contextPackDir, repoId, repositoryType),
     previewContextPackSwitch: (
       contextPackDir,
       scopeMode,
       selectedRepoIds,
       selectedFocusIds,
     ) =>
-      getDesktopShell().previewContextPackSwitch(
+      readShell().previewContextPackSwitch(
         contextPackDir,
         scopeMode,
         selectedRepoIds,
@@ -94,50 +111,55 @@ export function createDesktopShellClient(
       selectedRepoIds,
       selectedFocusIds,
     ) =>
-      getDesktopShell().applyContextPackSwitch(
+      readShell().applyContextPackSwitch(
         contextPackDir,
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
       ),
-    clearActiveContextPack: () => getDesktopShell().clearActiveContextPack(),
-    activateContextPack: (packId) => getDesktopShell().activateContextPack(packId),
-    startPlannerSession: (contextPackDir) => getDesktopShell().startPlannerSession(contextPackDir),
-    sendPlannerMessage: (text) => getDesktopShell().sendPlannerMessage(text),
-    endPlannerSession: () => getDesktopShell().endPlannerSession(),
-    savePlannerDraft: () => getDesktopShell().savePlannerDraft(),
-    readStagedDraft: () => getDesktopShell().readStagedDraft(),
-    finalizeSpec: (expectedTaskKind) => getDesktopShell().finalizeSpec(expectedTaskKind),
-    pickMarkdownFile: () => getDesktopShell().pickMarkdownFile(),
-    listArchivedTasks: () => getDesktopShell().listArchivedTasks(),
-    listExternalMcpServers: () => getDesktopShell().listExternalMcpServers(),
-    addExternalMcpServer: (server) => getDesktopShell().addExternalMcpServer(server),
-    updateExternalMcpServer: (server) => getDesktopShell().updateExternalMcpServer(server),
-    removeExternalMcpServer: (serverId) => getDesktopShell().removeExternalMcpServer(serverId),
-    toggleExternalMcpServer: (serverId) => getDesktopShell().toggleExternalMcpServer(serverId),
-    validateExternalMcpConnection: (payload) => getDesktopShell().validateExternalMcpConnection(payload),
-    submitReinforcementFeedback: (payload) => getDesktopShell().submitReinforcementFeedback(payload),
-    updateRealignmentDoc: (payload) => getDesktopShell().updateRealignmentDoc(payload),
-    readReinforcementOverview: () => getDesktopShell().readReinforcementOverview(),
-    listReinforcementTasks: (year) => getDesktopShell().listReinforcementTasks(year),
-    readAgentRewards: () => getDesktopShell().readAgentRewards(),
-    listRealignmentSessions: () => getDesktopShell().listRealignmentSessions(),
-    readRealignmentDoc: () => getDesktopShell().readRealignmentDoc(),
-    checkActiveWorkGuard: () => getDesktopShell().checkActiveWorkGuard(),
-    startRealignment: (payload) => getDesktopShell().startRealignment(payload),
-    readTaskBoard: () => getDesktopShell().readTaskBoard(),
-    readTaskContent: (fileName, column) => getDesktopShell().readTaskContent(fileName, column),
-    reorderPending: (order) => getDesktopShell().reorderPending(order),
+    clearActiveContextPack: () => readShell().clearActiveContextPack(),
+    activateContextPack: (packId) => readShell().activateContextPack(packId),
+    startPlannerSession: (contextPackDir) => readShell().startPlannerSession(contextPackDir),
+    sendPlannerMessage: (text) => readShell().sendPlannerMessage(text),
+    endPlannerSession: () => readShell().endPlannerSession(),
+    savePlannerDraft: () => readShell().savePlannerDraft(),
+    readStagedDraft: () => readShell().readStagedDraft(),
+    finalizeSpec: (expectedTaskKind) => readShell().finalizeSpec(expectedTaskKind),
+    pickMarkdownFile: () => readShell().pickMarkdownFile(),
+    listArchivedTasks: () => readShell().listArchivedTasks(),
+    listExternalMcpServers: () => readShell().listExternalMcpServers(),
+    addExternalMcpServer: (server) => readShell().addExternalMcpServer(server),
+    updateExternalMcpServer: (server) => readShell().updateExternalMcpServer(server),
+    removeExternalMcpServer: (serverId) => readShell().removeExternalMcpServer(serverId),
+    toggleExternalMcpServer: (serverId) => readShell().toggleExternalMcpServer(serverId),
+    validateExternalMcpConnection: (payload) => readShell().validateExternalMcpConnection(payload),
+    loadAgentConfig: () => readShell().loadAgentConfig(),
+    loadModelCatalog: () => readShell().loadModelCatalog(),
+    saveAgentModels: (assignments) => readShell().saveAgentModels(assignments),
+    addModel: (displayName, modelId) => readShell().addModel(displayName, modelId),
+    removeModel: (modelId) => readShell().removeModel(modelId),
+    submitReinforcementFeedback: (payload) => readShell().submitReinforcementFeedback(payload),
+    updateRealignmentDoc: (payload) => readShell().updateRealignmentDoc(payload),
+    readReinforcementOverview: () => readShell().readReinforcementOverview(),
+    listReinforcementTasks: (year) => readShell().listReinforcementTasks(year),
+    readAgentRewards: () => readShell().readAgentRewards(),
+    listRealignmentSessions: () => readShell().listRealignmentSessions(),
+    readRealignmentDoc: () => readShell().readRealignmentDoc(),
+    checkActiveWorkGuard: () => readShell().checkActiveWorkGuard(),
+    startRealignment: (payload) => readShell().startRealignment(payload),
+    readTaskBoard: () => readShell().readTaskBoard(),
+    readTaskContent: (fileName, column) => readShell().readTaskContent(fileName, column),
+    reorderPending: (order) => readShell().reorderPending(order),
     requeueErrorItem: (fileName, insertAtIndex) =>
-      getDesktopShell().requeueErrorItem(fileName, insertAtIndex),
-    deleteTask: (fileName, column) => getDesktopShell().deleteTask(fileName, column),
+      readShell().requeueErrorItem(fileName, insertAtIndex),
+    deleteTask: (fileName, column) => readShell().deleteTask(fileName, column),
     moveToPending: (fileName, insertAtIndex) =>
-      getDesktopShell().moveToPending(fileName, insertAtIndex),
-    moveToOpen: (fileName) => getDesktopShell().moveToOpen(fileName),
-    getBackendServiceStatus: () => getDesktopShell().getBackendServiceStatus(),
-    startBackendServices: () => getDesktopShell().startBackendServices(),
-    stopBackendServices: () => getDesktopShell().stopBackendServices(),
-    checkBackendHealth: () => getDesktopShell().checkBackendHealth(),
+      readShell().moveToPending(fileName, insertAtIndex),
+    moveToOpen: (fileName) => readShell().moveToOpen(fileName),
+    getBackendServiceStatus: () => readShell().getBackendServiceStatus(),
+    startBackendServices: () => readShell().startBackendServices(),
+    stopBackendServices: () => readShell().stopBackendServices(),
+    checkBackendHealth: () => readShell().checkBackendHealth(),
   };
 }
 

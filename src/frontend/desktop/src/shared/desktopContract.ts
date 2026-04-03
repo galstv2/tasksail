@@ -83,6 +83,11 @@ export type DesktopActionName =
   | 'externalMcp.remove'
   | 'externalMcp.toggleEnabled'
   | 'externalMcp.validateConnection'
+  | 'agentConfig.loadAgents'
+  | 'agentConfig.loadModelCatalog'
+  | 'agentConfig.saveAgentModels'
+  | 'agentConfig.addModel'
+  | 'agentConfig.removeModel'
   | 'taskBoard.readBoard'
   | 'taskBoard.readTaskContent'
   | 'taskBoard.reorderPending'
@@ -1154,6 +1159,38 @@ export type ExternalMcpValidateConnectionResponse = {
 };
 
 // ---------------------------------------------------------------------------
+// Agent configuration (types in desktopContractAgentConfig.ts)
+// ---------------------------------------------------------------------------
+
+import type {
+  AgentConfigLoadAgentsRequest,
+  AgentConfigLoadAgentsResponse,
+  AgentConfigLoadModelCatalogRequest,
+  AgentConfigLoadModelCatalogResponse,
+  AgentConfigSaveAgentModelsRequest,
+  AgentConfigSaveAgentModelsResponse,
+  AgentConfigAddModelRequest,
+  AgentConfigAddModelResponse,
+  AgentConfigRemoveModelRequest,
+  AgentConfigRemoveModelResponse,
+} from './desktopContractAgentConfig';
+
+export type {
+  AgentConfigAgentEntry,
+  AgentConfigModelCatalogEntry,
+  AgentConfigLoadAgentsRequest,
+  AgentConfigLoadAgentsResponse,
+  AgentConfigLoadModelCatalogRequest,
+  AgentConfigLoadModelCatalogResponse,
+  AgentConfigSaveAgentModelsRequest,
+  AgentConfigSaveAgentModelsResponse,
+  AgentConfigAddModelRequest,
+  AgentConfigAddModelResponse,
+  AgentConfigRemoveModelRequest,
+  AgentConfigRemoveModelResponse,
+} from './desktopContractAgentConfig';
+
+// ---------------------------------------------------------------------------
 // Task Board actions
 // ---------------------------------------------------------------------------
 
@@ -1306,6 +1343,11 @@ export type DesktopActionRequest =
   | ReinforcementCheckActiveWorkGuardRequest
   | ReinforcementStartRealignmentRequest
   | ExternalMcpListRequest
+  | AgentConfigLoadAgentsRequest
+  | AgentConfigLoadModelCatalogRequest
+  | AgentConfigSaveAgentModelsRequest
+  | AgentConfigAddModelRequest
+  | AgentConfigRemoveModelRequest
   | ExternalMcpAddRequest
   | ExternalMcpUpdateRequest
   | ExternalMcpRemoveRequest
@@ -1358,6 +1400,11 @@ export type DesktopActionResponse =
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
   | ExternalMcpListResponse
+  | AgentConfigLoadAgentsResponse
+  | AgentConfigLoadModelCatalogResponse
+  | AgentConfigSaveAgentModelsResponse
+  | AgentConfigAddModelResponse
+  | AgentConfigRemoveModelResponse
   | ExternalMcpAddResponse
   | ExternalMcpUpdateResponse
   | ExternalMcpRemoveResponse

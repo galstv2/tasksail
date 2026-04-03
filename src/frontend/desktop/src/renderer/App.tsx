@@ -1,3 +1,6 @@
+import AgentConfigModal from './components/AgentConfigModal';
+import AgentConfigRail from './components/AgentConfigRail';
+import ConfigRailStack from './components/ConfigRailStack';
 import ContextPackSidebar from './components/ContextPackSidebar';
 import TaskBoard from './components/taskboard/TaskBoard';
 import ContextPackCreationModal from './components/ContextPackCreationModal';
@@ -40,6 +43,8 @@ function AppContent(): JSX.Element {
     currentLifecycleState,
     onRefreshRepoState,
     sidebarCollapsed,
+    agentConfigModalProps,
+    openAgentConfigModal,
     mcpConfigModalProps,
     openMcpConfigModal,
     enabledMcpServerCount,
@@ -90,10 +95,14 @@ function AppContent(): JSX.Element {
           <TerminalFeed {...terminalFeedProps} />
           <TaskBoard {...taskBoardProps} />
         </section>
-        <McpConfigRail enabledCount={enabledMcpServerCount} onClick={openMcpConfigModal} />
+        <ConfigRailStack>
+          <McpConfigRail enabledCount={enabledMcpServerCount} onClick={openMcpConfigModal} />
+          <AgentConfigRail onClick={openAgentConfigModal} />
+        </ConfigRailStack>
       </div>
       <PlannerModal {...plannerModalProps} />
       <ContextPackCreationModal {...contextPackCreationModalProps} />
+      <AgentConfigModal {...agentConfigModalProps} />
       <McpConfigModal {...mcpConfigModalProps} />
       {reinforcementModalProps.isOpen && <ReinforcementModal {...reinforcementModalProps} />}
     </main>

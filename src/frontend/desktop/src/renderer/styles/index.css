@@ -6,5 +6,6 @@
 @import './planner.css';
 @import './context-pack.css';
 @import './mcpConfig.css';
+@import './agentConfig.css';
 @import './reinforcement.css';
 @import './task-board.css';

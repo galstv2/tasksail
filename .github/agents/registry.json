@@ -10,7 +10,7 @@
       "instruction_path": ".github/copilot/instructions/planning-agent.instructions.md",
       "agent_profile_path": ".github/agents/planning-agent.md",
       "autonomy_profile": "artifact-author",
-      "required_model": "gpt-4.1",
+      "required_model": "claude-sonnet-4.6",
       "pre_task": true,
       "interactive": true,
       "idle_timeout_s": 600,

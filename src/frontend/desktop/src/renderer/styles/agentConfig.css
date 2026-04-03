@@ -1,0 +1,226 @@
+.config-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  padding-top: 0.5rem;
+  width: 40px;
+  border-left: 1px solid var(--ts-border);
+  background: var(--ts-rail-bg);
+  flex-shrink: 0;
+}
+
+.config-rail__btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease), color var(--ts-duration) var(--ts-ease);
+}
+
+.config-rail__btn:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-accent);
+}
+
+.config-rail__badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.agent-config {
+  width: min(680px, 100%);
+}
+
+.agent-config__header-main {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-config__tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.agent-config__tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  font-family: var(--ts-font-sans);
+  font-size: 0.78rem;
+  font-weight: 400;
+  padding: 0 0 0.35rem;
+}
+
+.agent-config__tab--active {
+  border-bottom-color: var(--ts-accent);
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.agent-config__loading,
+.agent-config__empty {
+  padding: 1.5rem 0;
+  color: var(--ts-text-muted);
+  font-size: 0.82rem;
+}
+
+.agent-config__intro {
+  margin: 0 0 0.9rem;
+  color: var(--ts-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.agent-config__agent-list,
+.agent-config__model-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-config__agent-row,
+.agent-config__model-row {
+  border-bottom: 1px solid var(--ts-border);
+  border-left: 2px solid transparent;
+  transition: background var(--ts-duration) var(--ts-ease), border-color var(--ts-duration) var(--ts-ease);
+}
+
+.agent-config__agent-row:hover,
+.agent-config__model-row:hover {
+  background: var(--ts-bg-hover);
+  border-left-color: var(--ts-border-strong);
+}
+
+.agent-config__agent-row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem 0.5rem;
+}
+
+.agent-config__agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.agent-config__agent-name {
+  color: var(--ts-text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.agent-config__field {
+  display: block;
+}
+
+.agent-config__warning {
+  color: var(--ts-warning);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.agent-config__model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.5rem;
+}
+
+.agent-config__model-display {
+  font-family: var(--ts-font-sans);
+  font-size: 0.84rem;
+  font-weight: 500;
+  min-width: 0;
+}
+
+.agent-config__model-id {
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: 0.78rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-config__model-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--ts-border);
+}
+
+.agent-config__model-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.agent-config__footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.agent-config__restart-notice {
+  color: var(--ts-warning);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.agent-config__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .agent-config__header-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  .agent-config__model-row {
+    grid-template-columns: 1fr;
+    justify-items: flex-start;
+  }
+
+  .agent-config__footer-meta {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+}

@@ -307,6 +307,11 @@ describe('desktopShellClient', () => {
       removeExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.remove', servers: [] } }),
       toggleExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.toggleEnabled', servers: [] } }),
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', success: true } }),
+      loadAgentConfig: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadAgents', agents: [] } }),
+      loadModelCatalog: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadModelCatalog', models: [] } }),
+      saveAgentModels: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveAgentModels', agents: [] } }),
+      addModel: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.addModel', models: [] } }),
+      removeModel: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.removeModel', models: [] } }),
       readTaskBoard: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.readBoard' } }),
       readTaskContent: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.readTaskContent', mode: 'not-found', message: 'Not found.', content: '', fileName: '' } }),
       reorderPending: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.reorderPending' } }),
@@ -413,6 +418,20 @@ describe('desktopShellClient', () => {
     expect(window.desktopShell.validateExternalMcpConnection).toHaveBeenCalledWith({
       transport: 'sse', url: 'https://x.com/sse',
     });
+
+    await desktopShellClient.loadAgentConfig();
+    await desktopShellClient.loadModelCatalog();
+    await desktopShellClient.saveAgentModels([{ agent_id: 'planning-agent', model_id: 'gpt-4.1' }]);
+    await desktopShellClient.addModel('GPT 4.1', 'gpt-4.1');
+    await desktopShellClient.removeModel('gpt-4.1');
+
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadAgentConfig).toHaveBeenCalledTimes(1);
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadModelCatalog).toHaveBeenCalledTimes(1);
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveAgentModels).toHaveBeenCalledWith([
+      { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+    ]);
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).addModel).toHaveBeenCalledWith('GPT 4.1', 'gpt-4.1');
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).removeModel).toHaveBeenCalledWith('gpt-4.1');
 
     // Exercise reinforcement write methods.
     await desktopShellClient.submitReinforcementFeedback({

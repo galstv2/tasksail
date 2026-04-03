@@ -38,6 +38,7 @@ const appMock = {
   on: vi.fn(),
   quit: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
+  dock: { setIcon: vi.fn() },
 };
 
 const dialogMock = {
@@ -53,6 +54,9 @@ vi.mock('electron', () => ({
   BrowserWindow: BrowserWindowMock,
   dialog: dialogMock,
   ipcMain: ipcMainMock,
+  nativeImage: {
+    createFromPath: vi.fn().mockReturnValue({ isEmpty: () => false }),
+  },
 }));
 
 describe('electron main bootstrap', () => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
 import { readdirSync, readFileSync } from 'node:fs';
 import { readFile as fsReadFile, readdir as fsReaddir, rename as fsRename, rm as fsRm, writeFile as fsWriteFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -42,6 +42,13 @@ import {
   toggleExternalMcpServer,
   validateExternalMcpConnection,
 } from './externalMcpHandlers';
+import {
+  addAgentModel,
+  loadAgentConfigAgents,
+  loadAgentModelCatalog,
+  removeAgentModel,
+  saveAgentModels,
+} from './agentConfigHandlers';
 import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
 import type { PlannerDraftModel } from '../src/renderer/plannerComposer';
 
@@ -356,6 +363,17 @@ type DesktopActionHandlers = {
   validateExternalMcpConnection: (
     payload: import('../src/shared/desktopContract').ExternalMcpValidateConnectionRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  loadAgentConfigAgents: () => Promise<DesktopInvokeResult>;
+  loadAgentModelCatalog: () => Promise<DesktopInvokeResult>;
+  saveAgentModels: (
+    payload: import('../src/shared/desktopContract').AgentConfigSaveAgentModelsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  addAgentModel: (
+    payload: import('../src/shared/desktopContract').AgentConfigAddModelRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  removeAgentModel: (
+    payload: import('../src/shared/desktopContract').AgentConfigRemoveModelRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   readTaskBoard: () => Promise<DesktopInvokeResult>;
   readTaskContent: (
     payload: import('../src/shared/desktopContract').TaskBoardReadTaskContentRequest['payload'],
@@ -647,6 +665,11 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   removeExternalMcpServer: (payload) => removeExternalMcpServer(payload),
   toggleExternalMcpServer: (payload) => toggleExternalMcpServer(payload),
   validateExternalMcpConnection: (payload) => validateExternalMcpConnection(payload),
+  loadAgentConfigAgents: () => loadAgentConfigAgents(),
+  loadAgentModelCatalog: () => loadAgentModelCatalog(),
+  saveAgentModels: (payload) => saveAgentModels(payload),
+  addAgentModel: (payload) => addAgentModel(payload),
+  removeAgentModel: (payload) => removeAgentModel(payload),
   readTaskBoard: () => readTaskBoard(listAvailableContextPacks),
   readTaskContent: (payload) => readTaskContentImpl(payload),
   reorderPending: (payload) =>
@@ -1083,6 +1106,16 @@ export async function handleDesktopAction(
       return resolvedHandlers.toggleExternalMcpServer(request.payload);
     case 'externalMcp.validateConnection':
       return resolvedHandlers.validateExternalMcpConnection(request.payload);
+    case 'agentConfig.loadAgents':
+      return resolvedHandlers.loadAgentConfigAgents();
+    case 'agentConfig.loadModelCatalog':
+      return resolvedHandlers.loadAgentModelCatalog();
+    case 'agentConfig.saveAgentModels':
+      return resolvedHandlers.saveAgentModels(request.payload);
+    case 'agentConfig.addModel':
+      return resolvedHandlers.addAgentModel(request.payload);
+    case 'agentConfig.removeModel':
+      return resolvedHandlers.removeAgentModel(request.payload);
     case 'taskBoard.readBoard':
       return resolvedHandlers.readTaskBoard();
     case 'taskBoard.readTaskContent':
@@ -1171,6 +1204,7 @@ export function registerDesktopContract(): void {
 }
 
 export async function createWindow(): Promise<BrowserWindow> {
+  const iconPath = join(__dirname, '..', 'build', 'icon.png');
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -1179,6 +1213,7 @@ export async function createWindow(): Promise<BrowserWindow> {
     show: false,
     backgroundColor: '#020617',
     title: 'TaskSail',
+    icon: nativeImage.createFromPath(iconPath),
     webPreferences: {
       preload: PRELOAD_PATH,
       contextIsolation: true,
@@ -1256,6 +1291,14 @@ export function registerAppLifecycle(): void {
   let stopRuntimeWatcher: (() => void) | undefined;
 
   app.whenReady().then(async () => {
+    // Set macOS dock icon
+    if (process.platform === 'darwin' && app.dock) {
+      const dockIconPath = join(__dirname, '..', 'build', 'icon.png');
+      try {
+        app.dock.setIcon(nativeImage.createFromPath(dockIconPath));
+      } catch { /* best effort — icon file may not exist in dev */ }
+    }
+
     registerDesktopContract();
     await createWindow();
 

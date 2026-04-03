@@ -40,6 +40,11 @@ const DESKTOP_ACTION_NAMES = [
   'externalMcp.remove',
   'externalMcp.toggleEnabled',
   'externalMcp.validateConnection',
+  'agentConfig.loadAgents',
+  'agentConfig.loadModelCatalog',
+  'agentConfig.saveAgentModels',
+  'agentConfig.addModel',
+  'agentConfig.removeModel',
   'taskBoard.readBoard',
   'taskBoard.readTaskContent',
   'taskBoard.reorderPending',
@@ -153,6 +158,40 @@ function validateContextPackDirPayload(value: unknown): string[] {
   const errors: string[] = [];
   if (!isAbsolutePath(value.contextPackDir)) {
     errors.push('payload.contextPackDir must be an absolute path string.');
+  }
+  return errors;
+}
+
+// Keep in sync with AGENT_MODEL_PATTERN in src/backend/platform/workflow-policy/models.ts
+const AGENT_MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
+
+function isValidAgentModelId(value: unknown): value is string {
+  return isNonEmptyString(value) && AGENT_MODEL_ID_PATTERN.test(value);
+}
+
+function validateAgentConfigAssignments(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload must be an object.'];
+  }
+
+  if (!Array.isArray(value.assignments)) {
+    return ['payload.assignments must be an array.'];
+  }
+
+  const errors: string[] = [];
+  for (const [index, assignment] of value.assignments.entries()) {
+    if (!isRecord(assignment)) {
+      errors.push(`payload.assignments[${index}] must be an object.`);
+      continue;
+    }
+    if (!isNonEmptyString(assignment.agent_id)) {
+      errors.push(`payload.assignments[${index}].agent_id must be a non-empty string.`);
+    }
+    if (!isValidAgentModelId(assignment.model_id)) {
+      errors.push(
+        `payload.assignments[${index}].model_id must match the approved agent model pattern.`,
+      );
+    }
   }
   return errors;
 }
@@ -637,15 +676,42 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (request.payload !== undefined && !isRecord(request.payload)) {
         return ['payload must be an object when provided.'];
       }
-      if (request.payload && 'year' in request.payload) {
-        if (!isNonEmptyString(request.payload.year)) {
+      if (request.payload !== undefined && request.payload !== null) {
+        const payload = request.payload as Record<string, unknown>;
+        if ('year' in payload && !isNonEmptyString(payload.year)) {
           return ['payload.year must be a non-empty string when provided.'];
         }
       }
       return [];
     }
     case 'externalMcp.list':
+    case 'agentConfig.loadAgents':
+    case 'agentConfig.loadModelCatalog':
       return [];
+    case 'agentConfig.saveAgentModels':
+      return validateAgentConfigAssignments(request.payload);
+    case 'agentConfig.addModel': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.display_name)) {
+        errors.push('payload.display_name must be a non-empty string.');
+      }
+      if (!isValidAgentModelId(request.payload.model_id)) {
+        errors.push('payload.model_id must match the approved agent model pattern.');
+      }
+      return errors;
+    }
+    case 'agentConfig.removeModel': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      if (!isValidAgentModelId(request.payload.model_id)) {
+        return ['payload.model_id must match the approved agent model pattern.'];
+      }
+      return [];
+    }
     case 'externalMcp.add':
     case 'externalMcp.update': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];

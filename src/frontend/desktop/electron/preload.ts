@@ -21,6 +21,12 @@ import {
   type ReinforcementCheckActiveWorkGuardResponse,
   type ReinforcementStartRealignmentRequest,
   type ReinforcementStartRealignmentResponse,
+  type AgentConfigAddModelResponse,
+  type AgentConfigLoadAgentsResponse,
+  type AgentConfigLoadModelCatalogResponse,
+  type AgentConfigRemoveModelResponse,
+  type AgentConfigSaveAgentModelsRequest,
+  type AgentConfigSaveAgentModelsResponse,
   type ContextPackClearResponse,
   type ContextPackCreateResponse,
   type ContextPackDiscoveryMode,
@@ -332,6 +338,34 @@ export const desktopShellApi = {
       action: 'reinforcement.startRealignment',
       payload,
     }),
+  loadAgentConfig: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadAgents',
+    }),
+  loadModelCatalog: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadModelCatalog',
+    }),
+  saveAgentModels: async (
+    assignments: AgentConfigSaveAgentModelsRequest['payload']['assignments'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.saveAgentModels',
+      payload: { assignments },
+    }),
+  addModel: async (
+    display_name: string,
+    model_id: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.addModel',
+      payload: { display_name, model_id },
+    }),
+  removeModel: async (model_id: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.removeModel',
+      payload: { model_id },
+    }),
   listExternalMcpServers: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'externalMcp.list',
@@ -605,6 +639,13 @@ export type DesktopShellApi = {
   startRealignment: (
     payload: ReinforcementStartRealignmentRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  loadAgentConfig: () => Promise<DesktopInvokeResult>;
+  loadModelCatalog: () => Promise<DesktopInvokeResult>;
+  saveAgentModels: (
+    assignments: AgentConfigSaveAgentModelsRequest['payload']['assignments'],
+  ) => Promise<DesktopInvokeResult>;
+  addModel: (display_name: string, model_id: string) => Promise<DesktopInvokeResult>;
+  removeModel: (model_id: string) => Promise<DesktopInvokeResult>;
   listExternalMcpServers: () => Promise<DesktopInvokeResult>;
   addExternalMcpServer: (
     server: import('../src/shared/desktopContract').ExternalMcpServerEntry,
@@ -674,6 +715,11 @@ export type DesktopAllowedResponses =
   | ReinforcementReadRealignmentDocResponse
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
+  | AgentConfigLoadAgentsResponse
+  | AgentConfigLoadModelCatalogResponse
+  | AgentConfigSaveAgentModelsResponse
+  | AgentConfigAddModelResponse
+  | AgentConfigRemoveModelResponse
   | TaskBoardReadBoardResponse
   | TaskBoardReadTaskContentResponse
   | TaskBoardReorderPendingResponse

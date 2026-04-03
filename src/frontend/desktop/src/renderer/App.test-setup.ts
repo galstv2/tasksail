@@ -613,6 +613,121 @@ export function installAppTestHarness(): void {
       removeExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.remove', mode: 'mutated', message: 'Removed.', servers: [] } }),
       toggleExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.toggleEnabled', mode: 'mutated', message: 'Toggled.', servers: [] } }),
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK.' } }),
+      loadAgentConfig: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadAgents',
+          mode: 'read-only',
+          message: 'Loaded 4 agent assignments.',
+          agents: [
+            {
+              agent_id: 'planning-agent',
+              human_name: 'Lily',
+              role_name: 'Planning Specialist',
+              required_model: 'gpt-4.1',
+              workflow_order: 0,
+            },
+            {
+              agent_id: 'product-manager',
+              human_name: 'Alice',
+              role_name: 'Product Manager',
+              required_model: 'gpt-5.4',
+              workflow_order: 1,
+            },
+            {
+              agent_id: 'software-engineer',
+              human_name: 'Dalton',
+              role_name: 'Software Engineer',
+              required_model: 'claude-sonnet-4.6',
+              workflow_order: 2,
+            },
+            {
+              agent_id: 'qa',
+              human_name: 'Ron',
+              role_name: 'QA and Closeout',
+              required_model: 'gpt-5.4',
+              workflow_order: 3,
+            },
+          ],
+        },
+      }),
+      loadModelCatalog: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadModelCatalog',
+          mode: 'read-only',
+          message: 'Loaded 3 model(s).',
+          models: [
+            { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
+            { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
+            { display_name: 'Claude Sonnet 4.6', model_id: 'claude-sonnet-4.6' },
+          ],
+        },
+      }),
+      saveAgentModels: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.saveAgentModels',
+          mode: 'mutated',
+          message: 'Agent assignments saved.',
+          agents: [
+            {
+              agent_id: 'planning-agent',
+              human_name: 'Lily',
+              role_name: 'Planning Specialist',
+              required_model: 'gpt-4.1',
+              workflow_order: 0,
+            },
+            {
+              agent_id: 'product-manager',
+              human_name: 'Alice',
+              role_name: 'Product Manager',
+              required_model: 'gpt-5.4',
+              workflow_order: 1,
+            },
+            {
+              agent_id: 'software-engineer',
+              human_name: 'Dalton',
+              role_name: 'Software Engineer',
+              required_model: 'claude-sonnet-4.6',
+              workflow_order: 2,
+            },
+            {
+              agent_id: 'qa',
+              human_name: 'Ron',
+              role_name: 'QA and Closeout',
+              required_model: 'gpt-5.4',
+              workflow_order: 3,
+            },
+          ],
+        },
+      }),
+      addModel: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.addModel',
+          mode: 'mutated',
+          message: 'Model added.',
+          models: [
+            { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
+            { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
+            { display_name: 'Claude Sonnet 4.6', model_id: 'claude-sonnet-4.6' },
+            { display_name: 'GPT 5.5', model_id: 'gpt-5.5' },
+          ],
+        },
+      }),
+      removeModel: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.removeModel',
+          mode: 'mutated',
+          message: 'Model removed.',
+          models: [
+            { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
+            { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
+          ],
+        },
+      }),
       readTaskBoard: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -671,6 +786,6 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'services.readStatus', mode: 'observed', status: 'healthy', lastCheckedAt: null, error: null, message: 'Backend services are running.' },
       }),
-    };
+    } as typeof window.desktopShell & Record<string, unknown>;
   });
 }

@@ -63,6 +63,11 @@ describe('electron preload bridge', () => {
         readRealignmentDoc: expect.any(Function),
         checkActiveWorkGuard: expect.any(Function),
         startRealignment: expect.any(Function),
+        loadAgentConfig: expect.any(Function),
+        loadModelCatalog: expect.any(Function),
+        saveAgentModels: expect.any(Function),
+        addModel: expect.any(Function),
+        removeModel: expect.any(Function),
       }),
     );
   });
@@ -188,6 +193,14 @@ describe('electron preload bridge', () => {
       contextPackDir: '/tmp/context-packs/orders-estate',
       triggerTaskId: 'T-1',
     });
+    await desktopShellApi.loadAgentConfig();
+    await desktopShellApi.loadModelCatalog();
+    await desktopShellApi.saveAgentModels([
+      { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+      { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+    ]);
+    await desktopShellApi.addModel('Claude Sonnet 4.6', 'claude-sonnet-4.6');
+    await desktopShellApi.removeModel('gpt-4.1');
 
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.submitDraft',
@@ -342,6 +355,32 @@ describe('electron preload bridge', () => {
         contextPackDir: '/tmp/context-packs/orders-estate',
         triggerTaskId: 'T-1',
       },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadAgents',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadModelCatalog',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.saveAgentModels',
+      payload: {
+        assignments: [
+          { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+          { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+        ],
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.addModel',
+      payload: {
+        display_name: 'Claude Sonnet 4.6',
+        model_id: 'claude-sonnet-4.6',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.removeModel',
+      payload: { model_id: 'gpt-4.1' },
     });
     expect(desktopShellApi).not.toHaveProperty('runShellCommand');
     expect(desktopShellApi).not.toHaveProperty('writePendingItem');

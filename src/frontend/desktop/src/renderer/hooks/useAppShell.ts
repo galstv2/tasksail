@@ -11,6 +11,7 @@ import { useObservabilityContext } from '../contexts/ObservabilityContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { useContextPackSelection } from './useContextPackSelection';
 import { useStreamEvents } from './useStreamEvents';
+import { useAgentConfigModal, type AgentConfigModalProps } from './useAgentConfigModal';
 import { useMcpConfigModal, type McpConfigModalProps } from './useMcpConfigModal';
 import { usePlannerModal } from './usePlannerModal';
 import { useReinforcementModal, type ReinforcementModalProps } from './useReinforcementModal';
@@ -32,6 +33,8 @@ export type UseAppShellResult = {
   sidebarCollapsed: boolean;
   openPlannerModal: () => void;
   hasActiveContextPack: boolean;
+  agentConfigModalProps: AgentConfigModalProps;
+  openAgentConfigModal: () => void;
   mcpConfigModalProps: McpConfigModalProps;
   openMcpConfigModal: () => void;
   enabledMcpServerCount: number;
@@ -86,6 +89,7 @@ export function useAppShell(
   const { events: streamEvents } = useStreamEvents();
 
   const taskBoard = useTaskBoard(client);
+  const { agentConfigModalProps, openAgentConfigModal } = useAgentConfigModal(client);
   const { mcpConfigModalProps, openMcpConfigModal, enabledServerCount: enabledMcpServerCount } = useMcpConfigModal(client);
   const { reinforcementModalProps, openReinforcementModal } = useReinforcementModal(
     hasActiveContextPack,
@@ -159,6 +163,8 @@ export function useAppShell(
     openPlannerModal,
     sidebarCollapsed: effectiveSidebarCollapsed,
     hasActiveContextPack,
+    agentConfigModalProps,
+    openAgentConfigModal,
     mcpConfigModalProps,
     openMcpConfigModal,
     enabledMcpServerCount,

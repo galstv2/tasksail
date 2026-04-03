@@ -495,22 +495,21 @@ describe("App", () => {
     );
   });
 
-  it('renders 3-column shell layout with sidebar, main, and MCP rail', async () => {
+  it('renders 3-column shell layout with sidebar, main, and a stacked config rail', async () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByLabelText('Open MCP configuration')).toBeTruthy();
+      expect(screen.getByLabelText('Open agent configuration')).toBeTruthy();
     });
 
-    // The shell__body should contain exactly 3 direct children:
-    // 1. ContextPackSidebar, 2. section.shell-main, 3. McpConfigRail
     const shellBody = document.querySelector('.shell__body');
     expect(shellBody).toBeTruthy();
     expect(shellBody!.children.length).toBe(3);
 
-    // The third child is the MCP rail.
-    const rail = screen.getByLabelText('MCP config');
+    const rail = screen.getByLabelText('Configuration rail');
     expect(rail).toBeTruthy();
-    expect(rail.classList.contains('mcp-rail')).toBe(true);
+    expect(rail.classList.contains('config-rail')).toBe(true);
+    expect(rail.querySelectorAll('button')).toHaveLength(2);
   });
 
   it('CSS enforces fixed 40px rail width', async () => {
@@ -518,10 +517,9 @@ describe("App", () => {
     const { join } = await import('node:path');
 
     const stylesDir = join(__dirname, 'styles');
-    const mcpCss = await readFile(join(stylesDir, 'mcpConfig.css'), 'utf-8');
+    const agentConfigCss = await readFile(join(stylesDir, 'agentConfig.css'), 'utf-8');
 
-    // Rail component width is 40px.
-    expect(mcpCss).toMatch(/\.mcp-rail\s*\{[^}]*width:\s*40px/);
+    expect(agentConfigCss).toMatch(/\.config-rail\s*\{[^}]*width:\s*40px/);
   });
 
   it('MCP modal opens from rail and shows empty state', async () => {
@@ -536,6 +534,172 @@ describe("App", () => {
       expect(screen.getByText('External MCP Servers')).toBeTruthy();
     });
     expect(screen.getByText('No external MCP servers configured.')).toBeTruthy();
+  });
+
+  it('agent configuration modal opens, saves assignments, and shows Lily restart notice', async () => {
+    const desktopShell = window.desktopShell as typeof window.desktopShell & Record<string, ReturnType<typeof vi.fn>>;
+
+    desktopShell.loadAgentConfig = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadAgents',
+          mode: 'read-only',
+          message: '',
+          agents: [
+            {
+              agent_id: 'planning-agent',
+              human_name: 'Lily',
+              role_name: 'Planning Specialist',
+              required_model: 'gpt-4.1',
+              workflow_order: 0,
+            },
+            {
+              agent_id: 'product-manager',
+              human_name: 'Alice',
+              role_name: 'Product Manager',
+              required_model: 'gpt-5.4',
+              workflow_order: 1,
+            },
+            {
+              agent_id: 'software-engineer',
+              human_name: 'Dalton',
+              role_name: 'Software Engineer',
+              required_model: 'claude-sonnet-4.6',
+              workflow_order: 2,
+            },
+            {
+              agent_id: 'qa',
+              human_name: 'Ron',
+              role_name: 'QA and Closeout',
+              required_model: 'gpt-5.4',
+              workflow_order: 3,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadAgents',
+          mode: 'read-only',
+          message: '',
+          agents: [
+            {
+              agent_id: 'planning-agent',
+              human_name: 'Lily',
+              role_name: 'Planning Specialist',
+              required_model: 'gpt-4.1',
+              workflow_order: 0,
+            },
+            {
+              agent_id: 'product-manager',
+              human_name: 'Alice',
+              role_name: 'Product Manager',
+              required_model: 'gpt-5.4',
+              workflow_order: 1,
+            },
+            {
+              agent_id: 'software-engineer',
+              human_name: 'Dalton',
+              role_name: 'Software Engineer',
+              required_model: 'claude-sonnet-4.6',
+              workflow_order: 2,
+            },
+            {
+              agent_id: 'qa',
+              human_name: 'Ron',
+              role_name: 'QA and Closeout',
+              required_model: 'gpt-5.4',
+              workflow_order: 3,
+            },
+          ],
+        },
+      });
+    desktopShell.loadModelCatalog = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadModelCatalog',
+          mode: 'read-only',
+          message: '',
+          models: [
+            { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
+            { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
+            { display_name: 'Claude Sonnet 4.6', model_id: 'claude-sonnet-4.6' },
+          ],
+        },
+      });
+    desktopShell.saveAgentModels = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.saveAgentModels',
+          mode: 'mutated',
+          message: 'Agent assignments saved.',
+          agents: [
+            {
+              agent_id: 'planning-agent',
+              human_name: 'Lily',
+              role_name: 'Planning Specialist',
+              required_model: 'gpt-5.4',
+              workflow_order: 0,
+            },
+            {
+              agent_id: 'product-manager',
+              human_name: 'Alice',
+              role_name: 'Product Manager',
+              required_model: 'gpt-5.4',
+              workflow_order: 1,
+            },
+            {
+              agent_id: 'software-engineer',
+              human_name: 'Dalton',
+              role_name: 'Software Engineer',
+              required_model: 'claude-sonnet-4.6',
+              workflow_order: 2,
+            },
+            {
+              agent_id: 'qa',
+              human_name: 'Ron',
+              role_name: 'QA and Closeout',
+              required_model: 'gpt-5.4',
+              workflow_order: 3,
+            },
+          ],
+        },
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Open agent configuration')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByLabelText('Open agent configuration'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Agent Configuration' })).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByLabelText('Lily model'), {
+      target: { value: 'gpt-5.4' },
+    });
+    fireEvent.click(screen.getByText('Save Changes'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Restart TaskSail for the planner model change/)).toBeTruthy();
+    });
+
+    expect(desktopShell.saveAgentModels).toHaveBeenCalledWith([
+      { agent_id: 'planning-agent', model_id: 'gpt-5.4' },
+      { agent_id: 'product-manager', model_id: 'gpt-5.4' },
+      { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+      { agent_id: 'qa', model_id: 'gpt-5.4' },
+    ]);
   });
 
   it('MCP modal full round-trip: add → validate → save → toggle → remove', async () => {
