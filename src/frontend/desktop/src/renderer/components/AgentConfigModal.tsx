@@ -112,7 +112,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                 <li key={agent.agent_id} className="agent-config__agent-row">
                   {SpriteComponent && (
                     <div className="agent-config__sprite" aria-hidden="true">
-                      <SpriteComponent size={40} />
+                      <SpriteComponent size={36} />
                     </div>
                   )}
                   <div className="agent-config__agent-header">

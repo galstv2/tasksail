@@ -14,5 +14,4 @@ export const agentSpriteMap: Record<NamedWorkflowAgentKey, (props: AgentSpritePr
   'qa': RonSprite,
 };
 
-export { renderPixelGrid } from './renderPixelGrid';
 export { LilySprite, AliceSprite, DaltonSprite, RonSprite };
