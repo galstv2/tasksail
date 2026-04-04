@@ -786,6 +786,18 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'services.readStatus', mode: 'observed', status: 'healthy', lastCheckedAt: null, error: null, message: 'Backend services are running.' },
       }),
+      listInstructionFiles: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'agentInstructions.listFiles', mode: 'read-only', message: '0 file(s).', files: [] },
+      }),
+      readInstructionFile: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'agentInstructions.readFile', mode: 'read-only', message: 'Read.', fileName: '', relativePath: '', content: '' },
+      }),
+      writeInstructionFile: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'agentInstructions.writeFile', mode: 'mutated', message: 'Saved.', fileName: '', relativePath: '' },
+      }),
     } as typeof window.desktopShell & Record<string, unknown>;
   });
 }

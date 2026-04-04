@@ -1,7 +1,6 @@
-import { useCallback, useEffect } from 'react';
-
 import type { TaskBoardContentColumn } from '../../../shared/desktopContract';
-import TaskMarkdownView from './TaskMarkdownView';
+import MarkdownView from '../MarkdownView';
+import ModalShell from '../ModalShell';
 
 export type TaskDetailModalProps = {
   title: string | null;
@@ -17,62 +16,40 @@ const COLUMN_LABELS: Record<TaskBoardContentColumn, string> = {
   completed: 'Completed',
 };
 
+const COLUMN_ACCENT: Record<TaskBoardContentColumn, string> = {
+  open: 'var(--terminal-amber)',
+  pending: 'var(--terminal-cyan)',
+  error: 'var(--terminal-red)',
+  completed: 'var(--terminal-green)',
+};
+
 function TaskDetailModal({
   title,
   content,
   column,
   onClose,
 }: TaskDetailModalProps): JSX.Element {
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
-
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
   return (
-    <div
-      className="task-detail-modal__overlay"
-      onClick={handleOverlayClick}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title ?? 'Task detail'}
-      data-column={column}
+    <ModalShell
+      isOpen={true}
+      onClose={onClose}
+      title={title ?? 'Task'}
+      headerLeft={<span className="task-detail-modal__column-dot" style={{ background: COLUMN_ACCENT[column], boxShadow: `0 0 6px color-mix(in srgb, ${COLUMN_ACCENT[column]} 40%, transparent)` }} />}
+      maxWidth="660px"
+      variant="terminal"
+      accentColor={COLUMN_ACCENT[column]}
+      className={`task-detail-modal--${column}`}
+      footer={<>
+        <span className="task-detail-modal__column-badge" data-column={column}>
+          <span className="task-detail-modal__badge-dot" />
+          {COLUMN_LABELS[column]}
+        </span>
+        <span className="modal-shell__footer-esc">ESC to close</span>
+      </>}
+      ariaLabel={title ?? 'Task detail'}
     >
-      <div className="task-detail-modal">
-        <div className="task-detail-modal__header">
-          <span className="task-detail-modal__column-dot" />
-          <h2 className="task-detail-modal__title">{title ?? 'Task'}</h2>
-          <button
-            type="button"
-            className="task-detail-modal__close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            &times;
-          </button>
-        </div>
-        <div className="task-detail-modal__body">
-          <TaskMarkdownView content={content} />
-        </div>
-        <div className="task-detail-modal__footer">
-          <span className="task-detail-modal__column-badge" data-column={column}>
-            <span className="task-detail-modal__badge-dot" />
-            {COLUMN_LABELS[column]}
-          </span>
-          <span className="task-detail-modal__footer-hint">ESC to close</span>
-        </div>
-      </div>
-    </div>
+      <MarkdownView content={content} />
+    </ModalShell>
   );
 }
 

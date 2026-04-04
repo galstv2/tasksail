@@ -1,0 +1,142 @@
+import { useMemo } from 'react';
+
+export type MarkdownViewProps = {
+  content: string;
+};
+
+type Block =
+  | { type: 'h1'; text: string }
+  | { type: 'h2'; text: string }
+  | { type: 'meta'; label: string; value: string }
+  | { type: 'bullet'; text: string }
+  | { type: 'code'; lang: string; lines: string[] }
+  | { type: 'paragraph'; text: string };
+
+function parseBlocks(raw: string): Block[] {
+  const lines = raw.replace(/<!--[\s\S]*?-->/g, '').split('\n');
+  const blocks: Block[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
+    const fenceMatch = line.match(/^```(\w*)$/);
+    if (fenceMatch) {
+      const lang = fenceMatch[1];
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing ```
+      blocks.push({ type: 'code', lang, lines: codeLines });
+      continue;
+    }
+
+    // Headings
+    if (line.startsWith('# ')) {
+      blocks.push({ type: 'h1', text: line.slice(2).trim() });
+      i++;
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      blocks.push({ type: 'h2', text: line.slice(3).trim() });
+      i++;
+      continue;
+    }
+
+    // Metadata line: "- Label: Value"
+    const metaMatch = line.match(/^-\s+([A-Za-z][A-Za-z0-9 ]+):\s+(.+)$/);
+    if (metaMatch) {
+      blocks.push({ type: 'meta', label: metaMatch[1], value: metaMatch[2] });
+      i++;
+      continue;
+    }
+
+    // Bullet item
+    if (line.match(/^[-*]\s+/)) {
+      blocks.push({ type: 'bullet', text: line.replace(/^[-*]\s+/, '') });
+      i++;
+      continue;
+    }
+
+    // Empty line — skip
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Paragraph text
+    blocks.push({ type: 'paragraph', text: line });
+    i++;
+  }
+
+  return blocks;
+}
+
+function renderInline(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code class="task-md-view__inline-code">$1</code>');
+}
+
+export default function MarkdownView({ content }: MarkdownViewProps): JSX.Element {
+  const blocks = useMemo(() => parseBlocks(content), [content]);
+
+  return (
+    <div className="task-md-view">
+      {blocks.map((block, idx) => {
+        switch (block.type) {
+          case 'h1':
+            return (
+              <h1 key={idx} className="task-md-view__h1">
+                {block.text}
+              </h1>
+            );
+          case 'h2':
+            return (
+              <h2 key={idx} className="task-md-view__h2">
+                {block.text}
+              </h2>
+            );
+          case 'meta':
+            return (
+              <div key={idx} className="task-md-view__meta-line">
+                <span className="task-md-view__meta-label">{block.label}:</span>{' '}
+                <span
+                  className="task-md-view__meta-value"
+                  dangerouslySetInnerHTML={{ __html: renderInline(block.value) }}
+                />
+              </div>
+            );
+          case 'bullet':
+            return (
+              <div key={idx} className="task-md-view__bullet">
+                <span className="task-md-view__bullet-marker" aria-hidden="true" />
+                <span dangerouslySetInnerHTML={{ __html: renderInline(block.text) }} />
+              </div>
+            );
+          case 'code':
+            return (
+              <pre key={idx} className="task-md-view__code-block">
+                <code>{block.lines.join('\n')}</code>
+              </pre>
+            );
+          case 'paragraph':
+            return (
+              <p
+                key={idx}
+                className="task-md-view__paragraph"
+                dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
+              />
+            );
+        }
+      })}
+    </div>
+  );
+}

@@ -49,6 +49,11 @@ import {
   removeAgentModel,
   saveAgentModels,
 } from './agentConfigHandlers';
+import {
+  listInstructionFiles,
+  readInstructionFile,
+  writeInstructionFile,
+} from './agentInstructionsHandlers';
 import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
 import type { PlannerDraftModel } from '../src/renderer/plannerComposer';
 
@@ -374,6 +379,15 @@ type DesktopActionHandlers = {
   removeAgentModel: (
     payload: import('../src/shared/desktopContract').AgentConfigRemoveModelRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  listInstructionFiles: (
+    request: import('../src/shared/desktopContract').AgentInstructionsListFilesRequest,
+  ) => Promise<DesktopInvokeResult>;
+  readInstructionFile: (
+    request: import('../src/shared/desktopContract').AgentInstructionsReadFileRequest,
+  ) => Promise<DesktopInvokeResult>;
+  writeInstructionFile: (
+    request: import('../src/shared/desktopContract').AgentInstructionsWriteFileRequest,
+  ) => Promise<DesktopInvokeResult>;
   readTaskBoard: () => Promise<DesktopInvokeResult>;
   readTaskContent: (
     payload: import('../src/shared/desktopContract').TaskBoardReadTaskContentRequest['payload'],
@@ -670,6 +684,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   saveAgentModels: (payload) => saveAgentModels(payload),
   addAgentModel: (payload) => addAgentModel(payload),
   removeAgentModel: (payload) => removeAgentModel(payload),
+  listInstructionFiles: (request) => listInstructionFiles(request),
+  readInstructionFile: (request) => readInstructionFile(request),
+  writeInstructionFile: (request) => writeInstructionFile(request),
   readTaskBoard: () => readTaskBoard(listAvailableContextPacks),
   readTaskContent: (payload) => readTaskContentImpl(payload),
   reorderPending: (payload) =>
@@ -1116,6 +1133,12 @@ export async function handleDesktopAction(
       return resolvedHandlers.addAgentModel(request.payload);
     case 'agentConfig.removeModel':
       return resolvedHandlers.removeAgentModel(request.payload);
+    case 'agentInstructions.listFiles':
+      return resolvedHandlers.listInstructionFiles(request);
+    case 'agentInstructions.readFile':
+      return resolvedHandlers.readInstructionFile(request);
+    case 'agentInstructions.writeFile':
+      return resolvedHandlers.writeInstructionFile(request);
     case 'taskBoard.readBoard':
       return resolvedHandlers.readTaskBoard();
     case 'taskBoard.readTaskContent':

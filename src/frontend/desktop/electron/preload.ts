@@ -27,6 +27,10 @@ import {
   type AgentConfigRemoveModelResponse,
   type AgentConfigSaveAgentModelsRequest,
   type AgentConfigSaveAgentModelsResponse,
+  type AgentInstructionsListFilesResponse,
+  type AgentInstructionsReadFileResponse,
+  type AgentInstructionsWriteFileResponse,
+  type InstructionDirectory,
   type ContextPackClearResponse,
   type ContextPackCreateResponse,
   type ContextPackDiscoveryMode,
@@ -366,6 +370,28 @@ export const desktopShellApi = {
       action: 'agentConfig.removeModel',
       payload: { model_id },
     }),
+  listInstructionFiles: async (
+    directory: InstructionDirectory,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentInstructions.listFiles',
+      payload: { directory },
+    }),
+  readInstructionFile: async (
+    relativePath: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentInstructions.readFile',
+      payload: { relativePath },
+    }),
+  writeInstructionFile: async (
+    relativePath: string,
+    content: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentInstructions.writeFile',
+      payload: { relativePath, content },
+    }),
   listExternalMcpServers: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'externalMcp.list',
@@ -646,6 +672,9 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   addModel: (display_name: string, model_id: string) => Promise<DesktopInvokeResult>;
   removeModel: (model_id: string) => Promise<DesktopInvokeResult>;
+  listInstructionFiles: (directory: InstructionDirectory) => Promise<DesktopInvokeResult>;
+  readInstructionFile: (relativePath: string) => Promise<DesktopInvokeResult>;
+  writeInstructionFile: (relativePath: string, content: string) => Promise<DesktopInvokeResult>;
   listExternalMcpServers: () => Promise<DesktopInvokeResult>;
   addExternalMcpServer: (
     server: import('../src/shared/desktopContract').ExternalMcpServerEntry,
@@ -720,6 +749,9 @@ export type DesktopAllowedResponses =
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
+  | AgentInstructionsListFilesResponse
+  | AgentInstructionsReadFileResponse
+  | AgentInstructionsWriteFileResponse
   | TaskBoardReadBoardResponse
   | TaskBoardReadTaskContentResponse
   | TaskBoardReorderPendingResponse

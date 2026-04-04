@@ -88,6 +88,9 @@ export type DesktopActionName =
   | 'agentConfig.saveAgentModels'
   | 'agentConfig.addModel'
   | 'agentConfig.removeModel'
+  | 'agentInstructions.listFiles'
+  | 'agentInstructions.readFile'
+  | 'agentInstructions.writeFile'
   | 'taskBoard.readBoard'
   | 'taskBoard.readTaskContent'
   | 'taskBoard.reorderPending'
@@ -1190,6 +1193,10 @@ export type {
   AgentConfigRemoveModelResponse,
 } from './desktopContractAgentConfig';
 
+export type { InstructionFileEntry, InstructionDirectory } from './desktopContractAgentInstructions';
+import type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse } from './desktopContractAgentInstructions';
+export type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse };
+
 // ---------------------------------------------------------------------------
 // Task Board actions
 // ---------------------------------------------------------------------------
@@ -1348,6 +1355,9 @@ export type DesktopActionRequest =
   | AgentConfigSaveAgentModelsRequest
   | AgentConfigAddModelRequest
   | AgentConfigRemoveModelRequest
+  | AgentInstructionsListFilesRequest
+  | AgentInstructionsReadFileRequest
+  | AgentInstructionsWriteFileRequest
   | ExternalMcpAddRequest
   | ExternalMcpUpdateRequest
   | ExternalMcpRemoveRequest
@@ -1405,6 +1415,9 @@ export type DesktopActionResponse =
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
+  | AgentInstructionsListFilesResponse
+  | AgentInstructionsReadFileResponse
+  | AgentInstructionsWriteFileResponse
   | ExternalMcpAddResponse
   | ExternalMcpUpdateResponse
   | ExternalMcpRemoveResponse

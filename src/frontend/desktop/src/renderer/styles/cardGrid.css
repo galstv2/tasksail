@@ -1,0 +1,182 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   CardGrid — Shared Clickable Card Pattern
+   ═══════════════════════════════════════════════════════════════════════════
+   Aesthetic: Instrument-panel cards with brass accent hover reveals
+   ──��──────────────────────────────────────────────────────────────────────── */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.45rem;
+  padding: 0.3rem 0 0.5rem;
+}
+
+.card-grid__empty {
+  grid-column: 1 / -1;
+  padding: 1.2rem 0.75rem;
+  color: var(--ts-text-muted);
+  font-size: 0.76rem;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ── Card Item ────────────────────────────────────────────────────────── */
+
+.card-grid__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--ts-radius-md);
+  background:
+    linear-gradient(
+      135deg,
+      var(--ts-surface-alt) 0%,
+      color-mix(in srgb, var(--ts-surface-alt) 92%, var(--ts-surface-strong)) 100%
+    );
+  border: 1px solid var(--ts-border);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  position: relative;
+  overflow: hidden;
+  transition:
+    background 180ms var(--ts-ease),
+    border-color 180ms var(--ts-ease),
+    box-shadow 220ms var(--ts-ease),
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Subtle inner highlight along top edge */
+.card-grid__item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 180ms var(--ts-ease);
+}
+
+.card-grid__item:hover {
+  border-left-color: var(--ts-accent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--ts-accent) 4%, var(--ts-surface-alt)) 0%,
+      var(--ts-surface-alt) 100%
+    );
+  box-shadow:
+    var(--ts-shadow-sm),
+    0 0 0 1px color-mix(in srgb, var(--ts-accent) 6%, transparent);
+  transform: translateY(-1px);
+}
+
+.card-grid__item:hover::before {
+  opacity: 1;
+}
+
+.card-grid__item:active {
+  transform: translateY(0);
+  box-shadow: var(--ts-shadow-sm);
+  transition-duration: 60ms;
+}
+
+.card-grid__item:focus-visible {
+  outline: none;
+  border-left-color: var(--ts-accent);
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+/* Loading pulse — brass accent shimmer on left edge */
+.card-grid__item--loading {
+  border-left-color: var(--ts-accent);
+  animation: cardGridLoadPulse 800ms ease-in-out infinite alternate;
+}
+
+@keyframes cardGridLoadPulse {
+  from {
+    border-left-color: color-mix(in srgb, var(--ts-accent) 30%, transparent);
+    box-shadow: inset 2px 0 8px color-mix(in srgb, var(--ts-accent) 5%, transparent);
+  }
+  to {
+    border-left-color: var(--ts-accent);
+    box-shadow: inset 2px 0 8px color-mix(in srgb, var(--ts-accent) 12%, transparent);
+  }
+}
+
+/* ── Card content ─────────────────────────────────────────────────────── */
+
+.card-grid__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.card-grid__title {
+  font-family: var(--ts-font-mono);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+
+.card-grid__subtitle {
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--ts-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+  transition: opacity 180ms var(--ts-ease);
+}
+
+.card-grid__item:hover .card-grid__subtitle {
+  opacity: 1;
+}
+
+/* ── Dirty indicator ──────────────────────────────────────────────────── */
+
+.card-grid__dirty-dot {
+  color: var(--ts-accent);
+  font-size: 0.58rem;
+  line-height: 1;
+  flex-shrink: 0;
+  text-shadow: 0 0 4px color-mix(in srgb, var(--ts-accent) 40%, transparent);
+}
+
+/* ── Shimmer loading skeleton ─────────────────────────────────────────── */
+
+.card-grid__shimmer {
+  height: 50px;
+  border-radius: var(--ts-radius-md);
+  border: 1px solid var(--ts-border);
+  background:
+    linear-gradient(
+      90deg,
+      var(--ts-surface-alt) 0%,
+      var(--ts-surface-alt) 25%,
+      color-mix(in srgb, var(--ts-surface-strong) 60%, var(--ts-surface-alt)) 50%,
+      var(--ts-surface-alt) 75%,
+      var(--ts-surface-alt) 100%
+    );
+  background-size: 300% 100%;
+  animation: cardGridShimmer 2s ease-in-out infinite;
+}
+
+@keyframes cardGridShimmer {
+  from { background-position: 300% 0; }
+  to   { background-position: -300% 0; }
+}

@@ -5,7 +5,7 @@ import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } fro
 import { getPlannerConversationLabel } from '../../shared/agentRoster';
 import { classNames } from '../utils/classNames';
 import SailScreen from './SailScreen';
-import TaskMarkdownView from './taskboard/TaskMarkdownView';
+import MarkdownView from './MarkdownView';
 
 export type PlannerSessionStatus = 'idle' | 'connecting' | 'active' | 'busy' | 'failed';
 
@@ -376,7 +376,7 @@ function PlannerModal({
             </div>
             <div className="planner-modal__draft-preview-body">
               {draftViewMode === 'rendered' ? (
-                <TaskMarkdownView content={stagedDraft.content} />
+                <MarkdownView content={stagedDraft.content} />
               ) : (
                 <pre className="planner-modal__draft-preview-source">{stagedDraft.content}</pre>
               )}

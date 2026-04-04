@@ -1,0 +1,359 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Platform Instructions — Browser & Editor
+   ═══════════════════════════════════════════════════════════════════════════
+   Aesthetic: Compact file-browser panels, terminal-grade editor
+   ─────────────────────────────────────────────────────────────────────────── */
+
+
+/* ── Browser: Section container ───────────────────────────────────────── */
+
+.instructions-browser__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.instructions-browser__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.instructions-browser__section {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  overflow: hidden;
+  background: var(--ts-surface);
+}
+
+/* ── Section header — compact bar with icon + title + count ───────────── */
+
+.instructions-browser__section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--ts-surface-strong);
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.instructions-browser__section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ts-accent);
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.instructions-browser__section-title {
+  font-family: var(--ts-font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: 0.005em;
+}
+
+.instructions-browser__section-count {
+  font-family: var(--ts-font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--ts-text-soft);
+  background: var(--ts-surface-strong);
+  padding: 0 0.3rem;
+  border-radius: var(--ts-radius-pill);
+  line-height: 1.5;
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+/* ── Section body ─────────────────────────────────────────────────────── */
+
+.instructions-browser__section-body {
+  padding: 0;
+}
+
+.instructions-browser__empty {
+  padding: 0.55rem 0.6rem;
+  color: var(--ts-text-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+/* ── File row — compact, sleek list item ──────────────────────────────── */
+
+.instructions-browser__file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.6rem;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--ts-border);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--ts-text);
+  transition:
+    background 140ms var(--ts-ease),
+    border-left-color 140ms var(--ts-ease),
+    color 140ms var(--ts-ease);
+}
+
+.instructions-browser__file-row:nth-child(odd) {
+  background: color-mix(in srgb, var(--ts-surface-alt) 25%, var(--ts-surface));
+}
+
+.instructions-browser__file-row:last-child {
+  border-bottom: none;
+}
+
+.instructions-browser__file-row:hover {
+  background: var(--ts-bg-hover);
+  border-left-color: var(--ts-accent);
+}
+
+.instructions-browser__file-row:active {
+  background: color-mix(in srgb, var(--ts-accent) 5%, var(--ts-bg-hover));
+}
+
+.instructions-browser__file-row:focus-visible {
+  outline: none;
+  border-left-color: var(--ts-accent);
+  box-shadow: inset 0 0 0 1px var(--ts-accent-subtle);
+}
+
+.instructions-browser__file-row--loading {
+  border-left-color: var(--ts-accent);
+}
+
+.instructions-browser__file-row--loading .instructions-browser__file-icon {
+  animation: instrFileLoadPulse 600ms ease-in-out infinite alternate;
+}
+
+@keyframes instrFileLoadPulse {
+  from { opacity: 0.3; }
+  to   { opacity: 1; }
+}
+
+/* ── File row content ─────────────────────────────────────────────────── */
+
+.instructions-browser__file-icon {
+  flex-shrink: 0;
+  color: var(--ts-text-soft);
+  opacity: 0.5;
+  transition: color 140ms var(--ts-ease);
+}
+
+.instructions-browser__file-row:hover .instructions-browser__file-icon {
+  color: var(--ts-accent);
+  opacity: 0.8;
+}
+
+.instructions-browser__file-name {
+  font-family: var(--ts-font-mono);
+  font-size: 0.73rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.instructions-browser__dirty-indicator {
+  font-family: var(--ts-font-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: var(--ts-accent);
+  background: var(--ts-accent-tint);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--ts-radius-pill);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.instructions-browser__file-chevron {
+  flex-shrink: 0;
+  color: var(--ts-text-soft);
+  opacity: 0;
+  transition: opacity 140ms var(--ts-ease), transform 140ms var(--ts-ease);
+}
+
+.instructions-browser__file-row:hover .instructions-browser__file-chevron {
+  opacity: 0.5;
+  transform: translateX(1px);
+}
+
+/* ── Footer file count ────────────────────────────────────────────────── */
+
+.instructions-browser__file-count {
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--ts-text-soft);
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  background: var(--ts-surface-alt);
+  border-radius: var(--ts-radius-pill);
+  border: 1px solid var(--ts-border);
+}
+
+/* ── Shimmer loading ──────────────────────────────────────────────────── */
+
+.instructions-browser__shimmer-label {
+  width: 80px;
+  height: 10px;
+  border-radius: var(--ts-radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--ts-surface-strong) 0%,
+    color-mix(in srgb, var(--ts-surface-strong) 70%, var(--ts-surface-alt)) 50%,
+    var(--ts-surface-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: instrShimmer 1.6s ease-in-out infinite;
+}
+
+.instructions-browser__shimmer-row {
+  height: 32px;
+  margin: 0 0.7rem;
+  border-bottom: 1px solid var(--ts-border);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ts-surface-alt) 50%,
+    transparent 100%
+  );
+  background-size: 300% 100%;
+  animation: instrShimmer 2s ease-in-out infinite;
+}
+
+.instructions-browser__shimmer-row:last-child {
+  border-bottom: none;
+}
+
+@keyframes instrShimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Editor styles
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Editor: Dirty indicator ──────────────────────────────────────────── */
+
+.instructions-editor__dirty-dot {
+  color: var(--ts-accent);
+  margin-right: 0.25rem;
+  font-size: 0.7rem;
+  animation: instrDirtyPulse 2s ease-in-out infinite;
+}
+
+@keyframes instrDirtyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Editor: Textarea — dark code-editor surface ──────────────────────── */
+
+.instructions-editor__textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 320px;
+  resize: none;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: var(--ts-font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  transition:
+    border-color 200ms var(--ts-ease),
+    box-shadow 200ms var(--ts-ease);
+}
+
+.instructions-editor__textarea:focus {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 0 0 2px color-mix(in srgb, var(--ts-accent) 18%, transparent),
+    0 0 12px color-mix(in srgb, var(--ts-accent) 8%, transparent);
+}
+
+.instructions-editor__textarea::selection {
+  background: color-mix(in srgb, var(--ts-accent) 25%, transparent);
+}
+
+.instructions-editor__textarea::-webkit-scrollbar { width: var(--ts-scrollbar-width); }
+.instructions-editor__textarea::-webkit-scrollbar-track { background: transparent; }
+.instructions-editor__textarea::-webkit-scrollbar-thumb {
+  background: var(--ts-scrollbar-thumb);
+  border-radius: var(--ts-radius-pill);
+}
+.instructions-editor__textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--ts-scrollbar-thumb-hover);
+}
+
+/* ── Editor: Line count ───────────────────────────────────────────────── */
+
+.instructions-editor__line-count {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--terminal-text-muted);
+  padding: 0.35rem 0 0;
+  letter-spacing: 0.02em;
+}
+
+.instructions-editor__line-count::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--terminal-text-muted);
+  opacity: 0.5;
+}
+
+/* ── Editor: Footer actions ───────────────────────────────────────────── */
+
+.instructions-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+/* ── Editor: Keyboard hint ────────────────────────────────────────────── */
+
+.instructions-editor__kbd {
+  display: inline-block;
+  padding: 0.05rem 0.3rem;
+  font-family: var(--ts-font-mono);
+  font-size: 0.58rem;
+  color: var(--terminal-text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  line-height: 1.4;
+}

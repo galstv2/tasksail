@@ -56,6 +56,9 @@ const DESKTOP_ACTION_NAMES = [
   'services.startBackend',
   'services.stopBackend',
   'services.healthCheck',
+  'agentInstructions.listFiles',
+  'agentInstructions.readFile',
+  'agentInstructions.writeFile',
 ] as const;
 
 const COMPOSER_STAGES = ['compose', 'preview', 'confirm'] as const;
@@ -809,6 +812,32 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'services.stopBackend':
     case 'services.healthCheck':
       return [];
+    case 'agentInstructions.listFiles': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const dirs = ['profiles', 'instructions', 'prompts'] as const;
+      if (!isOneOf(request.payload.directory, dirs)) {
+        return ['payload.directory must be profiles, instructions, or prompts.'];
+      }
+      return [];
+    }
+    case 'agentInstructions.readFile': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.relativePath)) {
+        return ['payload.relativePath must be a non-empty string.'];
+      }
+      return [];
+    }
+    case 'agentInstructions.writeFile': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.relativePath)) {
+        errors.push('payload.relativePath must be a non-empty string.');
+      }
+      if (!isString(request.payload.content)) {
+        errors.push('payload.content must be a string.');
+      }
+      return errors;
+    }
     default:
       return ['action must be one of the approved desktop actions.'];
   }

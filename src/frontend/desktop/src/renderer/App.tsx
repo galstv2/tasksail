@@ -1,5 +1,8 @@
 import AgentConfigModal from './components/AgentConfigModal';
+import AgentInstructionsBrowser from './components/AgentInstructionsBrowser';
+import AgentInstructionsEditor from './components/AgentInstructionsEditor';
 import AgentConfigRail from './components/AgentConfigRail';
+import InstructionsRail from './components/InstructionsRail';
 import ConfigRailStack from './components/ConfigRailStack';
 import ContextPackSidebar from './components/ContextPackSidebar';
 import TaskBoard from './components/taskboard/TaskBoard';
@@ -45,6 +48,9 @@ function AppContent(): JSX.Element {
     sidebarCollapsed,
     agentConfigModalProps,
     openAgentConfigModal,
+    instructionsBrowserProps,
+    instructionsEditorProps,
+    openAgentInstructionsModal,
     mcpConfigModalProps,
     openMcpConfigModal,
     enabledMcpServerCount,
@@ -98,11 +104,14 @@ function AppContent(): JSX.Element {
         <ConfigRailStack>
           <McpConfigRail enabledCount={enabledMcpServerCount} onClick={openMcpConfigModal} />
           <AgentConfigRail onClick={openAgentConfigModal} />
+          <InstructionsRail onClick={openAgentInstructionsModal} />
         </ConfigRailStack>
       </div>
       <PlannerModal {...plannerModalProps} />
       <ContextPackCreationModal {...contextPackCreationModalProps} />
       <AgentConfigModal {...agentConfigModalProps} />
+      <AgentInstructionsBrowser {...instructionsBrowserProps} />
+      <AgentInstructionsEditor {...instructionsEditorProps} />
       <McpConfigModal {...mcpConfigModalProps} />
       {reinforcementModalProps.isOpen && <ReinforcementModal {...reinforcementModalProps} />}
     </main>

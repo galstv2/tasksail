@@ -12,6 +12,7 @@ import { useToastContext } from '../contexts/ToastContext';
 import { useContextPackSelection } from './useContextPackSelection';
 import { useStreamEvents } from './useStreamEvents';
 import { useAgentConfigModal, type AgentConfigModalProps } from './useAgentConfigModal';
+import { useAgentInstructionsModal, type AgentInstructionsBrowserProps, type AgentInstructionsEditorProps } from './useAgentInstructionsModal';
 import { useMcpConfigModal, type McpConfigModalProps } from './useMcpConfigModal';
 import { usePlannerModal } from './usePlannerModal';
 import { useReinforcementModal, type ReinforcementModalProps } from './useReinforcementModal';
@@ -35,6 +36,9 @@ export type UseAppShellResult = {
   hasActiveContextPack: boolean;
   agentConfigModalProps: AgentConfigModalProps;
   openAgentConfigModal: () => void;
+  instructionsBrowserProps: AgentInstructionsBrowserProps;
+  instructionsEditorProps: AgentInstructionsEditorProps;
+  openAgentInstructionsModal: () => void;
   mcpConfigModalProps: McpConfigModalProps;
   openMcpConfigModal: () => void;
   enabledMcpServerCount: number;
@@ -90,6 +94,7 @@ export function useAppShell(
 
   const taskBoard = useTaskBoard(client);
   const { agentConfigModalProps, openAgentConfigModal } = useAgentConfigModal(client);
+  const { browserProps: instructionsBrowserProps, editorProps: instructionsEditorProps, openAgentInstructionsModal } = useAgentInstructionsModal(client);
   const { mcpConfigModalProps, openMcpConfigModal, enabledServerCount: enabledMcpServerCount } = useMcpConfigModal(client);
   const { reinforcementModalProps, openReinforcementModal } = useReinforcementModal(
     hasActiveContextPack,
@@ -165,6 +170,9 @@ export function useAppShell(
     hasActiveContextPack,
     agentConfigModalProps,
     openAgentConfigModal,
+    instructionsBrowserProps,
+    instructionsEditorProps,
+    openAgentInstructionsModal,
     mcpConfigModalProps,
     openMcpConfigModal,
     enabledMcpServerCount,

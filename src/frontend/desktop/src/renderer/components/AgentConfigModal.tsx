@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from 'react';
 
 import type { AgentConfigModalProps } from '../hooks/useAgentConfigModal';
+import ConfirmOverlay from './ConfirmOverlay';
+import { agentSpriteMap } from './sprites';
 
 function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
   const {
@@ -16,9 +18,12 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     error,
     isDirty,
     showRestartNotice,
+    pendingModelChange,
     onClose,
     onSelectTab,
     onAgentModelChange,
+    onConfirmModelChange,
+    onCancelModelChange,
     onNewModelDisplayNameChange,
     onNewModelIdChange,
     onAddModel,
@@ -49,6 +54,10 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
   if (!isOpen) {
     return null;
   }
+
+  const removingModel = removingModelId
+    ? models.find((m) => m.model_id === removingModelId)
+    : null;
 
   return (
     <div className="mcp-modal__overlay" onClick={onClose} role="presentation">
@@ -87,7 +96,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
           </button>
         </header>
 
-        <div className="mcp-modal__body">
+        <div className="mcp-modal__body agent-config__body">
           {error && (
             <div className="mcp-modal__error" role="alert">
               {error}
@@ -97,8 +106,15 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
             <div className="agent-config__loading">Loading agent configuration…</div>
           ) : activeTab === 'agents' ? (
             <ul className="agent-config__agent-list">
-              {agents.map((agent) => (
+              {agents.map((agent) => {
+                const SpriteComponent = agentSpriteMap[agent.agent_id as keyof typeof agentSpriteMap];
+                return (
                 <li key={agent.agent_id} className="agent-config__agent-row">
+                  {SpriteComponent && (
+                    <div className="agent-config__sprite" aria-hidden="true">
+                      <SpriteComponent size={40} />
+                    </div>
+                  )}
                   <div className="agent-config__agent-header">
                     <span className="agent-config__agent-name">{agent.human_name}</span>
                     <span className="mcp-modal__badge">{agent.role_name}</span>
@@ -124,7 +140,8 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                     </div>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           ) : (
             <>
@@ -145,35 +162,15 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                         <div className="agent-config__model-display">{model.display_name}</div>
                         <div className="agent-config__model-id">{model.model_id}</div>
                         <span className="mcp-modal__badge">{usageLabel}</span>
-                        {removingModelId === model.model_id ? (
-                          <span className="mcp-modal__confirm-remove">
-                            <span>Remove?</span>
-                            <button
-                              type="button"
-                              className="mcp-modal__btn mcp-modal__btn--danger"
-                              onClick={() => void onConfirmRemoveModel(model.model_id)}
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              type="button"
-                              className="mcp-modal__btn"
-                              onClick={onCancelRemoveModel}
-                            >
-                              Cancel
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="mcp-modal__btn mcp-modal__btn--danger"
-                            disabled={disabled}
-                            title={disabled ? `In use by ${model.inUseBy.join(', ')}` : 'Remove model'}
-                            onClick={() => onRemoveModel(model.model_id)}
-                          >
-                            Remove
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="mcp-modal__btn mcp-modal__btn--danger"
+                          disabled={disabled}
+                          title={disabled ? `In use by ${model.inUseBy.join(', ')}` : 'Remove model'}
+                          onClick={() => onRemoveModel(model.model_id)}
+                        >
+                          Remove
+                        </button>
                       </li>
                     );
                   })}
@@ -237,6 +234,52 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
             )}
           </div>
         </footer>
+
+        <ConfirmOverlay
+          visible={pendingModelChange !== null}
+          icon={
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ background: 'color-mix(in srgb, var(--ts-accent) 12%, transparent)', borderRadius: '50%', padding: 6 }}>
+              <path d="M7 16l-4-4 4-4" stroke="var(--ts-accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 12h14" stroke="var(--ts-accent)" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M17 8l4 4-4 4" stroke="var(--ts-accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M21 12H7" stroke="var(--ts-accent)" strokeWidth="1.6" strokeLinecap="round" opacity="0.3" />
+            </svg>
+          }
+          title="Change model assignment?"
+          body={pendingModelChange ? (
+            <>
+              Switch <strong>{pendingModelChange.agentName}</strong> from{' '}
+              <span className="agent-config__confirm-model">{pendingModelChange.fromModel}</span>{' '}
+              to{' '}
+              <span className="agent-config__confirm-model">{pendingModelChange.toModel}</span>
+            </>
+          ) : null}
+          cancelLabel="Cancel"
+          confirmLabel="Confirm"
+          confirmVariant="primary"
+          onCancel={onCancelModelChange}
+          onConfirm={onConfirmModelChange}
+        />
+
+        <ConfirmOverlay
+          visible={removingModelId !== null}
+          icon={
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ background: 'color-mix(in srgb, var(--ts-error) 12%, transparent)', borderRadius: '50%', padding: 6 }}>
+              <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="var(--ts-error)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 11v6M14 11v6" stroke="var(--ts-error)" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          }
+          title="Remove model?"
+          body={removingModel
+            ? <>Remove <strong>{removingModel.display_name}</strong> (<span className="agent-config__confirm-model">{removingModel.model_id}</span>) from the catalog? This cannot be undone.</>
+            : <>Remove this model from the catalog? This cannot be undone.</>}
+          cancelLabel="Keep Model"
+          confirmLabel="Remove"
+          confirmVariant="danger"
+          autoFocusCancel
+          onCancel={onCancelRemoveModel}
+          onConfirm={() => removingModelId && void onConfirmRemoveModel(removingModelId)}
+        />
       </div>
     </div>
   );

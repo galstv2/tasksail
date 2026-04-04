@@ -6,6 +6,9 @@ type DesktopShellSource = Window['desktopShell'] & {
   ) => Promise<unknown>;
   addModel: (displayName: string, modelId: string) => Promise<unknown>;
   removeModel: (modelId: string) => Promise<unknown>;
+  listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
+  readInstructionFile: (relativePath: string) => Promise<unknown>;
+  writeInstructionFile: (relativePath: string, content: string) => Promise<unknown>;
 };
 
 type DesktopShellClient = Pick<
@@ -46,6 +49,9 @@ type DesktopShellClient = Pick<
   | 'saveAgentModels'
   | 'addModel'
   | 'removeModel'
+  | 'listInstructionFiles'
+  | 'readInstructionFile'
+  | 'writeInstructionFile'
   | 'submitReinforcementFeedback'
   | 'updateRealignmentDoc'
   | 'readReinforcementOverview'
@@ -138,6 +144,9 @@ export function createDesktopShellClient(
     saveAgentModels: (assignments) => readShell().saveAgentModels(assignments),
     addModel: (displayName, modelId) => readShell().addModel(displayName, modelId),
     removeModel: (modelId) => readShell().removeModel(modelId),
+    listInstructionFiles: (directory) => readShell().listInstructionFiles(directory),
+    readInstructionFile: (relativePath) => readShell().readInstructionFile(relativePath),
+    writeInstructionFile: (relativePath, content) => readShell().writeInstructionFile(relativePath, content),
     submitReinforcementFeedback: (payload) => readShell().submitReinforcementFeedback(payload),
     updateRealignmentDoc: (payload) => readShell().updateRealignmentDoc(payload),
     readReinforcementOverview: () => readShell().readReinforcementOverview(),

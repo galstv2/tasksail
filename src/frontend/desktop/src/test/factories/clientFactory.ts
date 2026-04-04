@@ -590,6 +590,36 @@ export function createMockClient(
       ok: true,
       response: { action: 'services.readStatus', mode: 'observed', status: 'healthy', lastCheckedAt: null, error: null, message: 'Healthy.' },
     }),
+    listInstructionFiles: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentInstructions.listFiles',
+        mode: 'read-only',
+        message: '0 file(s) in profiles.',
+        files: [],
+      },
+    }),
+    readInstructionFile: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentInstructions.readFile',
+        mode: 'read-only',
+        message: 'Read file.',
+        fileName: '',
+        relativePath: '',
+        content: '',
+      },
+    }),
+    writeInstructionFile: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentInstructions.writeFile',
+        mode: 'mutated',
+        message: 'Saved file.',
+        fileName: '',
+        relativePath: '',
+      },
+    }),
     ...overrides,
   };
 }

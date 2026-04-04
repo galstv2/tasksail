@@ -36,6 +36,14 @@ export type AgentConfigCatalogRow = AgentConfigCatalogEntry & {
   inUseBy: string[];
 };
 
+export type PendingModelChange = {
+  agentId: string;
+  agentName: string;
+  fromModel: string;
+  toModel: string;
+  previousSelectedModelId: string;
+};
+
 export type AgentConfigModalProps = {
   isOpen: boolean;
   isLoading: boolean;
@@ -49,9 +57,12 @@ export type AgentConfigModalProps = {
   error: string | null;
   isDirty: boolean;
   showRestartNotice: boolean;
+  pendingModelChange: PendingModelChange | null;
   onClose: () => void;
   onSelectTab: (tab: AgentConfigTab) => void;
   onAgentModelChange: (agentId: string, modelId: string) => void;
+  onConfirmModelChange: () => void;
+  onCancelModelChange: () => void;
   onNewModelDisplayNameChange: (value: string) => void;
   onNewModelIdChange: (value: string) => void;
   onAddModel: () => Promise<void>;
@@ -179,6 +190,7 @@ export function useAgentConfigModal(
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRestartNotice, setShowRestartNotice] = useState(false);
+  const [pendingModelChange, setPendingModelChange] = useState<PendingModelChange | null>(null);
   const plannerStartupModelRef = useRef<string | null>(null);
 
   const loadConfig = useCallback(async () => {
@@ -242,15 +254,49 @@ export function useAgentConfigModal(
   }, []);
 
   const onAgentModelChange = useCallback((agentId: string, modelId: string) => {
+    const agent = agents.find((a) => a.agent_id === agentId);
+    if (!agent || agent.selected_model === modelId) return;
+
+    const fromDisplayName = models.find((m) => m.model_id === agent.selected_model)?.display_name ?? agent.selected_model;
+    const toDisplayName = models.find((m) => m.model_id === modelId)?.display_name ?? modelId;
+
+    setPendingModelChange({
+      agentId,
+      agentName: agent.human_name,
+      fromModel: fromDisplayName,
+      toModel: toDisplayName,
+      previousSelectedModelId: agent.selected_model,
+    });
+
+    // Optimistically apply so the <select> reflects the choice while the dialog is open
     setAgents((current) =>
-      current.map((agent) => (
-        agent.agent_id === agentId
-          ? { ...agent, selected_model: modelId }
-          : agent
+      current.map((a) => (
+        a.agent_id === agentId
+          ? { ...a, selected_model: modelId }
+          : a
       )),
     );
     setError(null);
+  }, [agents, models]);
+
+  const onConfirmModelChange = useCallback(() => {
+    // The change is already applied — just dismiss the dialog
+    setPendingModelChange(null);
   }, []);
+
+  const onCancelModelChange = useCallback(() => {
+    // Revert to the selection that was active before the optimistic update
+    if (pendingModelChange) {
+      setAgents((current) =>
+        current.map((a) => (
+          a.agent_id === pendingModelChange.agentId
+            ? { ...a, selected_model: pendingModelChange.previousSelectedModelId }
+            : a
+        )),
+      );
+    }
+    setPendingModelChange(null);
+  }, [pendingModelChange]);
 
   const onNewModelDisplayNameChange = useCallback((value: string) => {
     setNewModelDisplayName(value);
@@ -448,9 +494,12 @@ export function useAgentConfigModal(
       error,
       isDirty,
       showRestartNotice,
+      pendingModelChange,
       onClose,
       onSelectTab,
       onAgentModelChange,
+      onConfirmModelChange,
+      onCancelModelChange,
       onNewModelDisplayNameChange,
       onNewModelIdChange,
       onAddModel,

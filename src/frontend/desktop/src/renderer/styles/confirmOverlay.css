@@ -1,0 +1,71 @@
+.confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: inherit;
+  animation: confirmOverlayFadeIn 180ms var(--ts-ease) both;
+}
+
+@keyframes confirmOverlayFadeIn {
+  from { opacity: 0; backdrop-filter: blur(0); }
+  to { opacity: 1; backdrop-filter: blur(6px); }
+}
+
+.confirm-overlay__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.6rem 2rem;
+  max-width: 360px;
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-surface);
+  border: 1px solid var(--ts-border-strong);
+  box-shadow: var(--ts-shadow-xl);
+  animation: confirmOverlaySlideUp 220ms var(--ts-ease) both;
+  animation-delay: 40ms;
+}
+
+@keyframes confirmOverlaySlideUp {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.confirm-overlay__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+}
+
+.confirm-overlay__title {
+  margin: 0;
+  font-family: var(--ts-font-sans);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: -0.01em;
+}
+
+.confirm-overlay__body {
+  margin: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ts-text-muted);
+  max-width: 300px;
+}
+
+.confirm-overlay__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
