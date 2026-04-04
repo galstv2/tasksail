@@ -7,6 +7,7 @@ import {
   buildTestCapturePrompt,
   resolveTestCaptureCwd,
 } from './testCapture.js';
+import { appendFocusBlock } from './monolithFocusPrompt.js';
 
 /**
  * Check whether issues.md contains blocking severity findings.
@@ -112,12 +113,14 @@ export async function remediationClearCloseoutArtifacts(
 async function buildRemediationDaltonPrompt(
   issuesContent: string | undefined,
   implStepsDir: string,
+  primaryFocusRelativePath?: string,
 ): Promise<string> {
   const parts: string[] = [
     'You are running a remediation pass. QA found blocking issues with your previous implementation.',
     'Fix the issues identified below, then ensure all tests pass before exiting.',
     '',
   ];
+  appendFocusBlock(parts, primaryFocusRelativePath);
 
   if (issuesContent?.trim()) {
     parts.push('## QA Findings to Address\n');
@@ -144,6 +147,7 @@ export async function remediationRunQaLoop(options: {
   maxCycles?: number;
   repoRoot?: string;
   contextPackDir?: string;
+  primaryFocusRelativePath?: string;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
   const effectiveContextPackDir = options.contextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined;
@@ -157,6 +161,7 @@ export async function remediationRunQaLoop(options: {
     const remediationPrompt = await buildRemediationDaltonPrompt(
       priorFindings,
       paths.implementationSteps,
+      options.primaryFocusRelativePath,
     );
 
     try {
@@ -185,7 +190,10 @@ export async function remediationRunQaLoop(options: {
     if (!captureCwd) {
       console.warn('[remediation] target repo resolution failed; skipping orchestrator test capture.');
     }
-    const ronPromptOverride = buildTestCapturePrompt(captureResults);
+    const ronPromptOverride = buildTestCapturePrompt(
+      captureResults,
+      options.primaryFocusRelativePath,
+    );
 
     try {
       await runRoleAgent({

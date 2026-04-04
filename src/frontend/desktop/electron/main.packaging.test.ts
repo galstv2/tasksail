@@ -44,6 +44,9 @@ vi.mock('electron', () => ({
   BrowserWindow: BrowserWindowMock,
   dialog: dialogMock,
   ipcMain: ipcMainMock,
+  nativeImage: {
+    createFromPath: vi.fn().mockReturnValue({ isEmpty: () => false }),
+  },
 }));
 
 describe('cross-platform packaging utilities', () => {

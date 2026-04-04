@@ -66,4 +66,43 @@ describe('FocusAreaCard', () => {
     fireEvent.change(focusIdInput!, { target: { value: 'new-id' } });
     expect(onFocusAreaFieldChange).toHaveBeenCalledWith('f1', 'focusId', 'new-id');
   });
+
+  it('shows advisory warning for absolute relative paths', () => {
+    render(
+      <FocusAreaCard
+        {...defaultProps}
+        focusArea={{ ...focusArea, relativePath: '/services/core' }}
+      />,
+    );
+
+    expect(
+      screen.getByText('Relative path should not start with "/".'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows advisory warning for traversal relative paths', () => {
+    render(
+      <FocusAreaCard
+        {...defaultProps}
+        focusArea={{ ...focusArea, relativePath: '../services/core' }}
+      />,
+    );
+
+    expect(
+      screen.getByText('Relative path should not contain "..".'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows advisory warning when primary focus area has no relative path', () => {
+    render(
+      <FocusAreaCard
+        {...defaultProps}
+        focusArea={{ ...focusArea, primary: true, repositoryType: 'primary', relativePath: '   ' }}
+      />,
+    );
+
+    expect(
+      screen.getByText('Primary focus areas need a relative path.'),
+    ).toBeInTheDocument();
+  });
 });

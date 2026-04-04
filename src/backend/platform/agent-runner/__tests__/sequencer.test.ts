@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildFleetDaltonCleanupPrompt, buildFleetPrompt, detectWorkflowPath, detectParallelOk, getAgentOrder } from '../pipeline/sequencer.js';
+import {
+  buildFleetDaltonCleanupPrompt,
+  buildFleetPrompt,
+  buildSimpleDaltonPrompt,
+  detectWorkflowPath,
+  detectParallelOk,
+  getAgentOrder,
+} from '../pipeline/sequencer.js';
 
 function makeTmpDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'sequencer-test-'));
@@ -89,8 +96,11 @@ describe('buildFleetPrompt', () => {
     const dir = makeTmpDir();
     writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
     writeFileSync(path.join(dir, 'slice-2.md'), '# Slice 2\nDo the second thing.');
-    const prompt = await buildFleetPrompt(dir, dir);
+    const prompt = await buildFleetPrompt(dir, dir, 'services/sink');
     expect(prompt).toContain('fleet mode');
+    expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('## Slice: slice-1');
     expect(prompt).toContain('Do the first thing.');
     expect(prompt).toContain('## Slice: slice-2');
@@ -106,6 +116,7 @@ describe('buildFleetPrompt', () => {
     expect(prompt).toContain('## Slice: slice-1');
     expect(prompt).not.toContain('Template content');
     expect(prompt).not.toContain('slice-template');
+    expect(prompt).not.toContain('## Monolith Focus Scope');
   });
 });
 
@@ -121,8 +132,35 @@ describe('buildFleetDaltonCleanupPrompt', () => {
     const prompt = buildFleetDaltonCleanupPrompt(
       'Address the blocker in AgentWorkSpace/handoffs/issues.md.',
       'QA blocked by policy',
+      'services/sink',
     );
     expect(prompt).toContain('did not leave the workflow ready for QA');
+    expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Address the blocker in AgentWorkSpace/handoffs/issues.md.');
+  });
+});
+
+describe('buildSimpleDaltonPrompt', () => {
+  it('includes the shared monolith focus block when a primary focus path is provided', async () => {
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+
+    const prompt = await buildSimpleDaltonPrompt(dir, dir, 'services/sink');
+
+    expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Your launch CWD is already this folder.');
+    expect(prompt).toContain('implementation changes must stay within the selected focus area.');
+  });
+
+  it('preserves no-focus prompt behavior when no primary focus path is provided', async () => {
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+
+    const prompt = await buildSimpleDaltonPrompt(dir, dir);
+
+    expect(prompt).not.toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('Implement the changes described above.');
   });
 });

@@ -57,12 +57,17 @@ function SidebarScopeControls({
                 {selectedPack.focusTargets.map((target, index) => {
                   const inputId = `working-focus-${target.focusId}`;
                   const isChecked = selectedWorkingFocusIds.includes(target.focusId);
+                  const focusRowTitle = target.relativePath
+                    ? `${target.displayName} — ${target.relativePath}`
+                    : target.displayName;
+                  const showRelativePath =
+                    selectedPack.estateType !== 'distributed-platform' && !!target.relativePath;
                   return (
                     <label
                       key={target.focusId}
                       htmlFor={inputId}
                       className={classNames('scope-focus-row', isChecked && 'scope-focus-row--checked', index % 2 === 1 && 'scope-focus-row--alt')}
-                      title={target.displayName}
+                      title={focusRowTitle}
                     >
                       <input
                         id={inputId}
@@ -70,9 +75,12 @@ function SidebarScopeControls({
                         checked={isChecked}
                         onChange={() => onSelectWorkingFocus(target.focusId)}
                       />
-                      <span className="scope-focus-row__name" title={target.displayName}>
-                        {target.displayName}
-                      </span>
+                      <span className="scope-focus-row__name">{target.displayName}</span>
+                      {showRelativePath ? (
+                        <span className="scope-focus-row__path" title={target.relativePath ?? undefined}>
+                          {target.relativePath}
+                        </span>
+                      ) : null}
                       {(target.repositoryType || target.systemLayer) ? (
                         <span className="scope-focus-row__badges">
                           {target.repositoryType ? (

@@ -1,5 +1,3 @@
-import { useMemo } from 'react';
-
 import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
 import { classNames } from '../../utils/classNames';
 import { toTitleCase } from '../../utils/toTitleCase';
@@ -39,8 +37,12 @@ function ValidationIcon({ state }: { state: ValidationState }): JSX.Element {
   );
 }
 
+function isMonolithMode(mode: ReviewStepProps['draft']['mode']): boolean {
+  return mode === 'monolith';
+}
+
 function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
-  const checks = useMemo(() => [
+  const checks = [
     validationItem(
       'Context-pack destination',
       draft.contextPackDir.trim() ? 'pass' : 'fail',
@@ -69,15 +71,23 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
       'All repo names set',
       draft.repositories.every((r) => r.repoName.trim()) ? 'pass' : 'warn',
     ),
-    ...(draft.mode === 'monolith'
+    ...(isMonolithMode(draft.mode)
       ? [
           validationItem(
             'At least one focus area',
             draft.focusAreas.length > 0 ? 'pass' : 'fail',
           ),
+          validationItem(
+            'Primary focus area selected',
+            draft.focusAreas.some((focusArea) => focusArea.primary) ? 'pass' : 'warn',
+          ),
+          validationItem(
+            'Primary focus area has a relative path',
+            draft.focusAreas.some((f) => f.primary && f.relativePath.trim()) ? 'pass' : 'fail',
+          ),
         ]
       : []),
-  ], [draft]);
+  ];
 
   return (
     <div className="context-pack-modal__body">
@@ -120,7 +130,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
               </span>
             ))}
           </div>
-          {draft.mode === 'monolith' && draft.focusAreas.length > 0 ? (
+          {isMonolithMode(draft.mode) && draft.focusAreas.length > 0 ? (
             <>
               <h4>Focus areas</h4>
               <div className="context-pack-modal__repo-chips">
@@ -131,14 +141,17 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
                       'context-pack-modal__repo-chip',
                       focusArea.repositoryType === 'primary' && 'context-pack-modal__repo-chip--primary',
                     )}
-                  >
-                    {focusArea.repositoryType === 'primary' ? 'Primary \u2022 ' : 'Support \u2022 '}
-                    {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
-                    {focusArea.focusType ? (
-                      <span className="context-pack-modal__repo-chip__layer">
-                        {toTitleCase(focusArea.focusType)}
-                      </span>
-                    ) : null}
+                    >
+                      {focusArea.repositoryType === 'primary' ? 'Primary \u2022 ' : 'Support \u2022 '}
+                      {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
+                      {(focusArea.relativePath || focusArea.focusType) ? (
+                        <span className="context-pack-modal__repo-chip__layer">
+                          {[
+                            focusArea.relativePath,
+                            focusArea.focusType ? toTitleCase(focusArea.focusType) : null,
+                          ].filter(Boolean).join(' \u2022 ')}
+                        </span>
+                      ) : null}
                   </span>
                 ))}
               </div>

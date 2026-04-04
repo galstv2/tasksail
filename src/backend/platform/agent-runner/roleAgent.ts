@@ -9,6 +9,7 @@ import { buildAgentEnvironment, buildAutonomyEnvironment } from './environment.j
 import { runRuntimePolicyCheck, guardrailReceiptPath, writeGuardrailReceipt } from './guardrails.js';
 import { launchCopilot, waitForCopilotDetailed } from './processLifecycle.js';
 import { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } from '../context-pack/focusedRepo.js';
+import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { readTextFile } from '../core/io.js';
 import { buildAgentArtifactRemediationPrompt, checkAgentArtifactCompletion } from './artifactCompletion.js';
 import { computeRuntimeFactsSourceSignature } from './runtimeFacts.js';
@@ -192,6 +193,22 @@ function incompleteArtifactOwnerLabel(agentId: RunRoleAgentOptions['agentId']): 
   if (agentId === 'dalton') return 'Dalton';
   if (agentId === 'ron') return 'Ron';
   return agentId;
+}
+
+function resolveDaltonLaunchCwd(focused: FocusedRepoResult): string {
+  if (!focused.primaryFocusRelativePath) {
+    return focused.primaryRepoRoot;
+  }
+
+  const focusCwd = path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
+  if (!existsSync(focusCwd)) {
+    throw new Error(
+      `Cannot launch agent "dalton": selected monolith focus subfolder "${focused.primaryFocusRelativePath}" ` +
+      `does not exist at "${focusCwd}".`,
+    );
+  }
+
+  return focusCwd;
 }
 
 function buildArtifactCleanupPrompt(options: {
@@ -520,7 +537,9 @@ export async function runRoleAgent(
         autonomyArgs.allowedDirs.push(root);
       }
       if (usesFocusedRepoLaunch) {
-        agentCwd = focused.primaryRepoRoot;
+        agentCwd = enforcesSelectedPrimaryBoundary
+          ? resolveDaltonLaunchCwd(focused)
+          : focused.primaryRepoRoot;
         autonomyArgs.allowedDirs.push(paths.repoRoot);
       }
       if (enforcesSelectedPrimaryBoundary) {

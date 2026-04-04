@@ -7,6 +7,9 @@ vi.mock('electron', () => ({
   BrowserWindow: vi.fn(),
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: { handle: vi.fn() },
+  nativeImage: {
+    createFromPath: vi.fn().mockReturnValue({ isEmpty: () => false }),
+  },
 }));
 
 import { listArchivedTasksAction } from './main.archivedTasks';

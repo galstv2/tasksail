@@ -21,6 +21,18 @@ function FocusAreaCard({
   onSetPrimaryFocusArea,
   onRemoveFocusArea,
 }: FocusAreaCardProps): JSX.Element {
+  const trimmedRelativePath = focusArea.relativePath.trim();
+  const relativePathWarning =
+    focusArea.relativePath.startsWith('/')
+      ? 'Relative path should not start with "/".'
+      : focusArea.relativePath.includes('..')
+        ? 'Relative path should not contain "..".'
+        : trimmedRelativePath.endsWith('/')
+          ? 'Relative path should not end with "/".'
+          : focusArea.primary && !trimmedRelativePath
+            ? 'Primary focus areas need a relative path.'
+            : null;
+
   return (
     <article className="context-pack-modal__editor-card">
       <div className="panel__title-row context-pack-modal__card-header">
@@ -77,6 +89,11 @@ function FocusAreaCard({
               onFocusAreaFieldChange(focusArea.key, 'relativePath', event.target.value)
             }
           />
+          {relativePathWarning ? (
+            <span className="panel__meta" role="status">
+              {relativePathWarning}
+            </span>
+          ) : null}
         </label>
         <label className="composer-field">
           <span>Focus type</span>

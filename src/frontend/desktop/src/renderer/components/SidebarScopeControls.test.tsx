@@ -183,4 +183,31 @@ describe('SidebarScopeControls', () => {
 
     expect(screen.getByRole('button', { name: 'Primary' })).toBeInTheDocument();
   });
+
+  it('shows the relative path and combined tooltip for monolith focus rows', () => {
+    render(
+      <SidebarScopeControls
+        {...defaultProps}
+        selectedPack={makePack({
+          estateType: 'monolith',
+          focusTargets: [
+            {
+              ...makePack().focusTargets[0],
+              focusId: 'focus-1',
+              displayName: 'Core Module',
+              kind: 'focus-area',
+              repoId: null,
+              systemLayer: null,
+              focusType: 'service',
+              repositoryType: 'primary',
+              relativePath: 'services/core-module',
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('services/core-module')).toBeInTheDocument();
+    expect(screen.getByTitle('Core Module — services/core-module')).toBeInTheDocument();
+  });
 });

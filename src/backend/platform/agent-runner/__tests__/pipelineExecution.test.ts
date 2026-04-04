@@ -15,12 +15,18 @@ const prewarmPipelineContext = vi.fn();
 const remediationHasBlockingFindings = vi.fn();
 const remediationRunQaLoop = vi.fn();
 const captureRetryBaseline = vi.fn();
+const nowIsoCompact = vi.fn(() => '2026-03-26T00-00-00Z');
+const readEnvAssignment = vi.fn(() => undefined);
+const safeJsonParse = vi.fn((content: string) => JSON.parse(content));
 
 vi.mock('../../core/index.js', () => ({
   readTextFile,
   resolvePaths,
   writeTextFile,
   ensureDir,
+  nowIsoCompact,
+  readEnvAssignment,
+  safeJsonParse,
   STANDARD_AGENT_ORDER: ['alice', 'dalton', 'ron'],
   FAST_PATH_AGENT_ORDER: ['alice', 'dalton', 'ron'],
 }));

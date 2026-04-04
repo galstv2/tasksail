@@ -49,7 +49,11 @@ describe('remediationRunQaLoop', () => {
     const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
 
     await expect(
-      remediationRunQaLoop({ repoRoot, maxCycles: 1 }),
+      remediationRunQaLoop({
+        repoRoot,
+        maxCycles: 1,
+        primaryFocusRelativePath: 'services/sink',
+      }),
     ).rejects.toThrow('failed during QA revalidation');
     expect(
       readFileSync(
@@ -57,10 +61,18 @@ describe('remediationRunQaLoop', () => {
         'utf-8',
       ),
     ).toBe(originalIssues);
+    expect(runRoleAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      agentId: 'dalton',
+      promptOverride: expect.stringContaining('Primary focus path: `services/sink`'),
+    }));
+    expect(runRoleAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      agentId: 'ron',
+      promptOverride: expect.stringContaining('This prompt does not change your launch CWD or broader QA authority.'),
+    }));
   });
 
   it('fails closed when blocking findings remain after max cycles', async () => {
-    const blockingIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\nblocking\n';
+    const blockingIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Review Outcome\n\nblocking\n\n## Findings\n\n- Still blocked\n';
     writeIssuesFile(repoRoot, blockingIssues);
     runRoleAgent.mockImplementation(async ({ agentId }: { agentId: string }) => {
       if (agentId === 'ron') {
@@ -74,5 +86,27 @@ describe('remediationRunQaLoop', () => {
     await expect(
       remediationRunQaLoop({ repoRoot, maxCycles: 2 }),
     ).rejects.toThrow('blocking findings remain');
+  });
+
+  it('preserves remediation prompt behavior when no monolith focus path is provided', async () => {
+    const originalIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\nblocking\n';
+    writeIssuesFile(repoRoot, originalIssues);
+    runRoleAgent
+      .mockResolvedValueOnce({ exitCode: 0, agentId: 'dalton', durationMs: 1 })
+      .mockRejectedValueOnce(new Error('qa crashed'));
+
+    const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
+
+    await expect(
+      remediationRunQaLoop({ repoRoot, maxCycles: 1 }),
+    ).rejects.toThrow('failed during QA revalidation');
+    expect(runRoleAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      agentId: 'dalton',
+      promptOverride: expect.not.stringContaining('## Monolith Focus Scope'),
+    }));
+    expect(runRoleAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      agentId: 'ron',
+      promptOverride: expect.not.stringContaining('## Monolith Focus Scope'),
+    }));
   });
 });

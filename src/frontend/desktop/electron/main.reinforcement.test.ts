@@ -18,6 +18,9 @@ vi.mock('electron', () => {
     BrowserWindow: BW,
     dialog: { showOpenDialog: vi.fn() },
     ipcMain: { handle: vi.fn() },
+    nativeImage: {
+      createFromPath: vi.fn().mockReturnValue({ isEmpty: () => false }),
+    },
   };
 });
 

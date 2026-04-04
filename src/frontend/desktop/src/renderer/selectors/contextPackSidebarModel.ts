@@ -109,7 +109,7 @@ export function buildFocusHint(args: {
     return 'Only the selected repos are included in the workspace.';
   }
 
-  return 'Only the selected focus areas are included in the workspace.';
+  return 'The Primary focus area determines where agents run. Other selected areas are visible but not the working directory.';
 }
 
 export function summarizeSwitchResult(

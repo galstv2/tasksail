@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const existsSync = vi.fn();
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    existsSync,
+  };
+});
+
 vi.mock('../metadata.js', () => ({
   loadAgentRegistry: vi.fn(),
   resolveAgentProfile: vi.fn(),
@@ -114,6 +124,7 @@ const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
 const mockedWriteSessionTerminalReceipt = vi.mocked(writeSessionTerminalReceipt);
 const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot);
 const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChanges);
+const mockedExistsSync = vi.mocked(existsSync);
 
 /** Shared mock setup used by all describe blocks. */
 function setupCommonMocks(): void {
@@ -985,6 +996,56 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     );
   });
 
+  it('launches Dalton from the selected monolith focus subfolder when present', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    const autonomyArgs = {
+      model: 'gpt-4.1',
+      allowTools: [],
+      denyTools: [],
+      allowedDirs: [],
+      additionalFlags: [],
+    };
+    mockedResolveAutonomyProfile.mockReturnValue(autonomyArgs);
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoId: 'mono',
+      primaryRepoRoot: '/ctx/mono',
+      primaryFocusId: 'sink',
+      primaryFocusRelativePath: 'services/sink',
+      visibleRepoRoots: ['/ctx/mono'],
+      declaredRepoRoots: ['/ctx/mono'],
+      estateType: 'monolith',
+      selectedRepoIds: ['mono'],
+      selectedFocusIds: ['sink'],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedExistsSync.mockImplementation((candidate: string) => candidate === '/ctx/mono/services/sink');
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchCopilot.mockReturnValue(fakeChild);
+    mockedWaitForCopilotDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    await runRoleAgent({
+      agentId: 'dalton',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    });
+
+    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchOpts = launchCall[1] as { cwd: string };
+    expect(launchOpts.cwd).toBe('/ctx/mono/services/sink');
+    expect(autonomyArgs.allowedDirs).toEqual([
+      '/repo/AgentWorkSpace',
+      '/ctx/mono',
+      '/repo',
+    ]);
+  });
+
   it('fails closed when Dalton cannot resolve an authoritative selected primary boundary', async () => {
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
@@ -994,6 +1055,33 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
+    expect(mockedLaunchCopilot).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the selected monolith focus subfolder is missing on disk', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoId: 'mono',
+      primaryRepoRoot: '/ctx/mono',
+      primaryFocusId: 'sink',
+      primaryFocusRelativePath: 'services/sink',
+      visibleRepoRoots: ['/ctx/mono'],
+      declaredRepoRoots: ['/ctx/mono'],
+      estateType: 'monolith',
+      selectedRepoIds: ['mono'],
+      selectedFocusIds: ['sink'],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedExistsSync.mockReturnValue(false);
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    })).rejects.toThrow(
+      'Cannot launch agent "dalton": selected monolith focus subfolder "services/sink" does not exist at "/ctx/mono/services/sink".',
+    );
     expect(mockedLaunchCopilot).not.toHaveBeenCalled();
   });
 

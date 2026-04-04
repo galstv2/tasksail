@@ -1,5 +1,6 @@
 import { readImplSpec } from './sequencer.js';
 import { collectSliceValidationCommands } from './testCapture.js';
+import { appendFocusBlock } from './monolithFocusPrompt.js';
 
 /**
  * Build the prompt for the verification Dalton pass.
@@ -12,6 +13,7 @@ import { collectSliceValidationCommands } from './testCapture.js';
 export function buildVerificationDaltonPrompt(
   implSpecContent: string,
   validationCommands: string[],
+  primaryFocusRelativePath?: string,
 ): string {
   const parts: string[] = [
     'You are running a verification pass. Another engineer just completed implementation',
@@ -30,6 +32,7 @@ export function buildVerificationDaltonPrompt(
     'Do NOT exit until the build passes, all tests pass, and all validation commands succeed.',
     '',
   ];
+  appendFocusBlock(parts, primaryFocusRelativePath);
 
   if (validationCommands.length > 0) {
     parts.push('## Validation Commands (run all of these)\n');
@@ -55,6 +58,7 @@ export function buildVerificationDaltonPrompt(
 export async function resolveVerificationDaltonPrompt(
   handoffsDir: string,
   implStepsDir: string,
+  primaryFocusRelativePath?: string,
 ): Promise<string | undefined> {
   const [content, commands] = await Promise.all([
     readImplSpec(handoffsDir),
@@ -63,5 +67,5 @@ export async function resolveVerificationDaltonPrompt(
   if (!content?.trim()) {
     return undefined;
   }
-  return buildVerificationDaltonPrompt(content, commands);
+  return buildVerificationDaltonPrompt(content, commands, primaryFocusRelativePath);
 }

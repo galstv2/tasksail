@@ -76,7 +76,7 @@ describe('ReviewStep', () => {
       mode: 'monolith',
       repositories: [createRepositoryEntry()],
       focusAreas: [
-        createFocusAreaEntry({ focusName: 'Core Module', focusType: 'service', repositoryType: 'primary', primary: true }),
+        createFocusAreaEntry({ focusName: 'Core Module', focusType: 'service', repositoryType: 'primary', primary: true, relativePath: 'services/core' }),
         createFocusAreaEntry({ focusName: 'Docs', focusType: 'docs', repositoryType: 'support', primary: false }),
       ],
     };
@@ -85,6 +85,59 @@ describe('ReviewStep', () => {
 
     expect(screen.getByText(/Primary • Core Module/)).toBeInTheDocument();
     expect(screen.getByText(/Support • Docs/)).toBeInTheDocument();
+    expect(screen.getByText(/services\/core/)).toBeInTheDocument();
+  });
+
+  it('shows monolith primary focus validation checks', () => {
+    const draft: ContextPackCreationDraft = {
+      ...INITIAL_DRAFT,
+      mode: 'monolith',
+      repositories: [createRepositoryEntry({ repoRoot: '/repo', repoName: 'mono', primary: true })],
+      focusAreas: [
+        createFocusAreaEntry({ focusName: 'Core Module', primary: true, repositoryType: 'primary', relativePath: 'services/core' }),
+      ],
+    };
+
+    render(<ReviewStep draft={draft} />);
+
+    expect(screen.getByText('Primary focus area selected')).toBeInTheDocument();
+    expect(screen.getByText('Primary focus area has a relative path')).toBeInTheDocument();
+  });
+
+  it('warns when no primary focus area is selected', () => {
+    const draft: ContextPackCreationDraft = {
+      ...INITIAL_DRAFT,
+      mode: 'monolith',
+      repositories: [createRepositoryEntry()],
+      focusAreas: [
+        createFocusAreaEntry({ focusName: 'Core Module', primary: false, repositoryType: 'support', relativePath: 'services/core' }),
+      ],
+    };
+
+    const { container } = render(<ReviewStep draft={draft} />);
+    const selectedItem = Array.from(
+      container.querySelectorAll('.context-pack-modal__validation-item'),
+    ).find((item) => item.textContent?.includes('Primary focus area selected'));
+
+    expect(selectedItem).toHaveClass('context-pack-modal__validation-item--warn');
+  });
+
+  it('fails when the primary focus area is missing a relative path', () => {
+    const draft: ContextPackCreationDraft = {
+      ...INITIAL_DRAFT,
+      mode: 'monolith',
+      repositories: [createRepositoryEntry()],
+      focusAreas: [
+        createFocusAreaEntry({ focusName: 'Core Module', primary: true, repositoryType: 'primary', relativePath: '   ' }),
+      ],
+    };
+
+    const { container } = render(<ReviewStep draft={draft} />);
+    const relativePathItem = Array.from(
+      container.querySelectorAll('.context-pack-modal__validation-item'),
+    ).find((item) => item.textContent?.includes('Primary focus area has a relative path'));
+
+    expect(relativePathItem).toHaveClass('context-pack-modal__validation-item--fail');
   });
 
   it('hides focus area validation in distributed mode', () => {

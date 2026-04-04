@@ -509,7 +509,7 @@ describe("App", () => {
     const rail = screen.getByLabelText('Configuration rail');
     expect(rail).toBeTruthy();
     expect(rail.classList.contains('config-rail')).toBe(true);
-    expect(rail.querySelectorAll('button')).toHaveLength(2);
+    expect(rail.querySelectorAll('button')).toHaveLength(3);
   });
 
   it('CSS enforces fixed 40px rail width', async () => {

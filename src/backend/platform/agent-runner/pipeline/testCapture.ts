@@ -1,7 +1,10 @@
+import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { readTextFile, extractMarkdownSection, getErrorMessage } from '../../core/index.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
+import { appendFocusBlock } from './monolithFocusPrompt.js';
 
 export interface TestCaptureResult {
   command: string;
@@ -9,6 +12,21 @@ export interface TestCaptureResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+}
+
+export function resolveTestCaptureCwdFromFocused(
+  focused: { primaryRepoRoot: string; primaryFocusRelativePath?: string } | undefined,
+): string | undefined {
+  if (!focused) {
+    return undefined;
+  }
+
+  if (!focused.primaryFocusRelativePath) {
+    return focused.primaryRepoRoot;
+  }
+
+  const focusCwd = path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
+  return existsSync(focusCwd) ? focusCwd : undefined;
 }
 
 export async function resolveTestCaptureCwd(options: {
@@ -23,7 +41,7 @@ export async function resolveTestCaptureCwd(options: {
     options.contextPackDir,
     options.repoRoot,
   );
-  return focused?.primaryRepoRoot;
+  return resolveTestCaptureCwdFromFocused(focused);
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000; // 2 minutes per command
@@ -187,13 +205,21 @@ export async function captureSliceValidation(
 /**
  * Build the prompt override string for Ron with test evidence.
  */
-export function buildTestCapturePrompt(results: TestCaptureResult[]): string {
+export function buildTestCapturePrompt(
+  results: TestCaptureResult[],
+  primaryFocusRelativePath?: string,
+): string {
   const evidence = formatTestCaptureForPrompt(results);
-  return [
+  const parts = [
     'Review the code changes and orchestrator test results below.',
     '',
-    evidence,
-  ].join('\n');
+  ];
+  appendFocusBlock(parts, primaryFocusRelativePath, {
+    launchContextLine: 'Use this focus path as the primary implementation scope while reviewing the changes below.',
+    scopeLine: 'This prompt does not change your launch CWD or broader QA authority.',
+  });
+  parts.push(evidence);
+  return parts.join('\n');
 }
 
 /**

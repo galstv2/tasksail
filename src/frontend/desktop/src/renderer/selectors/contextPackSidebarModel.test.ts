@@ -151,7 +151,9 @@ describe('buildFocusHint', () => {
     const hint = buildFocusHint({
       selectedPack: makePack({ estateType: 'monolith' }),
     });
-    expect(hint).toContain('selected focus areas');
+    expect(hint).toBe(
+      'The Primary focus area determines where agents run. Other selected areas are visible but not the working directory.',
+    );
   });
 });
 

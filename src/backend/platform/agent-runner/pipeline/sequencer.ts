@@ -19,9 +19,10 @@ import { resolveVerificationDaltonPrompt } from './verificationPass.js';
 import {
   captureSliceValidation,
   buildTestCapturePrompt,
-  resolveTestCaptureCwd,
+  resolveTestCaptureCwdFromFocused,
   type TestCaptureResult,
 } from './testCapture.js';
+import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
 import {
@@ -29,6 +30,7 @@ import {
   pipelineKillSwitchExists,
   readPipelineKillRequest,
 } from './runtimeControl.js';
+import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 
 interface PipelineLock {
   release: () => Promise<void>;
@@ -102,13 +104,14 @@ function extractPolicyFailureDetails(
 export function buildFleetDaltonCleanupPrompt(
   artifactPrompt: string,
   policyDetails: string,
+  primaryFocusRelativePath?: string,
 ): string {
   const sections = [
     'Your previous Dalton fleet run did not leave the workflow ready for QA.',
     '',
-    `Blocking workflow-policy details: ${policyDetails}`,
-    '',
   ];
+  appendFocusBlock(sections, primaryFocusRelativePath);
+  sections.push(`Blocking workflow-policy details: ${policyDetails}`, '');
   if (artifactPrompt.trim()) {
     sections.push(artifactPrompt, '');
   } else {
@@ -154,6 +157,7 @@ export async function formatSliceSections(
 export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,
+  primaryFocusRelativePath?: string,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir);
   if (sliceFiles.length === 0) {
@@ -167,6 +171,7 @@ export async function buildFleetPrompt(
     'run in parallel vs. which must be sequential.',
     '',
   ];
+  appendFocusBlock(parts, primaryFocusRelativePath);
 
   const implSpec = await readImplSpec(handoffsDir);
   if (implSpec?.trim()) {
@@ -189,12 +194,14 @@ export async function buildFleetPrompt(
 export async function buildSimpleDaltonPrompt(
   implStepsDir: string,
   handoffsDir: string,
+  primaryFocusRelativePath?: string,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
 
   const implSpec = await readImplSpec(handoffsDir);
 
   const parts: string[] = [];
+  appendFocusBlock(parts, primaryFocusRelativePath);
 
   if (implSpec?.trim()) {
     parts.push('## Implementation Spec\n');
@@ -411,16 +418,23 @@ export async function runPipelineSequence(
       let isFirstAgent = true;
       let skipNextEntryValidation = false;
       let testCaptureResults: TestCaptureResult[] = [];
-      const testCaptureCwd = await resolveTestCaptureCwd({
-        repoRoot: paths.repoRoot,
-        contextPackDir: effectiveContextPackDir,
-      });
+      const selectedPrimary = effectiveContextPackDir
+        ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
+        : undefined;
+      const primaryFocusRelativePath = selectedPrimary?.primaryFocusRelativePath;
+      const testCaptureCwd = effectiveContextPackDir
+        ? resolveTestCaptureCwdFromFocused(selectedPrimary)
+        : paths.repoRoot;
 
       // Shared post-Dalton logic: optional verification pass then test capture.
       let daltonRemediationActive = false;
       const runPostDaltonPasses = async (): Promise<TestCaptureResult[]> => {
         if (!daltonRemediationActive) {
-          const verificationPrompt = await resolveVerificationDaltonPrompt(paths.handoffs, paths.implementationSteps);
+          const verificationPrompt = await resolveVerificationDaltonPrompt(
+            paths.handoffs,
+            paths.implementationSteps,
+            primaryFocusRelativePath,
+          );
           if (verificationPrompt) {
             console.log('[pipeline] Launching Dalton verification pass.');
             const verifyStart = Date.now();
@@ -459,7 +473,11 @@ export async function runPipelineSequence(
             : await detectParallelOk(paths.handoffs);
 
           if (isComplex) {
-            const fleetPrompt = await buildFleetPrompt(paths.implementationSteps, paths.handoffs);
+            const fleetPrompt = await buildFleetPrompt(
+              paths.implementationSteps,
+              paths.handoffs,
+              primaryFocusRelativePath,
+            );
             await runRoleAgent({
               agentId: 'dalton',
               skipWorkflowValidation: false,
@@ -479,7 +497,11 @@ export async function runPipelineSequence(
                 abortSignal: abortController.signal,
               });
               const policyDetails = extractPolicyFailureDetails(qaPolicy);
-              const cleanupPrompt = buildFleetDaltonCleanupPrompt(artifactPrompt, policyDetails);
+              const cleanupPrompt = buildFleetDaltonCleanupPrompt(
+                artifactPrompt,
+                policyDetails,
+                primaryFocusRelativePath,
+              );
               await runRoleAgent({
                 agentId: 'dalton',
                 skipWorkflowValidation: true,
@@ -501,9 +523,16 @@ export async function runPipelineSequence(
 
         let agentPromptOverride: string | undefined;
         if (agentId === 'dalton') {
-          agentPromptOverride = await buildSimpleDaltonPrompt(paths.implementationSteps, paths.handoffs);
+          agentPromptOverride = await buildSimpleDaltonPrompt(
+            paths.implementationSteps,
+            paths.handoffs,
+            primaryFocusRelativePath,
+          );
         } else if (agentId === 'ron') {
-          agentPromptOverride = buildTestCapturePrompt(testCaptureResults);
+          agentPromptOverride = buildTestCapturePrompt(
+            testCaptureResults,
+            primaryFocusRelativePath,
+          );
         }
 
         await runRoleAgent({
@@ -531,6 +560,7 @@ export async function runPipelineSequence(
               maxCycles: maxRemediationCycles,
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
+              primaryFocusRelativePath,
             });
           }
         }
