@@ -1,6 +1,8 @@
 import { readImplSpec } from './sequencer.js';
 import { collectSliceValidationCommands } from './testCapture.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendMcpContextBlock } from './mcpPromptContext.js';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 /**
  * Build the prompt for the verification Dalton pass.
@@ -14,6 +16,7 @@ export function buildVerificationDaltonPrompt(
   implSpecContent: string,
   validationCommands: string[],
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
   const parts: string[] = [
     'You are running a verification pass. Another engineer just completed implementation',
@@ -33,6 +36,7 @@ export function buildVerificationDaltonPrompt(
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
+  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (validationCommands.length > 0) {
     parts.push('## Validation Commands (run all of these)\n');
@@ -59,6 +63,7 @@ export async function resolveVerificationDaltonPrompt(
   handoffsDir: string,
   implStepsDir: string,
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string | undefined> {
   const [content, commands] = await Promise.all([
     readImplSpec(handoffsDir),
@@ -67,5 +72,10 @@ export async function resolveVerificationDaltonPrompt(
   if (!content?.trim()) {
     return undefined;
   }
-  return buildVerificationDaltonPrompt(content, commands, primaryFocusRelativePath);
+  return buildVerificationDaltonPrompt(
+    content,
+    commands,
+    primaryFocusRelativePath,
+    externalMcpRegistry,
+  );
 }

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolvePaths, getErrorMessage } from '../core/index.js';
-import type { RunRoleAgentOptions, AgentRunResult } from './types.js';
+import type { RunRoleAgentOptions, AgentRunResult, AgentMcpLaunchStatus } from './types.js';
 import { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } from './metadata.js';
 import { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } from './autonomy.js';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from './environment.js';
@@ -13,7 +13,11 @@ import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { readTextFile } from '../core/io.js';
 import { buildAgentArtifactRemediationPrompt, checkAgentArtifactCompletion } from './artifactCompletion.js';
 import { computeRuntimeFactsSourceSignature } from './runtimeFacts.js';
-import { captureCodeDiff } from './pythonHelpers.js';
+import {
+  captureCodeDiff,
+  prepareExternalMcpLaunchContext,
+  type ExternalMcpLaunchContext,
+} from './pythonHelpers.js';
 import { writeSessionStartReceipt, writeSessionTerminalReceipt } from './sessionReceipts.js';
 import {
   captureChangedPathsSnapshot,
@@ -280,6 +284,78 @@ async function refreshQaCodeDiff(options: {
       `Failed to generate QA code diff at ${outputPath}: ${result.stderr || result.stdout || 'unknown error'}`,
     );
   }
+}
+
+async function mergeExternalMcpLaunchEnvironment(options: {
+  agentId: RunRoleAgentOptions['agentId'];
+  repoRoot: string;
+  agentEnv: Record<string, string>;
+  abortSignal?: AbortSignal;
+}): Promise<ExternalMcpLaunchContext | undefined> {
+  try {
+    const launchContext = await prepareExternalMcpLaunchContext({
+      agentId: options.agentId,
+      repoRoot: options.repoRoot,
+      env: options.agentEnv,
+      abortSignal: options.abortSignal,
+    });
+    if (launchContext.injectionEnabled) {
+      Object.assign(options.agentEnv, launchContext.envExports);
+      return launchContext;
+    }
+    if (launchContext.status !== 'not-applicable') {
+      console.warn(
+        '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
+        `${launchContext.status}: ${launchContext.reason}`,
+      );
+    }
+    return launchContext;
+  } catch (err) {
+    console.warn(
+      '[roleAgent] external MCP launch context failed, continuing without MCP:',
+      getErrorMessage(err),
+    );
+    return undefined;
+  }
+}
+
+function summarizeExternalMcpLaunchContext(
+  launchContext: ExternalMcpLaunchContext | undefined,
+): AgentMcpLaunchStatus {
+  if (!launchContext) {
+    return {
+      status: 'unavailable',
+      reason: 'launch context helper failed',
+      injectionEnabled: false,
+      selectedServerIds: [],
+      excludedServerIds: [],
+    };
+  }
+
+  return {
+    status: launchContext.status,
+    reason: launchContext.reason,
+    injectionEnabled: launchContext.injectionEnabled,
+    selectedServerIds: [...launchContext.selectedServerIds],
+    excludedServerIds: [...launchContext.excludedServerIds],
+  };
+}
+
+function logExternalMcpLaunchStatus(
+  agentId: RunRoleAgentOptions['agentId'],
+  launchStatus: AgentMcpLaunchStatus,
+): void {
+  console.log(
+    '[roleAgent] MCP launch status:',
+    JSON.stringify({
+      agentId,
+      status: launchStatus.status,
+      injectionEnabled: launchStatus.injectionEnabled,
+      selectedServerIds: launchStatus.selectedServerIds,
+      excludedServerIds: launchStatus.excludedServerIds,
+      reason: launchStatus.reason,
+    }),
+  );
 }
 
 const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunRoleAgentOptions['agentId']>> = {
@@ -626,18 +702,7 @@ export async function runRoleAgent(
     options.contextPackDir,
   );
 
-  // 5. Dry-run: print command and return.
-  if (options.dryRun) {
-    const cmd = formatCopilotCommand(copilotArgs);
-    process.stdout.write(formatDryRunOutput(cmd));
-    return {
-      exitCode: 0,
-      agentId: options.agentId,
-      durationMs: Date.now() - startTime,
-    };
-  }
-
-  // 6. Build environment and launch copilot.
+  // 5. Build environment for the copilot launch.
   const agentEnv = buildAgentEnvironment(
     profile,
     options.contextPackDir,
@@ -651,6 +716,47 @@ export async function runRoleAgent(
 
   // 6b. Merge autonomy exports into env.
   Object.assign(agentEnv, autonomyEnv);
+
+  // 5b. Dry-run: print command and return before launch-time side effects.
+  if (options.dryRun) {
+    const cmd = formatCopilotCommand(copilotArgs);
+    process.stdout.write(formatDryRunOutput(cmd));
+    return {
+      exitCode: 0,
+      agentId: options.agentId,
+      durationMs: Date.now() - startTime,
+      mcpLaunch: {
+        status: 'not-run',
+        reason: 'dry-run launch skipped',
+        injectionEnabled: false,
+        selectedServerIds: [],
+        excludedServerIds: [],
+      },
+    };
+  }
+
+  const externalMcpLaunchContext = await mergeExternalMcpLaunchEnvironment({
+    agentId: options.agentId,
+    repoRoot: paths.repoRoot,
+    agentEnv,
+    abortSignal: options.abortSignal,
+  });
+  const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
+  logExternalMcpLaunchStatus(options.agentId, mcpLaunch);
+  if (externalMcpLaunchContext && externalMcpLaunchContext.status !== 'not-applicable') {
+    Object.assign(
+      agentEnv,
+      buildAutonomyEnvironment(
+        profile,
+        autonomyArgs,
+        agentCwd,
+        paths.repoRoot,
+        focused,
+        options.contextPackDir,
+        externalMcpLaunchContext,
+      ),
+    );
+  }
 
   // Preflight: verify that critical env-var paths are reachable before
   // launching the copilot. A missing handoffs dir means the agent will
@@ -1283,5 +1389,6 @@ export async function runRoleAgent(
     exitCode,
     agentId: options.agentId,
     durationMs,
+    mcpLaunch,
   };
 }

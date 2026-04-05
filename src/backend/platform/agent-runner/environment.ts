@@ -1,4 +1,5 @@
 import type { AgentProfile, CopilotArgs } from './types.js';
+import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
 import path from 'node:path';
@@ -70,6 +71,7 @@ export function buildAutonomyEnvironment(
   repoRoot: string,
   focused?: FocusedRepoResult,
   contextPackDir?: string,
+  externalMcpContext?: ExternalMcpLaunchContext,
 ): Record<string, string> {
   const boundaryKind = contextPackDir ? 'active-context-pack' : 'repo-root';
   const workingDirectory = cwd === repoRoot ? '.' : cwd;
@@ -105,6 +107,18 @@ export function buildAutonomyEnvironment(
     resolution_status: contextPackDir ? 'resolved' : 'missing-active-context-pack',
     context_pack_boundary_enforced: Boolean(contextPackDir),
   };
+  const externalMcpMetadata =
+    externalMcpContext && externalMcpContext.status !== 'not-applicable'
+      ? {
+          status: externalMcpContext.status,
+          reason: externalMcpContext.reason,
+          injectionEnabled: externalMcpContext.injectionEnabled,
+          selectedServerIds: externalMcpContext.selectedServerIds,
+          excludedServerIds: externalMcpContext.excludedServerIds,
+          contextFile: externalMcpContext.envExports['EXTERNAL_MCP_CONTEXT_FILE'] ?? null,
+          copilotHome: externalMcpContext.envExports['COPILOT_HOME'] ?? null,
+        }
+      : undefined;
   const payload = {
     profile_id: profile.autonomyProfile,
     label: autonomyLabel(profile.autonomyProfile),
@@ -117,6 +131,7 @@ export function buildAutonomyEnvironment(
       deny_tools: autonomyArgs.denyTools,
     },
     boundary_context: boundaryContext,
+    ...(externalMcpMetadata ? { external_mcp_context: externalMcpMetadata } : {}),
   };
 
   return {

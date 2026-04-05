@@ -88,6 +88,13 @@ describe('runPipelineSequence', () => {
       exitCode: 0,
       agentId: 'alice',
       durationMs: 1,
+      mcpLaunch: {
+        status: 'not-applicable',
+        reason: 'no external MCP servers apply to this agent',
+        injectionEnabled: false,
+        selectedServerIds: [],
+        excludedServerIds: [],
+      },
     });
     runRuntimePolicyCheck.mockResolvedValue({
       stdout: '',
@@ -137,6 +144,101 @@ describe('runPipelineSequence', () => {
       true,
       true,
     ]);
+  });
+
+  it('logs pipeline MCP registry status and writes per-agent MCP receipt data', async () => {
+    readTextFile.mockImplementation(async () => null);
+    runRoleAgent
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        agentId: 'alice',
+        durationMs: 1,
+        mcpLaunch: {
+          status: 'available',
+          reason: '1 external MCP server(s) injected',
+          injectionEnabled: true,
+          selectedServerIds: ['github'],
+          excludedServerIds: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        agentId: 'dalton',
+        durationMs: 1,
+        mcpLaunch: {
+          status: 'not-applicable',
+          reason: 'no external MCP servers apply to this agent',
+          injectionEnabled: false,
+          selectedServerIds: [],
+          excludedServerIds: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        agentId: 'ron',
+        durationMs: 1,
+        mcpLaunch: {
+          status: 'unavailable',
+          reason: 'launch context helper failed',
+          injectionEnabled: false,
+          selectedServerIds: [],
+          excludedServerIds: [],
+        },
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot });
+
+    const receiptRaw = await import('node:fs/promises').then(({ readFile }) => readFile(
+      path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-receipt.json'),
+      'utf-8',
+    ));
+    const receipt = JSON.parse(receiptRaw) as {
+      externalMcp?: {
+        registry: { status: string; reason: string; serverCount: number };
+        agents: Record<string, { status: string; reason: string; injectionEnabled: boolean }>;
+      };
+    };
+
+    expect(logSpy).toHaveBeenCalledWith(
+      '[pipeline] external MCP registry status:',
+      JSON.stringify({
+        status: 'degraded',
+        reason: 'registry not prewarmed',
+        serverCount: 0,
+      }),
+    );
+    expect(receipt.externalMcp).toEqual({
+      registry: {
+        status: 'degraded',
+        reason: 'registry not prewarmed',
+        serverCount: 0,
+      },
+      agents: {
+        alice: {
+          status: 'available',
+          reason: '1 external MCP server(s) injected',
+          injectionEnabled: true,
+          selectedServerIds: ['github'],
+          excludedServerIds: [],
+        },
+        dalton: {
+          status: 'not-applicable',
+          reason: 'no external MCP servers apply to this agent',
+          injectionEnabled: false,
+          selectedServerIds: [],
+          excludedServerIds: [],
+        },
+        ron: {
+          status: 'unavailable',
+          reason: 'launch context helper failed',
+          injectionEnabled: false,
+          selectedServerIds: [],
+          excludedServerIds: [],
+        },
+      },
+    });
   });
 
   it('sets internal orchestrator bypass env while the pipeline runs and restores prior values afterwards', async () => {

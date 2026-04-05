@@ -8,6 +8,8 @@ import {
   resolveTestCaptureCwd,
 } from './testCapture.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendMcpContextBlock } from './mcpPromptContext.js';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 /**
  * Check whether issues.md contains blocking severity findings.
@@ -114,6 +116,7 @@ async function buildRemediationDaltonPrompt(
   issuesContent: string | undefined,
   implStepsDir: string,
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string> {
   const parts: string[] = [
     'You are running a remediation pass. QA found blocking issues with your previous implementation.',
@@ -121,6 +124,7 @@ async function buildRemediationDaltonPrompt(
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
+  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (issuesContent?.trim()) {
     parts.push('## QA Findings to Address\n');
@@ -148,6 +152,7 @@ export async function remediationRunQaLoop(options: {
   repoRoot?: string;
   contextPackDir?: string;
   primaryFocusRelativePath?: string;
+  externalMcpRegistry?: ExternalMcpRegistry;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
   const effectiveContextPackDir = options.contextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined;
@@ -162,6 +167,7 @@ export async function remediationRunQaLoop(options: {
       priorFindings,
       paths.implementationSteps,
       options.primaryFocusRelativePath,
+      options.externalMcpRegistry,
     );
 
     try {
@@ -193,6 +199,7 @@ export async function remediationRunQaLoop(options: {
     const ronPromptOverride = buildTestCapturePrompt(
       captureResults,
       options.primaryFocusRelativePath,
+      options.externalMcpRegistry,
     );
 
     try {

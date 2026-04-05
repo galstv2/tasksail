@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +21,13 @@ from lib.role_agent.reinforcement_cmds import cmd_render_reinforcement_context  
 from lib.role_agent.code_diff import capture_code_diff  # noqa: E402
 from lib.role_agent.json_cmds import cmd_print_json_array_lines  # noqa: E402
 from lib.role_agent.metadata import cmd_resolve_agent_metadata  # noqa: E402
+from lib.role_agent.external_mcp import (  # noqa: E402
+    LaunchContext,
+    load_validated_external_mcp,
+    prepare_launch_context,
+    select_servers_for_agent,
+)
+from lib.role_agent.external_mcp.loader import ExternalMcpLoadError  # noqa: E402
 
 
 def _cmd_capture_code_diff(args: argparse.Namespace) -> int:
@@ -39,6 +47,45 @@ def _cmd_task_counter_position(args: argparse.Namespace) -> int:
     pack_dir = Path(pack_dir_str).resolve() if pack_dir_str else None
     counter = TaskCompletionCounter.from_context_pack_dir(root_dir, pack_dir)
     print(f"{counter.cycle_position()} {str(counter.is_retrospective_required()).lower()}")
+    return 0
+
+
+def _launch_context_payload(context: LaunchContext) -> dict[str, object]:
+    return {
+        "status": context.status,
+        "reason": context.reason,
+        "injectionEnabled": context.injection_enabled,
+        "envExports": context.env_exports(),
+        "selectedServerIds": [
+            str(server.get("id", "?")) for server in context.selected_servers
+        ],
+        "excludedServerIds": [str(server_id) for server_id in context.excluded_servers],
+    }
+
+
+def _cmd_prepare_external_mcp_launch_context(args: argparse.Namespace) -> int:
+    repo_root = Path(args.repo_root).resolve()
+
+    try:
+        registry = load_validated_external_mcp(repo_root)
+        servers = select_servers_for_agent(
+            registry.get("external_servers", []), args.agent_id,
+        )
+        context = prepare_launch_context(repo_root, args.agent_id, servers)
+    except ExternalMcpLoadError as exc:
+        context = LaunchContext(
+            status="malformed",
+            reason=str(exc),
+            injection_enabled=False,
+        )
+    except Exception as exc:
+        print(
+            f"[external-mcp] Unexpected error preparing launch context: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(json.dumps(_launch_context_payload(context)))
     return 0
 
 
@@ -94,6 +141,14 @@ def build_parser() -> argparse.ArgumentParser:
     diff_parser.add_argument("output_path")
     diff_parser.add_argument("--repo-root", default=None)
     diff_parser.set_defaults(func=_cmd_capture_code_diff)
+
+    external_mcp_parser = subparsers.add_parser("prepare-external-mcp-launch-context")
+    external_mcp_parser.add_argument("agent_id")
+    external_mcp_parser.add_argument(
+        "--repo-root", dest="repo_root",
+        default=str(Path(__file__).resolve().parents[4]),
+    )
+    external_mcp_parser.set_defaults(func=_cmd_prepare_external_mcp_launch_context)
 
     return parser
 

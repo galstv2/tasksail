@@ -91,6 +91,16 @@ export {
 } from './runtimeFacts.js';
 
 export { prewarmPipelineContext } from './pipeline/contextPrewarm.js';
+export {
+  getCachedExternalMcpRegistry,
+  prewarmExternalMcpRegistry,
+} from './pipeline/externalMcpRegistryCache.js';
+export {
+  buildMcpContextBlock,
+  buildMcpContextBlockFromServers,
+  appendMcpContextBlock,
+} from './pipeline/mcpPromptContext.js';
+export type { McpPromptContextOptions } from './pipeline/mcpPromptContext.js';
 
 export {
   remediationHasBlockingFindings,
@@ -101,6 +111,7 @@ export {
 // Python helpers
 export {
   captureCodeDiff,
+  prepareExternalMcpLaunchContext,
 } from './pythonHelpers.js';
 
 // Role agent entrypoint

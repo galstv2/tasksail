@@ -53,6 +53,7 @@ vi.mock('../processLifecycle.js', () => ({
 
 vi.mock('../pythonHelpers.js', () => ({
   captureCodeDiff: vi.fn(),
+  prepareExternalMcpLaunchContext: vi.fn(),
 }));
 
 vi.mock('../../context-pack/focusedRepo.js', () => ({
@@ -92,7 +93,7 @@ const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { launchCopilot, waitForCopilotDetailed } = await import('../processLifecycle.js');
-const { captureCodeDiff } = await import('../pythonHelpers.js');
+const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
@@ -115,6 +116,7 @@ const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRep
 const mockedLaunchCopilot = vi.mocked(launchCopilot);
 const mockedWaitForCopilotDetailed = vi.mocked(waitForCopilotDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
+const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunchContext);
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
 const mockedWriteGuardrailReceipt = vi.mocked(writeGuardrailReceipt);
 const mockedGuardrailReceiptPath = vi.mocked(guardrailReceiptPath);
@@ -178,6 +180,16 @@ function setupCommonMocks(): void {
     stdout: 'crud-app',
     stderr: '',
     exitCode: 0,
+  });
+  mockedPrepareExternalMcpLaunchContext.mockResolvedValue({
+    status: 'not-applicable',
+    reason: 'no external MCP servers apply to this agent',
+    injectionEnabled: false,
+    envExports: {
+      EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable',
+    },
+    selectedServerIds: [],
+    excludedServerIds: [],
   });
   mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
   mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(

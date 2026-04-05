@@ -84,6 +84,7 @@ export interface AgentRunResult {
   exitCode: number;
   agentId: AgentId;
   durationMs: number;
+  mcpLaunch?: AgentMcpLaunchStatus;
 }
 
 /** Context resolution status. */
@@ -109,4 +110,24 @@ export interface PipelineReceipt {
   prewarmSeconds: number;
   agentTimings: Record<string, number>;
   failureReason?: string;
+  externalMcp?: PipelineExternalMcpReceipt;
+}
+
+export interface AgentMcpLaunchStatus {
+  status: string;
+  reason: string;
+  injectionEnabled: boolean;
+  selectedServerIds: string[];
+  excludedServerIds: string[];
+}
+
+export interface ExternalMcpRegistryHealth {
+  status: 'available' | 'degraded';
+  reason: string;
+  serverCount: number;
+}
+
+export interface PipelineExternalMcpReceipt {
+  registry: ExternalMcpRegistryHealth;
+  agents: Partial<Record<AgentId | 'dalton-verify', AgentMcpLaunchStatus>>;
 }

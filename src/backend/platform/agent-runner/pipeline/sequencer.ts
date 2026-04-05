@@ -14,6 +14,8 @@ import { runRoleAgent } from '../roleAgent.js';
 import { runRuntimePolicyCheck } from '../guardrails.js';
 import { buildAgentArtifactRemediationPrompt, detectParallelOk, listSliceFiles } from '../artifactCompletion.js';
 import { prewarmPipelineContext } from './contextPrewarm.js';
+import { getCachedExternalMcpRegistry, getCachedExternalMcpRegistryHealth } from './externalMcpRegistryCache.js';
+import { appendMcpContextBlock } from './mcpPromptContext.js';
 import { remediationHasBlockingFindings, remediationRunQaLoop, remediationClearCloseoutArtifacts } from './remediation.js';
 import { resolveVerificationDaltonPrompt } from './verificationPass.js';
 import {
@@ -31,6 +33,16 @@ import {
   readPipelineKillRequest,
 } from './runtimeControl.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { AgentMcpLaunchStatus } from '../types.js';
+
+const MISSING_MCP_LAUNCH_STATUS: AgentMcpLaunchStatus = {
+  status: 'unknown',
+  reason: 'launch completed without MCP summary',
+  injectionEnabled: false,
+  selectedServerIds: [],
+  excludedServerIds: [],
+};
 
 interface PipelineLock {
   release: () => Promise<void>;
@@ -105,12 +117,14 @@ export function buildFleetDaltonCleanupPrompt(
   artifactPrompt: string,
   policyDetails: string,
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
   const sections = [
     'Your previous Dalton fleet run did not leave the workflow ready for QA.',
     '',
   ];
   appendFocusBlock(sections, primaryFocusRelativePath);
+  appendMcpContextBlock(sections, externalMcpRegistry, 'dalton');
   sections.push(`Blocking workflow-policy details: ${policyDetails}`, '');
   if (artifactPrompt.trim()) {
     sections.push(artifactPrompt, '');
@@ -158,6 +172,7 @@ export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir);
   if (sliceFiles.length === 0) {
@@ -172,6 +187,7 @@ export async function buildFleetPrompt(
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
+  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   const implSpec = await readImplSpec(handoffsDir);
   if (implSpec?.trim()) {
@@ -195,6 +211,7 @@ export async function buildSimpleDaltonPrompt(
   implStepsDir: string,
   handoffsDir: string,
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
 
@@ -202,6 +219,7 @@ export async function buildSimpleDaltonPrompt(
 
   const parts: string[] = [];
   appendFocusBlock(parts, primaryFocusRelativePath);
+  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (implSpec?.trim()) {
     parts.push('## Implementation Spec\n');
@@ -390,6 +408,7 @@ export async function runPipelineSequence(
   let workflowPath: 'standard' = 'standard';
   let prewarmSeconds = 0;
   const agentTimings: Record<string, number> = {};
+  const agentMcpStatuses: NonNullable<PipelineReceipt['externalMcp']>['agents'] = {};
 
   // Resolve the task-bound context pack before the try block so the catch
   // handler can pass it to handlePipelineFailure on error.
@@ -412,6 +431,12 @@ export async function runPipelineSequence(
         paths.repoRoot,
       );
       prewarmSeconds = Math.round((Date.now() - prewarmStart) / 1000);
+      const externalMcpRegistry = getCachedExternalMcpRegistry(paths.repoRoot);
+      const externalMcpRegistryHealth = getCachedExternalMcpRegistryHealth(paths.repoRoot);
+      console.log(
+        '[pipeline] external MCP registry status:',
+        JSON.stringify(externalMcpRegistryHealth),
+      );
 
       const maxRemediationCycles = 3;
 
@@ -434,11 +459,12 @@ export async function runPipelineSequence(
             paths.handoffs,
             paths.implementationSteps,
             primaryFocusRelativePath,
+            externalMcpRegistry,
           );
           if (verificationPrompt) {
             console.log('[pipeline] Launching Dalton verification pass.');
             const verifyStart = Date.now();
-            await runRoleAgent({
+            const verificationResult = await runRoleAgent({
               agentId: 'dalton',
               skipWorkflowValidation: true,
               contextPackDir: effectiveContextPackDir,
@@ -446,6 +472,7 @@ export async function runPipelineSequence(
               promptOverride: verificationPrompt,
               launchPhase: 'Verification',
             });
+            agentMcpStatuses['dalton-verify'] = verificationResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
             agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
           }
         }
@@ -477,14 +504,16 @@ export async function runPipelineSequence(
               paths.implementationSteps,
               paths.handoffs,
               primaryFocusRelativePath,
+              externalMcpRegistry,
             );
-            await runRoleAgent({
+            const daltonResult = await runRoleAgent({
               agentId: 'dalton',
               skipWorkflowValidation: false,
               contextPackDir: effectiveContextPackDir,
               abortSignal: abortController.signal,
               promptOverride: fleetPrompt,
             });
+            agentMcpStatuses['dalton'] = daltonResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
             agentTimings['dalton'] = Math.round((Date.now() - agentStart) / 1000);
 
             const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
@@ -501,14 +530,16 @@ export async function runPipelineSequence(
                 artifactPrompt,
                 policyDetails,
                 primaryFocusRelativePath,
+                externalMcpRegistry,
               );
-              await runRoleAgent({
+              const cleanupResult = await runRoleAgent({
                 agentId: 'dalton',
                 skipWorkflowValidation: true,
                 contextPackDir: effectiveContextPackDir,
                 abortSignal: abortController.signal,
                 promptOverride: cleanupPrompt,
               });
+              agentMcpStatuses['dalton'] = cleanupResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
             }
 
             testCaptureResults = await runPostDaltonPasses();
@@ -527,21 +558,24 @@ export async function runPipelineSequence(
             paths.implementationSteps,
             paths.handoffs,
             primaryFocusRelativePath,
+            externalMcpRegistry,
           );
         } else if (agentId === 'ron') {
           agentPromptOverride = buildTestCapturePrompt(
             testCaptureResults,
             primaryFocusRelativePath,
+            externalMcpRegistry,
           );
         }
 
-        await runRoleAgent({
+        const agentResult = await runRoleAgent({
           agentId,
           skipWorkflowValidation,
           contextPackDir: effectiveContextPackDir,
           abortSignal: abortController.signal,
           promptOverride: agentPromptOverride,
         });
+        agentMcpStatuses[agentId] = agentResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
         skipNextEntryValidation = agentId === 'alice' || agentId === 'dalton';
         isFirstAgent = false;
 
@@ -561,6 +595,7 @@ export async function runPipelineSequence(
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
               primaryFocusRelativePath,
+              externalMcpRegistry,
             });
           }
         }
@@ -578,6 +613,10 @@ export async function runPipelineSequence(
         totalSeconds,
         prewarmSeconds,
         agentTimings,
+        externalMcp: {
+          registry: externalMcpRegistryHealth,
+          agents: agentMcpStatuses,
+        },
       };
 
       await writePipelineReceipt(paths.repoRoot, receipt);
@@ -604,6 +643,10 @@ export async function runPipelineSequence(
       prewarmSeconds,
       agentTimings,
       failureReason,
+      externalMcp: {
+        registry: getCachedExternalMcpRegistryHealth(paths.repoRoot),
+        agents: agentMcpStatuses,
+      },
     };
 
     await writePipelineReceipt(paths.repoRoot, failureReceipt);

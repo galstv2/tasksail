@@ -2,8 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 const runRoleAgent = vi.fn();
+
+const externalRegistry: ExternalMcpRegistry = {
+  schema_version: 1,
+  external_servers: [
+    {
+      id: 'dalton-helper',
+      display_name: 'Dalton Helper',
+      purpose: 'addressing QA findings',
+      enabled: true,
+      transport: 'http',
+      url: 'http://localhost:8080/mcp',
+      agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
+    },
+    {
+      id: 'ron-helper',
+      display_name: 'Ron Helper',
+      purpose: 'reviewing remediation evidence',
+      enabled: true,
+      transport: 'http',
+      url: 'http://localhost:8080/mcp',
+      agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
+    },
+  ],
+};
 
 vi.mock('../roleAgent.js', () => ({
   runRoleAgent,
@@ -53,6 +78,7 @@ describe('remediationRunQaLoop', () => {
         repoRoot,
         maxCycles: 1,
         primaryFocusRelativePath: 'services/sink',
+        externalMcpRegistry: externalRegistry,
       }),
     ).rejects.toThrow('failed during QA revalidation');
     expect(
@@ -69,6 +95,10 @@ describe('remediationRunQaLoop', () => {
       agentId: 'ron',
       promptOverride: expect.stringContaining('This prompt does not change your launch CWD or broader QA authority.'),
     }));
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('"Dalton Helper" may help with addressing QA findings');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('"Ron Helper" may help with reviewing remediation evidence');
+    expect(runRoleAgent.mock.calls[1][0].promptOverride).toContain('"Ron Helper" may help with reviewing remediation evidence');
+    expect(runRoleAgent.mock.calls[1][0].promptOverride).not.toContain('"Dalton Helper" may help with addressing QA findings');
   });
 
   it('fails closed when blocking findings remain after max cycles', async () => {
@@ -108,5 +138,39 @@ describe('remediationRunQaLoop', () => {
       agentId: 'ron',
       promptOverride: expect.not.stringContaining('## Monolith Focus Scope'),
     }));
+  });
+
+  it('omits remediation MCP guidance when the scoped agent has no matching servers', async () => {
+    const originalIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\nblocking\n';
+    writeIssuesFile(repoRoot, originalIssues);
+    runRoleAgent
+      .mockResolvedValueOnce({ exitCode: 0, agentId: 'dalton', durationMs: 1 })
+      .mockRejectedValueOnce(new Error('qa crashed'));
+
+    const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
+
+    await expect(
+      remediationRunQaLoop({
+        repoRoot,
+        maxCycles: 1,
+        externalMcpRegistry: {
+          schema_version: 1,
+          external_servers: [
+            {
+              id: 'alice-only',
+              display_name: 'Alice Only',
+              purpose: 'planning',
+              enabled: true,
+              transport: 'http',
+              url: 'http://localhost:8080/mcp',
+              agent_scope: { mode: 'allowlist', agent_ids: ['alice'] },
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow('failed during QA revalidation');
+
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('## External MCP Guidance');
+    expect(runRoleAgent.mock.calls[1][0].promptOverride).not.toContain('## External MCP Guidance');
   });
 });

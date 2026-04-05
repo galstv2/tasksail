@@ -30,11 +30,21 @@ Use human names in handoffs. Canonical source: `.github/agents/registry.json`.
 - If context-pack guidance conflicts with current source or active handoffs, current source and active handoffs win.
 - If no context pack is active, stay generic.
 
+## External MCP Guidance
+
+- Treat external MCP runtime signals as advisory launch metadata, not as a guarantee that MCP tools will appear or succeed.
+- When present, use `RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON.external_mcp_context` as the structured summary of launch-scoped MCP status and filtered server IDs.
+- When `EXTERNAL_MCP_CONTEXT_STATUS` indicates external MCP context is available or degraded, check the current tool list and read `EXTERNAL_MCP_CONTEXT_FILE` when that file is provided.
+- For domains explicitly covered by the available external MCPs, prefer those MCP tools before falling back to local search, shell commands, or guesswork.
+- If the expected MCP tools are missing, unavailable, or insufficient for the task, say so briefly and continue with a grounded manual fallback.
+- Honor degraded or excluded-server context when present; do not assume every configured external MCP is usable in the current session.
+- Do not claim an external MCP was consulted unless you actually used the corresponding MCP tool during the current run.
+
 ## Workflow Sequence
 
 Standard path only. Fast path is retired.
 
-```
+```text
 Lily (intake) → Alice (planning) → Dalton (implementation) → Ron (QA/closeout)
 ```
 
@@ -70,4 +80,3 @@ Rules:
 - Conflict resolution order: current workspace state > active handoffs > context-pack memory > summary artifacts > parent-task memory > chat history.
 - `.platform-state/runtime/guardrails/` is runtime evidence, not editable truth.
 - Do not run workflow validation, archival, or cleanup scripts manually. The pipeline automates these.
-

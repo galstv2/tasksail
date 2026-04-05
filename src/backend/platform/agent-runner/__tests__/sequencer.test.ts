@@ -10,9 +10,27 @@ import {
   detectParallelOk,
   getAgentOrder,
 } from '../pipeline/sequencer.js';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 function makeTmpDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'sequencer-test-'));
+}
+
+function createExternalMcpRegistry(agentIds: string[]): ExternalMcpRegistry {
+  return {
+    schema_version: 1,
+    external_servers: [
+      {
+        id: 'prompt-guide',
+        display_name: 'Prompt Guide',
+        purpose: 'triaging implementation work',
+        enabled: true,
+        transport: 'http',
+        url: 'http://localhost:8080/mcp',
+        agent_scope: { mode: 'allowlist', agent_ids: agentIds },
+      },
+    ],
+  };
 }
 
 describe('detectWorkflowPath', () => {
@@ -96,9 +114,16 @@ describe('buildFleetPrompt', () => {
     const dir = makeTmpDir();
     writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
     writeFileSync(path.join(dir, 'slice-2.md'), '# Slice 2\nDo the second thing.');
-    const prompt = await buildFleetPrompt(dir, dir, 'services/sink');
+    const prompt = await buildFleetPrompt(
+      dir,
+      dir,
+      'services/sink',
+      createExternalMcpRegistry(['dalton']),
+    );
     expect(prompt).toContain('fleet mode');
     expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('## External MCP Guidance');
+    expect(prompt).toContain('"Prompt Guide" may help with triaging implementation work');
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('## Slice: slice-1');
@@ -133,9 +158,11 @@ describe('buildFleetDaltonCleanupPrompt', () => {
       'Address the blocker in AgentWorkSpace/handoffs/issues.md.',
       'QA blocked by policy',
       'services/sink',
+      createExternalMcpRegistry(['dalton']),
     );
     expect(prompt).toContain('did not leave the workflow ready for QA');
     expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Address the blocker in AgentWorkSpace/handoffs/issues.md.');
   });
@@ -146,9 +173,15 @@ describe('buildSimpleDaltonPrompt', () => {
     const dir = makeTmpDir();
     writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
 
-    const prompt = await buildSimpleDaltonPrompt(dir, dir, 'services/sink');
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      dir,
+      'services/sink',
+      createExternalMcpRegistry(['dalton']),
+    );
 
     expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('implementation changes must stay within the selected focus area.');
@@ -162,5 +195,19 @@ describe('buildSimpleDaltonPrompt', () => {
 
     expect(prompt).not.toContain('## Monolith Focus Scope');
     expect(prompt).toContain('Implement the changes described above.');
+  });
+
+  it('omits external MCP guidance when Dalton has no in-scope servers', async () => {
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      dir,
+      undefined,
+      createExternalMcpRegistry(['ron']),
+    );
+
+    expect(prompt).not.toContain('## External MCP Guidance');
   });
 });

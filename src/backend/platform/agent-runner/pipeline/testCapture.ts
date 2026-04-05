@@ -5,6 +5,8 @@ import { readTextFile, extractMarkdownSection, getErrorMessage } from '../../cor
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendMcpContextBlock } from './mcpPromptContext.js';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 export interface TestCaptureResult {
   command: string;
@@ -208,6 +210,7 @@ export async function captureSliceValidation(
 export function buildTestCapturePrompt(
   results: TestCaptureResult[],
   primaryFocusRelativePath?: string,
+  externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
   const evidence = formatTestCaptureForPrompt(results);
   const parts = [
@@ -218,6 +221,7 @@ export function buildTestCapturePrompt(
     launchContextLine: 'Use this focus path as the primary implementation scope while reviewing the changes below.',
     scopeLine: 'This prompt does not change your launch CWD or broader QA authority.',
   });
+  appendMcpContextBlock(parts, externalMcpRegistry, 'ron');
   parts.push(evidence);
   return parts.join('\n');
 }

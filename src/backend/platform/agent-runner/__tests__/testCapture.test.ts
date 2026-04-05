@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 const existsSync = vi.fn();
 const resolveSelectedPrimaryRepoRoot = vi.fn();
@@ -15,7 +16,22 @@ vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveSelectedPrimaryRepoRoot,
 }));
 
-const { resolveTestCaptureCwd } = await import('../pipeline/testCapture.js');
+const { buildTestCapturePrompt, resolveTestCaptureCwd } = await import('../pipeline/testCapture.js');
+
+const externalRegistry: ExternalMcpRegistry = {
+  schema_version: 1,
+  external_servers: [
+    {
+      id: 'qa-helper',
+      display_name: 'QA Helper',
+      purpose: 'reviewing captured validation evidence',
+      enabled: true,
+      transport: 'http',
+      url: 'http://localhost:8080/mcp',
+      agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
+    },
+  ],
+};
 
 describe('resolveTestCaptureCwd', () => {
   beforeEach(() => {
@@ -74,5 +90,43 @@ describe('resolveTestCaptureCwd', () => {
       repoRoot: '/platform',
       contextPackDir: '/context-pack',
     })).resolves.toBeUndefined();
+  });
+});
+
+describe('buildTestCapturePrompt', () => {
+  it('adds Ron-scoped external MCP guidance when matching servers exist', () => {
+    const prompt = buildTestCapturePrompt(
+      [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      'services/sink',
+      externalRegistry,
+    );
+
+    expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('## External MCP Guidance');
+    expect(prompt).toContain('"QA Helper" may help with reviewing captured validation evidence');
+    expect(prompt).toContain('## Orchestrator Test Results');
+  });
+
+  it('omits the MCP block when only non-Ron servers are available', () => {
+    const prompt = buildTestCapturePrompt(
+      [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      undefined,
+      {
+        schema_version: 1,
+        external_servers: [
+          {
+            id: 'dalton-only',
+            display_name: 'Dalton Only',
+            purpose: 'implementation work',
+            enabled: true,
+            transport: 'http',
+            url: 'http://localhost:8080/mcp',
+            agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
+          },
+        ],
+      },
+    );
+
+    expect(prompt).not.toContain('## External MCP Guidance');
   });
 });
