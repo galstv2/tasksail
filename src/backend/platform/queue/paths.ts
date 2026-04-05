@@ -16,6 +16,12 @@ export const HANDOFF_FILES: readonly string[] = [
 /** Marker file written during the handoff publish rename loop. */
 export const PUBLISH_MARKER = '.publish-in-progress';
 
+/** Canonical starter-slice template filename staged into ImplementationSteps/. */
+export const SLICE_TEMPLATE_FILENAME = 'slice-template.md';
+
+/** Directory name that stores execution slices for the active task. */
+export const IMPLEMENTATION_STEPS_DIRNAME = 'ImplementationSteps';
+
 /** Labels that appear in the Task Lineage section of handoff artifacts. */
 export const LINEAGE_LABELS: readonly string[] = [
   'Task Kind',
@@ -64,6 +70,14 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
 }
 
 /**
+ * Resolve the ImplementationSteps directory for a repo root.
+ */
+export function implementationStepsDirFor(repoRoot?: string): string {
+  const root = repoRoot ?? findRepoRoot();
+  return path.join(root, 'AgentWorkSpace', IMPLEMENTATION_STEPS_DIRNAME);
+}
+
+/**
  * Full path to a template file inside the templates directory.
  */
 export function templateSourceFor(
@@ -71,6 +85,15 @@ export function templateSourceFor(
   templatesDir: string,
 ): string {
   return path.join(templatesDir, templateName);
+}
+
+/**
+ * Resolve the canonical slice-template placeholder inside ImplementationSteps/.
+ */
+export function implementationStepsTemplatePath(
+  implementationStepsDir: string,
+): string {
+  return path.join(implementationStepsDir, SLICE_TEMPLATE_FILENAME);
 }
 
 /**

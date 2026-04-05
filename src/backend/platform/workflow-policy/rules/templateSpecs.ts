@@ -1,3 +1,10 @@
+import {
+  SLICE_REQUIRED_SECTION_SPECS,
+  SPEC_RECOMMENDED_SECTION_SPECS,
+  SPEC_REQUIRED_SECTION_SPECS,
+  type SemanticSectionSpec,
+} from '../models.js';
+
 /**
  * Template specification constants for handoff artifact validation.
  *
@@ -12,6 +19,7 @@ export interface HandoffSpec {
   title: string;
   sections: readonly string[];
   extra_metadata_labels?: readonly string[];
+  semanticSections?: readonly SemanticSectionSpec[];
 }
 
 export interface JsonHandoffSpec {
@@ -77,24 +85,16 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
     title: 'Implementation Spec',
     sections: [
       'Task Metadata',
-      'Task Lineage',
-      'Parent Task Carry-Forward Context',
-      'Problem Statement',
-      'Goals',
-      'Non-Goals',
-      'Architecture Summary',
-      'Touched Systems',
-      'Change Boundaries',
-      'Dependency Analysis',
-      'Codebase Analysis',
-      'Proposed Structure',
-      'Contracts',
-      'Migrations or Data Implications',
-      'Risks',
-      'Validation Strategy',
-      'Test Coverage',
-      'Impact Assessment',
-      'Files or Areas Likely to Change',
+      'Problem and Outcome',
+      'Current State and Boundaries',
+      'Implementation Plan',
+      'Risk and Impact',
+      'Validation and Evidence',
+      'Change Surface',
+    ],
+    semanticSections: [
+      ...SPEC_REQUIRED_SECTION_SPECS,
+      ...SPEC_RECOMMENDED_SECTION_SPECS,
     ],
   },
   'AgentWorkSpace/handoffs/parallel-ok.md': {
@@ -168,19 +168,20 @@ export const JSON_HANDOFF_TEMPLATE_SPECS: Record<string, JsonHandoffSpec> = {};
 export const SLICE_TEMPLATE_SPEC: HandoffSpec = {
   title: 'Slice Template',
   sections: [
-    'Purpose',
-    'Depends On',
-    'Scope',
-    'Files',
-    'Acceptance Criteria',
-    'Unit Tests',
-    'Validation Commands',
-    'Guards',
+    'Objective',
+    'Dependencies and Order',
+    'Execution Scope',
+    'Files and Interfaces',
+    'Acceptance and Validation',
+    'Guards and Coordination',
   ],
+  semanticSections: SLICE_REQUIRED_SECTION_SPECS,
 };
 
 export const SLICE_TEMPLATE_RELATIVE_PATH =
   'AgentWorkSpace/ImplementationSteps/slice-template.md';
+export const SLICE_TEMPLATE_FILENAME = SLICE_TEMPLATE_RELATIVE_PATH.split('/').at(-1)
+  ?? 'slice-template.md';
 
 export const TEMPLATE_SOURCE_DIR = 'AgentWorkSpace/templates';
 

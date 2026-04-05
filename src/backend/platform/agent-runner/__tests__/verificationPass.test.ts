@@ -47,7 +47,8 @@ describe('verification Dalton prompts', () => {
     expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
-    expect(prompt).toContain('## Validation Commands');
+    expect(prompt).toContain('## Acceptance and Validation');
+    expect(prompt).toContain('### Validation Commands');
   });
 
   it('preserves no-focus verification behavior when no focus path is provided', async () => {
@@ -59,7 +60,8 @@ describe('verification Dalton prompts', () => {
     );
 
     expect(prompt).not.toContain('## Monolith Focus Scope');
-    expect(prompt).toContain('## Validation Commands');
+    expect(prompt).toContain('## Acceptance and Validation');
+    expect(prompt).toContain('### Validation Commands');
   });
 
   it('threads the monolith focus path through resolveVerificationDaltonPrompt', async () => {

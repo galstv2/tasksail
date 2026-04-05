@@ -2,13 +2,15 @@
 
 ## Task Metadata
 
+### Core Metadata
+
 - Task ID:
 - Task Title:
 - Initialized At (UTC):
 - Active Branch:
 - Intake Source:
 
-## Task Lineage
+### Task Lineage
 
 - Task Kind:
 - Parent Task ID:
@@ -17,53 +19,65 @@
 - Parent QMD Scope:
 - Follow-Up Reason:
 
-## Parent Task Carry-Forward Context
-<!-- required for child-task; leave blank for standard tasks - (1-5 sentences) -->
+## Problem and Outcome
 
-## Problem Statement
+### Problem Statement
 <!-- restate the problem with technical precision; scale detail with complexity -->
 
-## Goals
+### Goals
 <!-- each a measurable design objective -->
 
-## Non-Goals
+### Non-Goals
 <!-- boundaries the architecture must not cross -->
 
-## Architecture Summary
-<!-- high-level approach and key trade-offs; expand for multi-system changes -->
+## Current State and Boundaries
 
-## Touched Systems
-<!-- layers or services this change affects -->
+### Parent Task Carry-Forward Context
+<!-- required for "child-task"; leave blank for "standard" tasks - (1-5 sentences) -->
 
-## Change Boundaries
-<!-- what may be modified and what must remain untouched -->
-
-## Dependency Analysis
-<!-- code fence or markdown table — internal and external dependencies -->
-
-## Codebase Analysis
+### Codebase Analysis
 <!-- relevant existing code, patterns, and conventions; detail proportional to scope -->
 
-## Proposed Structure
-<!-- file layout, module decomposition, or class hierarchy; use code fences or tables for clarity -->
+### Dependency Analysis
+<!-- internal and external dependencies; use bullets, nested subsections, tables, or code fences when authored -->
 
-## Contracts
+### Change Boundaries
+<!-- what may be modified and what must remain untouched -->
+
+## Implementation Plan
+
+### Architecture Summary
+<!-- high-level approach and key trade-offs; expand for multi-system changes -->
+
+### Touched Systems
+<!-- layers or services this change affects -->
+
+### Proposed Structure
+<!-- file layout, module decomposition, or class hierarchy; use nested bullets, tables, or code fences when authored -->
+
+### Contracts
 <!-- API contracts, interface changes, or data schemas; "None" if not applicable -->
 
-## Migrations or Data Implications
+### Migrations or Data Implications
 <!-- schema changes, data migrations; "None" if not applicable -->
 
-## Risks
+## Risk and Impact
+
+### Risks
 <!-- technical risks and mitigations; "None" if low risk -->
 
-## Validation Strategy
-<!-- must include executable commands in a code fence -->
-
-## Test Coverage
-<!-- what tests will be added or updated; "None" if not applicable -->
-
-## Impact Assessment
+### Impact Assessment
 <!-- blast radius and rollback considerations; "None" if minimal -->
 
-## Files or Areas Likely to Change
+## Validation and Evidence
+
+### Validation Strategy
+<!-- include executable commands in a fenced code block when authored -->
+
+### Test Coverage
+<!-- what tests will be added or updated; "None" if not applicable -->
+
+## Change Surface
+
+### Files or Areas Likely to Change
 <!-- file paths or directories -->

@@ -16,7 +16,11 @@ vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveSelectedPrimaryRepoRoot,
 }));
 
-const { buildTestCapturePrompt, resolveTestCaptureCwd } = await import('../pipeline/testCapture.js');
+const {
+  buildTestCapturePrompt,
+  extractValidationCommands,
+  resolveTestCaptureCwd,
+} = await import('../pipeline/testCapture.js');
 
 const externalRegistry: ExternalMcpRegistry = {
   schema_version: 1,
@@ -128,5 +132,34 @@ describe('buildTestCapturePrompt', () => {
     );
 
     expect(prompt).not.toContain('## External MCP Guidance');
+  });
+});
+
+describe('extractValidationCommands', () => {
+  it('extracts commands from the legacy Validation Commands heading', () => {
+    const commands = extractValidationCommands(
+      '## Validation Commands\n\n```bash\npnpm test\npnpm lint\n```\n',
+    );
+
+    expect(commands).toEqual(['pnpm test', 'pnpm lint']);
+  });
+
+  it('extracts commands from the Validation alias heading', () => {
+    const commands = extractValidationCommands(
+      '## Validation\n\n```bash\npnpm test\n```\n',
+    );
+
+    expect(commands).toEqual(['pnpm test']);
+  });
+
+  it('extracts commands nested under Acceptance and Validation', () => {
+    const commands = extractValidationCommands(
+      '## Acceptance and Validation\n\n'
+      + '### Acceptance Criteria\n\n- works\n\n'
+      + '### Unit Tests\n\n- covers workflow\n\n'
+      + '### Validation Commands\n\n```bash\npnpm test\nnpm run smoke\n```\n',
+    );
+
+    expect(commands).toEqual(['pnpm test', 'npm run smoke']);
   });
 });

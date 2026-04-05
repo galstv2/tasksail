@@ -1,12 +1,17 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { readTextFile, extractMarkdownSection, getErrorMessage } from '../../core/index.js';
+import { readTextFile, getErrorMessage } from '../../core/index.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import {
+  parseSections,
+  resolveSemanticSection,
+  SLICE_REQUIRED_SECTION_SPECS,
+} from '../../workflow-policy/index.js';
 
 export interface TestCaptureResult {
   command: string;
@@ -53,11 +58,20 @@ const MAX_CAPTURE_BYTES = 512 * 1024; // 512 KB
 
 /**
  * Extract validation commands from slice content.
- * Looks for a ## Validation Commands section and extracts code-fenced command blocks.
+ * Resolves the semantic validation-commands section and extracts code-fenced command blocks.
  */
 export function extractValidationCommands(sliceContent: string): string[] {
-  const sectionContent = extractMarkdownSection(sliceContent, 'Validation Commands');
-  if (!sectionContent) return [];
+  const validationCommandsSpec = SLICE_REQUIRED_SECTION_SPECS.find(
+    (sectionSpec) => sectionSpec.key === 'validation-commands',
+  );
+  if (!validationCommandsSpec) {
+    return [];
+  }
+  const sections = parseSections(sliceContent);
+  const sectionContent = resolveSemanticSection(sections, validationCommandsSpec).content.join('\n').trim();
+  if (!sectionContent) {
+    return [];
+  }
   const commands: string[] = [];
 
   const codeFenceRegex = /```(?:\w*)\n([\s\S]*?)```/g;

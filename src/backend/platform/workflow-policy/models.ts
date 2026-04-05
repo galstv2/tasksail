@@ -82,16 +82,13 @@ export const REQUIRED_AGENT_REGISTRY_FIELDS = new Set([
   'workflow_order',
 ]);
 
-export const SLICE_REQUIRED_SECTIONS = [
-  'Purpose',
-  'Depends On',
-  'Scope',
-  'Files',
-  'Acceptance Criteria',
-  'Unit Tests',
-  'Validation Commands',
-  'Guards',
-] as const;
+export interface SemanticSectionSpec {
+  key: string;
+  preferredHeading: string;
+  aliases?: readonly string[];
+  containerHeadings?: readonly string[];
+  allowContainerFallback?: boolean;
+}
 
 export const ISSUES_MD_RELATIVE_PATH = 'AgentWorkSpace/handoffs/issues.md';
 export const FINAL_SUMMARY_RELATIVE_PATH = 'AgentWorkSpace/handoffs/final-summary.md';
@@ -116,33 +113,178 @@ export const RETROSPECTIVE_ACTION_ITEMS_MAX_BULLETS = 5;
 // ---------------------------------------------------------------------------
 // Slice quality
 // ---------------------------------------------------------------------------
+export const SLICE_REQUIRED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
+  {
+    key: 'purpose',
+    preferredHeading: 'Purpose',
+    aliases: ['Objective'],
+  },
+  {
+    key: 'depends-on',
+    preferredHeading: 'Depends On',
+    aliases: ['Dependencies'],
+    containerHeadings: ['Dependencies and Order'],
+  },
+  {
+    key: 'scope',
+    preferredHeading: 'Scope',
+    aliases: ['Execution Scope'],
+  },
+  {
+    key: 'files',
+    preferredHeading: 'Files',
+    aliases: ['Files and Interfaces'],
+  },
+  {
+    key: 'acceptance-criteria',
+    preferredHeading: 'Acceptance Criteria',
+    aliases: ['Acceptance'],
+    containerHeadings: ['Acceptance and Validation'],
+  },
+  {
+    key: 'unit-tests',
+    preferredHeading: 'Unit Tests',
+    aliases: ['Tests'],
+    containerHeadings: ['Acceptance and Validation'],
+  },
+  {
+    key: 'validation-commands',
+    preferredHeading: 'Validation Commands',
+    aliases: ['Validation'],
+    containerHeadings: ['Acceptance and Validation'],
+  },
+  {
+    key: 'guards',
+    preferredHeading: 'Guards',
+    aliases: ['Coordination Notes'],
+    containerHeadings: ['Guards and Coordination'],
+  },
+] as const;
+
 export const SLICE_RECOMMENDED_SECTIONS: readonly string[] = [];
-export const SLICE_FILE_SECTIONS = ['Files'] as const;
+export const SLICE_REQUIRED_SECTIONS = SLICE_REQUIRED_SECTION_SPECS.map(
+  (section) => section.preferredHeading,
+);
+export const SLICE_FILE_SECTIONS = SLICE_REQUIRED_SECTION_SPECS
+  .filter((section) => section.key === 'files')
+  .map((section) => section.preferredHeading);
 
 // ---------------------------------------------------------------------------
 // Spec quality
 // ---------------------------------------------------------------------------
-export const SPEC_REQUIRED_SECTIONS = [
-  'Problem Statement',
-  'Goals',
-  'Non-Goals',
-  'Architecture Summary',
-  'Touched Systems',
-  'Change Boundaries',
-  'Dependency Analysis',
-  'Codebase Analysis',
-  'Proposed Structure',
-  'Validation Strategy',
-  'Files or Areas Likely to Change',
+export const SPEC_REQUIRED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
+  {
+    key: 'problem-statement',
+    preferredHeading: 'Problem Statement',
+    aliases: ['Problem'],
+    containerHeadings: ['Problem and Outcome'],
+  },
+  {
+    key: 'goals',
+    preferredHeading: 'Goals',
+    aliases: ['Desired Outcome', 'Desired Outcomes'],
+    containerHeadings: ['Problem and Outcome'],
+  },
+  {
+    key: 'non-goals',
+    preferredHeading: 'Non-Goals',
+    aliases: ['Out of Scope'],
+    containerHeadings: ['Problem and Outcome'],
+  },
+  {
+    key: 'architecture-summary',
+    preferredHeading: 'Architecture Summary',
+    containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'touched-systems',
+    preferredHeading: 'Touched Systems',
+    aliases: ['Systems Affected'],
+    containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'change-boundaries',
+    preferredHeading: 'Change Boundaries',
+    aliases: ['Boundaries', 'Scope Boundaries'],
+    containerHeadings: ['Current State and Boundaries'],
+  },
+  {
+    key: 'dependency-analysis',
+    preferredHeading: 'Dependency Analysis',
+    aliases: ['Dependencies'],
+    containerHeadings: ['Current State and Boundaries', 'Implementation Plan'],
+  },
+  {
+    key: 'codebase-analysis',
+    preferredHeading: 'Codebase Analysis',
+    aliases: ['Current State Analysis'],
+    containerHeadings: ['Current State and Boundaries'],
+  },
+  {
+    key: 'proposed-structure',
+    preferredHeading: 'Proposed Structure',
+    containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'validation-strategy',
+    preferredHeading: 'Validation Strategy',
+    aliases: ['Validation Plan'],
+    containerHeadings: ['Validation and Evidence'],
+  },
+  {
+    key: 'files-likely-to-change',
+    preferredHeading: 'Files or Areas Likely to Change',
+    aliases: ['Likely Files'],
+    containerHeadings: ['Change Surface'],
+  },
 ] as const;
 
-export const SPEC_RECOMMENDED_SECTIONS = [
-  'Contracts',
-  'Migrations or Data Implications',
-  'Risks',
-  'Test Coverage',
-  'Impact Assessment',
+export const SPEC_RECOMMENDED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
+  {
+    key: 'contracts',
+    preferredHeading: 'Contracts',
+    containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'migrations-or-data-implications',
+    preferredHeading: 'Migrations or Data Implications',
+    aliases: ['Migrations', 'Data Implications'],
+    containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'risks',
+    preferredHeading: 'Risks',
+    containerHeadings: ['Risk and Impact'],
+  },
+  {
+    key: 'test-coverage',
+    preferredHeading: 'Test Coverage',
+    aliases: ['Validation Evidence'],
+    containerHeadings: ['Validation and Evidence'],
+  },
+  {
+    key: 'impact-assessment',
+    preferredHeading: 'Impact Assessment',
+    aliases: ['Impact'],
+    containerHeadings: ['Risk and Impact'],
+  },
 ] as const;
+
+export const SPEC_CHILD_CARRY_FORWARD_SECTION: SemanticSectionSpec = {
+  key: 'parent-task-carry-forward-context',
+  preferredHeading: 'Parent Task Carry-Forward Context',
+  aliases: ['Carry-Forward Context'],
+  containerHeadings: ['Current State and Boundaries'],
+  allowContainerFallback: false,
+};
+
+export const SPEC_REQUIRED_SECTIONS = SPEC_REQUIRED_SECTION_SPECS.map(
+  (section) => section.preferredHeading,
+);
+
+export const SPEC_RECOMMENDED_SECTIONS = SPEC_RECOMMENDED_SECTION_SPECS.map(
+  (section) => section.preferredHeading,
+);
 
 // ---------------------------------------------------------------------------
 // Task quality

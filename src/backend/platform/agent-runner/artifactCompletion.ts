@@ -1,23 +1,17 @@
-import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { readTextFile } from '../core/index.js';
+import {
+  CONTENT_SECTION_EXCLUSIONS,
+  listSliceFiles as listWorkflowPolicySliceFiles,
+  normalizeAgentId,
+  normalizeText,
+  parseArtifactMetadata,
+  parseSections,
+  resolveSemanticSection,
+  SLICE_REQUIRED_SECTION_SPECS,
+  stripHtmlComments,
+} from '../workflow-policy/index.js';
 
-const CONTENT_SECTION_EXCLUSIONS = new Set([
-  'Task Metadata',
-  'Task Lineage',
-  'Difficulty Assessment',
-]);
-
-const SLICE_REQUIRED_SECTIONS = [
-  'Purpose',
-  'Depends On',
-  'Scope',
-  'Files',
-  'Acceptance Criteria',
-  'Unit Tests',
-  'Validation Commands',
-  'Guards',
-];
 const ISSUES_MD_REQUIRED_FINDING_SECTIONS = [
   'Severity',
   'Finding Type',
@@ -39,12 +33,6 @@ const ALLOWED_PARALLEL_DECISIONS = new Set(['simple', 'complex']);
 const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const TEMPLATE_BOILERPLATE_RE = /^(?:[-*]\s*|```\w*|#\s.*)$/;
 const PLACEHOLDER_ONLY_RE = /^(?:[-*]\s*)?(?:tbd|todo|tba|placeholder)\.?$/i;
-const AGENT_ID_ALIASES: Record<string, string> = {
-  lily: 'planning-agent',
-  alice: 'product-manager',
-  dalton: 'software-engineer',
-  ron: 'qa',
-};
 
 /**
  * Convert an internal relative artifact path to an env-var-based reference
@@ -83,56 +71,6 @@ interface WorkspaceArtifact {
   hasSubstantiveContent: boolean;
 }
 
-function parseSections(text: string | null | undefined): Record<string, string[]> {
-  const sections: Record<string, string[]> = {};
-  let current: string | null = null;
-  for (const rawLine of (text ?? '').split('\n')) {
-    const match = /^##\s+(.*\S)\s*$/.exec(rawLine.trim());
-    if (match) {
-      current = match[1] ?? null;
-      if (current && !(current in sections)) {
-        sections[current] = [];
-      }
-      continue;
-    }
-    if (current) {
-      sections[current]!.push(rawLine.replace(/\n$/, ''));
-    }
-  }
-  return sections;
-}
-
-function parseMetadata(lines: string[]): Record<string, string> {
-  const values: Record<string, string> = {};
-  for (const line of lines) {
-    const match = /^-\s+([^:]+):\s*(.*)$/.exec(line.trim());
-    if (match?.[1]) {
-      values[match[1]] = (match[2] ?? '').trim();
-    }
-  }
-  return values;
-}
-
-function normalizeText(lines: string[]): string {
-  return lines
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .join('\n')
-    .trim();
-}
-
-function stripHtmlComments(lines: string[]): string[] {
-  return lines
-    .join('\n')
-    .replace(MULTILINE_HTML_COMMENT_RE, '')
-    .split('\n');
-}
-
-function normalizeAgentId(value: string): string {
-  const normalized = value.replace(MULTILINE_HTML_COMMENT_RE, '').trim().toLowerCase();
-  return AGENT_ID_ALIASES[normalized] ?? normalized;
-}
-
 function finalSummaryDifficultyLevel(artifact: WorkspaceArtifact): string {
   for (const line of artifact.sections['Difficulty Assessment'] ?? []) {
     const match = /^-\s+Difficulty Level:\s*(.*)$/.exec(line.trim());
@@ -160,8 +98,7 @@ async function loadWorkspaceArtifact(rootDir: string, relativePath: string): Pro
   return {
     exists: rawText !== undefined,
     sections,
-    metadata: parseMetadata(sections['Task Metadata'] ?? []),
-    taskLineage: parseMetadata(sections['Task Lineage'] ?? []),
+    ...parseArtifactMetadata(sections),
     hasSubstantiveContent: Object.entries(sections).some(([sectionName, lines]) => (
       !CONTENT_SECTION_EXCLUSIONS.has(sectionName)
       && normalizeText(stripHtmlComments(lines)).length > 0
@@ -170,18 +107,7 @@ async function loadWorkspaceArtifact(rootDir: string, relativePath: string): Pro
 }
 
 export async function listSliceFiles(stepsDir: string): Promise<string[]> {
-  try {
-    const entries = await readdir(stepsDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.md') && entry.name !== 'slice-template.md')
-      .map((entry) => path.join(stepsDir, entry.name))
-      .sort((a, b) => a.localeCompare(b));
-  } catch (err: unknown) {
-    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
-    }
-    throw err;
-  }
+  return listWorkflowPolicySliceFiles(stepsDir);
 }
 
 function parallelOkHasActiveApproval(artifact: WorkspaceArtifact): boolean {
@@ -207,12 +133,37 @@ function stripBoilerplate(lines: string[]): string[] {
   });
 }
 
+function describeSemanticSectionSpec(sectionKey: string): string {
+  const sectionSpec = SLICE_REQUIRED_SECTION_SPECS.find((candidate) => candidate.key === sectionKey);
+  if (!sectionSpec) {
+    return sectionKey;
+  }
+
+  const acceptedHeadings = [
+    sectionSpec.preferredHeading,
+    ...(sectionSpec.aliases ?? []),
+  ];
+  const acceptedContainers = sectionSpec.containerHeadings ?? [];
+
+  if (acceptedHeadings.length === 1 && acceptedContainers.length === 0) {
+    return acceptedHeadings[0]!;
+  }
+
+  const details: string[] = [
+    acceptedHeadings.join(' / '),
+  ];
+  if (acceptedContainers.length > 0) {
+    details.push(`or nested under ${acceptedContainers.join(' / ')}`);
+  }
+  return details.join(' ');
+}
+
 async function sliceMissingRequiredSections(slicePath: string): Promise<string[]> {
   const text = (await readTextFile(slicePath)) ?? '';
   const sections = parseSections(text);
-  return SLICE_REQUIRED_SECTIONS.filter((sectionName) => (
-    normalizeText(stripBoilerplate(sections[sectionName] ?? [])).length === 0
-  ));
+  return SLICE_REQUIRED_SECTION_SPECS.filter((sectionSpec) => (
+    normalizeText(stripBoilerplate(resolveSemanticSection(sections, sectionSpec).content)).length === 0
+  )).map((sectionSpec) => sectionSpec.key);
 }
 
 async function sliceIsRuntimeReady(slicePath: string): Promise<boolean> {
@@ -270,8 +221,7 @@ export async function detectParallelOk(handoffsDir: string): Promise<boolean> {
   return parallelOkHasActiveApproval({
     exists: true,
     sections,
-    metadata: parseMetadata(sections['Task Metadata'] ?? []),
-    taskLineage: parseMetadata(sections['Task Lineage'] ?? []),
+    ...parseArtifactMetadata(sections),
     hasSubstantiveContent: Object.entries(sections).some(([sectionName, lines]) => (
       !CONTENT_SECTION_EXCLUSIONS.has(sectionName)
       && normalizeText(stripHtmlComments(lines)).length > 0
@@ -385,7 +335,8 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       const finalSlice = slices.at(-1)!;
       const missingSections = await sliceMissingRequiredSections(finalSlice);
       if (missingSections.length > 0) {
-        missingParts.push(`- ${path.relative(rootDir, finalSlice)}: fill the required sections still missing content: ${missingSections.join(', ')}.`);
+        const semanticSections = missingSections.map((sectionKey) => describeSemanticSectionSpec(sectionKey));
+        missingParts.push(`- ${toPromptPath(path.relative(rootDir, finalSlice))}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
       }
     }
     if (missingParts.length === 0) {

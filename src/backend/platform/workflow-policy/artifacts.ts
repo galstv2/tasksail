@@ -7,13 +7,19 @@ import {
   CONTENT_SECTION_EXCLUSIONS,
   METADATA_LINE,
   SECTION_HEADING,
+  type SemanticSectionSpec,
 } from './models.js';
 import {
   markdownSectionsHaveContent,
+  normalizeIdentifier,
   normalizeText,
   stripHtmlComments,
 } from './matching.js';
+import { SLICE_TEMPLATE_RELATIVE_PATH } from './rules/templateSpecs.js';
+import { LINEAGE_METADATA_LABELS } from './rules/templateSpecs.js';
 import type { WorkspaceArtifact } from './types.js';
+
+const NESTED_SECTION_HEADING = /^(#{3,6})\s+(.*\S)\s*$/;
 
 export function parseSections(text: string | null | undefined): Record<string, string[]> {
   const sections: Record<string, string[]> = {};
@@ -48,6 +54,129 @@ export function parseMetadata(lines: readonly string[]): Record<string, string> 
   return values;
 }
 
+export interface ResolvedSemanticSection {
+  heading: string | null;
+  content: string[];
+  source: 'direct-heading' | 'nested-heading' | 'container-heading' | 'missing';
+}
+
+function findSectionEntry(
+  sections: Record<string, string[]>,
+  headings: readonly string[],
+): { heading: string; content: string[] } | null {
+  const normalizedHeadings = new Set(headings.map((heading) => normalizeIdentifier(heading)));
+  for (const [sectionName, lines] of Object.entries(sections)) {
+    if (normalizedHeadings.has(normalizeIdentifier(sectionName))) {
+      return { heading: sectionName, content: lines };
+    }
+  }
+  return null;
+}
+
+function findNestedSection(
+  lines: readonly string[],
+  headings: readonly string[],
+): { heading: string; content: string[] } | null {
+  const normalizedHeadings = new Set(headings.map((heading) => normalizeIdentifier(heading)));
+  let activeHeading: string | null = null;
+  let activeLevel = 0;
+  let activeContent: string[] = [];
+
+  for (const rawLine of lines) {
+    const match = NESTED_SECTION_HEADING.exec(rawLine.trim());
+    if (match?.[2]) {
+      const level = (match[1] ?? '').length;
+      const title = match[2];
+
+      if (activeHeading && level <= activeLevel) {
+        return { heading: activeHeading, content: activeContent };
+      }
+
+      if (!activeHeading && normalizedHeadings.has(normalizeIdentifier(title))) {
+        activeHeading = title;
+        activeLevel = level;
+        activeContent = [];
+        continue;
+      }
+    }
+
+    if (activeHeading) {
+      activeContent.push(rawLine);
+    }
+  }
+
+  return activeHeading ? { heading: activeHeading, content: activeContent } : null;
+}
+
+export function resolveSemanticSection(
+  sections: Record<string, string[]>,
+  sectionSpec: SemanticSectionSpec,
+): ResolvedSemanticSection {
+  const directHeadings = [sectionSpec.preferredHeading, ...(sectionSpec.aliases ?? [])];
+  const directMatch = findSectionEntry(sections, directHeadings);
+  if (directMatch) {
+    return {
+      heading: directMatch.heading,
+      content: directMatch.content,
+      source: 'direct-heading',
+    };
+  }
+
+  for (const containerHeading of sectionSpec.containerHeadings ?? []) {
+    const containerMatch = findSectionEntry(sections, [containerHeading]);
+    if (!containerMatch) {
+      continue;
+    }
+
+    const nestedMatch = findNestedSection(containerMatch.content, directHeadings);
+    if (nestedMatch) {
+      return {
+        heading: nestedMatch.heading,
+        content: nestedMatch.content,
+        source: 'nested-heading',
+      };
+    }
+
+    if (sectionSpec.allowContainerFallback !== false) {
+      return {
+        heading: containerMatch.heading,
+        content: containerMatch.content,
+        source: 'container-heading',
+      };
+    }
+  }
+
+  return {
+    heading: null,
+    content: [],
+    source: 'missing',
+  };
+}
+
+export function parseArtifactMetadata(
+  sections: Record<string, string[]>,
+): { metadata: Record<string, string>; taskLineage: Record<string, string> } {
+  const taskMetadataLines = sections['Task Metadata'] ?? [];
+  const parsedTaskMetadata = parseMetadata(taskMetadataLines);
+  const nestedTaskLineage =
+    findNestedSection(taskMetadataLines, ['Task Lineage'])?.content
+    ?? [];
+  const taskLineageLines = sections['Task Lineage'] ?? nestedTaskLineage;
+  const parsedTaskLineage = parseMetadata(taskLineageLines.length > 0 ? taskLineageLines : taskMetadataLines);
+  const metadata = Object.fromEntries(
+    Object.entries(parsedTaskMetadata).filter(([label]) =>
+      !LINEAGE_METADATA_LABELS.includes(label as (typeof LINEAGE_METADATA_LABELS)[number])),
+  );
+
+  return {
+    metadata,
+    taskLineage: Object.fromEntries(
+      Object.entries(parsedTaskLineage).filter(([label]) =>
+        LINEAGE_METADATA_LABELS.includes(label as (typeof LINEAGE_METADATA_LABELS)[number])),
+    ),
+  };
+}
+
 export async function loadWorkspaceArtifact(
   rootDir: string,
   relativePath: string,
@@ -60,8 +189,7 @@ export async function loadWorkspaceArtifact(
     relativePath,
     exists: rawText !== undefined,
     sections,
-    metadata: parseMetadata(sections['Task Metadata'] ?? []),
-    taskLineage: parseMetadata(sections['Task Lineage'] ?? []),
+    ...parseArtifactMetadata(sections),
     hasSubstantiveContent: markdownSectionsHaveContent(sections, {
       excludedSections: CONTENT_SECTION_EXCLUSIONS,
     }),
@@ -71,8 +199,13 @@ export async function loadWorkspaceArtifact(
 export async function listSliceFiles(stepsDir: string): Promise<string[]> {
   try {
     const entries = await readdir(stepsDir, { withFileTypes: true });
+    const sliceTemplateName = path.basename(SLICE_TEMPLATE_RELATIVE_PATH);
     return entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.md') && entry.name !== 'slice-template.md')
+      .filter((entry) => (
+        entry.isFile()
+        && entry.name.endsWith('.md')
+        && entry.name !== sliceTemplateName
+      ))
       .map((entry) => path.join(stepsDir, entry.name))
       .sort((left, right) => left.localeCompare(right));
   } catch (error) {
@@ -138,4 +271,3 @@ export async function inferContextPackDir(
 
   return path.resolve(resolvedValue);
 }
-

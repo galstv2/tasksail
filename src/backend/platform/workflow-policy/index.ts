@@ -32,6 +32,8 @@ export {
   REQUIRED_AGENT_REGISTRY_FIELDS,
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
   SECTION_HEADING,
+  type SemanticSectionSpec,
+  SLICE_REQUIRED_SECTION_SPECS,
   SLICE_REQUIRED_SECTIONS,
   countFailures,
   countWarnings,
@@ -70,9 +72,11 @@ export {
   inferContextPackDir,
   listSliceFiles,
   loadWorkspaceArtifact,
+  parseArtifactMetadata,
   parallelOkHasActiveApproval,
   parseMetadata,
   parseSections,
+  resolveSemanticSection,
 } from './artifacts.js';
 
 export { formatJson, formatText } from './formatting.js';

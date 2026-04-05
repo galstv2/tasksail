@@ -585,6 +585,7 @@ export async function runRoleAgent(
   // All repo-executor agents launch from the focused repo CWD with inlined
   // agent context. Dalton also gets selected-primary confinement enforcement.
   const usesFocusedRepoLaunch = profile.autonomyProfile === 'repo-executor';
+  const usesFocusedRepoContext = options.agentId === 'lily';
   const enforcesSelectedPrimaryBoundary =
     profile.autonomyProfile === 'repo-executor' && options.agentId === 'dalton';
   let agentCwd = paths.repoRoot;
@@ -604,41 +605,48 @@ export async function runRoleAgent(
           options.contextPackDir,
           paths.repoRoot,
         )
-      : await resolveFocusedRepoRoot(
-          options.contextPackDir,
-          paths.repoRoot,
-        );
+      : usesFocusedRepoLaunch || usesFocusedRepoContext
+        ? await resolveFocusedRepoRoot(
+            options.contextPackDir,
+            paths.repoRoot,
+          )
+        : undefined;
 
-    if (focused) {
-      // Add the activated reference repo set as allowed dirs so Dalton can read
-      // support repos, while post-run confinement still hard-enforces writes to
-      // the selected primary repo/focus boundary only.
-      for (const root of focused.visibleRepoRoots) {
-        autonomyArgs.allowedDirs.push(root);
+      if (focused) {
+        // Add the activated reference repo set as allowed dirs so Dalton can read
+        // support repos, while post-run confinement still hard-enforces writes to
+        // the selected primary repo/focus boundary only.
+        for (const root of focused.visibleRepoRoots) {
+          autonomyArgs.allowedDirs.push(root);
+        }
+        if (usesFocusedRepoLaunch) {
+          agentCwd = enforcesSelectedPrimaryBoundary
+            ? resolveDaltonLaunchCwd(focused)
+            : focused.primaryRepoRoot;
+          autonomyArgs.allowedDirs.push(paths.repoRoot);
+        }
+        if (enforcesSelectedPrimaryBoundary) {
+          preRunBoundarySnapshot = await captureChangedPathsSnapshot([
+            paths.repoRoot,
+            ...focused.declaredRepoRoots,
+          ]);
+        }
+      } else if (usesFocusedRepoLaunch || enforcesSelectedPrimaryBoundary) {
+        throw new Error(
+          enforcesSelectedPrimaryBoundary
+            ? `Cannot resolve the selected primary boundary for Dalton from context pack "${options.contextPackDir}". ` +
+              'Failing closed — Dalton requires an authoritative active task/workspace selection with exactly one selected primary target.'
+            : `Cannot resolve focused repo root for repo-executor "${options.agentId}" ` +
+              `from context pack "${options.contextPackDir}". ` +
+              `Failing closed — repo-executor requires a resolvable focused repo.`,
+        );
+      } else if (usesFocusedRepoContext) {
+        console.warn(
+          `[roleAgent] planning-agent could not resolve focused repo roots from context pack "${options.contextPackDir}". ` +
+          'Continuing with planning workspace dirs only.',
+        );
       }
-      if (usesFocusedRepoLaunch) {
-        agentCwd = enforcesSelectedPrimaryBoundary
-          ? resolveDaltonLaunchCwd(focused)
-          : focused.primaryRepoRoot;
-        autonomyArgs.allowedDirs.push(paths.repoRoot);
-      }
-      if (enforcesSelectedPrimaryBoundary) {
-        preRunBoundarySnapshot = await captureChangedPathsSnapshot([
-          paths.repoRoot,
-          ...focused.declaredRepoRoots,
-        ]);
-      }
-    } else if (usesFocusedRepoLaunch || enforcesSelectedPrimaryBoundary) {
-      throw new Error(
-        enforcesSelectedPrimaryBoundary
-          ? `Cannot resolve the selected primary boundary for Dalton from context pack "${options.contextPackDir}". ` +
-            'Failing closed — Dalton requires an authoritative active task/workspace selection with exactly one selected primary target.'
-          : `Cannot resolve focused repo root for repo-executor "${options.agentId}" ` +
-            `from context pack "${options.contextPackDir}". ` +
-            `Failing closed — repo-executor requires a resolvable focused repo.`,
-      );
     }
-  }
 
   // 4. Build copilot CLI args and resolve launch prompt.
   const skipAgentFlag = usesFocusedRepoLaunch && focused != null;

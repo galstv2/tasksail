@@ -17,7 +17,11 @@ import {
   activateNextPendingItemIfReady,
 } from '../operations.js';
 import { resetHandoffArtifacts } from '../lifecycle.js';
-import { HANDOFF_FILES } from '../paths.js';
+import {
+  HANDOFF_FILES,
+  SLICE_TEMPLATE_FILENAME,
+  implementationStepsTemplatePath,
+} from '../paths.js';
 
 describe('acquireDirLock', () => {
   let tmpDir: string;
@@ -164,8 +168,8 @@ describe('activateNextPendingItemIfReady', () => {
       writeFileSync(path.join(templatesDir, filename), template);
     }
     writeFileSync(
-      path.join(templatesDir, 'slice-template.md'),
-      '# Slice Template\n\n## Purpose\n',
+      path.join(templatesDir, SLICE_TEMPLATE_FILENAME),
+      '# Slice Template\n\n## Objective\n\n### Purpose\n',
     );
 
     const activated = await activateNextPendingItemIfReady(
@@ -177,9 +181,13 @@ describe('activateNextPendingItemIfReady', () => {
     expect(activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
     expect(existsSync(path.join(handoffsDir, 'professional-task.md'))).toBe(true);
-    expect(
-      existsSync(path.join(tmpDir, 'ImplementationSteps', 'slice-template.md')),
-    ).toBe(true);
+    const copiedSliceTemplatePath = implementationStepsTemplatePath(
+      path.join(tmpDir, 'ImplementationSteps'),
+    );
+    expect(existsSync(copiedSliceTemplatePath)).toBe(true);
+    expect(readFileSync(copiedSliceTemplatePath, 'utf-8')).toBe(
+      '# Slice Template\n\n## Objective\n\n### Purpose\n',
+    );
     const retrospective = readdirSync(handoffsDir).includes('retrospective-input.md')
       ? readFileSync(path.join(handoffsDir, 'retrospective-input.md'), 'utf-8')
       : '';
@@ -216,7 +224,7 @@ describe('activateNextPendingItemIfReady', () => {
     for (const filename of HANDOFF_FILES) {
       writeFileSync(path.join(repoTemplatesDir, filename), `# ${filename}\n`);
     }
-    writeFileSync(path.join(repoTemplatesDir, 'slice-template.md'), '# slice\n');
+    writeFileSync(path.join(repoTemplatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
 
     const activated = await activateNextPendingItemIfReady(
       repoPendingDir,
@@ -253,7 +261,7 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
     mkdirSync(implStepsDir, { recursive: true });
 
     writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# task\n');
-    writeFileSync(path.join(implStepsDir, 'slice-template.md'), '# slice\n');
+    writeFileSync(path.join(implStepsDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
     writeFileSync(path.join(roleSessionsDir, 'dalton.json'), '{"status":"failed"}\n');
 
     await resetHandoffArtifacts(handoffsDir, HANDOFF_FILES, {

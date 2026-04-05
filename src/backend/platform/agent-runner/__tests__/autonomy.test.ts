@@ -27,6 +27,18 @@ function makeArtifactAuthor(overrides: Partial<AgentProfile> = {}): AgentProfile
   });
 }
 
+function makePlanningAuthor(overrides: Partial<AgentProfile> = {}): AgentProfile {
+  return makeProfile({
+    id: 'lily',
+    registryId: 'planning-agent',
+    displayName: 'Lily',
+    role: 'Planning Intake',
+    autonomyProfile: 'artifact-author',
+    denyRules: undefined,
+    ...overrides,
+  });
+}
+
 function makeQaExecutor(overrides: Partial<AgentProfile> = {}): AgentProfile {
   return makeProfile({
     id: 'ron',
@@ -79,6 +91,11 @@ describe('resolveAutonomyProfile', () => {
     expect(args.allowedDirs).toContain('/path/to/context-pack');
   });
 
+  it('does not add context pack dir to Lily allowed dirs', () => {
+    const args = resolveAutonomyProfile(makePlanningAuthor(), '/path/to/context-pack');
+    expect(args.allowedDirs).not.toContain('/path/to/context-pack');
+  });
+
   it('resolves model from profile', () => {
     const args = resolveAutonomyProfile(makeProfile());
     expect(args.model).toBe('gpt-4.1');
@@ -108,6 +125,11 @@ describe('resolveAutonomyProfile', () => {
 
   it('artifact-author with contextPackDir adds --disallow-temp-dir', () => {
     const args = resolveAutonomyProfile(makeArtifactAuthor(), '/ctx/pack');
+    expect(args.additionalFlags).toContain('--disallow-temp-dir');
+  });
+
+  it('Lily with contextPackDir still adds --disallow-temp-dir', () => {
+    const args = resolveAutonomyProfile(makePlanningAuthor(), '/ctx/pack');
     expect(args.additionalFlags).toContain('--disallow-temp-dir');
   });
 

@@ -6,8 +6,9 @@
 
 import { readTextFile } from '../../core/index.js';
 import {
-  SPEC_RECOMMENDED_SECTIONS,
-  SPEC_REQUIRED_SECTIONS,
+  SPEC_CHILD_CARRY_FORWARD_SECTION,
+  SPEC_RECOMMENDED_SECTION_SPECS,
+  SPEC_REQUIRED_SECTION_SPECS,
 } from '../models.js';
 import {
   CODE_FENCE_PATTERN,
@@ -16,7 +17,7 @@ import {
   extractBulletItems,
   normalizeText,
 } from '../matching.js';
-import { parseSections } from '../artifacts.js';
+import { parseSections, resolveSemanticSection } from '../artifacts.js';
 import type { PolicyValidator } from '../validator.js';
 
 const SPEC_RELATIVE_PATH = 'AgentWorkSpace/handoffs/implementation-spec.md';
@@ -46,68 +47,80 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
 
   const sections = parseSections(text);
 
-  for (const sectionName of SPEC_REQUIRED_SECTIONS) {
-    const content = normalizeText(sections[sectionName] ?? []);
+  for (const sectionSpec of SPEC_REQUIRED_SECTION_SPECS) {
+    const content = normalizeText(resolveSemanticSection(sections, sectionSpec).content);
     if (!content) {
       validator.addViolation({
         rule_id: 'spec.required-section-present',
         artifact: SPEC_RELATIVE_PATH,
-        message: `Required section '${sectionName}' is missing or empty.`,
-        remediation: `Add a non-empty '## ${sectionName}' section to ${SPEC_RELATIVE_PATH}.`,
+        message: `Required section '${sectionSpec.preferredHeading}' is missing or empty.`,
+        remediation:
+          `Add a non-empty section for '${sectionSpec.preferredHeading}' to ${SPEC_RELATIVE_PATH}.`,
       });
     }
   }
 
-  for (const sectionName of SPEC_RECOMMENDED_SECTIONS) {
-    const content = normalizeText(sections[sectionName] ?? []);
+  for (const sectionSpec of SPEC_RECOMMENDED_SECTION_SPECS) {
+    const content = normalizeText(resolveSemanticSection(sections, sectionSpec).content);
     if (!content) {
       validator.addViolation({
         rule_id: 'spec.recommended-section-present',
         artifact: SPEC_RELATIVE_PATH,
         severity: 'warning',
-        message: `Recommended section '${sectionName}' is missing or empty.`,
-        remediation: `Consider adding a '## ${sectionName}' section to ${SPEC_RELATIVE_PATH}.`,
+        message: `Recommended section '${sectionSpec.preferredHeading}' is missing or empty.`,
+        remediation:
+          `Consider adding a section for '${sectionSpec.preferredHeading}' to ${SPEC_RELATIVE_PATH}.`,
       });
     }
   }
 
-  const goalsItems = extractBulletItems(sections['Goals'] ?? []);
+  const goalsItems = extractBulletItems(
+    resolveSemanticSection(sections, SPEC_REQUIRED_SECTION_SPECS[1]!).content,
+  );
   if (!goalsItems.length) {
     validator.addViolation({
       rule_id: 'spec.goals-measurable',
       artifact: SPEC_RELATIVE_PATH,
       message: 'Goals must contain at least one numbered or bullet item.',
-      remediation: `Add numbered or bulleted goals to '## Goals' in ${SPEC_RELATIVE_PATH}.`,
+      remediation: `Add numbered or bulleted goals content to ${SPEC_RELATIVE_PATH}.`,
     });
   }
 
-  const nonGoalsItems = extractBulletItems(sections['Non-Goals'] ?? []);
+  const nonGoalsItems = extractBulletItems(
+    resolveSemanticSection(sections, SPEC_REQUIRED_SECTION_SPECS[2]!).content,
+  );
   if (!nonGoalsItems.length) {
     validator.addViolation({
       rule_id: 'spec.non-goals-present',
       artifact: SPEC_RELATIVE_PATH,
       message: 'Non-Goals must contain at least one numbered or bullet item.',
-      remediation: `Add numbered or bulleted non-goals to '## Non-Goals' in ${SPEC_RELATIVE_PATH}.`,
+      remediation: `Add numbered or bulleted non-goals content to ${SPEC_RELATIVE_PATH}.`,
     });
   }
 
-  const validationText = (sections['Validation Strategy'] ?? []).join('\n');
+  const validationText = resolveSemanticSection(
+    sections,
+    SPEC_REQUIRED_SECTION_SPECS[9]!,
+  ).content.join('\n');
   if (!CODE_FENCE_PATTERN.test(validationText) && !COMMAND_LINE_PATTERN.test(validationText)) {
     validator.addViolation({
       rule_id: 'spec.validation-strategy-executable',
       artifact: SPEC_RELATIVE_PATH,
       message: 'Validation Strategy must contain a code fence or executable command line.',
-      remediation: `Add code-fenced shell commands to '## Validation Strategy' in ${SPEC_RELATIVE_PATH}.`,
+      remediation: `Add code-fenced shell commands to validation guidance in ${SPEC_RELATIVE_PATH}.`,
     });
   }
 
-  const depText = (sections['Dependency Analysis'] ?? []).join('\n');
+  const depText = resolveSemanticSection(
+    sections,
+    SPEC_REQUIRED_SECTION_SPECS[6]!,
+  ).content.join('\n');
   if (!CODE_FENCE_PATTERN.test(depText) && !TABLE_ROW_PATTERN.test(depText)) {
     validator.addViolation({
       rule_id: 'spec.dependency-analysis-structured',
       artifact: SPEC_RELATIVE_PATH,
       message: 'Dependency Analysis must contain a code fence or table.',
-      remediation: `Add a code fence or markdown table to '## Dependency Analysis' in ${SPEC_RELATIVE_PATH}.`,
+      remediation: `Add a code fence or markdown table to dependency analysis in ${SPEC_RELATIVE_PATH}.`,
     });
   }
 
@@ -118,7 +131,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
     const taskKind = (professional.taskLineage['Task Kind'] ?? '').trim();
     if (taskKind === 'child-task') {
       const carryForward = normalizeText(
-        sections['Parent Task Carry-Forward Context'] ?? [],
+        resolveSemanticSection(sections, SPEC_CHILD_CARRY_FORWARD_SECTION).content,
       );
       if (!carryForward) {
         validator.addViolation({

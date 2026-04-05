@@ -39,7 +39,8 @@ export function buildVerificationDaltonPrompt(
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (validationCommands.length > 0) {
-    parts.push('## Validation Commands (run all of these)\n');
+    parts.push('## Acceptance and Validation\n');
+    parts.push('### Validation Commands\n');
     parts.push('```');
     parts.push(validationCommands.join('\n'));
     parts.push('```');

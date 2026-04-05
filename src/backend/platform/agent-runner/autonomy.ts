@@ -27,6 +27,10 @@ function hasShellAccess(profile: AutonomyProfile): boolean {
   return profile === 'repo-executor' || profile === 'qa-executor';
 }
 
+function shouldAddContextPackDir(profile: AgentProfile): boolean {
+  return profile.id !== 'lily';
+}
+
 /**
  * Resolve the autonomy profile into copilot CLI arguments.
  *
@@ -75,7 +79,7 @@ export function resolveAutonomyProfile(
     }
   }
 
-  if (contextPackDir) {
+  if (contextPackDir && shouldAddContextPackDir(profile)) {
     allowedDirs.push(resolveDir(contextPackDir));
   }
 

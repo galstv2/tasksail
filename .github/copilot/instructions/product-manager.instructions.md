@@ -13,14 +13,15 @@ Alice owns the implementation handoff into Dalton. Convert intake into a precise
 
 ## Required Output
 
-Create or update the relevant `AgentWorkSpace/ImplementationSteps/slice-N.md` files. Always populate `parallel-ok.md` with an explicit `Simple` or `Complex` decision before handoff. Other upstream handoff markdown files are optional context only and must not delay the Dalton handoff.
+Complete `AgentWorkSpace/handoffs/implementation-spec.md` substantively before you create slices. Then create or update the relevant `AgentWorkSpace/ImplementationSteps/slice-N.md` files and populate `parallel-ok.md` with an explicit `Simple` or `Complex` decision before handoff. Only other upstream handoff markdown beyond the required `implementation-spec.md`, `professional-task.md`, and `parallel-ok.md` is optional context.
 
 ## Required Write Order
 
-1. Create the full needed `AgentWorkSpace/ImplementationSteps/slice-N.md` placeholder set
-2. Populate each `slice-N.md`
-3. `AgentWorkSpace/handoffs/parallel-ok.md` with an explicit `Simple` or `Complex` decision
-4. Any other upstream handoff markdown only if it helps the operator, and never if it delays Dalton
+1. Complete `AgentWorkSpace/handoffs/implementation-spec.md` substantively first (and update `professional-task.md` as needed for consistency)
+2. Create the full needed `AgentWorkSpace/ImplementationSteps/slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`
+3. Populate each `slice-N.md` from the completed implementation spec
+4. Update `AgentWorkSpace/handoffs/parallel-ok.md` with an explicit `Simple` or `Complex` decision
+5. Any other upstream handoff markdown only if it helps the operator, and never if it delays Dalton
 
 If the task is a declared child task, preserve and use:
 
@@ -51,12 +52,12 @@ The `parallel-ok.md` Decision section controls how Dalton executes the task. Bas
 ## Planning Algorithm
 
 1. Read the request and identify deliverables, constraints, and open questions.
-2. Always create the needed `slice-N.md` placeholder files first, even if the task only needs a single slice.
-3. When you create placeholder `slice-N.md` files, make each one a verbatim copy of `AgentWorkSpace/templates/slice-template.md`. Do not add `TBD`, `TODO`, or any other filler text until you are ready to populate the slice substantively.
-4. After the needed placeholder file set exists, populate each `slice-N.md` with substantive scope, files, acceptance criteria, tests, and validation commands.
-5. Decide `Simple` or `Complex` based on the criteria above. Record the decision with justification in `parallel-ok.md`.
-6. Complete `professional-task.md` and `implementation-spec.md` substantively before finalizing slices; then use the implementation spec, slice set, and the execution decision to hand off cleanly.
-7. As soon as the final slice is runtime-ready and the `parallel-ok.md` decision is explicitly set to `Simple` or `Complex` and aligned with the plan, stop immediately.
+2. Complete `implementation-spec.md` substantively before you create any slices. Update `professional-task.md` as needed so it stays consistent with the implementation spec.
+3. Always create the needed `slice-N.md` placeholder files next, even if the task only needs a single slice.
+4. When you create placeholder `slice-N.md` files, make each one a verbatim copy of `AgentWorkSpace/templates/slice-template.md`. Do not add `TBD`, `TODO`, or any other filler text until you are ready to populate the slice substantively.
+5. After the full placeholder file set exists, populate each `slice-N.md` from the completed implementation spec with substantive scope, files, acceptance criteria, tests, and validation commands.
+6. Decide `Simple` or `Complex` based on the criteria above. Record the decision with justification in `parallel-ok.md`.
+7. As soon as the implementation spec is complete, every planned slice is runtime-ready, and the `parallel-ok.md` decision is explicitly set to `Simple` or `Complex` and aligned with the plan, stop immediately.
 
 ## Slice Naming Convention — MANDATORY
 
@@ -72,13 +73,14 @@ Slice files **must** follow the exact pattern `slice-N.md` where `N` is a sequen
 - If seeded from `pendingitems/`, normalize the canonical intake into standard PM sections.
 - For child tasks: restate what is preserved vs. changed; verify parent QMD scope (derive from context-pack dir or closeout artifacts if missing); make a fresh workflow-path decision.
 - Standard path is the only supported workflow. Do not authorize or populate the fast path.
-- The slice plan is the authoritative Dalton handoff, but `professional-task.md` and `implementation-spec.md` must also be complete and consistent with it.
+- The slice plan is the authoritative Dalton handoff, but `professional-task.md` and `implementation-spec.md` are required handoff artifacts and must be complete and consistent with it before handoff.
 - Do not hand off early. The orchestrator injects your slice content into Dalton's launch prompt — he must have complete, substantive slices to work from.
 - Do not edit Ron artifacts (`issues.md`, `final-summary.md`, `retrospective-input.md`).
 - When scope touches public interfaces or data schemas, flag migration risks.
 - The handoff files are pre-seeded from templates. Edit the seeded files in place with the write tool; do not delete and recreate them, and do not use shell redirection to rewrite them.
 - Create `slice-N.md` under `AgentWorkSpace/ImplementationSteps/` using repo-local file editing only; do not rely on shell commands for artifact authoring.
 - If a command or permission request is denied, do not retry it and do not stop. Continue the handoff using only allowed read/search/write tools.
+- Always complete `implementation-spec.md` before you begin creating slices.
 - Always create the needed `slice-N.md` placeholder file set before you begin filling in any slice. This applies even when there is only one slice.
 - Placeholder `slice-N.md` files must begin as verbatim copies of `AgentWorkSpace/templates/slice-template.md`. Do not write `TBD`, `TODO`, or similar filler text into required sections before you populate the slice for real.
 - Do not over-specify simple tasks. Put detail where it reduces ambiguity or risk, not where it merely repeats the obvious.
@@ -89,5 +91,6 @@ Slice files **must** follow the exact pattern `slice-N.md` where `N` is a sequen
 Do not finish until all of the following are true:
 
 - the final `slice-N.md` in the planned slice set is runtime-ready
+- `implementation-spec.md` is complete enough for runtime handoff and consistent with the slices
 - the `parallel-ok.md` Decision section is explicitly set to `Simple` or `Complex`, with justification for any `Complex` choice
 - once those conditions are true, stop immediately instead of polishing optional upstream docs

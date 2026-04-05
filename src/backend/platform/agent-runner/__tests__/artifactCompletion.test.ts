@@ -198,7 +198,73 @@ describe('artifactCompletion', () => {
 
     expect(prompt).toContain('slice-search.md');
     expect(prompt).toContain('Scope');
-    expect(prompt).toContain('Validation Commands');
+    expect(prompt).toContain('Validation Commands / Validation');
+    expect(prompt).toContain('Acceptance and Validation');
+  });
+
+  it('accepts workflow-policy section aliases when checking product-manager slice readiness', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(implStepsDir, 'slice-search.md'),
+      '# Slice Template\n\n'
+      + '## Objective\n\nAdd search support.\n\n'
+      + '## Dependencies\n\nNone.\n\n'
+      + '## Execution Scope\n\n- add exact-match search\n\n'
+      + '## Files and Interfaces\n\n- crud.py\n\n'
+      + '## Acceptance\n\n- search works\n\n'
+      + '## Tests\n\n- test_search\n\n'
+      + '## Validation\n\n```bash\npytest -q\n```\n\n'
+      + '## Coordination Notes\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+    })).resolves.toBe(true);
+  });
+
+  it('accepts validation commands nested under the Acceptance and Validation container', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(implStepsDir, 'slice-search.md'),
+      '# Slice Template\n\n'
+      + '## Purpose\n\nAdd search support.\n\n'
+      + '## Depends On\n\nNone.\n\n'
+      + '## Scope\n\n- add exact-match search\n\n'
+      + '## Files\n\n- crud.py\n\n'
+      + '## Acceptance and Validation\n\n'
+      + '### Acceptance Criteria\n\n- search works\n\n'
+      + '### Unit Tests\n\n- test_search\n\n'
+      + '### Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+    })).resolves.toBe(true);
   });
 
   it('requires the final product-manager slice to be runtime ready', async () => {

@@ -6,7 +6,13 @@ import {
   ensureDir,
   copyFileSafe,
 } from '../core/index.js';
-import { templateSourceFor, HANDOFF_FILES, PUBLISH_MARKER } from './paths.js';
+import {
+  templateSourceFor,
+  HANDOFF_FILES,
+  PUBLISH_MARKER,
+  SLICE_TEMPLATE_FILENAME,
+  implementationStepsTemplatePath,
+} from './paths.js';
 import { stampHandoffTemplate } from './artifacts.js';
 
 export interface InitializeTaskOptions {
@@ -84,11 +90,14 @@ export async function initializeTaskArtifacts(
     // Copy slice templates into ImplementationSteps/ if specified
     if (implementationStepsDir) {
       await ensureDir(implementationStepsDir);
-      const sliceTemplate = path.join(templatesDir, 'slice-template.md');
+      const sliceTemplate = templateSourceFor(
+        SLICE_TEMPLATE_FILENAME,
+        templatesDir,
+      );
       if (existsSync(sliceTemplate)) {
         await copyFileSafe(
           sliceTemplate,
-          path.join(implementationStepsDir, 'slice-template.md'),
+          implementationStepsTemplatePath(implementationStepsDir),
         );
       }
     }

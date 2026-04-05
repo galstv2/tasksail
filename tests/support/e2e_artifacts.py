@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import dedent
 
 from tests.support.handoff_factory import write_text
 
@@ -37,127 +38,152 @@ def write_product_manager_artifacts(
     write_text(
         workspace,
         "AgentWorkSpace/handoffs/implementation-spec.md",
-        f"""# Implementation Spec
+        dedent(f"""\
+        # Implementation Spec
 
-{_task_metadata(task_id, title)}
+        {_task_metadata(task_id, title)}
 
-{_TASK_LINEAGE}
+        {_TASK_LINEAGE}
 
-## Parent Task Carry-Forward Context
+        ## Problem and Outcome
 
-## Problem Statement
+        ### Problem Statement
 
-The repository needs a deterministic subprocess test for the active standard-only workflow.
+        The repository needs a deterministic subprocess test for the active standard-only workflow.
 
-## Goals
+        ### Goals
 
-1. Validate the standard workflow artifacts from intake to archive.
+        1. Validate the standard workflow artifacts from intake to archive.
 
-## Non-Goals
+        ### Non-Goals
 
-1. No live Copilot execution.
-2. No retired roles or fast-path artifacts.
+        1. No live Copilot execution.
+        2. No retired roles or fast-path artifacts.
 
-## Architecture Summary
+        ## Current State and Boundaries
 
-Single subprocess integration test exercising Product Manager, Software Engineer, and QA outputs.
+        ### Parent Task Carry-Forward Context
 
-## Touched Systems
+        ### Codebase Analysis
 
-tests/
+        workflow-policy/cli.ts is the canonical TypeScript guardrail entry point for
+        workflow artifacts.
 
-## Change Boundaries
+        ### Dependency Analysis
 
-Test code only.
+        | Module | Depends On |
+        |---|---|
+        | test_mvp_green_light.py | workflow-policy/cli.ts |
 
-## Dependency Analysis
+        ### Change Boundaries
 
-| Module | Depends On |
-|---|---|
-| test_mvp_green_light.py | workflow-policy/cli.ts |
+        Test code only.
 
-## Codebase Analysis
+        ## Implementation Plan
 
-workflow-policy/cli.ts is the canonical TypeScript guardrail entry point for
-workflow artifacts.
+        ### Architecture Summary
 
-## Proposed Structure
+        Single subprocess integration test exercising Product Manager, Software Engineer, and QA outputs.
 
-Keep the synthetic subprocess test and helper writers aligned to the current standard-only workflow.
+        ### Touched Systems
 
-## Contracts
+        tests/
 
-Validation must stay deterministic and use only active workflow artifacts.
+        ### Proposed Structure
 
-## Migrations or Data Implications
+        Keep the synthetic subprocess test and helper writers aligned to the current standard-only workflow.
 
-None.
+        ### Contracts
 
-## Risks
+        Validation must stay deterministic and use only active workflow artifacts.
 
-Low.
+        ### Migrations or Data Implications
 
-## Validation Strategy
+        None.
 
-```bash
-RUN_SLOW_TESTS=1 python3 -m pytest tests/domains/e2e/test_mvp_green_light.py -v
-```
+        ## Risk and Impact
 
-## Test Coverage
+        ### Risks
 
-tests/domains/e2e/test_mvp_green_light.py
+        Low.
 
-## Impact Assessment
+        ### Impact Assessment
 
-Low.
+        Low.
 
-## Files or Areas Likely to Change
+        ## Validation and Evidence
 
-- tests/domains/e2e/test_mvp_green_light.py
-- tests/support/e2e_artifacts.py
-""",
+        ### Validation Strategy
+
+        ```bash
+        RUN_SLOW_TESTS=1 python3 -m pytest tests/domains/e2e/test_mvp_green_light.py -v
+        ```
+
+        ### Test Coverage
+
+        tests/domains/e2e/test_mvp_green_light.py
+
+        ## Change Surface
+
+        ### Files or Areas Likely to Change
+
+        - tests/domains/e2e/test_mvp_green_light.py
+        - tests/support/e2e_artifacts.py
+        """),
     )
     write_text(
         workspace,
         "AgentWorkSpace/ImplementationSteps/slice-01-green-light-validation.md",
         """# Slice 01 - Green-Light Validation
 
-## Purpose
+## Objective
+
+### Purpose
 
 Validate the active standard-only workflow with a deterministic subprocess E2E test.
 
-## Depends On
+## Dependencies and Order
+
+### Depends On
 
 None.
 
-## Scope
+## Execution Scope
+
+### Scope
 
 - Keep the synthetic test aligned to Product Manager, Software Engineer, and QA.
 - Exercise queue closeout and archive behavior.
 NOT: live Copilot execution or retired-role coverage.
 
-## Files
+## Files and Interfaces
+
+### Files
 
 - tests/domains/e2e/test_mvp_green_light.py
 - tests/support/e2e_artifacts.py
 
-## Acceptance Criteria
+### Unit Tests
+
+- tests/domains/e2e/test_mvp_green_light.py
+
+## Acceptance and Validation
+
+### Acceptance Criteria
 
 1. The synthetic test writes only current workflow artifacts.
 2. Pre-closeout validation passes.
 3. Queue closeout archives the task successfully.
 
-## Unit Tests
-
-- tests/domains/e2e/test_mvp_green_light.py
-
-## Validation Commands
+### Validation Commands
 
 ```bash
 RUN_SLOW_TESTS=1 python3 -m pytest tests/domains/e2e/test_mvp_green_light.py -v
 ```
 
-## Guards
+## Guards and Coordination
+
+### Guards
 
 - No real agent CLI invocation.
 - No fast-path or retired-role artifacts.

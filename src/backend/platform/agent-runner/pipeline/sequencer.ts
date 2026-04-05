@@ -27,6 +27,7 @@ import {
 import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
+import { implementationStepsTemplatePath } from '../../queue/paths.js';
 import {
   clearPipelineKill,
   pipelineKillSwitchExists,
@@ -240,7 +241,7 @@ export async function buildSimpleDaltonPrompt(
 async function removeSliceTemplateIfPresent(
   implementationStepsDir: string,
 ): Promise<void> {
-  await rm(path.join(implementationStepsDir, 'slice-template.md'), { force: true });
+  await rm(implementationStepsTemplatePath(implementationStepsDir), { force: true });
 }
 
 async function writePipelineReceipt(

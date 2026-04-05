@@ -1,13 +1,18 @@
 import { readTextFile } from '../core/index.js';
 import { loadNamedAgentTeam } from './agents.js';
-import { loadWorkspaceArtifact, parseSections, inferContextPackDir } from './artifacts.js';
+import {
+  inferContextPackDir,
+  loadWorkspaceArtifact,
+  parseSections,
+  resolveSemanticSection,
+} from './artifacts.js';
 import {
   AGENT_REGISTRY_RELATIVE_PATH,
   FAIL_CLOSED_DEFAULT_MODES,
   FINAL_SUMMARY_RELATIVE_PATH,
   HANDOFF_RELATIVE_PATHS,
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
-  SLICE_REQUIRED_SECTIONS,
+  SLICE_REQUIRED_SECTION_SPECS,
   countFailures,
   countWarnings,
   createViolation,
@@ -264,9 +269,11 @@ export class PolicyValidator {
   ): Promise<{ ready: boolean; missingSections: string[]; sliceId: string }> {
     const text = (await readTextFile(slicePath)) ?? '';
     const sections = parseSections(text);
-    const missingSections = SLICE_REQUIRED_SECTIONS.filter((sectionName) => (
-      normalizeText(sections[sectionName] ?? []).length === 0
-    ));
+    const missingSections = SLICE_REQUIRED_SECTION_SPECS
+      .filter((sectionSpec) => (
+        normalizeText(resolveSemanticSection(sections, sectionSpec).content).length === 0
+      ))
+      .map((sectionSpec) => sectionSpec.preferredHeading);
 
     return {
       ready: missingSections.length === 0,

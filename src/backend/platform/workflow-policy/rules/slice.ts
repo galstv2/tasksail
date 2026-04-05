@@ -7,9 +7,9 @@
 import path from 'node:path';
 import { readTextFile } from '../../core/index.js';
 import {
+  SLICE_REQUIRED_SECTION_SPECS,
   SLICE_FILE_SECTIONS,
   SLICE_RECOMMENDED_SECTIONS,
-  SLICE_REQUIRED_SECTIONS,
 } from '../models.js';
 import {
   CODE_FENCE_PATTERN,
@@ -17,7 +17,7 @@ import {
   extractBulletItems,
   normalizeText,
 } from '../matching.js';
-import { listSliceFiles, parseSections } from '../artifacts.js';
+import { listSliceFiles, parseSections, resolveSemanticSection } from '../artifacts.js';
 import type { PolicyValidator } from '../validator.js';
 
 export async function evaluateSliceQualityRules(validator: PolicyValidator): Promise<void> {
@@ -54,14 +54,14 @@ function validateSingleSlice(
   relative: string,
   sections: Record<string, string[]>,
 ): void {
-  for (const sectionName of SLICE_REQUIRED_SECTIONS) {
-    const content = normalizeText(sections[sectionName] ?? []);
+  for (const sectionSpec of SLICE_REQUIRED_SECTION_SPECS) {
+    const content = normalizeText(resolveSemanticSection(sections, sectionSpec).content);
     if (!content) {
       validator.addViolation({
         rule_id: 'slice.required-section-present',
         artifact: relative,
-        message: `Required section '${sectionName}' is missing or empty.`,
-        remediation: `Add a non-empty '## ${sectionName}' section to ${relative}.`,
+        message: `Required section '${sectionSpec.preferredHeading}' is missing or empty.`,
+        remediation: `Add a non-empty section for '${sectionSpec.preferredHeading}' to ${relative}.`,
       });
     }
   }
@@ -80,28 +80,38 @@ function validateSingleSlice(
   }
 
   const hasFileScope = SLICE_FILE_SECTIONS.some((s) =>
-    normalizeText(sections[s] ?? []),
+    normalizeText(
+      resolveSemanticSection(
+        sections,
+        SLICE_REQUIRED_SECTION_SPECS.find((sectionSpec) => sectionSpec.preferredHeading === s)!,
+      ).content,
+    ),
   );
   if (!hasFileScope) {
     validator.addViolation({
       rule_id: 'slice.file-scope-declared',
       artifact: relative,
       message: "'Files' section has no content.",
-      remediation: `Declare at least one file in 'Files' in ${relative}.`,
+      remediation: `Declare at least one file in the file scope section in ${relative}.`,
     });
   }
 
-  const criteriaItems = extractBulletItems(sections['Acceptance Criteria'] ?? []);
+  const criteriaItems = extractBulletItems(
+    resolveSemanticSection(sections, SLICE_REQUIRED_SECTION_SPECS[4]!).content,
+  );
   if (!criteriaItems.length) {
     validator.addViolation({
       rule_id: 'slice.acceptance-criteria-measurable',
       artifact: relative,
       message: 'Acceptance Criteria must contain at least one bullet item.',
-      remediation: `Add measurable bullet items to '## Acceptance Criteria' in ${relative}.`,
+      remediation: `Add measurable bullet items to acceptance criteria in ${relative}.`,
     });
   }
 
-  const validationText = (sections['Validation Commands'] ?? []).join('\n');
+  const validationText = resolveSemanticSection(
+    sections,
+    SLICE_REQUIRED_SECTION_SPECS[6]!,
+  ).content.join('\n');
   const hasCodeFence = CODE_FENCE_PATTERN.test(validationText);
   const hasCommandLine = COMMAND_LINE_PATTERN.test(validationText);
   if (!hasCodeFence && !hasCommandLine) {
@@ -110,7 +120,7 @@ function validateSingleSlice(
       artifact: relative,
       message:
         'Validation Commands must contain a code fence or executable command line.',
-      remediation: `Add code-fenced shell commands to '## Validation Commands' in ${relative}.`,
+      remediation: `Add code-fenced shell commands to validation commands in ${relative}.`,
     });
   }
 }

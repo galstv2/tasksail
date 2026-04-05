@@ -1008,6 +1008,74 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     );
   });
 
+  it('adds focused repo roots for Lily instead of the full context pack dir', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedResolveAgentProfile.mockReturnValue({
+      id: 'lily',
+      registryId: 'planning-agent',
+      displayName: 'Lily',
+      role: 'Planning Intake',
+      requiredModel: 'gpt-4.1',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 1,
+      wallClockTimeoutS: 600,
+    } as never);
+    const autonomyArgs = {
+      model: 'gpt-4.1',
+      allowTools: [],
+      denyTools: [],
+      allowedDirs: ['/repo/AgentWorkSpace/dropbox', '/repo/AgentWorkSpace/templates'],
+      additionalFlags: [],
+    };
+    mockedResolveAutonomyProfile.mockReturnValue(autonomyArgs);
+    mockedResolveFocusedRepoRoot.mockResolvedValue({
+      primaryRepoId: 'crud-app',
+      primaryRepoRoot: '/ctx/crud-app',
+      visibleRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+      declaredRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+      estateType: 'distributed-platform',
+      selectedRepoIds: ['crud-app', 'shared-lib'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchCopilot.mockReturnValue(fakeChild);
+    mockedWaitForCopilotDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    await runRoleAgent({
+      agentId: 'lily',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    });
+
+    expect(autonomyArgs.allowedDirs).toEqual([
+      '/repo/AgentWorkSpace/dropbox',
+      '/repo/AgentWorkSpace/templates',
+      '/repo/AgentWorkSpace',
+      '/ctx/crud-app',
+      '/ctx/shared-lib',
+    ]);
+    expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'lily' }),
+      autonomyArgs,
+      '/repo',
+      '/repo',
+      expect.objectContaining({
+        primaryRepoRoot: '/ctx/crud-app',
+        visibleRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+        selectedRepoIds: ['crud-app', 'shared-lib'],
+      }),
+      '/ctx',
+    );
+  });
+
   it('launches Dalton from the selected monolith focus subfolder when present', async () => {
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';

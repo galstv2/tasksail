@@ -1,8 +1,14 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { slugify, findRepoRoot, ensureDir, writeTextFile } from '../core/index.js';
+import { slugify, findRepoRoot, ensureDir, copyFileSafe } from '../core/index.js';
 import { existsSync } from 'node:fs';
-import { resolveQueuePaths, HANDOFF_FILES } from './paths.js';
+import {
+  resolveQueuePaths,
+  HANDOFF_FILES,
+  SLICE_TEMPLATE_FILENAME,
+  implementationStepsDirFor,
+  templateSourceFor,
+} from './paths.js';
 import { initializeTaskArtifacts, resetHandoffArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 
@@ -72,7 +78,7 @@ export async function initializeTask(
     }
 
     await resetHandoffArtifacts(queuePaths.handoffsDir, HANDOFF_FILES, {
-      implementationStepsDir: path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      implementationStepsDir: implementationStepsDirFor(repoRoot),
     });
     return;
   }
@@ -108,11 +114,7 @@ export async function initializeTask(
     sections['Raw Request'] = rawRequest;
   }
 
-  const implementationStepsDir = path.join(
-    repoRoot,
-    'AgentWorkSpace',
-    'ImplementationSteps',
-  );
+  const implementationStepsDir = implementationStepsDirFor(repoRoot);
 
   await initializeTaskArtifacts({
     handoffsDir: queuePaths.handoffsDir,
@@ -153,24 +155,16 @@ export async function initializeTask(
       suffix++;
     }
 
-    const sliceContent = `# Slice 01 — ${taskTitle}
+    const sliceTemplatePath = templateSourceFor(
+      SLICE_TEMPLATE_FILENAME,
+      queuePaths.templatesDir,
+    );
+    if (!existsSync(sliceTemplatePath)) {
+      throw new Error(
+        'Starter slice blocked: canonical slice-template.md is missing.',
+      );
+    }
 
-## Purpose
-
-## Depends On
-
-## Scope
-
-## Files
-
-## Acceptance Criteria
-
-## Unit Tests
-
-## Validation Commands
-
-## Guards
-`;
-    await writeTextFile(candidate, sliceContent);
+    await copyFileSafe(sliceTemplatePath, candidate);
   }
 }

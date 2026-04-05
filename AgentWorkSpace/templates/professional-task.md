@@ -18,31 +18,31 @@
 - Follow-Up Reason:
 
 ## Raw Request
-<!-- (2-8 sentences) - consolidate the Intake Source file into a concise plain-text summary that clearly outlines the task -->
+<!-- (2+ sentences) — summarize the Intake Source in plain text; keep simple tasks lean and add detail only as needed for complex tasks -->
 
 ## Parent Task Carry-Forward Context
-<!-- (1-5 bullets) — required for child-task; leave blank for standard tasks -->
+<!-- (0-5 bullets) — "child-task" only; carry forward inherited context, constraints, or decisions; leave blank for standard tasks -->
 
 ## Problem Statement
-<!-- (1-5 sentences) — what is broken or missing, with evidence -->
+<!-- (1+ sentences) — state what is broken or missing, with evidence; keep it brief unless the task needs more context -->
 
 ## Business Goal
-<!-- (1-3 sentences) — the measurable outcome this task achieves -->
+<!-- (1+ sentences) — state the measurable outcome; keep it brief unless extra detail improves clarity -->
 
 ## Scope
-<!-- (1+ bullets) — what this task delivers -->
+<!-- (1+ bullets) — what this task delivers; use only the bullets needed for the task size -->
 
 ## Non-Goals
-<!-- (1+ bullets) — what this task explicitly will not do -->
+<!-- (1+ bullets) — what this task explicitly will not do; keep the list tight -->
 
 ## Constraints
-<!-- (1-5 bullets) - technical, timeline, or policy constraints; "None" if not applicable -->
+<!-- (0-5 bullets) — technical, timeline, or policy constraints; use "None" if not applicable -->
 
 ## Acceptance Criteria
-<!-- (1+ bullets) — each a verifiable condition for "done" -->
+<!-- (1+ bullets) — each bullet is a verifiable condition for "done"; keep it lean for simple tasks and expand for complex tasks -->
 
 ## Risks
-<!-- (1-5 bullets) — what could go wrong; "None" if low risk -->
+<!-- (0-5 bullets) — what could go wrong; use "None" if low risk -->
 
 ## Open Questions
-<!-- (1-5 bullets) — unresolved questions for downstream agents; "None" if clear  -->
+<!-- (0-5 bullets) — unresolved questions for downstream agents; use "None" if clear -->

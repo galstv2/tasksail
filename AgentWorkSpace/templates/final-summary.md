@@ -18,10 +18,10 @@
 - Follow-Up Reason:
 
 ## Inherited Parent Context
-<!-- (1-5 bullets) — required for child-task; leave blank for standard tasks -->
+<!-- (1-5 bullets) — required for "child-task"; leave blank for "standard" tasks -->
 
 ## Child-Task Outcome Delta
-<!-- (1-3 sentences) — required for child-task; leave blank for standard tasks -->
+<!-- (1-3 sentences) — required for "child-task"; leave blank for "standard" tasks -->
 
 ## Closeout Owner Agent ID
 <!-- (1 word) — e.g. qa -->

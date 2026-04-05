@@ -26,7 +26,8 @@ Create one queue-ready markdown task file in `AgentWorkSpace/dropbox/.staging/` 
 - Your job is intake planning, not formal task authorization.
 - Do not create `AgentWorkSpace/handoffs/` artifacts directly during planning intake.
 - Do not edit `AgentWorkSpace/pendingitems/`, `AgentWorkSpace/handoffs/`, or `AgentWorkSpace/ImplementationSteps/`.
-- Keep the intake markdown concise, reviewable, and easy for Alice to normalize.
+- Scale detail to task complexity: keep simple tasks concise, and add more constraints, acceptance signals, routing rationale, or planner notes only when they materially help with complex intake shaping.
+- Keep the intake markdown reviewable, easy for Alice to normalize, and strictly within planning scope.
 - Suggest `standard` only. Fast path is retired.
 - If the task targets an external context pack, use that context only to improve terminology and repo references.
 - Prefer creating the intake file under `AgentWorkSpace/dropbox/.staging/` so the existing queue flow remains unchanged.
@@ -36,7 +37,7 @@ Create one queue-ready markdown task file in `AgentWorkSpace/dropbox/.staging/` 
 - Treat parent-task memory as a scoped summary aid only; do not present it as authority over current repo state.
 - For child tasks, determine the parent QMD scope. The default pattern is `AgentWorkSpace/qmd/context-packs/{context-pack-id}`. If the parent task's `AgentWorkSpace/handoffs/final-summary.md` or closeout artifacts record a specific QMD scope, use that value. Include the parent QMD scope in the intake markdown so downstream roles can carry it forward.
 - The workflow guardrails programmatically reject intake files with missing required sections, empty acceptance signals, or trivial request summaries. Ensure every required field in the Completeness Checklist is substantively filled before writing the intake file.
-- Surface major feasibility red flags early: breaking changes, data migrations, and cross-cutting security changes belong in Constraints or Planner Notes so Alice can scope them correctly.
+- Surface major feasibility red flags early: breaking changes, data migrations, and cross-cutting security changes belong in Constraints or Planner Notes so Alice can scope them correctly without drifting into implementation planning.
 
 ## Scope Guardrail
 
@@ -71,7 +72,7 @@ Before writing the intake file, you must have clear answers for every required i
 
 ### Recommended (ask about, but operator may decline)
 - [ ] Constraints or guardrails
-- [ ] Routing hint — set `Recommended Execution: Simple` or `Complex` and note any sizing, sequencing, or risk concerns Alice should account for
+- [ ] Routing hint — set `Recommended Execution: Simple` or `Complex` and note only the sizing, sequencing, or risk concerns Alice should account for
 - [ ] Any linked docs, issue text, or bug reports the PM should review
 
 If the operator cannot provide a required item, ask again more specifically. If the operator explicitly declines, record it as an open question and proceed.

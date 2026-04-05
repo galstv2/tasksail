@@ -74,6 +74,37 @@ function extractSectionLines(lines: string[], sectionTitle: string): string[] {
   return sectionLines;
 }
 
+function extractNestedSectionLines(lines: string[], parentTitle: string, nestedTitle: string): string[] {
+  const parentLines = extractSectionLines(lines, parentTitle);
+  const headings = extractHeadings(parentLines);
+  const nestedHeading = headings.find((heading) => heading.title === nestedTitle);
+  if (!nestedHeading) {
+    return [];
+  }
+
+  const nestedLines: string[] = [];
+  let inNestedSection = false;
+  for (const line of parentLines) {
+    const trimmed = line.trim();
+    const match = HEADING_PATTERN.exec(trimmed);
+    if (match) {
+      const level = (match[1] ?? '').length;
+      const title = match[2] ?? '';
+      if (!inNestedSection && title === nestedTitle) {
+        inNestedSection = true;
+        continue;
+      }
+      if (inNestedSection && level <= nestedHeading.level) {
+        break;
+      }
+    }
+    if (inNestedSection) {
+      nestedLines.push(line.replace(/\n$/, ''));
+    }
+  }
+  return nestedLines;
+}
+
 function extractMetadataLabels(lines: string[]): string[] {
   return lines
     .map((entry) => {
@@ -208,8 +239,9 @@ function validateMetadataBlock(
   lines: string[],
   extraLabels: string[],
 ): void {
-  const sectionLines = extractSectionLines(lines, 'Task Metadata');
-  const contentLines = sectionLines.filter((l) => l.trim());
+  const sectionLines = extractNestedSectionLines(lines, 'Task Metadata', 'Core Metadata');
+  const fallbackSectionLines = sectionLines.length > 0 ? sectionLines : extractSectionLines(lines, 'Task Metadata');
+  const contentLines = fallbackSectionLines.filter((l) => l.trim());
   const observed = extractMetadataLabels(contentLines);
   const expected = [...HANDOFF_METADATA_LABELS, ...extraLabels];
   if (JSON.stringify(observed) !== JSON.stringify(expected)) {
@@ -228,7 +260,10 @@ function validateLineageBlock(
   lines: string[],
 ): void {
   const sectionLines = extractSectionLines(lines, 'Task Lineage');
-  const contentLines = sectionLines.filter((l) => l.trim());
+  const nestedSectionLines = sectionLines.length > 0
+    ? sectionLines
+    : extractNestedSectionLines(lines, 'Task Metadata', 'Task Lineage');
+  const contentLines = nestedSectionLines.filter((l) => l.trim());
 
   if (!contentLines.length) {
     validator.addViolation({

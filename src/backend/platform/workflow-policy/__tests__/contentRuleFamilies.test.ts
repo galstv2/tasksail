@@ -266,6 +266,274 @@ describe('workflow-policy content rule families', () => {
     );
   });
 
+  it('accepts grouped implementation-spec sections authored from the current template scaffold', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-grouped-spec-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '',
+        '### Core Metadata',
+        '',
+        '- Task ID: task-123',
+        '- Task Title: Workflow policy parity',
+        '',
+        '### Task Lineage',
+        '',
+        '- Task Kind: standard',
+        '',
+        '## Problem and Outcome',
+        '',
+        '### Problem Statement',
+        'Port the content rules.',
+        '',
+        '### Goals',
+        '- Preserve parity.',
+        '',
+        '### Non-Goals',
+        '- No queue/runtime cutover.',
+        '',
+        '## Current State and Boundaries',
+        '',
+        '### Parent Task Carry-Forward Context',
+        '',
+        '### Codebase Analysis',
+        'The content rules already live under rules/*.ts.',
+        '',
+        '### Dependency Analysis',
+        '| Module | Depends On |',
+        '|---|---|',
+        '| spec.ts | artifacts.ts |',
+        '',
+        '### Change Boundaries',
+        'Rules and tests only.',
+        '',
+        '## Implementation Plan',
+        '',
+        '### Architecture Summary',
+        'Use the workflow-policy foundation.',
+        '',
+        '### Touched Systems',
+        '- workflow-policy',
+        '',
+        '### Proposed Structure',
+        'Keep one file per rule family.',
+        '',
+        '### Contracts',
+        'None.',
+        '',
+        '### Migrations or Data Implications',
+        'None.',
+        '',
+        '## Risk and Impact',
+        '',
+        '### Risks',
+        '- Low.',
+        '',
+        '### Impact Assessment',
+        'Low risk, additive change.',
+        '',
+        '## Validation and Evidence',
+        '',
+        '### Validation Strategy',
+        '```bash',
+        'pnpm exec vitest run --config src/backend/platform/vitest.config.ts src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '```',
+        '',
+        '### Test Coverage',
+        'src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '',
+        '## Change Surface',
+        '',
+        '### Files or Areas Likely to Change',
+        '- src/backend/platform/workflow-policy/',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual([]);
+  });
+
+  it('accepts a legacy flat-heading implementation-spec end to end', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-legacy-spec-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '- Task ID: task-123',
+        '- Task Title: Workflow policy parity',
+        '',
+        '## Task Lineage',
+        '- Task Kind: standard',
+        '',
+        '## Problem Statement',
+        'Port the content rules.',
+        '',
+        '## Goals',
+        '- Preserve parity.',
+        '',
+        '## Non-Goals',
+        '- No queue/runtime cutover.',
+        '',
+        '## Architecture Summary',
+        'Use the workflow-policy foundation.',
+        '',
+        '## Touched Systems',
+        '- workflow-policy',
+        '',
+        '## Change Boundaries',
+        'Rules and tests only.',
+        '',
+        '## Dependency Analysis',
+        '| Module | Depends On |',
+        '|---|---|',
+        '| spec.ts | artifacts.ts |',
+        '',
+        '## Codebase Analysis',
+        'The content rules already live under rules/*.ts.',
+        '',
+        '## Proposed Structure',
+        'Keep one file per rule family.',
+        '',
+        '## Contracts',
+        'None.',
+        '',
+        '## Migrations or Data Implications',
+        'None.',
+        '',
+        '## Risks',
+        '- Low.',
+        '',
+        '## Validation Strategy',
+        '```bash',
+        'pnpm exec vitest run --config src/backend/platform/vitest.config.ts src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '```',
+        '',
+        '## Test Coverage',
+        'src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '',
+        '## Impact Assessment',
+        'Low risk, additive change.',
+        '',
+        '## Files or Areas Likely to Change',
+        '- src/backend/platform/workflow-policy/',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual([]);
+  });
+
+  it('accepts a lean grouped implementation-spec with only the minimum required content', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-lean-spec-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '',
+        '### Core Metadata',
+        '',
+        '- Task ID: task-123',
+        '',
+        '## Problem and Outcome',
+        '',
+        '### Problem Statement',
+        'Need semantic validation.',
+        '',
+        '### Goals',
+        '- Keep the current workflow intact.',
+        '',
+        '### Non-Goals',
+        '- No queue redesign.',
+        '',
+        '## Current State and Boundaries',
+        '',
+        '### Parent Task Carry-Forward Context',
+        '',
+        '### Codebase Analysis',
+        'Rules already live under workflow-policy.',
+        '',
+        '### Dependency Analysis',
+        '| Module | Depends On |',
+        '|---|---|',
+        '| spec.ts | artifacts.ts |',
+        '',
+        '### Change Boundaries',
+        'Validation logic only.',
+        '',
+        '## Implementation Plan',
+        '',
+        '### Architecture Summary',
+        'Use semantic slot resolution.',
+        '',
+        '### Touched Systems',
+        '- workflow-policy',
+        '',
+        '### Proposed Structure',
+        'Retain grouped sections.',
+        '',
+        '## Validation and Evidence',
+        '',
+        '### Validation Strategy',
+        '```bash',
+        'pnpm exec vitest run --config src/backend/platform/vitest.config.ts src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '```',
+        '',
+        '## Change Surface',
+        '',
+        '### Files or Areas Likely to Change',
+        '- src/backend/platform/workflow-policy/',
+        '',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual([
+      expect.objectContaining({
+        rule_id: 'spec.recommended-section-present',
+        severity: 'warning',
+        message: "Recommended section 'Risks' is missing or empty.",
+      }),
+      expect.objectContaining({
+        rule_id: 'spec.recommended-section-present',
+        severity: 'warning',
+        message: "Recommended section 'Impact Assessment' is missing or empty.",
+      }),
+    ]);
+  });
+
   it('checks child-task lineage completeness and lineage consistency across handoffs', async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-task-quality-'));
     createdRoots.push(repoRoot);
@@ -379,5 +647,100 @@ describe('workflow-policy content rule families', () => {
         }),
       ]),
     );
+  });
+
+  it('accepts semantic aliases for implementation specs and grouped slice sections', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-semantic-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/handoffs/implementation-spec.md',
+      [
+        '# Implementation Spec',
+        '',
+        '## Task Metadata',
+        '- Task ID: task-123',
+        '',
+        '## Problem and Outcome',
+        'Port semantic-slot validation without changing the workflow.',
+        '',
+        '- Preserve legacy compatibility.',
+        '- Allow semantic aliases.',
+        '',
+        '## Current State and Boundaries',
+        '| Dependency | Reason |',
+        '| --- | --- |',
+        '| workflow-policy | validators and templates |',
+        '',
+        '- No queue lifecycle changes.',
+        'The current validator still keys legacy headings directly.',
+        '- workflow-policy',
+        '',
+        '## Implementation Plan',
+        'Keep the existing rule families and add shared slot resolution.',
+        '',
+        '## Risk and Impact',
+        'Low-risk policy refactor with validator-only impact.',
+        '',
+        '## Validation and Evidence',
+        '```bash',
+        'pnpm test -- --run src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '```',
+        '',
+        '## Change Surface',
+        '- src/backend/platform/workflow-policy/models.ts',
+        '- src/backend/platform/workflow-policy/rules/spec.ts',
+        '',
+      ].join('\n'),
+    );
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/ImplementationSteps/content-slice.md',
+      [
+        '# Content Slice',
+        '',
+        '## Objective',
+        'Implement semantic slot lookup for workflow-policy.',
+        '',
+        '## Dependencies and Order',
+        '- implementation-spec.md is complete first.',
+        '',
+        '## Execution Scope',
+        'workflow-policy validators and helpers only.',
+        '',
+        '## Files and Interfaces',
+        '- src/backend/platform/workflow-policy/artifacts.ts',
+        '',
+        '## Acceptance and Validation',
+        '### Acceptance Criteria',
+        '- Legacy and grouped headings both pass.',
+        '',
+        '### Unit Tests',
+        '- Add targeted workflow-policy coverage.',
+        '',
+        '### Validation Commands',
+        '```bash',
+        'pnpm test -- --run src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+        '```',
+        '',
+        '## Guards and Coordination',
+        '- Keep slices authoritative.',
+        '',
+      ].join('\n'),
+    );
+
+    const specValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    await specValidator.initialize();
+    await evaluateSpecQualityRules(specValidator);
+    expect(specValidator.violations).toEqual([]);
+
+    const sliceValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice' });
+    await sliceValidator.initialize();
+    await evaluateSliceQualityRules(sliceValidator);
+    expect(sliceValidator.violations).toEqual([]);
   });
 });
