@@ -59,10 +59,10 @@ export async function loadPlatformConfig(
     };
   }
 
-  return validatePlatformConfig(parsed);
+  return validatePlatformConfig(parsed, raw);
 }
 
-function validatePlatformConfig(data: unknown): PlatformConfigLoadResult {
+function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadResult {
   const errors: PlatformConfigValidationError[] = [];
 
   if (!isRecord(data)) {
@@ -117,5 +117,6 @@ function validatePlatformConfig(data: unknown): PlatformConfigLoadResult {
       schema_version: version as number,
       container_runtime: containerRuntime as ContainerBackend,
     } satisfies PlatformConfig,
+    raw,
   };
 }

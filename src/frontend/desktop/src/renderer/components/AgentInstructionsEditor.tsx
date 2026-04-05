@@ -63,13 +63,14 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
       isOpen={isOpen}
       onClose={onClose}
       variant="terminal"
+      className="instructions-editor-shell"
       title={<>
         {dirty && <span className="instructions-editor__dirty-dot">●</span>}
         {file.fileName}
       </>}
       subtitle={file.relativePath}
-      maxWidth="740px"
-      maxHeight="min(88vh, 840px)"
+      maxWidth="820px"
+      maxHeight="min(82vh, 680px)"
       zIndex={101}
       escPriority={1}
       footer={<>

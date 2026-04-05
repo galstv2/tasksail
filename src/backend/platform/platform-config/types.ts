@@ -14,5 +14,5 @@ export interface PlatformConfigValidationError {
 }
 
 export type PlatformConfigLoadResult =
-  | { valid: true; config: PlatformConfig }
+  | { valid: true; config: PlatformConfig; raw: string }
   | { valid: false; errors: PlatformConfigValidationError[] };

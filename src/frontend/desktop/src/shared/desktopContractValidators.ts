@@ -814,9 +814,9 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       return [];
     case 'agentInstructions.listFiles': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
-      const dirs = ['profiles', 'instructions', 'prompts'] as const;
+      const dirs = ['profiles', 'instructions', 'prompts', 'templates'] as const;
       if (!isOneOf(request.payload.directory, dirs)) {
-        return ['payload.directory must be profiles, instructions, or prompts.'];
+        return ['payload.directory must be profiles, instructions, prompts, or templates.'];
       }
       return [];
     }
