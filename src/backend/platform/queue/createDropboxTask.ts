@@ -46,6 +46,16 @@ export interface CreateDropboxTaskOptions {
   selectedFocusIds?: string[];
 }
 
+export const CANONICAL_TASK_FILENAME_SEPARATOR = '_';
+
+function formatCanonicalTaskTimestamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+}
+
+function canonicalTaskSlug(title: string): string {
+  return slugify(title) || 'task';
+}
+
 /**
  * Create a queue-ready markdown task file in the dropbox directory.
  * Returns the absolute path to the created file.
@@ -111,9 +121,12 @@ export async function createDropboxTask(
 
   if (!outputFile) {
     const now = new Date();
-    const ts = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-    const slug = slugify(title);
-    outputFile = path.join(queuePaths.dropboxDir, `${ts}-${slug}.md`);
+    const ts = formatCanonicalTaskTimestamp(now);
+    const slug = canonicalTaskSlug(title);
+    outputFile = path.join(
+      queuePaths.dropboxDir,
+      `${ts}${CANONICAL_TASK_FILENAME_SEPARATOR}${slug}.md`,
+    );
 
     // Avoid collision
     if (existsSync(outputFile)) {

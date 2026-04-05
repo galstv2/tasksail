@@ -403,16 +403,10 @@ export function validatePlannerDraftModel(value: unknown): string[] {
 
   const errors: string[] = [];
   const requiredStringFields = [
-    'title',
     'summary',
     'desiredOutcome',
     'constraints',
     'acceptanceSignals',
-    'parentTaskId',
-    'parentQmdRecordId',
-    'parentQmdScope',
-    'rootTaskId',
-    'followupReason',
     'carryForwardSummary',
     'planningNotes',
   ] as const;
@@ -421,10 +415,6 @@ export function validatePlannerDraftModel(value: unknown): string[] {
     if (!isString(value[field])) {
       errors.push(`payload.draft.${field} must be a string.`);
     }
-  }
-
-  if (!isOneOf(value.taskKind, TASK_KINDS)) {
-    errors.push('payload.draft.taskKind must be standard or child-task.');
   }
 
   if (!isOneOf(value.suggestedPath, SUGGESTED_PATHS)) {
@@ -440,6 +430,48 @@ export function validatePlannerDraftModel(value: unknown): string[] {
     errors.push(
       'payload.draft.sourceState must be idle, active, blocked, complete, or completed.',
     );
+  }
+
+  return errors;
+}
+
+function validatePlannerDirectSubmissionDraft(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload.draft must be an object.'];
+  }
+
+  const errors = validatePlannerDraftModel(value);
+
+  if (!isOneOf(value.taskKind, TASK_KINDS)) {
+    errors.push('payload.draft.taskKind must be standard or child-task.');
+  }
+
+  return errors;
+}
+
+function validateFollowUpDirectSubmissionDraft(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload.draft must be an object.'];
+  }
+
+  const errors = validatePlannerDirectSubmissionDraft(value);
+
+  if (value.taskKind !== 'child-task') {
+    errors.push('payload.draft.taskKind must be child-task.');
+  }
+
+  const requiredStringFields = [
+    'parentTaskId',
+    'parentQmdRecordId',
+    'parentQmdScope',
+    'rootTaskId',
+    'followupReason',
+  ] as const;
+
+  for (const field of requiredStringFields) {
+    if (!isString(value[field])) {
+      errors.push(`payload.draft.${field} must be a string.`);
+    }
   }
 
   return errors;
@@ -555,13 +587,23 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       return validateContextPackCreatePayload(request.payload);
     case 'contextPack.reseed':
       return validateContextPackDirPayload(request.payload);
-    case 'planner.submitDraft':
+    case 'planner.submitDraft': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+
+      const errors = validatePlannerDirectSubmissionDraft(request.payload.draft);
+      if (!isOneOf(request.payload.stage, COMPOSER_STAGES)) {
+        errors.push('payload.stage must be compose, preview, or confirm.');
+      }
+      return errors;
+    }
     case 'followup.begin': {
       if (!isRecord(request.payload)) {
         return ['payload must be an object.'];
       }
 
-      const errors = validatePlannerDraftModel(request.payload.draft);
+      const errors = validateFollowUpDirectSubmissionDraft(request.payload.draft);
       if (!isOneOf(request.payload.stage, COMPOSER_STAGES)) {
         errors.push('payload.stage must be compose, preview, or confirm.');
       }

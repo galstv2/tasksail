@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFollowUpDraft, createLocalDraft } from '../plannerComposer';
+import {
+  createFollowUpDraft,
+  createLocalDraft,
+  toFollowUpDirectSubmissionDraft,
+  toPlannerDirectSubmissionDraft,
+} from '../plannerComposer';
 import { createDesktopShellClient, desktopShellClient } from './desktopShellClient';
 
 describe('desktopShellClient', () => {
@@ -86,9 +91,11 @@ describe('desktopShellClient', () => {
 
     const client = createDesktopShellClient(() => shell);
 
-    await client.submitPlannerDraft(draft, 'confirm');
+    const submissionDraft = toPlannerDirectSubmissionDraft(draft);
 
-    expect(shell.submitPlannerDraft).toHaveBeenCalledWith(draft, 'confirm');
+    await client.submitPlannerDraft(submissionDraft, 'confirm');
+
+    expect(shell.submitPlannerDraft).toHaveBeenCalledWith(submissionDraft, 'confirm');
   });
 
   it('forwards follow-up initiation arguments unchanged', async () => {
@@ -134,9 +141,11 @@ describe('desktopShellClient', () => {
 
     const client = createDesktopShellClient(() => shell);
 
-    await client.initiateFollowUp(draft, 'preview');
+    const submissionDraft = toFollowUpDirectSubmissionDraft(draft);
 
-    expect(shell.initiateFollowUp).toHaveBeenCalledWith(draft, 'preview');
+    await client.initiateFollowUp(submissionDraft, 'preview');
+
+    expect(shell.initiateFollowUp).toHaveBeenCalledWith(submissionDraft, 'preview');
   });
 
   it('forwards context-pack activation and bootstrap info calls unchanged', async () => {

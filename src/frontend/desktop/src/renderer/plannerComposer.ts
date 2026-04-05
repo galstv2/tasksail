@@ -1,4 +1,10 @@
-import type { ArchivedTaskEntry } from '../shared/desktopContract';
+import type {
+  ArchivedTaskEntry,
+  FollowUpDirectSubmissionDraft,
+  PlannerDirectSubmissionDraft,
+  PlannerEditableDraftModel,
+  SuggestedPath,
+} from '../shared/desktopContract';
 import { planningAgentDisplayName } from '../shared/agentRoster';
 
 export type ComposerStage = 'compose' | 'preview' | 'confirm';
@@ -16,7 +22,7 @@ export type PlannerDraftSeed = {
   constraints: string[];
   acceptanceSignals: string[];
   planningNotes: string;
-  suggestedPath: 'sequential' | 'parallel';
+  suggestedPath: SuggestedPath;
 };
 
 export type FollowUpDraftContext = {
@@ -33,24 +39,28 @@ export type FollowUpDraftContext = {
   constraints: string[];
   acceptanceSignals: string[];
   planningNotes: string;
-  suggestedPath: 'sequential' | 'parallel';
+  suggestedPath: SuggestedPath;
 };
 
-export type PlannerDraftModel = {
+export type PlannerDraftModel = PlannerDirectSubmissionDraft & {
   title: string;
-  taskKind: 'standard' | 'child-task';
-  summary: string;
-  desiredOutcome: string;
-  constraints: string;
-  acceptanceSignals: string;
-  parentTaskId: string;
-  parentQmdRecordId: string;
-  parentQmdScope: string;
-  rootTaskId: string;
-  followupReason: string;
-  carryForwardSummary: string;
-  suggestedPath: 'sequential' | 'parallel';
-  planningNotes: string;
+};
+
+export type PlannerPreviewMetadata = {
+  title?: string;
+  taskKind?: 'standard' | 'child-task';
+  taskLineage?: {
+    parentTaskId?: string;
+    rootTaskId?: string;
+    parentQmdRecordId?: string;
+    parentQmdScope?: string;
+    followupReason?: string;
+  } | null;
+  contextPackBinding?: string[] | null;
+  source?: {
+    createdBy?: string;
+    createdAt?: string;
+  } | null;
 };
 
 export function createLocalDraft(seed: PlannerDraftSeed): PlannerDraftModel {
@@ -95,6 +105,42 @@ export function deriveParentQmdScope(contextPackName: string): string {
   return `qmd/context-packs/${contextPackName}`;
 }
 
+export function toEditablePlannerDraft(
+  draft: Pick<
+    PlannerDraftModel,
+    | 'summary'
+    | 'desiredOutcome'
+    | 'constraints'
+    | 'acceptanceSignals'
+    | 'carryForwardSummary'
+    | 'suggestedPath'
+    | 'planningNotes'
+  >,
+): PlannerEditableDraftModel {
+  return {
+    summary: draft.summary,
+    desiredOutcome: draft.desiredOutcome,
+    constraints: draft.constraints,
+    acceptanceSignals: draft.acceptanceSignals,
+    carryForwardSummary: draft.carryForwardSummary,
+    suggestedPath: draft.suggestedPath,
+    planningNotes: draft.planningNotes,
+  };
+}
+
+export function toPlannerDirectSubmissionDraft(
+  draft: PlannerDraftModel,
+): PlannerDirectSubmissionDraft {
+  const { title: _title, ...submissionDraft } = draft;
+  return submissionDraft;
+}
+
+export function toFollowUpDirectSubmissionDraft(
+  draft: PlannerDraftModel,
+): FollowUpDirectSubmissionDraft {
+  return toPlannerDirectSubmissionDraft(draft) as FollowUpDirectSubmissionDraft;
+}
+
 export function normalizeArchivedTaskToFollowUpContext(
   entry: ArchivedTaskEntry,
 ): FollowUpDraftContext {
@@ -116,45 +162,73 @@ export function normalizeArchivedTaskToFollowUpContext(
   };
 }
 
-export function formatDraftMarkdown(draft: PlannerDraftModel): string {
-  return `# ${draft.title}
+export function formatDraftMarkdown(
+  draft: PlannerEditableDraftModel,
+  metadata: PlannerPreviewMetadata = {},
+): string {
+  const sections: string[] = [];
+  const title = metadata.title?.trim() || 'Task intake draft preview';
+  sections.push(`# ${title}`);
 
-## Task Lineage
+  if (metadata.taskKind || metadata.taskLineage) {
+    const taskLineage = metadata.taskLineage ?? {};
+    const taskKind = metadata.taskKind ?? 'standard';
+    sections.push(
+      '## Task Lineage',
+      '',
+      `- Task Kind: ${taskKind}`,
+      `- Parent Task ID: ${taskLineage.parentTaskId ?? ''}`,
+      `- Root Task ID: ${taskLineage.rootTaskId ?? ''}`,
+      `- Parent QMD Record ID: ${taskLineage.parentQmdRecordId ?? ''}`,
+      `- Parent QMD Scope: ${taskLineage.parentQmdScope ?? ''}`,
+      `- Follow-Up Reason: ${taskLineage.followupReason ?? ''}`,
+    );
+  }
 
-- Task Kind: ${draft.taskKind}
-- Parent Task ID: ${draft.parentTaskId}
-- Root Task ID: ${draft.rootTaskId}
-- Parent QMD Record ID: ${draft.parentQmdRecordId}
-- Parent QMD Scope: ${draft.parentQmdScope}
-- Follow-Up Reason: ${draft.followupReason}
+  if (metadata.contextPackBinding && metadata.contextPackBinding.length > 0) {
+    sections.push(
+      '## Context Pack Binding',
+      '',
+      ...metadata.contextPackBinding.map((line) => `- ${line}`),
+    );
+  }
 
-## Request Summary
+  sections.push(
+    '## Request Summary',
+    '',
+    draft.summary,
+    '',
+    '## Desired Outcome',
+    '',
+    draft.desiredOutcome,
+    '',
+    '## Constraints',
+    '',
+    draft.constraints,
+    '',
+    '## Acceptance Signals',
+    '',
+    draft.acceptanceSignals,
+    '',
+    '## Parent Task Carry-Forward Summary',
+    '',
+    draft.carryForwardSummary,
+    '',
+    '## Suggested Routing',
+    '',
+    `- Recommended Execution: ${draft.suggestedPath}`,
+    `- Planner Notes: ${draft.planningNotes}`,
+  );
 
-${draft.summary}
+  if (metadata.source) {
+    sections.push(
+      '',
+      '## Source',
+      '',
+      `- Created By: ${metadata.source.createdBy ?? planningAgentDisplayName}`,
+      `- Created At (UTC): ${metadata.source.createdAt ?? 'local-preview-only'}`,
+    );
+  }
 
-## Desired Outcome
-
-${draft.desiredOutcome}
-
-## Constraints
-
-${draft.constraints}
-
-## Acceptance Signals
-
-${draft.acceptanceSignals}
-
-## Parent Task Carry-Forward Summary
-
-${draft.carryForwardSummary}
-
-## Suggested Routing
-
-- Recommended Execution: ${draft.suggestedPath}
-- Planner Notes: ${draft.planningNotes}
-
-## Source
-
-- Created By: ${planningAgentDisplayName}
-- Created At (UTC): local-preview-only`;
+  return sections.join('\n');
 }

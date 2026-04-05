@@ -35,6 +35,9 @@ const EMPTY_DRAFT_SEED: PlannerDraftSeed = {
   suggestedPath: 'sequential',
 };
 
+const DRAFT_READ_POLL_INTERVAL_MS = 100;
+const DRAFT_READ_MAX_ATTEMPTS = 20;
+
 export function usePlannerModal(
   client: DesktopShellClient,
   workflowState: LifecycleState | undefined,
@@ -253,11 +256,7 @@ export function usePlannerModal(
         if (attachedFile) {
           const parentTask = selectedParentTaskRef.current;
           const reviewPrompt = childTaskModeRef.current && parentTask
-            ? buildChildTaskMarkdownReviewPrompt(attachedFile.filename, attachedFile.content, {
-                parentTaskId: parentTask.taskId,
-                rootTaskId: parentTask.rootTaskId || parentTask.taskId,
-                parentQmdScope: deriveParentQmdScope(parentTask.contextPackName),
-              })
+            ? buildChildTaskMarkdownReviewPrompt(attachedFile.filename, attachedFile.content)
             : buildMarkdownReviewPrompt(attachedFile.filename, attachedFile.content);
           messageToSend = text ? `${reviewPrompt}\n\nAdditional context from the operator:\n${text}` : reviewPrompt;
         }
@@ -293,22 +292,31 @@ export function usePlannerModal(
           setDraftError(saveResult.error);
           return;
         }
+        for (let attempt = 0; attempt < DRAFT_READ_MAX_ATTEMPTS; attempt += 1) {
+          const readResult = await client.readStagedDraft();
+          if (!readResult.ok) {
+            setDraftError(readResult.error);
+            return;
+          }
 
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          const response = readResult.response;
+          if (response.action !== 'planner.readStagedDraft') {
+            setDraftError('Unexpected staged draft response.');
+            return;
+          }
+          if (response.mode === 'found' && response.draft) {
+            setStagedDraft(response.draft);
+            return;
+          }
+          if (response.brokerStatus !== 'running') {
+            setDraftError('Lily has not written a draft yet. Try again shortly.');
+            return;
+          }
 
-        const readResult = await client.readStagedDraft();
-        if (!readResult.ok) {
-          setDraftError(readResult.error);
-          return;
+          await new Promise((resolve) => setTimeout(resolve, DRAFT_READ_POLL_INTERVAL_MS));
         }
 
-        const response = readResult.response;
-        if (response.action === 'planner.readStagedDraft' && response.mode === 'found' && response.draft) {
-          setStagedDraft(response.draft);
-          return;
-        }
-
-        setDraftError('Lily has not written a draft yet. Try again shortly.');
+        setDraftError('Lily is still writing the draft. Try again shortly.');
       } catch (error: unknown) {
         setDraftError(normalizeIpcThrownError(error, 'Failed to read staged draft.'));
       } finally {

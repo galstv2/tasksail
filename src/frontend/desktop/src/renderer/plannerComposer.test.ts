@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { createFollowUpDraft, createLocalDraft, formatDraftMarkdown, normalizeArchivedTaskToFollowUpContext } from './plannerComposer';
+import {
+  createFollowUpDraft,
+  createLocalDraft,
+  formatDraftMarkdown,
+  normalizeArchivedTaskToFollowUpContext,
+  toFollowUpDirectSubmissionDraft,
+  toPlannerDirectSubmissionDraft,
+  toEditablePlannerDraft,
+} from './plannerComposer';
 
 describe('plannerComposer helpers', () => {
   it('creates a local draft model aligned to the helper-script contract', () => {
@@ -28,21 +36,29 @@ describe('plannerComposer helpers', () => {
 
   it('formats queue-ready markdown sections in helper-script order', () => {
     const markdown = formatDraftMarkdown(
-      createLocalDraft(
-        {
-          title: 'Prototype local queue draft',
-          summary: 'Prepare a markdown draft in the renderer.',
-          desiredOutcome: 'Operators can review the shape before submission exists.',
-          constraints: ['Stay local only', 'Do not call helper scripts'],
-          acceptanceSignals: ['Preview renders markdown', 'Confirm remains local'],
-          planningNotes: 'Later slices can map this to helper flags.',
-          suggestedPath: 'sequential',
-        },
+      toEditablePlannerDraft(
+        createLocalDraft(
+          {
+            title: 'Prototype local queue draft',
+            summary: 'Prepare a markdown draft in the renderer.',
+            desiredOutcome: 'Operators can review the shape before submission exists.',
+            constraints: ['Stay local only', 'Do not call helper scripts'],
+            acceptanceSignals: ['Preview renders markdown', 'Confirm remains local'],
+            planningNotes: 'Later slices can map this to helper flags.',
+            suggestedPath: 'sequential',
+          },
+        ),
       ),
+      {
+        title: 'Prototype local queue draft',
+        source: {
+          createdBy: 'Lily (Planning Specialist)',
+          createdAt: 'local-preview-only',
+        },
+      },
     );
 
     expect(markdown).toContain('# Prototype local queue draft');
-    expect(markdown).toContain('## Task Lineage');
     expect(markdown).toContain('## Request Summary');
     expect(markdown).toContain('## Desired Outcome');
     expect(markdown).toContain('## Constraints');
@@ -80,7 +96,17 @@ describe('plannerComposer helpers', () => {
       followupReason: 'Carry completed renderer findings into the next child-task slice.',
     });
 
-    const markdown = formatDraftMarkdown(draft);
+    const markdown = formatDraftMarkdown(toEditablePlannerDraft(draft), {
+      title: draft.title,
+      taskKind: 'child-task',
+      taskLineage: {
+        parentTaskId: draft.parentTaskId,
+        rootTaskId: draft.rootTaskId,
+        parentQmdRecordId: draft.parentQmdRecordId,
+        parentQmdScope: draft.parentQmdScope,
+        followupReason: draft.followupReason,
+      },
+    });
     expect(markdown).toContain('- Task Kind: child-task');
     expect(markdown).toContain('- Parent Task ID: CAP-CUSTOM-TERMINAL-08');
     expect(markdown).toContain('- Follow-Up Reason: Carry completed renderer findings into the next child-task slice.');
@@ -130,5 +156,66 @@ describe('plannerComposer helpers', () => {
     expect(draft.parentQmdScope).toBe('qmd/context-packs/test-pack');
     expect(draft.title).toBe('');
     expect(draft.summary).toBe('');
+  });
+
+  it('strips renderer-owned titles from direct-submission payloads', () => {
+    const localDraft = createLocalDraft({
+      title: 'Renderer-only title',
+      summary: 'Prepare the platform submission payload.',
+      desiredOutcome: 'IPC payload excludes renderer-owned title fields.',
+      constraints: [],
+      acceptanceSignals: [],
+      planningNotes: '',
+      suggestedPath: 'sequential',
+    });
+
+    expect(toPlannerDirectSubmissionDraft(localDraft)).toEqual({
+      taskKind: 'standard',
+      summary: 'Prepare the platform submission payload.',
+      desiredOutcome: 'IPC payload excludes renderer-owned title fields.',
+      constraints: '',
+      acceptanceSignals: '',
+      parentTaskId: '',
+      parentQmdRecordId: '',
+      parentQmdScope: '',
+      rootTaskId: '',
+      followupReason: '',
+      carryForwardSummary: '',
+      suggestedPath: 'sequential',
+      planningNotes: '',
+    });
+
+    const followUpDraft = createFollowUpDraft({
+      parentTaskId: 'TASK-001',
+      parentTaskTitle: 'Completed parent task',
+      parentQmdRecordId: 'QMD-001',
+      parentQmdScope: 'qmd/context-packs/test-pack',
+      rootTaskId: 'ROOT-001',
+      followupReason: 'Continue the next slice.',
+      carryForwardSummary: 'Carry forward validated findings.',
+      childTitle: 'Renderer-only follow-up title',
+      requestedAdjustment: 'Create the follow-up payload.',
+      desiredOutcome: 'Follow-up IPC payload excludes renderer-owned title fields.',
+      constraints: [],
+      acceptanceSignals: [],
+      planningNotes: '',
+      suggestedPath: 'parallel',
+    });
+
+    expect(toFollowUpDirectSubmissionDraft(followUpDraft)).toEqual({
+      taskKind: 'child-task',
+      summary: 'Create the follow-up payload.',
+      desiredOutcome: 'Follow-up IPC payload excludes renderer-owned title fields.',
+      constraints: '',
+      acceptanceSignals: '',
+      parentTaskId: 'TASK-001',
+      parentQmdRecordId: 'QMD-001',
+      parentQmdScope: 'qmd/context-packs/test-pack',
+      rootTaskId: 'ROOT-001',
+      followupReason: 'Continue the next slice.',
+      carryForwardSummary: 'Carry forward validated findings.',
+      suggestedPath: 'parallel',
+      planningNotes: '',
+    });
   });
 });

@@ -182,7 +182,8 @@ describe('useFollowUpFlow', () => {
   });
 
   it('preserves non-reopened parent semantics on dry-run success', async () => {
-    render(<FollowUpFlowHarness client={createFollowUpClient()} />);
+    const client = createFollowUpClient();
+    render(<FollowUpFlowHarness client={client} />);
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start eligible follow-up' }));
@@ -199,6 +200,15 @@ describe('useFollowUpFlow', () => {
     });
     expect(screen.getByTestId('submission-path')).toHaveTextContent('no-submission-path');
     expect(screen.getByTestId('operator-mode')).toHaveTextContent('planning');
+    const typedClient = client as DesktopShellClient & {
+      initiateFollowUp: ReturnType<typeof vi.fn>;
+    };
+    expect(typedClient.initiateFollowUp).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        title: expect.any(String),
+      }),
+      'preview',
+    );
   });
 
   it('sets observation mode and submitted path on confirm success', async () => {

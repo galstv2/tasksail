@@ -274,6 +274,7 @@ export class PlannerSessionBroker {
       prompt: text,
       promptMode,
       resumeSessionId,
+      plannerSessionId: session.sessionId,
       allowedRoots: session.contextPackRoots ?? undefined,
       workingDirectory: session.workingDirectory ?? undefined,
       contextPackBoundaryEnforced: session.contextPackRoots !== null,

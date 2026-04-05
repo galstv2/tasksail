@@ -83,6 +83,12 @@ describe('usePlannerFlow', () => {
     expect(screen.getByTestId('submission-path')).toHaveTextContent('no-submission-path');
     expect(screen.getByTestId('operator-mode')).toHaveTextContent('planning');
     expect(screen.getByTestId('contract-error')).toHaveTextContent('no-error');
+    expect(client.submitPlannerDraft).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        title: expect.any(String),
+      }),
+      'compose',
+    );
   });
 
   it('sets the submitted path on confirm success', async () => {
@@ -149,7 +155,7 @@ describe('usePlannerFlow', () => {
         ok: false,
         action: 'planner.submitDraft',
         error: 'Planner draft validation failed before dropbox submission.',
-        details: ['Title is required before submitting to dropbox.'],
+        details: ['Request summary is required before submitting to dropbox.'],
       }),
     });
 
@@ -161,7 +167,7 @@ describe('usePlannerFlow', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('contract-error')).toHaveTextContent(
-        'Planner draft validation failed before dropbox submission. Title is required before submitting to dropbox.',
+        'Planner draft validation failed before dropbox submission. Request summary is required before submitting to dropbox.',
       );
     });
   });

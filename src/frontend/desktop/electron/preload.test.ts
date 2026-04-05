@@ -89,7 +89,6 @@ describe('electron preload bridge', () => {
 
     await desktopShellApi.submitPlannerDraft(
       {
-        title: 'Queue-ready planner draft',
         taskKind: 'standard',
         summary: 'Prepare the planner payload.',
         desiredOutcome: 'The preload bridge forwards the planner payload.',
@@ -111,7 +110,6 @@ describe('electron preload bridge', () => {
     await desktopShellApi.getObservabilitySnapshot();
     await desktopShellApi.initiateFollowUp(
       {
-        title: 'Create child-task intake for live follow-up integration',
         taskKind: 'child-task',
         summary: 'Start a child-task planning flow from completed work.',
         desiredOutcome: 'A new child task is created without reopening the parent.',
@@ -206,7 +204,6 @@ describe('electron preload bridge', () => {
       action: 'planner.submitDraft',
       payload: {
         draft: expect.objectContaining({
-          title: 'Queue-ready planner draft',
           taskKind: 'standard',
         }),
         stage: 'confirm',

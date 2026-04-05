@@ -85,6 +85,7 @@ describe('PlannerSessionBroker', () => {
         prompt: 'Hello planner',
         promptMode: 'interactive',
         resumeSessionId: null,
+        plannerSessionId: 'planner-10',
       }),
     );
     expect(plannerEvents).toEqual([

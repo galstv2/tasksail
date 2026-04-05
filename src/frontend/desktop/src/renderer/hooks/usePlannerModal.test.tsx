@@ -1,4 +1,6 @@
-import { act, cleanup, renderHook } from '@testing-library/react';
+// @vitest-environment jsdom
+
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -197,7 +199,6 @@ describe('usePlannerModal', () => {
   });
 
   it('readStagedDraft resets awaitingDraft on throw', async () => {
-    vi.useFakeTimers();
     const client = createClient({
       savePlannerDraft: vi.fn().mockResolvedValue({
         ok: true,
@@ -223,15 +224,11 @@ describe('usePlannerModal', () => {
 
     expect(result.current.plannerModalProps.awaitingDraft).toBe(true);
 
-    // Advance past the 500ms delay and let the async read() resolve
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(600);
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.awaitingDraft).toBe(false);
     });
 
-    expect(result.current.plannerModalProps.awaitingDraft).toBe(false);
     expect(result.current.plannerModalProps.draftError).toBe('IPC dead');
-
-    vi.useRealTimers();
   });
 
   it('handleFinalizeSpec sets draftError on throw', async () => {
@@ -251,20 +248,20 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.draftError).toBe('Finalize boom');
   });
 
-  it('View Draft reads staged draft after broker-managed save completes', async () => {
+  it('View Draft polls until the staged draft becomes available', async () => {
     vi.useFakeTimers();
-    const client = createClient({
-      savePlannerDraft: vi.fn().mockResolvedValue({
+    const readStagedDraft = vi.fn()
+      .mockResolvedValueOnce({
         ok: true,
         response: {
-          action: 'planner.saveDraft',
-          mode: 'instructed',
-          accepted: true,
-          message: 'Save-draft instruction sent.',
-          brokerStatus: 'completed',
+          action: 'planner.readStagedDraft',
+          mode: 'empty',
+          message: 'No staged draft yet.',
+          draft: null,
+          brokerStatus: 'running',
         },
-      }),
-      readStagedDraft: vi.fn().mockResolvedValue({
+      })
+      .mockResolvedValueOnce({
         ok: true,
         response: {
           action: 'planner.readStagedDraft',
@@ -277,7 +274,19 @@ describe('usePlannerModal', () => {
           },
           brokerStatus: 'completed',
         },
+      });
+    const client = createClient({
+      savePlannerDraft: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.saveDraft',
+          mode: 'instructed',
+          accepted: true,
+          message: 'Save-draft instruction sent.',
+          brokerStatus: 'completed',
+        },
       }),
+      readStagedDraft,
     });
     const { result } = renderPlannerModalHook(client);
 
@@ -292,11 +301,11 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.awaitingDraft).toBe(true);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(100);
     });
 
     expect(client.savePlannerDraft).toHaveBeenCalledTimes(1);
-    expect(client.readStagedDraft).toHaveBeenCalledTimes(1);
+    expect(client.readStagedDraft).toHaveBeenCalledTimes(2);
     expect(result.current.plannerModalProps.awaitingDraft).toBe(false);
     expect(result.current.plannerModalProps.stagedDraft?.filename).toBe('20260320T003500Z-spec.md');
 
@@ -540,7 +549,7 @@ describe('usePlannerModal', () => {
     expect(sentText).toContain('AgentWorkSpace/templates/planning-intake.md');
     expect(sentText).toContain('# My Intake');
     expect(sentText).toContain('Please review this.');
-    expect(sentText).toContain('Do NOT write the staged draft');
+    expect(sentText).toContain('Do NOT edit the staged draft');
 
     // File should be cleared after send
     expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
@@ -634,7 +643,6 @@ describe('usePlannerModal', () => {
   });
 
   it('upload-review run without staged draft surfaces draftError on View Draft', async () => {
-    vi.useFakeTimers();
     const client = createClient({
       pickMarkdownFile: vi.fn().mockResolvedValue({
         ok: true,
@@ -683,18 +691,13 @@ describe('usePlannerModal', () => {
     });
 
     // Attempt to view draft — Lily hasn't written one
-    act(() => {
-      result.current.plannerModalProps.onViewDraft!();
-    });
-
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(600);
+      result.current.plannerModalProps.onViewDraft!();
+      await Promise.resolve();
     });
 
     expect(result.current.plannerModalProps.awaitingDraft).toBe(false);
     expect(result.current.plannerModalProps.draftError).toBe('Lily has not written a draft yet. Try again shortly.');
-
-    vi.useRealTimers();
   });
 
   it('upload-review finalize surfaces intake validation errors as draftError', async () => {
@@ -1158,9 +1161,9 @@ describe('usePlannerModal', () => {
     );
     expect(starterCall).toBeDefined();
     const sentText = starterCall![0] as string;
-    expect(sentText).toContain('Parent Task ID: TASK-001');
     expect(sentText).toContain('Add search module');
-    expect(sentText).toContain('Do NOT change Task Kind');
+    expect(sentText).toContain('staged planning document already contains the platform-owned title and lineage shell');
+    expect(sentText).toContain('Do NOT change the generated title');
   });
 
   it('uses child-task review prompt when attaching a file in child-task mode', async () => {
@@ -1224,8 +1227,8 @@ describe('usePlannerModal', () => {
     expect(reviewCall).toBeDefined();
     const reviewText = reviewCall![0] as string;
     expect(reviewText).toContain('child-task workflow');
-    expect(reviewText).toContain('Parent Task ID: TASK-001');
-    expect(reviewText).toContain('must NOT be overridden');
+    expect(reviewText).toContain('existing staged shell');
+    expect(reviewText).toContain('Do NOT validate or rewrite platform-owned title, lineage');
     expect(reviewText).toContain('child-draft.md');
     expect(reviewText).toContain('Build on parent work.');
     expect(reviewText).toContain('Review this child-task draft.');
@@ -1299,7 +1302,7 @@ describe('buildMarkdownReviewPrompt', () => {
 
   it('instructs Lily not to write staged draft prematurely', () => {
     const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('Do NOT write the staged draft');
+    expect(prompt).toContain('Do NOT edit the staged draft');
     expect(prompt).toContain('Wait until I confirm');
   });
 
@@ -1309,18 +1312,15 @@ describe('buildMarkdownReviewPrompt', () => {
     expect(prompt).toContain('Do not guess or fabricate');
   });
 
-  it('includes child-task lineage requirements', () => {
+  it('keeps child-task review focused on editable sections', () => {
     const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('Parent Task ID');
-    expect(prompt).toContain('Root Task ID');
-    expect(prompt).toContain('Follow-Up Reason');
     expect(prompt).toContain('Parent Task Carry-Forward Summary');
-    expect(prompt).toContain('child-task');
+    expect(prompt).toContain('Do not validate or rewrite platform-owned title, lineage');
   });
 });
 
 describe('buildChildTaskStarterPrompt', () => {
-  it('includes workflow mode and lineage fields', () => {
+  it('includes workflow mode and staged-shell ownership guidance', () => {
     const prompt = buildChildTaskStarterPrompt({
       parentTaskId: 'TASK-001',
       parentTaskTitle: 'Add search module',
@@ -1329,11 +1329,8 @@ describe('buildChildTaskStarterPrompt', () => {
       carryForwardSummary: '',
     });
     expect(prompt).toContain('child-task workflow');
-    expect(prompt).toContain('Task Kind: child-task');
-    expect(prompt).toContain('Parent Task ID: TASK-001');
-    expect(prompt).toContain('Root Task ID: TASK-001');
-    expect(prompt).toContain('Parent Task Title: Add search module');
-    expect(prompt).toContain('Parent QMD Scope: qmd/context-packs/test-pack');
+    expect(prompt).toContain('staged planning document already contains the platform-owned title and lineage shell');
+    expect(prompt).toContain('Parent task title: Add search module');
   });
 
   it('includes carry-forward summary when provided', () => {
@@ -1355,10 +1352,10 @@ describe('buildChildTaskStarterPrompt', () => {
       parentQmdScope: 'scope',
       carryForwardSummary: '',
     });
-    expect(prompt).not.toContain('Carry-Forward Summary:');
+    expect(prompt).not.toContain('Known carry-forward context:');
   });
 
-  it('tells Lily not to change lineage fields', () => {
+  it('tells Lily not to change platform-owned sections', () => {
     const prompt = buildChildTaskStarterPrompt({
       parentTaskId: 'TASK-001',
       parentTaskTitle: 'Task',
@@ -1366,9 +1363,9 @@ describe('buildChildTaskStarterPrompt', () => {
       parentQmdScope: 'scope',
       carryForwardSummary: '',
     });
-    expect(prompt).toContain('Do NOT change Task Kind');
-    expect(prompt).toContain('Do NOT change');
-    expect(prompt).toContain('Parent Task ID');
+    expect(prompt).toContain('Fill or refine only the editable sections');
+    expect(prompt).toContain('Do NOT change the generated title');
+    expect(prompt).toContain('platform-owned sections');
   });
 
   it('differs from standard planning mode — contains child-task specifics', () => {
@@ -1385,46 +1382,32 @@ describe('buildChildTaskStarterPrompt', () => {
 });
 
 describe('buildChildTaskMarkdownReviewPrompt', () => {
-  const lineage = {
-    parentTaskId: 'TASK-001',
-    rootTaskId: 'TASK-001',
-    parentQmdScope: 'qmd/context-packs/test-pack',
-  };
-
-  it('includes platform lineage fields that must not be overridden', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft', lineage);
-    expect(prompt).toContain('Parent Task ID: TASK-001');
-    expect(prompt).toContain('Root Task ID: TASK-001');
-    expect(prompt).toContain('Parent QMD Scope: qmd/context-packs/test-pack');
-    expect(prompt).toContain('Task Kind: child-task');
-  });
-
-  it('tells Lily to ignore file values that conflict with platform lineage', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft', lineage);
-    expect(prompt).toContain('ignore the file values');
-    expect(prompt).toContain('keep the platform values');
+  it('keeps child-task review focused on editable staged-shell sections', () => {
+    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
+    expect(prompt).toContain('existing staged shell');
+    expect(prompt).toContain('Do NOT validate or rewrite platform-owned title, lineage, context-pack binding, or source sections.');
   });
 
   it('lists content sections that the file may fill', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft', lineage);
+    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
     expect(prompt).toContain('Request Summary');
     expect(prompt).toContain('Desired Outcome');
     expect(prompt).toContain('Constraints');
     expect(prompt).toContain('Acceptance Signals');
-    expect(prompt).toContain('Follow-Up Reason');
     expect(prompt).toContain('Parent Task Carry-Forward Summary');
+    expect(prompt).toContain('Suggested Routing / Planner Notes');
   });
 
   it('wraps file content with delimiters', () => {
     const content = '# My Child Task\n\nSome content.';
-    const prompt = buildChildTaskMarkdownReviewPrompt('child.md', content, lineage);
+    const prompt = buildChildTaskMarkdownReviewPrompt('child.md', content);
     expect(prompt).toContain('--- BEGIN ATTACHED FILE ---');
     expect(prompt).toContain(content);
     expect(prompt).toContain('--- END ATTACHED FILE ---');
   });
 
   it('labels the file as supporting context, not workflow definition', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft', lineage);
+    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
     expect(prompt).toContain('supporting context');
     expect(prompt).toContain('child-task workflow');
   });

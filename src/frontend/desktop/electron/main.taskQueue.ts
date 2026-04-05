@@ -1,14 +1,22 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import {
   type DesktopInvokeResult,
+  type FollowUpDirectSubmissionDraft,
+  type PlannerDirectSubmissionDraft,
 } from '../src/shared/desktopContract';
 import { emitStreamEvent } from './main.stream';
-import type { PlannerDraftModel } from '../src/renderer/plannerComposer';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
+import {
+  resolveFocusedRepoRoot,
+  resolveSelectedPrimaryRepoRoot,
+} from '../../../backend/platform/context-pack/focusedRepo.js';
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
+import { derivePlannerDraftTitle } from './main.staging';
+import { REPO_ROOT } from './paths';
 
 export type DropboxScriptRunner = (options: {
-  title: string;
   summary: string;
   desiredOutcome: string;
   constraints: string;
@@ -16,26 +24,219 @@ export type DropboxScriptRunner = (options: {
   suggestedPath: string;
   planningNotes: string;
   kind: string;
-}) => Promise<string>;
+}) => Promise<string | { filePath: string; title: string }>;
 
 export type FollowUpScriptRunner = (options: {
-  title: string;
   summary: string;
   desiredOutcome: string;
   constraints: string;
   acceptanceSignals: string;
   parentTaskId: string;
-  parentQmdScope: string;
-  parentQmdRecordId: string;
-  rootTaskId: string;
   followupReason: string;
   carryForwardSummary: string;
   suggestedPath: string;
   planningNotes: string;
-}) => Promise<string>;
+}) => Promise<string | { filePath: string; title: string; rootTaskId: string }>;
+
+type WorkspaceSyncState = Awaited<ReturnType<typeof readWorkspaceSyncStateSnapshot>>;
+
+type ResolvedDirectSubmissionContext = {
+  title: string;
+  contextPackDir: string;
+  contextPackId?: string;
+  scopeMode?: string;
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+  contextPackName: string;
+};
+
+type ArchivedParentMetadata = {
+  parentQmdScope: string;
+  parentQmdRecordId: string;
+  rootTaskId: string;
+};
+
+type TaskArchiveDirEntry = {
+  name: string;
+  isDirectory: () => boolean;
+};
+
+type TaskArchiveReader = {
+  readdir: (targetPath: string, options?: unknown) => Promise<unknown>;
+  readFile: (targetPath: string, encoding: 'utf-8') => Promise<string>;
+};
+
+type PlannerSubmissionDraft = PlannerDirectSubmissionDraft & {
+  title?: string;
+};
+
+type FollowUpSubmissionDraft = FollowUpDirectSubmissionDraft & {
+  title?: string;
+};
+
+function extractTaskId(head: string): string {
+  const match = head.match(/^- Task ID:\s*(.+?)$/m);
+  return match?.[1]?.trim() ?? '';
+}
+
+const defaultTaskArchiveReader: TaskArchiveReader = {
+  readdir: async (targetPath, options) => readdir(targetPath, options as never),
+  readFile: async (targetPath, encoding) => readFile(targetPath, encoding),
+};
+
+async function resolveDirectSubmissionContext(
+  syncState: WorkspaceSyncState,
+): Promise<ResolvedDirectSubmissionContext> {
+  const contextPackDir = syncState.activeContextPackDir?.trim() ?? '';
+  if (!contextPackDir) {
+    throw new Error('Direct queue submission requires an active context pack so the platform can derive the canonical task title.');
+  }
+
+  const focused = await resolveSelectedPrimaryRepoRoot(contextPackDir, REPO_ROOT)
+    ?? await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
+  if (!focused) {
+    throw new Error('Direct queue submission blocked: the platform could not resolve the active context-pack primary repo for canonical title derivation.');
+  }
+
+  const title = derivePlannerDraftTitle({
+    primaryRepoId: focused.primaryRepoId,
+    primaryRepoRoot: focused.primaryRepoRoot,
+    primaryFocusRelativePath: focused.primaryFocusRelativePath,
+  }).trim();
+  if (!title) {
+    throw new Error('Direct queue submission blocked: canonical title derivation returned an empty value.');
+  }
+
+  return {
+    title,
+    contextPackDir,
+    contextPackId: syncState.activeContextPackId ?? undefined,
+    scopeMode: syncState.scopeMode ?? undefined,
+    selectedRepoIds: syncState.selectedRepoIds.length > 0
+      ? syncState.selectedRepoIds
+      : focused.selectedRepoIds,
+    selectedFocusIds: syncState.selectedFocusIds.length > 0
+      ? syncState.selectedFocusIds
+      : focused.selectedFocusIds,
+    contextPackName: basename(contextPackDir),
+  };
+}
+
+async function resolveArchivedParentMetadata(
+  context: ResolvedDirectSubmissionContext,
+  parentTaskId: string,
+  taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
+): Promise<ArchivedParentMetadata> {
+  const archiveRoot = join(
+    REPO_ROOT,
+    'AgentWorkSpace',
+    'qmd',
+    'context-packs',
+    context.contextPackName,
+    'archive',
+    'tasks',
+  );
+
+  let yearEntries: TaskArchiveDirEntry[];
+  try {
+    yearEntries = await taskArchiveReader.readdir(
+      archiveRoot,
+      { withFileTypes: true },
+    ) as TaskArchiveDirEntry[];
+  } catch {
+    throw new Error(
+      `Follow-up submission blocked: no task archive is available for active context pack "${context.contextPackName}".`,
+    );
+  }
+
+  const yearDirs = yearEntries
+    .filter((entry) => entry.isDirectory() && /^\d{4}$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const yearDir of yearDirs) {
+    const yearPath = join(archiveRoot, yearDir);
+    let files: string[];
+    try {
+      files = (await taskArchiveReader.readdir(yearPath) as string[]).filter((entry) => entry.endsWith('.md'));
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      const markdownPath = join(yearPath, file);
+      const jsonPath = markdownPath.replace(/\.md$/, '.json');
+
+      let jsonSidecar: {
+        record_id?: unknown;
+        task_id?: unknown;
+        root_task_id?: unknown;
+      } = {};
+      try {
+        jsonSidecar = JSON.parse(await taskArchiveReader.readFile(jsonPath, 'utf-8')) as {
+          record_id?: unknown;
+          task_id?: unknown;
+          root_task_id?: unknown;
+        };
+      } catch {
+        jsonSidecar = {};
+      }
+
+      const sidecarTaskId = typeof jsonSidecar.task_id === 'string'
+        ? jsonSidecar.task_id.trim()
+        : '';
+      let markdownTaskId = '';
+      if (!sidecarTaskId) {
+        try {
+          markdownTaskId = extractTaskId(await taskArchiveReader.readFile(markdownPath, 'utf-8'));
+        } catch {
+          markdownTaskId = '';
+        }
+      }
+
+      const effectiveTaskId = sidecarTaskId || markdownTaskId || file.replace(/\.md$/, '');
+      if (effectiveTaskId !== parentTaskId) {
+        continue;
+      }
+
+      return {
+        parentQmdScope: `qmd/context-packs/${context.contextPackName}`,
+        parentQmdRecordId: typeof jsonSidecar.record_id === 'string'
+          ? jsonSidecar.record_id.trim()
+          : '',
+        rootTaskId: typeof jsonSidecar.root_task_id === 'string' && jsonSidecar.root_task_id.trim()
+          ? jsonSidecar.root_task_id.trim()
+          : parentTaskId,
+      };
+    }
+  }
+
+  throw new Error(
+    `Follow-up submission blocked: parent task "${parentTaskId}" could not be resolved from the active context-pack archive.`,
+  );
+}
+
+function normalizeDropboxSubmissionResult(
+  result: string | { filePath: string; title: string },
+): { filePath: string; title: string } {
+  if (typeof result === 'string') {
+    return { filePath: result, title: '' };
+  }
+  return result;
+}
+
+function normalizeFollowUpSubmissionResult(
+  result: string | { filePath: string; title: string; rootTaskId: string },
+  fallbackRootTaskId: string,
+): { filePath: string; title: string; rootTaskId: string } {
+  if (typeof result === 'string') {
+    return { filePath: result, title: '', rootTaskId: fallbackRootTaskId };
+  }
+  return result;
+}
 
 export async function runDropboxTaskScript(options: {
-  title: string;
   summary: string;
   desiredOutcome: string;
   constraints: string;
@@ -43,11 +244,12 @@ export async function runDropboxTaskScript(options: {
   suggestedPath: string;
   planningNotes: string;
   kind: string;
-}): Promise<string> {
+}): Promise<{ filePath: string; title: string }> {
   // Capture the operator's active context pack focus state at submission time.
   const syncState = await readWorkspaceSyncStateSnapshot();
+  const context = await resolveDirectSubmissionContext(syncState);
   const filePath = await createDropboxTask({
-    title: options.title,
+    title: context.title,
     summary: options.summary,
     desiredOutcome: options.desiredOutcome,
     constraints: options.constraints,
@@ -55,58 +257,62 @@ export async function runDropboxTaskScript(options: {
     suggestedPath: options.suggestedPath,
     planningNotes: options.planningNotes,
     kind: options.kind,
-    contextPackDir: syncState.activeContextPackDir ?? undefined,
-    contextPackId: syncState.activeContextPackId ?? undefined,
-    scopeMode: syncState.scopeMode ?? undefined,
-    selectedRepoIds: syncState.selectedRepoIds,
-    selectedFocusIds: syncState.selectedFocusIds,
+    contextPackDir: context.contextPackDir,
+    contextPackId: context.contextPackId,
+    scopeMode: context.scopeMode,
+    selectedRepoIds: context.selectedRepoIds,
+    selectedFocusIds: context.selectedFocusIds,
   });
   emitStreamEvent({ message: `Created dropbox task: ${filePath}`, source: 'createDropboxTask', role: 'queue' });
-  return filePath;
+  return { filePath, title: context.title };
 }
 
 export async function runFollowUpTaskScript(options: {
-  title: string;
   summary: string;
   desiredOutcome: string;
   constraints: string;
   acceptanceSignals: string;
   parentTaskId: string;
-  parentQmdScope: string;
-  parentQmdRecordId: string;
-  rootTaskId: string;
   followupReason: string;
   carryForwardSummary: string;
   suggestedPath: string;
   planningNotes: string;
-}): Promise<string> {
+},
+taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
+): Promise<{ filePath: string; title: string; rootTaskId: string }> {
   const syncState = await readWorkspaceSyncStateSnapshot();
+  const context = await resolveDirectSubmissionContext(syncState);
+  const parentMetadata = await resolveArchivedParentMetadata(
+    context,
+    options.parentTaskId,
+    taskArchiveReader,
+  );
   const filePath = await createFollowupTask({
-    title: options.title,
+    title: context.title,
     summary: options.summary,
     desiredOutcome: options.desiredOutcome,
     constraints: options.constraints,
     acceptanceSignals: options.acceptanceSignals,
     parentTaskId: options.parentTaskId,
-    parentQmdScope: options.parentQmdScope,
-    parentQmdRecordId: options.parentQmdRecordId,
-    rootTaskId: options.rootTaskId,
+    parentQmdScope: parentMetadata.parentQmdScope,
+    parentQmdRecordId: parentMetadata.parentQmdRecordId,
+    rootTaskId: parentMetadata.rootTaskId,
     followupReason: options.followupReason,
     carryForwardSummary: options.carryForwardSummary,
     suggestedPath: options.suggestedPath,
     planningNotes: options.planningNotes,
-    contextPackDir: syncState.activeContextPackDir ?? undefined,
-    contextPackId: syncState.activeContextPackId ?? undefined,
-    scopeMode: syncState.scopeMode ?? undefined,
-    selectedRepoIds: syncState.selectedRepoIds,
-    selectedFocusIds: syncState.selectedFocusIds,
+    contextPackDir: context.contextPackDir,
+    contextPackId: context.contextPackId,
+    scopeMode: context.scopeMode,
+    selectedRepoIds: context.selectedRepoIds,
+    selectedFocusIds: context.selectedFocusIds,
   });
   emitStreamEvent({ message: `Created child-task follow-up: ${filePath}`, source: 'createFollowupTask', role: 'queue' });
-  return filePath;
+  return { filePath, title: context.title, rootTaskId: parentMetadata.rootTaskId };
 }
 
 export function validatePlannerDraftForSubmission(
-  draft: PlannerDraftModel,
+  draft: PlannerSubmissionDraft,
 ): string[] {
   const errors: string[] = [];
 
@@ -114,10 +320,6 @@ export function validatePlannerDraftForSubmission(
     return [
       'Child-task drafts must use the follow-up intake path (followup.begin), not planner.submitDraft.',
     ];
-  }
-
-  if (!draft.title.trim()) {
-    errors.push('Title is required before submitting to dropbox.');
   }
 
   if (!draft.summary.trim()) {
@@ -132,16 +334,12 @@ export function validatePlannerDraftForSubmission(
 }
 
 export function validateFollowUpDraftForSubmission(
-  draft: PlannerDraftModel,
+  draft: FollowUpSubmissionDraft,
 ): string[] {
   const errors: string[] = [];
 
   if (draft.taskKind !== 'child-task') {
     errors.push('Follow-up drafts must use the child-task task kind.');
-  }
-
-  if (!draft.title.trim()) {
-    errors.push('Title is required before creating a follow-up child task.');
   }
 
   if (!draft.summary.trim()) {
@@ -150,10 +348,6 @@ export function validateFollowUpDraftForSubmission(
 
   if (!draft.parentTaskId.trim()) {
     errors.push('Parent task ID is required for follow-up creation.');
-  }
-
-  if (!draft.parentQmdScope.trim()) {
-    errors.push('Parent QMD scope is required for follow-up creation.');
   }
 
   if (!draft.followupReason.trim()) {
@@ -167,68 +361,8 @@ export function validateFollowUpDraftForSubmission(
   return errors;
 }
 
-export function buildDropboxTaskArgs(
-  draft: PlannerDraftModel,
-): string[] {
-  return [
-    '--title',
-    draft.title,
-    '--task-kind',
-    draft.taskKind,
-    '--summary',
-    draft.summary,
-    '--desired-outcome',
-    draft.desiredOutcome,
-    '--constraints',
-    draft.constraints,
-    '--acceptance-signals',
-    draft.acceptanceSignals,
-    '--suggested-path',
-    draft.suggestedPath,
-    '--planning-notes',
-    draft.planningNotes,
-  ];
-}
-
-export function buildFollowUpTaskArgs(
-  draft: PlannerDraftModel,
-): string[] {
-  const args = [
-    '--title',
-    draft.title,
-    '--requested-adjustment',
-    draft.summary,
-    '--desired-outcome',
-    draft.desiredOutcome,
-    '--constraints',
-    draft.constraints,
-    '--acceptance-signals',
-    draft.acceptanceSignals,
-    '--parent-task-id',
-    draft.parentTaskId,
-    '--parent-qmd-scope',
-    draft.parentQmdScope,
-    '--root-task-id',
-    draft.rootTaskId || draft.parentTaskId,
-    '--followup-reason',
-    draft.followupReason,
-    '--carry-forward-summary',
-    draft.carryForwardSummary,
-    '--planning-notes',
-    draft.planningNotes,
-    '--suggested-path',
-    draft.suggestedPath,
-  ];
-
-  if (draft.parentQmdRecordId.trim()) {
-    args.push('--parent-qmd-record-id', draft.parentQmdRecordId);
-  }
-
-  return args;
-}
-
 export async function submitDraftViaDropboxHelper(
-  draft: PlannerDraftModel,
+  draft: PlannerSubmissionDraft,
   runner: DropboxScriptRunner = runDropboxTaskScript,
 ): Promise<DesktopInvokeResult> {
   const validationErrors = validatePlannerDraftForSubmission(draft);
@@ -243,8 +377,7 @@ export async function submitDraftViaDropboxHelper(
   }
 
   try {
-    const submittedPath = await runner({
-      title: draft.title,
+    const submission = normalizeDropboxSubmissionResult(await runner({
       summary: draft.summary,
       desiredOutcome: draft.desiredOutcome,
       constraints: draft.constraints,
@@ -252,7 +385,7 @@ export async function submitDraftViaDropboxHelper(
       suggestedPath: draft.suggestedPath,
       planningNotes: draft.planningNotes,
       kind: draft.taskKind,
-    });
+    }));
 
     return {
       ok: true,
@@ -262,9 +395,9 @@ export async function submitDraftViaDropboxHelper(
         accepted: true,
         message:
           'Planner draft submitted via platform queue module. Queue automation can now claim the task from AgentWorkSpace/dropbox/.',
-        draftTitle: draft.title,
+        draftTitle: submission.title,
         suggestedPath: draft.suggestedPath,
-        submittedPath,
+        submittedPath: submission.filePath,
         observationMode: true,
       },
     };
@@ -281,7 +414,7 @@ export async function submitDraftViaDropboxHelper(
 }
 
 export async function submitFollowUpViaHelper(
-  draft: PlannerDraftModel,
+  draft: FollowUpSubmissionDraft,
   runner: FollowUpScriptRunner = runFollowUpTaskScript,
 ): Promise<DesktopInvokeResult> {
   const validationErrors = validateFollowUpDraftForSubmission(draft);
@@ -296,21 +429,17 @@ export async function submitFollowUpViaHelper(
   }
 
   try {
-    const submittedPath = await runner({
-      title: draft.title,
+    const submission = normalizeFollowUpSubmissionResult(await runner({
       summary: draft.summary,
       desiredOutcome: draft.desiredOutcome,
       constraints: draft.constraints,
       acceptanceSignals: draft.acceptanceSignals,
       parentTaskId: draft.parentTaskId,
-      parentQmdScope: draft.parentQmdScope,
-      parentQmdRecordId: draft.parentQmdRecordId,
-      rootTaskId: draft.rootTaskId || draft.parentTaskId,
       followupReason: draft.followupReason,
       carryForwardSummary: draft.carryForwardSummary,
       suggestedPath: draft.suggestedPath,
       planningNotes: draft.planningNotes,
-    });
+    }), draft.rootTaskId || draft.parentTaskId);
 
     return {
       ok: true,
@@ -323,8 +452,8 @@ export async function submitFollowUpViaHelper(
         suggestedTaskKind: 'child-task',
         sourceTaskId: draft.parentTaskId,
         parentTaskId: draft.parentTaskId,
-        rootTaskId: draft.rootTaskId || draft.parentTaskId,
-        submittedPath,
+        rootTaskId: submission.rootTaskId,
+        submittedPath: submission.filePath,
         reopenedTask: false,
       },
     };

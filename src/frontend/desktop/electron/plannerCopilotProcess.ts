@@ -18,6 +18,7 @@ type PlannerAgentRegistry = {
 export type BuildPlannerCopilotInvocationOptions = {
   prompt: string;
   resumeSessionId?: string | null;
+  plannerSessionId?: string | null;
   promptMode?: 'interactive' | 'one-shot';
   allowedRoots?: string[];
   workingDirectory?: string;
@@ -143,6 +144,7 @@ export function buildPlannerCopilotInvocation(
     options.contextPackBoundaryEnforced ?? allowedRoots.length > 0;
   const model = getPlanningAgentRequiredModel();
   const resumeSessionId = options.resumeSessionId ?? null;
+  const plannerSessionId = options.plannerSessionId ?? null;
   const promptMode = options.promptMode ?? 'one-shot';
 
   return {
@@ -160,6 +162,7 @@ export function buildPlannerCopilotInvocation(
       ...process.env,
       RUN_ROLE_AGENT_ACTIVE_MODEL: model,
       COPILOT_MODEL: model,
+      ...(plannerSessionId ? { PLANNER_SESSION_ID: plannerSessionId } : {}),
       ...options.additionalEnv,
     },
     agentId: 'planning-agent',
@@ -169,6 +172,7 @@ export function buildPlannerCopilotInvocation(
     prompt: options.prompt,
     promptMode,
     resumeSessionId,
+    plannerSessionId,
     allowedRoots,
     contextPackBoundaryEnforced,
   };

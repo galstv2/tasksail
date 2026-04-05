@@ -1,8 +1,14 @@
 import { useCallback, useState } from 'react';
 
-import type { DesktopActionResponse } from '../../shared/desktopContract';
-import type { ComposerStage, PlannerDraftModel } from '../plannerComposer';
+import type {
+  ComposerStage,
+  DesktopActionResponse,
+} from '../../shared/desktopContract';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
+import {
+  toPlannerDirectSubmissionDraft,
+  type PlannerDraftModel,
+} from '../plannerComposer';
 import { useIpcCall } from './useIpcCall';
 
 export type OperatorMode = 'planning' | 'observation';
@@ -39,7 +45,7 @@ export function usePlannerFlow(
   const runPlannerAction = useCallback(
     async (draft: PlannerDraftModel, stage: ComposerStage): Promise<void> => {
       const callResult = await call<DesktopActionResponse>(
-        () => client.submitPlannerDraft(draft, stage),
+        () => client.submitPlannerDraft(toPlannerDirectSubmissionDraft(draft), stage),
         { label: 'planner submission' },
       );
       if (!callResult.ok) return;

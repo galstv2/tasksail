@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
 import { readdirSync, readFileSync } from 'node:fs';
-import { readFile as fsReadFile, readdir as fsReaddir, rename as fsRename, rm as fsRm, writeFile as fsWriteFile } from 'node:fs/promises';
+import { readFile as fsReadFile, readdir as fsReaddir, rm as fsRm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +12,9 @@ import {
   type DesktopActionRequest,
   type DesktopInvokeResult,
   type EnvironmentStatusResponse,
+  type FollowUpDirectSubmissionDraft,
   type ObservabilitySnapshotResponse,
+  type PlannerDirectSubmissionDraft,
   type QueueStatusResponse,
 } from '../src/shared/desktopContract';
 import { isValidDesktopActionRequest, validateDesktopActionRequest } from '../src/shared/desktopContractValidators';
@@ -23,10 +25,15 @@ import {
 import * as plannerSession from './plannerSession';
 import { REPO_ROOT, DESKTOP_ROOT } from './paths';
 import { toRepoRelativePath, parseStderrErrorCode } from './main.textUtils';
-import { validatePlanningIntakeDraft } from './main.markdown';
+import {
+  parseMarkdownSections,
+  parsePlannerEditableDraft,
+  validatePlannerProtectedMetadata,
+  validatePlanningIntakeDraft,
+} from './main.markdown';
 import { getPackageOutputDir, getPackageArtifactName, getPackageCommand } from './main.packaging';
 import { validateDesktopInvokeSender, validateDevServerUrl } from './main.senderAuth';
-import { readStagedDraft, clearStagingDir } from './main.staging';
+import { readOwnedStagedDraft, readStagedDraft } from './main.staging';
 import {
   autoStartBackendServices,
   startBackendServices,
@@ -55,7 +62,6 @@ import {
   writeInstructionFile,
 } from './agentInstructionsHandlers';
 import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
-import type { PlannerDraftModel } from '../src/renderer/plannerComposer';
 
 // Re-export archived task handler so existing test imports from './main' continue to work.
 export { listArchivedTasksAction } from './main.archivedTasks';
@@ -78,8 +84,6 @@ import { emitStreamEvent, withStreamEvent } from './main.stream';
 
 // Re-export task queue handlers so existing test imports from './main' continue to work.
 export {
-  buildDropboxTaskArgs,
-  buildFollowUpTaskArgs,
   validatePlannerDraftForSubmission,
   validateFollowUpDraftForSubmission,
   submitDraftViaDropboxHelper,
@@ -116,7 +120,6 @@ import {
   submitDraftViaDropboxHelper,
   submitFollowUpViaHelper,
 } from './main.taskQueue';
-import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 
 import {
   listAvailableContextPacks,
@@ -139,15 +142,15 @@ import { activateContextPack as activateContextPackImpl } from '../../../backend
 import {
   acquireDirLockOrThrow,
   deletePendingItem as deletePendingItemImpl,
-  formatContextPackBindingSection,
   resolveQueuePaths,
 } from '../../../backend/platform/queue';
+import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
+import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RENDERER_DIST = join(__dirname, '../dist');
 const PRELOAD_PATH = join(__dirname, 'preload.js');
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
-const STAGING_DIR = join(DROPBOX_DIR, '.staging');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const PIPELINE_LOCK_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'pipeline.lock');
 const ROLE_SESSIONS_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
@@ -294,11 +297,11 @@ let recoveryController:
   | null = null;
 
 type DesktopActionHandlers = {
-  submitDraft: (draft: PlannerDraftModel) => Promise<DesktopInvokeResult>;
-  submitFollowUp: (draft: PlannerDraftModel) => Promise<DesktopInvokeResult>;
+  submitDraft: (draft: PlannerDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
+  submitFollowUp: (draft: FollowUpDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
   startPlannerSession: (payload?: { contextPackDir?: string }) => Promise<{ sessionId: string; created: boolean }>;
   sendPlannerMessage: (text: string) => Promise<'sent' | 'no-session' | 'busy'>;
-  endPlannerSession: () => void;
+  endPlannerSession: () => Promise<void>;
   savePlannerDraft: () => Promise<'sent' | 'no-session' | 'busy'>;
   getPlannerSessionState: () => ReturnType<typeof plannerSession.getSessionState>;
   readQueueStatus: () => Promise<QueueStatusResponse>;
@@ -800,15 +803,11 @@ export async function handleDesktopAction(
           accepted: true,
           message:
             'Planner draft accepted for local review only. No dropbox file or helper script was invoked.',
-          draftTitle: request.payload.draft.title,
           suggestedPath: request.payload.draft.suggestedPath,
         },
       };
     case 'planner.startSession': {
-      const { sessionId, created } = await resolvedHandlers.startPlannerSession(request.payload);
-      if (created) {
-        await clearStagingDir();
-      }
+      const { sessionId } = await resolvedHandlers.startPlannerSession(request.payload);
       emitStreamEvent({ message: 'Planner session started.', source: 'planner.startSession', role: 'planner' });
       return {
         ok: true,
@@ -849,7 +848,7 @@ export async function handleDesktopAction(
       };
     }
     case 'planner.endSession':
-      resolvedHandlers.endPlannerSession();
+      await resolvedHandlers.endPlannerSession();
       emitStreamEvent({ message: 'Planner session ended.', source: 'planner.endSession', role: 'planner' });
       return {
         ok: true,
@@ -861,7 +860,6 @@ export async function handleDesktopAction(
         },
       };
     case 'planner.saveDraft': {
-      await clearStagingDir();
       const saveResult = await resolvedHandlers.savePlannerDraft();
       const brokerState = resolvedHandlers.getPlannerSessionState();
       if (saveResult === 'no-session') {
@@ -899,7 +897,8 @@ export async function handleDesktopAction(
     case 'planner.readStagedDraft': {
       const brokerState = resolvedHandlers.getPlannerSessionState();
       const brokerStatus = brokerState?.brokerStatus ?? 'idle';
-      const stagedDraft = await readStagedDraft();
+      const activePlannerSessionId = plannerSession.getObservability().sessionId;
+      const stagedDraft = await readStagedDraft(activePlannerSessionId ?? undefined);
       if (stagedDraft.error) {
         return {
           ok: false,
@@ -954,7 +953,8 @@ export async function handleDesktopAction(
           error: 'Planner session is still running a turn. Wait for draft generation to finish before finalizing.',
         };
       }
-      const stagedDraft = await readStagedDraft();
+      const activePlannerSessionId = plannerSession.getObservability().sessionId;
+      const stagedDraft = await readOwnedStagedDraft(activePlannerSessionId ?? undefined);
       if (stagedDraft.error) {
         return {
           ok: false,
@@ -976,6 +976,13 @@ export async function handleDesktopAction(
           error: 'No staged draft to finalize. Use "View Draft" first.',
         };
       }
+      if (!stagedDraft.metadata) {
+        return {
+          ok: false,
+          action: 'planner.finalizeSpec',
+          error: 'No platform-owned staged planner metadata is available. Start a new planner session before finalizing.',
+        };
+      }
       const expectedTaskKind = (
         typeof request.payload === 'object' &&
         request.payload !== null &&
@@ -983,7 +990,25 @@ export async function handleDesktopAction(
       )
         ? (request.payload as { expectedTaskKind?: 'standard' | 'child-task' }).expectedTaskKind
         : undefined;
-      const validationError = validatePlanningIntakeDraft(stagedDraft.draft.content, expectedTaskKind);
+      const sections = parseMarkdownSections(stagedDraft.draft.content);
+      const protectedMetadataError = validatePlannerProtectedMetadata(
+        stagedDraft.draft.content,
+        stagedDraft.metadata,
+        expectedTaskKind,
+        sections,
+      );
+      if (protectedMetadataError) {
+        return {
+          ok: false,
+          action: 'planner.finalizeSpec',
+          error: protectedMetadataError,
+        };
+      }
+      const validationError = validatePlanningIntakeDraft(
+        stagedDraft.draft.content,
+        stagedDraft.metadata.lineage.taskKind,
+        sections,
+      );
       if (validationError) {
         return {
           ok: false,
@@ -992,34 +1017,69 @@ export async function handleDesktopAction(
         };
       }
       try {
-        const srcPath = join(STAGING_DIR, stagedDraft.draft.filename);
-        const destPath = join(DROPBOX_DIR, stagedDraft.draft.filename);
+        const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
+        const metadata = stagedDraft.metadata;
+        const destinationPath = await withQueueMutationLock('planner.finalizeSpec', async () => {
+          if (metadata.lineage.taskKind === 'child-task') {
+            return createFollowupTask({
+              title: metadata.title,
+              summary: editableDraft.summary,
+              desiredOutcome: editableDraft.desiredOutcome,
+              constraints: editableDraft.constraints,
+              acceptanceSignals: editableDraft.acceptanceSignals,
+              parentTaskId: metadata.lineage.parentTaskId,
+              parentQmdRecordId: metadata.lineage.parentQmdRecordId,
+              parentQmdScope: metadata.lineage.parentQmdScope,
+              rootTaskId: metadata.lineage.rootTaskId,
+              followupReason: metadata.lineage.followUpReason,
+              carryForwardSummary: editableDraft.carryForwardSummary,
+              suggestedPath: editableDraft.suggestedPath,
+              planningNotes: editableDraft.planningNotes,
+              contextPackDir: metadata.contextPackBinding.contextPackDir,
+              contextPackId: metadata.contextPackBinding.contextPackId,
+              scopeMode: metadata.contextPackBinding.scopeMode,
+              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+              repoRoot: REPO_ROOT,
+            });
+          }
 
-        // Inject context pack binding if the planner agent didn't include it.
-        const draftContent = await fsReadFile(srcPath, 'utf-8');
-        if (!draftContent.includes('## Context Pack Binding')) {
-          const syncState = await readWorkspaceSyncStateSnapshot();
-          const section = formatContextPackBindingSection({
-            contextPackDir: syncState.activeContextPackDir ?? undefined,
-            contextPackId: syncState.activeContextPackId ?? undefined,
-            scopeMode: syncState.scopeMode ?? undefined,
-            selectedRepoIds: syncState.selectedRepoIds,
-            selectedFocusIds: syncState.selectedFocusIds,
+          return createDropboxTask({
+            title: metadata.title,
+            summary: editableDraft.summary,
+            desiredOutcome: editableDraft.desiredOutcome,
+            constraints: editableDraft.constraints,
+            acceptanceSignals: editableDraft.acceptanceSignals,
+            suggestedPath: editableDraft.suggestedPath,
+            planningNotes: editableDraft.planningNotes,
+            kind: metadata.lineage.taskKind,
+            contextPackDir: metadata.contextPackBinding.contextPackDir,
+            contextPackId: metadata.contextPackBinding.contextPackId,
+            scopeMode: metadata.contextPackBinding.scopeMode,
+            selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+            selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+            repoRoot: REPO_ROOT,
           });
-          await fsWriteFile(srcPath, draftContent.trimEnd() + '\n\n' + section + '\n', 'utf-8');
-        }
+        });
 
-        await fsRename(srcPath, destPath);
-        resolvedHandlers.endPlannerSession();
-        emitStreamEvent({ message: `Spec finalized to dropbox: ${stagedDraft.draft.filename}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
+        try {
+          await resolvedHandlers.endPlannerSession();
+        } catch (endSessionError: unknown) {
+          console.warn(
+            endSessionError instanceof Error
+              ? `Planner session shutdown failed after finalization: ${endSessionError.message}`
+              : 'Planner session shutdown failed after finalization.',
+          );
+        }
+        emitStreamEvent({ message: `Spec finalized to dropbox: ${basename(destinationPath)}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
         return {
           ok: true,
           response: {
             action: 'planner.finalizeSpec',
             mode: 'finalized',
             accepted: true,
-            message: `Spec promoted to dropbox: ${stagedDraft.draft.filename}`,
-            destinationPath: destPath,
+            message: `Spec finalized to dropbox: ${basename(destinationPath)}`,
+            destinationPath,
             brokerStatus: 'idle',
           },
         };
@@ -1027,7 +1087,7 @@ export async function handleDesktopAction(
         return {
           ok: false,
           action: 'planner.finalizeSpec',
-          error: err instanceof Error ? err.message : 'Failed to move staged draft to dropbox.',
+          error: err instanceof Error ? err.message : 'Failed to finalize the staged planner draft.',
         };
       }
     }
@@ -1371,7 +1431,7 @@ export function registerAppLifecycle(): void {
     stopRuntimeWatcher?.();
     recoveryController?.stop();
     recoveryController = null;
-    plannerSession.endSession();
+    void plannerSession.endSession();
   });
 
   app.on('window-all-closed', () => {

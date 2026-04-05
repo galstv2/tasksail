@@ -2,23 +2,392 @@ import {
   mkdir as fsMkdir,
   readFile as fsReadFile,
   readdir as fsReadDir,
+  rm as fsRm,
   stat as fsStat,
   unlink as fsUnlink,
+  writeFile as fsWriteFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import type { FocusedRepoResult } from '../../../backend/platform/context-pack/focusedRepo.js';
+import { sleep } from '../../../backend/platform/core/io.js';
+import { slugify } from '../../../backend/platform/core/text.js';
+import { formatContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
 import type { StagedDraftContent } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { getNodeErrorCode } from './main.textUtils';
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const STAGING_DIR = join(DROPBOX_DIR, '.staging');
+const PLANNER_STAGING_SIDECAR_FILENAME = '.planner-staged-session.json';
+const PLANNER_STAGING_SIDECAR_PATH = join(STAGING_DIR, PLANNER_STAGING_SIDECAR_FILENAME);
+const PLANNER_LOCK_DIRNAME = '.planner-lock.d';
+const PLANNER_LOCK_DIR = join(STAGING_DIR, PLANNER_LOCK_DIRNAME);
+const PLANNER_LOCK_OWNER_PATH = join(PLANNER_LOCK_DIR, 'owner.json');
+
+type PlannerTaskKind = 'standard' | 'child-task';
+
+export type PlannerStagingLineage = {
+  taskKind: PlannerTaskKind;
+  parentTaskId: string;
+  rootTaskId: string;
+  parentQmdRecordId: string;
+  parentQmdScope: string;
+  followUpReason: string;
+};
+
+export type PlannerStagingContextPackBinding = {
+  contextPackDir: string;
+  contextPackId: string;
+  scopeMode: string;
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+};
+
+export type PlannerStagingSidecar = {
+  version: 1;
+  ownership: 'planner-session';
+  sessionId: string;
+  draftFilename: string;
+  draftPath: string;
+  createdAt: string;
+  title: string;
+  primaryRepoId: string;
+  primaryRepoRoot: string;
+  primaryFocusRelativePath: string | null;
+  lineage: PlannerStagingLineage;
+  contextPackBinding: PlannerStagingContextPackBinding;
+};
+
+export type PlannerStagingLockOwnership = {
+  version: 1;
+  sessionId: string;
+  acquiredAt: string;
+};
+
+export type InitializeStagedPlanningDraftOptions = {
+  sessionId: string;
+  contextPackDir?: string | null;
+  focusedRepo?: Pick<
+    FocusedRepoResult,
+    | 'primaryRepoId'
+    | 'primaryRepoRoot'
+    | 'primaryFocusRelativePath'
+    | 'selectedRepoIds'
+    | 'selectedFocusIds'
+  >;
+  title?: string;
+  lineage?: Partial<PlannerStagingLineage>;
+  now?: Date;
+};
 
 export type StagedDraftReadResult = {
   draft: StagedDraftContent | null;
   error: string | null;
 };
 
-export async function readStagedDraft(): Promise<StagedDraftReadResult> {
+export type OwnedStagedDraftReadResult = StagedDraftReadResult & {
+  metadata: PlannerStagingSidecar | null;
+};
+
+type ClearStagingArtifactsOptions = {
+  sessionId?: string | null;
+  force?: boolean;
+};
+
+
+function formatCompactTimestamp(now: Date): string {
+  return now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+}
+
+function normalizeIsoTimestamp(now: Date): string {
+  return now.toISOString().replace(/\.\d+Z$/, 'Z');
+}
+
+function trimOrEmpty(value?: string | null): string {
+  return value?.trim() ?? '';
+}
+
+function buildPlannerStagedFilename(title: string, now: Date): string {
+  const slug = slugify(title, 'planner-draft').slice(0, 80);
+  return `${formatCompactTimestamp(now)}_${slug}.md`;
+}
+
+function renderPlannerStagedShell(metadata: PlannerStagingSidecar): string {
+  const bindingSection = formatContextPackBindingSection(metadata.contextPackBinding);
+
+  return `# ${metadata.title}
+
+## Task Lineage
+
+- Task Kind: ${metadata.lineage.taskKind}
+- Parent Task ID: ${metadata.lineage.parentTaskId}
+- Root Task ID: ${metadata.lineage.rootTaskId}
+- Parent QMD Record ID: ${metadata.lineage.parentQmdRecordId}
+- Parent QMD Scope: ${metadata.lineage.parentQmdScope}
+- Follow-Up Reason: ${metadata.lineage.followUpReason}
+
+${bindingSection}
+
+## Request Summary
+
+## Desired Outcome
+
+## Constraints
+
+## Acceptance Signals
+
+## Parent Task Carry-Forward Summary
+
+## Suggested Routing
+
+- Recommended Execution:
+- Planner Notes:
+
+## Source
+
+- Created By: Planning Agent
+- Created At (UTC): ${metadata.createdAt}
+`;
+}
+
+function derivePlannerScopeMode(
+  focusedRepo?: InitializeStagedPlanningDraftOptions['focusedRepo'],
+  contextPackDir?: string | null,
+): string {
+  if ((focusedRepo?.selectedFocusIds ?? []).length > 0) {
+    return 'focus-selection';
+  }
+  if ((focusedRepo?.selectedRepoIds ?? []).length > 0) {
+    return 'repo-selection';
+  }
+  return trimOrEmpty(contextPackDir) ? 'context-pack' : '';
+}
+
+export function derivePlannerDraftTitle(args: {
+  primaryRepoId?: string | null;
+  primaryRepoRoot?: string | null;
+  primaryFocusRelativePath?: string | null;
+}): string {
+  const primaryRepoId = trimOrEmpty(args.primaryRepoId);
+  const primaryRepoRoot = trimOrEmpty(args.primaryRepoRoot);
+  const repoTitle = primaryRepoRoot ? basename(primaryRepoRoot) : primaryRepoId;
+  const baseTitle = repoTitle || primaryRepoId || basename(REPO_ROOT);
+  if (!baseTitle) {
+    return '';
+  }
+
+  const primaryFocusRelativePath = trimOrEmpty(args.primaryFocusRelativePath);
+  return primaryFocusRelativePath ? `${baseTitle} / ${primaryFocusRelativePath}` : baseTitle;
+}
+
+export async function readPlannerStagingSidecar(): Promise<PlannerStagingSidecar | null> {
+  try {
+    const raw = await fsReadFile(PLANNER_STAGING_SIDECAR_PATH, 'utf-8');
+    return JSON.parse(raw) as PlannerStagingSidecar;
+  } catch (error: unknown) {
+    if (getNodeErrorCode(error) === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function readPlannerStagingLockOwnership(): Promise<PlannerStagingLockOwnership | null> {
+  try {
+    const raw = await fsReadFile(PLANNER_LOCK_OWNER_PATH, 'utf-8');
+    return JSON.parse(raw) as PlannerStagingLockOwnership;
+  } catch (error: unknown) {
+    if (getNodeErrorCode(error) === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function acquirePlannerStagingLock(
+  sessionId: string,
+  options: { maxRetries?: number; backoffMs?: number } = {},
+): Promise<PlannerStagingLockOwnership> {
+  await fsMkdir(STAGING_DIR, { recursive: true });
+
+  const maxRetries = options.maxRetries ?? 30;
+  let waitMs = options.backoffMs ?? 50;
+
+  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+    try {
+      await fsMkdir(PLANNER_LOCK_DIR);
+      const ownership: PlannerStagingLockOwnership = {
+        version: 1,
+        sessionId,
+        acquiredAt: normalizeIsoTimestamp(new Date()),
+      };
+      await fsWriteFile(PLANNER_LOCK_OWNER_PATH, JSON.stringify(ownership, null, 2) + '\n', 'utf-8');
+      return ownership;
+    } catch (error: unknown) {
+      if (getNodeErrorCode(error) !== 'EEXIST') {
+        throw error;
+      }
+    }
+
+    await sleep(waitMs);
+    waitMs = Math.min(waitMs * 2, 2000);
+  }
+
+  const currentOwner = await readPlannerStagingLockOwnership();
+  throw new Error(
+    currentOwner?.sessionId
+      ? `Planner staging workspace is locked by session ${currentOwner.sessionId}.`
+      : 'Planner staging workspace is locked by another session.',
+  );
+}
+
+export async function releasePlannerStagingLock(
+  sessionId?: string | null,
+  options: { force?: boolean } = {},
+): Promise<boolean> {
+  const ownership = await readPlannerStagingLockOwnership();
+  if (ownership && !options.force && !sessionId) {
+    return false;
+  }
+  if (ownership && !options.force && sessionId && ownership.sessionId !== sessionId) {
+    return false;
+  }
+
+  await fsUnlink(PLANNER_LOCK_OWNER_PATH).catch((error: unknown) => {
+    if (getNodeErrorCode(error) !== 'ENOENT') {
+      throw error;
+    }
+  });
+  await fsRm(PLANNER_LOCK_DIR, { recursive: true, force: true });
+  return true;
+}
+
+export async function initializeStagedPlanningDraft(
+  options: InitializeStagedPlanningDraftOptions,
+): Promise<PlannerStagingSidecar> {
+  const now = options.now ?? new Date();
+  const title = trimOrEmpty(options.title) || derivePlannerDraftTitle({
+    primaryRepoId: options.focusedRepo?.primaryRepoId,
+    primaryRepoRoot: options.focusedRepo?.primaryRepoRoot,
+    primaryFocusRelativePath: options.focusedRepo?.primaryFocusRelativePath,
+  });
+
+  if (!title) {
+    throw new Error('Planner staging requires a deterministic derived title before Lily can draft.');
+  }
+
+  const taskKind = options.lineage?.taskKind ?? 'standard';
+  const parentTaskId = trimOrEmpty(options.lineage?.parentTaskId);
+  const metadata: PlannerStagingSidecar = {
+    version: 1,
+    ownership: 'planner-session',
+    sessionId: options.sessionId,
+    draftFilename: buildPlannerStagedFilename(title, now),
+    draftPath: '',
+    createdAt: normalizeIsoTimestamp(now),
+    title,
+    primaryRepoId: trimOrEmpty(options.focusedRepo?.primaryRepoId),
+    primaryRepoRoot: trimOrEmpty(options.focusedRepo?.primaryRepoRoot),
+    primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+    lineage: {
+      taskKind,
+      parentTaskId,
+      rootTaskId: trimOrEmpty(options.lineage?.rootTaskId) || (taskKind === 'child-task' ? parentTaskId : ''),
+      parentQmdRecordId: trimOrEmpty(options.lineage?.parentQmdRecordId),
+      parentQmdScope: trimOrEmpty(options.lineage?.parentQmdScope),
+      followUpReason: trimOrEmpty(options.lineage?.followUpReason),
+    },
+    contextPackBinding: {
+      contextPackDir: trimOrEmpty(options.contextPackDir),
+      contextPackId: trimOrEmpty(options.contextPackDir) ? basename(trimOrEmpty(options.contextPackDir)) : '',
+      scopeMode: derivePlannerScopeMode(options.focusedRepo, options.contextPackDir),
+      selectedRepoIds: [...(options.focusedRepo?.selectedRepoIds ?? [])],
+      selectedFocusIds: [...(options.focusedRepo?.selectedFocusIds ?? [])],
+    },
+  };
+  metadata.draftPath = join(STAGING_DIR, metadata.draftFilename);
+
+  await acquirePlannerStagingLock(options.sessionId);
+
+  try {
+    await Promise.all([
+      fsWriteFile(metadata.draftPath, renderPlannerStagedShell(metadata), 'utf-8'),
+      fsWriteFile(PLANNER_STAGING_SIDECAR_PATH, JSON.stringify(metadata, null, 2) + '\n', 'utf-8'),
+    ]);
+    return metadata;
+  } catch (error: unknown) {
+    await clearStagingArtifacts({ sessionId: options.sessionId, force: true });
+    throw error;
+  }
+}
+
+export async function readOwnedStagedDraft(
+  sessionId?: string | null,
+): Promise<OwnedStagedDraftReadResult> {
+  try {
+    const metadata = await readPlannerStagingSidecar();
+    if (!metadata) {
+      return { draft: null, error: null, metadata: null };
+    }
+    if (sessionId && metadata.sessionId !== sessionId) {
+      return {
+        draft: null,
+        error: `Staged planner draft is owned by session ${metadata.sessionId}, not ${sessionId}.`,
+        metadata,
+      };
+    }
+
+    const content = await fsReadFile(metadata.draftPath, 'utf-8');
+    if (content.trim().length === 0) {
+      return {
+        draft: null,
+        error: `Staged draft ${metadata.draftFilename} is empty. Ask Lily to rewrite the draft before finalizing.`,
+        metadata,
+      };
+    }
+
+    const info = await fsStat(metadata.draftPath);
+    return {
+      draft: {
+        filename: metadata.draftFilename,
+        content,
+        modifiedAt: info.mtime.toISOString(),
+      },
+      error: null,
+      metadata,
+    };
+  } catch (error: unknown) {
+    if (getNodeErrorCode(error) === 'ENOENT') {
+      return {
+        draft: null,
+        error: 'Planner staging metadata is present but the owned staged draft is missing.',
+        metadata: await readPlannerStagingSidecar(),
+      };
+    }
+
+    return {
+      draft: null,
+      error: error instanceof Error ? error.message : 'Failed to read staged draft.',
+      metadata: null,
+    };
+  }
+}
+
+export async function readStagedDraft(sessionId?: string | null): Promise<StagedDraftReadResult> {
+  const ownedDraft = await readOwnedStagedDraft(sessionId);
+  if (ownedDraft.metadata) {
+    return {
+      draft: ownedDraft.draft,
+      error: ownedDraft.error,
+    };
+  }
+  if (sessionId) {
+    return {
+      draft: ownedDraft.draft,
+      error: ownedDraft.error,
+    };
+  }
+
   try {
     const entries = await fsReadDir(STAGING_DIR);
     const mdFiles = entries.filter((f) => f.endsWith('.md'));
@@ -65,13 +434,25 @@ export async function readStagedDraft(): Promise<StagedDraftReadResult> {
   }
 }
 
-export async function clearStagingDir(): Promise<void> {
+export async function clearStagingArtifacts(
+  options: ClearStagingArtifactsOptions = {},
+): Promise<void> {
+  const ownership = await readPlannerStagingLockOwnership();
+  if (ownership && !options.force) {
+    if (!options.sessionId) {
+      return;
+    }
+    if (ownership.sessionId !== options.sessionId) {
+      return;
+    }
+  }
+
   await fsMkdir(STAGING_DIR, { recursive: true });
   try {
     const entries = await fsReadDir(STAGING_DIR);
     await Promise.all(
       entries
-        .filter((f) => f.endsWith('.md'))
+        .filter((f) => f.endsWith('.md') || f.endsWith('.json'))
         .map((name) =>
           fsUnlink(join(STAGING_DIR, name)).catch((err: unknown) => {
             if (getNodeErrorCode(err) !== 'ENOENT') {
@@ -85,4 +466,6 @@ export async function clearStagingDir(): Promise<void> {
       throw error;
     }
   }
+
+  await releasePlannerStagingLock(options.sessionId, { force: options.force });
 }

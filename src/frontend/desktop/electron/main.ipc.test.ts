@@ -68,7 +68,6 @@ describe('electron main bootstrap — IPC dispatch', () => {
         payload: {
           stage: 'preview',
           draft: {
-            title: 'Prototype contract review',
             taskKind: 'standard',
             summary: 'Review the contract.',
             desiredOutcome: 'Renderer can preview desktop actions.',
@@ -92,7 +91,6 @@ describe('electron main bootstrap — IPC dispatch', () => {
         action: 'planner.submitDraft',
         mode: 'dry-run',
         accepted: true,
-        draftTitle: 'Prototype contract review',
       }),
     });
 

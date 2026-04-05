@@ -170,10 +170,10 @@ export async function nextPendingItemPath(
 
 /**
  * Pattern matching the compact ISO-8601 timestamp prefix added by this
- * function (e.g., `20260330T070710Z-`). Used to strip stale prefixes so
+ * module (e.g., `20260330T070710Z_` or `20260330T070710Z-`). Used to strip stale prefixes so
  * that round-tripping between open and pending doesn't accumulate them.
  */
-const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z-/;
+const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
 
 /**
  * Generate a timestamped queue name for a source file.
@@ -184,7 +184,7 @@ export function queueNameForSource(sourceFile: string): string {
   const baseName = path.basename(sourceFile).replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
   const now = new Date();
   const ts = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  return `${ts}-${baseName}`;
+  return `${ts}_${baseName}`;
 }
 
 /**

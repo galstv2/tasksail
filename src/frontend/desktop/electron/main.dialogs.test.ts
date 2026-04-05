@@ -108,7 +108,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
   });
 
   it('submits confirmed planner drafts through the dropbox helper seam', async () => {
-    const { buildDropboxTaskArgs, submitDraftViaDropboxHelper } = await import('./main');
+    const { submitDraftViaDropboxHelper } = await import('./main');
 
     const draft = {
       title: 'Submit through helper seam',
@@ -128,42 +128,34 @@ describe('electron main bootstrap — dialogs and planner', () => {
       sourceState: 'active' as const,
     };
 
-    expect(buildDropboxTaskArgs(draft)).toEqual([
-      '--title',
-      'Submit through helper seam',
-      '--task-kind',
-      'standard',
-      '--summary',
-      'Create a dropbox task from the desktop shell.',
-      '--desired-outcome',
-      'Queue automation can claim the task.',
-      '--constraints',
-      'Renderer stays file-system blind.',
-      '--acceptance-signals',
-      'Helper returns a created path.',
-      '--suggested-path',
-      'sequential',
-      '--planning-notes',
-      'Approved in confirm stage.',
-    ]);
+    const runner = vi.fn(async () =>
+      'AgentWorkSpace/dropbox/20260307T183000Z-submit-through-helper-seam.md');
 
     await expect(
-      submitDraftViaDropboxHelper(draft, async () =>
-        'AgentWorkSpace/dropbox/20260307T183000Z-submit-through-helper-seam.md',
-      ),
+      submitDraftViaDropboxHelper(draft, runner),
     ).resolves.toEqual({
       ok: true,
       response: expect.objectContaining({
         action: 'planner.submitDraft',
         mode: 'submitted',
+        draftTitle: '',
         submittedPath: 'AgentWorkSpace/dropbox/20260307T183000Z-submit-through-helper-seam.md',
         observationMode: true,
       }),
     });
+    expect(runner).toHaveBeenCalledWith({
+      summary: 'Create a dropbox task from the desktop shell.',
+      desiredOutcome: 'Queue automation can claim the task.',
+      constraints: 'Renderer stays file-system blind.',
+      acceptanceSignals: 'Helper returns a created path.',
+      suggestedPath: 'sequential',
+      planningNotes: 'Approved in confirm stage.',
+      kind: 'standard',
+    });
   });
 
   it('stages and submits completed-task follow-up drafts through the follow-up helper seam', async () => {
-    const { buildFollowUpTaskArgs, handleDesktopAction, submitFollowUpViaHelper } = await import('./main');
+    const { handleDesktopAction, submitFollowUpViaHelper } = await import('./main');
 
     const followUpDraft = {
       title: 'Create child-task intake for live follow-up integration',
@@ -182,35 +174,6 @@ describe('electron main bootstrap — dialogs and planner', () => {
       planningNotes: 'Parent Final Summary Reference: qmd/context-packs/test-pack.md',
       sourceState: 'completed' as const,
     };
-
-    expect(buildFollowUpTaskArgs(followUpDraft)).toEqual([
-      '--title',
-      'Create child-task intake for live follow-up integration',
-      '--requested-adjustment',
-      'Start a child-task planning flow from completed renderer findings.',
-      '--desired-outcome',
-      'A new child-task intake is created without reopening the parent task.',
-      '--constraints',
-      'Keep the parent task read-only.',
-      '--acceptance-signals',
-      'Child-task draft preserves lineage.',
-      '--parent-task-id',
-      'CAP-CUSTOM-TERMINAL-08',
-      '--parent-qmd-scope',
-      'qmd/context-packs/test-pack',
-      '--root-task-id',
-      'CAP-CUSTOM-TERMINAL-01',
-      '--followup-reason',
-      'Carry completed renderer findings into the next child-task slice.',
-      '--carry-forward-summary',
-      'Preserve read-only workflow console behavior.',
-      '--planning-notes',
-      'Parent Final Summary Reference: qmd/context-packs/test-pack.md',
-      '--suggested-path',
-      'sequential',
-      '--parent-qmd-record-id',
-      'qmd://implementation-summary/CAP-CUSTOM-TERMINAL-08/final',
-    ]);
 
     await expect(
       handleDesktopAction(
@@ -239,10 +202,10 @@ describe('electron main bootstrap — dialogs and planner', () => {
       }),
     });
 
+    const runner = vi.fn(async () =>
+      'AgentWorkSpace/dropbox/create-child-task-intake-for-live-follow-up-integration.md');
     await expect(
-      submitFollowUpViaHelper(followUpDraft, async () =>
-        'AgentWorkSpace/dropbox/create-child-task-intake-for-live-follow-up-integration.md',
-      ),
+      submitFollowUpViaHelper(followUpDraft, runner),
     ).resolves.toEqual({
       ok: true,
       response: expect.objectContaining({
@@ -252,6 +215,17 @@ describe('electron main bootstrap — dialogs and planner', () => {
         submittedPath: 'AgentWorkSpace/dropbox/create-child-task-intake-for-live-follow-up-integration.md',
         reopenedTask: false,
       }),
+    });
+    expect(runner).toHaveBeenCalledWith({
+      summary: 'Start a child-task planning flow from completed renderer findings.',
+      desiredOutcome: 'A new child-task intake is created without reopening the parent task.',
+      constraints: 'Keep the parent task read-only.',
+      acceptanceSignals: 'Child-task draft preserves lineage.',
+      parentTaskId: 'CAP-CUSTOM-TERMINAL-08',
+      followupReason: 'Carry completed renderer findings into the next child-task slice.',
+      carryForwardSummary: 'Preserve read-only workflow console behavior.',
+      suggestedPath: 'sequential',
+      planningNotes: 'Parent Final Summary Reference: qmd/context-packs/test-pack.md',
     });
   });
 
@@ -284,7 +258,6 @@ describe('electron main bootstrap — dialogs and planner', () => {
       action: 'planner.submitDraft',
       error: 'Planner draft validation failed before dropbox submission.',
       details: [
-        'Title is required before submitting to dropbox.',
         'Request summary is required before submitting to dropbox.',
         'Desired outcome is required before submitting to dropbox.',
       ],
@@ -293,26 +266,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
   });
 
   it('uses fallback messages for non-Error helper failures and default follow-up root IDs', async () => {
-    const { buildFollowUpTaskArgs, submitDraftViaDropboxHelper, submitFollowUpViaHelper } = await import('./main');
-
-    expect(
-      buildFollowUpTaskArgs({
-        title: 'Default root id',
-        taskKind: 'child-task',
-        summary: 'Use parent task as fallback root.',
-        desiredOutcome: 'Args stay complete.',
-        constraints: 'n/a',
-        acceptanceSignals: 'n/a',
-        parentTaskId: 'CAP-PARENT-1',
-        parentQmdRecordId: '',
-        parentQmdScope: 'qmd/context-packs/test-pack',
-        rootTaskId: '',
-        followupReason: 'Continue work.',
-        carryForwardSummary: 'Preserve lineage.',
-        suggestedPath: 'sequential',
-        planningNotes: 'n/a',
-      }),
-    ).toContain('CAP-PARENT-1');
+    const { submitDraftViaDropboxHelper, submitFollowUpViaHelper } = await import('./main');
 
     await expect(
       submitDraftViaDropboxHelper(
@@ -368,6 +322,68 @@ describe('electron main bootstrap — dialogs and planner', () => {
       ok: false,
       action: 'followup.begin',
       error: 'Follow-up submission failed unexpectedly in the Electron main process.',
+    });
+  });
+
+  it('does not leak renderer-authored titles when helper seams only return file paths', async () => {
+    const { submitDraftViaDropboxHelper, submitFollowUpViaHelper } = await import('./main');
+
+    await expect(
+      submitDraftViaDropboxHelper(
+        {
+          title: 'Renderer supplied title',
+          taskKind: 'standard',
+          summary: 'Attempt submission.',
+          desiredOutcome: 'Canonical title must come from the runner.',
+          constraints: 'n/a',
+          acceptanceSignals: 'n/a',
+          parentTaskId: '',
+          parentQmdRecordId: '',
+          parentQmdScope: '',
+          rootTaskId: '',
+          followupReason: '',
+          carryForwardSummary: '',
+          suggestedPath: 'sequential',
+          planningNotes: 'n/a',
+        },
+        async () => 'AgentWorkSpace/dropbox/plain-string.md',
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.submitDraft',
+        draftTitle: '',
+        submittedPath: 'AgentWorkSpace/dropbox/plain-string.md',
+      }),
+    });
+
+    await expect(
+      submitFollowUpViaHelper(
+        {
+          title: 'Renderer supplied child title',
+          taskKind: 'child-task',
+          summary: 'Attempt follow-up creation.',
+          desiredOutcome: 'Lineage fallback stays canonical.',
+          constraints: 'n/a',
+          acceptanceSignals: 'n/a',
+          parentTaskId: 'CAP-PARENT-1',
+          parentQmdRecordId: '',
+          parentQmdScope: 'qmd/context-packs/test-pack',
+          rootTaskId: '',
+          followupReason: 'Continue work.',
+          carryForwardSummary: 'Preserve lineage.',
+          suggestedPath: 'sequential',
+          planningNotes: 'n/a',
+        },
+        async () => 'AgentWorkSpace/dropbox/plain-string-follow-up.md',
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'followup.begin',
+        rootTaskId: 'CAP-PARENT-1',
+        submittedPath: 'AgentWorkSpace/dropbox/plain-string-follow-up.md',
+      }),
     });
   });
 
@@ -455,7 +471,6 @@ describe('electron main bootstrap — dialogs and planner', () => {
       action: 'followup.begin',
       error: 'Follow-up draft validation failed before child-task submission.',
       details: [
-        'Parent QMD scope is required for follow-up creation.',
         'Follow-up reason is required for follow-up creation.',
         'Carry-forward summary is required when follow-up lineage must stay local and explicit.',
       ],
@@ -626,184 +641,6 @@ describe('electron main bootstrap — dialogs and planner', () => {
     });
   });
 
-  it('blocks finalize while the broker is still running a planner turn', async () => {
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'running' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Drafting...',
-            exitCode: null,
-            usage: null,
-            error: null,
-          })),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: 'Planner session is still running a turn. Wait for draft generation to finish before finalizing.',
-    });
-  });
-
-  it('blocks finalize when the staged draft is missing required intake sections', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Draft Title
-
-## Task Lineage
-
-- Task Kind: standard
-- Parent Task ID:
-- Root Task ID:
-- Parent QMD Record ID:
-- Parent QMD Scope:
-- Follow-Up Reason:
-
-## Request Summary
-
-Too short.
-
-## Desired Outcome
-
-Ship a useful planning intake.
-
-## Constraints
-
-None
-
-## Acceptance Signals
-
-Not bullet shaped
-
-## Parent Task Carry-Forward Summary
-
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-- Planner Notes:
-
-## Source
-
-- Created By: Planning Agent
-- Created At (UTC): 2026-03-21T01:00:00Z
-`),
-        readdir: vi.fn(async () => ['20260321T010000Z-spec.md']),
-        rename: vi.fn(),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T01:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T01:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: 'Staged draft Request Summary is too short. Ask Lily to provide a fuller planning intake before finalizing.',
-    });
-  });
-
-  it('blocks finalize when acceptance signals lack bulleted content', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Draft Title
-
-## Task Lineage
-
-- Task Kind: standard
-- Parent Task ID:
-- Root Task ID:
-- Parent QMD Record ID:
-- Parent QMD Scope:
-- Follow-Up Reason:
-
-## Request Summary
-
-This request summary is long enough to pass the minimum length gate for validation.
-
-## Desired Outcome
-
-Ship a useful planning intake.
-
-## Constraints
-
-None
-
-## Acceptance Signals
-
-All signals are written as plain text without bullets or numbered items.
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-- Planner Notes:
-
-## Source
-
-- Created By: Planning Agent
-- Created At (UTC): 2026-03-21T01:00:00Z
-`),
-        readdir: vi.fn(async () => ['20260321T010000Z-spec.md']),
-        rename: vi.fn(),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T01:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T01:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: 'Staged draft Acceptance Signals must contain at least one bullet or numbered item before finalizing.',
-    });
-  });
-
   it('routes planner.pickMarkdownFile through handleDesktopAction', async () => {
     dialogMock.showOpenDialog.mockResolvedValue({
       canceled: false,
@@ -912,346 +749,7 @@ All signals are written as plain text without bullets or numbered items.
     );
   });
 
-  it('rejects finalize when expectedTaskKind disagrees with staged draft Task Kind', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Standard Draft
-
-## Task Lineage
-
-- Task Kind: standard
-- Parent Task ID:
-- Root Task ID:
-
-## Request Summary
-
-This request summary is long enough to pass the minimum length gate for validation.
-
-## Desired Outcome
-
-Ship a useful planning intake.
-
-## Constraints
-
-None
-
-## Acceptance Signals
-
-- Signal one is present.
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-`),
-        readdir: vi.fn(async () => ['20260321T020000Z-spec.md']),
-        rename: vi.fn(),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T02:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T02:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-          payload: { expectedTaskKind: 'child-task' },
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: 'Platform expected child-task but staged draft declares standard. Ask Lily to correct the Task Kind field before finalizing.',
-    });
-  });
-
-  it('applies child-task validation when expectedTaskKind is child-task even if Task Kind field is missing', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Draft Without Task Kind
-
-## Request Summary
-
-This request summary is long enough to pass the minimum length gate for validation.
-
-## Desired Outcome
-
-Ship something useful.
-
-## Acceptance Signals
-
-- At least one signal.
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-`),
-        readdir: vi.fn(async () => ['20260321T030000Z-spec.md']),
-        rename: vi.fn(),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T03:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T03:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-          payload: { expectedTaskKind: 'child-task' },
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: expect.stringContaining('missing required lineage fields'),
-    });
-  });
-
-  it('finalize without expectedTaskKind falls back to file content Task Kind (backward compat)', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Valid Standard Draft
-
-## Task Lineage
-
-- Task Kind: standard
-
-## Request Summary
-
-This request summary is long enough to pass the minimum length validation gate.
-
-## Desired Outcome
-
-Ship a useful planning intake.
-
-## Constraints
-
-None
-
-## Acceptance Signals
-
-- Signal one.
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-`),
-        readdir: vi.fn(async () => ['20260321T040000Z-spec.md']),
-        rename: vi.fn(async () => undefined),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T04:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T04:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: true,
-      response: expect.objectContaining({
-        action: 'planner.finalizeSpec',
-        mode: 'finalized',
-      }),
-    });
-  });
-
-  it('finalizes a staged draft even if planner session later reports failed', async () => {
-    vi.resetModules();
-    const rename = vi.fn(async () => undefined);
-    const endPlannerSession = vi.fn();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Valid Standard Draft
-
-## Task Lineage
-
-- Task Kind: standard
-
-## Request Summary
-
-This request summary is long enough to pass the minimum length validation gate.
-
-## Desired Outcome
-
-Ship a useful planning intake.
-
-## Constraints
-
-None
-
-## Acceptance Signals
-
-- Signal one.
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-`),
-        readdir: vi.fn(async () => ['20260321T040000Z-spec.md']),
-        rename,
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T04:00:00.000Z'),
-          mtimeMs: new Date('2026-03-21T04:00:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'failed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready before failure.',
-            exitCode: 1,
-            usage: null,
-            error: 'Planner exited after writing the draft.',
-          })),
-          endPlannerSession,
-        },
-      ),
-    ).resolves.toEqual({
-      ok: true,
-      response: expect.objectContaining({
-        action: 'planner.finalizeSpec',
-        mode: 'finalized',
-      }),
-    });
-
-    // rename may also be called by the startup repairTaskRegistry (atomic write);
-    // assert the finalizeSpec call specifically.
-    expect(rename).toHaveBeenCalledWith(
-      expect.stringContaining('.staging'),
-      expect.stringContaining('dropbox'),
-    );
-    expect(endPlannerSession).toHaveBeenCalledOnce();
-  });
-
-  it('blocks finalize when a child-task staged draft is missing carry-forward lineage', async () => {
-    vi.resetModules();
-    vi.doMock('node:fs/promises', async (importOriginal) => safeFsMock(importOriginal as () => Promise<typeof import('node:fs/promises')>, {
-        readFile: vi.fn(async () => `# Child Task Draft
-
-## Task Lineage
-
-- Task Kind: child-task
-- Parent Task ID: CAP-001
-- Root Task ID:
-- Parent QMD Record ID: qmd-1
-- Parent QMD Scope: qmd/scope
-- Follow-Up Reason:
-
-## Request Summary
-
-This child-task extends the parent work with enough context to pass the length gate.
-
-## Desired Outcome
-
-Complete the child-task intake with preserved lineage.
-
-## Constraints
-
-- Preserve lineage.
-
-## Acceptance Signals
-
-- Child-task draft is reviewable.
-
-## Parent Task Carry-Forward Summary
-
-
-## Suggested Routing
-
-- Recommended Execution: sequential
-- Planner Notes:
-
-## Source
-
-- Created By: Planning Agent
-- Created At (UTC): 2026-03-21T01:00:00Z
-`),
-        readdir: vi.fn(async () => ['20260321T010100Z-spec.md']),
-        rename: vi.fn(),
-        stat: vi.fn(async () => ({
-          mtime: new Date('2026-03-21T01:01:00.000Z'),
-          mtimeMs: new Date('2026-03-21T01:01:00.000Z').getTime(),
-        })),
-    }));
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction(
-        {
-          action: 'planner.finalizeSpec',
-        },
-        {
-          getPlannerSessionState: vi.fn(() => ({
-            brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
-            turnId: 'turn-1',
-            content: 'Draft ready.',
-            exitCode: 0,
-            usage: null,
-            error: null,
-          })),
-          endPlannerSession: vi.fn(),
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      action: 'planner.finalizeSpec',
-      error: 'Child-task staged draft is missing required lineage fields: Root Task ID, Follow-Up Reason. Ask Lily to complete the task lineage before finalizing.',
-    });
-  });
-
-  it('clears staging directory before starting a planner session', async () => {
+  it('delegates planner session bootstrap without clearing staging in main.ts', async () => {
     vi.resetModules();
     const mkdirMock = vi.fn(async () => undefined);
     const unlinkMock = vi.fn(async () => undefined);
@@ -1278,14 +776,14 @@ Complete the child-task intake with preserved lineage.
       },
     );
 
-    expect(mkdirMock).toHaveBeenCalledWith(expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/), { recursive: true });
-    expect(unlinkMock).toHaveBeenCalledTimes(2);
-    const unlinkPaths = unlinkMock.mock.calls.map((c: unknown[]) => c[0] as string);
-    expect(unlinkPaths.every((p: string) => p.endsWith('.md'))).toBe(true);
-    expect(unlinkPaths.some((p: string) => p.endsWith('notes.txt'))).toBe(false);
+    expect(mkdirMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/),
+      { recursive: true },
+    );
+    expect(unlinkMock).not.toHaveBeenCalled();
   });
 
-  it('clears staging directory before saving a planner draft', async () => {
+  it('preserves the owned staged shell when saving a planner draft', async () => {
     vi.resetModules();
     const mkdirMock = vi.fn(async () => undefined);
     const unlinkMock = vi.fn(async () => undefined);
@@ -1312,9 +810,11 @@ Complete the child-task intake with preserved lineage.
       },
     );
 
-    expect(mkdirMock).toHaveBeenCalledWith(expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/), { recursive: true });
-    expect(unlinkMock).toHaveBeenCalledTimes(1);
-    expect((unlinkMock.mock.calls[0] as unknown[])[0]).toMatch(/old-draft\.md$/);
+    expect(mkdirMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/),
+      { recursive: true },
+    );
+    expect(unlinkMock).not.toHaveBeenCalled();
   });
 
   it('does not clear staging when planner.startSession reuses an existing session', async () => {

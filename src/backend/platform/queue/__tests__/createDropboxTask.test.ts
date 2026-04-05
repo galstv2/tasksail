@@ -111,8 +111,8 @@ describe('createDropboxTask', () => {
     });
 
     const filename = path.basename(outputPath);
-    // Should match pattern: YYYYMMDDTHHMMSSz-slugified-title.md
-    expect(filename).toMatch(/^\d{8}T\d{6}Z-timestamped\.md$/);
+    // Should match pattern: YYYYMMDDTHHMMSSz_slugified-title.md
+    expect(filename).toMatch(/^\d{8}T\d{6}Z_timestamped\.md$/);
   });
 
   it('throws when title is missing', async () => {

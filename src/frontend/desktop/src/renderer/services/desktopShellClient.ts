@@ -11,6 +11,10 @@ type DesktopShellSource = Window['desktopShell'] & {
   writeInstructionFile: (relativePath: string, content: string) => Promise<unknown>;
 };
 
+type DirectPlannerDraft = import('../../shared/desktopContract').PlannerDirectSubmissionDraft;
+type DirectFollowUpDraft = import('../../shared/desktopContract').FollowUpDirectSubmissionDraft;
+type ComposerStage = import('../../shared/desktopContract').ComposerStage;
+
 type DesktopShellClient = Pick<
   DesktopShellSource,
   | 'getBootstrapInfo'
@@ -87,8 +91,10 @@ export function createDesktopShellClient(
     deletePendingItem: (queueName) => readShell().deletePendingItem(queueName),
     getEnvironmentStatus: () => readShell().getEnvironmentStatus(),
     getObservabilitySnapshot: () => readShell().getObservabilitySnapshot(),
-    submitPlannerDraft: (draft, stage) => readShell().submitPlannerDraft(draft, stage),
-    initiateFollowUp: (draft, stage) => readShell().initiateFollowUp(draft, stage),
+    submitPlannerDraft: (draft: DirectPlannerDraft, stage: ComposerStage) =>
+      readShell().submitPlannerDraft(draft, stage),
+    initiateFollowUp: (draft: DirectFollowUpDraft, stage: ComposerStage) =>
+      readShell().initiateFollowUp(draft, stage),
     pickContextPackDirectory: (purpose, defaultPath) =>
       readShell().pickContextPackDirectory(purpose, defaultPath),
     discoverContextPackPrefill: (rootPath, mode) =>

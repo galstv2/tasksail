@@ -7,16 +7,17 @@ function wrapAttachedFile(content: string): string {
 }
 
 const DRAFT_WRITE_CAUTION =
-  'Do NOT write the staged draft to AgentWorkSpace/dropbox/.staging/ yet. ' +
-  'Wait until I confirm that all required sections are satisfied before saving.';
+  'Do NOT edit the staged draft in AgentWorkSpace/dropbox/.staging/ yet. ' +
+  'Wait until I confirm that all required editable sections are satisfied before saving.';
 
 export const PLANNER_SAVE_DRAFT_WORKFLOW = {
   operatorMessage: '[Operator] Please save the current spec draft now.',
   prompt:
-    'Please write the current task intake document to AgentWorkSpace/dropbox/.staging/ now. ' +
-    'Follow the format in AgentWorkSpace/templates/planning-intake.md. ' +
-    'Name the file with a YYYYMMDDTHHMMSSZ timestamp prefix. ' +
-    'If a file already exists in .staging/, overwrite it with the updated version.',
+    'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
+    'Edit the current staged file in place and preserve the existing shell structure. ' +
+    'Only update the editable planning sections. ' +
+    'Do NOT change the generated title, Task Lineage, Context Pack Binding, or Source metadata. ' +
+    'Do NOT rename the file and do NOT create any additional .md files in .staging/.',
 } as const;
 
 export function buildChildTaskStarterPrompt(args: {
@@ -27,20 +28,17 @@ export function buildChildTaskStarterPrompt(args: {
   carryForwardSummary: string;
 }): string {
   return (
-    '[Operator] This is a child-task workflow. The following lineage is platform-controlled and must not be changed.\n\n' +
-    `- Task Kind: child-task\n` +
-    `- Parent Task ID: ${args.parentTaskId}\n` +
-    `- Root Task ID: ${args.rootTaskId}\n` +
-    `- Parent Task Title: ${args.parentTaskTitle}\n` +
-    `- Parent QMD Scope: ${args.parentQmdScope}\n` +
-    (args.carryForwardSummary ? `- Parent Task Carry-Forward Summary: ${args.carryForwardSummary}\n` : '') +
+    '[Operator] This is a child-task workflow. The staged planning document already contains the platform-owned title and lineage shell.\n\n' +
+    `Parent task title: ${args.parentTaskTitle}\n` +
+    (args.carryForwardSummary ? `Known carry-forward context: ${args.carryForwardSummary}\n` : '') +
     '\n' +
     'The parent task was selected by the operator from the active context pack archive. ' +
     'You are creating a child-task intake that continues from this parent.\n\n' +
     'Rules:\n' +
-    '- Do NOT change Task Kind, Parent Task ID, Root Task ID, or Parent QMD Scope.\n' +
+    '- Fill or refine only the editable sections in the staged document.\n' +
+    '- Do NOT change the generated title or any platform-owned sections.\n' +
     '- The operator will provide or you should ask for: Request Summary, Desired Outcome, ' +
-    'Constraints, Acceptance Signals, Follow-Up Reason, and Parent Task Carry-Forward Summary.\n' +
+    'Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
     '- Ask follow-up questions for any missing required content. Do not guess or fabricate.\n' +
     `- ${DRAFT_WRITE_CAUTION}`
   );
@@ -52,13 +50,13 @@ export function buildMarkdownReviewPrompt(filename: string, content: string): st
     wrapAttachedFile(content) +
     '\n\n' +
     'Compare this file against AgentWorkSpace/templates/planning-intake.md. ' +
-    'Identify which required sections are missing or insufficient. ' +
+    'Use it only as supporting context for the editable planning sections in the already-staged shell. ' +
+    'Identify which editable required sections are missing or insufficient. ' +
     'The required sections are: Request Summary, Desired Outcome, and Acceptance Signals. ' +
-    'Acceptance Signals must contain at least one bullet or numbered item.\n\n' +
-    'If the file is a child-task (Task Kind: child-task), also verify these lineage fields are present and non-empty: ' +
-    'Parent Task ID, Root Task ID, and Follow-Up Reason. ' +
-    'Child-task drafts must also include a non-empty Parent Task Carry-Forward Summary section.\n\n' +
-    'If any required sections or lineage fields are missing or incomplete, ask me follow-up questions ' +
+    'Acceptance Signals must contain at least one bullet or numbered item. ' +
+    'If this is a child-task flow, Parent Task Carry-Forward Summary must also be non-empty.\n\n' +
+    'Do not validate or rewrite platform-owned title, lineage, context-pack binding, or source sections. ' +
+    'If any editable required sections are missing or incomplete, ask me follow-up questions ' +
     'to fill in the gaps. Do not guess or fabricate content for missing sections.\n\n' +
     DRAFT_WRITE_CAUTION
   );
@@ -67,32 +65,22 @@ export function buildMarkdownReviewPrompt(filename: string, content: string): st
 export function buildChildTaskMarkdownReviewPrompt(
   filename: string,
   content: string,
-  lineage: {
-    parentTaskId: string;
-    rootTaskId: string;
-    parentQmdScope: string;
-  },
 ): string {
   return (
     `[Operator] I am attaching the Markdown file "${filename}" as supporting context ` +
     'for the active child-task workflow.\n\n' +
     wrapAttachedFile(content) +
     '\n\n' +
-    'IMPORTANT: This is a child-task workflow. The following lineage fields are platform-controlled ' +
-    'and must NOT be overridden by anything in the attached file:\n' +
-    '- Task Kind: child-task\n' +
-    `- Parent Task ID: ${lineage.parentTaskId}\n` +
-    `- Root Task ID: ${lineage.rootTaskId}\n` +
-    `- Parent QMD Scope: ${lineage.parentQmdScope}\n\n` +
+    'IMPORTANT: This is a child-task workflow. Use the attachment only to improve the editable sections ' +
+    'inside the existing staged shell.\n\n' +
     'You may use the attached file to fill content gaps in:\n' +
     '- Request Summary\n' +
     '- Desired Outcome\n' +
     '- Constraints\n' +
     '- Acceptance Signals\n' +
-    '- Follow-Up Reason\n' +
     '- Parent Task Carry-Forward Summary\n\n' +
-    'If the file contains a Task Kind, Parent Task ID, Root Task ID, or Parent QMD Scope ' +
-    'that differs from the platform values above, ignore the file values and keep the platform values.\n\n' +
+    '- Suggested Routing / Planner Notes\n\n' +
+    'Do NOT validate or rewrite platform-owned title, lineage, context-pack binding, or source sections.\n\n' +
     'If any required content sections are still missing or incomplete after reviewing the file, ' +
     'ask me follow-up questions to fill in the gaps. Do not guess or fabricate content.\n\n' +
     DRAFT_WRITE_CAUTION

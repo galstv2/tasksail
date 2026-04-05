@@ -62,9 +62,10 @@ import {
   type TaskBoardRequeueErrorItemResponse,
   type ServicesReadStatusResponse,
   type WorkspaceScopeMode,
+  type PlannerDirectSubmissionDraft,
+  type FollowUpDirectSubmissionDraft,
 } from '../src/shared/desktopContract';
 import { isRecord } from '../src/shared/desktopContractValidators';
-import type { PlannerDraftModel } from '../src/renderer/plannerComposer';
 
 const isDev = process.env.NODE_ENV === 'development' || Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -81,7 +82,7 @@ export const bootstrapInfo = {
 export const desktopShellApi = {
   getBootstrapInfo: async () => bootstrapInfo,
   submitPlannerDraft: async (
-    draft: PlannerDraftModel,
+    draft: PlannerDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -106,7 +107,7 @@ export const desktopShellApi = {
       action: 'observability.readSnapshot',
     }),
   initiateFollowUp: async (
-    draft: PlannerDraftModel,
+    draft: FollowUpDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -549,7 +550,7 @@ export const desktopShellApi = {
 export type DesktopShellApi = {
   getBootstrapInfo: () => Promise<typeof bootstrapInfo>;
   submitPlannerDraft: (
-    draft: PlannerDraftModel,
+    draft: PlannerDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
   ) => Promise<DesktopInvokeResult>;
   getQueueStatus: () => Promise<DesktopInvokeResult>;
@@ -557,7 +558,7 @@ export type DesktopShellApi = {
   getEnvironmentStatus: () => Promise<DesktopInvokeResult>;
   getObservabilitySnapshot: () => Promise<DesktopInvokeResult>;
   initiateFollowUp: (
-    draft: PlannerDraftModel,
+    draft: FollowUpDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
   ) => Promise<DesktopInvokeResult>;
   pickContextPackDirectory: (

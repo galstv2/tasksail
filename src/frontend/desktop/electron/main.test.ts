@@ -220,6 +220,31 @@ describe('electron main bootstrap', () => {
     }
   });
 
+  it('ends the planner session during before-quit cleanup', async () => {
+    vi.resetModules();
+    const endSession = vi.fn(async () => undefined);
+    vi.doMock('./plannerSession', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./plannerSession')>();
+      return {
+        ...actual,
+        endSession,
+      };
+    });
+
+    const { registerAppLifecycle } = await import('./main');
+    registerAppLifecycle();
+
+    const beforeQuitHandler = appMock.on.mock.calls.find(([event]) => event === 'before-quit')?.[1] as
+      | (() => void)
+      | undefined;
+    expect(beforeQuitHandler).toBeTypeOf('function');
+
+    beforeQuitHandler?.();
+    await vi.waitFor(() => {
+      expect(endSession).toHaveBeenCalledOnce();
+    });
+  });
+
   it('fails clearly for unsupported desktop actions', async () => {
     const { handleDesktopAction } = await import('./main');
 

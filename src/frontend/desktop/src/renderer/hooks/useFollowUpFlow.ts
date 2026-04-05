@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { DesktopActionResponse } from '../../shared/desktopContract';
-import type { ComposerStage, PlannerDraftModel } from '../plannerComposer';
-import { createFollowUpDraft } from '../plannerComposer';
+import type {
+  ComposerStage,
+  DesktopActionResponse,
+} from '../../shared/desktopContract';
+import type { PlannerDraftModel } from '../plannerComposer';
+import {
+  createFollowUpDraft,
+  toFollowUpDirectSubmissionDraft,
+} from '../plannerComposer';
 import { selectFollowUpTask, type CompletedTaskEntry } from '../selectors/appViewModel';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import { useIpcCall } from './useIpcCall';
@@ -195,7 +201,7 @@ export function useFollowUpFlow({
   const runFollowUpAction = useCallback(
     async (draft: PlannerDraftModel, stage: ComposerStage): Promise<void> => {
       const callResult = await call<DesktopActionResponse>(
-        () => client.initiateFollowUp(draft, stage),
+        () => client.initiateFollowUp(toFollowUpDirectSubmissionDraft(draft), stage),
         { label: 'follow-up submission' },
       );
       if (!callResult.ok) return;

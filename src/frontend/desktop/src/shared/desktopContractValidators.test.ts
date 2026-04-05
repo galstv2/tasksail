@@ -162,16 +162,10 @@ describe('validateDesktopActionRequest', () => {
 
   describe('planner.submitDraft / followup.begin', () => {
     const validDraft = {
-      title: 'Title',
       summary: 'Summary',
       desiredOutcome: 'Outcome',
       constraints: '',
       acceptanceSignals: '',
-      parentTaskId: 'T-01',
-      parentQmdRecordId: 'R-01',
-      parentQmdScope: 'scope',
-      rootTaskId: 'T-00',
-      followupReason: 'reason',
       carryForwardSummary: 'carry',
       planningNotes: '',
       taskKind: 'standard' as const,
@@ -189,9 +183,35 @@ describe('validateDesktopActionRequest', () => {
     it('validates stage enum', () => {
       const errors = validateDesktopActionRequest({
         action: 'followup.begin',
-        payload: { draft: validDraft, stage: 'bad' },
+        payload: {
+          draft: {
+            ...validDraft,
+            taskKind: 'child-task' as const,
+            parentTaskId: 'T-01',
+            parentQmdRecordId: 'R-01',
+            parentQmdScope: 'scope',
+            rootTaskId: 'T-00',
+            followupReason: 'reason',
+          },
+          stage: 'bad',
+        },
       });
       expect(errors).toContainEqual('payload.stage must be compose, preview, or confirm.');
+    });
+
+    it('requires child-task lineage fields for follow-up submission', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'followup.begin',
+        payload: {
+          draft: {
+            ...validDraft,
+            taskKind: 'child-task' as const,
+          },
+          stage: 'preview',
+        },
+      });
+      expect(errors).toContain('payload.draft.parentTaskId must be a string.');
+      expect(errors).toContain('payload.draft.followupReason must be a string.');
     });
 
     it('requires payload to be an object', () => {
@@ -340,9 +360,7 @@ describe('validatePlannerDraftModel', () => {
 
   it('reports missing string fields', () => {
     const errors = validatePlannerDraftModel({});
-    expect(errors).toContainEqual('payload.draft.title must be a string.');
     expect(errors).toContainEqual('payload.draft.summary must be a string.');
-    expect(errors).toContainEqual('payload.draft.taskKind must be standard or child-task.');
     expect(errors).toContainEqual(
       'payload.draft.suggestedPath must be sequential or parallel.',
     );
@@ -350,19 +368,12 @@ describe('validatePlannerDraftModel', () => {
 
   it('validates optional sourceState when provided', () => {
     const draft = {
-      title: 'T',
       summary: 'S',
       desiredOutcome: 'O',
       constraints: '',
       acceptanceSignals: '',
-      parentTaskId: 'T-01',
-      parentQmdRecordId: 'R-01',
-      parentQmdScope: 'scope',
-      rootTaskId: 'T-00',
-      followupReason: 'reason',
       carryForwardSummary: 'carry',
       planningNotes: '',
-      taskKind: 'standard',
       suggestedPath: 'sequential',
       sourceState: 'bad',
     };
@@ -374,19 +385,12 @@ describe('validatePlannerDraftModel', () => {
 
   it('accepts a fully valid draft with no errors', () => {
     const draft = {
-      title: 'T',
       summary: 'S',
       desiredOutcome: 'O',
       constraints: '',
       acceptanceSignals: '',
-      parentTaskId: 'T-01',
-      parentQmdRecordId: 'R-01',
-      parentQmdScope: 'scope',
-      rootTaskId: 'T-00',
-      followupReason: 'reason',
       carryForwardSummary: 'carry',
       planningNotes: '',
-      taskKind: 'standard',
       suggestedPath: 'sequential',
     };
     expect(validatePlannerDraftModel(draft)).toEqual([]);

@@ -123,6 +123,7 @@ export type PlannerCopilotInvocation = {
   prompt: string;
   promptMode: 'interactive' | 'one-shot';
   resumeSessionId: string | null;
+  plannerSessionId: string | null;
   allowedRoots: string[];
   contextPackBoundaryEnforced: boolean;
 };

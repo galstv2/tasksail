@@ -90,6 +90,16 @@ describe('buildPlannerCopilotInvocation', () => {
     expect(invocation.args).not.toContain('--prompt');
   });
 
+  it('propagates planner session ownership into the Copilot environment', () => {
+    const invocation = buildPlannerCopilotInvocation({
+      prompt: 'Update the staged plan.',
+      plannerSessionId: 'planner-42',
+    });
+
+    expect(invocation.plannerSessionId).toBe('planner-42');
+    expect(invocation.env.PLANNER_SESSION_ID).toBe('planner-42');
+  });
+
   it('uses the explicit working directory override when provided', () => {
     const invocation = buildPlannerCopilotInvocation({
       prompt: 'Use an explicit cwd.',
