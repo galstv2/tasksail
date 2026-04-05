@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "display_name": "gpt-4.1",
+      "model_id": "gpt-4.1"
+    },
+    {
+      "display_name": "gpt-5.4",
+      "model_id": "gpt-5.4"
+    },
+    {
+      "display_name": "claude-sonnet-4.6",
+      "model_id": "claude-sonnet-4.6"
+    },
+    {
+      "display_name": "claude-opus-4.6",
+      "model_id": "claude-opus-4.6"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
   AGENT_REGISTRY_RELATIVE_PATH,
 } from '../../../backend/platform/workflow-policy/index.js';
@@ -186,6 +187,22 @@ function buildModelCatalogPath(repoRoot: string): string {
   return path.join(repoRoot, MODEL_CATALOG_RELATIVE_PATH);
 }
 
+function buildDefaultModelCatalogPath(repoRoot: string): string {
+  return path.join(repoRoot, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+}
+
+async function writeModelCatalog(
+  repoRoot: string,
+  document: AgentModelCatalogDocument,
+  fsAdapter: FileSystemAdapter,
+  now: () => number,
+): Promise<void> {
+  await Promise.all([
+    atomicWriteJson(buildDefaultModelCatalogPath(repoRoot), document, fsAdapter, now),
+    atomicWriteJson(buildModelCatalogPath(repoRoot), document, fsAdapter, now),
+  ]);
+}
+
 async function readRegistryDocument(
   repoRoot: string,
   fsAdapter: FileSystemAdapter,
@@ -195,51 +212,43 @@ async function readRegistryDocument(
   return normalizeRegistryDocument(parseJsonDocument(raw, AGENT_REGISTRY_RELATIVE_PATH));
 }
 
-async function readModelCatalogDocument(
+async function readDefaultModelCatalogDocument(
   repoRoot: string,
   fsAdapter: FileSystemAdapter,
 ): Promise<AgentModelCatalogDocument> {
-  const catalogPath = buildModelCatalogPath(repoRoot);
-  const raw = await fsAdapter.readTextFile(catalogPath);
-  return normalizeModelCatalogDocument(parseJsonDocument(raw, MODEL_CATALOG_RELATIVE_PATH));
-}
-
-function seedModelCatalog(registry: AgentRegistryDocument): AgentModelCatalogDocument {
-  const models: AgentConfigModelCatalogEntry[] = [];
-  const seen = new Set<string>();
-  for (const agent of sortAgents(registry.agents)) {
-    const modelId = agent.required_model;
-    if (!seen.has(modelId)) {
-      seen.add(modelId);
-      models.push({ display_name: modelId, model_id: modelId });
-    }
-  }
-  return {
-    schema_version: MODEL_CATALOG_SCHEMA_VERSION,
-    models,
-  };
+  const defaultPath = path.join(repoRoot, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+  const raw = await fsAdapter.readTextFile(defaultPath);
+  return normalizeModelCatalogDocument(
+    parseJsonDocument(raw, AGENT_MODEL_CATALOG_RELATIVE_PATH),
+  );
 }
 
 async function ensureModelCatalogDocument(
   repoRoot: string,
   fsAdapter: FileSystemAdapter,
   now: () => number,
-): Promise<{ document: AgentModelCatalogDocument; seeded: boolean }> {
+): Promise<{ document: AgentModelCatalogDocument; seeded: boolean; updated: boolean }> {
+  const document = await readDefaultModelCatalogDocument(repoRoot, fsAdapter);
+  const defaultRaw = serializeJson(document);
+  const catalogPath = buildModelCatalogPath(repoRoot);
+
+  let runtimeRaw: string | undefined;
   try {
-    return {
-      document: await readModelCatalogDocument(repoRoot, fsAdapter),
-      seeded: false,
-    };
+    runtimeRaw = await fsAdapter.readTextFile(catalogPath);
   } catch (error: unknown) {
-    if (!isNotFoundError(error)) {
-      throw error;
-    }
+    if (!isNotFoundError(error)) throw error;
   }
 
-  const registry = await readRegistryDocument(repoRoot, fsAdapter);
-  const document = seedModelCatalog(registry);
-  await atomicWriteJson(buildModelCatalogPath(repoRoot), document, fsAdapter, now);
-  return { document, seeded: true };
+  if (runtimeRaw !== undefined) {
+    if (runtimeRaw.trim() === defaultRaw.trim()) {
+      return { document, seeded: false, updated: false };
+    }
+    await atomicWriteJson(catalogPath, document, fsAdapter, now);
+    return { document, seeded: false, updated: true };
+  }
+
+  await atomicWriteJson(catalogPath, document, fsAdapter, now);
+  return { document, seeded: true, updated: false };
 }
 
 function fail(action: string, error: string, details?: string[]): DesktopInvokeResult {
@@ -270,13 +279,20 @@ function buildLoadAgentsResponse(agents: AgentConfigAgentEntry[]): AgentConfigLo
 function buildLoadModelCatalogResponse(
   models: AgentConfigModelCatalogEntry[],
   seeded: boolean,
+  updated: boolean,
 ): AgentConfigLoadModelCatalogResponse {
+  let message: string;
+  if (seeded) {
+    message = `Seeded model catalog with ${models.length} model(s) from the tracked default.`;
+  } else if (updated) {
+    message = `Updated model catalog to match the tracked default (${models.length} model(s)).`;
+  } else {
+    message = `${models.length} model(s) loaded.`;
+  }
   return {
     action: 'agentConfig.loadModelCatalog',
     mode: 'read-only',
-    message: seeded
-      ? `Seeded model catalog with ${models.length} model(s) from the live registry.`
-      : `${models.length} model(s) loaded.`,
+    message,
     models,
   };
 }
@@ -302,10 +318,10 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
 
     loadModelCatalog: async (): Promise<DesktopInvokeResult> => {
       try {
-        const { document, seeded } = await ensureModelCatalogDocument(repoRoot, fsAdapter, now);
+        const { document, seeded, updated } = await ensureModelCatalogDocument(repoRoot, fsAdapter, now);
         return {
           ok: true,
-          response: buildLoadModelCatalogResponse(document.models, seeded),
+          response: buildLoadModelCatalogResponse(document.models, seeded, updated),
         };
       } catch (err) {
         return fail('agentConfig.loadModelCatalog', err instanceof Error ? err.message : String(err));
@@ -316,7 +332,11 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
       payload: AgentConfigSaveAgentModelsRequest['payload'],
     ): Promise<DesktopInvokeResult> => {
       try {
-        const registry = await readRegistryDocument(repoRoot, fsAdapter);
+        const [registry, { document: catalog }] = await Promise.all([
+          readRegistryDocument(repoRoot, fsAdapter),
+          ensureModelCatalogDocument(repoRoot, fsAdapter, now),
+        ]);
+        const catalogModelIds = new Set(catalog.models.map((m) => m.model_id));
         const assignments = new Map<string, string>();
 
         for (const assignment of payload.assignments) {
@@ -326,6 +346,12 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
           );
           if (modelValidation) {
             return modelValidation;
+          }
+          if (!catalogModelIds.has(assignment.model_id)) {
+            return fail(
+              'agentConfig.saveAgentModels',
+              `Model "${assignment.model_id}" is not in the model catalog. Add it to the catalog first.`,
+            );
           }
           assignments.set(assignment.agent_id, assignment.model_id);
         }
@@ -384,7 +410,7 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
           display_name: payload.display_name,
           model_id: payload.model_id,
         });
-        await atomicWriteJson(buildModelCatalogPath(repoRoot), document, fsAdapter, now);
+        await writeModelCatalog(repoRoot, document, fsAdapter, now);
         return {
           ok: true,
           response: {
@@ -429,7 +455,7 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
         }
 
         document.models = nextModels;
-        await atomicWriteJson(buildModelCatalogPath(repoRoot), document, fsAdapter, now);
+        await writeModelCatalog(repoRoot, document, fsAdapter, now);
         return {
           ok: true,
           response: {

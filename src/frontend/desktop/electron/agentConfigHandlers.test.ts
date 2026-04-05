@@ -49,6 +49,7 @@ class MemoryFs {
 
 const repoRoot = '/repo';
 const registryPath = path.join(repoRoot, '.github/agents/registry.json');
+const defaultCatalogPath = path.join(repoRoot, 'config/agent-model-catalog.default.json');
 const catalogPath = path.join(repoRoot, '.platform-state/agent-model-catalog.json');
 
 const registryDocument = {
@@ -78,6 +79,15 @@ const registryDocument = {
       workflow_order: 2,
       deny_rules: ['shell(git add)'],
     },
+  ],
+};
+
+const defaultCatalogDocument = {
+  schema_version: 1,
+  models: [
+    { display_name: 'gpt-4.1', model_id: 'gpt-4.1' },
+    { display_name: 'gpt-5.4', model_id: 'gpt-5.4' },
+    { display_name: 'claude-sonnet-4.6', model_id: 'claude-sonnet-4.6' },
   ],
 };
 
@@ -130,9 +140,10 @@ describe('agentConfigHandlers', () => {
     });
   });
 
-  it('auto-seeds the model catalog from unique registry models when the runtime file is missing', async () => {
+  it('seeds the model catalog from the tracked default when the runtime file is missing', async () => {
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -147,12 +158,8 @@ describe('agentConfigHandlers', () => {
       response: {
         action: 'agentConfig.loadModelCatalog',
         mode: 'read-only',
-        message: 'Seeded model catalog with 3 model(s) from the live registry.',
-        models: [
-          { display_name: 'gpt-4.1', model_id: 'gpt-4.1' },
-          { display_name: 'claude-sonnet-4.6', model_id: 'claude-sonnet-4.6' },
-          { display_name: 'gpt-5.4', model_id: 'gpt-5.4' },
-        ],
+        message: 'Seeded model catalog with 3 model(s) from the tracked default.',
+        models: defaultCatalogDocument.models,
       },
     });
 
@@ -160,21 +167,21 @@ describe('agentConfigHandlers', () => {
     expect(memoryFs.operations).toContain(`mkdir:${path.dirname(catalogPath)}`);
     expect(memoryFs.operations).toContain(`write:${tempPath}`);
     expect(memoryFs.operations).toContain(`rename:${tempPath}->${catalogPath}`);
-    expect(memoryFs.files.get(catalogPath)).toBe(
-      asJson({
-        schema_version: 1,
-        models: [
-          { display_name: 'gpt-4.1', model_id: 'gpt-4.1' },
-          { display_name: 'claude-sonnet-4.6', model_id: 'claude-sonnet-4.6' },
-          { display_name: 'gpt-5.4', model_id: 'gpt-5.4' },
-        ],
-      }),
-    );
+    expect(memoryFs.files.get(catalogPath)).toBe(asJson(defaultCatalogDocument));
   });
 
   it('patches only required_model values and preserves JSON formatting on registry saves', async () => {
+    const extendedCatalog = {
+      schema_version: 1,
+      models: [
+        ...defaultCatalogDocument.models,
+        { display_name: 'claude-opus-4.6', model_id: 'claude-opus-4.6' },
+      ],
+    };
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(extendedCatalog),
+      [catalogPath]: asJson(extendedCatalog),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -255,13 +262,15 @@ describe('agentConfigHandlers', () => {
     expect(memoryFs.files.get(registryPath)?.endsWith('\n')).toBe(true);
   });
 
-  it('adds a model to the catalog and returns the updated list', async () => {
+  it('adds a model to the catalog and writes to both default and runtime', async () => {
+    const smallCatalog = {
+      schema_version: 1,
+      models: [{ display_name: 'GPT 4.1', model_id: 'gpt-4.1' }],
+    };
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
-      [catalogPath]: asJson({
-        schema_version: 1,
-        models: [{ display_name: 'GPT 4.1', model_id: 'gpt-4.1' }],
-      }),
+      [defaultCatalogPath]: asJson(smallCatalog),
+      [catalogPath]: asJson(smallCatalog),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -286,12 +295,15 @@ describe('agentConfigHandlers', () => {
         ],
       },
     });
+    expect(memoryFs.files.has(defaultCatalogPath)).toBe(true);
+    expect(memoryFs.files.has(catalogPath)).toBe(true);
   });
 
   it('rejects adding a model with an invalid ID format', async () => {
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
-      [catalogPath]: asJson({ schema_version: 1, models: [] }),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -311,10 +323,8 @@ describe('agentConfigHandlers', () => {
   it('rejects adding a duplicate model ID', async () => {
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
-      [catalogPath]: asJson({
-        schema_version: 1,
-        models: [{ display_name: 'GPT 4.1', model_id: 'gpt-4.1' }],
-      }),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -331,6 +341,30 @@ describe('agentConfigHandlers', () => {
         ok: false,
         action: 'agentConfig.addModel',
         error: expect.stringContaining('already exists'),
+      }),
+    );
+  });
+
+  it('rejects saving an agent model that is not in the catalog', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      fsAdapter: memoryFs,
+    });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [{ agent_id: 'qa', model_id: 'unknown-model-9.9' }],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        action: 'agentConfig.saveAgentModels',
+        error: expect.stringContaining('not in the model catalog'),
       }),
     );
   });
@@ -356,13 +390,8 @@ describe('agentConfigHandlers', () => {
   it('rejects removing a model that is still assigned and names the blocking agents', async () => {
     const memoryFs = new MemoryFs({
       [registryPath]: asJson(registryDocument),
-      [catalogPath]: asJson({
-        schema_version: 1,
-        models: [
-          { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
-          { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
-        ],
-      }),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
     });
     const handlers = createAgentConfigHandlers({
       repoRoot,
@@ -377,14 +406,6 @@ describe('agentConfigHandlers', () => {
       error:
         'Cannot remove model "gpt-4.1" because it is assigned to: Lily (planning-agent).',
     });
-    expect(memoryFs.files.get(catalogPath)).toBe(
-      asJson({
-        schema_version: 1,
-        models: [
-          { display_name: 'GPT 4.1', model_id: 'gpt-4.1' },
-          { display_name: 'GPT 5.4', model_id: 'gpt-5.4' },
-        ],
-      }),
-    );
+    expect(memoryFs.files.get(catalogPath)).toBe(asJson(defaultCatalogDocument));
   });
 });

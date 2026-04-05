@@ -5,14 +5,45 @@
  */
 
 import path from 'node:path';
-import { readTextFile } from '../../core/index.js';
+import { readTextFile, safeJsonParse } from '../../core/index.js';
 import {
   canonicalAgentLabel,
   expectedInstructionHeading,
   parseChatagentProfile,
 } from '../agents.js';
-import { AGENT_MODEL_PATTERN, AGENT_REGISTRY_RELATIVE_PATH } from '../models.js';
+import {
+  AGENT_MODEL_CATALOG_RELATIVE_PATH,
+  AGENT_MODEL_PATTERN,
+  AGENT_REGISTRY_RELATIVE_PATH,
+} from '../models.js';
 import type { PolicyValidator } from '../validator.js';
+
+interface ModelCatalogEntry {
+  model_id?: string;
+}
+
+interface ModelCatalogPayload {
+  models?: unknown[];
+}
+
+async function loadCatalogModelIds(validator: PolicyValidator): Promise<Set<string> | null> {
+  const catalogPath = path.join(validator.rootDir, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+  const raw = await readTextFile(catalogPath);
+  if (raw === undefined) return null;
+  try {
+    const payload = safeJsonParse<ModelCatalogPayload>(raw, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+    if (!payload || !Array.isArray(payload.models)) return null;
+    const ids = new Set<string>();
+    for (const entry of payload.models as ModelCatalogEntry[]) {
+      if (entry && typeof entry.model_id === 'string' && entry.model_id.trim()) {
+        ids.add(entry.model_id.trim());
+      }
+    }
+    return ids;
+  } catch {
+    return null;
+  }
+}
 
 export async function evaluateNamedAgentRules(
   validator: PolicyValidator,
@@ -20,6 +51,7 @@ export async function evaluateNamedAgentRules(
   validator.recordRule('artifact.named-agent-registry');
   validator.recordRule('artifact.named-agent-instruction-headings');
   validator.recordRule('artifact.named-agent-profiles');
+  validator.recordRule('artifact.named-agent-model-catalog-gate');
 
   if (validator.namedAgentRegistryErrors.length > 0) {
     for (const error of validator.namedAgentRegistryErrors) {
@@ -153,6 +185,22 @@ export async function evaluateNamedAgentRules(
         message: `${profileRelativePath} must point back to the ${agent.role} instruction file so the agent and repo workflow stay aligned.`,
         remediation: `Include '${expectedInstructionPhrase}' in ${profileRelativePath}.`,
       });
+    }
+  }
+
+  const catalogModelIds = await loadCatalogModelIds(validator);
+  if (catalogModelIds !== null) {
+    for (const [agentKey, agent] of Object.entries(validator.namedAgentTeam)) {
+      const model = agent.requiredModel;
+      if (model && !catalogModelIds.has(model)) {
+        const agentLabel = canonicalAgentLabel(validator.namedAgentTeam, agentKey);
+        validator.addViolation({
+          rule_id: 'artifact.named-agent-model-catalog-gate',
+          artifact: AGENT_REGISTRY_RELATIVE_PATH,
+          message: `${agentLabel} requires model "${model}" which is not in ${AGENT_MODEL_CATALOG_RELATIVE_PATH}.`,
+          remediation: `Add "${model}" to ${AGENT_MODEL_CATALOG_RELATIVE_PATH} or change the agent's required_model to one that exists in the catalog.`,
+        });
+      }
     }
   }
 }

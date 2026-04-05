@@ -69,6 +69,7 @@ export const CONTENT_SECTION_EXCLUSIONS = new Set([
 ]);
 
 export const ACTIVE_ITEM_RELATIVE_PATH = 'AgentWorkSpace/pendingitems/.active-item';
+export const AGENT_MODEL_CATALOG_RELATIVE_PATH = 'config/agent-model-catalog.default.json';
 export const AGENT_REGISTRY_RELATIVE_PATH = '.github/agents/registry.json';
 
 export const REQUIRED_AGENT_REGISTRY_FIELDS = new Set([
