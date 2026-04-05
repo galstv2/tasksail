@@ -49,6 +49,7 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
       { cwd: repoRoot },
     );
     for (const file of stdout.split('\n').filter(Boolean)) {
+      if (file.startsWith('AgentWorkSpace/templates/')) continue;
       trackedPaths.add(file);
     }
     const files = [...trackedPaths];
