@@ -6,6 +6,7 @@
 
 import { readTextFile } from '../../core/index.js';
 import {
+  findSectionSpec,
   SPEC_CHILD_CARRY_FORWARD_SECTION,
   SPEC_RECOMMENDED_SECTION_SPECS,
   SPEC_REQUIRED_SECTION_SPECS,
@@ -75,7 +76,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
   }
 
   const goalsItems = extractBulletItems(
-    resolveSemanticSection(sections, SPEC_REQUIRED_SECTION_SPECS[1]!).content,
+    resolveSemanticSection(sections, findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'goals')).content,
   );
   if (!goalsItems.length) {
     validator.addViolation({
@@ -87,7 +88,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
   }
 
   const nonGoalsItems = extractBulletItems(
-    resolveSemanticSection(sections, SPEC_REQUIRED_SECTION_SPECS[2]!).content,
+    resolveSemanticSection(sections, findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'non-goals')).content,
   );
   if (!nonGoalsItems.length) {
     validator.addViolation({
@@ -100,7 +101,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
 
   const validationText = resolveSemanticSection(
     sections,
-    SPEC_REQUIRED_SECTION_SPECS[9]!,
+    findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'validation-strategy'),
   ).content.join('\n');
   if (!CODE_FENCE_PATTERN.test(validationText) && !COMMAND_LINE_PATTERN.test(validationText)) {
     validator.addViolation({
@@ -113,7 +114,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
 
   const depText = resolveSemanticSection(
     sections,
-    SPEC_REQUIRED_SECTION_SPECS[6]!,
+    findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'dependency-analysis'),
   ).content.join('\n');
   if (!CODE_FENCE_PATTERN.test(depText) && !TABLE_ROW_PATTERN.test(depText)) {
     validator.addViolation({

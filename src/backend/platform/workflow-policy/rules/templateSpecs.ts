@@ -180,8 +180,6 @@ export const SLICE_TEMPLATE_SPEC: HandoffSpec = {
 
 export const SLICE_TEMPLATE_RELATIVE_PATH =
   'AgentWorkSpace/ImplementationSteps/slice-template.md';
-export const SLICE_TEMPLATE_FILENAME = SLICE_TEMPLATE_RELATIVE_PATH.split('/').at(-1)
-  ?? 'slice-template.md';
 
 export const TEMPLATE_SOURCE_DIR = 'AgentWorkSpace/templates';
 

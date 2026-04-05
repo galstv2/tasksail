@@ -90,6 +90,15 @@ export interface SemanticSectionSpec {
   allowContainerFallback?: boolean;
 }
 
+export function findSectionSpec(
+  specs: readonly SemanticSectionSpec[],
+  key: string,
+): SemanticSectionSpec {
+  const spec = specs.find((s) => s.key === key);
+  if (!spec) throw new Error(`No semantic section spec with key "${key}".`);
+  return spec;
+}
+
 export const ISSUES_MD_RELATIVE_PATH = 'AgentWorkSpace/handoffs/issues.md';
 export const FINAL_SUMMARY_RELATIVE_PATH = 'AgentWorkSpace/handoffs/final-summary.md';
 

@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { readTextFile } from '../core/index.js';
 import {
+  ALLOWED_DIFFICULTY_LEVELS,
   CONTENT_SECTION_EXCLUSIONS,
+  ISSUES_MD_REQUIRED_FINDING_SECTIONS,
+  ISSUES_MD_ROUTING_AGENT_SECTIONS,
   listSliceFiles as listWorkflowPolicySliceFiles,
   normalizeAgentId,
   normalizeText,
@@ -12,22 +15,11 @@ import {
   stripHtmlComments,
 } from '../workflow-policy/index.js';
 
-const ISSUES_MD_REQUIRED_FINDING_SECTIONS = [
-  'Severity',
-  'Finding Type',
-  'Required Fix',
-];
-const ISSUES_MD_ROUTING_AGENT_SECTIONS = [
-  'Remediation Owner Agent ID',
-  'Revalidation Agent ID',
-  'Return-To Agent ID',
-];
 const FINAL_SUMMARY_REQUIRED_CONTENT_SECTIONS = [
   'Completed Work',
   'Key Design Decisions',
   'Known Limitations',
 ];
-const ALLOWED_DIFFICULTY_LEVELS = new Set(['Easy', 'Medium', 'Hard']);
 const ALLOWED_PARALLEL_DECISIONS = new Set(['simple', 'complex']);
 
 const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;

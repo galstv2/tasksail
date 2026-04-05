@@ -7,6 +7,7 @@
 import path from 'node:path';
 import { readTextFile } from '../../core/index.js';
 import {
+  findSectionSpec,
   SLICE_REQUIRED_SECTION_SPECS,
   SLICE_FILE_SECTIONS,
   SLICE_RECOMMENDED_SECTIONS,
@@ -97,7 +98,7 @@ function validateSingleSlice(
   }
 
   const criteriaItems = extractBulletItems(
-    resolveSemanticSection(sections, SLICE_REQUIRED_SECTION_SPECS[4]!).content,
+    resolveSemanticSection(sections, findSectionSpec(SLICE_REQUIRED_SECTION_SPECS, 'acceptance-criteria')).content,
   );
   if (!criteriaItems.length) {
     validator.addViolation({
@@ -110,7 +111,7 @@ function validateSingleSlice(
 
   const validationText = resolveSemanticSection(
     sections,
-    SLICE_REQUIRED_SECTION_SPECS[6]!,
+    findSectionSpec(SLICE_REQUIRED_SECTION_SPECS, 'validation-commands'),
   ).content.join('\n');
   const hasCodeFence = CODE_FENCE_PATTERN.test(validationText);
   const hasCommandLine = COMMAND_LINE_PATTERN.test(validationText);
