@@ -5,7 +5,7 @@ import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
 import type { ContainerRuntime, BootstrapOptions } from './types.js';
-import { DEFAULT_COMPOSE_FILE } from './types.js';
+import { resolveDefaultComposeFile } from './types.js';
 import { buildComposeCommand, validateComposeConfig, execCommand } from './compose.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
 
@@ -19,7 +19,10 @@ export async function bootstrapServices(
 ): Promise<void> {
   const composeFile = options.composeFile
     ? path.resolve(options.repoRoot, options.composeFile)
-    : path.resolve(options.repoRoot, DEFAULT_COMPOSE_FILE);
+    : path.resolve(
+        options.repoRoot,
+        resolveDefaultComposeFile(runtime.backend),
+      );
 
   if (!existsSync(composeFile)) {
     throw new Error(`Compose file not found at ${composeFile}`);

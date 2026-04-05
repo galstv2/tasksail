@@ -3,7 +3,10 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
+import { createRuntimeFromConfig } from '../container/runtime.js';
+import { resolveDefaultComposeFile } from '../container/types.js';
 import { seedMcpRegistry } from '../mcp-registry/index.js';
+import { seedPlatformConfig } from '../platform-config/seed.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,6 +18,8 @@ export function detectOS(): PlatformOS {
 
 export interface SetupOptions {
   repoRoot?: string;
+  skipContainerServices?: boolean;
+  /** @deprecated Use skipContainerServices instead. */
   skipDocker?: boolean;
 }
 
@@ -61,17 +66,23 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
   }
 }
 
-async function startDockerServices(repoRoot: string): Promise<string> {
-  const composeFile = path.join(repoRoot, 'docker', 'compose', 'docker-compose.yml');
-  if (!fs.existsSync(composeFile)) {
-    return 'skipped';
-  }
+async function startContainerServices(repoRoot: string): Promise<string> {
   try {
-    await execFileAsync(
-      'docker',
-      ['compose', '-f', composeFile, 'up', '-d', '--build'],
-      { cwd: repoRoot, timeout: 120_000 },
+    const runtime = await createRuntimeFromConfig(repoRoot);
+    const composeFile = path.join(
+      repoRoot,
+      resolveDefaultComposeFile(runtime.backend),
     );
+    if (!fs.existsSync(composeFile)) {
+      return 'skipped';
+    }
+
+    await runtime.composeUp({
+      composeFile,
+      detach: true,
+      build: true,
+    });
+
     return 'ok';
   } catch {
     return 'failed';
@@ -80,7 +91,7 @@ async function startDockerServices(repoRoot: string): Promise<string> {
 
 export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
   const root = options?.repoRoot ?? await findRepoRoot();
-  const skipDocker = options?.skipDocker ?? false;
+  const skipContainerServices = options?.skipContainerServices ?? options?.skipDocker ?? false;
   const os = detectOS();
   const steps: SetupResult['steps'] = [];
 
@@ -99,7 +110,23 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     });
   }
 
-  // 3. Configure git hooks
+  // 3. Seed platform config
+  try {
+    const platformSeedResult = await seedPlatformConfig(root);
+    steps.push({
+      name: 'platform-config-seed',
+      status: platformSeedResult.action === 'failed' ? 'failed' : 'ok',
+      message: platformSeedResult.action,
+    });
+  } catch (err) {
+    steps.push({
+      name: 'platform-config-seed',
+      status: 'failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 4. Configure git hooks
   const hookStatus = await configureGitHooks(root);
   steps.push({
     name: 'git-hooks',
@@ -107,7 +134,7 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     message: hookStatus === 'ok' ? 'core.hooksPath set to .githooks' : undefined,
   });
 
-  // 4. Create queue directories
+  // 5. Create queue directories
   const queueDirs = [
     path.join(root, 'AgentWorkSpace', 'dropbox'),
     path.join(root, 'AgentWorkSpace', 'pendingitems'),
@@ -126,7 +153,7 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     });
   }
 
-  // 5. Seed MCP registry
+  // 6. Seed MCP registry
   try {
     const seedResult = await seedMcpRegistry(root);
     steps.push({
@@ -142,22 +169,26 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     });
   }
 
-  // 6. Mark tracked runtime files as skip-worktree
+  // 7. Mark tracked runtime files as skip-worktree
   const skipStatus = await markRuntimeFilesSkipWorktree(root);
   steps.push({
     name: 'skip-worktree',
     status: skipStatus as 'ok' | 'failed',
   });
 
-  // 7. Optionally start Docker services
-  if (skipDocker) {
-    steps.push({ name: 'docker-services', status: 'skipped', message: 'skipDocker=true' });
-  } else {
-    const dockerStatus = await startDockerServices(root);
+  // 8. Optionally start container services
+  if (skipContainerServices) {
     steps.push({
-      name: 'docker-services',
-      status: dockerStatus as 'ok' | 'skipped' | 'failed',
-      message: dockerStatus === 'skipped' ? 'docker-compose.yml not found' : undefined,
+      name: 'container-services',
+      status: 'skipped',
+      message: 'skipContainerServices=true',
+    });
+  } else {
+    const containerServicesStatus = await startContainerServices(root);
+    steps.push({
+      name: 'container-services',
+      status: containerServicesStatus as 'ok' | 'skipped' | 'failed',
+      message: containerServicesStatus === 'skipped' ? 'compose file not found' : undefined,
     });
   }
 

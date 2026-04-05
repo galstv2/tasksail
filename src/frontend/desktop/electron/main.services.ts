@@ -1,11 +1,12 @@
 /**
- * Backend MCP service management — start, stop, health-check Docker services.
+ * Backend MCP service management — start, stop, health-check container services.
  *
  * Shells out to `src/backend/platform/container/cli.ts` via `npx tsx` to avoid
  * import-path incompatibilities between the Electron/Vite build and the backend
  * ESM module graph.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type {
@@ -34,8 +35,15 @@ function nowIso(): string {
 }
 
 const CLI_PATH = 'src/backend/platform/container/cli.ts';
+const PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const SIGKILL_GRACE_MS = 5_000;
+const FALLBACK_RUNTIME = 'docker';
+
+type ContainerRuntimeBinary = 'docker' | 'podman';
+type RuntimeResolution =
+  | { ok: true; runtimeBinary: ContainerRuntimeBinary }
+  | { ok: false; error: string };
 
 type SpawnResult = { exitCode: number; stdout: string; stderr: string };
 
@@ -90,16 +98,105 @@ function spawnCli(
   });
 }
 
-const runtimeBinary = process.env['CONTAINER_RUNTIME'] || 'docker';
+function isSupportedRuntime(value: unknown): value is ContainerRuntimeBinary {
+  return value === 'docker' || value === 'podman';
+}
 
-export function checkDockerAvailable(): Promise<boolean> {
+function describeRuntimeInstall(runtimeBinary: ContainerRuntimeBinary): string {
+  return runtimeBinary === 'podman'
+    ? 'Podman is installed and the machine or service is running.'
+    : 'Docker Desktop is installed and the daemon is running.';
+}
+
+function resolveRuntimeBinary(repoRoot: string): RuntimeResolution {
+  const envOverride = process.env['CONTAINER_RUNTIME'];
+  if (envOverride) {
+    if (isSupportedRuntime(envOverride)) {
+      return { ok: true, runtimeBinary: envOverride };
+    }
+
+    return {
+      ok: false,
+      error: `Invalid CONTAINER_RUNTIME value "${envOverride}". Expected "docker" or "podman".`,
+    };
+  }
+
+  const platformConfigPath = join(repoRoot, PLATFORM_CONFIG_PATH);
+  if (!existsSync(platformConfigPath)) {
+    return { ok: true, runtimeBinary: FALLBACK_RUNTIME };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(platformConfigPath, 'utf-8')) as unknown;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown parse error.';
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: ${detail} ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: expected a JSON object. ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  const runtimeCandidate = (parsed as Record<string, unknown>)['container_runtime'];
+  if (!isSupportedRuntime(runtimeCandidate)) {
+    const renderedValue =
+      typeof runtimeCandidate === 'undefined' ? 'missing' : JSON.stringify(runtimeCandidate);
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: ` +
+        `container_runtime must be "docker" or "podman" (received ${renderedValue}). ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  return { ok: true, runtimeBinary: runtimeCandidate };
+}
+
+export function checkContainerRuntimeAvailable(
+  repoRoot: string,
+): Promise<RuntimeResolution> {
   return new Promise((resolve) => {
-    const child = spawn(runtimeBinary, ['version', '--format', 'json'], {
+    const runtime = resolveRuntimeBinary(repoRoot);
+    if (!runtime.ok) {
+      resolve(runtime);
+      return;
+    }
+
+    const child = spawn(runtime.runtimeBinary, ['version', '--format', 'json'], {
       stdio: 'ignore',
     });
 
-    child.on('close', (code) => resolve(code === 0));
-    child.on('error', () => resolve(false));
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(runtime);
+        return;
+      }
+
+      resolve({
+        ok: false,
+        error:
+          `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
+      });
+    });
+    child.on('error', () => {
+      resolve({
+        ok: false,
+        error:
+          `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
+      });
+    });
   });
 }
 
@@ -108,11 +205,11 @@ export async function startBackendServices(
 ): Promise<ServicesReadStatusResponse> {
   updateState({ status: 'starting', error: null });
 
-  const dockerOk = await checkDockerAvailable();
-  if (!dockerOk) {
+  const runtimeAvailability = await checkContainerRuntimeAvailable(repoRoot);
+  if (!runtimeAvailability.ok) {
     updateState({
       status: 'unavailable',
-      error: `${runtimeBinary} is not available. Install Docker Desktop or ensure the daemon is running.`,
+      error: runtimeAvailability.error,
       lastCheckedAt: nowIso(),
     });
     return readBackendServiceStatus();
@@ -134,6 +231,16 @@ export async function stopBackendServices(
 ): Promise<ServicesReadStatusResponse> {
   updateState({ status: 'stopping', error: null });
 
+  const runtime = resolveRuntimeBinary(repoRoot);
+  if (!runtime.ok) {
+    updateState({
+      status: 'unavailable',
+      error: runtime.error,
+      lastCheckedAt: nowIso(),
+    });
+    return readBackendServiceStatus();
+  }
+
   const result = await spawnCli(repoRoot, 'down');
 
   if (result.exitCode === 0) {
@@ -148,6 +255,16 @@ export async function stopBackendServices(
 export async function checkBackendHealth(
   repoRoot: string,
 ): Promise<ServicesReadStatusResponse> {
+  const runtime = resolveRuntimeBinary(repoRoot);
+  if (!runtime.ok) {
+    updateState({
+      status: 'unavailable',
+      error: runtime.error,
+      lastCheckedAt: nowIso(),
+    });
+    return readBackendServiceStatus();
+  }
+
   const result = await spawnCli(repoRoot, 'healthcheck', [], 30_000);
 
   if (result.exitCode === 0) {
@@ -165,7 +282,7 @@ export function readBackendServiceStatus(): ServicesReadStatusResponse {
     state.status === 'starting' ? 'Backend services are starting...' :
     state.status === 'healthy' ? 'Backend services are running.' :
     state.status === 'unhealthy' ? `Backend services unhealthy: ${state.error ?? 'unknown'}` :
-    state.status === 'unavailable' ? `Docker is not available: ${state.error ?? 'unknown'}` :
+    state.status === 'unavailable' ? `Configured container runtime unavailable: ${state.error ?? 'unknown'}` :
     state.status === 'stopping' ? 'Backend services are stopping...' :
     'Unknown state.';
 

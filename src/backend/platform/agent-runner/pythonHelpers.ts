@@ -7,6 +7,7 @@ export interface ExternalMcpLaunchContext {
   reason: string;
   injectionEnabled: boolean;
   envExports: Record<string, string>;
+  configFilePath?: string;
   selectedServerIds: string[];
   excludedServerIds: string[];
 }
@@ -49,6 +50,13 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
   if (!isStringRecord(parsed.envExports)) {
     throw new Error('Invalid external MCP launch context output: envExports must be a string map.');
   }
+  if (
+    parsed.configFilePath !== undefined &&
+    parsed.configFilePath !== null &&
+    typeof parsed.configFilePath !== 'string'
+  ) {
+    throw new Error('Invalid external MCP launch context output: configFilePath must be a string when provided.');
+  }
   if (!isStringArray(parsed.selectedServerIds)) {
     throw new Error('Invalid external MCP launch context output: selectedServerIds must be a string array.');
   }
@@ -61,6 +69,7 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
     reason: parsed.reason,
     injectionEnabled: parsed.injectionEnabled,
     envExports: parsed.envExports,
+    configFilePath: parsed.configFilePath ?? undefined,
     selectedServerIds: parsed.selectedServerIds,
     excludedServerIds: parsed.excludedServerIds,
   };

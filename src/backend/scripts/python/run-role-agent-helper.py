@@ -56,6 +56,7 @@ def _launch_context_payload(context: LaunchContext) -> dict[str, object]:
         "reason": context.reason,
         "injectionEnabled": context.injection_enabled,
         "envExports": context.env_exports(),
+        "configFilePath": context.config_file_path,
         "selectedServerIds": [
             str(server.get("id", "?")) for server in context.selected_servers
         ],

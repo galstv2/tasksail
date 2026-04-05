@@ -303,6 +303,7 @@ class LaunchContext:
         reason: str,
         injection_enabled: bool,
         copilot_home: str | None = None,
+        config_file_path: str | None = None,
         context_file: str | None = None,
         selected_servers: list[dict[str, Any]] | None = None,
         excluded_servers: list[str] | None = None,
@@ -311,6 +312,8 @@ class LaunchContext:
         self.reason = reason
         self.injection_enabled = injection_enabled
         self.copilot_home = copilot_home
+        self.config_file_path = config_file_path
+        self.configFilePath = config_file_path
         self.context_file = context_file
         self.selected_servers = selected_servers or []
         self.excluded_servers = excluded_servers or []
@@ -324,8 +327,6 @@ class LaunchContext:
                 "true" if self.injection_enabled else "false"
             ),
         }
-        if self.copilot_home:
-            exports["COPILOT_HOME"] = self.copilot_home
         if self.context_file:
             exports["EXTERNAL_MCP_CONTEXT_FILE"] = self.context_file
         return exports
@@ -415,7 +416,7 @@ def prepare_launch_context(
                 )
             time.sleep(0.002 * (attempt + 1))
 
-    render_mcp_config(launch_dir, surviving, surviving_headers)
+    config_path = render_mcp_config(launch_dir, surviving, surviving_headers)
     summary_path = render_capability_summary(launch_dir, surviving)
 
     # Step 6: determine status.
@@ -434,6 +435,7 @@ def prepare_launch_context(
         reason=reason,
         injection_enabled=True,
         copilot_home=str(launch_dir),
+        config_file_path=str(config_path),
         context_file=str(summary_path),
         selected_servers=surviving,
         excluded_servers=excluded,

@@ -6,8 +6,9 @@ function usage(): void {
   console.log(`Usage: platform-setup [options]
 
 Options:
-  --skip-docker   Skip starting Docker services
-  --help, -h      Show this help message
+  --skip-container-services  Skip starting container services
+  --skip-docker              Deprecated alias for --skip-container-services
+  --help, -h                 Show this help message
 `);
 }
 
@@ -19,9 +20,10 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const skipDocker = args.includes('--skip-docker');
+  const skipContainerServices = args.includes('--skip-container-services')
+    || args.includes('--skip-docker');
 
-  const result = await setupRepo({ skipDocker });
+  const result = await setupRepo({ skipContainerServices });
 
   console.log(`Platform: ${result.os}`);
   for (const step of result.steps) {

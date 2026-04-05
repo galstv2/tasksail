@@ -56,10 +56,10 @@ class StatusTaxonomyTests(unittest.TestCase):
         self.assertEqual(ctx.status, "available")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "available")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "true")
-        self.assertIn("COPILOT_HOME", exports)
+        self.assertNotIn("COPILOT_HOME", exports)
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
         # Artifacts must exist.
-        self.assertTrue(Path(exports["COPILOT_HOME"]).is_dir())
+        self.assertTrue(Path(ctx.copilot_home).is_dir())
         self.assertTrue(Path(exports["EXTERNAL_MCP_CONTEXT_FILE"]).is_file())
 
     def test_not_applicable_status_exports(self) -> None:
@@ -70,6 +70,7 @@ class StatusTaxonomyTests(unittest.TestCase):
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "false")
         self.assertNotIn("COPILOT_HOME", exports)
         self.assertNotIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
+        self.assertIsNone(ctx.config_file_path)
 
     def test_unavailable_status_exports(self) -> None:
         server = _make_server(headers={"Auth": "${MISSING_VAR_TAXONOMY}"})
@@ -93,7 +94,7 @@ class StatusTaxonomyTests(unittest.TestCase):
         self.assertEqual(ctx.status, "degraded")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "degraded")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "true")
-        self.assertIn("COPILOT_HOME", exports)
+        self.assertNotIn("COPILOT_HOME", exports)
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
         self.assertIn("excluded", exports["EXTERNAL_MCP_CONTEXT_REASON"])
 
@@ -177,7 +178,7 @@ class DeletionLifecycleTests(unittest.TestCase):
         server = _make_server()
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
         exports1 = ctx1.env_exports()
-        self.assertIn("COPILOT_HOME", exports1)
+        self.assertNotIn("COPILOT_HOME", exports1)
 
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
         exports2 = ctx2.env_exports()

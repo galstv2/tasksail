@@ -293,6 +293,11 @@ class PrepareLaunchContextTests(unittest.TestCase):
         self.assertEqual(ctx.status, "available")
         self.assertTrue(ctx.injection_enabled)
         self.assertIsNotNone(ctx.copilot_home)
+        self.assertEqual(
+            Path(ctx.config_file_path),
+            Path(ctx.copilot_home) / "mcp-config.json",
+        )
+        self.assertEqual(ctx.configFilePath, ctx.config_file_path)
         # Verify files exist.
         launch_dir = Path(ctx.copilot_home)
         self.assertTrue((launch_dir / "mcp-config.json").exists())
@@ -324,7 +329,7 @@ class PrepareLaunchContextTests(unittest.TestCase):
         exports = ctx.env_exports()
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "available")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "true")
-        self.assertIn("COPILOT_HOME", exports)
+        self.assertNotIn("COPILOT_HOME", exports)
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
 
     def test_env_exports_not_applicable(self) -> None:
@@ -333,6 +338,7 @@ class PrepareLaunchContextTests(unittest.TestCase):
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "not-applicable")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "false")
         self.assertNotIn("COPILOT_HOME", exports)
+        self.assertIsNone(ctx.config_file_path)
 
     def test_concurrent_launches_get_separate_dirs(self) -> None:
         server = _make_server()

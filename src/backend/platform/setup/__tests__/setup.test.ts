@@ -25,6 +25,11 @@ describe('setupRepo', () => {
     await execFileAsync('git', ['init'], { cwd: tmpDir });
     // Create .env.example
     await fs.promises.writeFile(path.join(tmpDir, '.env.example'), 'KEY=value\n');
+    await fs.promises.mkdir(path.join(tmpDir, 'config'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'config', 'platform.default.json'),
+      JSON.stringify({ schema_version: 1, container_runtime: 'docker' }, null, 2),
+    );
   });
 
   afterEach(async () => {
@@ -32,14 +37,14 @@ describe('setupRepo', () => {
   });
 
   it('creates .env from .env.example when .env does not exist', async () => {
-    const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
     const envStep = result.steps.find(s => s.name === 'ensure-env');
     expect(envStep?.status).toBe('ok');
     expect(fs.existsSync(path.join(tmpDir, '.env'))).toBe(true);
   });
 
   it('creates queue directories', async () => {
-    const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
     const queueStep = result.steps.find(s => s.name === 'queue-dirs');
     expect(queueStep?.status).toBe('ok');
     expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'dropbox'))).toBe(true);
@@ -47,14 +52,33 @@ describe('setupRepo', () => {
     expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'handoffs'))).toBe(true);
   });
 
-  it('skips Docker when skipDocker is true', async () => {
+  it('seeds platform config before MCP registry seeding', async () => {
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    const platformConfigStep = result.steps.find(s => s.name === 'platform-config-seed');
+    expect(platformConfigStep?.status).toBe('ok');
+    expect(fs.existsSync(path.join(tmpDir, '.platform-state', 'platform.json'))).toBe(true);
+
+    const platformConfigIndex = result.steps.findIndex((s) => s.name === 'platform-config-seed');
+    const mcpRegistryIndex = result.steps.findIndex((s) => s.name === 'mcp-registry-seed');
+    expect(platformConfigIndex).toBeGreaterThan(-1);
+    expect(mcpRegistryIndex).toBeGreaterThan(platformConfigIndex);
+  });
+
+  it('skips container services when skipContainerServices is true', async () => {
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    const containerServicesStep = result.steps.find(s => s.name === 'container-services');
+    expect(containerServicesStep?.status).toBe('skipped');
+    expect(containerServicesStep?.message).toBe('skipContainerServices=true');
+  });
+
+  it('supports skipDocker as a deprecated alias', async () => {
     const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
-    const dockerStep = result.steps.find(s => s.name === 'docker-services');
-    expect(dockerStep?.status).toBe('skipped');
+    const containerServicesStep = result.steps.find(s => s.name === 'container-services');
+    expect(containerServicesStep?.status).toBe('skipped');
   });
 
   it('returns detected OS in result', async () => {
-    const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
     expect(result.os).toBe(process.platform);
   });
 
@@ -75,7 +99,7 @@ describe('setupRepo', () => {
       },
     });
 
-    const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
 
     expect(result.steps.find((s) => s.name === 'skip-worktree')?.status).toBe('ok');
 

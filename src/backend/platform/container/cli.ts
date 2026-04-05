@@ -1,8 +1,8 @@
 import { findRepoRoot } from '../core/index.js';
 import { loadMcpRegistry, RUNTIME_REGISTRY_PATH } from '../mcp-registry/index.js';
 import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
-import { createRuntime } from './runtime.js';
-import { DEFAULT_COMPOSE_FILE } from './types.js';
+import { createRuntimeFromConfig } from './runtime.js';
+import { resolveDefaultComposeFile } from './types.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
 import path from 'node:path';
 
@@ -19,8 +19,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const runtime = createRuntime();
   const repoRoot = findRepoRoot();
+  const runtime = await createRuntimeFromConfig(repoRoot);
 
   switch (subcommand) {
     case 'healthcheck': {
@@ -95,7 +95,10 @@ async function main(): Promise<void> {
     }
 
     case 'up': {
-      const composeFile = path.resolve(repoRoot, DEFAULT_COMPOSE_FILE);
+      const composeFile = path.resolve(
+        repoRoot,
+        resolveDefaultComposeFile(runtime.backend),
+      );
       await runtime.composeUp({
         composeFile,
         detach: true,
@@ -106,7 +109,10 @@ async function main(): Promise<void> {
     }
 
     case 'down': {
-      const composeFile = path.resolve(repoRoot, DEFAULT_COMPOSE_FILE);
+      const composeFile = path.resolve(
+        repoRoot,
+        resolveDefaultComposeFile(runtime.backend),
+      );
       await runtime.composeDown({ composeFile });
       console.log('Services stopped.');
       break;

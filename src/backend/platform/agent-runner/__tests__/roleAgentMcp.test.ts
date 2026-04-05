@@ -237,6 +237,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
+      configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
       envExports: {
         COPILOT_HOME: '/repo/.platform-state/runtime/copilot-home/dalton-launch',
         EXTERNAL_MCP_CONTEXT_STATUS: 'available',
@@ -259,8 +260,13 @@ describe('runRoleAgent external MCP launch integration', () => {
       abortSignal: undefined,
     });
     const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
-    expect(envArg['COPILOT_HOME']).toBe('/repo/.platform-state/runtime/copilot-home/dalton-launch');
+    expect(argsArg).toEqual(expect.arrayContaining([
+      '--additional-mcp-config',
+      '@/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
+    ]));
+    expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBe('available');
     expect(mockedBuildAutonomyEnvironment).toHaveBeenLastCalledWith(
       expect.anything(),
@@ -311,7 +317,9 @@ describe('runRoleAgent external MCP launch integration', () => {
     });
 
     const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
+    expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
   });
@@ -340,7 +348,9 @@ describe('runRoleAgent external MCP launch integration', () => {
     });
 
     const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
+    expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
     expect(warnSpy).toHaveBeenCalledWith(
@@ -382,7 +392,9 @@ describe('runRoleAgent external MCP launch integration', () => {
     });
 
     const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
+    expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
     expect(warnSpy).toHaveBeenCalledWith(
@@ -405,6 +417,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
+      configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
       envExports: {
         COPILOT_HOME: '/repo/.platform-state/runtime/copilot-home/dalton-launch',
         EXTERNAL_MCP_CONTEXT_STATUS: 'available',

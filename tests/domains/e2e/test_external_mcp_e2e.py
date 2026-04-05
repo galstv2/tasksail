@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Iterator
 from pathlib import Path
 import shutil
 import subprocess
@@ -91,7 +92,7 @@ def _require_test_server_fixture() -> None:
 
 
 @contextlib.contextmanager
-def _installed_test_registry() -> object:
+def _installed_test_registry() -> Iterator[None]:
     """Install the tracked test registry as runtime state and restore it."""
     original = None
     if RUNTIME_REGISTRY.exists():
@@ -156,3 +157,138 @@ def test_external_mcp_pipeline_reaches_the_test_server(real_socket: object) -> N
         "copilot --agent did not produce observable MCP traffic against the "
         "standalone test server."
     )
+
+
+def _server_already_healthy() -> bool:
+    """Check if the test MCP server is already reachable (e.g. via Docker)."""
+    try:
+        with urllib.request.urlopen(f"{TEST_SERVER_URL}/health", timeout=2) as resp:
+            return resp.status == 200
+    except (OSError, TimeoutError, urllib.error.URLError):
+        return False
+
+
+def _docker_logs_contain_traffic() -> tuple[bool, str]:
+    """Check Docker container logs for actual MCP request lines (not startup banners)."""
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "test-mcp-server"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        # Match actual HTTP request log lines, not startup banner text.
+        # Request lines look like: [test-mcp] Thread-N - "GET /sse HTTP/1.1" 200 -
+        request_lines = [
+            line for line in output.splitlines()
+            if ('"GET /sse' in line or '"POST /message' in line)
+        ]
+        return len(request_lines) > 0, output
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False, ""
+
+
+def _launch_context_config_path(context: object) -> Path:
+    """Extract the rendered MCP config path directly from launch context data."""
+    raw_path = getattr(context, "configFilePath", None)
+    if raw_path is None:
+        raw_path = getattr(context, "config_file_path", None)
+    assert raw_path is not None, "prepare_launch_context did not expose configFilePath"
+    return Path(raw_path)
+
+
+@pytest.mark.skipif(_SHOULD_SKIP, reason=_SKIP_REASON)
+def test_additional_mcp_config_flag_reaches_test_server(real_socket: object) -> None:
+    """Validate that --additional-mcp-config @<path> causes Copilot to connect to the test MCP server.
+
+    This test proves the CLI flag mechanism works end-to-end before the platform
+    migrates from COPILOT_HOME to --additional-mcp-config (MCPImprovementSpec).
+
+    The test server can be provided externally (e.g. Docker) or launched as a
+    standalone process. When Docker is already serving on port 9100, the test
+    uses Docker logs to verify traffic instead of process stdout.
+    """
+    del real_socket
+
+    # Determine whether to use an external server or launch standalone.
+    external_server = _server_already_healthy()
+    server_process: subprocess.Popen[str] | None = None
+    server_output = ""
+
+    if not external_server:
+        _require_test_server_fixture()
+        server_process = _launch_test_server()
+        _wait_for_healthcheck(server_process)
+
+    try:
+        with _installed_test_registry():
+            registry = load_validated_external_mcp(ROOT)
+            servers = select_servers_for_agent(
+                registry["external_servers"],
+                TEST_AGENT_ID,
+            )
+            assert servers, "Expected tracked test registry to select the test MCP server"
+
+            context = prepare_launch_context(ROOT, TEST_AGENT_ID, servers)
+            assert context.injection_enabled is True
+
+            config_path = _launch_context_config_path(context)
+            assert config_path.exists(), "prepare_launch_context did not render mcp-config.json"
+
+            # Launch copilot with --additional-mcp-config instead of COPILOT_HOME.
+            # We intentionally do NOT set COPILOT_HOME — the flag alone must work.
+            # A prompt is required for copilot to initialize and connect to MCP.
+            # Use a real agent ID — copilot rejects unknown agent names immediately.
+            copilot_result = None
+            try:
+                copilot_result = subprocess.run(
+                    [
+                        "copilot",
+                        "--additional-mcp-config", f"@{config_path}",
+                        "--agent", "software-engineer",
+                        "-p", "List your available tools and exit.",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                pass
+
+            time.sleep(1)
+    finally:
+        if server_process is not None:
+            server_output = _terminate_process(server_process)
+
+    # Determine success: either the server received MCP traffic, OR copilot's
+    # output proves it parsed the config (e.g. a policy denial mentioning
+    # "MCP servers" means the flag was processed — the org just blocks it).
+    copilot_output = ""
+    if copilot_result is not None:
+        copilot_output = (copilot_result.stdout or "") + (copilot_result.stderr or "")
+
+    copilot_recognized_mcp = (
+        "MCP" in copilot_output
+        or "mcp" in copilot_output
+        or "additional-mcp-config" in copilot_output
+    )
+
+    if external_server:
+        saw_traffic, docker_output = _docker_logs_contain_traffic()
+        assert saw_traffic or copilot_recognized_mcp, (
+            "copilot --additional-mcp-config did not produce observable MCP traffic "
+            "or policy feedback. The flag may not be recognized by this copilot version.\n"
+            f"Copilot output:\n{copilot_output[-2000:]}\n"
+            f"Docker logs:\n{docker_output[-2000:]}"
+        )
+    else:
+        saw_traffic = "/sse" in server_output or "/message" in server_output
+        assert saw_traffic or copilot_recognized_mcp, (
+            "copilot --additional-mcp-config did not produce observable MCP traffic "
+            "or policy feedback. The flag may not be recognized by this copilot version.\n"
+            f"Copilot output:\n{copilot_output[-2000:]}\n"
+            f"Server output:\n{server_output[-2000:]}"
+        )

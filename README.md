@@ -20,7 +20,7 @@ You watch the progress in a desktop app that shows what each agent is doing in r
 - **Node.js 20+** installed ([download here](https://nodejs.org/))
 - **pnpm** installed (run `npm install -g pnpm` after installing Node.js)
 - **Python 3.11+** installed ([download here](https://www.python.org/downloads/))
-- **Docker Desktop** installed and running ([download here](https://www.docker.com/products/docker-desktop/))
+- **Docker Desktop** or **Podman** (≥ 4.0) with `podman-compose` (≥ 1.0.6) installed and running
 - **GitHub Copilot CLI** access for your GitHub account
 
 ## Quick start
@@ -68,11 +68,15 @@ cd ../../..
 ### 3. Start the background services
 
 ```bash
-docker compose -f docker/compose/docker-compose.yml up -d --build
+npx tsx src/backend/platform/container/cli.ts bootstrap
 
 # Check that services are healthy
 npx tsx src/backend/platform/container/cli.ts healthcheck
 ```
+
+The active container runtime is controlled by `.platform-state/platform.json`
+(`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
+override.
 
 ### 4. Launch the desktop app
 
@@ -98,7 +102,7 @@ In the desktop app:
 | Backend services | Python 3.13, http.server, SSE | **None** — pure stdlib |
 | Frontend | React 18, TypeScript, Electron 35, Vite 6 | React only — no UI framework, no state library, plain CSS |
 | Testing | Vitest (TS), pytest (Python) | Dev-only |
-| Services | Docker Compose | Podman also supported (experimental) |
+| Services | Docker Compose / Podman Compose | Podman supported (configure via `.platform-state/platform.json`) |
 
 The platform is intentionally dependency-free at runtime to stay enterprise-safe.
 
@@ -211,7 +215,8 @@ npm install
 Make sure `pnpm run watch-dropbox` is running.
 
 **Agents not starting?**
-Check that Docker is running and services are healthy:
+Check that your configured container runtime (Docker or Podman) is running and
+services are healthy:
 ```bash
 npx tsx src/backend/platform/container/cli.ts healthcheck
 ```

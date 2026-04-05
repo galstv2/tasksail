@@ -1433,7 +1433,7 @@ export type DesktopActionResponse =
   | ServicesReadStatusResponse;
 
 // ---------------------------------------------------------------------------
-// Services (backend MCP Docker service management)
+// Services (backend MCP container service management)
 // ---------------------------------------------------------------------------
 export type BackendServiceStatus =
   | 'idle'

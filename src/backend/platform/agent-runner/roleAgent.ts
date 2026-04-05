@@ -300,6 +300,10 @@ async function mergeExternalMcpLaunchEnvironment(options: {
       abortSignal: options.abortSignal,
     });
     if (launchContext.injectionEnabled) {
+      if (!launchContext.configFilePath && launchContext.envExports['COPILOT_HOME']) {
+        launchContext.configFilePath = path.join(launchContext.envExports['COPILOT_HOME'], 'mcp-config.json');
+      }
+      delete launchContext.envExports['COPILOT_HOME'];
       Object.assign(options.agentEnv, launchContext.envExports);
       return launchContext;
     }
@@ -741,6 +745,15 @@ export async function runRoleAgent(
     agentEnv,
     abortSignal: options.abortSignal,
   });
+  if (externalMcpLaunchContext?.injectionEnabled) {
+    if (externalMcpLaunchContext.configFilePath) {
+      copilotArgs.push('--additional-mcp-config', `@${externalMcpLaunchContext.configFilePath}`);
+    } else {
+      console.warn(
+        '[roleAgent] external MCP config file path unavailable, continuing without MCP flag injection.',
+      );
+    }
+  }
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
   logExternalMcpLaunchStatus(options.agentId, mcpLaunch);
   if (externalMcpLaunchContext && externalMcpLaunchContext.status !== 'not-applicable') {

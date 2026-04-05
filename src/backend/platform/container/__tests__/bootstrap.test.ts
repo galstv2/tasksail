@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_COMPOSE_FILE } from '../types.js';
+import { resolveDefaultComposeFile } from '../types.js';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -128,7 +128,7 @@ describe('bootstrapServices', () => {
 
     await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
 
-    const expectedFile = path.resolve('/repo', DEFAULT_COMPOSE_FILE);
+    const expectedFile = path.resolve('/repo', resolveDefaultComposeFile('docker'));
     expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker');
   });
 
@@ -155,7 +155,7 @@ describe('bootstrapServices', () => {
       bootstrapServices(mockRuntime, { repoRoot: '/repo' }),
     ).rejects.toThrow('Health check failed for: repo-context-mcp');
     expect(mockRuntime.composeDown).toHaveBeenCalledWith({
-      composeFile: path.resolve('/repo', DEFAULT_COMPOSE_FILE),
+      composeFile: path.resolve('/repo', resolveDefaultComposeFile('docker')),
     });
   });
 
@@ -181,6 +181,26 @@ describe('bootstrapServices', () => {
     await expect(
       bootstrapServices(mockRuntime, { repoRoot: '/repo' }),
     ).rejects.toThrow('MCP registry validation failed');
+  });
+
+  it('uses the podman compose file for podman runtimes by default', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    const podmanRuntime = {
+      ...mockRuntime,
+      backend: 'podman' as const,
+    };
+
+    await bootstrapServices(podmanRuntime, { repoRoot: '/repo' });
+
+    expect(validateComposeConfig).toHaveBeenCalledWith(
+      path.resolve('/repo', resolveDefaultComposeFile('podman')),
+      'podman',
+    );
+    expect(podmanRuntime.composeUp).toHaveBeenCalledWith({
+      composeFile: path.resolve('/repo', resolveDefaultComposeFile('podman')),
+      detach: true,
+      build: undefined,
+    });
   });
 
   it('passes registry-derived health specs to runtime.healthcheck', async () => {

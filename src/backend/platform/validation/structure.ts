@@ -13,6 +13,7 @@ export const REQUIRED_DIRS: string[] = [
   'src/backend/scripts/python',
   'src/backend',
   'docker',
+  'podman',
   'tests',
 ];
 

@@ -53,5 +53,15 @@ export interface ContainerRuntime {
   seedIndex(options: SeedOptions): Promise<void>;
 }
 
-/** Default compose file path relative to repo root. */
+const DEFAULT_COMPOSE_FILES: Record<ContainerBackend, string> = {
+  docker: 'docker/compose/docker-compose.yml',
+  podman: 'podman/compose/podman-compose.yml',
+};
+
+/** Default compose file path relative to repo root, based on backend. */
+export function resolveDefaultComposeFile(backend: ContainerBackend): string {
+  return DEFAULT_COMPOSE_FILES[backend];
+}
+
+/** @deprecated Use resolveDefaultComposeFile(backend) instead. */
 export const DEFAULT_COMPOSE_FILE = 'docker/compose/docker-compose.yml';

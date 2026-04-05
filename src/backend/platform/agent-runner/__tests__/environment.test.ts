@@ -3,6 +3,10 @@ import { buildAgentEnvironment, buildAutonomyEnvironment } from '../environment.
 import type { AgentProfile, CopilotArgs } from '../types.js';
 import type { ExternalMcpLaunchContext } from '../pythonHelpers.js';
 
+type ExternalMcpLaunchContextWithConfig = ExternalMcpLaunchContext & {
+  configFilePath?: string | null;
+};
+
 describe('buildAgentEnvironment', () => {
   const profile: AgentProfile = {
     id: 'dalton',
@@ -64,14 +68,14 @@ describe('buildAutonomyEnvironment', () => {
       ...autonomyArgs,
       allowedDirs: ['/workspace/repo', '/workspace/support'],
     };
-    const externalMcpContext: ExternalMcpLaunchContext = {
+    const externalMcpContext: ExternalMcpLaunchContextWithConfig = {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
       envExports: {
-        COPILOT_HOME: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
         EXTERNAL_MCP_CONTEXT_FILE: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
       },
+      configFilePath: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
       selectedServerIds: ['github'],
       excludedServerIds: ['slack'],
     };
@@ -143,6 +147,49 @@ describe('buildAutonomyEnvironment', () => {
       excludedServerIds: ['slack'],
       contextFile: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
       copilotHome: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
+    });
+  });
+
+  it('sets external MCP copilotHome to null when configFilePath is unavailable', () => {
+    const externalMcpContext: ExternalMcpLaunchContextWithConfig = {
+      status: 'available',
+      reason: '1 external MCP server(s) injected',
+      injectionEnabled: true,
+      envExports: {
+        EXTERNAL_MCP_CONTEXT_FILE: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
+      },
+      selectedServerIds: ['github'],
+      excludedServerIds: [],
+    };
+    const env = buildAutonomyEnvironment(
+      profile,
+      autonomyArgs,
+      '/workspace/repo',
+      '/workspace/repo',
+      undefined,
+      '/workspace/repo/context-pack',
+      externalMcpContext,
+    );
+    const profileJson = JSON.parse(env['RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON'] ?? '{}') as {
+      external_mcp_context?: {
+        status?: string;
+        reason?: string;
+        injectionEnabled?: boolean;
+        selectedServerIds?: string[];
+        excludedServerIds?: string[];
+        contextFile?: string | null;
+        copilotHome?: string | null;
+      };
+    };
+
+    expect(profileJson.external_mcp_context).toEqual({
+      status: 'available',
+      reason: '1 external MCP server(s) injected',
+      injectionEnabled: true,
+      selectedServerIds: ['github'],
+      excludedServerIds: [],
+      contextFile: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
+      copilotHome: null,
     });
   });
 

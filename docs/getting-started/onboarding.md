@@ -10,8 +10,11 @@ one intentionally small starter task before attempting broader workflow changes.
 - Git
 - GitHub CLI (`gh`)
 - GitHub Copilot CLI access
-- Docker Desktop or an equivalent Docker engine
+- Docker Desktop, or Podman with `podman-compose` installed
 - Python 3
+
+Podman operators on macOS and Windows must also have a running `podman machine`
+before starting platform services.
 
 ## Authentication expectations
 
@@ -52,7 +55,7 @@ one intentionally small starter task before attempting broader workflow changes.
 6. Confirm `.github/agents/registry.json` and the repository agent profiles
   under `.github/agents/` are present before starting role-based work.
 7. Start support services with:
-   `docker compose -f docker/compose/docker-compose.yml up -d --build`
+   `npx tsx src/backend/platform/container/cli.ts bootstrap`
 8. If the task targets an external context pack, select the matching context
    pack path.
 9. Activate the context pack with
@@ -69,6 +72,10 @@ one intentionally small starter task before attempting broader workflow changes.
   `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --write-plan`
   and review the generated plan before live filing.
 12. Start the queue poller with `pnpm run watch-dropbox`.
+
+The active container runtime is controlled by `.platform-state/platform.json`
+(`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
+override.
 
 ## Desktop shell startup
 

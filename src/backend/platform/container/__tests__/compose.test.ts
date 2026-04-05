@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildComposeCommand } from '../compose.js';
+import { DEFAULT_COMPOSE_FILE, resolveDefaultComposeFile } from '../types.js';
 
 describe('buildComposeCommand', () => {
   it('builds docker compose up with defaults', () => {
@@ -65,5 +66,18 @@ describe('buildComposeCommand', () => {
       '-f', '/etc/compose.yml',
       'down',
     ]);
+  });
+
+  it('resolves the default compose file for docker', () => {
+    expect(resolveDefaultComposeFile('docker')).toBe(
+      'docker/compose/docker-compose.yml',
+    );
+    expect(DEFAULT_COMPOSE_FILE).toBe('docker/compose/docker-compose.yml');
+  });
+
+  it('resolves the default compose file for podman', () => {
+    expect(resolveDefaultComposeFile('podman')).toBe(
+      'podman/compose/podman-compose.yml',
+    );
   });
 });

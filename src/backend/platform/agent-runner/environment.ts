@@ -64,6 +64,14 @@ function autonomyDescription(profileId: AgentProfile['autonomyProfile']): string
     : 'Repo-local artifact authoring profile with autonomous read, search, and write operations but without broad shell auto-approval.';
 }
 
+function deriveExternalMcpCopilotHome(
+  externalMcpContext?: ExternalMcpLaunchContext,
+): string | null {
+  return externalMcpContext?.configFilePath
+    ? path.dirname(externalMcpContext.configFilePath)
+    : null;
+}
+
 export function buildAutonomyEnvironment(
   profile: AgentProfile,
   autonomyArgs: CopilotArgs,
@@ -116,7 +124,7 @@ export function buildAutonomyEnvironment(
           selectedServerIds: externalMcpContext.selectedServerIds,
           excludedServerIds: externalMcpContext.excludedServerIds,
           contextFile: externalMcpContext.envExports['EXTERNAL_MCP_CONTEXT_FILE'] ?? null,
-          copilotHome: externalMcpContext.envExports['COPILOT_HOME'] ?? null,
+          copilotHome: deriveExternalMcpCopilotHome(externalMcpContext),
         }
       : undefined;
   const payload = {

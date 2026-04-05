@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolveContainerRuntime } from '../platform-config/resolve.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,7 +31,7 @@ async function isToolAvailable(cmd: string[]): Promise<boolean> {
   }
 }
 
-export async function validateLocalSetup(_repoRoot?: string): Promise<LocalSetupResult> {
+export async function validateLocalSetup(repoRoot?: string): Promise<LocalSetupResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -42,7 +43,15 @@ export async function validateLocalSetup(_repoRoot?: string): Promise<LocalSetup
   }
 
   // Check optional tools
-  const optionalTools = ['docker', 'ruff', 'gh'];
+  const root = repoRoot ?? process.cwd();
+  let runtimeTool: 'docker' | 'podman' | null = null;
+  try {
+    runtimeTool = await resolveContainerRuntime(root);
+  } catch (err: unknown) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  const optionalTools = [runtimeTool, 'ruff', 'gh'].filter((tool): tool is string => tool !== null);
   for (const tool of optionalTools) {
     const available = await isToolAvailable([tool, '--version']);
     if (!available) {

@@ -1,0 +1,45 @@
+name: tasksail
+
+services:
+  repo-context-mcp:
+    image: tasksail/repo-context-mcp:local
+    build:
+      context: ../..
+      dockerfile: podman/repo-context-mcp/Containerfile
+    container_name: repo-context-mcp
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      - REPO_CONTEXT_MCP_HOST=0.0.0.0
+    volumes:
+      - ../../:/workspace:ro
+      - ${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}:${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}:rw
+      - ../../AgentWorkSpace/dropbox:/data/dropbox:rw
+    working_dir: /workspace
+    ports:
+      - "127.0.0.1:8811:8811"
+    userns_mode: keep-id
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:8811/health || exit 1",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - platform
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    stop_grace_period: 15s
+
+networks:
+  platform:
+    name: tasksail-platform
+    driver: bridge

@@ -9,6 +9,7 @@ export type {
 } from './types.js';
 
 export { DEFAULT_COMPOSE_FILE } from './types.js';
+export { resolveDefaultComposeFile } from './types.js';
 
 export { buildComposeCommand, detectComposeCommand, validateComposeConfig } from './compose.js';
 
@@ -23,3 +24,4 @@ export { DockerRuntime } from './docker.js';
 export { PodmanRuntime } from './podman.js';
 
 export { createRuntime } from './runtime.js';
+export { createRuntimeFromConfig } from './runtime.js';
