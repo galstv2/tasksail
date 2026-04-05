@@ -226,7 +226,7 @@
   background: var(--ts-surface);
   color: var(--ts-text);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   line-height: 1.45;
   min-height: 38px;
   box-sizing: border-box;
@@ -446,7 +446,7 @@
 
 .planner-modal__footer-esc {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   opacity: 0.65;
   margin-right: auto;
@@ -484,7 +484,7 @@
   align-items: center;
   padding: 0.15rem 0.45rem;
   font-family: var(--ts-font-sans);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -585,7 +585,7 @@
   background: transparent;
   color: var(--ts-text-soft);
   font-family: var(--ts-font-sans);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -752,7 +752,7 @@
 
 .sail-away__label {
   font-family: var(--ts-font-sans);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--ts-text-muted);
   letter-spacing: 0.01em;

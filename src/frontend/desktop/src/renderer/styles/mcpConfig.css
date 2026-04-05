@@ -60,7 +60,7 @@
 .mcp-modal__title {
   margin: 0;
   font-family: var(--ts-font-sans);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--ts-text);
   letter-spacing: -0.005em;
@@ -193,7 +193,7 @@
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -296,7 +296,7 @@
 
 .mcp-modal__footer-esc {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   opacity: 0.65;
   margin-right: auto;
@@ -351,7 +351,7 @@
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   font-family: var(--ts-font-sans);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   background: var(--ts-surface-alt);
   color: var(--ts-text);
   transition:
@@ -477,7 +477,7 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   cursor: pointer;
 }
 

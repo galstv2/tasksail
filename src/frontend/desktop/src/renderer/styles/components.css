@@ -108,7 +108,7 @@ select {
   background: var(--ts-surface);
   color: var(--ts-text);
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   font-weight: 500;
   transition: background var(--ts-duration) var(--ts-ease),
               border-color var(--ts-duration) var(--ts-ease),
@@ -195,7 +195,7 @@ select {
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   padding: 0.5rem 0.65rem;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   background: var(--ts-surface);
   color: var(--ts-text);
   resize: vertical;
@@ -374,7 +374,7 @@ select {
 
 .toast__message {
   flex: 1;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
 }
 
 .toast__dismiss {
@@ -604,7 +604,7 @@ select {
 }
 
 .obs-file-row__status {
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   font-weight: 600;
   padding: 0.08rem 0.3rem;
   border-radius: var(--ts-radius-sm);

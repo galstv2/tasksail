@@ -13,10 +13,14 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
   const {
     isOpen,
     file,
+    activeDirectory,
     saving,
     confirmCloseVisible,
+    confirmSaveVisible,
     onEditorChange,
-    onSave,
+    onRequestSave,
+    onConfirmSave,
+    onCancelSave,
     onDiscard,
     onClose,
     onConfirmClose,
@@ -48,6 +52,7 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
   }, [onEditorChange]);
 
   const dirty = file ? isDraftDirty(file) : false;
+  const isTemplate = activeDirectory === 'templates';
   const editorContent = file?.editorContent ?? '';
   const lineCount = useMemo(() => editorContent.split('\n').length, [editorContent]);
 
@@ -82,7 +87,7 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
             type="button"
             className="mcp-modal__btn mcp-modal__btn--primary"
             disabled={!dirty || saving}
-            onClick={() => void onSave()}
+            onClick={onRequestSave}
           >
             {saving ? 'Saving\u2026' : <>Save <span className="instructions-editor__kbd">{SAVE_HINT}</span></>}
           </button>
@@ -120,6 +125,38 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
         autoFocusCancel
         onCancel={onCancelClose}
         onConfirm={onConfirmClose}
+      />
+
+      <ConfirmOverlay
+        visible={confirmSaveVisible}
+        icon={isTemplate
+          ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ background: 'color-mix(in srgb, var(--ts-danger) 12%, transparent)', borderRadius: '50%', padding: 6 }}>
+              <path d="M12 2L2 22h20L12 2z" stroke="var(--ts-danger)" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+              <path d="M12 10v4" stroke="var(--ts-danger)" strokeWidth="1.8" strokeLinecap="round" />
+              <circle cx="12" cy="17.5" r="1" fill="var(--ts-danger)" />
+            </svg>
+          : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ background: 'color-mix(in srgb, var(--ts-warning) 12%, transparent)', borderRadius: '50%', padding: 6 }}>
+              <path d="M12 2L2 22h20L12 2z" stroke="var(--ts-warning)" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+              <path d="M12 10v4" stroke="var(--ts-warning)" strokeWidth="1.8" strokeLinecap="round" />
+              <circle cx="12" cy="17.5" r="1" fill="var(--ts-warning)" />
+            </svg>
+        }
+        title={isTemplate ? 'Save template file?' : 'Save instruction file?'}
+        body={isTemplate
+          ? <>
+            This is a destructive action and can have adverse impact on this platform and cause things to break.
+            Template <strong>{file.fileName}</strong> is a canonical reference used by agents during task execution.
+          </>
+          : <>
+            This will overwrite <strong>{file.fileName}</strong> on disk.
+            Changes to instruction files affect how agents behave in future runs.
+          </>}
+        cancelLabel="Cancel"
+        confirmLabel={isTemplate ? 'Save Anyway' : 'Save'}
+        confirmVariant={isTemplate ? 'danger' : 'primary'}
+        autoFocusCancel
+        onCancel={onCancelSave}
+        onConfirm={() => void onConfirmSave()}
       />
     </ModalShell>
   );

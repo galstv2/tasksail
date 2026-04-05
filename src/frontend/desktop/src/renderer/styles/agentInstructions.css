@@ -165,7 +165,7 @@
 
 .instructions-browser__dirty-indicator {
   font-family: var(--ts-font-mono);
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   font-weight: 500;
   color: var(--ts-accent);
   background: var(--ts-accent-tint);
@@ -192,7 +192,7 @@
 
 .instructions-browser__file-count {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   margin-left: auto;
   padding: 0.1rem 0.4rem;
@@ -319,7 +319,7 @@
   justify-content: flex-end;
   gap: 0.3rem;
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--terminal-text-muted);
   padding: 0.35rem 0 0;
   letter-spacing: 0.02em;
@@ -350,7 +350,7 @@
   display: inline-block;
   padding: 0.05rem 0.3rem;
   font-family: var(--ts-font-mono);
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   color: var(--terminal-text-muted);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);

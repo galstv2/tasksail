@@ -273,7 +273,7 @@
 
 .context-pack-modal__footer-esc {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   opacity: 0.65;
   margin-right: auto;
@@ -412,7 +412,7 @@
 }
 
 .context-pack-modal__repo-chip__layer {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
 }
 

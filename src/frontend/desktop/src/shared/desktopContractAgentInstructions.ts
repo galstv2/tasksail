@@ -5,7 +5,7 @@ export type InstructionFileEntry = {
   relativePath: string;
 };
 
-export type InstructionDirectory = 'profiles' | 'instructions' | 'prompts';
+export type InstructionDirectory = 'profiles' | 'instructions' | 'prompts' | 'templates';
 
 export type AgentInstructionsListFilesRequest = {
   action: 'agentInstructions.listFiles';

@@ -117,7 +117,7 @@
 .modal-shell__title {
   margin: 0;
   font-family: var(--ts-font-sans);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--ts-text);
   letter-spacing: -0.005em;
@@ -221,7 +221,7 @@
 
 .modal-shell__footer-esc {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   opacity: 0.65;
   margin-right: auto;

@@ -134,7 +134,7 @@
 
 .card-grid__subtitle {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   white-space: nowrap;
   overflow: hidden;
@@ -151,7 +151,7 @@
 
 .card-grid__dirty-dot {
   color: var(--ts-accent);
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   line-height: 1;
   flex-shrink: 0;
   text-shadow: 0 0 4px color-mix(in srgb, var(--ts-accent) 40%, transparent);

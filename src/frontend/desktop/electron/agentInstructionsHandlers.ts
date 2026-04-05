@@ -40,6 +40,7 @@ const DIRECTORY_MAP: Record<InstructionDirectory, string> = {
   profiles: '.github/agents',
   instructions: '.github/copilot/instructions',
   prompts: '.github/copilot/prompts',
+  templates: 'AgentWorkSpace/templates',
 };
 
 /**

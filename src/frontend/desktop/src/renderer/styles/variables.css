@@ -51,10 +51,16 @@
   --ts-text-inverse:     #ffffff;
 
   /* ── Accent — warm brass/amber ──────────────────────────────────────── */
-  --ts-accent:           #c8873a;
-  --ts-accent-hover:     #b5742e;
-  --ts-accent-subtle:    rgba(200, 135, 58, 0.10);
-  --ts-accent-tint:      rgba(200, 135, 58, 0.10);
+  --ts-accent:           #d08b3e;
+  --ts-accent-hover:     #be7a30;
+  --ts-accent-subtle:    rgba(208, 139, 62, 0.10);
+  --ts-accent-tint:      rgba(208, 139, 62, 0.10);
+
+  /* ── Secondary accent — cool teal ─────────────────────────────────── */
+  --ts-accent2:          #2d8a8a;
+  --ts-accent2-hover:    #247474;
+  --ts-accent2-subtle:   rgba(45, 138, 138, 0.10);
+  --ts-accent2-tint:     rgba(45, 138, 138, 0.08);
 
   /* ── Semantic status ─────────────────────────────────────────────────── */
   --ts-success:          #2d9d5a;
@@ -122,6 +128,18 @@
   --ts-btn-md: 32px;
   --ts-btn-lg: 40px;
 
+  /* ── Font sizing floors ────────────────────────────────────────────── */
+  --ts-font-xs:   0.66rem;   /* smallest allowed — badges, counts */
+  --ts-font-sm:   0.7rem;    /* secondary labels, timestamps */
+  --ts-font-base: 0.8rem;    /* body text */
+  --ts-font-md:   0.95rem;   /* section headers, modal titles */
+  --ts-font-lg:   1rem;      /* primary headings */
+
+  /* ── Container padding ────────────────────────────────────────────── */
+  --ts-pad-panel:  1rem;
+  --ts-pad-modal:  0.85rem 1.1rem;
+  --ts-pad-card:   0.75rem 0.85rem;
+
   /* ── Font weights ──────────────────────────────────────────────────── */
   --ts-weight-normal: 400;
   --ts-weight-medium: 500;
@@ -180,10 +198,14 @@
   --ts-text-muted:       #8b949e;
   --ts-text-soft:        #6e7681;
   --ts-text-inverse:     #ffffff;
-  --ts-accent:           #d4954a;
-  --ts-accent-hover:     #e0a55a;
-  --ts-accent-subtle:    rgba(212, 149, 74, 0.12);
-  --ts-accent-tint:      rgba(212, 149, 74, 0.12);
+  --ts-accent:           #dca050;
+  --ts-accent-hover:     #e8b060;
+  --ts-accent-subtle:    rgba(220, 160, 80, 0.12);
+  --ts-accent-tint:      rgba(220, 160, 80, 0.12);
+  --ts-accent2:          #3aadad;
+  --ts-accent2-hover:    #4cc0c0;
+  --ts-accent2-subtle:   rgba(58, 173, 173, 0.12);
+  --ts-accent2-tint:     rgba(58, 173, 173, 0.10);
   --ts-shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.35);
   --ts-shadow-md:  0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
   --ts-shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.35), 0 12px 40px rgba(0, 0, 0, 0.30);

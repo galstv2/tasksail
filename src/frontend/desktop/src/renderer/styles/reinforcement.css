@@ -63,7 +63,7 @@
 .reinforcement-modal__header h2 {
   margin: 0;
   font-family: var(--ts-font-sans);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--ts-text);
   letter-spacing: -0.005em;
@@ -183,14 +183,14 @@
 
 .reinforcement-modal__footer-tab-hint {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   opacity: 0.65;
 }
 
 .reinforcement-modal__footer-esc {
   font-family: var(--ts-font-mono);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
   margin-left: auto;
   opacity: 0.65;
@@ -200,7 +200,7 @@
 
 .feedback-panel__empty {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -308,7 +308,7 @@
   border-radius: var(--ts-radius-sm);
   background: var(--ts-surface-alt);
   color: var(--ts-text);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   font-family: var(--ts-font-sans);
   resize: vertical;
   transition:
@@ -434,7 +434,7 @@
 .overview-panel__empty,
 .overview-panel__loading {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -446,7 +446,7 @@
 
 .overview-panel__source-label {
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
   margin: 0 0 0.6rem;
 }
@@ -504,7 +504,7 @@
 }
 
 .overview-panel__section-title .overview-panel__source-label {
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   font-weight: 400;
   color: var(--ts-text-soft);
   margin-left: 0.5rem;
@@ -550,7 +550,7 @@
 
 .overview-agent-card__multiplier {
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
 }
 
@@ -609,7 +609,7 @@
 
 .ledger-table__source-label {
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
   margin: 0 0 0.45rem;
 }
@@ -617,7 +617,7 @@
 .ledger-table__empty,
 .ledger-table__loading {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -668,7 +668,7 @@
 .realignment-panel__empty,
 .realignment-panel__loading {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -680,7 +680,7 @@
 
 .realignment-panel__source-label {
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
   margin: 0 0 0.45rem;
 }
@@ -745,7 +745,7 @@
 
 .session-list__empty {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -899,14 +899,14 @@
 .document-editor__empty,
 .document-editor__loading {
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
 
 .document-editor__error {
   color: var(--ts-error);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -922,7 +922,7 @@
 
 .document-editor__source-label {
   font-family: var(--ts-font-mono);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
   margin: 0 0 0.85rem;
 }

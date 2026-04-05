@@ -94,7 +94,7 @@
 .agent-config__empty {
   padding: 1.5rem 0;
   color: var(--ts-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
 }
 
 .agent-config__intro {
@@ -174,7 +174,7 @@
 
 .agent-config__agent-name {
   color: var(--ts-text);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 600;
 }
 

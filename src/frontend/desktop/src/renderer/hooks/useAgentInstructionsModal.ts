@@ -20,25 +20,36 @@ export type FileState = {
   loaded: boolean;
 };
 
-export const TAB_ORDER: InstructionsTab[] = ['profiles', 'instructions', 'prompts'];
+export const TAB_ORDER: InstructionsTab[] = ['profiles', 'instructions', 'prompts', 'templates'];
 
 const TAB_LABELS: Record<InstructionsTab, string> = {
   profiles: 'Profiles',
   instructions: 'Instructions',
   prompts: 'Prompts',
+  templates: 'Templates',
 };
 
 const DIRECTORY_LABELS: Record<InstructionsTab, string> = {
   profiles: '.github/agents/',
   instructions: '.github/copilot/instructions/',
   prompts: '.github/copilot/prompts/',
+  templates: 'AgentWorkSpace/templates/',
 };
 
 const EMPTY_FILES: Record<InstructionsTab, InstructionFileEntry[]> = {
   profiles: [],
   instructions: [],
   prompts: [],
+  templates: [],
 };
+
+function resolveDirectoryForPath(relativePath: string | null): InstructionsTab | null {
+  if (!relativePath) return null;
+  for (const tab of TAB_ORDER) {
+    if (relativePath.startsWith(DIRECTORY_LABELS[tab])) return tab;
+  }
+  return null;
+}
 
 export function isDraftDirty(draft: FileState | undefined): boolean {
   if (!draft) return false;
@@ -66,10 +77,14 @@ export type AgentInstructionsBrowserProps = {
 export type AgentInstructionsEditorProps = {
   isOpen: boolean;
   file: FileState | null;
+  activeDirectory: InstructionsTab | null;
   saving: boolean;
   confirmCloseVisible: boolean;
+  confirmSaveVisible: boolean;
   onEditorChange: (content: string) => void;
-  onSave: () => Promise<void>;
+  onRequestSave: () => void;
+  onConfirmSave: () => Promise<void>;
+  onCancelSave: () => void;
   onDiscard: () => void;
   onClose: () => void;
   onConfirmClose: () => void;
@@ -98,6 +113,7 @@ export function useAgentInstructionsModal(
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
+  const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
 
   const loadingRef = useRef(false);
   const draftsByPathRef = useRef(draftsByPath);
@@ -153,6 +169,7 @@ export function useAgentInstructionsModal(
         profiles: [],
         instructions: [],
         prompts: [],
+        templates: [],
       };
 
       for (let i = 0; i < TAB_ORDER.length; i++) {
@@ -185,6 +202,7 @@ export function useAgentInstructionsModal(
     setError(null);
     setSaving(false);
     setConfirmCloseVisible(false);
+    setConfirmSaveVisible(false);
   }, []);
 
   useEffect(() => {
@@ -252,16 +270,30 @@ export function useAgentInstructionsModal(
     [editingRelativePath],
   );
 
-  // ── Save ──────────────────────────────────────────────────────────
+  // ── Save (with confirmation gate) ──────────────────────────────────
 
-  const onSave = useCallback(async () => {
-    if (!editingRelativePath || !editingDraft || !isDraftDirty(editingDraft) || saving) return;
+  const onRequestSave = useCallback(() => {
+    if (!editingRelativePath) return;
+    const draft = draftsByPathRef.current[editingRelativePath];
+    if (!draft || !isDraftDirty(draft) || saving) return;
+    setConfirmSaveVisible(true);
+  }, [editingRelativePath, saving]);
+
+  const onCancelSave = useCallback(() => {
+    setConfirmSaveVisible(false);
+  }, []);
+
+  const onConfirmSave = useCallback(async () => {
+    setConfirmSaveVisible(false);
+    if (!editingRelativePath) return;
+    const draft = draftsByPathRef.current[editingRelativePath];
+    if (!draft || !isDraftDirty(draft) || saving) return;
 
     setSaving(true);
     try {
       const result = await client.writeInstructionFile(
         editingRelativePath,
-        editingDraft.editorContent,
+        draft.editorContent,
       );
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error ?? 'Save failed.', duration: 6000 });
@@ -278,14 +310,14 @@ export function useAgentInstructionsModal(
           },
         };
       });
-      addToast({ severity: 'success', message: `Saved ${editingDraft.fileName}.`, duration: 4000 });
+      addToast({ severity: 'success', message: `Saved ${draft.fileName}.`, duration: 4000 });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       addToast({ severity: 'error', message: `Save failed: ${message}`, duration: 6000 });
     } finally {
       setSaving(false);
     }
-  }, [editingRelativePath, editingDraft, saving, client, addToast]);
+  }, [editingRelativePath, saving, client, addToast]);
 
   // ── Discard ───────────────────────────────────────────────────────
 
@@ -302,12 +334,12 @@ export function useAgentInstructionsModal(
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        void onSave();
+        onRequestSave();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [editingRelativePath, onSave]);
+  }, [editingRelativePath, onRequestSave]);
 
   // ── Assemble props ────────────────────────────────────────────────
 
@@ -323,19 +355,24 @@ export function useAgentInstructionsModal(
   }), [isOpen, isLoading, files, draftsByPath, error, loadingPath, onBrowserClose, onSelectFile]);
 
   const editorIsOpen = editingRelativePath !== null && editingDraft?.loaded === true;
+  const activeDirectory = resolveDirectoryForPath(editingRelativePath);
 
   const editorProps = useMemo<AgentInstructionsEditorProps>(() => ({
     isOpen: editorIsOpen,
     file: editingDraft,
+    activeDirectory,
     saving,
     confirmCloseVisible,
+    confirmSaveVisible,
     onEditorChange,
-    onSave,
+    onRequestSave,
+    onConfirmSave,
+    onCancelSave,
     onDiscard,
     onClose: onEditorClose,
     onConfirmClose,
     onCancelClose,
-  }), [editorIsOpen, editingDraft, saving, confirmCloseVisible, onEditorChange, onSave, onDiscard, onEditorClose, onConfirmClose, onCancelClose]);
+  }), [editorIsOpen, editingDraft, activeDirectory, saving, confirmCloseVisible, confirmSaveVisible, onEditorChange, onRequestSave, onConfirmSave, onCancelSave, onDiscard, onEditorClose, onConfirmClose, onCancelClose]);
 
   return { browserProps, editorProps, openAgentInstructionsModal };
 }
