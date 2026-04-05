@@ -21,8 +21,8 @@ const broker = new PlannerSessionBroker({
   },
 });
 
-export async function startSession(contextPackDir?: string): Promise<{ sessionId: string; created: boolean }> {
-  const focused = contextPackDir ? await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT) : undefined;
+export async function startSession(contextPackDir: string): Promise<{ sessionId: string; created: boolean }> {
+  const focused = await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
   const allowedRoots = dedupeRoots([...getPlanningAgentAllowedRoots(), ...(focused?.visibleRepoRoots ?? [])]);
   const workingDirectory = focused?.primaryRepoRoot ?? undefined;
   const result = broker.startSession({ contextPackDir, allowedRoots, workingDirectory });

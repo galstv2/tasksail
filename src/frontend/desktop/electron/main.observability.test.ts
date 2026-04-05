@@ -38,6 +38,28 @@ const ipcMainMock = {
   handle: vi.fn(),
 };
 
+vi.mock('../../../backend/platform/context-pack/focusedRepo.js', () => ({
+  resolveFocusedRepoRoot: vi.fn(async () => ({
+    primaryRepoId: 'test-repo',
+    primaryRepoRoot: '/repos/test-repo',
+    primaryFocusRelativePath: null,
+    visibleRepoRoots: ['/repos/test-repo'],
+    declaredRepoRoots: ['/repos/test-repo'],
+    selectedRepoIds: ['test-repo'],
+    selectedFocusIds: [],
+    estateType: 'distributed-platform',
+    authoritySource: 'manifest-primary',
+  })),
+}));
+
+vi.mock('./main.staging', () => ({
+  initializeStagedPlanningDraft: vi.fn(async () => undefined),
+  clearStagingArtifacts: vi.fn(async () => undefined),
+  readOwnedStagedDraft: vi.fn(async () => ({ draft: null, error: null, metadata: null })),
+  readStagedDraft: vi.fn(async () => ({ draft: null, error: null })),
+  derivePlannerDraftTitle: vi.fn(() => 'test-repo'),
+}));
+
 vi.mock('electron', () => ({
   app: appMock,
   BrowserWindow: BrowserWindowMock,
@@ -64,7 +86,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const plannerSession = await import('./plannerSession');
 
     plannerSession.endSession();
-    const { sessionId } = await plannerSession.startSession();
+    const { sessionId } = await plannerSession.startSession('/contextpacks/test');
 
     const receiptFs = {
       access: vi.fn(async () => undefined),

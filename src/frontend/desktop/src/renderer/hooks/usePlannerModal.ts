@@ -60,7 +60,7 @@ export function usePlannerModal(
         setSessionStatus('active');
       })
       .catch(() => setSessionStatus('failed'));
-  }, [client]);
+  }, [client, activeContextPackDir]);
   const openPlannerModal = useCallback(() => {
     if (!hasActiveContextPack) {
       return;

@@ -1,19 +1,19 @@
 import path from 'node:path';
 import { readTextFile } from '../core/index.js';
 import {
+  listSliceFiles as listWorkflowPolicySliceFiles,
+  parseArtifactMetadata,
+  parseSections,
+  resolveSemanticSection,
+} from '../workflow-policy/artifacts.js';
+import { normalizeAgentId, normalizeText, stripHtmlComments } from '../workflow-policy/matching.js';
+import {
   ALLOWED_DIFFICULTY_LEVELS,
   CONTENT_SECTION_EXCLUSIONS,
   ISSUES_MD_REQUIRED_FINDING_SECTIONS,
   ISSUES_MD_ROUTING_AGENT_SECTIONS,
-  listSliceFiles as listWorkflowPolicySliceFiles,
-  normalizeAgentId,
-  normalizeText,
-  parseArtifactMetadata,
-  parseSections,
-  resolveSemanticSection,
   SLICE_REQUIRED_SECTION_SPECS,
-  stripHtmlComments,
-} from '../workflow-policy/index.js';
+} from '../workflow-policy/models.js';
 
 const FINAL_SUMMARY_REQUIRED_CONTENT_SECTIONS = [
   'Completed Work',

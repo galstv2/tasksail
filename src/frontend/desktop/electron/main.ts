@@ -23,6 +23,7 @@ import {
   readQueueStatusSnapshot as readQueueStatusSnapshotImpl,
 } from './repoObservability';
 import * as plannerSession from './plannerSession';
+import { repairTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 import { REPO_ROOT, DESKTOP_ROOT } from './paths';
 import { toRepoRelativePath, parseStderrErrorCode } from './main.textUtils';
 import {
@@ -480,7 +481,13 @@ async function withQueueMutationLock<T>(
 const defaultDesktopActionHandlers: DesktopActionHandlers = {
   submitDraft: submitDraftViaDropboxHelper,
   submitFollowUp: submitFollowUpViaHelper,
-  startPlannerSession: (payload) => plannerSession.startSession(payload?.contextPackDir),
+  startPlannerSession: (payload) => {
+    const contextPackDir = payload?.contextPackDir;
+    if (!contextPackDir) {
+      return Promise.reject(new Error('Planner session requires an active context pack.'));
+    }
+    return plannerSession.startSession(contextPackDir);
+  },
   sendPlannerMessage: (text) => plannerSession.sendMessage(text),
   endPlannerSession: () => plannerSession.endSession(),
   savePlannerDraft: () => plannerSession.saveDraft(),
@@ -1396,8 +1403,7 @@ export function registerAppLifecycle(): void {
 
     // Rebuild the task registry from filesystem state on startup (fire-and-forget).
     // This handles first run, corruption recovery, and manual file placement.
-    void import('../../../backend/platform/queue/taskRegistry.js')
-      .then((m) => m.repairTaskRegistry(REPO_ROOT))
+    void repairTaskRegistry(REPO_ROOT)
       .catch(() => { /* best-effort — board falls back to directory scanning */ });
 
     // Auto-start backend MCP services (non-blocking).

@@ -7,11 +7,8 @@ import { listSliceFiles } from '../artifactCompletion.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
-import {
-  parseSections,
-  resolveSemanticSection,
-  SLICE_REQUIRED_SECTION_SPECS,
-} from '../../workflow-policy/index.js';
+import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
+import { SLICE_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
 
 export interface TestCaptureResult {
   command: string;

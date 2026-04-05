@@ -8,6 +8,7 @@
   "productName": "TaskSail",
   "main": "dist-electron/main.js",
   "scripts": {
+    "predev": "cd ../../.. && npx tsx src/backend/platform/container/cli.ts bootstrap",
     "dev": "vite",
     "build": "vite build",
     "validate:desktop": "npm test && npm run lint && npm run build",

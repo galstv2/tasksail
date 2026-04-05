@@ -68,8 +68,8 @@ describe('plannerSession staging bootstrap', () => {
     clearStagingArtifacts.mockResolvedValue(undefined);
 
     const plannerSession = await import('./plannerSession');
-    await expect(plannerSession.startSession()).resolves.toEqual({ sessionId: 'planner-101', created: true });
-    await expect(plannerSession.startSession()).resolves.toEqual({ sessionId: 'planner-101', created: false });
+    await expect(plannerSession.startSession('/contextpacks/test')).resolves.toEqual({ sessionId: 'planner-101', created: true });
+    await expect(plannerSession.startSession('/contextpacks/test')).resolves.toEqual({ sessionId: 'planner-101', created: false });
 
     expect(initializeStagedPlanningDraft).toHaveBeenCalledTimes(1);
     expect(clearStagingArtifacts).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe('plannerSession staging bootstrap', () => {
     clearStagingArtifacts.mockResolvedValue(undefined);
 
     const plannerSession = await import('./plannerSession');
-    await plannerSession.startSession();
+    await plannerSession.startSession('/contextpacks/test');
 
     await plannerSession.endSession();
 
