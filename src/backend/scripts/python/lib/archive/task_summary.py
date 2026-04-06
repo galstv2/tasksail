@@ -38,6 +38,7 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     _add_text_section(lines, "Rollout Notes", payload.get("rollout_notes"))
     _add_list_section(lines, "Files Changed", payload.get("touched_files"))
     _add_list_section(lines, "Follow-Up Items", payload.get("followup_refs"))
+    _add_text_section(lines, "QA Advisory Finding", payload.get("advisory_finding"))
 
     return "\n".join(lines)
 

@@ -1,9 +1,8 @@
 import { readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
-import { formatSliceSections } from './sequencer.js';
+import { formatSliceSections, runTestCaptureWithPhaseTracking } from './sequencer.js';
 import {
-  captureSliceValidation,
   buildTestCapturePrompt,
   resolveTestCaptureCwd,
 } from './testCapture.js';
@@ -260,14 +259,17 @@ export async function remediationRunQaLoop(options: {
       repoRoot: paths.repoRoot,
       contextPackDir: effectiveContextPackDir,
     });
-    const captureResults = captureCwd
-      ? await captureSliceValidation(paths.implementationSteps, captureCwd, options.abortSignal)
-      : [];
-    if (!captureCwd) {
+    const capture = await runTestCaptureWithPhaseTracking({
+      repoRoot: paths.repoRoot,
+      implementationStepsDir: paths.implementationSteps,
+      captureCwd,
+      abortSignal: options.abortSignal,
+    });
+    if (capture.skipped) {
       console.warn('[remediation] target repo resolution failed; skipping orchestrator test capture.');
     }
     const ronPromptOverride = buildTestCapturePrompt(
-      captureResults,
+      capture.results,
       options.primaryFocusRelativePath,
       options.externalMcpRegistry,
     );

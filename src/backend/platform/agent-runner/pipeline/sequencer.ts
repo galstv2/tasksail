@@ -257,7 +257,7 @@ async function writePipelineReceipt(
   );
 }
 
-async function writePipelinePhase(
+export async function writePipelinePhase(
   repoRoot: string,
   phase: string,
 ): Promise<void> {
@@ -266,6 +266,27 @@ async function writePipelinePhase(
     phaseFile,
     JSON.stringify({ phase, timestamp: nowIsoCompact() }) + '\n',
   );
+}
+
+/**
+ * Run test capture with pipeline phase tracking.
+ * Emits `test-capture-started`/`completed` when a CWD is available,
+ * or `test-capture-skipped` when it is not.
+ */
+export async function runTestCaptureWithPhaseTracking(options: {
+  repoRoot: string;
+  implementationStepsDir: string;
+  captureCwd: string | null | undefined;
+  abortSignal?: AbortSignal;
+}): Promise<{ results: TestCaptureResult[]; skipped: boolean }> {
+  if (options.captureCwd) {
+    await writePipelinePhase(options.repoRoot, 'test-capture-started');
+    const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal);
+    await writePipelinePhase(options.repoRoot, 'test-capture-completed');
+    return { results, skipped: false };
+  }
+  await writePipelinePhase(options.repoRoot, 'test-capture-skipped');
+  return { results: [], skipped: true };
 }
 
 async function handlePipelineFailure(
@@ -479,16 +500,17 @@ export async function runPipelineSequence(
             agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
           }
         }
-        if (testCaptureCwd) {
-          await writePipelinePhase(paths.repoRoot, 'test-capture-started');
-          const results = await captureSliceValidation(paths.implementationSteps, testCaptureCwd, abortController.signal);
-          await writePipelinePhase(paths.repoRoot, 'test-capture-completed');
-          return results;
+        const capture = await runTestCaptureWithPhaseTracking({
+          repoRoot: paths.repoRoot,
+          implementationStepsDir: paths.implementationSteps,
+          captureCwd: testCaptureCwd,
+          abortSignal: abortController.signal,
+        });
+        if (capture.skipped) {
+          console.warn('[pipeline] target repo resolution failed; skipping test capture.');
+          testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
         }
-        await writePipelinePhase(paths.repoRoot, 'test-capture-skipped');
-        console.warn('[pipeline] target repo resolution failed; skipping test capture.');
-        testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
-        return [];
+        return capture.results;
       };
 
       for (let index = 0; index < agentOrder.length; index++) {

@@ -91,9 +91,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return '# Errors\n';
-        }
         if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n';
         }
@@ -126,9 +123,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return '# Errors\n';
-        }
         if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: TASK-1\n- Task Title: Recover task\n';
         }
@@ -197,9 +191,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return '# Errors\n';
-        }
         if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
@@ -271,9 +262,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return '# Errors\n';
-        }
         if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
@@ -374,9 +362,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return '# Errors\n';
-        }
         if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
@@ -451,10 +436,6 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       readFile: vi.fn(async (path: string) => {
         if (path.endsWith('professional-task.md')) {
           return '   \n';
-        }
-
-        if (path.endsWith('errors.md')) {
-          return '# Errors\n';
         }
 
         return '';

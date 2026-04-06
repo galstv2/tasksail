@@ -117,29 +117,6 @@ async function readPendingQueueItems(
   return items;
 }
 
-function hasSubstantiveErrorsContent(content: string | null): boolean {
-  if (!content) {
-    return false;
-  }
-
-  return content
-    .split(/\r?\n/g)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .some((line) => {
-      if (/^#+\s+/.test(line)) {
-        return false;
-      }
-
-      const metadataMatch = line.match(/^-\s+[^:]+:\s*(.*)$/);
-      if (metadataMatch) {
-        return (metadataMatch[1] ?? '').trim().length > 0;
-      }
-
-      return true;
-    });
-}
-
 function asJsonObject(value: unknown): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : null;
 }
@@ -938,13 +915,8 @@ async function buildTaskLifecycleFeed(args: {
 function inferLifecycleState(args: {
   dropboxCount: number;
   pendingCount: number;
-  blockedObserved: boolean;
   hasCurrentTaskContext: boolean;
 }): LifecycleState {
-  if (args.blockedObserved) {
-    return 'blocked';
-  }
-
   if (args.pendingCount > 0) {
     return 'active';
   }
@@ -1062,7 +1034,6 @@ export async function readObservabilitySnapshot(
     dropboxCount,
     pendingCount,
     professionalTask,
-    errorsFile,
     activeItemRaw,
     rawAgentTerminalSessions,
     guardrails,
@@ -1073,7 +1044,6 @@ export async function readObservabilitySnapshot(
       countMarkdownFiles(DROPBOX_DIR, fsAdapter),
       countMarkdownFiles(PENDING_DIR, fsAdapter),
       readMarkdownFileIfPresent(join(HANDOFFS_DIR, 'professional-task.md'), fsAdapter),
-      readMarkdownFileIfPresent(join(HANDOFFS_DIR, 'errors.md'), fsAdapter),
       readMarkdownFileIfPresent(ACTIVE_ITEM_PATH, fsAdapter),
       readRoleAgentTerminalSessions(fsAdapter),
       readGuardrailObservations(fsAdapter),
@@ -1092,7 +1062,6 @@ export async function readObservabilitySnapshot(
     fsAdapter,
     activeItem,
   );
-  const blockedObserved = hasSubstantiveErrorsContent(errorsFile);
   const activeTaskId = extractMetadataValue(professionalTask, 'Task ID');
   const activeTaskTitle = extractMetadataValue(professionalTask, 'Task Title');
   const operatorStatus = inferOperatorStatus({
@@ -1105,7 +1074,6 @@ export async function readObservabilitySnapshot(
   const currentState = inferLifecycleState({
     dropboxCount,
     pendingCount,
-    blockedObserved,
     hasCurrentTaskContext: Boolean(activeTaskId || activeTaskTitle),
   });
 
@@ -1123,13 +1091,6 @@ export async function readObservabilitySnapshot(
         pendingCount > 0 || activeTaskId
           ? `Active workflow context is visible in AgentWorkSpace/pendingitems/ or AgentWorkSpace/handoffs metadata for ${activeTaskId || 'the current task'}.`
           : 'No active AgentWorkSpace/pendingitems/ artifact is currently visible.',
-    },
-    {
-      state: 'blocked',
-      observed: blockedObserved,
-      detail: blockedObserved
-        ? 'AgentWorkSpace/handoffs/errors.md contains workflow error or blocker details.'
-        : 'No blocker artifact is currently surfaced in AgentWorkSpace/handoffs/errors.md.',
     },
   ];
 

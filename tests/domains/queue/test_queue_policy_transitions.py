@@ -596,7 +596,6 @@ Run local checks.
             "implementation-spec.md",
             "parallel-ok.md",
             "tests.md",
-            "errors.md",
             "issues.md",
             "retrospective-input.md",
             "final-summary.md",

@@ -99,7 +99,6 @@ export function installAppTestHarness(): void {
           lifecycle: [
             { state: 'queued', observed: true, detail: '2 markdown task(s) currently waiting in AgentWorkSpace/dropbox/.' },
             { state: 'active', observed: true, detail: 'Active workflow context is visible in AgentWorkSpace/pendingitems/ or AgentWorkSpace/handoffs metadata for CAP-CUSTOM-TERMINAL-04.' },
-            { state: 'blocked', observed: false, detail: 'No blocker artifact is currently surfaced in AgentWorkSpace/handoffs/errors.md.' },
           ],
           artifactReferences: [
             {

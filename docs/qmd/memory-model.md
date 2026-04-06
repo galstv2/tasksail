@@ -401,7 +401,6 @@ Recommended archive sources:
 - `AgentWorkSpace/handoffs/implementation-spec.md` for the standard path
 - `AgentWorkSpace/ImplementationSteps/sliceN.md`
 - `AgentWorkSpace/handoffs/tests.md`
-- `AgentWorkSpace/handoffs/errors.md`
 - `AgentWorkSpace/handoffs/issues.md`
 - `AgentWorkSpace/handoffs/final-summary.md`
 

@@ -252,11 +252,7 @@ class MvpGreenLightTests(unittest.TestCase):
         self.assertIn("Task Kind: standard", professional_task)
         self.assertEqual(_read_task_id(self.workspace), self.task_id)
 
-        for artifact in [
-            "AgentWorkSpace/handoffs/issues.md",
-            "AgentWorkSpace/handoffs/errors.md",
-        ]:
-            _strip_html_comments(self.workspace, artifact)
+        _strip_html_comments(self.workspace, "AgentWorkSpace/handoffs/issues.md")
 
     def test_02_product_manager_writes_artifacts(self) -> None:
         write_product_manager_artifacts(

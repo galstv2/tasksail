@@ -131,6 +131,7 @@ def build_archive_payload(
     difficulty_level = strip_html_comments(difficulty_metadata.get("Difficulty Level", "")).strip()
     inherited_parent_context = _normalize_archive_text(final_sections.get("Inherited Parent Context", []))
     child_task_outcome_delta = _normalize_archive_text(final_sections.get("Child-Task Outcome Delta", []))
+    advisory_finding = _normalize_archive_text(final_sections.get("QA Advisory Finding", []))
     business_goal = _normalize_archive_text(professional_sections.get("Business Goal", []))
     raw_request = _normalize_archive_text(professional_sections.get("Raw Request", []))
     implementation_summary = completed_work or child_task_outcome_delta
@@ -262,5 +263,6 @@ def build_archive_payload(
         "summary": compact_text(implementation_summary or raw_request or task_title, max_length=320),
         "confidence": "medium",
         "difficulty_level": difficulty_level,
+        "advisory_finding": compact_text(advisory_finding, max_length=420),
     }
     return payload, record_path, parent_record_path

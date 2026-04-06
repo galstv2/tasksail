@@ -75,10 +75,6 @@ describe('electron main bootstrap — environment and observability', () => {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-06\n- Task Title: Observe queue artifacts\n';
         }
 
-        if (path.endsWith('errors.md')) {
-          return '# Errors\n';
-        }
-
         return '# Summary\n';
       }),
       readdir: vi.fn(async (path: string) => {
@@ -159,10 +155,6 @@ describe('electron main bootstrap — environment and observability', () => {
           return '# Professional Task\n\n- Task ID:\n- Task Title:\n';
         }
 
-        if (path.endsWith('errors.md')) {
-          return '# Errors\n';
-        }
-
         return '# Summary\n';
       }),
       readdir: vi.fn(async (path: string) => {
@@ -224,78 +216,8 @@ describe('electron main bootstrap — environment and observability', () => {
     );
   });
 
-  it('derives idle and blocked observability states from missing or populated artifacts', async () => {
+  it('derives idle observability state from missing artifacts', async () => {
     const { readObservabilitySnapshot, readQueueStatusSnapshot } = await import('./main');
-
-    const blockedFs = {
-      access: vi.fn(async () => undefined),
-      readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('errors.md')) {
-          return '# Errors\n\nBlocker is active.\n';
-        }
-
-        return '# Placeholder\n';
-      }),
-      readdir: vi.fn(async () => []),
-    };
-
-    await expect(readObservabilitySnapshot(blockedFs)).resolves.toEqual(
-      expect.objectContaining({
-        currentState: 'blocked',
-        lifecycle: expect.arrayContaining([
-          expect.objectContaining({ state: 'blocked', observed: true }),
-        ]),
-        agentTerminalSessions: [],
-      }),
-    );
-
-    const scaffoldFs = {
-      access: vi.fn(async () => undefined),
-      readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/errors.md')) {
-          return [
-            '# Errors',
-            '',
-            '## Task Metadata',
-            '',
-            '- Task ID:',
-            '- Task Title:',
-            '- Initialized At (UTC):',
-            '- Active Branch:',
-            '- Intake Source:',
-            '',
-            '## Failing Scenario',
-            '',
-            '## Reproduction Steps',
-            '',
-            '## Output or Stack Trace',
-            '',
-            '## Likely Owner',
-            '',
-            '## Remediation Owner Agent ID',
-            '',
-            '## Severity',
-            '',
-            '## Return-To Agent ID',
-            '',
-            '## Notes',
-            '',
-          ].join('\n');
-        }
-
-        return '# Placeholder\n';
-      }),
-      readdir: vi.fn(async () => []),
-    };
-
-    await expect(readObservabilitySnapshot(scaffoldFs)).resolves.toEqual(
-      expect.objectContaining({
-        currentState: 'idle',
-        lifecycle: expect.arrayContaining([
-          expect.objectContaining({ state: 'blocked', observed: false }),
-        ]),
-      }),
-    );
 
     const idleFs = {
       access: vi.fn(async () => {

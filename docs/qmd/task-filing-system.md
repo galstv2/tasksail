@@ -24,7 +24,7 @@ Create a QMD task archive record when:
 - the Documentation role completes `AgentWorkSpace/handoffs/final-summary.md`
 - the workflow team completes `AgentWorkSpace/handoffs/retrospective-input.md`
 - SDET results are recorded in `AgentWorkSpace/handoffs/tests.md`
-- any open `AgentWorkSpace/handoffs/errors.md` or `AgentWorkSpace/handoffs/issues.md` entries for the task are either resolved or explicitly carried forward
+- any open `AgentWorkSpace/handoffs/issues.md` entries for the task are either resolved or explicitly carried forward
 
 ## Source Artifacts
 
@@ -35,7 +35,6 @@ Each filed task record should be derived from these artifacts when available:
 - `AgentWorkSpace/ImplementationSteps/sliceN.md`
 - `AgentWorkSpace/handoffs/parallel-ok.md`
 - `AgentWorkSpace/handoffs/tests.md`
-- `AgentWorkSpace/handoffs/errors.md`
 - `AgentWorkSpace/handoffs/issues.md`
 - `AgentWorkSpace/handoffs/final-summary.md`
 - `AgentWorkSpace/handoffs/retrospective-input.md`
