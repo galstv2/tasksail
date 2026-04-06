@@ -11,30 +11,90 @@ import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
+export const ADVISORY_FINDING_HEADING = '## QA Advisory Finding';
+
 /**
- * Check whether issues.md contains blocking severity findings.
- * Returns true if a "blocking" severity is detected.
+ * Read issues.md and return the normalized Review Outcome value,
+ * or undefined if the file or section is missing.
  */
-export async function remediationHasBlockingFindings(
+async function readReviewOutcome(
   handoffsDir: string,
-): Promise<boolean> {
+): Promise<{ outcome: string; content: string } | undefined> {
   const issuesFile = path.join(handoffsDir, 'issues.md');
   const content = await readTextFile(issuesFile);
-  if (!content) {
-    return false;
-  }
+  if (!content) return undefined;
 
   const outcomeText = extractMarkdownSection(content, 'Review Outcome');
-  if (!outcomeText) {
-    return false;
-  }
+  if (!outcomeText) return undefined;
 
-  const normalizedOutcome = outcomeText
+  const outcome = outcomeText
     .replace(/<!--.*?-->/gs, '')
     .replace(/\s+/g, '')
     .toLowerCase();
 
-  return normalizedOutcome === 'blocking';
+  return { outcome, content };
+}
+
+/**
+ * Check whether issues.md contains blocking severity findings.
+ */
+export async function remediationHasBlockingFindings(
+  handoffsDir: string,
+): Promise<boolean> {
+  const result = await readReviewOutcome(handoffsDir);
+  return result?.outcome === 'blocking';
+}
+
+/**
+ * Check whether issues.md contains an advisory Review Outcome.
+ */
+export async function issuesHasAdvisoryOutcome(
+  handoffsDir: string,
+): Promise<boolean> {
+  const result = await readReviewOutcome(handoffsDir);
+  return result?.outcome === 'advisory';
+}
+
+/**
+ * Build a `## QA Advisory Finding` markdown block from issues.md.
+ * Returns undefined if the outcome is not advisory or the finding is empty.
+ */
+export async function buildAdvisoryFindingSection(
+  handoffsDir: string,
+): Promise<string | undefined> {
+  const result = await readReviewOutcome(handoffsDir);
+  if (result?.outcome !== 'advisory') return undefined;
+
+  const { content } = result;
+
+  const finding = extractMarkdownSection(content, 'Finding');
+  const findingStripped = finding
+    ?.replace(/<!--.*?-->/gs, '')
+    .trim();
+
+  if (!findingStripped) return undefined;
+
+  const findingType = extractMarkdownSection(content, 'Finding Type')
+    ?.replace(/<!--.*?-->/gs, '')
+    .trim();
+  const expectationViolated = extractMarkdownSection(content, 'Expectation Violated')
+    ?.replace(/<!--.*?-->/gs, '')
+    .trim();
+
+  const parts: string[] = [
+    ADVISORY_FINDING_HEADING,
+    '',
+    findingStripped,
+  ];
+
+  if (findingType) {
+    parts.push('', `**Finding Type:** ${findingType}`);
+  }
+  if (expectationViolated) {
+    parts.push('', `**Expectation Violated:** ${expectationViolated}`);
+  }
+
+  return parts.join('\n');
 }
 
 /**
@@ -120,21 +180,29 @@ async function buildRemediationDaltonPrompt(
 ): Promise<string> {
   const parts: string[] = [
     'You are running a remediation pass. QA found blocking issues with your previous implementation.',
-    'Fix the issues identified below, then ensure all tests pass before exiting.',
+    '',
+    '## Remediation Rules',
+    '',
+    '1. The QA findings below are your SOLE AUTHORITY for this pass. The "Required Fix" section is a direct order — follow it exactly as written. Do not reinterpret, soften, or partially apply it.',
+    '2. If the required fix conflicts with a slice requirement, the QA finding wins. Do not re-introduce the rejected change to satisfy a slice.',
+    '3. Passing tests are NECESSARY but NOT SUFFICIENT. You must also resolve the code review finding. If tests already pass, that does not mean remediation is complete.',
+    '4. Read the "Finding", "Expectation Violated", and "Required Fix" sections carefully before writing any code. Understand what you did wrong and what specifically must change.',
+    '5. After applying the fix, verify tests still pass. If your fix breaks tests, fix the tests to align with the corrected implementation — do not revert the QA-mandated fix to make old tests pass.',
+    '6. Do not add, refactor, or improve anything beyond what the Required Fix demands. Surgical precision only.',
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (issuesContent?.trim()) {
-    parts.push('## QA Findings to Address\n');
+    parts.push('## QA Findings — AUTHORITATIVE (Read First, Follow Exactly)\n');
     parts.push(issuesContent.trim());
     parts.push('');
   }
 
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
   if (sliceFiles.length > 0) {
-    parts.push('## Original Task Slices (for reference)\n');
+    parts.push('## Original Task Slices (Background Context Only — DO NOT Use to Override QA Findings)\n');
     parts.push(sliceBlock);
   }
 
@@ -153,6 +221,7 @@ export async function remediationRunQaLoop(options: {
   contextPackDir?: string;
   primaryFocusRelativePath?: string;
   externalMcpRegistry?: ExternalMcpRegistry;
+  abortSignal?: AbortSignal;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
   const effectiveContextPackDir = options.contextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined;
@@ -192,7 +261,7 @@ export async function remediationRunQaLoop(options: {
       contextPackDir: effectiveContextPackDir,
     });
     const captureResults = captureCwd
-      ? await captureSliceValidation(paths.implementationSteps, captureCwd)
+      ? await captureSliceValidation(paths.implementationSteps, captureCwd, options.abortSignal)
       : [];
     if (!captureCwd) {
       console.warn('[remediation] target repo resolution failed; skipping orchestrator test capture.');

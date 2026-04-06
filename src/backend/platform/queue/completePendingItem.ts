@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { findRepoRoot } from '../core/index.js';
+import { findRepoRoot, readTextFile, writeTextFile } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
 import { fileTaskArchive } from './archive.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
+import { buildAdvisoryFindingSection, ADVISORY_FINDING_HEADING } from '../agent-runner/pipeline/remediation.js';
 import { commitTaskSnapshot } from './errorItems.js';
 import { transitionTask } from './taskRegistry.js';
 
@@ -45,6 +46,16 @@ export async function completePendingItem(
       handoffsDir: queuePaths.handoffsDir,
       contextPackDir,
     });
+
+    const advisorySection = await buildAdvisoryFindingSection(queuePaths.handoffsDir);
+    if (advisorySection) {
+      const finalSummaryPath = path.join(queuePaths.handoffsDir, 'final-summary.md');
+      const currentContent = await readTextFile(finalSummaryPath);
+      if (currentContent && !currentContent.includes(ADVISORY_FINDING_HEADING)) {
+        await writeTextFile(finalSummaryPath, currentContent.trimEnd() + '\n\n' + advisorySection + '\n');
+      }
+    }
+
     const archiveResult = await fileTaskArchive({ contextPackDir, repoRoot });
     if (!archiveResult.passed) {
       const details = [archiveResult.stdout, archiveResult.stderr]

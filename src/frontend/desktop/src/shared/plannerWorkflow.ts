@@ -10,6 +10,16 @@ const DRAFT_WRITE_CAUTION =
   'Do NOT edit the staged draft in AgentWorkSpace/dropbox/.staging/ yet. ' +
   'Wait until I confirm that all required editable sections are satisfied before saving.';
 
+/**
+ * Wraps the operator's first message in a fresh planner session with the
+ * draft-write caution so Lily does not write to staging prematurely.
+ * Child-task and markdown-review flows inject their own caution via
+ * dedicated builders — this covers the regular fresh-session path.
+ */
+export function wrapFreshSessionMessage(operatorText: string): string {
+  return `${DRAFT_WRITE_CAUTION}\n\n${operatorText}`;
+}
+
 export const PLANNER_SAVE_DRAFT_WORKFLOW = {
   operatorMessage: '[Operator] Please save the current spec draft now.',
   prompt:

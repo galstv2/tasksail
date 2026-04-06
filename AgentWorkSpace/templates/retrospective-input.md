@@ -19,10 +19,10 @@
 - Follow-Up Reason:
 
 ## Retrospective Summary
-<!-- ALWAYS REQUIRED — (1-4 sentences) -->
+<!-- ALWAYS REQUIRED — (1-5 sentences) -->
 
 ## Meeting Context
-<!-- what does this retrospective cover? - (populate when Retrospective Required is "true"; leave empty when "false") 1-2 sentences) -->
+<!-- what does this retrospective cover? - (populate when Retrospective Required is "true"; leave empty when "false") 1-5 sentences) -->
 
 ## What Went Well
 <!-- what went well? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-5 sentences) -->
@@ -34,16 +34,16 @@
 <!-- any action items? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-5 bullets) -->
 
 ## Lily's Contribution (Planning Specialist)
-<!-- what did Lily do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-2 sentences) -->
+<!-- what did Lily do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-3 sentences) -->
 
 ## Alice's Contribution (Product Manager)
-<!-- what did Alice do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-2 sentences) -->
+<!-- what did Alice do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-3 sentences) -->
 
 ## Dalton's Contribution (Software Engineer)
-<!-- what did Dalton do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-2 sentences) -->
+<!-- what did Dalton do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-3 sentences) -->
 
 ## Ron's Contribution (QA and Closeout)
-<!-- what did Ron do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-2 sentences) -->
+<!-- what did Ron do? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-3 sentences) -->
 
 ## Reusable Team Learnings
 <!-- what did you learn? - (populate when Retrospective Required is "true"; leave empty when "false") - (1-5 bullets) -->

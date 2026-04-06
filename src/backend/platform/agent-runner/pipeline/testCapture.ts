@@ -48,7 +48,8 @@ export async function resolveTestCaptureCwd(options: {
   return resolveTestCaptureCwdFromFocused(focused);
 }
 
-const DEFAULT_COMMAND_TIMEOUT_MS = 120_000; // 2 minutes per command
+const DEFAULT_COMMAND_TIMEOUT_MS = 90_000; // 90 seconds per command
+const MAX_TOTAL_CAPTURE_MS = 300_000; // 5 minutes total budget
 const MAX_OUTPUT_LINES = 200;
 /** Cap in-flight accumulation to prevent OOM from verbose commands. */
 const MAX_CAPTURE_BYTES = 512 * 1024; // 512 KB
@@ -87,22 +88,38 @@ export function extractValidationCommands(sliceContent: string): string[] {
 }
 
 /**
+ * Kill the entire process group (sh + children). Falls back to direct
+ * child kill if the group is already dead.
+ */
+function killProcessGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-child.pid!, signal);
+  } catch {
+    try { child.kill(signal); } catch { /* already dead */ }
+  }
+}
+
+/**
  * Run a single command and capture its output.
  */
 async function runSingleCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<TestCaptureResult> {
   return new Promise<TestCaptureResult>((resolve) => {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
 
     const child = spawn('sh', ['-c', command], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     });
+    child.unref();
 
     child.stdout.on('data', (data: Buffer) => {
       if (stdout.length < MAX_CAPTURE_BYTES) stdout += data.toString();
@@ -112,27 +129,47 @@ async function runSingleCommand(
     });
 
     let killEscalation: ReturnType<typeof setTimeout> | undefined;
+
+    const killWithEscalation = (): void => {
+      killProcessGroup(child, 'SIGTERM');
+      killEscalation = setTimeout(() => killProcessGroup(child, 'SIGKILL'), 5_000);
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      killEscalation = setTimeout(() => child.kill('SIGKILL'), 5_000);
+      killWithEscalation();
     }, timeoutMs);
 
-    child.on('close', (code) => {
+    const onAbort = (): void => {
+      aborted = true;
+      killWithEscalation();
+    };
+    if (signal && !signal.aborted) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    } else if (signal?.aborted) {
+      aborted = true;
+      killWithEscalation();
+    }
+
+    const cleanup = (): void => {
       clearTimeout(timer);
       if (killEscalation) clearTimeout(killEscalation);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    child.on('close', (code) => {
+      cleanup();
       resolve({
         command,
         exitCode: code ?? 1,
         stdout: truncateOutput(stdout),
         stderr: truncateOutput(stderr),
-        timedOut,
+        timedOut: timedOut || aborted,
       });
     });
 
     child.on('error', (err) => {
-      clearTimeout(timer);
-      if (killEscalation) clearTimeout(killEscalation);
+      cleanup();
       resolve({
         command,
         exitCode: 1,
@@ -153,22 +190,42 @@ function truncateOutput(output: string): string {
 
 /**
  * Run multiple validation commands and capture all results.
+ * Enforces a total time budget across all commands.
  */
 export async function runTestCapture(
   commands: string[],
   cwd: string,
   timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<TestCaptureResult[]> {
   const uniqueCommands = [...new Set(commands)];
+  const budgetStart = Date.now();
 
   // Run sequentially to avoid resource contention
   const results: TestCaptureResult[] = [];
-  for (const command of uniqueCommands) {
+  for (let i = 0; i < uniqueCommands.length; i++) {
+    if (signal?.aborted) break;
+
+    const elapsed = Date.now() - budgetStart;
+    const remaining = MAX_TOTAL_CAPTURE_MS - elapsed;
+    if (remaining <= 0) {
+      const skipped = uniqueCommands.length - i;
+      results.push({
+        command: `(${skipped} remaining command${skipped > 1 ? 's' : ''} skipped)`,
+        exitCode: 0,
+        stdout: '',
+        stderr: `Remaining ${skipped} command${skipped > 1 ? 's' : ''} skipped — capture time budget exhausted (${MAX_TOTAL_CAPTURE_MS / 1000}s).`,
+        timedOut: true,
+      });
+      break;
+    }
+
+    const effectiveTimeout = Math.min(timeoutMs, remaining);
     try {
-      results.push(await runSingleCommand(command, cwd, timeoutMs));
+      results.push(await runSingleCommand(uniqueCommands[i], cwd, effectiveTimeout, signal));
     } catch {
       results.push({
-        command,
+        command: uniqueCommands[i],
         exitCode: 1,
         stdout: '',
         stderr: 'Internal capture error — command could not be executed.',
@@ -201,11 +258,12 @@ export async function collectSliceValidationCommands(
 export async function captureSliceValidation(
   implementationStepsDir: string,
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<TestCaptureResult[]> {
   try {
     const allCommands = await collectSliceValidationCommands(implementationStepsDir);
     if (allCommands.length === 0) return [];
-    return await runTestCapture(allCommands, cwd);
+    return await runTestCapture(allCommands, cwd, DEFAULT_COMMAND_TIMEOUT_MS, signal);
   } catch (err) {
     console.warn(
       '[testCapture] captureSliceValidation failed, continuing without test evidence:',
@@ -222,8 +280,9 @@ export function buildTestCapturePrompt(
   results: TestCaptureResult[],
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
+  warning?: string,
 ): string {
-  const evidence = formatTestCaptureForPrompt(results);
+  const evidence = formatTestCaptureForPrompt(results, warning);
   const parts = [
     'Review the code changes and orchestrator test results below.',
     '',
@@ -240,9 +299,10 @@ export function buildTestCapturePrompt(
 /**
  * Format test capture results as markdown.
  */
-function formatTestCaptureForPrompt(results: TestCaptureResult[]): string {
+function formatTestCaptureForPrompt(results: TestCaptureResult[], warning?: string): string {
   if (results.length === 0) {
-    return '## Orchestrator Test Results\n\nNo validation commands were found in the slices.';
+    const message = warning ?? 'No validation commands were found in the slices.';
+    return `## Orchestrator Test Results\n\n${message}`;
   }
 
   const parts: string[] = ['## Orchestrator Test Results\n'];

@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron';
 
 import { resolveFocusedRepoRoot, type FocusedRepoResult } from '../../../backend/platform/context-pack/focusedRepo.js';
 import { DESKTOP_SHELL_PLANNER_EVENT_CHANNEL } from '../src/shared/desktopContract';
-import { PLANNER_SAVE_DRAFT_WORKFLOW } from '../src/shared/plannerWorkflow';
+import { PLANNER_SAVE_DRAFT_WORKFLOW, wrapFreshSessionMessage } from '../src/shared/plannerWorkflow';
 import { REPO_ROOT } from './paths';
 import {
   clearStagingArtifacts,
@@ -21,6 +21,9 @@ const broker = new PlannerSessionBroker({
   },
 });
 
+/** Tracks whether the first operator message has been sent in the current session. */
+let firstMessageSent = false;
+
 export async function startSession(contextPackDir: string): Promise<{ sessionId: string; created: boolean }> {
   const focused = await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
   const allowedRoots = dedupeRoots([...getPlanningAgentAllowedRoots(), ...(focused?.visibleRepoRoots ?? [])]);
@@ -30,6 +33,8 @@ export async function startSession(contextPackDir: string): Promise<{ sessionId:
   if (!result.created) {
     return result;
   }
+
+  firstMessageSent = false;
 
   try {
     await clearStagingArtifacts({ force: true });
@@ -46,7 +51,12 @@ export async function startSession(contextPackDir: string): Promise<{ sessionId:
 }
 
 export async function sendMessage(text: string): Promise<PlannerSendResult> {
-  return broker.sendMessage(text);
+  let message = text;
+  if (!firstMessageSent) {
+    firstMessageSent = true;
+    message = wrapFreshSessionMessage(text);
+  }
+  return broker.sendMessage(message);
 }
 
 export async function endSession(): Promise<void> {

@@ -445,6 +445,7 @@ export async function runPipelineSequence(
       let isFirstAgent = true;
       let skipNextEntryValidation = false;
       let testCaptureResults: TestCaptureResult[] = [];
+      let testCaptureWarning: string | undefined;
       const selectedPrimary = effectiveContextPackDir
         ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
         : undefined;
@@ -480,11 +481,13 @@ export async function runPipelineSequence(
         }
         if (testCaptureCwd) {
           await writePipelinePhase(paths.repoRoot, 'test-capture-started');
-          const results = await captureSliceValidation(paths.implementationSteps, testCaptureCwd);
+          const results = await captureSliceValidation(paths.implementationSteps, testCaptureCwd, abortController.signal);
           await writePipelinePhase(paths.repoRoot, 'test-capture-completed');
           return results;
         }
+        await writePipelinePhase(paths.repoRoot, 'test-capture-skipped');
         console.warn('[pipeline] target repo resolution failed; skipping test capture.');
+        testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
         return [];
       };
 
@@ -567,6 +570,7 @@ export async function runPipelineSequence(
             testCaptureResults,
             primaryFocusRelativePath,
             externalMcpRegistry,
+            testCaptureWarning,
           );
         }
 
@@ -598,6 +602,7 @@ export async function runPipelineSequence(
               contextPackDir: effectiveContextPackDir,
               primaryFocusRelativePath,
               externalMcpRegistry,
+              abortSignal: abortController.signal,
             });
           }
         }
