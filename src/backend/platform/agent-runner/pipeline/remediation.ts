@@ -176,6 +176,7 @@ export async function remediationRunQaLoop(options: {
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: remediationPrompt,
+        launchPhase: 'Remediation',
       });
     } catch (cause) {
       throw new Error(
@@ -208,6 +209,7 @@ export async function remediationRunQaLoop(options: {
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: ronPromptOverride,
+        launchPhase: 'Revalidation',
       });
     } catch (cause) {
       if (priorFindings) {

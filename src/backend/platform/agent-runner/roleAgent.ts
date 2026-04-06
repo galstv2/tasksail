@@ -586,6 +586,7 @@ export async function runRoleAgent(
   // agent context. Dalton also gets selected-primary confinement enforcement.
   const usesFocusedRepoLaunch = profile.autonomyProfile === 'repo-executor';
   const usesFocusedRepoContext = options.agentId === 'lily';
+  const needsFocusedRepoVisibility = profile.autonomyProfile === 'qa-executor';
   const enforcesSelectedPrimaryBoundary =
     profile.autonomyProfile === 'repo-executor' && options.agentId === 'dalton';
   let agentCwd = paths.repoRoot;
@@ -605,7 +606,7 @@ export async function runRoleAgent(
           options.contextPackDir,
           paths.repoRoot,
         )
-      : usesFocusedRepoLaunch || usesFocusedRepoContext
+      : usesFocusedRepoLaunch || usesFocusedRepoContext || needsFocusedRepoVisibility
         ? await resolveFocusedRepoRoot(
             options.contextPackDir,
             paths.repoRoot,
@@ -670,7 +671,7 @@ export async function runRoleAgent(
     skipAgentFlag
       ? [globalInstructions?.trim(), agentProfileContent?.trim(), instructionContent?.trim(), prompt].filter(Boolean).join('\n\n---\n\n')
       : prompt;
-  const runPromptOverrideSession = async (overridePrompt: string) => {
+  const runPromptOverrideSession = async (overridePrompt: string, overrideLaunchPhase?: string) => {
     const effectivePrompt = inlineAgentContext(overridePrompt);
     const overrideArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', effectivePrompt];
     const overridePromptAudit = buildPromptAudit({
@@ -689,6 +690,7 @@ export async function runRoleAgent(
       abortSignal: options.abortSignal,
       session: {
         ...sessionInfo,
+        ...(overrideLaunchPhase != null ? { launchPhase: overrideLaunchPhase } : {}),
         promptAudit: overridePromptAudit,
       },
     });
@@ -1157,7 +1159,7 @@ export async function runRoleAgent(
         artifactPrompt,
         policyFailureDetails,
       });
-      const cleanupSession = await runPromptOverrideSession(cleanupPrompt);
+      const cleanupSession = await runPromptOverrideSession(cleanupPrompt, 'Artifact Cleanup');
       runSummary = cleanupSession.session.runSummary;
       resetArtifactCompletionCache();
       if (runSummary.exitCode !== 0) {
@@ -1247,7 +1249,7 @@ export async function runRoleAgent(
       const cleanupSession = await runPromptOverrideSession(buildArtifactCleanupPrompt({
         agentId: options.agentId,
         artifactPrompt,
-      }));
+      }), 'Artifact Cleanup');
       runSummary = cleanupSession.session.runSummary;
       resetArtifactCompletionCache();
       if (runSummary.exitCode !== 0) {
@@ -1333,7 +1335,7 @@ export async function runRoleAgent(
           `Workflow policy check failed for next agent "${nextAgentId}" after agent "${options.agentId}" completed, but no concrete incomplete ${incompleteArtifactOwnerLabel(options.agentId)} artifacts were detected: ${nextFailureDetails}`,
         );
       }
-      const remediationSession = await runPromptOverrideSession(remediationPrompt);
+      const remediationSession = await runPromptOverrideSession(remediationPrompt, 'Policy Remediation');
       runSummary = remediationSession.session.runSummary;
       resetArtifactCompletionCache();
       if (runSummary.exitCode !== 0) {

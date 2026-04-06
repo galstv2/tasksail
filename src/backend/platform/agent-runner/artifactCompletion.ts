@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { readTextFile } from '../core/index.js';
+import { remediationHasBlockingFindings } from './pipeline/remediation.js';
 import {
   listSliceFiles as listWorkflowPolicySliceFiles,
   parseArtifactMetadata,
@@ -269,20 +270,30 @@ export async function checkAgentArtifactCompletion(options: {
     return true;
   }
 
-  const loaded = new Map<string, WorkspaceArtifact>();
-  for (const relativePath of required) {
-    const artifact = await loadWorkspaceArtifact(rootDir, relativePath);
-    loaded.set(relativePath, artifact);
-    if (!artifact.exists || !hasRealContent(artifact)) {
+  // For QA, check if issues.md has a blocking outcome first. When blocking,
+  // only issues.md is required — final-summary.md and retrospective-input.md
+  // must NOT be written (the remediation loop handles next steps).
+  if (agentId === 'qa') {
+    const issues = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/issues.md');
+    if (!issues.exists || !hasRealContent(issues)) {
       return false;
     }
-  }
-
-  if (agentId === 'qa') {
     if (!await qaIssuesStructured(rootDir)) {
       return false;
     }
-    const finalSummary = loaded.get('AgentWorkSpace/handoffs/final-summary.md')!;
+    if (await remediationHasBlockingFindings(path.join(rootDir, 'AgentWorkSpace', 'handoffs'))) {
+      return true;
+    }
+
+    // Non-blocking outcome — all closeout artifacts are required.
+    const finalSummary = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/final-summary.md');
+    if (!finalSummary.exists || !hasRealContent(finalSummary)) {
+      return false;
+    }
+    const retro = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/retrospective-input.md');
+    if (!retro.exists || !hasRealContent(retro)) {
+      return false;
+    }
     const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
     if (owner !== 'qa') {
       return false;
@@ -294,6 +305,16 @@ export async function checkAgentArtifactCompletion(options: {
     }
     const difficultyLevel = finalSummaryDifficultyLevel(finalSummary);
     if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
+      return false;
+    }
+    return true;
+  }
+
+  const loaded = new Map<string, WorkspaceArtifact>();
+  for (const relativePath of required) {
+    const artifact = await loadWorkspaceArtifact(rootDir, relativePath);
+    loaded.set(relativePath, artifact);
+    if (!artifact.exists || !hasRealContent(artifact)) {
       return false;
     }
   }

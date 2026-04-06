@@ -281,6 +281,27 @@ export function startRuntimeStreamWatcher(
     }
   };
 
+  const checkPipelinePhase = async (): Promise<void> => {
+    if (stopped) return;
+    try {
+      const currentPhase = await readPipelinePhase();
+      if (currentPhase && currentPhase !== previousPipelinePhase) {
+        const phaseEvent = PIPELINE_PHASE_MESSAGES[currentPhase];
+        if (phaseEvent) {
+          emitStreamEvent({
+            message: phaseEvent.message,
+            source: 'runtime.pipeline',
+            role: 'system',
+            severity: phaseEvent.severity,
+          });
+        }
+        previousPipelinePhase = currentPhase;
+      }
+    } catch {
+      // Best effort — phase file may not exist.
+    }
+  };
+
   const ensureWatchers = async (): Promise<void> => {
     for (const target of WATCH_TARGETS) {
       if (activeWatchers.has(target) || !(await pathExists(target, fsAdapter))) {
@@ -298,6 +319,23 @@ export function startRuntimeStreamWatcher(
         activeWatchers.set(target, watcher);
       } catch {
         // Best effort: runtime folders may not exist yet or may not be watchable.
+      }
+    }
+
+    // Watch the pipeline phase file separately with no debounce so
+    // test-capture and other phase transitions appear immediately.
+    if (!activeWatchers.has(PIPELINE_PHASE_FILE)) {
+      try {
+        if (await pathExists(RUNTIME_DIR, fsAdapter)) {
+          const phaseWatcher = watchFactory(RUNTIME_DIR, { persistent: false }, (_eventType, filename) => {
+            if (filename === 'pipeline-phase.json') {
+              void checkPipelinePhase();
+            }
+          });
+          activeWatchers.set(PIPELINE_PHASE_FILE, phaseWatcher);
+        }
+      } catch {
+        // Best effort.
       }
     }
   };
@@ -329,20 +367,6 @@ export function startRuntimeStreamWatcher(
       }
 
       previousSnapshot = runtimeSnapshot;
-
-      const currentPhase = await readPipelinePhase();
-      if (currentPhase && currentPhase !== previousPipelinePhase) {
-        const phaseEvent = PIPELINE_PHASE_MESSAGES[currentPhase];
-        if (phaseEvent) {
-          emitStreamEvent({
-            message: phaseEvent.message,
-            source: 'runtime.pipeline',
-            role: 'system',
-            severity: phaseEvent.severity,
-          });
-        }
-      }
-      previousPipelinePhase = currentPhase;
     } catch (err) {
       if (getNodeErrorCode(err) !== 'ENOENT') {
         console.warn('[runtimeStream] refresh failed:', err instanceof Error ? err.message : err);

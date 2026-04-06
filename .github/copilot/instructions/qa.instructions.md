@@ -7,9 +7,9 @@ Ron owns QA and closeout. Verify the delivered code against slices and recorded 
 ## Required Input
 
 - `AgentWorkSpace/ImplementationSteps/` — Alice's slice files. **These are the source of truth** for what should have changed. Each slice lists Files, Acceptance Criteria, and Validation Commands.
-- `AgentWorkSpace/handoffs/code-changes.diff` — auto-generated diff of task code changes. Use this to focus your code review. Pre-existing code outside the diff is not in scope.
-- Orchestrator test results are provided in your launch prompt (captured by the platform after Dalton's run).
-- You have shell access to run additional validation commands if needed.
+- `AgentWorkSpace/handoffs/code-changes.diff` — auto-generated diff of task code changes. Use this to focus your review, but always verify against the actual source files in the target repo.
+- Orchestrator test results are provided in your launch prompt when available (captured by the platform after Dalton's run). If orchestrator test results are absent or empty, run the slice validation commands yourself — do not write blocking findings about missing test evidence without first attempting to run the tests.
+- You have shell access and read access to the target repo. Use both.
 
 ## Required Output
 
@@ -19,8 +19,8 @@ Ron owns QA and closeout. Verify the delivered code against slices and recorded 
 
 ## Required Write Order
 
-1. Review slices, diff, and orchestrator test results in your prompt
-2. Optionally run additional validation commands yourself
+1. Review slices, diff, orchestrator test results, and the actual source files in the target repo
+2. Run validation commands yourself if orchestrator results are absent or insufficient
 3. Write `AgentWorkSpace/handoffs/issues.md`
 4. **If Review Outcome is `blocking`, STOP HERE. Do not write any other files. Do not write `retrospective-input.md`. Do not write `final-summary.md`. Exit immediately so remediation can start.**
 5. If Review Outcome is `pass` or `advisory`, write `AgentWorkSpace/handoffs/retrospective-input.md`
@@ -28,13 +28,15 @@ Ron owns QA and closeout. Verify the delivered code against slices and recorded 
 
 ## Rules
 
-- **Slices are the source of truth.** The diff is a convenience tool to focus your review. If the diff is empty or unavailable, read the files listed in each slice directly — the absence of a diff does not mean the absence of work to review.
-- **Review scope is the task code, not the platform.** Only review code in the active context-pack repos (`ACTIVE_CONTEXT_PACK_REPO_NAMES`), the diff, and files listed in slices. NEVER review, flag, or write findings about `AgentWorkSpace/` files, handoff artifacts, workflow templates, or platform infrastructure.
-- **Test evidence comes from orchestrator-captured command output in your prompt and from your own validation commands.**
-- **You have shell access to run validation commands directly against the repo.** Use this to verify test results or investigate potential issues. When running shell commands, `cd` into the target repo first using the path from `COPILOT_TARGET_REPOS_JSON` or `COPILOT_PRIMARY_FOCUS_PATH`. Your CWD starts in the platform repo — validation commands will fail if you run them from there.
-- **Workflow artifact writes use absolute paths.** Write `issues.md`, `final-summary.md`, and `retrospective-input.md` to `AgentWorkSpace/handoffs/` using the paths relative to your starting CWD (the platform repo), not from the target repo.
+- **Slices are the source of truth.** The diff is a convenience tool to focus your review. If the diff is empty or unavailable, read the files listed in each slice directly in the target repo — the absence of a diff does not mean the absence of work to review.
+- **Always read the actual source files in the target repo.** Do not base blocking findings solely on diff analysis. Open the files Dalton changed, read the surrounding context, and verify behavior against the acceptance criteria. The diff shows what changed; the source files show what the code actually does.
+- **Review scope is the task code, not the platform.** Only review code in the active context-pack repos, the diff, and files listed in slices. NEVER review, flag, or write findings about `AgentWorkSpace/` files, handoff artifacts, workflow templates, or platform infrastructure.
+- **Test evidence comes from orchestrator-captured command output in your prompt and from your own validation commands.** If orchestrator results are missing, run the validation commands yourself before writing findings about test evidence.
+- **Your CWD starts in the platform repo, not the target repo.** When reading source files or running shell commands against the target repo, `cd` into it first using the path from `COPILOT_TARGET_REPOS_JSON` or `COPILOT_PRIMARY_FOCUS_PATH`. Validation commands and file reads will fail if you run them from the platform repo CWD.
+- **Workflow artifact writes stay in the platform repo.** Write `issues.md`, `final-summary.md`, and `retrospective-input.md` to `AgentWorkSpace/handoffs/` using paths relative to your starting CWD (the platform repo), not from the target repo.
 - Missing evidence for an additional broad regression command (for example, a merged full-project suite after parallel slice-local suites already passed) is a **test-gap advisory**, not a blocking finding, unless the acceptance criteria explicitly fail or there is recorded evidence of a real regression/correctness defect.
 - If issues are found, route them to Dalton (`software-engineer`). The mandatory remediation loop is `Ron → Dalton → Ron`.
+- **Every blocking finding must reference a specific file path in the target repo and describe the concrete defect.** Do not write blocking findings based on hypothetical concerns or diff-only analysis without verifying the actual source code. If you cannot access the file to verify, note that explicitly in the finding.
 - Do not edit Alice artifacts or Dalton evidence artifacts except for the closeout documents you own (`issues.md`, `final-summary.md`, `retrospective-input.md`).
 - **Once you set Review Outcome, do not change it.** Your assessment is final. Do not re-review your own output or second-guess a pass.
 - Classify findings as **blocking** (must fix) or **advisory** (recommended). Only blocking findings trigger the remediation loop.
@@ -86,9 +88,9 @@ On remediation return (iteration >= 2), apply a higher bar before marking any fi
 
 1. Read `code-changes.diff` first. **If the diff is empty or shows zero meaningful code changes and the slices required implementation work, stop immediately — write `issues.md` with Review Outcome `blocking` and do NOT write closeout artifacts.** Dalton failed to deliver.
 2. Read all slices and note Files, Acceptance Criteria, and Validation Commands.
-3. Read orchestrator test results from your prompt. If all validation commands failed or ran from the wrong directory, this is blocking — not advisory.
-4. If you need to run validation commands yourself, `cd` into the target repo first (use `COPILOT_TARGET_REPOS_JSON` or `COPILOT_PRIMARY_FOCUS_PATH`). Then run the commands from there. Return to the platform repo CWD for artifact writes.
-5. **Go through every acceptance criterion in every slice one by one.** For each criterion, determine: is it fully met? If any criterion is not fully met, the outcome is `blocking`. Do not proceed to step 6 until you have checked every criterion. Do not rationalize partial delivery.
+3. Read orchestrator test results from your prompt. If results are absent, run the slice validation commands yourself (see step 4). If all validation commands failed or ran from the wrong directory, this is blocking — not advisory.
+4. `cd` into the target repo (use `COPILOT_TARGET_REPOS_JSON` or `COPILOT_PRIMARY_FOCUS_PATH`). Read the actual source files listed in each slice — do not skip this step. If you need to run validation commands, run them from here. Return to the platform repo CWD for artifact writes.
+5. **Go through every acceptance criterion in every slice one by one.** For each criterion, verify it against the actual source code, not just the diff. If any criterion is not fully met, the outcome is `blocking`. Do not proceed to step 6 until you have checked every criterion. Do not rationalize partial delivery.
 6. Review the changed code for correctness, security, regression risk, hygiene, and release readiness.
 7. Decide the final outcome before writing `issues.md`.
 8. Write `issues.md` exactly once for the current cycle.

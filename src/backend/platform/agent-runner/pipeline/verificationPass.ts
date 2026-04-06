@@ -1,4 +1,3 @@
-import { readImplSpec } from './sequencer.js';
 import { collectSliceValidationCommands } from './testCapture.js';
 import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
@@ -7,74 +6,84 @@ import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 /**
  * Build the prompt for the verification Dalton pass.
  *
- * Verification Dalton assumes the previous engineer made mistakes and
- * validates everything from scratch: build, test, acceptance criteria.
- * He receives the implementation spec AND the slice validation commands
- * so he has concrete steps to execute.
+ * Verification Dalton is an adversarial code-quality reviewer. He receives
+ * NO task context — no implementation spec, no slice acceptance criteria,
+ * no task description. He reviews the code like a senior engineer doing a
+ * blind PR review: build it, test it, read it, and flag anything that isn't
+ * clean, correct, or trustworthy.
+ *
+ * Acceptance-criteria verification is Ron's job, not verification Dalton's.
  */
 export function buildVerificationDaltonPrompt(
-  implSpecContent: string,
   validationCommands: string[],
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
   const parts: string[] = [
-    'You are running a verification pass. Another engineer just completed implementation',
-    'work in this repository. Do NOT trust their work. Assume they made mistakes.',
+    'You are running a code quality verification pass. Another engineer just',
+    'completed work in this repository. Do NOT trust their work. Assume they',
+    'cut corners.',
+    '',
+    'You have NO context about what the task was. You do not need it. Review',
+    'the code the same way you would review a PR from an untrusted contributor:',
+    'build it, test it, read it, and judge it on its own merits.',
     '',
     '## Your Mandatory Steps (in this exact order)',
     '',
-    '1. **Build the project first.** Run the build command. If it fails, fix the build errors before doing anything else.',
-    '2. **Run every test.** Run the full test suite. If tests fail, fix them.',
+    '1. **Build the project.** Run the build command. If it fails, fix the build errors.',
+    '2. **Run the full test suite.** If any tests fail, fix them.',
     '3. **Run every validation command listed below.** If any command fails, fix the issue.',
-    '4. **Review the code against the implementation spec.** Check that every acceptance criterion is actually met — not just that the file exists, but that the logic is correct and complete.',
-    '5. **Verify endpoints and runtime behavior** if the spec requires a running service. Start it, hit the endpoints, confirm they respond correctly.',
-    '6. **Fix everything you find.** Do not just report issues — fix them.',
+    '4. **Read the changed code.** Browse the recently modified files. For each file:',
+    '   - Is the code clean, readable, and well-structured?',
+    '   - Are variable and function names clear and consistent with the codebase?',
+    '   - Is error handling present and correct?',
+    '   - Is there dead code, duplication, or unnecessary complexity?',
+    '   - Do the tests actually test what their names claim? A test called',
+    '     "rejects invalid input" must actually test invalid input, not a happy path.',
+    '   - Are there obvious bugs — off-by-one errors, unclosed resources, missing',
+    '     null checks, race conditions?',
+    '5. **Fix broken builds, failing tests, and obvious bugs.** These are objective',
+    '   problems — fix them directly.',
+    '6. **Do NOT fix style preferences or refactor working code.** If the code works,',
+    '   tests pass, and there are no bugs, leave it alone. Quality observations that',
+    '   are not bugs should not be acted on — QA will review them separately.',
     '',
-    'Do NOT skip any step. Do NOT assume anything works until you have personally run it and seen it succeed.',
-    'Do NOT exit until the build passes, all tests pass, and all validation commands succeed.',
+    'Do NOT skip any step. Do NOT assume anything works until you have personally',
+    'run it and seen it succeed. Do NOT exit until the build passes and all tests',
+    'and validation commands succeed.',
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (validationCommands.length > 0) {
-    parts.push('## Acceptance and Validation\n');
-    parts.push('### Validation Commands\n');
+    parts.push('## Validation Commands\n');
+    parts.push('Run each of these and confirm they pass:\n');
     parts.push('```');
     parts.push(validationCommands.join('\n'));
     parts.push('```');
     parts.push('');
   }
 
-  if (implSpecContent.trim()) {
-    parts.push('## Implementation Spec\n');
-    parts.push(implSpecContent.trim());
-  }
-
   return parts.join('\n');
 }
 
 /**
- * Read the implementation spec and slice validation commands, then build
- * the verification prompt. Returns undefined if the implementation spec
- * is missing or empty.
+ * Collect slice validation commands and build the verification prompt.
+ * Returns undefined if no validation commands are found (nothing to verify).
  */
 export async function resolveVerificationDaltonPrompt(
-  handoffsDir: string,
+  _handoffsDir: string,
   implStepsDir: string,
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string | undefined> {
-  const [content, commands] = await Promise.all([
-    readImplSpec(handoffsDir),
-    collectSliceValidationCommands(implStepsDir).catch(() => [] as string[]),
-  ]);
-  if (!content?.trim()) {
+  const commands = await collectSliceValidationCommands(implStepsDir)
+    .catch(() => [] as string[]);
+  if (commands.length === 0) {
     return undefined;
   }
   return buildVerificationDaltonPrompt(
-    content,
     commands,
     primaryFocusRelativePath,
     externalMcpRegistry,

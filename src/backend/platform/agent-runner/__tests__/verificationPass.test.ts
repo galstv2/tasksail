@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
-const readImplSpec = vi.fn();
 const collectSliceValidationCommands = vi.fn();
 
 const daltonRegistry: ExternalMcpRegistry = {
@@ -19,10 +18,6 @@ const daltonRegistry: ExternalMcpRegistry = {
   ],
 };
 
-vi.mock('../pipeline/sequencer.js', () => ({
-  readImplSpec,
-}));
-
 vi.mock('../pipeline/testCapture.js', () => ({
   collectSliceValidationCommands,
 }));
@@ -32,11 +27,23 @@ describe('verification Dalton prompts', () => {
     vi.clearAllMocks();
   });
 
-  it('includes the monolith focus block when building a verification prompt with a focus path', async () => {
+  it('builds a quality-focused prompt with no task context', async () => {
+    const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = buildVerificationDaltonPrompt(['pnpm test']);
+
+    expect(prompt).toContain('code quality verification pass');
+    expect(prompt).toContain('Do NOT trust their work');
+    expect(prompt).toContain('You have NO context about what the task was');
+    expect(prompt).toContain('pnpm test');
+    expect(prompt).not.toContain('Implementation Spec');
+    expect(prompt).not.toContain('acceptance criterion');
+  });
+
+  it('includes the monolith focus block when a focus path is provided', async () => {
     const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
 
     const prompt = buildVerificationDaltonPrompt(
-      'Implement the sink endpoint.',
       ['pnpm test'],
       'services/sink',
       daltonRegistry,
@@ -46,26 +53,19 @@ describe('verification Dalton prompts', () => {
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
     expect(prompt).toContain('Primary focus path: `services/sink`');
-    expect(prompt).toContain('Your launch CWD is already this folder.');
-    expect(prompt).toContain('## Acceptance and Validation');
-    expect(prompt).toContain('### Validation Commands');
+    expect(prompt).toContain('## Validation Commands');
   });
 
-  it('preserves no-focus verification behavior when no focus path is provided', async () => {
+  it('preserves no-focus behavior when no focus path is provided', async () => {
     const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
 
-    const prompt = buildVerificationDaltonPrompt(
-      'Implement the sink endpoint.',
-      ['pnpm test'],
-    );
+    const prompt = buildVerificationDaltonPrompt(['pnpm test']);
 
     expect(prompt).not.toContain('## Monolith Focus Scope');
-    expect(prompt).toContain('## Acceptance and Validation');
-    expect(prompt).toContain('### Validation Commands');
+    expect(prompt).toContain('## Validation Commands');
   });
 
-  it('threads the monolith focus path through resolveVerificationDaltonPrompt', async () => {
-    readImplSpec.mockResolvedValue('Implement the sink endpoint.');
+  it('threads the focus path through resolveVerificationDaltonPrompt', async () => {
     collectSliceValidationCommands.mockResolvedValue(['pnpm test']);
 
     const { resolveVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
@@ -77,9 +77,28 @@ describe('verification Dalton prompts', () => {
       daltonRegistry,
     );
 
-    expect(readImplSpec).toHaveBeenCalledWith('/handoffs');
     expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).not.toContain('Implementation Spec');
+  });
+
+  it('returns undefined when no validation commands are found', async () => {
+    collectSliceValidationCommands.mockResolvedValue([]);
+
+    const { resolveVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = await resolveVerificationDaltonPrompt('/handoffs', '/implementation-steps');
+
+    expect(prompt).toBeUndefined();
+  });
+
+  it('instructs Dalton to fix bugs but not style preferences', async () => {
+    const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = buildVerificationDaltonPrompt(['dotnet test']);
+
+    expect(prompt).toContain('Fix broken builds, failing tests, and obvious bugs');
+    expect(prompt).toContain('Do NOT fix style preferences or refactor working code');
   });
 });
