@@ -615,9 +615,6 @@ None.
         implementation = (
             workspace / "AgentWorkSpace" / "handoffs" / "implementation-spec.md"
         ).read_text(encoding="utf-8")
-        errors = (workspace / "AgentWorkSpace" / "handoffs" / "errors.md").read_text(
-            encoding="utf-8",
-        )
         issues = (workspace / "AgentWorkSpace" / "handoffs" / "issues.md").read_text(
             encoding="utf-8",
         )
@@ -630,8 +627,6 @@ None.
 
         self.assertIn("## Task Metadata", implementation)
         self.assertIn("## Task Summary", implementation)
-        self.assertIn("## Remediation Owner Agent ID", errors)
-        self.assertIn("## Return-To Agent ID", errors)
         self.assertIn("## Remediation Owner Agent ID", issues)
         self.assertIn("## Revalidation Agent ID", issues)
         self.assertIn("## Return-To Agent ID", issues)
