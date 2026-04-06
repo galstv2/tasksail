@@ -100,14 +100,14 @@ describe('buildPlannerCopilotInvocation', () => {
     expect(invocation.env.PLANNER_SESSION_ID).toBe('planner-42');
   });
 
-  it('uses the explicit working directory override when provided', () => {
+  it('always uses REPO_ROOT as cwd so Copilot discovers agent definitions', () => {
     const invocation = buildPlannerCopilotInvocation({
       prompt: 'Use an explicit cwd.',
       allowedRoots: ['AgentWorkSpace/dropbox'],
       workingDirectory: '/tmp/planner-cwd',
     });
 
-    expect(invocation.cwd).toBe('/tmp/planner-cwd');
+    expect(invocation.cwd).toBe(REPO_ROOT);
   });
 });
 

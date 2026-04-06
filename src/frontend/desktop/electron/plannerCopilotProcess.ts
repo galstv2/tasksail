@@ -89,19 +89,12 @@ function dedupe(values: string[]): string[] {
 }
 
 function resolvePlannerWorkingDirectory(
-  allowedRoots: string[],
-  workingDirectory?: string,
+  _allowedRoots: string[],
+  _workingDirectory?: string,
 ): string {
-  if (workingDirectory?.trim()) {
-    return workingDirectory;
-  }
-
-  if (allowedRoots.length !== 1) {
-    return REPO_ROOT;
-  }
-
-  const scopedRoot = allowedRoots[0];
-  return isAbsolute(scopedRoot) ? scopedRoot : join(REPO_ROOT, scopedRoot);
+  // CWD must be REPO_ROOT so Copilot discovers .github/agents/planning-agent.md.
+  // External repos are accessible via --add-dir, not via CWD.
+  return REPO_ROOT;
 }
 
 function resolvePlannerAllowedDirsForArgs(allowedRoots: string[]): string[] {
