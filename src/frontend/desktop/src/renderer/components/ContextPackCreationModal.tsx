@@ -1,10 +1,19 @@
 import { useCallback, useEffect } from 'react';
 
-import type { ContextPackCreationModalProps, ContextPackCreationModalStep } from '../contextPackCreationTypes';
+import type {
+  BuildWizardStep,
+  ContextPackCreationModalProps,
+  ContextPackCreationModalStep,
+  PartDraft,
+} from '../contextPackCreationTypes';
 import { classNames } from '../utils/classNames';
 import SetupStep from './creation-steps/SetupStep';
 import ShapeStep from './creation-steps/ShapeStep';
 import ReviewStep from './creation-steps/ReviewStep';
+import {
+  WIZARD_STEPS,
+  isWizardPartConfigured,
+} from './creation-steps/buildWizardConstants';
 
 const STEPS: { key: ContextPackCreationModalStep; label: string }[] = [
   { key: 'setup', label: 'Setup' },
@@ -32,6 +41,38 @@ function CheckIcon(): JSX.Element {
   );
 }
 
+function getPreviousWizardStep(step: BuildWizardStep): BuildWizardStep | null {
+  const index = WIZARD_STEPS.findIndex((candidate) => candidate.key === step);
+  return index > 0 ? WIZARD_STEPS[index - 1]?.key ?? null : null;
+}
+
+function getNextWizardStep(step: BuildWizardStep): BuildWizardStep | null {
+  const index = WIZARD_STEPS.findIndex((candidate) => candidate.key === step);
+  return index >= 0 && index < WIZARD_STEPS.length - 1
+    ? WIZARD_STEPS[index + 1]?.key ?? null
+    : null;
+}
+
+function canContinueWizardStep(
+  step: BuildWizardStep,
+  discoveryRoot: string,
+  estateName: string,
+  wizardParts: PartDraft[],
+): boolean {
+  switch (step) {
+    case 'project-type':
+      return true;
+    case 'location':
+      return Boolean(discoveryRoot.trim());
+    case 'project-name':
+      return Boolean(estateName.trim());
+    case 'build-parts':
+      return wizardParts.some((part) => isWizardPartConfigured(part));
+    default:
+      return false;
+  }
+}
+
 function ContextPackCreationModal({
   isOpen,
   busy,
@@ -56,6 +97,12 @@ function ContextPackCreationModal({
   onRemoveFocusArea,
   onFocusAreaFieldChange,
   onSetPrimaryFocusArea,
+  wizardStep,
+  wizardParts,
+  onWizardStepChange,
+  onWizardAddPart,
+  onWizardUpdatePart,
+  onWizardRemovePart,
   onBack,
   onNext,
   onCreate,
@@ -80,6 +127,29 @@ function ContextPackCreationModal({
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && !busy) onClose();
   };
+
+  const isWizardSetup = step === 'setup' && draft.creationOrigin === 'new' && wizardStep !== undefined;
+  const resolvedWizardParts = wizardParts ?? [];
+  const previousWizardStep = isWizardSetup ? getPreviousWizardStep(wizardStep) : null;
+  const nextWizardStep = isWizardSetup ? getNextWizardStep(wizardStep) : null;
+  const wizardCanContinue = isWizardSetup
+    ? canContinueWizardStep(
+      wizardStep,
+      draft.discoveryRoot,
+      draft.estateName,
+      resolvedWizardParts,
+    )
+    : false;
+  const showBackButton = isWizardSetup ? previousWizardStep !== null : canGoBack;
+  const showCreateButton = !isWizardSetup && !canGoNext;
+  const nextButtonLabel = isWizardSetup
+    ? wizardStep === 'build-parts'
+      ? 'Continue to details →'
+      : 'Continue'
+    : 'Next';
+  const nextButtonTitle = isWizardSetup && wizardStep === 'build-parts' && !wizardCanContinue
+    ? 'Add at least one part with a role and language'
+    : undefined;
 
   return (
     <div className="context-pack-modal__overlay" role="presentation" onClick={handleOverlayClick}>
@@ -140,6 +210,12 @@ function ContextPackCreationModal({
             onChangeMode={onChangeMode}
             onDraftFieldChange={onDraftFieldChange}
             onDiscoverPrefill={onDiscoverPrefill}
+            wizardStep={wizardStep}
+            wizardParts={wizardParts}
+            onWizardStepChange={onWizardStepChange}
+            onWizardAddPart={onWizardAddPart}
+            onWizardUpdatePart={onWizardUpdatePart}
+            onWizardRemovePart={onWizardRemovePart}
           />
         ) : null}
 
@@ -162,24 +238,37 @@ function ContextPackCreationModal({
 
         <div className="action-row context-pack-modal__footer">
           <span className="context-pack-modal__footer-esc">ESC to close</span>
-          {canGoBack ? (
+          {showBackButton ? (
             <button
               type="button"
               className="action-button action-button--secondary"
               disabled={busy}
-              onClick={onBack}
+              onClick={() => {
+                if (isWizardSetup && previousWizardStep && onWizardStepChange) {
+                  onWizardStepChange(previousWizardStep);
+                  return;
+                }
+                onBack();
+              }}
             >
               Back
             </button>
           ) : null}
-          {canGoNext ? (
+          {!showCreateButton ? (
             <button
               type="button"
               className="action-button action-button--primary"
-              disabled={busy}
-              onClick={onNext}
+              disabled={busy || (isWizardSetup && !wizardCanContinue)}
+              title={nextButtonTitle}
+              onClick={() => {
+                if (isWizardSetup && wizardStep !== 'build-parts' && nextWizardStep && onWizardStepChange) {
+                  onWizardStepChange(nextWizardStep);
+                  return;
+                }
+                onNext();
+              }}
             >
-              Next
+              {nextButtonLabel}
             </button>
           ) : (
             <button

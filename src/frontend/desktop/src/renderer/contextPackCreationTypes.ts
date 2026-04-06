@@ -40,6 +40,19 @@ export type FocusAreaEntryDraft = {
   repositoryType: ContextPackRepositoryType;
 };
 
+export type BuildWizardStep = 'project-type' | 'location' | 'project-name' | 'build-parts';
+
+export type PartDraft = {
+  key: string;
+  name: string;
+  role: RepositoryEntryDraft['systemLayer'] | '';
+  language: string;
+  languageIsOther: boolean;
+  location: string;
+  primary: boolean;
+  editing: boolean;
+};
+
 export type ContextPackCreationDraft = {
   contextPackDir: string;
   discoveryRoot: string;
@@ -47,6 +60,7 @@ export type ContextPackCreationDraft = {
   contextPackId: string;
   estateName: string;
   defaultScopeMode: WorkspaceScopeMode;
+  creationOrigin: 'existing' | 'new';
   repositories: RepositoryEntryDraft[];
   focusAreas: FocusAreaEntryDraft[];
 };
@@ -90,6 +104,12 @@ export type ContextPackCreationModalProps = {
     value: string | boolean | number,
   ) => void;
   onSetPrimaryFocusArea: (key: string) => void;
+  wizardStep?: BuildWizardStep;
+  wizardParts?: PartDraft[];
+  onWizardStepChange?: (step: BuildWizardStep) => void;
+  onWizardAddPart?: () => void;
+  onWizardUpdatePart?: (key: string, field: keyof PartDraft, value: string | boolean) => void;
+  onWizardRemovePart?: (key: string) => void;
   onBack: () => void;
   onNext: () => void;
   onCreate: () => void | Promise<void>;

@@ -243,6 +243,80 @@ describe('useContextPackCreation', () => {
     expect(result.current.contextPackCreationModalProps.isOpen).toBe(false);
   });
 
+  it('derives stable new-project metadata and materializes wizard parts on setup → shape', async () => {
+    const { result } = renderCreationHook(createClient(), {
+      defaultContextPackParentDir: '/packs',
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onDraftFieldChange('creationOrigin', 'new');
+      result.current.contextPackCreationModalProps.onDraftFieldChange('discoveryRoot', '/workspace/orders-platform');
+    });
+
+    expect(result.current.contextPackCreationModalProps.draft.estateName).toBe('Orders Platform');
+    expect(result.current.contextPackCreationModalProps.draft.contextPackId).toMatch(/^orders-platform-\d{4}$/);
+    expect(result.current.contextPackCreationModalProps.draft.contextPackDir).toBe(
+      `/packs/${result.current.contextPackCreationModalProps.draft.contextPackId}`,
+    );
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onWizardStepChange?.('build-parts');
+    });
+
+    await waitFor(() => {
+      expect(result.current.contextPackCreationModalProps.wizardParts).toHaveLength(1);
+    });
+
+    const firstPartKey = result.current.contextPackCreationModalProps.wizardParts?.[0]?.key;
+    expect(firstPartKey).toBeTruthy();
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'role', 'backend');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'language', 'python');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(
+        firstPartKey!,
+        'location',
+        '/workspace/orders-platform/orders-api',
+      );
+      result.current.contextPackCreationModalProps.onWizardAddPart?.();
+    });
+
+    const secondPartKey = result.current.contextPackCreationModalProps.wizardParts?.[1]?.key;
+    expect(secondPartKey).toBeTruthy();
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(secondPartKey!, 'name', 'orders-platform');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(secondPartKey!, 'role', 'frontend');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(secondPartKey!, 'language', 'typescript');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(
+        secondPartKey!,
+        'location',
+        '/workspace/orders-platform/orders-web',
+      );
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    expect(result.current.contextPackCreationModalProps.step).toBe('shape');
+    expect(result.current.contextPackCreationModalProps.draft.repositories.map((repository) => repository.repoId)).toEqual([
+      'orders-platform',
+      'orders-platform-2',
+    ]);
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onBack();
+    });
+
+    expect(result.current.contextPackCreationModalProps.step).toBe('setup');
+    expect(result.current.contextPackCreationModalProps.wizardStep).toBe('build-parts');
+  });
+
   it('serializes monolith focus area repository types in the create payload', async () => {
     const client = createClient();
     const { result } = renderCreationHook(client);
@@ -287,6 +361,61 @@ describe('useContextPackCreation', () => {
             expect.objectContaining({
               focusId: 'core',
               repositoryType: 'primary',
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('disables seeding for new-project create payloads', async () => {
+    const client = createClient();
+    const { result } = renderCreationHook(client, {
+      defaultContextPackParentDir: '/packs',
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onDraftFieldChange('creationOrigin', 'new');
+      result.current.contextPackCreationModalProps.onDraftFieldChange('discoveryRoot', '/workspace/orders-platform');
+      result.current.contextPackCreationModalProps.onWizardStepChange?.('build-parts');
+    });
+
+    await waitFor(() => {
+      expect(result.current.contextPackCreationModalProps.wizardParts).toHaveLength(1);
+    });
+
+    const firstPartKey = result.current.contextPackCreationModalProps.wizardParts?.[0]?.key;
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'role', 'backend');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'language', 'python');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(
+        firstPartKey!,
+        'location',
+        '/workspace/orders-platform/orders-api',
+      );
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    await act(async () => {
+      await result.current.contextPackCreationModalProps.onCreate();
+    });
+
+    expect(client.createContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seedOnCreate: false,
+        bootstrapAnswers: expect.objectContaining({
+          repositories: [
+            expect.objectContaining({
+              repoRoot: '/workspace/orders-platform/orders-api',
+              languages: ['python'],
             }),
           ],
         }),

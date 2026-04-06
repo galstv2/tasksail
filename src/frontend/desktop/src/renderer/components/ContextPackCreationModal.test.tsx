@@ -20,6 +20,7 @@ function makeProps(overrides: Partial<ContextPackCreationModalProps> = {}): Cont
       contextPackId: 'pack-1',
       estateName: 'Test Estate',
       defaultScopeMode: 'focused',
+      creationOrigin: 'existing',
       repositories: [],
       focusAreas: [],
     },
@@ -44,6 +45,12 @@ function makeProps(overrides: Partial<ContextPackCreationModalProps> = {}): Cont
     onRemoveFocusArea: vi.fn(),
     onFocusAreaFieldChange: vi.fn(),
     onSetPrimaryFocusArea: vi.fn(),
+    wizardStep: 'project-type',
+    wizardParts: [],
+    onWizardStepChange: vi.fn(),
+    onWizardAddPart: vi.fn(),
+    onWizardUpdatePart: vi.fn(),
+    onWizardRemovePart: vi.fn(),
     onBack: vi.fn(),
     onNext: vi.fn(),
     onCreate: vi.fn(),
@@ -125,5 +132,85 @@ describe('ContextPackCreationModal', () => {
     expect(screen.getByText('Setup')).toBeInTheDocument();
     expect(screen.getByText('Shape')).toBeInTheDocument();
     expect(screen.getByText('Review')).toBeInTheDocument();
+  });
+
+  it('uses wizard back navigation inside setup for new projects', () => {
+    const onWizardStepChange = vi.fn();
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'location',
+          onWizardStepChange,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Back'));
+    expect(onWizardStepChange).toHaveBeenCalledWith('project-type');
+  });
+
+  it('shows continue to details for configured build-parts step', () => {
+    const onNext = vi.fn();
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'build-parts',
+          wizardParts: [
+            {
+              key: 'part-1',
+              name: 'Orders API',
+              role: 'backend',
+              language: 'python',
+              languageIsOther: false,
+              location: '/workspace/orders-api',
+              primary: true,
+              editing: false,
+            },
+          ],
+          onNext,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Continue to details →'));
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it('disables continue to details until a part is configured', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'build-parts',
+          wizardParts: [
+            {
+              key: 'part-1',
+              name: 'Orders API',
+              role: '',
+              language: '',
+              languageIsOther: false,
+              location: '/workspace/orders-api',
+              primary: true,
+              editing: true,
+            },
+          ],
+        })}
+      />,
+    );
+
+    const button = screen.getByText('Continue to details →');
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Add at least one part with a role and language');
   });
 });

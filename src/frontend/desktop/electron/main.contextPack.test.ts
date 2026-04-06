@@ -336,6 +336,158 @@ describe('electron main bootstrap — context pack operations', () => {
     });
   });
 
+  it('skips initial seeding during context-pack creation when seedOnCreate is false', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-create-'));
+    try {
+      const contextPackDir = join(tempRoot, 'context-packs', 'mono-pack');
+      const discoveryRoot = join(tempRoot, 'brand-new-monolith');
+      const bootstrapRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          context_pack_id: 'mono-pack',
+          display_name: 'Mono Pack',
+          discovery_root: discoveryRoot,
+          discovery_mode: 'monolith',
+          estate_type: 'monolith',
+          bootstrap_answers_path: join(contextPackDir, 'qmd/bootstrap/bootstrap-answers.json'),
+          draft_path: join(contextPackDir, 'qmd/bootstrap/discovery-structure.json'),
+          manifest_path: join(contextPackDir, 'qmd/repo-sources.json'),
+          repository_count: 1,
+          focus_target_count: 1,
+          primary_working_repo_ids: [],
+          primary_focus_area_ids: ['core-app'],
+          warnings: [],
+        }),
+        stderr: '',
+      });
+      const planRunner = vi.fn().mockResolvedValue({ stdout: '{}', stderr: '' });
+      const seedRunner = vi.fn();
+
+      const { executeContextPackCreateAction } = await import('./main');
+      const result = await executeContextPackCreateAction(
+        {
+          contextPackDir,
+          discoveryRoot,
+          mode: 'monolith',
+          seedOnCreate: false,
+          bootstrapAnswers: {
+            contextPackId: 'mono-pack',
+            estateName: 'Mono Pack',
+            primaryFocusAreaIds: ['core-app'],
+            repositories: [
+              {
+                repoRoot: discoveryRoot,
+                repoName: 'Brand New Monolith',
+                repoId: 'brand-new-monolith',
+                systemLayer: 'shared',
+              },
+            ],
+            focusableAreas: [
+              {
+                focusId: 'core-app',
+                focusName: 'Core App',
+                relativePath: '.',
+                path: discoveryRoot,
+                focusType: 'service',
+              },
+            ],
+          },
+        },
+        bootstrapRunner,
+        planRunner,
+        seedRunner,
+      );
+
+      expect(result).toEqual({
+        ok: true,
+        response: expect.objectContaining({
+          action: 'contextPack.create',
+          result: expect.objectContaining({
+            contextPackId: 'mono-pack',
+            estateType: 'monolith',
+            seedStatus: 'not-run',
+            primaryFocusAreaIds: ['core-app'],
+          }),
+        }),
+      });
+      expect(bootstrapRunner).toHaveBeenCalledTimes(1);
+      expect(planRunner).toHaveBeenCalledTimes(1);
+      expect(seedRunner).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps existing create flow seeding enabled by default', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-seed-'));
+    try {
+      const contextPackDir = join(tempRoot, 'context-packs', 'orders-estate');
+      const discoveryRoot = join(tempRoot, 'orders-estate-root');
+      const bootstrapRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          context_pack_id: 'orders-estate',
+          display_name: 'Orders Estate',
+          discovery_root: discoveryRoot,
+          discovery_mode: 'distributed',
+          estate_type: 'distributed-platform',
+          bootstrap_answers_path: join(contextPackDir, 'qmd/bootstrap/bootstrap-answers.json'),
+          draft_path: join(contextPackDir, 'qmd/bootstrap/discovery-structure.json'),
+          manifest_path: join(contextPackDir, 'qmd/repo-sources.json'),
+          repository_count: 1,
+          focus_target_count: 1,
+          primary_working_repo_ids: ['orders-api'],
+          primary_focus_area_ids: [],
+          warnings: [],
+        }),
+        stderr: '',
+      });
+      const planRunner = vi.fn().mockResolvedValue({ stdout: '{}', stderr: '' });
+      const seedRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ overall_status: 'success' }),
+        stderr: '',
+      });
+
+      const { executeContextPackCreateAction } = await import('./main');
+      const result = await executeContextPackCreateAction(
+        {
+          contextPackDir,
+          discoveryRoot,
+          mode: 'distributed',
+          bootstrapAnswers: {
+            contextPackId: 'orders-estate',
+            estateName: 'Orders Estate',
+            repositories: [
+              {
+                repoRoot: join(discoveryRoot, 'orders-api'),
+                repoName: 'Orders API',
+                repoId: 'orders-api',
+                systemLayer: 'backend',
+              },
+            ],
+          },
+        },
+        bootstrapRunner,
+        planRunner,
+        seedRunner,
+      );
+
+      expect(result).toEqual({
+        ok: true,
+        response: expect.objectContaining({
+          action: 'contextPack.create',
+          result: expect.objectContaining({
+            contextPackId: 'orders-estate',
+            estateType: 'distributed-platform',
+            seedStatus: 'success',
+            primaryWorkingRepoIds: ['orders-api'],
+          }),
+        }),
+      });
+      expect(seedRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('merges configured context-pack search roots with repo-local defaults', async () => {
     const { resolveContextPackSearchRoots } = await import('./main');
 

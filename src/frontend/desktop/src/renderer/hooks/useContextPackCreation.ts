@@ -1,21 +1,27 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ContextPackCreateExecutionResult } from '../../shared/desktopContract';
 import { isCreateResponse } from '../../shared/desktopContractTypeGuards';
 import type {
+  BuildWizardStep,
   ContextPackCreationDraft,
   ContextPackCreationModalProps,
   ContextPackCreationModalStep,
+  PartDraft,
 } from '../contextPackCreationTypes';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import { formatIpcError, normalizeIpcThrownError, withIpcTimeout, DEFAULT_IPC_TIMEOUT_MS } from '../services/ipcErrorHelpers';
 import {
   INITIAL_DRAFT,
   buildValidationErrors,
+  buildDraftFromWizardParts,
   createInitialDistributedRepositories,
+  directoryName,
+  generateContextPackId,
   normalizeDraftForMode,
   parseCsv,
   slugifyValue,
+  titleizeValue,
 } from './useContextPackDraft';
 import { useContextPackDraft } from './useContextPackDraft';
 import { useContextPackDiscovery, type DiscoveryState } from './useContextPackDiscovery';
@@ -60,10 +66,31 @@ export function useContextPackCreation(
   options: UseContextPackCreationOptions,
 ): { contextPackCreationModalProps: ContextPackCreationModalProps } {
   const [state, setState] = useState<ContextPackCreationState>({ kind: 'closed' });
+  const [wizardStep, setWizardStep] = useState<BuildWizardStep>('project-type');
+  const [wizardParts, setWizardParts] = useState<PartDraft[]>([]);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const creationOriginRef = useRef<ContextPackCreationDraft['creationOrigin'] | null>(null);
+
+  const deriveContextPackDir = useCallback(
+    (discoveryRoot: string, contextPackId: string): string => {
+      const normalizedContextPackId = contextPackId.trim();
+      if (!normalizedContextPackId) {
+        return '';
+      }
+      const parent = options.defaultContextPackParentDir?.trim().replace(/\/+$/, '');
+      if (parent) {
+        return `${parent}/${normalizedContextPackId}`;
+      }
+      const normalizedDiscoveryRoot = discoveryRoot.trim().replace(/\/+$/, '');
+      return normalizedDiscoveryRoot ? `${normalizedDiscoveryRoot}/${normalizedContextPackId}` : '';
+    },
+    [options.defaultContextPackParentDir],
+  );
 
   const openModal = useCallback(() => {
+    setWizardStep('project-type');
+    setWizardParts([]);
     setState({
       kind: 'open',
       step: 'setup',
@@ -95,6 +122,167 @@ export function useContextPackCreation(
   );
 
   const draftHandlers = useContextPackDraft(handleUpdateDraft);
+
+  useEffect(() => {
+    if (state.kind === 'closed') {
+      creationOriginRef.current = null;
+      return;
+    }
+    if (creationOriginRef.current !== state.draft.creationOrigin) {
+      creationOriginRef.current = state.draft.creationOrigin;
+      setWizardStep('project-type');
+      setWizardParts([]);
+    }
+  }, [state.kind, state.kind === 'closed' ? null : state.draft.creationOrigin]);
+
+  useEffect(() => {
+    if (
+      state.kind !== 'open'
+      || state.draft.creationOrigin !== 'new'
+      || wizardStep !== 'build-parts'
+      || wizardParts.length > 0
+    ) {
+      return;
+    }
+
+    const root = state.draft.discoveryRoot;
+    const fallbackName = titleizeValue(directoryName(root));
+    setWizardParts([
+      {
+        key: crypto.randomUUID(),
+        name: state.draft.estateName || fallbackName,
+        role: '',
+        language: '',
+        languageIsOther: false,
+        location: state.draft.mode === 'monolith' ? '.' : root,
+        primary: true,
+        editing: true,
+      },
+    ]);
+  }, [state, wizardParts.length, wizardStep]);
+
+  const handleDraftFieldChange = useCallback(
+    <K extends keyof ContextPackCreationDraft>(field: K, value: ContextPackCreationDraft[K]) => {
+      draftHandlers.updateDraft((draft) => {
+        const next = { ...draft, [field]: value };
+
+        if (field === 'creationOrigin') {
+          if (value === 'new') {
+            const derivedName = next.estateName.trim() || titleizeValue(directoryName(next.discoveryRoot));
+            const derivedContextPackId = next.contextPackId.trim() || generateContextPackId(derivedName);
+            return {
+              ...next,
+              estateName: derivedName,
+              contextPackId: derivedContextPackId,
+              contextPackDir: deriveContextPackDir(next.discoveryRoot, derivedContextPackId),
+            };
+          }
+          return next;
+        }
+
+        if (field === 'estateName' && typeof value === 'string') {
+          const derivedContextPackId = generateContextPackId(value);
+          return {
+            ...next,
+            contextPackId: derivedContextPackId,
+            contextPackDir:
+              next.creationOrigin === 'new'
+                ? deriveContextPackDir(next.discoveryRoot, derivedContextPackId)
+                : next.contextPackDir,
+          };
+        }
+
+        if (next.creationOrigin !== 'new') {
+          return next;
+        }
+
+        if (field === 'discoveryRoot' && typeof value === 'string') {
+          const derivedName = titleizeValue(directoryName(value));
+          const derivedContextPackId = generateContextPackId(derivedName);
+          return {
+            ...next,
+            estateName: derivedName,
+            contextPackId: derivedContextPackId,
+            contextPackDir: deriveContextPackDir(value, derivedContextPackId),
+          };
+        }
+
+        if (field === 'contextPackId' && typeof value === 'string') {
+          return {
+            ...next,
+            contextPackDir: deriveContextPackDir(next.discoveryRoot, value),
+          };
+        }
+
+        return next;
+      });
+    },
+    [deriveContextPackDir, draftHandlers.updateDraft],
+  );
+
+  const handleWizardStepChange = useCallback(
+    (step: BuildWizardStep) => {
+      setWizardStep(step);
+      if (step !== 'project-name') {
+        return;
+      }
+      draftHandlers.updateDraft((draft) => {
+        if (draft.creationOrigin !== 'new') {
+          return draft;
+        }
+        const derivedName = draft.estateName.trim() || titleizeValue(directoryName(draft.discoveryRoot));
+        const derivedContextPackId = draft.contextPackId.trim() || generateContextPackId(derivedName);
+        return {
+          ...draft,
+          estateName: derivedName,
+          contextPackId: derivedContextPackId,
+          contextPackDir: deriveContextPackDir(draft.discoveryRoot, derivedContextPackId),
+        };
+      });
+    },
+    [deriveContextPackDir, draftHandlers.updateDraft],
+  );
+
+  const onWizardAddPart = useCallback(() => {
+    setWizardParts((previous) => [
+      ...previous.map((part) => ({ ...part, editing: false })),
+      {
+        key: crypto.randomUUID(),
+        name: '',
+        role: '',
+        language: '',
+        languageIsOther: false,
+        location: '',
+        primary: previous.length === 0,
+        editing: true,
+      },
+    ]);
+  }, []);
+
+  const onWizardUpdatePart = useCallback(
+    (key: string, field: keyof PartDraft, value: string | boolean) => {
+      setWizardParts((previous) =>
+        previous.map((part) => {
+          if (field === 'primary' && value === true) {
+            return { ...part, primary: part.key === key };
+          }
+          return part.key === key ? { ...part, [field]: value } : part;
+        }),
+      );
+    },
+    [],
+  );
+
+  const onWizardRemovePart = useCallback((key: string) => {
+    setWizardParts((previous) => {
+      const next = previous.filter((part) => part.key !== key);
+      if (next.length > 0 && !next.some((part) => part.primary)) {
+        next[0] = { ...next[0], primary: true };
+      }
+      return next;
+    });
+  }, []);
+
   const { browsePath, discoverPrefill } = useContextPackDiscovery(
     client,
     () => stateRef.current as { kind: string; draft: ContextPackCreationDraft },
@@ -108,16 +296,24 @@ export function useContextPackCreation(
         return current;
       }
       if (current.step === 'setup') {
-        return { ...current, step: 'shape', error: '' };
+        const nextDraft =
+          current.draft.creationOrigin === 'new'
+            ? buildDraftFromWizardParts(current.draft, wizardParts)
+            : current.draft;
+        return { ...current, step: 'shape', draft: nextDraft, error: '' };
       }
       if (current.step === 'shape') {
         return { ...current, step: 'review', error: '' };
       }
       return current;
     });
-  }, []);
+  }, [wizardParts]);
 
   const goBack = useCallback(() => {
+    const current = stateRef.current;
+    if (current.kind === 'open' && current.step === 'shape' && current.draft.creationOrigin === 'new') {
+      setWizardStep('build-parts');
+    }
     setState((current) => {
       if (current.kind !== 'open') {
         return current;
@@ -190,7 +386,7 @@ export function useContextPackCreation(
         discoveryRoot: normalizedDraft.discoveryRoot,
         mode: normalizedDraft.mode,
         writePlan: true,
-        seedOnCreate: true,
+        seedOnCreate: normalizedDraft.creationOrigin !== 'new',
         bootstrapAnswers: {
           contextPackId: normalizedDraft.contextPackId,
           estateName: normalizedDraft.estateName,
@@ -277,6 +473,12 @@ export function useContextPackCreation(
         onRemoveFocusArea: () => undefined,
         onFocusAreaFieldChange: () => undefined,
         onSetPrimaryFocusArea: () => undefined,
+        wizardStep,
+        wizardParts,
+        onWizardStepChange: () => undefined,
+        onWizardAddPart: () => undefined,
+        onWizardUpdatePart: () => undefined,
+        onWizardRemovePart: () => undefined,
         onBack: () => undefined,
         onNext: () => undefined,
         onCreate: () => Promise.resolve(),
@@ -309,7 +511,7 @@ export function useContextPackCreation(
       onBrowseContextPackDir: () => browsePath('context-pack-destination'),
       onBrowseDiscoveryRoot: () => browsePath('discovery-root'),
       onChangeMode: draftHandlers.setMode,
-      onDraftFieldChange: draftHandlers.setDraftField,
+      onDraftFieldChange: handleDraftFieldChange,
       onDiscoverPrefill: discoverPrefill,
       onAddRepository: draftHandlers.addRepository,
       onRemoveRepository: draftHandlers.removeRepository,
@@ -319,6 +521,12 @@ export function useContextPackCreation(
       onRemoveFocusArea: draftHandlers.removeFocusArea,
       onFocusAreaFieldChange: draftHandlers.updateFocusArea,
       onSetPrimaryFocusArea: draftHandlers.updateFocusAreaPrimary,
+      wizardStep,
+      wizardParts,
+      onWizardStepChange: handleWizardStepChange,
+      onWizardAddPart,
+      onWizardUpdatePart,
+      onWizardRemovePart,
       onBack: goBack,
       onNext: goNext,
       onCreate: submitCreate,
@@ -328,10 +536,17 @@ export function useContextPackCreation(
     closeModal,
     discoverPrefill,
     draftHandlers,
+    handleDraftFieldChange,
+    handleWizardStepChange,
     goBack,
     goNext,
+    onWizardAddPart,
+    onWizardRemovePart,
+    onWizardUpdatePart,
     state,
     submitCreate,
+    wizardParts,
+    wizardStep,
   ]);
 
   return {

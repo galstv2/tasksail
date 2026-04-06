@@ -139,6 +139,26 @@ class DiscoverContextEstateTests(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("Root path does not exist", completed.stderr)
 
+    def test_allow_missing_root_creates_directory_for_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            missing_root = Path(temp_root) / "new-project-root"
+
+            payload = discover_estate(
+                missing_root,
+                mode="monolith",
+                allow_missing=True,
+            )
+
+            self.assertTrue(missing_root.is_dir())
+            self.assertEqual(payload["root_path"], str(missing_root.resolve()))
+            self.assertEqual(payload["candidate_repos"], [])
+            self.assertEqual(payload["candidate_focus_areas"], [])
+            self.assertIn(
+                "No candidate focus areas were discovered under the provided "
+                "root.",
+                payload["warnings"],
+            )
+
     def test_discovery_normalizes_symlinked_repo_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             root = Path(temp_root) / "platform-root"

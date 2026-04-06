@@ -9,6 +9,9 @@ from src.backend.mcp.context_estate.bootstrap_detection import (
     _detect_languages,
     _detect_system_layer,
 )
+from src.backend.mcp.context_estate.discovery import (
+    classify_focus_area_repository_type,
+)
 from src.backend.mcp.context_estate.bootstrap_normalization import (
     _normalize_focus_area_overrides,
     _repo_role_for_layer,
@@ -26,6 +29,8 @@ from src.backend.mcp.context_estate_discovery import (
 from src.backend.mcp.repo_context_mcp.utils import (
     is_within,
     normalize_optional_string,
+    slugify,
+    titleize_segment,
 )
 from src.backend.mcp.repo_type_probe import classify_repository_type
 
@@ -71,6 +76,85 @@ def _merge_candidate_repos(
 
     merged["candidate_repos"] = sorted(
         candidate_repos,
+        key=lambda item: str(item.get("relative_path") or item.get("path") or ""),
+    )
+    return merged
+
+
+def _synthesize_candidate_focus_area(
+    discovery_root: Path,
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    relative_path = normalize_optional_string(override.get("relative_path"))
+    path_value = normalize_optional_string(override.get("path"))
+    focus_type = normalize_optional_string(override.get("focus_type")) or "general"
+
+    resolved_path = (
+        Path(path_value).expanduser()
+        if path_value
+        else discovery_root / (relative_path or ".")
+    )
+    if not resolved_path.is_absolute():
+        resolved_path = (discovery_root / resolved_path).resolve()
+    else:
+        resolved_path = resolved_path.resolve()
+
+    if not relative_path and is_within(discovery_root, resolved_path):
+        relative_path = resolved_path.relative_to(discovery_root).as_posix()
+    relative_path = relative_path or "."
+
+    name_source = (
+        Path(relative_path).name
+        if relative_path not in {"", "."}
+        else discovery_root.name
+    )
+    focus_name = normalize_optional_string(override.get("focus_name")) or titleize_segment(
+        name_source
+    )
+
+    candidate = {
+        "focus_id": normalize_optional_string(override.get("focus_id"))
+        or slugify(relative_path.replace("/", "-")),
+        "focus_name": focus_name,
+        "focus_type": focus_type,
+        "path": str(resolved_path),
+        "relative_path": relative_path,
+        "repository_type": classify_focus_area_repository_type(focus_type),
+    }
+    group = normalize_optional_string(override.get("group"))
+    if group:
+        candidate["group"] = group
+    return candidate
+
+
+def _merge_candidate_focus_areas(
+    discovery_payload: dict[str, Any],
+    answers: dict[str, Any],
+    discovery_root: Path,
+) -> dict[str, Any]:
+    merged = dict(discovery_payload)
+    candidate_focus_areas = list(discovery_payload.get("candidate_focus_areas") or [])
+    candidate_map = build_candidate_map(
+        candidate_focus_areas,
+        FOCUS_KEY_FIELDS,
+    )
+
+    for override in _normalize_focus_area_overrides(answers.get("focusable_areas")):
+        if any(
+            key in candidate_map
+            for field_name in FOCUS_KEY_FIELDS
+            if (key := normalize_optional_string(override.get(field_name)))
+        ):
+            continue
+        synthesized = _synthesize_candidate_focus_area(discovery_root, override)
+        candidate_focus_areas.append(synthesized)
+        for field_name in FOCUS_KEY_FIELDS:
+            key = normalize_optional_string(synthesized.get(field_name))
+            if key:
+                candidate_map[key] = synthesized
+
+    merged["candidate_focus_areas"] = sorted(
+        candidate_focus_areas,
         key=lambda item: str(item.get("relative_path") or item.get("path") or ""),
     )
     return merged

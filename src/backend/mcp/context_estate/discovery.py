@@ -41,11 +41,18 @@ _FOCUS_TYPE_TO_REPOSITORY_TYPE: dict[str, str] = {
 }
 
 
-def resolve_existing_root(root: Path | str) -> Path:
+def resolve_existing_root(
+    root: Path | str,
+    *,
+    allow_missing: bool = False,
+) -> Path:
     candidate = Path(root).expanduser()
     try:
         resolved = candidate.resolve(strict=True)
     except FileNotFoundError as exc:
+        if allow_missing:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate.resolve()
         raise ValueError(f"Root path does not exist: {candidate}") from exc
 
     if not resolved.is_dir():
@@ -312,11 +319,16 @@ def discover_candidate_focus_areas(
     return focus_areas
 
 
-def discover_estate(root: Path | str, mode: str = "auto") -> dict[str, Any]:
+def discover_estate(
+    root: Path | str,
+    mode: str = "auto",
+    *,
+    allow_missing: bool = False,
+) -> dict[str, Any]:
     if mode not in {"auto", *ESTATE_TYPES}:
         raise ValueError(f"Unsupported discovery mode: {mode}")
 
-    resolved_root = resolve_existing_root(root)
+    resolved_root = resolve_existing_root(root, allow_missing=allow_missing)
     warnings: list[str] = []
     auto_scan_warnings: list[str] = []
     distributed_candidates: list[dict[str, Any]] = []

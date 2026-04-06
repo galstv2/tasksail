@@ -25,9 +25,21 @@ const defaultProps = {
   onChangeMode: vi.fn(),
   onDraftFieldChange: vi.fn(),
   onDiscoverPrefill: vi.fn(),
+  wizardStep: 'project-type' as const,
+  wizardParts: [],
+  onWizardStepChange: vi.fn(),
+  onWizardAddPart: vi.fn(),
+  onWizardUpdatePart: vi.fn(),
+  onWizardRemovePart: vi.fn(),
 };
 
 describe('SetupStep', () => {
+  it('renders creation origin toggle', () => {
+    render(<SetupStep {...defaultProps} />);
+    expect(screen.getByLabelText('Existing project')).toBeInTheDocument();
+    expect(screen.getByLabelText('New project')).toBeInTheDocument();
+  });
+
   it('renders discovery root input and read-only destination', () => {
     render(<SetupStep {...defaultProps} />);
     const inputs = screen.getAllByRole('textbox');
@@ -89,5 +101,34 @@ describe('SetupStep', () => {
     for (const button of buttons) {
       expect(button).toBeDisabled();
     }
+  });
+
+  it('renders the build wizard when new project origin is selected', () => {
+    render(
+      <SetupStep
+        {...defaultProps}
+        draft={{ ...defaultDraft, creationOrigin: 'new' }}
+      />,
+    );
+
+    expect(screen.getByText('What kind of project are you building?')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Scan for repositories' })).toBeNull();
+  });
+
+  it('falls back safely when wizard props are missing', () => {
+    render(
+      <SetupStep
+        {...defaultProps}
+        draft={{ ...defaultDraft, creationOrigin: 'new' }}
+        wizardStep={undefined}
+        wizardParts={undefined}
+        onWizardStepChange={undefined}
+        onWizardAddPart={undefined}
+        onWizardUpdatePart={undefined}
+        onWizardRemovePart={undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Scan for repositories' })).toBeInTheDocument();
   });
 });

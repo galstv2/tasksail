@@ -190,6 +190,183 @@
   letter-spacing: 0.03em;
 }
 
+.context-pack-modal__origin-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.context-pack-modal__origin-toggle .stream-toggle {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-pill);
+  padding: 0.45rem 0.75rem;
+  background: var(--ts-surface-alt);
+  transition:
+    border-color var(--ts-duration) var(--ts-ease),
+    background var(--ts-duration) var(--ts-ease),
+    color var(--ts-duration) var(--ts-ease);
+}
+
+.context-pack-modal__origin-toggle-option--active {
+  border-color: var(--ts-accent);
+  background: var(--ts-accent-tint);
+  color: var(--ts-accent);
+}
+
+.context-pack-modal__wizard {
+  display: grid;
+  grid-template-columns: minmax(110px, 148px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.context-pack-modal__wizard-progress {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+  position: sticky;
+  top: 0;
+}
+
+.context-pack-modal__wizard-progress-step {
+  justify-content: flex-start;
+  padding-left: 0;
+  padding-right: 0.2rem;
+}
+
+.context-pack-modal__wizard-progress-step::after {
+  left: 0;
+  right: 20%;
+}
+
+.context-pack-modal__wizard-content,
+.context-pack-modal__wizard-section {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.context-pack-modal__wizard-type-grid,
+.context-pack-modal__wizard-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+}
+
+.context-pack-modal__wizard-choice-grid--compact {
+  margin-top: 0.35rem;
+}
+
+.context-pack-modal__wizard-choice-card,
+.context-pack-modal__wizard-select-card {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-pack-modal__editor-card--active {
+  border-color: var(--ts-accent);
+  background: var(--ts-accent-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ts-accent) 55%, transparent);
+}
+
+.context-pack-modal__wizard-choice-kicker {
+  display: inline-flex;
+  margin-bottom: 0.55rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface);
+  color: var(--ts-text-soft);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.context-pack-modal__wizard-select-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.85rem;
+}
+
+.context-pack-modal__wizard-select-card strong {
+  font-size: 0.78rem;
+}
+
+.context-pack-modal__wizard-select-card span {
+  font-size: 0.72rem;
+  color: var(--ts-text-soft);
+  line-height: 1.35;
+}
+
+.context-pack-modal__wizard-language-hint {
+  font-family: var(--ts-font-mono);
+}
+
+.context-pack-modal__wizard-part-card {
+  gap: 0.75rem;
+}
+
+.context-pack-modal__wizard-part-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.context-pack-modal__wizard-part-location {
+  margin: 0;
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  color: var(--ts-text-soft);
+  word-break: break-all;
+}
+
+.context-pack-modal__wizard-part-editor {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--ts-duration) var(--ts-ease);
+}
+
+.context-pack-modal__wizard-part-editor--open {
+  max-height: 700px;
+}
+
+.context-pack-modal__wizard-part-fields,
+.context-pack-modal__wizard-question,
+.context-pack-modal__wizard-language {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.context-pack-modal__wizard-question h5 {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.context-pack-modal__wizard-part-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.context-pack-modal__new-project-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--ts-accent) 30%, var(--ts-border));
+  border-radius: var(--ts-radius-md);
+  background: color-mix(in srgb, var(--ts-accent-tint) 75%, var(--ts-surface));
+  color: var(--ts-text-soft);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.context-pack-modal__new-project-hint svg {
+  flex-shrink: 0;
+  color: var(--ts-accent);
+}
+
 /* ── Advanced fields disclosure ──────────────────────────────────────── */
 
 .context-pack-modal__advanced-toggle {
@@ -414,6 +591,28 @@
 .context-pack-modal__repo-chip__layer {
   font-size: 0.68rem;
   color: var(--ts-text-soft);
+}
+
+@media (max-width: 720px) {
+  .context-pack-modal__wizard {
+    grid-template-columns: 1fr;
+  }
+
+  .context-pack-modal__wizard-progress {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    overflow-x: auto;
+  }
+
+  .context-pack-modal__wizard-progress-step {
+    justify-content: center;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .context-pack-modal__wizard-progress-step::after {
+    left: 12%;
+    right: 12%;
+  }
 }
 
 

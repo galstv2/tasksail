@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContextPackDiscoverPrefillResponse } from '../../shared/desktopContract';
 import type { ContextPackCreationDraft } from '../contextPackCreationTypes';
-import { INITIAL_DRAFT } from './useContextPackDraft';
+import { INITIAL_DRAFT, createFocusAreaEntry, createRepositoryEntry } from './useContextPackDraft';
 import { buildDraftFromDiscovery } from './useContextPackDiscovery';
 
 function makeDiscoveryResponse(
@@ -208,5 +208,100 @@ describe('buildDraftFromDiscovery', () => {
     });
     const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
     expect(result.repositories[0].systemLayer).toBe('infrastructure');
+  });
+
+  it('preserves distributed draft entries when discovery finds zero candidate repos', () => {
+    const draft: ContextPackCreationDraft = {
+      ...INITIAL_DRAFT,
+      repositories: [
+        createRepositoryEntry({
+          key: 'repo-1',
+          repoRoot: '/existing/repo',
+          repoName: 'Existing Repo',
+          repoId: 'existing-repo',
+          systemLayer: 'backend',
+          languages: 'typescript',
+          artifactRoots: '',
+          documentPaths: '',
+          boundedContext: '',
+          serviceName: '',
+          repoRole: '',
+          workspaceActivationGroup: '',
+          defaultFocusable: true,
+          activationPriority: 100,
+          primary: true,
+          repositoryType: 'primary',
+          owner: '',
+        }),
+      ],
+    };
+
+    const response = makeDiscoveryResponse({
+      candidateRepos: [],
+      suggestedContextPackId: 'empty-estate',
+      suggestedDisplayName: 'Empty Estate',
+    });
+
+    const result = buildDraftFromDiscovery(draft, response);
+
+    expect(result.repositories).toEqual(draft.repositories);
+    expect(result.focusAreas).toEqual(draft.focusAreas);
+    expect(result.contextPackId).toBe('empty-estate');
+    expect(result.estateName).toBe('Empty Estate');
+  });
+
+  it('preserves monolith focus areas when discovery finds zero focus candidates', () => {
+    const draft: ContextPackCreationDraft = {
+      ...INITIAL_DRAFT,
+      mode: 'monolith',
+      repositories: [
+        createRepositoryEntry({
+          key: 'repo-1',
+          repoRoot: '/mono',
+          repoName: 'Mono',
+          repoId: 'mono',
+          owner: '',
+          systemLayer: 'shared',
+          languages: 'python',
+          artifactRoots: '',
+          documentPaths: '',
+          boundedContext: '',
+          serviceName: '',
+          repoRole: '',
+          workspaceActivationGroup: '',
+          defaultFocusable: true,
+          activationPriority: 100,
+          primary: true,
+          repositoryType: 'primary',
+        }),
+      ],
+      focusAreas: [
+        createFocusAreaEntry({
+          key: 'focus-1',
+          focusId: 'core',
+          focusName: 'Core',
+          relativePath: 'src/core',
+          path: '/mono/src/core',
+          focusType: 'backend',
+          group: '',
+          defaultFocusable: true,
+          activationPriority: 100,
+          primary: true,
+          repositoryType: 'primary',
+        }),
+      ],
+    };
+
+    const response = makeDiscoveryResponse({
+      estateType: 'monolith',
+      candidateRepos: [],
+      candidateFocusAreas: [],
+    });
+
+    const result = buildDraftFromDiscovery(draft, response);
+
+    expect(result.repositories).toEqual(draft.repositories);
+    expect(result.focusAreas).toEqual(draft.focusAreas);
+    expect(result.mode).toBe('monolith');
   });
 });

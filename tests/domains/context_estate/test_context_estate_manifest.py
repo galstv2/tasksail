@@ -16,6 +16,7 @@ from src.backend.mcp.context_estate_manifest import (
 )
 from src.backend.mcp.context_pack_bootstrap import (
     _build_distributed_review_payload,
+    bootstrap_context_pack,
     normalize_bootstrap_answers,
 )
 
@@ -565,6 +566,79 @@ class ContextEstateManifestTests(unittest.TestCase):
             plan_payload = json.loads(plan_completed.stdout)
             self.assertEqual(plan_payload["context_pack_id"], "orders-estate")
             self.assertEqual(plan_payload["repository_count"], 1)
+
+    def test_bootstrap_monolith_allows_missing_root_and_authored_focus_areas(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            discovery_root = Path(temp_root) / "brand-new-monolith"
+            context_pack_dir = Path(temp_root) / "contexts" / "mono-pack"
+
+            payload = bootstrap_context_pack(
+                context_pack_dir,
+                {
+                    "context_pack_id": "mono-pack",
+                    "estate_name": "Mono Pack",
+                    "repositories": [
+                        {
+                            "repo_root": str(discovery_root),
+                            "repo_name": "Brand New Monolith",
+                            "repo_id": "brand-new-monolith",
+                            "system_layer": "shared",
+                            "repository_type": "primary",
+                        }
+                    ],
+                    "focusable_areas": [
+                        {
+                            "focus_id": "core-app",
+                            "focus_name": "Core App",
+                            "relative_path": ".",
+                            "path": str(discovery_root),
+                            "focus_type": "service",
+                            "default_focusable": True,
+                            "activation_priority": 100,
+                        },
+                        {
+                            "focus_id": "shared-lib",
+                            "focus_name": "Shared Lib",
+                            "relative_path": "shared/lib",
+                            "path": str(discovery_root / "shared" / "lib"),
+                            "focus_type": "library",
+                            "activation_priority": 90,
+                        },
+                    ],
+                    "primary_focus_area_ids": ["core-app"],
+                },
+                discovery_root,
+                requested_mode="monolith",
+            )
+
+            self.assertTrue(discovery_root.is_dir())
+            self.assertEqual(payload["estate_type"], "monolith")
+            self.assertEqual(payload["discovery_root"], str(discovery_root.resolve()))
+            self.assertEqual(payload["focus_target_count"], 2)
+            self.assertEqual(payload["primary_focus_area_ids"], ["core-app"])
+
+            manifest = json.loads(
+                Path(payload["manifest_path"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["primary_focus_area_ids"], ["core-app"])
+            self.assertEqual(
+                [area["focus_id"] for area in manifest["focusable_areas"]],
+                ["core-app", "shared-lib"],
+            )
+            focus_area_map = {
+                area["focus_id"]: area for area in manifest["focusable_areas"]
+            }
+            self.assertEqual(focus_area_map["core-app"]["relative_path"], ".")
+            self.assertEqual(
+                focus_area_map["core-app"]["repository_type"],
+                "primary",
+            )
+            self.assertEqual(
+                focus_area_map["shared-lib"]["repository_type"],
+                "support",
+            )
 
     def test_approve_manifest_from_files_writes_deterministic_manifest(
         self,

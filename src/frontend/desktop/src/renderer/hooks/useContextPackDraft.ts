@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 
 import type { ContextPackDiscoveryMode } from '../../shared/desktopContract';
 import type {
+  PartDraft,
   ContextPackCreationDraft,
   FocusAreaEntryDraft,
   RepositoryEntryDraft,
@@ -14,6 +15,7 @@ export const INITIAL_DRAFT: ContextPackCreationDraft = {
   contextPackId: '',
   estateName: '',
   defaultScopeMode: 'focused',
+  creationOrigin: 'existing',
   repositories: [],
   focusAreas: [],
 };
@@ -27,10 +29,18 @@ export function slugifyValue(value: string): string {
   return normalized || 'context-pack';
 }
 
-function generateContextPackId(displayName: string): string {
+function stableNumericSuffix(value: string): string {
+  const input = value.trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) % 9000;
+  }
+  return String(hash + 1000).padStart(4, '0');
+}
+
+export function generateContextPackId(displayName: string): string {
   const slug = slugifyValue(displayName);
-  const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `${slug}-${suffix}`;
+  return `${slug}-${stableNumericSuffix(displayName)}`;
 }
 
 export function titleizeValue(value: string): string {
@@ -51,6 +61,26 @@ export function parseCsv(value: string): string[] {
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 }
+
+export function ensureUniqueId(baseId: string, seen: Set<string>): string {
+  let id = baseId;
+  let counter = 2;
+  while (seen.has(id)) {
+    id = `${baseId}-${counter}`;
+    counter += 1;
+  }
+  seen.add(id);
+  return id;
+}
+
+const ROLE_TO_FOCUS_TYPE: Record<RepositoryEntryDraft['systemLayer'], string> = {
+  backend: 'backend',
+  frontend: 'frontend',
+  infrastructure: 'infrastructure',
+  database: 'source',
+  documents: 'docs',
+  shared: 'shared',
+};
 
 export function createRepositoryEntry(
   seed?: Partial<RepositoryEntryDraft>,
@@ -159,6 +189,73 @@ export function normalizeDraftForMode(
   };
 }
 
+function resolveMonolithFocusAreaPath(discoveryRoot: string, location: string): string {
+  const trimmedRoot = discoveryRoot.replace(/\/+$/, '');
+  const trimmedLocation = location.trim();
+  if (!trimmedLocation || trimmedLocation === '.') {
+    return trimmedRoot;
+  }
+  return `${trimmedRoot}/${trimmedLocation.replace(/^\.?\/*/, '')}`;
+}
+
+export function buildDraftFromWizardParts(
+  draft: ContextPackCreationDraft,
+  parts: PartDraft[],
+): ContextPackCreationDraft {
+  if (draft.mode === 'distributed') {
+    const seenRepoIds = new Set<string>();
+    const repositories = parts.map((part, index) =>
+      createRepositoryEntry({
+        repoRoot: part.location,
+        repoName: part.name,
+        repoId: ensureUniqueId(slugifyValue(part.name), seenRepoIds),
+        systemLayer: part.role || 'backend',
+        languages: part.language,
+        primary: part.primary,
+        repositoryType: part.primary ? 'primary' : 'support',
+        defaultFocusable: part.primary,
+        activationPriority: Math.max(0, 100 - index * 10),
+      }),
+    );
+    return {
+      ...draft,
+      repositories,
+      focusAreas: [],
+    };
+  }
+
+  const seenFocusIds = new Set<string>();
+  const monoRepo = createRepositoryEntry({
+    repoRoot: draft.discoveryRoot,
+    repoName: titleizeValue(directoryName(draft.discoveryRoot)),
+    repoId: slugifyValue(directoryName(draft.discoveryRoot)),
+    systemLayer: 'shared',
+    languages: parts.map((part) => part.language).filter(Boolean).join(', '),
+    primary: true,
+    repositoryType: 'primary',
+    defaultFocusable: true,
+    activationPriority: 100,
+  });
+  const focusAreas = parts.map((part, index) =>
+    createFocusAreaEntry({
+      focusId: ensureUniqueId(slugifyValue(part.name), seenFocusIds),
+      focusName: part.name,
+      relativePath: part.location,
+      path: resolveMonolithFocusAreaPath(draft.discoveryRoot, part.location),
+      focusType: ROLE_TO_FOCUS_TYPE[part.role || 'shared'] ?? 'general',
+      primary: part.primary,
+      repositoryType: part.primary ? 'primary' : 'support',
+      defaultFocusable: part.primary,
+      activationPriority: Math.max(0, 100 - index * 10),
+    }),
+  );
+  return {
+    ...draft,
+    repositories: [monoRepo],
+    focusAreas,
+  };
+}
+
 export function buildValidationErrors(
   draft: ContextPackCreationDraft,
 ): string[] {
@@ -167,7 +264,11 @@ export function buildValidationErrors(
     errors.push('Choose a context-pack destination before creating the pack.');
   }
   if (!draft.discoveryRoot.trim()) {
-    errors.push('Choose a discovery root before continuing.');
+    errors.push(
+      draft.creationOrigin === 'new'
+        ? 'Choose a project location before continuing.'
+        : 'Choose a discovery root before continuing.',
+    );
   }
   if (!draft.contextPackId.trim()) {
     errors.push('Context-pack ID is required.');

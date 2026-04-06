@@ -77,4 +77,19 @@ describe('ShapeStep', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add focus area' }));
     expect(onAddFocusArea).toHaveBeenCalled();
   });
+
+  it('shows the new-project guidance banner for wizard-created drafts', () => {
+    render(
+      <ShapeStep
+        {...defaultProps}
+        draft={{ ...distributedDraft, creationOrigin: 'new' }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        'Your project is ready. Adjust advanced details below or go straight to Review.',
+      ),
+    ).toBeInTheDocument();
+  });
 });

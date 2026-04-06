@@ -8,6 +8,7 @@ from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_builders import (
     _build_distributed_review_payload,
+    _merge_candidate_focus_areas,
     _build_monolith_review_payload,
     _merge_candidate_repos,
 )
@@ -80,7 +81,11 @@ def bootstrap_context_pack(
         normalized_answers,
     )
 
-    discovery_payload = discover_estate(effective_root, mode=requested_mode)
+    discovery_payload = discover_estate(
+        effective_root,
+        mode=requested_mode,
+        allow_missing=True,
+    )
     effective_mode = _determine_estate_mode(
         normalized_answers,
         discovery_payload,
@@ -100,6 +105,11 @@ def bootstrap_context_pack(
             discovery_payload,
         )
     else:
+        discovery_payload = _merge_candidate_focus_areas(
+            discovery_payload,
+            normalized_answers,
+            effective_root,
+        )
         review_payload = _build_monolith_review_payload(
             normalized_answers,
             discovery_payload,

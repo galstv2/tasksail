@@ -97,6 +97,15 @@ export function buildDraftFromDiscovery(
     return currentDir;
   };
 
+  const hasZeroCandidates =
+    (response.estateType === 'distributed' && response.candidateRepos.length === 0)
+    || (response.estateType === 'monolith' && response.candidateFocusAreas.length === 0);
+
+  if (hasZeroCandidates) {
+    nextDraft.contextPackDir = resolveContextPackDir();
+    return nextDraft;
+  }
+
   if (response.estateType === 'distributed') {
     nextDraft.repositories = response.candidateRepos.map(mapDiscoveredRepoToDraft);
     nextDraft.focusAreas = [];
@@ -246,20 +255,25 @@ export function useContextPackDiscovery(
         return;
       }
       const response = result.response;
+      const hasZeroCandidates =
+        (response.estateType === 'distributed' && response.candidateRepos.length === 0)
+        || (response.estateType === 'monolith' && response.candidateFocusAreas.length === 0);
 
       setState((s: unknown) => {
-        const state = s as { kind: string; draft: ContextPackCreationDraft };
+        const state = s as { kind: string; draft: ContextPackCreationDraft; step?: string };
         if (state.kind !== 'open') {
           return state;
         }
         const nextDraft = buildDraftFromDiscovery(state.draft, response);
         return {
           ...state,
-          step: 'shape',
+          step: hasZeroCandidates ? state.step : 'shape',
           draft: nextDraft,
           discovery: { status: 'ready', response },
           error: '',
-          message: response.message,
+          message: hasZeroCandidates
+            ? "No repositories found. Try a different directory or switch to 'New project' mode."
+            : response.message,
         };
       });
     } catch (error: unknown) {

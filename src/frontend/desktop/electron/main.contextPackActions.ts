@@ -308,12 +308,14 @@ export async function executeContextPackCreateAction(
 ): Promise<DesktopInvokeResult> {
   try {
     const np = { ...payload, contextPackDir: resolve(payload.contextPackDir), discoveryRoot: resolve(payload.discoveryRoot) };
+    await fsMkdir(np.discoveryRoot, { recursive: true });
     const answersPath = await writeContextPackBootstrapAnswers(np);
     const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np, answersPath));
     const bp = JSON.parse(bootstrapResult.stdout) as Record<string, unknown>;
     if (np.writePlan !== false) await planRunner(buildQmdSeedPlanArgs(np.contextPackDir));
+    const shouldSeedOnCreate = np.seedOnCreate !== false;
     let seedStatus = 'not-run';
-    if (np.seedOnCreate !== false) {
+    if (shouldSeedOnCreate) {
       const seedResult = await seedRunner(buildContextPackSeedArgs(np.contextPackDir));
       const parsedSeed = JSON.parse(seedResult.stdout) as Record<string, unknown>;
       seedStatus = stringOrNull(parsedSeed.overall_status) ?? 'unknown';

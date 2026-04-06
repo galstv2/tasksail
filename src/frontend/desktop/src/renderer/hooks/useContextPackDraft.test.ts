@@ -4,10 +4,13 @@ import { useState } from 'react';
 
 import type { ContextPackCreationDraft } from '../contextPackCreationTypes';
 import {
+  buildDraftFromWizardParts,
   buildValidationErrors,
   createFocusAreaEntry,
   createRepositoryEntry,
   directoryName,
+  ensureUniqueId,
+  generateContextPackId,
   INITIAL_DRAFT,
   normalizeDraftForMode,
   parseCsv,
@@ -68,6 +71,23 @@ describe('pure helpers', () => {
 
     it('filters empty entries', () => {
       expect(parseCsv('a,, ,b')).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('generateContextPackId', () => {
+    it('returns a stable four-digit suffix for the same display name', () => {
+      expect(generateContextPackId('Orders Estate')).toBe(generateContextPackId('Orders Estate'));
+      expect(generateContextPackId('Orders Estate')).toMatch(/^orders-estate-\d{4}$/);
+    });
+  });
+
+  describe('ensureUniqueId', () => {
+    it('deduplicates repeated ids with numeric suffixes', () => {
+      const seen = new Set<string>();
+
+      expect(ensureUniqueId('orders-api', seen)).toBe('orders-api');
+      expect(ensureUniqueId('orders-api', seen)).toBe('orders-api-2');
+      expect(ensureUniqueId('orders-api', seen)).toBe('orders-api-3');
     });
   });
 
@@ -174,6 +194,16 @@ describe('pure helpers', () => {
       expect(errors).toContainEqual('Monolith creation requires at least one focus area.');
     });
 
+    it('uses the new-project location validation copy for wizard drafts', () => {
+      const errors = buildValidationErrors({
+        ...INITIAL_DRAFT,
+        creationOrigin: 'new',
+      });
+
+      expect(errors).toContain('Choose a project location before continuing.');
+      expect(errors).not.toContain('Choose a discovery root before continuing.');
+    });
+
     it('returns no errors for a valid distributed draft', () => {
       const draft: ContextPackCreationDraft = {
         ...INITIAL_DRAFT,
@@ -184,6 +214,93 @@ describe('pure helpers', () => {
         repositories: [createRepositoryEntry({ repoRoot: '/repo', repoName: 'Repo', primary: true })],
       };
       expect(buildValidationErrors(draft)).toEqual([]);
+    });
+  });
+
+  describe('buildDraftFromWizardParts', () => {
+    it('materializes distributed wizard parts into unique repositories', () => {
+      const draft: ContextPackCreationDraft = {
+        ...INITIAL_DRAFT,
+        creationOrigin: 'new',
+        mode: 'distributed',
+        discoveryRoot: '/workspace',
+      };
+
+      const result = buildDraftFromWizardParts(draft, [
+        {
+          key: 'p1',
+          name: 'Orders API',
+          role: 'backend',
+          language: 'python',
+          languageIsOther: false,
+          location: '/workspace/orders-api',
+          primary: true,
+          editing: false,
+        },
+        {
+          key: 'p2',
+          name: 'orders-api',
+          role: 'frontend',
+          language: 'typescript',
+          languageIsOther: false,
+          location: '/workspace/orders-web',
+          primary: false,
+          editing: false,
+        },
+      ]);
+
+      expect(result.repositories.map((repository) => repository.repoId)).toEqual([
+        'orders-api',
+        'orders-api-2',
+      ]);
+      expect(result.repositories.map((repository) => repository.languages)).toEqual([
+        'python',
+        'typescript',
+      ]);
+      expect(result.focusAreas).toEqual([]);
+    });
+
+    it('materializes monolith wizard parts into unique focus areas', () => {
+      const draft: ContextPackCreationDraft = {
+        ...INITIAL_DRAFT,
+        creationOrigin: 'new',
+        mode: 'monolith',
+        discoveryRoot: '/workspace/mono',
+      };
+
+      const result = buildDraftFromWizardParts(draft, [
+        {
+          key: 'p1',
+          name: 'Core API',
+          role: 'backend',
+          language: 'python',
+          languageIsOther: false,
+          location: 'src/core',
+          primary: true,
+          editing: false,
+        },
+        {
+          key: 'p2',
+          name: 'core-api',
+          role: 'documents',
+          language: 'markdown',
+          languageIsOther: false,
+          location: 'docs',
+          primary: false,
+          editing: false,
+        },
+      ]);
+
+      expect(result.repositories).toHaveLength(1);
+      expect(result.repositories[0].repoRoot).toBe('/workspace/mono');
+      expect(result.repositories[0].languages).toBe('python, markdown');
+      expect(result.focusAreas.map((focusArea) => focusArea.focusId)).toEqual([
+        'core-api',
+        'core-api-2',
+      ]);
+      expect(result.focusAreas[0].focusType).toBe('backend');
+      expect(result.focusAreas[1].focusType).toBe('docs');
+      expect(result.focusAreas[0].path).toBe('/workspace/mono/src/core');
     });
   });
 });
@@ -212,7 +329,7 @@ describe('useContextPackDraft hook', () => {
     });
 
     expect(result.current.draft.estateName).toBe('Orders Estate');
-    expect(result.current.draft.contextPackId).toMatch(/^orders-estate-\d{4}$/);
+    expect(result.current.draft.contextPackId).toBe(generateContextPackId('Orders Estate'));
   });
 
   it('setMode switches to monolith and clears focus areas on switch to distributed', () => {
