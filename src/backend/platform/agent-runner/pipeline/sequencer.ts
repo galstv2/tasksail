@@ -27,6 +27,7 @@ import {
 import { appendFocusBlock } from './monolithFocusPrompt.js';
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
+import { runPolicyValidation } from '../../queue/policyValidation.js';
 import { implementationStepsTemplatePath } from '../../queue/paths.js';
 import {
   clearPipelineKill,
@@ -622,10 +623,40 @@ export async function runPipelineSequence(
 
       await writePipelineReceipt(paths.repoRoot, receipt);
 
+      // Pre-check queue-advance readiness. If policy fails (e.g. incomplete
+      // retrospective), give Ron one remediation pass before attempting closeout.
+      const preCloseoutCheck = await runPolicyValidation({ mode: 'queue-advance', repoRoot: paths.repoRoot });
+      if (!preCloseoutCheck.passed) {
+        const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
+          .filter(Boolean).join('\n').trim();
+        console.log('[pipeline] Queue-advance policy blocked — launching closeout remediation.');
+        try {
+          await runRoleAgent({
+            agentId: 'ron',
+            skipWorkflowValidation: true,
+            contextPackDir: effectiveContextPackDir,
+            abortSignal: abortController.signal,
+            promptOverride: [
+              'Your previous QA run completed but task closeout is blocked by policy validation.',
+              '',
+              'Fix ONLY the missing handoff artifacts required for closeout.',
+              'Do not repeat QA review work — just fill in the gaps identified below.',
+              '',
+              '## Policy Failure Details',
+              '',
+              policyDetails,
+            ].join('\n'),
+            launchPhase: 'Closeout Remediation',
+          });
+        } catch (remediationErr) {
+          console.warn('[pipeline] Closeout remediation failed:', remediationErr instanceof Error ? remediationErr.message : remediationErr);
+        }
+      }
+
       try {
-        await completePendingItem({ repoRoot: paths.repoRoot });
+        await completePendingItem({ repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
       } catch (err) {
-        console.warn('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
+        console.error('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
       }
 
       return receipt;

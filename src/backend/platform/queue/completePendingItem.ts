@@ -14,6 +14,7 @@ export interface CompletePendingItemOptions {
   skipValidation?: boolean;
   skipArchive?: boolean;
   repoRoot?: string;
+  contextPackDir?: string;
 }
 
 /**
@@ -37,7 +38,8 @@ export async function completePendingItem(
   }
 
   if (!options.skipArchive) {
-    const contextPackDir = await requireAuthorizedActiveContextPack({ repoRoot });
+    const contextPackDir = options.contextPackDir
+      ?? await requireAuthorizedActiveContextPack({ repoRoot });
     await syncRetrospectiveRequiredMetadata({
       repoRoot,
       handoffsDir: queuePaths.handoffsDir,

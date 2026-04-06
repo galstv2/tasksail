@@ -12,14 +12,19 @@ export async function requireAuthorizedActiveContextPack(
 ): Promise<string> {
   const repoRoot = options.repoRoot ?? findRepoRoot();
   const envPath = path.join(repoRoot, '.env');
-  const configuredContextPackDir = (await readEnvAssignment(
+  const fileValue = (await readEnvAssignment(
     envPath,
     ACTIVE_CONTEXT_PACK_DIR_KEY,
   ))?.trim();
 
+  const processValue = process.env[ACTIVE_CONTEXT_PACK_DIR_KEY]?.trim();
+
+  // .env is the persistent source of truth; process.env is the runtime fallback.
+  const configuredContextPackDir = fileValue || processValue;
+
   if (!configuredContextPackDir) {
     throw new Error(
-      'No active context pack is configured in repo .env. ' +
+      'No active context pack is configured in repo .env or process environment. ' +
       'Activate a context pack before running write operations.',
     );
   }
@@ -32,10 +37,10 @@ export async function requireAuthorizedActiveContextPack(
     );
   }
 
-  const envActiveContextPackDir = process.env[ACTIVE_CONTEXT_PACK_DIR_KEY]?.trim();
+  // When both sources are set, they must agree.
   if (
-    envActiveContextPackDir &&
-    resolvePath(repoRoot, envActiveContextPackDir) !== authorizedContextPackDir
+    fileValue && processValue &&
+    resolvePath(repoRoot, fileValue) !== resolvePath(repoRoot, processValue)
   ) {
     throw new Error(
       'ACTIVE_CONTEXT_PACK_DIR does not match the repo .env active context pack. ' +

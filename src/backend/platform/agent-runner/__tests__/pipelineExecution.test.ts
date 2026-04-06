@@ -60,6 +60,16 @@ vi.mock('../../queue/retryBaseline.js', () => ({
   captureRetryBaseline,
 }));
 
+const runPolicyValidation = vi.fn();
+vi.mock('../../queue/policyValidation.js', () => ({
+  runPolicyValidation,
+}));
+
+const completePendingItem = vi.fn();
+vi.mock('../../queue/completePendingItem.js', () => ({
+  completePendingItem,
+}));
+
 describe('runPipelineSequence', () => {
   let repoRoot: string;
 
@@ -106,6 +116,8 @@ describe('runPipelineSequence', () => {
     );
     remediationHasBlockingFindings.mockResolvedValue(false);
     remediationRunQaLoop.mockResolvedValue(undefined);
+    runPolicyValidation.mockResolvedValue({ passed: true, stdout: '', stderr: '', exitCode: 0 });
+    completePendingItem.mockResolvedValue(undefined);
     captureRetryBaseline.mockResolvedValue({
       capturedAt: '2026-03-26T00:00:00Z',
       repos: [{ repoRoot, head: 'abc123' }],
@@ -464,5 +476,41 @@ describe('runPipelineSequence', () => {
     await expect(runPipelineSequence({ repoRoot })).rejects.toThrow('Pipeline killed');
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-kill-switch.json'))).toBe(false);
+  });
+
+  it('launches Ron closeout remediation when queue-advance policy fails', async () => {
+    readTextFile.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('parallel-ok.md')) return null;
+      return null;
+    });
+    runPolicyValidation.mockResolvedValue({
+      passed: false,
+      stdout: 'queue.retrospective-required: missing sections',
+      stderr: '',
+      exitCode: 1,
+    });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot });
+
+    const ronCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'ron');
+    // First Ron call is the main QA run; second is closeout remediation.
+    expect(ronCalls.length).toBe(2);
+    expect(ronCalls[1][0].launchPhase).toBe('Closeout Remediation');
+    expect(ronCalls[1][0].promptOverride).toContain('queue.retrospective-required');
+  });
+
+  it('skips closeout remediation when queue-advance policy passes', async () => {
+    readTextFile.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('parallel-ok.md')) return null;
+      return null;
+    });
+    runPolicyValidation.mockResolvedValue({ passed: true, stdout: '', stderr: '', exitCode: 0 });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot });
+
+    const ronCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'ron');
+    expect(ronCalls.length).toBe(1);
   });
 });

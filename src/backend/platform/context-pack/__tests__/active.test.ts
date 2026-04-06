@@ -64,4 +64,23 @@ describe('requireAuthorizedActiveContextPack', () => {
       requireAuthorizedActiveContextPack({ repoRoot: tmpDir }),
     ).rejects.toThrow('ACTIVE_CONTEXT_PACK_DIR does not match the repo .env active context pack.');
   });
+
+  it('falls back to process.env when .env is empty', async () => {
+    const packDir = makeContextPack('pack-env');
+    writeFileSync(path.join(tmpDir, '.env'), 'ACTIVE_CONTEXT_PACK_DIR=\n');
+    process.env['ACTIVE_CONTEXT_PACK_DIR'] = packDir;
+
+    await expect(
+      requireAuthorizedActiveContextPack({ repoRoot: tmpDir }),
+    ).resolves.toBe(packDir);
+  });
+
+  it('rejects when both .env and process.env are empty', async () => {
+    writeFileSync(path.join(tmpDir, '.env'), 'ACTIVE_CONTEXT_PACK_DIR=\n');
+    delete process.env['ACTIVE_CONTEXT_PACK_DIR'];
+
+    await expect(
+      requireAuthorizedActiveContextPack({ repoRoot: tmpDir }),
+    ).rejects.toThrow('No active context pack is configured');
+  });
 });
