@@ -6,6 +6,7 @@ import { getPlannerConversationLabel } from '../../shared/agentRoster';
 import { classNames } from '../utils/classNames';
 import SailScreen from './SailScreen';
 import MarkdownView from './MarkdownView';
+import ModalShell from './ModalShell';
 
 export type PlannerSessionStatus = 'idle' | 'connecting' | 'active' | 'busy' | 'failed';
 
@@ -85,17 +86,22 @@ function PlannerModal({
   const [sailPhase, setSailPhase] = useState<SailPhase>(null);
   const [countdown, setCountdown] = useState(3);
   const [draftViewMode, setDraftViewMode] = useState<'rendered' | 'source'>('rendered');
+  const [draftExpanded, setDraftExpanded] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setSailPhase(null);
       setCountdown(3);
       setDraftViewMode('rendered');
+      setDraftExpanded(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (!stagedDraft) setDraftViewMode('rendered');
+    if (!stagedDraft) {
+      setDraftViewMode('rendered');
+      setDraftExpanded(false);
+    }
   }, [stagedDraft]);
 
   useEffect(() => {
@@ -367,6 +373,17 @@ function PlannerModal({
               </div>
               <button
                 type="button"
+                className="planner-modal__draft-expand-btn"
+                onClick={() => setDraftExpanded(true)}
+                aria-label="Expand draft"
+                title="Expand draft"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                type="button"
                 className="planner-modal__draft-preview-dismiss"
                 onClick={onDismissDraftPreview}
                 aria-label="Dismiss draft preview"
@@ -374,14 +391,42 @@ function PlannerModal({
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
               </button>
             </div>
-            <div className="planner-modal__draft-preview-body">
-              {draftViewMode === 'rendered' ? (
+            <div
+              className="planner-modal__draft-preview-body planner-modal__draft-preview-body--clickable"
+              onClick={() => setDraftExpanded(true)}
+              role="button"
+              tabIndex={0}
+              aria-label="Click to expand draft"
+            >
+              {!draftExpanded && (draftViewMode === 'rendered' ? (
                 <MarkdownView content={stagedDraft.content} />
               ) : (
                 <pre className="planner-modal__draft-preview-source">{stagedDraft.content}</pre>
-              )}
+              ))}
             </div>
           </div>
+        )}
+
+        {stagedDraft && draftExpanded && (
+          <ModalShell
+            isOpen={true}
+            onClose={() => setDraftExpanded(false)}
+            title={stagedDraft.filename}
+            maxWidth="700px"
+            variant="terminal"
+            accentColor="var(--terminal-cyan)"
+            className="planner-draft-popout"
+            zIndex={101}
+            footer={<>
+              <span className="planner-draft-popout__time">
+                Last saved {new Date(stagedDraft.modifiedAt).toLocaleTimeString()}
+              </span>
+              <span className="modal-shell__footer-esc">ESC to close</span>
+            </>}
+            ariaLabel={`Draft: ${stagedDraft.filename}`}
+          >
+            <MarkdownView content={stagedDraft.content} />
+          </ModalShell>
         )}
 
         {sessionStatus === 'active' || sessionStatus === 'busy' || sessionStatus === 'failed' ? (

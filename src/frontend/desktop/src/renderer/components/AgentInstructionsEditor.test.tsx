@@ -36,7 +36,7 @@ describe('AgentInstructionsEditor', () => {
   it('uses the stable instructions editor shell sizing', () => {
     render(<AgentInstructionsEditor {...defaultProps()} />);
 
-    const dialog = screen.getByRole('dialog', { name: 'Editing planning-agent.md' });
+    const dialog = screen.getByRole('dialog', { name: 'Viewing planning-agent.md' });
     expect(dialog).toHaveClass('instructions-editor-shell');
     expect(dialog).toHaveStyle({
       '--modal-shell-max-w': '820px',

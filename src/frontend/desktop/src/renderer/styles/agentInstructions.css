@@ -381,6 +381,74 @@
   opacity: 0.5;
 }
 
+/* ── Editor: View pane — rendered markdown ────────────────────────────── */
+
+.instructions-editor__view-pane {
+  flex: 1;
+  min-height: 320px;
+  overflow-y: auto;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--terminal-bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
+}
+
+.instructions-editor__view-pane::-webkit-scrollbar { width: var(--ts-scrollbar-width); }
+.instructions-editor__view-pane::-webkit-scrollbar-track { background: transparent; }
+.instructions-editor__view-pane::-webkit-scrollbar-thumb {
+  background: var(--ts-scrollbar-thumb);
+  border-radius: var(--ts-radius-pill);
+}
+.instructions-editor__view-pane::-webkit-scrollbar-thumb:hover {
+  background: var(--ts-scrollbar-thumb-hover);
+}
+
+/* ── Editor: Mode toggle ─────────────────────────────────────────────── */
+
+.instructions-editor__mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  overflow: hidden;
+  margin-right: 0.35rem;
+}
+
+.instructions-editor__mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--ts-font-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--ts-text-muted);
+  letter-spacing: 0.02em;
+  transition:
+    background 150ms var(--ts-ease),
+    color 150ms var(--ts-ease);
+}
+
+.instructions-editor__mode-btn:hover {
+  color: var(--ts-text);
+  background: var(--ts-bg-hover);
+}
+
+.instructions-editor__mode-btn--active {
+  color: var(--ts-accent);
+  background: var(--ts-accent-tint);
+}
+
+.instructions-editor__mode-btn + .instructions-editor__mode-btn {
+  border-left: 1px solid var(--ts-border);
+}
+
 /* ── Editor: Footer actions ───────────────────────────────────────────── */
 
 .instructions-editor__actions {

@@ -553,7 +553,8 @@
   margin-left: auto;
 }
 
-.planner-modal__draft-preview-dismiss {
+.planner-modal__draft-preview-dismiss,
+.planner-modal__draft-expand-btn {
   border: none;
   background: transparent;
   color: var(--ts-text-soft);
@@ -632,6 +633,34 @@
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.planner-modal__draft-expand-btn:hover {
+  background: var(--ts-surface-strong);
+  color: var(--ts-accent);
+}
+
+/* ── Draft preview body clickable ────────────────────────────────────── */
+
+.planner-modal__draft-preview-body--clickable {
+  cursor: pointer;
+  transition: background 150ms var(--ts-ease);
+}
+
+.planner-modal__draft-preview-body--clickable:hover {
+  background: color-mix(in srgb, var(--ts-accent) 3%, transparent);
+}
+
+/* ── Draft pop-out modal ─────────────────────────────────────────────── */
+
+.planner-draft-popout .modal-shell__body {
+  padding: 1rem 1.25rem;
+}
+
+.planner-draft-popout__time {
+  font-family: var(--ts-font-mono);
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
 }
 
 /* ── §24.02b  Reconnect bar ────────────────────────────────────────── */

@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useRef, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useEffect, useState } from 'react';
 
 import { isDraftDirty, type AgentInstructionsEditorProps } from '../hooks/useAgentInstructionsModal';
+import { classNames } from '../utils/classNames';
 import ConfirmOverlay from './ConfirmOverlay';
+import MarkdownView from './MarkdownView';
 import ModalShell from './ModalShell';
 
 import '../styles/agentInstructions.css';
@@ -28,13 +30,18 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
   } = props;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mode, setMode] = useState<'view' | 'edit'>('view');
 
   useEffect(() => {
-    if (isOpen && textareaRef.current) {
+    if (isOpen) setMode('view');
+  }, [isOpen, file?.relativePath]);
+
+  useEffect(() => {
+    if (isOpen && mode === 'edit' && textareaRef.current) {
       const timer = setTimeout(() => textareaRef.current?.focus(), 60);
       return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, mode]);
 
   const handleTextareaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {
@@ -76,6 +83,33 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
       footer={<>
         <span className="modal-shell__footer-esc">ESC to close</span>
         <div className="instructions-editor__actions">
+          <div className="instructions-editor__mode-toggle" role="radiogroup" aria-label="View mode">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'view'}
+              className={classNames('instructions-editor__mode-btn', mode === 'view' && 'instructions-editor__mode-btn--active')}
+              onClick={() => setMode('view')}
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.3" />
+              </svg>
+              View
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'edit'}
+              className={classNames('instructions-editor__mode-btn', mode === 'edit' && 'instructions-editor__mode-btn--active')}
+              onClick={() => setMode('edit')}
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
+              Edit
+            </button>
+          </div>
           <button
             type="button"
             className="mcp-modal__btn"
@@ -94,20 +128,28 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
           </button>
         </div>
       </>}
-      ariaLabel={`Editing ${file.fileName}`}
+      ariaLabel={mode === 'edit' ? `Editing ${file.fileName}` : `Viewing ${file.fileName}`}
     >
-      <textarea
-        ref={textareaRef}
-        className="instructions-editor__textarea"
-        value={file.editorContent}
-        onChange={(e) => onEditorChange(e.target.value)}
-        onKeyDown={handleTextareaKeyDown}
-        spellCheck={false}
-        aria-label={file.relativePath}
-      />
-      <div className="instructions-editor__line-count">
-        {lineCount} {lineCount === 1 ? 'line' : 'lines'}
-      </div>
+      {mode === 'view' ? (
+        <div className="instructions-editor__view-pane">
+          <MarkdownView content={editorContent} />
+        </div>
+      ) : (
+        <>
+          <textarea
+            ref={textareaRef}
+            className="instructions-editor__textarea"
+            value={file.editorContent}
+            onChange={(e) => onEditorChange(e.target.value)}
+            onKeyDown={handleTextareaKeyDown}
+            spellCheck={false}
+            aria-label={file.relativePath}
+          />
+          <div className="instructions-editor__line-count">
+            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+          </div>
+        </>
+      )}
 
       <ConfirmOverlay
         visible={confirmCloseVisible}

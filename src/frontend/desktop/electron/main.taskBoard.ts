@@ -259,6 +259,7 @@ function notFoundResult(fileName: string): { ok: true; response: import('../src/
 
 export async function readTaskContent(
   payload: TaskBoardReadTaskContentRequest['payload'],
+  listContextPacks?: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
 ): Promise<DesktopInvokeResult> {
   try {
     const { fileName, column } = payload;
@@ -273,9 +274,10 @@ export async function readTaskContent(
 
     let filePath: string;
     if (column === 'completed') {
-      const registry = await loadTaskRegistry(REPO_ROOT);
       const taskId = base.replace(/\.md$/, '');
       let archivePath: string | null = null;
+
+      const registry = await loadTaskRegistry(REPO_ROOT);
       for (const taskSet of Object.values(registry.tasks)) {
         const match = taskSet.completed.find((e) => e.taskId === taskId);
         if (match?.archivePath) {
@@ -283,6 +285,19 @@ export async function readTaskContent(
           break;
         }
       }
+
+      // Fall back to scanning the QMD archive when the registry has no match.
+      if (!archivePath && listContextPacks) {
+        const archivedResult = await listArchivedTasksAction(listContextPacks);
+        if (archivedResult.ok && 'tasks' in archivedResult.response) {
+          const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
+          const match = tasks.find((t) => t.taskId === taskId);
+          if (match?.archivePath) {
+            archivePath = match.archivePath;
+          }
+        }
+      }
+
       if (!archivePath) {
         return notFoundResult(base);
       }

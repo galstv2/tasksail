@@ -84,7 +84,7 @@ function AppContent(): JSX.Element {
         </div>
         <div className="shell__actions">
           <button type="button" className="shell__refresh-btn" onClick={onRefreshRepoState} aria-label="Refresh" title="Refresh state">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 8a5.5 5.5 0 0 1 9.35-3.95" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M13.5 8a5.5 5.5 0 0 1-9.35 3.95" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M11 1.5l1 2.5-2.7.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 14.5l-1-2.5 2.7-.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           <button type="button" className="shell__refresh-btn" onClick={toggleTheme} aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} title={isDark ? 'Light mode' : 'Dark mode'}>
             {isDark ? (
