@@ -54,17 +54,19 @@ export function formatSource(source: ContextPackCatalogEntry['source']): string 
 }
 
 export function formatFocusLabel(target: ContextPackFocusTarget): string {
+  const name = target.displayName;
+  const nameLower = name.toLowerCase();
   const suffix =
     target.kind === 'repository'
       ? target.serviceName &&
-        target.serviceName !== target.displayName &&
+        target.serviceName.toLowerCase() !== nameLower &&
         target.repoId
         ? ` · ${target.repoId}`
         : ''
-      : target.relativePath && target.relativePath !== target.displayName
+      : target.relativePath && target.relativePath.toLowerCase() !== nameLower
         ? ` · ${target.relativePath}`
         : '';
-  return `${target.displayName}${suffix}`;
+  return `${name}${suffix}`;
 }
 
 export function formatRuntimeStatus(status: ContextPackRuntimeStatus | undefined): string {
@@ -109,7 +111,7 @@ export function buildFocusHint(args: {
     return 'Only the selected repos are included in the workspace.';
   }
 
-  return 'The Primary focus area determines where agents run. Other selected areas are visible but not the working directory.';
+  return 'Agents work in the active folder. Other checked folders are available as read-only context.';
 }
 
 export function summarizeSwitchResult(

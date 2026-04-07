@@ -7,51 +7,33 @@
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: rgba(15, 20, 30, 0);
-  backdrop-filter: blur(3px);
-  animation: plannerOverlayIn var(--ts-duration) var(--ts-ease) forwards;
+  background: rgba(8, 12, 20, 0);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: plannerOverlayIn 250ms ease-out forwards;
 }
 
 @keyframes plannerOverlayIn {
-  to {
-    background: rgba(15, 20, 30, 0.48);
-  }
+  to { background: rgba(8, 12, 20, 0.4); }
 }
 
 .planner-modal {
   position: relative;
   width: min(640px, 100%);
-  max-height: min(82vh, 720px);
+  height: min(78vh, 660px);
   display: flex;
   flex-direction: column;
-  border-radius: var(--ts-radius-lg);
+  border-radius: var(--ts-radius-xl);
   border: 1px solid var(--ts-border);
   background: var(--ts-surface);
   box-shadow: var(--ts-shadow-xl);
   overflow: hidden;
-  animation: plannerModalIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.planner-modal::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    var(--ts-accent) 20%,
-    var(--ts-accent) 80%,
-    transparent 100%
-  );
-  opacity: 0.55;
-  border-radius: var(--ts-radius-lg) var(--ts-radius-lg) 0 0;
-  z-index: 1;
+  animation: plannerModalIn 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 60ms;
 }
 
 @keyframes plannerModalIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -84,24 +66,29 @@
 }
 
 .planner-modal__header button {
-  border: 1px solid transparent;
-  border-radius: var(--ts-radius-md);
-  background: transparent;
+  border: none;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-bg-hover);
   color: var(--ts-text-soft);
   cursor: pointer;
-  padding: 0.25rem;
+  padding: 0.35rem;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--ts-duration) var(--ts-ease),
-              color var(--ts-duration) var(--ts-ease),
-              border-color var(--ts-duration) var(--ts-ease);
+  transition: color var(--ts-duration) var(--ts-ease),
+              background var(--ts-duration) var(--ts-ease),
+              opacity var(--ts-duration) var(--ts-ease);
 }
 
 .planner-modal__header button:hover {
-  background: var(--ts-surface-alt);
-  border-color: var(--ts-border);
+  background: rgba(30, 50, 100, 0.09);
   color: var(--ts-text);
+}
+
+.planner-modal__header button:active {
+  opacity: 0.7;
 }
 
 .planner-modal__followup-banner {
@@ -733,7 +720,7 @@
   position: absolute;
   inset: 0;
   border: 2px solid var(--ts-accent);
-  border-radius: 50%;
+  border-radius: var(--ts-radius-pill);
   opacity: 0;
   animation: sail-ring-pulse 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -796,7 +783,7 @@
 .sail-away__dot {
   width: 4px;
   height: 4px;
-  border-radius: 50%;
+  border-radius: var(--ts-radius-pill);
   background: var(--ts-accent);
   opacity: 0.3;
   animation: sail-dot-blink 1.2s ease-in-out infinite;

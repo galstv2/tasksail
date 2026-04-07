@@ -152,7 +152,7 @@ describe('buildFocusHint', () => {
       selectedPack: makePack({ estateType: 'monolith' }),
     });
     expect(hint).toBe(
-      'The Primary focus area determines where agents run. Other selected areas are visible but not the working directory.',
+      'Agents work in the active folder. Other checked folders are available as read-only context.',
     );
   });
 });

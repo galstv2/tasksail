@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 
 import { namedWorkflowAgentRoster } from '../../shared/agentRoster';
 import type { McpConfigModalProps } from '../hooks/useMcpConfigModal';
+import { CloseIcon } from './creation-steps/icons';
 import McpServerForm from './McpServerForm';
 
 const TOTAL_AGENTS = Object.keys(namedWorkflowAgentRoster).length;
@@ -55,6 +56,7 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
       <div
         className="mcp-modal"
         role="dialog"
+        aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
       >
@@ -66,7 +68,7 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
             onClick={onClose}
             aria-label="Close"
           >
-            &times;
+            <CloseIcon />
           </button>
         </header>
 

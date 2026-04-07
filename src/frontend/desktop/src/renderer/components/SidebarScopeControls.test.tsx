@@ -113,7 +113,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    expect(screen.getByText('Focus Areas')).toBeInTheDocument();
+    expect(screen.getByText('Folders')).toBeInTheDocument();
   });
 
   it('calls onSelectWorkingFocus when checkbox toggled', () => {
@@ -181,7 +181,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Primary' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Active' })).toBeInTheDocument();
   });
 
   it('shows the relative path and combined tooltip for monolith focus rows', () => {

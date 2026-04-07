@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 
 import type { AgentConfigModalProps } from '../hooks/useAgentConfigModal';
 import ConfirmOverlay from './ConfirmOverlay';
+import { CloseIcon } from './creation-steps/icons';
 import { agentSpriteMap } from './sprites';
 
 function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
@@ -64,6 +65,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
       <div
         className="mcp-modal agent-config"
         role="dialog"
+        aria-modal="true"
         aria-label="Agent Configuration"
         onClick={(event) => event.stopPropagation()}
       >
@@ -92,7 +94,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
             </div>
           </div>
           <button type="button" className="mcp-modal__close" onClick={onClose} aria-label="Close">
-            &times;
+            <CloseIcon />
           </button>
         </header>
 

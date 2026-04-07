@@ -66,7 +66,7 @@
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-  border-radius: 50%;
+  border-radius: var(--ts-radius-pill);
   transition:
     color var(--ts-duration) var(--ts-ease),
     background var(--ts-duration) var(--ts-ease),
@@ -136,7 +136,7 @@
 
 .context-pack-modal__editor-card {
   border: 1px solid var(--ts-border);
-  border-radius: 10px;
+  border-radius: var(--ts-radius-lg);
   padding: 0.65rem 0.8rem;
   background: var(--ts-surface-alt);
   overflow: hidden;
@@ -175,7 +175,7 @@
   color: var(--ts-text-soft);
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
   padding: 0.4rem 0.5rem;
   min-height: 1.5rem;
   word-break: break-all;
@@ -241,7 +241,7 @@
   justify-self: start;
   gap: 2px;
   border: 1px solid var(--ts-border);
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   padding: 3px;
 }
@@ -252,7 +252,7 @@
   justify-content: center;
   padding: 0.3rem 0.65rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
   background: transparent;
   color: var(--ts-text-muted);
   font-family: var(--ts-font-sans);
@@ -260,9 +260,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background 200ms var(--ts-ease),
-    color 200ms var(--ts-ease),
-    box-shadow 200ms var(--ts-ease);
+    background var(--ts-duration) var(--ts-ease),
+    color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__seg-option:hover {
@@ -295,9 +295,9 @@
   cursor: pointer;
   margin-top: 0.3rem;
   transition:
-    border-color 200ms var(--ts-ease),
-    background 200ms var(--ts-ease),
-    color 200ms var(--ts-ease);
+    border-color var(--ts-duration) var(--ts-ease),
+    background var(--ts-duration) var(--ts-ease),
+    color var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__toggle-pill:hover {
@@ -314,7 +314,7 @@
 .context-pack-modal__toggle-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--ts-radius-pill);
   border: 1.5px solid var(--ts-text-soft);
   flex-shrink: 0;
   transition:
@@ -482,7 +482,7 @@
   color: var(--ts-text);
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
   padding: 0.3rem 1.6rem 0.3rem 0.5rem;
   cursor: pointer;
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='10' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%238292a8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -490,8 +490,8 @@
   background-position: right 0.45rem center;
   background-size: 10px;
   transition:
-    border-color 200ms var(--ts-ease),
-    box-shadow 200ms var(--ts-ease);
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__inline-select:hover {
@@ -535,11 +535,11 @@
   color: var(--ts-text);
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
   padding: 0.3rem 0.5rem;
   transition:
-    border-color 200ms var(--ts-ease),
-    box-shadow 200ms var(--ts-ease);
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__inline-input:focus {
@@ -578,13 +578,13 @@
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
   background: none;
   color: var(--ts-text-soft);
   cursor: pointer;
   transition:
-    color 200ms var(--ts-ease),
-    background 200ms var(--ts-ease);
+    color var(--ts-duration) var(--ts-ease),
+    background var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__icon-btn:hover {
@@ -616,7 +616,7 @@
   font-size: 0.76rem;
   font-weight: 500;
   cursor: pointer;
-  transition: color 200ms var(--ts-ease);
+  transition: color var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__text-btn:hover {
@@ -649,7 +649,7 @@
   gap: 0.4rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid color-mix(in srgb, var(--ts-accent) 12%, var(--ts-border));
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
   background: color-mix(in srgb, var(--ts-accent-tint) 50%, var(--ts-surface));
   color: var(--ts-text-muted);
   font-size: 0.73rem;
@@ -715,12 +715,12 @@
   border-color: var(--ts-accent);
   color: var(--ts-text-inverse);
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
   padding: 0.35rem 0.85rem;
   transition:
-    background 200ms var(--ts-ease),
-    border-color 200ms var(--ts-ease),
-    opacity 200ms var(--ts-ease);
+    background var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    opacity var(--ts-duration) var(--ts-ease);
 }
 
 .context-pack-modal__footer .action-button--primary:hover:not(:disabled) {
@@ -899,12 +899,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: var(--ts-radius-xl);
   border: 1px solid var(--ts-border);
-  box-shadow:
-    0 0 0 0.5px rgba(0, 0, 0, 0.04),
-    0 4px 14px rgba(0, 0, 0, 0.07),
-    0 24px 60px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--ts-shadow-xl);
   animation: cpPanelIn 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: 60ms;
 }
@@ -928,7 +925,7 @@
   font-size: 0.74rem;
   line-height: 1.4;
   word-break: break-word;
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
   color: var(--ts-text-muted);
@@ -940,7 +937,7 @@
   font-size: 0.74rem;
   line-height: 1.4;
   word-break: break-word;
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
   background: var(--ts-danger-tint);
   border: 1px solid color-mix(in srgb, var(--ts-danger) 15%, transparent);
   color: var(--ts-danger);
@@ -958,7 +955,7 @@
 .context-pack-modal .composer-field select {
   padding: 0.35rem 0.5rem;
   font-size: 0.78rem;
-  border-radius: 6px;
+  border-radius: var(--ts-radius-md);
 }
 
 .context-pack-modal .composer-field > span {
@@ -970,12 +967,12 @@
 .context-pack-modal .action-button {
   padding: 0.3rem 0.6rem;
   font-size: 0.76rem;
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
 }
 
 .context-pack-modal .action-button--secondary {
   font-size: 0.74rem;
-  border-radius: 8px;
+  border-radius: var(--ts-radius-md);
 }
 
 .context-pack-modal .panel__meta {

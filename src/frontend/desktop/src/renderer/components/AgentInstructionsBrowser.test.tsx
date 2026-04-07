@@ -37,22 +37,19 @@ describe('AgentInstructionsBrowser', () => {
     const dialog = screen.getByRole('dialog', { name: 'Platform Instructions' });
     expect(dialog).toHaveStyle({
       width: 'min(720px, 100%)',
-      height: 'min(82vh, 680px)',
-      maxHeight: 'min(82vh, 680px)',
+      height: 'min(78vh, 640px)',
     });
 
     fireEvent.click(screen.getByRole('tab', { name: /Instructions 0/i }));
     expect(dialog).toHaveStyle({
       width: 'min(720px, 100%)',
-      height: 'min(82vh, 680px)',
-      maxHeight: 'min(82vh, 680px)',
+      height: 'min(78vh, 640px)',
     });
 
     fireEvent.click(screen.getByRole('tab', { name: /Prompts 2/i }));
     expect(dialog).toHaveStyle({
       width: 'min(720px, 100%)',
-      height: 'min(82vh, 680px)',
-      maxHeight: 'min(82vh, 680px)',
+      height: 'min(78vh, 640px)',
     });
   });
 });

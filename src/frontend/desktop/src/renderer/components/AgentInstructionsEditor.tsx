@@ -77,7 +77,7 @@ function AgentInstructionsEditor(props: AgentInstructionsEditorProps): JSX.Eleme
       </>}
       subtitle={file.relativePath}
       maxWidth="820px"
-      maxHeight="min(82vh, 680px)"
+      maxHeight="min(78vh, 640px)"
       zIndex={101}
       escPriority={1}
       footer={<>

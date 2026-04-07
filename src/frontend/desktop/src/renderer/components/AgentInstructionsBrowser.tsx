@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { CloseIcon } from './creation-steps/icons';
 import {
   TAB_ORDER,
   TAB_LABELS,
@@ -40,8 +41,7 @@ const TAB_ICONS: Record<InstructionsTab, JSX.Element> = {
 
 const BROWSER_MODAL_STYLE = {
   width: 'min(720px, 100%)',
-  height: 'min(82vh, 680px)',
-  maxHeight: 'min(82vh, 680px)',
+  height: 'min(78vh, 640px)',
 } as const;
 
 function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Element | null {
@@ -58,6 +58,16 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
 
   const [activeTab, setActiveTab] = useState<InstructionsTab>('profiles');
 
+  const handleEsc = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isOpen, handleEsc]);
+
   if (!isOpen) return null;
 
   const totalCount = TAB_ORDER.reduce((sum, tab) => sum + files[tab].length, 0);
@@ -69,6 +79,7 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
         className="mcp-modal instructions-browser"
         style={BROWSER_MODAL_STYLE}
         role="dialog"
+        aria-modal="true"
         aria-label="Platform Instructions"
         onClick={(e) => e.stopPropagation()}
       >
@@ -96,7 +107,7 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
             </div>
           </div>
           <button type="button" className="mcp-modal__close" onClick={onClose} aria-label="Close">
-            &times;
+            <CloseIcon />
           </button>
         </header>
 

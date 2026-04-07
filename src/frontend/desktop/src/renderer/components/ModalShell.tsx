@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 
 import { classNames } from '../utils/classNames';
 import { registerEscHandler } from '../utils/modalShellEscRegistry';
+import { CloseIcon } from './creation-steps/icons';
 
 import '../styles/modalShell.css';
 
@@ -132,7 +133,7 @@ export default function ModalShell({
             onClick={onClose}
             aria-label="Close"
           >
-            &times;
+            <CloseIcon />
           </button>
         </header>
 

@@ -40,7 +40,7 @@ describe('AgentInstructionsEditor', () => {
     expect(dialog).toHaveClass('instructions-editor-shell');
     expect(dialog).toHaveStyle({
       '--modal-shell-max-w': '820px',
-      '--modal-shell-max-h': 'min(82vh, 680px)',
+      '--modal-shell-max-h': 'min(78vh, 640px)',
     });
   });
 });

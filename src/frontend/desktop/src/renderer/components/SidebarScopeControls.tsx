@@ -51,10 +51,10 @@ function SidebarScopeControls({
           {selectedPack.focusTargets.length ? (
             <div className="scope-card__focus">
               <span className="scope-card__subtitle">
-                {selectedPack.estateType === 'distributed-platform' ? 'Repositories' : 'Focus Areas'}
+                {selectedPack.estateType === 'distributed-platform' ? 'Repositories' : 'Folders'}
               </span>
               <div className="scope-focus-list" aria-label="Working focus">
-                {selectedPack.focusTargets.map((target, index) => {
+                {selectedPack.focusTargets.map((target) => {
                   const inputId = `working-focus-${target.focusId}`;
                   const isChecked = selectedWorkingFocusIds.includes(target.focusId);
                   const focusRowTitle = target.relativePath
@@ -66,7 +66,7 @@ function SidebarScopeControls({
                     <label
                       key={target.focusId}
                       htmlFor={inputId}
-                      className={classNames('scope-focus-row', isChecked && 'scope-focus-row--checked', index % 2 === 1 && 'scope-focus-row--alt')}
+                      className={classNames('scope-focus-row', isChecked && 'scope-focus-row--checked')}
                       title={focusRowTitle}
                     >
                       <input
@@ -91,14 +91,14 @@ function SidebarScopeControls({
                                 target.repositoryType === 'primary' && 'scope-focus-row__type--primary',
                                 onToggleRepositoryType && 'scope-focus-row__type--clickable',
                               )}
-                              title={`Click to change to ${target.repositoryType === 'primary' ? 'Support' : 'Primary'}`}
+                              title={`Click to change to ${target.repositoryType === 'primary' ? 'Context' : 'Active'}`}
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 onToggleRepositoryType?.(target.focusId, target.repositoryType!);
                               }}
                             >
-                              {target.repositoryType === 'primary' ? 'Primary' : 'Support'}
+                              {target.repositoryType === 'primary' ? 'Active' : 'Context'}
                             </button>
                           ) : null}
                           {target.systemLayer ? (
