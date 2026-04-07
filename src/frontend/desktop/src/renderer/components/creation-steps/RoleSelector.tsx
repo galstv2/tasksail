@@ -1,5 +1,4 @@
 import type { RepositoryEntryDraft } from '../../contextPackCreationTypes';
-import { classNames } from '../../utils/classNames';
 import { ROLE_OPTIONS } from './buildWizardConstants';
 
 type RoleSelectorProps = {
@@ -14,23 +13,23 @@ function RoleSelector({
   onSelect,
 }: RoleSelectorProps): JSX.Element {
   return (
-    <div className="context-pack-modal__wizard-chip-grid">
+    <select
+      className="context-pack-modal__inline-select"
+      value={selectedRole}
+      disabled={busy}
+      onChange={(e) => {
+        if (e.target.value) {
+          onSelect(e.target.value as RepositoryEntryDraft['systemLayer']);
+        }
+      }}
+    >
+      <option value="" disabled>Choose a role…</option>
       {ROLE_OPTIONS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className={classNames(
-            'context-pack-modal__wizard-chip',
-            selectedRole === option.value && 'context-pack-modal__wizard-chip--active',
-          )}
-          disabled={busy}
-          onClick={() => onSelect(option.value)}
-          title={option.description}
-        >
+        <option key={option.value} value={option.value}>
           {option.label}
-        </button>
+        </option>
       ))}
-    </div>
+    </select>
   );
 }
 

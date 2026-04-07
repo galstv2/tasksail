@@ -142,6 +142,7 @@ export const desktopShellApi = {
     mode: ContextPackDiscoveryMode;
     writePlan?: boolean;
     seedOnCreate?: boolean;
+    initGitRepos?: boolean;
     bootstrapAnswers: {
       contextPackId: string;
       estateName: string;
@@ -575,6 +576,7 @@ export type DesktopShellApi = {
     mode: ContextPackDiscoveryMode;
     writePlan?: boolean;
     seedOnCreate?: boolean;
+    initGitRepos?: boolean;
     bootstrapAnswers: {
       contextPackId: string;
       estateName: string;

@@ -54,7 +54,7 @@ describe('ReviewStep', () => {
       ],
     };
     render(<ReviewStep draft={draft} />);
-    const chips = screen.getAllByText(/Primary/);
+    const chips = screen.getAllByText(/Active/);
     expect(chips.length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/web/)).toBeInTheDocument();
   });
@@ -83,8 +83,8 @@ describe('ReviewStep', () => {
 
     render(<ReviewStep draft={draft} />);
 
-    expect(screen.getByText(/Primary • Core Module/)).toBeInTheDocument();
-    expect(screen.getByText(/Support • Docs/)).toBeInTheDocument();
+    expect(screen.getByText(/Active • Core Module/)).toBeInTheDocument();
+    expect(screen.getByText(/Context • Docs/)).toBeInTheDocument();
     expect(screen.getByText(/services\/core/)).toBeInTheDocument();
   });
 
@@ -100,8 +100,8 @@ describe('ReviewStep', () => {
 
     render(<ReviewStep draft={draft} />);
 
-    expect(screen.getByText('Primary focus area selected')).toBeInTheDocument();
-    expect(screen.getByText('Primary focus area has a relative path')).toBeInTheDocument();
+    expect(screen.getByText('Working folder selected')).toBeInTheDocument();
+    expect(screen.getByText('Working folder has a relative path')).toBeInTheDocument();
   });
 
   it('warns when no primary focus area is selected', () => {
@@ -117,7 +117,7 @@ describe('ReviewStep', () => {
     const { container } = render(<ReviewStep draft={draft} />);
     const selectedItem = Array.from(
       container.querySelectorAll('.context-pack-modal__validation-item'),
-    ).find((item) => item.textContent?.includes('Primary focus area selected'));
+    ).find((item) => item.textContent?.includes('Working folder selected'));
 
     expect(selectedItem).toHaveClass('context-pack-modal__validation-item--warn');
   });
@@ -135,7 +135,7 @@ describe('ReviewStep', () => {
     const { container } = render(<ReviewStep draft={draft} />);
     const relativePathItem = Array.from(
       container.querySelectorAll('.context-pack-modal__validation-item'),
-    ).find((item) => item.textContent?.includes('Primary focus area has a relative path'));
+    ).find((item) => item.textContent?.includes('Working folder has a relative path'));
 
     expect(relativePathItem).toHaveClass('context-pack-modal__validation-item--fail');
   });

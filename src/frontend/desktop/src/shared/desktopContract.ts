@@ -446,6 +446,7 @@ export type ContextPackCreateRequest = {
     mode: ContextPackDiscoveryMode;
     writePlan?: boolean;
     seedOnCreate?: boolean;
+    initGitRepos?: boolean;
     bootstrapAnswers: {
       contextPackId: string;
       estateName: string;

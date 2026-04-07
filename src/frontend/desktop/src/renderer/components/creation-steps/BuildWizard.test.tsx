@@ -71,8 +71,8 @@ describe('BuildWizard', () => {
     );
 
     expect(screen.getByText('Build your project')).toBeInTheDocument();
-    expect(screen.getByText('What does this part do?')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Add another part/i })).toBeInTheDocument();
+    expect(screen.getByText('Role')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add (folder|repository)/i })).toBeInTheDocument();
   });
 
   it('auto-completes documentation parts with markdown', () => {
@@ -87,7 +87,8 @@ describe('BuildWizard', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documentation' }));
+    const roleSelect = screen.getAllByRole('combobox')[0]!;
+    fireEvent.change(roleSelect, { target: { value: 'documents' } });
 
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'role', 'documents');
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'language', 'markdown');
@@ -110,9 +111,8 @@ describe('BuildWizard', () => {
       />,
     );
 
-    const otherBtn = screen.getAllByRole('button').find((btn) => btn.textContent?.includes('Other'));
-    expect(otherBtn).toBeTruthy();
-    fireEvent.click(otherBtn!);
+    const languageSelect = screen.getAllByRole('combobox')[1]!;
+    fireEvent.change(languageSelect, { target: { value: '__other__' } });
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'languageIsOther', true);
 
     rerender(
@@ -130,6 +130,6 @@ describe('BuildWizard', () => {
       />,
     );
 
-    expect(screen.getByPlaceholderText('swift')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('e.g. swift')).toBeInTheDocument();
   });
 });

@@ -41,7 +41,7 @@ describe('FocusAreaCard', () => {
   it('primary toggle calls onSetPrimaryFocusArea', () => {
     const onSetPrimaryFocusArea = vi.fn();
     render(<FocusAreaCard {...defaultProps} onSetPrimaryFocusArea={onSetPrimaryFocusArea} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Primary working folder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start from here' }));
     expect(onSetPrimaryFocusArea).toHaveBeenCalledWith('f1');
   });
 
@@ -53,8 +53,8 @@ describe('FocusAreaCard', () => {
       />,
     );
 
-    expect(screen.getByText('Primary working folder')).toBeInTheDocument();
-    expect(screen.getByText('Primary')).toBeInTheDocument();
+    expect(screen.getByText('Start from here')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
   });
 
   it('field change calls onFocusAreaFieldChange', () => {
@@ -102,7 +102,7 @@ describe('FocusAreaCard', () => {
     );
 
     expect(
-      screen.getByText('Primary focus areas need a relative path.'),
+      screen.getByText('The working folder needs a relative path.'),
     ).toBeInTheDocument();
   });
 });

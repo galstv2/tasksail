@@ -60,7 +60,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
       draft.repositories.length > 0 ? 'pass' : 'fail',
     ),
     validationItem(
-      'Primary repository selected',
+      'Working repository selected',
       draft.repositories.some((r) => r.primary) ? 'pass' : 'warn',
     ),
     validationItem(
@@ -78,11 +78,11 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
             draft.focusAreas.length > 0 ? 'pass' : 'fail',
           ),
           validationItem(
-            'Primary focus area selected',
+            'Working folder selected',
             draft.focusAreas.some((focusArea) => focusArea.primary) ? 'pass' : 'warn',
           ),
           validationItem(
-            'Primary focus area has a relative path',
+            'Working folder has a relative path',
             draft.focusAreas.some((f) => f.primary && f.relativePath.trim()) ? 'pass' : 'fail',
           ),
         ]
@@ -120,7 +120,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
                   repo.primary && 'context-pack-modal__repo-chip--primary',
                 )}
               >
-                {repo.primary && 'Primary \u2022 '}
+                {repo.primary && 'Active \u2022 '}
                 {repo.repoName || repo.repoId || 'Unnamed'}
                 {repo.systemLayer && (
                   <span className="context-pack-modal__repo-chip__layer">
@@ -142,7 +142,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
                       focusArea.repositoryType === 'primary' && 'context-pack-modal__repo-chip--primary',
                     )}
                     >
-                      {focusArea.repositoryType === 'primary' ? 'Primary \u2022 ' : 'Support \u2022 '}
+                      {focusArea.repositoryType === 'primary' ? 'Active \u2022 ' : 'Context \u2022 '}
                       {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
                       {(focusArea.relativePath || focusArea.focusType) ? (
                         <span className="context-pack-modal__repo-chip__layer">

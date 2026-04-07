@@ -7,40 +7,36 @@ import type {
 export type LanguageEntry = {
   value: string;
   label: string;
-  hint: string;
-  category: 'application' | 'support';
   roles: ReadonlyArray<RepositoryEntryDraft['systemLayer']>;
 };
 
 export const LANGUAGE_CATALOG: readonly LanguageEntry[] = [
-  { value: 'csharp', label: 'C# / .NET', hint: '#', category: 'application', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'typescript', label: 'TypeScript', hint: 'TS', category: 'application', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'javascript', label: 'JavaScript', hint: 'JS', category: 'application', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'python', label: 'Python', hint: 'Py', category: 'application', roles: ['backend', 'shared', 'infrastructure'] },
-  { value: 'java', label: 'Java', hint: 'J', category: 'application', roles: ['backend', 'shared'] },
-  { value: 'go', label: 'Go', hint: 'Go', category: 'application', roles: ['backend', 'shared', 'infrastructure'] },
-  { value: 'rust', label: 'Rust', hint: 'Rs', category: 'application', roles: ['backend', 'shared'] },
-  { value: 'ruby', label: 'Ruby', hint: 'Rb', category: 'application', roles: ['backend', 'shared'] },
-  { value: 'sql', label: 'SQL', hint: 'SQL', category: 'support', roles: ['database', 'backend', 'shared'] },
-  { value: 'hcl', label: 'HCL / Terraform', hint: 'HCL', category: 'support', roles: ['infrastructure'] },
-  { value: 'shell', label: 'Shell / Bash', hint: 'sh', category: 'support', roles: ['infrastructure', 'backend', 'shared'] },
-  { value: 'powershell', label: 'PowerShell', hint: 'PS', category: 'support', roles: ['infrastructure', 'backend', 'shared'] },
+  { value: 'csharp', label: 'C# / .NET', roles: ['backend', 'frontend', 'shared'] },
+  { value: 'typescript', label: 'TypeScript', roles: ['backend', 'frontend', 'shared'] },
+  { value: 'javascript', label: 'JavaScript', roles: ['backend', 'frontend', 'shared'] },
+  { value: 'python', label: 'Python', roles: ['backend', 'shared', 'infrastructure'] },
+  { value: 'java', label: 'Java', roles: ['backend', 'shared'] },
+  { value: 'go', label: 'Go', roles: ['backend', 'shared', 'infrastructure'] },
+  { value: 'rust', label: 'Rust', roles: ['backend', 'shared'] },
+  { value: 'ruby', label: 'Ruby', roles: ['backend', 'shared'] },
+  { value: 'sql', label: 'SQL', roles: ['database', 'backend', 'shared'] },
+  { value: 'hcl', label: 'HCL / Terraform', roles: ['infrastructure'] },
+  { value: 'shell', label: 'Shell / Bash', roles: ['infrastructure', 'backend', 'shared'] },
+  { value: 'powershell', label: 'PowerShell', roles: ['infrastructure', 'backend', 'shared'] },
 ] as const;
 
 export type RoleOption = {
   value: RepositoryEntryDraft['systemLayer'];
   label: string;
-  description: string;
-  shortLabel: string;
 };
 
 export const ROLE_OPTIONS: readonly RoleOption[] = [
-  { value: 'backend', label: 'Backend / API', description: 'Server-side code, APIs, and services', shortLabel: 'API' },
-  { value: 'frontend', label: 'Frontend / UI', description: 'User interfaces and client-side code', shortLabel: 'Frontend' },
-  { value: 'database', label: 'Database', description: 'Schemas, migrations, and queries', shortLabel: 'Database' },
-  { value: 'infrastructure', label: 'Infrastructure', description: 'DevOps, CI/CD, and cloud config', shortLabel: 'Infrastructure' },
-  { value: 'documents', label: 'Documentation', description: 'Docs, specs, and reference material', shortLabel: 'Docs' },
-  { value: 'shared', label: 'Shared / Library', description: 'Code shared across other parts', shortLabel: 'Shared' },
+  { value: 'backend', label: 'Backend / API' },
+  { value: 'frontend', label: 'Frontend / UI' },
+  { value: 'database', label: 'Database' },
+  { value: 'infrastructure', label: 'Infrastructure' },
+  { value: 'documents', label: 'Documentation' },
+  { value: 'shared', label: 'Shared / Library' },
 ] as const;
 
 export const WIZARD_STEPS: readonly { key: BuildWizardStep; label: string }[] = [

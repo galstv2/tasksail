@@ -30,7 +30,7 @@ function FocusAreaCard({
         : trimmedRelativePath.endsWith('/')
           ? 'Relative path should not end with "/".'
           : focusArea.primary && !trimmedRelativePath
-            ? 'Primary focus areas need a relative path.'
+            ? 'The working folder needs a relative path.'
             : null;
 
   return (
@@ -46,7 +46,7 @@ function FocusAreaCard({
                   focusArea.repositoryType === 'primary' && 'scope-focus-row__type--primary',
                 )}
               >
-                {focusArea.repositoryType === 'primary' ? 'Primary' : 'Support'}
+                {focusArea.repositoryType === 'primary' ? 'Active' : 'Context'}
               </span>
             ) : null}
           </span>
@@ -125,7 +125,7 @@ function FocusAreaCard({
         aria-pressed={focusArea.primary}
       >
         <span className="context-pack-modal__toggle-dot" />
-        Primary working folder
+        Start from here
       </button>
     </article>
   );

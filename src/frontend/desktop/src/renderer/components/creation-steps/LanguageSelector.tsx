@@ -1,8 +1,5 @@
-import { useState } from 'react';
-
 import { classNames } from '../../utils/classNames';
 import { getLanguagesForRole } from './buildWizardConstants';
-import { ChevronIcon } from './icons';
 
 type LanguageSelectorProps = {
   busy: boolean;
@@ -21,89 +18,52 @@ function LanguageSelector({
   onSelect,
   onOtherLanguageChange,
 }: LanguageSelectorProps): JSX.Element {
-  const [showMoreLanguages, setShowMoreLanguages] = useState(false);
   const { primary, secondary } = getLanguagesForRole(role);
 
   return (
-    <div className="context-pack-modal__wizard-language">
-      <div className="context-pack-modal__wizard-chip-grid">
-        {primary.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            className={classNames(
-              'context-pack-modal__wizard-chip',
-              language === entry.value && !languageIsOther && 'context-pack-modal__wizard-chip--active',
-            )}
-            disabled={busy}
-            onClick={() => onSelect(entry.value, false)}
-          >
-            <span className="context-pack-modal__wizard-language-hint">{entry.hint}</span>
-            {entry.label}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          className={classNames(
-            'context-pack-modal__wizard-chip',
-            languageIsOther && 'context-pack-modal__wizard-chip--active',
-          )}
-          disabled={busy}
-          onClick={() => onSelect(languageIsOther ? language : '', true)}
-        >
-          <span className="context-pack-modal__wizard-language-hint">…</span>
-          Other
-        </button>
-      </div>
-
-      {secondary.length > 0 ? (
-        <>
-          <button
-            type="button"
-            className={classNames(
-              'context-pack-modal__advanced-toggle',
-              showMoreLanguages && 'context-pack-modal__advanced-toggle--open',
-            )}
-            onClick={() => setShowMoreLanguages((previous) => !previous)}
-          >
-            <ChevronIcon />
-            {showMoreLanguages ? 'Less' : 'More languages'}
-          </button>
-
-          {showMoreLanguages ? (
-            <div className="context-pack-modal__wizard-chip-grid">
-              {secondary.map((entry) => (
-                <button
-                  key={entry.value}
-                  type="button"
-                  className={classNames(
-                    'context-pack-modal__wizard-chip',
-                    language === entry.value
-                      && !languageIsOther
-                      && 'context-pack-modal__wizard-chip--active',
-                  )}
-                  disabled={busy}
-                  onClick={() => onSelect(entry.value, false)}
-                >
-                  <span className="context-pack-modal__wizard-language-hint">{entry.hint}</span>
-                  {entry.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </>
-      ) : null}
+    <div className="context-pack-modal__lang-selector">
+      <select
+        className={classNames(
+          'context-pack-modal__inline-select',
+          languageIsOther && 'context-pack-modal__inline-select--muted',
+        )}
+        value={languageIsOther ? '__other__' : language}
+        disabled={busy}
+        onChange={(e) => {
+          const value = e.target.value;
+          if (value === '__other__') {
+            onSelect('', true);
+          } else {
+            onSelect(value, false);
+          }
+        }}
+      >
+        <option value="" disabled>Choose a language…</option>
+        {primary.length > 0 ? (
+          <optgroup label="Recommended">
+            {primary.map((entry) => (
+              <option key={entry.value} value={entry.value}>{entry.label}</option>
+            ))}
+          </optgroup>
+        ) : null}
+        {secondary.length > 0 ? (
+          <optgroup label={primary.length > 0 ? 'Other languages' : 'Languages'}>
+            {secondary.map((entry) => (
+              <option key={entry.value} value={entry.value}>{entry.label}</option>
+            ))}
+          </optgroup>
+        ) : null}
+        <option value="__other__">Other…</option>
+      </select>
 
       {languageIsOther ? (
-        <label className="composer-field">
-          <span>Language</span>
-          <input
-            value={language}
-            onChange={(event) => onOtherLanguageChange(event.target.value)}
-            placeholder="swift"
-          />
-        </label>
+        <input
+          className="context-pack-modal__inline-input"
+          value={language}
+          onChange={(e) => onOtherLanguageChange(e.target.value)}
+          placeholder="e.g. swift"
+          disabled={busy}
+        />
       ) : null}
     </div>
   );

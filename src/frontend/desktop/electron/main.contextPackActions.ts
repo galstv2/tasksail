@@ -53,6 +53,25 @@ import { listAvailableContextPacks } from './main.contextPackCatalog';
 
 const execFileAsync = promisify(execFile);
 
+async function initGitReposForNewProject(
+  payload: ContextPackCreateRequest['payload'],
+): Promise<void> {
+  const repos = payload.bootstrapAnswers.repositories;
+  if (payload.mode === 'monolith') {
+    await execFileAsync('git', ['init'], { cwd: payload.discoveryRoot });
+  } else {
+    await Promise.all(
+      repos
+        .filter((repo) => repo.repoRoot)
+        .map(async (repo) => {
+          const repoDir = resolve(repo.repoRoot);
+          await fsMkdir(repoDir, { recursive: true });
+          await execFileAsync('git', ['init'], { cwd: repoDir });
+        }),
+    );
+  }
+}
+
 export function buildContextPackWorkspaceArgs(
   action: 'preview' | 'apply' | 'clear',
   payload?: ContextPackSwitchPayload,
@@ -312,6 +331,7 @@ export async function executeContextPackCreateAction(
     const answersPath = await writeContextPackBootstrapAnswers(np);
     const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np, answersPath));
     const bp = JSON.parse(bootstrapResult.stdout) as Record<string, unknown>;
+    if (np.initGitRepos) await initGitReposForNewProject(np);
     if (np.writePlan !== false) await planRunner(buildQmdSeedPlanArgs(np.contextPackDir));
     const shouldSeedOnCreate = np.seedOnCreate !== false;
     let seedStatus = 'not-run';

@@ -59,10 +59,8 @@ function RepositoryCard({
           </span>
           <p className="panel__meta">
             {repository.primary
-              ? 'Primary working repository.'
-              : mode === 'monolith' && index > 0
-                ? 'Support repository.'
-                : 'Editable estate entry.'}
+              ? 'Agents will work in this repository.'
+              : 'Available to agents as context.'}
           </p>
         </div>
         {index > 0 ? (
@@ -208,7 +206,7 @@ function RepositoryCard({
         aria-pressed={repository.primary}
       >
         <span className="context-pack-modal__toggle-dot" />
-        Primary (service/app)
+        Start from here
       </button>
     </article>
   );

@@ -154,8 +154,8 @@ export function useContextPackCreation(
         role: '',
         language: '',
         languageIsOther: false,
-        location: state.draft.mode === 'monolith' ? '.' : root,
-        primary: true,
+        location: '',
+        primary: false,
         editing: true,
       },
     ]);
@@ -253,7 +253,7 @@ export function useContextPackCreation(
         language: '',
         languageIsOther: false,
         location: '',
-        primary: previous.length === 0,
+        primary: false,
         editing: true,
       },
     ]);
@@ -387,6 +387,7 @@ export function useContextPackCreation(
         mode: normalizedDraft.mode,
         writePlan: true,
         seedOnCreate: normalizedDraft.creationOrigin !== 'new',
+        initGitRepos: normalizedDraft.creationOrigin === 'new',
         bootstrapAnswers: {
           contextPackId: normalizedDraft.contextPackId,
           estateName: normalizedDraft.estateName,

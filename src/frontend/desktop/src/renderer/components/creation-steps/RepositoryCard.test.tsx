@@ -52,7 +52,7 @@ describe('RepositoryCard', () => {
   it('primary toggle calls onSetPrimaryRepository', () => {
     const onSetPrimaryRepository = vi.fn();
     render(<RepositoryCard {...defaultProps} onSetPrimaryRepository={onSetPrimaryRepository} />);
-    fireEvent.click(screen.getByRole('button', { name: /Primary/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Start from here/i }));
     expect(onSetPrimaryRepository).toHaveBeenCalledWith('r1');
   });
 
