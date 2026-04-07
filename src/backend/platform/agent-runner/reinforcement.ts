@@ -48,7 +48,7 @@ export async function resolveReinforcementContext(
   }
 
   const agentRewardMd = path.join(
-    repoRoot, 'AgentWorkSpace', 'qmd', 'glopml', 'agent-rewards',
+    repoRoot, 'AgentWorkSpace', 'qmd', 'global', 'agent-rewards',
     `${resolveBehavioralBaseRegistryId(agentId)}.md`,
   );
   if (existsSync(agentRewardMd)) {

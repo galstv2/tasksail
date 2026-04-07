@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  buildFleetDaltonCleanupContext,
   buildFleetDaltonCleanupPrompt,
   buildFleetPrompt,
   buildSimpleDaltonPrompt,
@@ -14,6 +15,87 @@ import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 function makeTmpDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'sequencer-test-'));
+}
+
+function writeRegularDaltonOverlayFixture(
+  repoRoot: string,
+  contextPackDir: string,
+  options?: {
+    includeConventions?: boolean;
+    includeCorrections?: boolean;
+    includeReinforcement?: boolean;
+    correctionsAsDirectory?: boolean;
+  },
+): void {
+  const {
+    includeConventions = true,
+    includeCorrections = true,
+    includeReinforcement = true,
+    correctionsAsDirectory = false,
+  } = options ?? {};
+
+  const repoContextAppPath = path.join(
+    repoRoot,
+    'src',
+    'backend',
+    'scripts',
+    'python',
+    'repo-context-app.py',
+  );
+  mkdirSync(path.dirname(repoContextAppPath), { recursive: true });
+  writeFileSync(repoContextAppPath, '# repo context app', 'utf-8');
+
+  const packName = path.basename(contextPackDir);
+  const correctionMemoPath = path.join(
+    contextPackDir,
+    'qmd',
+    'context-packs',
+    packName,
+    'canonical',
+    'context-pack',
+    'behavior-correction-memo.md',
+  );
+  mkdirSync(path.dirname(correctionMemoPath), { recursive: true });
+  writeFileSync(correctionMemoPath, '# Correction memo', 'utf-8');
+
+  if (includeConventions) {
+    const conventionsPath = path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'context-pack-conventions.md',
+    );
+    mkdirSync(path.dirname(conventionsPath), { recursive: true });
+    writeFileSync(conventionsPath, '# Conventions\nFollow the pack rules.', 'utf-8');
+  }
+
+  if (includeCorrections) {
+    const correctionsPath = path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'context-pack-corrections.md',
+    );
+    mkdirSync(path.dirname(correctionsPath), { recursive: true });
+    if (correctionsAsDirectory) {
+      mkdirSync(correctionsPath, { recursive: true });
+    } else {
+      writeFileSync(correctionsPath, '# Corrections\nAvoid the previous bug.', 'utf-8');
+    }
+  }
+
+  if (includeReinforcement) {
+    const reinforcementPath = path.join(
+      repoRoot,
+      'AgentWorkSpace',
+      'qmd',
+      'global',
+      'agent-rewards',
+      'software-engineer.md',
+    );
+    mkdirSync(path.dirname(reinforcementPath), { recursive: true });
+    writeFileSync(reinforcementPath, '# Reinforcement\nKeep changes tightly scoped.', 'utf-8');
+  }
 }
 
 function createExternalMcpRegistry(agentIds: string[]): ExternalMcpRegistry {
@@ -112,13 +194,21 @@ describe('buildFleetPrompt', () => {
 
   it('includes all slice content in the prompt', async () => {
     const dir = makeTmpDir();
-    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
-    writeFileSync(path.join(dir, 'slice-2.md'), '# Slice 2\nDo the second thing.');
+    const handoffsDir = path.join(dir, 'handoffs');
+    const implStepsDir = path.join(dir, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), '# Spec\nHonor the contract.', 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+    writeFileSync(path.join(implStepsDir, 'slice-2.md'), '# Slice 2\nDo the second thing.');
+    const contextPackDir = path.join(dir, 'contextpacks', 'pack-a');
+    writeRegularDaltonOverlayFixture(dir, contextPackDir);
     const prompt = await buildFleetPrompt(
-      dir,
-      dir,
+      implStepsDir,
+      handoffsDir,
       'services/sink',
       createExternalMcpRegistry(['dalton']),
+      { repoRoot: dir, contextPackDir },
     );
     expect(prompt).toContain('fleet mode');
     expect(prompt).toContain('## Monolith Focus Scope');
@@ -126,10 +216,24 @@ describe('buildFleetPrompt', () => {
     expect(prompt).toContain('"Prompt Guide" may help with triaging implementation work');
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
+    expect(prompt).toContain('## Implementation Spec');
+    expect(prompt).toContain('Honor the contract.');
+    expect(prompt).toContain('## Behavioral Overlays');
+    expect(prompt).toContain(
+      'Supplemental behavioral guidance begins below. Apply these overlays in addition to the primary task content above.',
+    );
+    expect(prompt).toContain('### Conventions');
+    expect(prompt).toContain('Follow the pack rules.');
+    expect(prompt).toContain('### Corrections');
+    expect(prompt).toContain('Avoid the previous bug.');
+    expect(prompt).toContain('### Reinforcement');
+    expect(prompt).toContain('Keep changes tightly scoped.');
     expect(prompt).toContain('## Slice: slice-1');
     expect(prompt).toContain('Do the first thing.');
     expect(prompt).toContain('## Slice: slice-2');
     expect(prompt).toContain('Do the second thing.');
+    expect(prompt.indexOf('Honor the contract.')).toBeLessThan(prompt.indexOf('## Slice: slice-1'));
+    expect(prompt.indexOf('## Slice: slice-2')).toBeLessThan(prompt.indexOf('## Behavioral Overlays'));
     expect(prompt).toContain('ensure all tests pass before exiting');
   });
 
@@ -147,16 +251,26 @@ describe('buildFleetPrompt', () => {
 
 describe('buildFleetDaltonCleanupPrompt', () => {
   it('builds a generic cleanup prompt when QA is blocked without a Dalton artifact gap', () => {
-    const prompt = buildFleetDaltonCleanupPrompt('', 'QA blocked by policy');
+    const prompt = buildFleetDaltonCleanupPrompt('');
     expect(prompt).toContain('did not leave the workflow ready for QA');
-    expect(prompt).toContain('QA blocked by policy');
     expect(prompt).toContain('Inspect the code and validation results');
   });
 
-  it('builds a cleanup prompt when concrete Dalton artifact proof exists', () => {
+  it('builds a cleanup prompt when inline cleanup context exists', () => {
     const prompt = buildFleetDaltonCleanupPrompt(
-      'Address the blocker in AgentWorkSpace/handoffs/issues.md.',
-      'QA blocked by policy',
+      [
+        '## Blocking Workflow Violations',
+        '',
+        '- [error] closeout.qa-review-approved (issues.md): Ron marked QA as blocking.',
+        '',
+        '## Inline Blocking Artifact Context',
+        '',
+        '### issues.md',
+        '',
+        '## Review Outcome',
+        '',
+        'blocking',
+      ].join('\n'),
       'services/sink',
       createExternalMcpRegistry(['dalton']),
     );
@@ -164,20 +278,73 @@ describe('buildFleetDaltonCleanupPrompt', () => {
     expect(prompt).toContain('## Monolith Focus Scope');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('Primary focus path: `services/sink`');
-    expect(prompt).toContain('Address the blocker in AgentWorkSpace/handoffs/issues.md.');
+    expect(prompt).toContain('closeout.qa-review-approved');
+    expect(prompt).toContain('## Inline Blocking Artifact Context');
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR');
+  });
+});
+
+describe('buildFleetDaltonCleanupContext', () => {
+  it('inlines policy violations and blocking artifact content without handoff env vars', async () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      path.join(dir, 'issues.md'),
+      '# QA Issues\n\n## Review Outcome\n\nblocking\n\n## Required Fix\n\nTighten validation.\n',
+    );
+
+    const context = await buildFleetDaltonCleanupContext({
+      handoffsDir: dir,
+      implStepsDir: dir,
+      policyResult: {
+        stdout: JSON.stringify({
+          guardrail: {
+            requested_agent_id: 'qa',
+            expected_agent_id: 'software-engineer',
+          },
+          violations: [
+            {
+              severity: 'error',
+              rule_id: 'closeout.qa-review-approved',
+              artifact: 'AgentWorkSpace/handoffs/issues.md',
+              message: 'Review Outcome is blocking.',
+              remediation: 'Resolve the blocking findings before QA handoff.',
+            },
+          ],
+          next_steps: ['Resolve the remaining blocking QA issue.'],
+        }),
+        stderr: '',
+      },
+    });
+
+    expect(context).toContain('Workflow guardrail requires software-engineer instead of qa.');
+    expect(context).toContain('closeout.qa-review-approved');
+    expect(context).toContain('issues.md');
+    expect(context).toContain('## Review Outcome');
+    expect(context).toContain('Tighten validation.');
+    expect(context).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(context).not.toContain('$COPILOT_IMPL_STEPS_DIR');
   });
 });
 
 describe('buildSimpleDaltonPrompt', () => {
   it('includes the shared monolith focus block when a primary focus path is provided', async () => {
     const dir = makeTmpDir();
-    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+    const handoffsDir = path.join(dir, 'handoffs');
+    const implStepsDir = path.join(dir, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), '# Spec\nHonor the contract.', 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+    const contextPackDir = path.join(dir, 'contextpacks', 'pack-a');
+    writeRegularDaltonOverlayFixture(dir, contextPackDir, { includeConventions: false });
 
     const prompt = await buildSimpleDaltonPrompt(
-      dir,
-      dir,
+      implStepsDir,
+      handoffsDir,
       'services/sink',
       createExternalMcpRegistry(['dalton']),
+      { repoRoot: dir, contextPackDir },
     );
 
     expect(prompt).toContain('## Monolith Focus Scope');
@@ -185,6 +352,45 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).toContain('Primary focus path: `services/sink`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('implementation changes must stay within the selected focus area.');
+    expect(prompt).toContain('## Implementation Spec');
+    expect(prompt).toContain('Honor the contract.');
+    expect(prompt).toContain('## Implementation Slices (1 total)');
+    expect(prompt).toContain('Do the first thing.');
+    expect(prompt).toContain('## Behavioral Overlays');
+    expect(prompt).toContain(
+      'Supplemental behavioral guidance begins below. Apply these overlays in addition to the primary task content above.',
+    );
+    expect(prompt).not.toContain('### Conventions');
+    expect(prompt).toContain('### Corrections');
+    expect(prompt).toContain('Avoid the previous bug.');
+    expect(prompt).toContain('### Reinforcement');
+    expect(prompt).toContain('Keep changes tightly scoped.');
+    expect(prompt.indexOf('Honor the contract.')).toBeLessThan(
+      prompt.indexOf('## Implementation Slices (1 total)'),
+    );
+    expect(prompt.indexOf('Do the first thing.')).toBeLessThan(
+      prompt.indexOf('## Behavioral Overlays'),
+    );
+  });
+
+  it('skips unreadable overlay paths without failing prompt construction', async () => {
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+    const contextPackDir = path.join(dir, 'contextpacks', 'pack-a');
+    writeRegularDaltonOverlayFixture(dir, contextPackDir, { correctionsAsDirectory: true });
+
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      dir,
+      undefined,
+      undefined,
+      { repoRoot: dir, contextPackDir },
+    );
+
+    expect(prompt).toContain('## Behavioral Overlays');
+    expect(prompt).toContain('### Conventions');
+    expect(prompt).not.toContain('### Corrections');
+    expect(prompt).toContain('### Reinforcement');
   });
 
   it('preserves no-focus prompt behavior when no primary focus path is provided', async () => {

@@ -13,10 +13,11 @@ import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import type { PipelineOptions, PipelineReceipt } from '../types.js';
 import { runRoleAgent } from '../roleAgent.js';
 import { runRuntimePolicyCheck } from '../guardrails.js';
-import { buildAgentArtifactRemediationPrompt, detectParallelOk, listSliceFiles } from '../artifactCompletion.js';
+import { detectParallelOk, listSliceFiles } from '../artifactCompletion.js';
 import { prewarmPipelineContext } from './contextPrewarm.js';
 import { getCachedExternalMcpRegistry, getCachedExternalMcpRegistryHealth } from './externalMcpRegistryCache.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
+import { formatRegularDaltonOverlaySections } from './regularDaltonOverlays.js';
 import { remediationHasBlockingFindings, remediationRunQaLoop, remediationClearCloseoutArtifacts } from './remediation.js';
 import { resolveVerificationDaltonPrompt } from './verificationPass.js';
 import {
@@ -56,6 +57,28 @@ interface VerificationDiffStage {
   verificationRunId: string;
   verificationDiffDir: string;
   verificationDiffAbsolutePath: string;
+}
+
+interface RegularDaltonPromptContext {
+  repoRoot?: string;
+  contextPackDir?: string;
+}
+
+interface RuntimePolicyViolationSummary {
+  severity?: string;
+  rule_id?: string;
+  artifact?: string;
+  message?: string;
+  remediation?: string;
+}
+
+interface RuntimePolicySummary {
+  violations?: RuntimePolicyViolationSummary[];
+  next_steps?: string[];
+  guardrail?: {
+    expected_agent_id?: string;
+    requested_agent_id?: string;
+  };
 }
 
 
@@ -222,8 +245,7 @@ function extractPolicyFailureDetails(
 }
 
 export function buildFleetDaltonCleanupPrompt(
-  artifactPrompt: string,
-  policyDetails: string,
+  cleanupContext: string,
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
@@ -233,17 +255,160 @@ export function buildFleetDaltonCleanupPrompt(
   ];
   appendFocusBlock(sections, primaryFocusRelativePath);
   appendMcpContextBlock(sections, externalMcpRegistry, 'dalton');
-  sections.push(`Blocking workflow-policy details: ${policyDetails}`, '');
-  if (artifactPrompt.trim()) {
-    sections.push(artifactPrompt, '');
+  if (cleanupContext.trim()) {
+    sections.push(cleanupContext.trim(), '');
   } else {
     sections.push(
       'Inspect the code and validation results, fix only what is still preventing QA handoff, and ensure all tests pass.',
       '',
     );
   }
+  sections.push('Fix only what is still preventing QA handoff. Do not do broader cleanup or extra work.');
   sections.push('Ensure all tests pass.');
   return sections.join('\n');
+}
+
+function cleanupArtifactLabel(artifactPath: string): string {
+  return artifactPath
+    .replace(/^AgentWorkSpace\/handoffs\//, '')
+    .replace(/^AgentWorkSpace\/ImplementationSteps\//, '');
+}
+
+function resolveCleanupArtifactAbsolutePath(
+  artifactPath: string,
+  handoffsDir: string,
+  implStepsDir: string,
+): string | undefined {
+  if (artifactPath.startsWith('AgentWorkSpace/handoffs/')) {
+    return path.join(handoffsDir, artifactPath.replace(/^AgentWorkSpace\/handoffs\//, ''));
+  }
+  if (artifactPath.startsWith('AgentWorkSpace/ImplementationSteps/')) {
+    return path.join(
+      implStepsDir,
+      artifactPath.replace(/^AgentWorkSpace\/ImplementationSteps\//, ''),
+    );
+  }
+  return undefined;
+}
+
+async function buildInlineCleanupArtifactContext(options: {
+  handoffsDir: string;
+  implStepsDir: string;
+  violations: RuntimePolicyViolationSummary[];
+}): Promise<string> {
+  const uniqueArtifacts = new Set(
+    options.violations
+      .map((violation) => violation.artifact?.trim())
+      .filter((artifactPath): artifactPath is string => Boolean(artifactPath)),
+  );
+
+  if (uniqueArtifacts.size === 0) {
+    return '';
+  }
+
+  const sections: string[] = ['## Inline Blocking Artifact Context', ''];
+  let hasContext = false;
+  for (const artifactPath of uniqueArtifacts) {
+    const absolutePath = resolveCleanupArtifactAbsolutePath(
+      artifactPath,
+      options.handoffsDir,
+      options.implStepsDir,
+    );
+    if (!absolutePath) {
+      continue;
+    }
+    const content = await readTextFile(absolutePath);
+    sections.push(`### ${cleanupArtifactLabel(artifactPath)}`);
+    if (content?.trim()) {
+      sections.push('', content.trim(), '');
+    } else {
+      sections.push('', 'Current artifact state: missing or empty.', '');
+    }
+    hasContext = true;
+  }
+
+  return hasContext ? sections.join('\n').trim() : '';
+}
+
+function tryParseRuntimePolicySummary(policyOutput: string): RuntimePolicySummary | undefined {
+  const trimmed = policyOutput.trim();
+  if (!trimmed.startsWith('{')) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed) as RuntimePolicySummary;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function buildFleetDaltonCleanupContext(options: {
+  handoffsDir: string;
+  implStepsDir: string;
+  policyResult: {
+    stdout: string;
+    stderr: string;
+  };
+}): Promise<string> {
+  const policyDetails = extractPolicyFailureDetails(options.policyResult).trim();
+  const parsedPolicy = tryParseRuntimePolicySummary(options.policyResult.stdout);
+
+  if (!parsedPolicy) {
+    return policyDetails ? `Blocking workflow-policy details: ${policyDetails}` : '';
+  }
+
+  const sections: string[] = [];
+  const expectedAgentId = parsedPolicy.guardrail?.expected_agent_id?.trim();
+  const requestedAgentId = parsedPolicy.guardrail?.requested_agent_id?.trim();
+  if (expectedAgentId) {
+    sections.push(
+      `Workflow guardrail requires ${expectedAgentId}${requestedAgentId ? ` instead of ${requestedAgentId}` : ''}.`,
+      '',
+    );
+  }
+
+  const violations = parsedPolicy.violations ?? [];
+  if (violations.length > 0) {
+    sections.push('## Blocking Workflow Violations', '');
+    for (const violation of violations) {
+      const summaryPrefix = [
+        violation.severity?.trim() ? `[${violation.severity.trim()}]` : undefined,
+        violation.rule_id?.trim(),
+      ].filter((part): part is string => Boolean(part)).join(' ');
+      const artifactLabel = violation.artifact?.trim()
+        ? cleanupArtifactLabel(violation.artifact.trim())
+        : undefined;
+      const summary = `${summaryPrefix || 'Policy violation'}${artifactLabel ? ` (${artifactLabel})` : ''}${violation.message?.trim() ? `: ${violation.message.trim()}` : ''}`;
+      sections.push(`- ${summary}`);
+      if (violation.remediation?.trim()) {
+        sections.push(`  Required follow-up: ${violation.remediation.trim()}`);
+      }
+    }
+    sections.push('');
+  } else if (policyDetails) {
+    sections.push(`Blocking workflow-policy details: ${policyDetails}`, '');
+  }
+
+  const nextSteps = (parsedPolicy.next_steps ?? [])
+    .map((step) => step.trim())
+    .filter((step) => step.length > 0);
+  if (nextSteps.length > 0) {
+    sections.push('## Workflow Next Steps', '');
+    sections.push(...nextSteps.map((step) => `- ${step}`));
+    sections.push('');
+  }
+
+  const artifactContext = await buildInlineCleanupArtifactContext({
+    handoffsDir: options.handoffsDir,
+    implStepsDir: options.implStepsDir,
+    violations,
+  });
+  if (artifactContext) {
+    sections.push(artifactContext, '');
+  }
+
+  return sections.join('\n').trim();
 }
 
 export async function readImplSpec(handoffsDir: string): Promise<string | undefined> {
@@ -281,6 +446,7 @@ export async function buildFleetPrompt(
   handoffsDir: string,
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
+  regularDaltonContext?: RegularDaltonPromptContext,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir);
   if (sliceFiles.length === 0) {
@@ -304,9 +470,19 @@ export async function buildFleetPrompt(
     parts.push('');
   }
 
+  const overlayBlock = await formatRegularDaltonOverlaySections(
+    regularDaltonContext?.contextPackDir,
+    regularDaltonContext?.repoRoot,
+  );
   parts.push(`Total slices: ${sliceFiles.length}`);
   parts.push('');
   parts.push(sliceBlock);
+
+  if (overlayBlock) {
+    parts.push('');
+    parts.push(overlayBlock);
+    parts.push('');
+  }
 
   parts.push(
     'After implementation, ensure all tests pass before exiting.',
@@ -320,6 +496,7 @@ export async function buildSimpleDaltonPrompt(
   handoffsDir: string,
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
+  regularDaltonContext?: RegularDaltonPromptContext,
 ): Promise<string> {
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
 
@@ -335,9 +512,19 @@ export async function buildSimpleDaltonPrompt(
     parts.push('');
   }
 
+  const overlayBlock = await formatRegularDaltonOverlaySections(
+    regularDaltonContext?.contextPackDir,
+    regularDaltonContext?.repoRoot,
+  );
   if (sliceFiles.length > 0) {
     parts.push(`## Implementation Slices (${sliceFiles.length} total)\n`);
     parts.push(sliceBlock);
+  }
+
+  if (overlayBlock) {
+    parts.push('');
+    parts.push(overlayBlock);
+    parts.push('');
   }
 
   parts.push('Implement the changes described above. Ensure all tests pass before exiting.');
@@ -676,6 +863,10 @@ export async function runPipelineSequence(
               paths.handoffs,
               primaryFocusRelativePath,
               externalMcpRegistry,
+              {
+                repoRoot: paths.repoRoot,
+                contextPackDir: effectiveContextPackDir,
+              },
             );
             const daltonResult = await runRoleAgent({
               agentId: 'dalton',
@@ -689,17 +880,13 @@ export async function runPipelineSequence(
 
             const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
             if (qaPolicy.exitCode !== 0) {
-              const artifactPrompt = await buildAgentArtifactRemediationPrompt({
-                agentId: 'software-engineer',
+              const cleanupContext = await buildFleetDaltonCleanupContext({
                 handoffsDir: paths.handoffs,
                 implStepsDir: paths.implementationSteps,
-                repoRoot: paths.repoRoot,
-                abortSignal: abortController.signal,
+                policyResult: qaPolicy,
               });
-              const policyDetails = extractPolicyFailureDetails(qaPolicy);
               const cleanupPrompt = buildFleetDaltonCleanupPrompt(
-                artifactPrompt,
-                policyDetails,
+                cleanupContext,
                 primaryFocusRelativePath,
                 externalMcpRegistry,
               );
@@ -730,6 +917,10 @@ export async function runPipelineSequence(
             paths.handoffs,
             primaryFocusRelativePath,
             externalMcpRegistry,
+            {
+              repoRoot: paths.repoRoot,
+              contextPackDir: effectiveContextPackDir,
+            },
           );
         } else if (agentId === 'ron') {
           agentPromptOverride = buildTestCapturePrompt(

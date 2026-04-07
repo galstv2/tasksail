@@ -45,7 +45,7 @@ class QmdIndexServiceTests(unittest.TestCase):
     ) -> Path:
         path = (
             workspace_root
-            / "qmd/glopml/retrospectives/history/2026"
+            / "qmd/global/retrospectives/history/2026"
             / file_name
         )
         path.parent.mkdir(parents=True, exist_ok=True)

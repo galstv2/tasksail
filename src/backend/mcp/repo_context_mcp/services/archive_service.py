@@ -26,7 +26,7 @@ class TaskArchiveService:
         workspace_root: Path | None = None,
         render_lineage_summary: Callable[[dict[str, Any]], str] | None = None,
         global_retrospective_root: str | None = None,
-        glopml_retrospective_root: str = "qmd/glopml/retrospectives",
+        glopml_retrospective_root: str = "qmd/global/retrospectives",
         record_cache: ScopedRecordCache | None = None,
     ) -> None:
         self.workspace_root = workspace_root or Path.cwd()

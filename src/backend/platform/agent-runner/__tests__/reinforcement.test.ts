@@ -43,7 +43,7 @@ describe('resolveReinforcementContext', () => {
 
   it('returns available when per-agent .md exists', async () => {
     const agentMdPath = path.join(
-      '/fake/repo', 'AgentWorkSpace', 'qmd', 'glopml', 'agent-rewards',
+      '/fake/repo', 'AgentWorkSpace', 'qmd', 'global', 'agent-rewards',
       'software-engineer.md',
     );
 

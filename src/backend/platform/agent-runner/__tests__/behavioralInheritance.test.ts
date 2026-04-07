@@ -42,7 +42,7 @@ describe('Dalton-family behavioral inheritance', () => {
       repoRoot,
       'AgentWorkSpace',
       'qmd',
-      'glopml',
+      'global',
       'agent-rewards',
     );
     mkdirSync(rewardDir, { recursive: true });

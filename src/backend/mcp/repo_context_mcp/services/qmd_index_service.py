@@ -25,7 +25,7 @@ class QmdIndexService:
         archive_service: TaskArchiveService | None = None,
         now: Callable[[], str] | None = None,
         global_retrospective_root: str | None = None,
-        glopml_retrospective_root: str = "qmd/glopml/retrospectives",
+        glopml_retrospective_root: str = "qmd/global/retrospectives",
     ) -> None:
         retrospective_root = (
             global_retrospective_root

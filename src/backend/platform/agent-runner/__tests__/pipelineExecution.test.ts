@@ -20,6 +20,7 @@ const captureCodeDiff = vi.fn();
 const nowIsoCompact = vi.fn(() => '2026-03-26T00-00-00Z');
 const readEnvAssignment = vi.fn(() => undefined);
 const safeJsonParse = vi.fn((content: string) => JSON.parse(content));
+const getErrorMessage = vi.fn((error: unknown) => error instanceof Error ? error.message : String(error));
 
 vi.mock('../../core/index.js', () => ({
   readTextFile,
@@ -29,6 +30,7 @@ vi.mock('../../core/index.js', () => ({
   nowIsoCompact,
   readEnvAssignment,
   safeJsonParse,
+  getErrorMessage,
   STANDARD_AGENT_ORDER: ['alice', 'dalton', 'ron'],
   FAST_PATH_AGENT_ORDER: ['alice', 'dalton', 'ron'],
 }));
@@ -98,6 +100,9 @@ describe('runPipelineSequence', () => {
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {
+      if (existsSync(filePath)) {
+        return readFileSync(filePath, 'utf-8');
+      }
       if (filePath.endsWith('parallel-ok.md')) {
         return '# Parallel OK\n\n## Decision\n\nComplex execution authorized.\n';
       }
@@ -505,9 +510,27 @@ describe('runPipelineSequence', () => {
       path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
       '# Slice 1\n\n## Purpose\n\nFirst slice.\n',
     );
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+      '# QA Issues\n\n## Review Outcome\n\nblocking\n\n## Required Fix\n\nTighten validation.\n',
+    );
     runRuntimePolicyCheck
       .mockResolvedValueOnce({
-        stdout: '{"guardrail":{"expected_agent_id":"software-engineer"}}',
+        stdout: JSON.stringify({
+          guardrail: {
+            requested_agent_id: 'qa',
+            expected_agent_id: 'software-engineer',
+          },
+          violations: [
+            {
+              severity: 'error',
+              rule_id: 'closeout.qa-review-approved',
+              artifact: 'AgentWorkSpace/handoffs/issues.md',
+              message: 'Review Outcome is blocking.',
+              remediation: 'Resolve the blocking findings before QA handoff.',
+            },
+          ],
+        }),
         stderr: '',
         exitCode: 1,
       })
@@ -520,11 +543,19 @@ describe('runPipelineSequence', () => {
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
     await runPipelineSequence({ repoRoot });
 
-    expect(runRoleAgent).toHaveBeenCalledWith(expect.objectContaining({
+    const daltonCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'dalton');
+    expect(daltonCalls).toHaveLength(2);
+    expect(daltonCalls[1][0]).toEqual(expect.objectContaining({
       agentId: 'dalton',
       skipWorkflowValidation: true,
       promptOverride: expect.stringContaining('did not leave the workflow ready for QA'),
     }));
+    expect(daltonCalls[1][0].promptOverride).toContain('## Inline Blocking Artifact Context');
+    expect(daltonCalls[1][0].promptOverride).toContain('Tighten validation.');
+    expect(daltonCalls[1][0].promptOverride).not.toContain('AgentWorkSpace/handoffs/issues.md');
+    expect(daltonCalls[1][0].promptOverride).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(daltonCalls[1][0].promptOverride).not.toContain('$COPILOT_IMPL_STEPS_DIR');
+    expect(buildAgentArtifactRemediationPrompt).not.toHaveBeenCalled();
   });
 
   it('skips Ron entry validation immediately after a successful fleet Dalton handoff', async () => {

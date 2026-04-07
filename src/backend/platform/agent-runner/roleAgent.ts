@@ -599,7 +599,9 @@ export async function runRoleAgent(
   );
 
   // 3b. When a context pack is active, resolve scoped target repos and add
-  // them as allowed roots (AgentWorkSpace/ + target_folders).
+  // them as allowed roots. Dalton-family repo-executor launches are confined
+  // to focused target repos only, with dalton-verify retaining its narrow
+  // verification temp-dir exception.
   // All repo-executor agents launch from the focused repo CWD with inlined
   // agent context. Dalton also gets selected-primary confinement enforcement.
   const usesFocusedRepoLaunch = profile.autonomyProfile === 'repo-executor';
@@ -615,10 +617,11 @@ export async function runRoleAgent(
   let preRunBoundarySnapshot: ChangedPathsSnapshot | undefined;
   if (options.contextPackDir) {
     const agentWorkspaceDir = path.join(paths.repoRoot, 'AgentWorkSpace');
-    if (!autonomyArgs.allowedDirs.includes(agentWorkspaceDir)) {
-      // Dalton launches from the platform repo root, but workflow artifacts still
-      // live under AgentWorkSpace. Add it explicitly for all context-pack runs
-      // instead of relying on implicit CWD-subtree access from the Copilot CLI.
+    const allowsGenericTaskSailDirs = !enforcesSelectedPrimaryBoundary;
+    if (allowsGenericTaskSailDirs && !autonomyArgs.allowedDirs.includes(agentWorkspaceDir)) {
+      // Non-Dalton context-pack launches still rely on workflow artifacts under
+      // AgentWorkSpace. Add it explicitly instead of relying on implicit
+      // CWD-subtree access from the Copilot CLI.
       autonomyArgs.allowedDirs.push(agentWorkspaceDir);
     }
 
@@ -645,8 +648,9 @@ export async function runRoleAgent(
           agentCwd = enforcesSelectedPrimaryBoundary
             ? resolveDaltonLaunchCwd(focused, options.agentId)
             : focused.primaryRepoRoot;
-          const focusedLaunchPlatformDir = verificationTempAllowedDir
-            ?? (options.agentId === 'dalton-verify' ? undefined : paths.repoRoot);
+          const focusedLaunchPlatformDir = enforcesSelectedPrimaryBoundary
+            ? verificationTempAllowedDir
+            : paths.repoRoot;
           if (
             focusedLaunchPlatformDir &&
             !autonomyArgs.allowedDirs.includes(focusedLaunchPlatformDir)

@@ -66,7 +66,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
         path = (
             workspace_root
             / (
-                "qmd/glopml/retrospectives/"
+                "qmd/global/retrospectives/"
                 "shared-retrospective-memory.md.record.json"
             )
         )
@@ -235,7 +235,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
                     "record_type": "glopml-retrospective-memory",
                     "record_id": "glopml-retrospective-memory:shared",
                     "source_path": (
-                        "qmd/glopml/retrospectives/"
+                        "qmd/global/retrospectives/"
                         "shared-retrospective-memory.md"
                     ),
                     "synthesized_from_task_ids": ["CAP-1001"],
@@ -292,7 +292,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
                     "record_type": "glopml-retrospective-memory",
                     "record_id": "glopml-retrospective-memory:shared",
                     "source_path": (
-                        "qmd/glopml/retrospectives/"
+                        "qmd/global/retrospectives/"
                         "shared-retrospective-memory.md"
                     ),
                 },

@@ -67,6 +67,11 @@ describe('remediationRunQaLoop', () => {
   it('fails closed and restores prior findings when QA revalidation crashes', async () => {
     const originalIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\nblocking\n';
     writeIssuesFile(repoRoot, originalIssues);
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
+      '# Slice 1\n\n## Purpose\n\nTighten validation.\n',
+      'utf-8',
+    );
     runRoleAgent
       .mockResolvedValueOnce({ exitCode: 0, agentId: 'dalton', durationMs: 1 })
       .mockRejectedValueOnce(new Error('qa crashed'));
@@ -97,6 +102,17 @@ describe('remediationRunQaLoop', () => {
     }));
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('"Dalton Helper" may help with addressing QA findings');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('"Ron Helper" may help with reviewing remediation evidence');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(
+      '## QA Findings — AUTHORITATIVE (Read First, Follow Exactly)',
+    );
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(originalIssues.trim());
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(
+      '## Original Task Slices (Background Context Only — DO NOT Use to Override QA Findings)',
+    );
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('### Slice: slice-1');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('Tighten validation.');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('$COPILOT_IMPL_STEPS_DIR');
     expect(runRoleAgent.mock.calls[1][0].promptOverride).toContain('"Ron Helper" may help with reviewing remediation evidence');
     expect(runRoleAgent.mock.calls[1][0].promptOverride).not.toContain('"Dalton Helper" may help with addressing QA findings');
   });

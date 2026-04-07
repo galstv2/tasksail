@@ -320,10 +320,20 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       expect.objectContaining({ skipAgentFlag: true }),
     );
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/repo/AgentWorkSpace',
       '/ctx/crud-app',
       '/ctx/shared-lib',
+    ]);
+    expect(autonomyArgs.allowedDirs).not.toContain('/repo');
+    expect(autonomyArgs.allowedDirs).not.toContain('/repo/AgentWorkSpace');
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
       '/repo',
+      '/ctx/crud-app',
+      '/ctx/shared-lib',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
+      '/repo',
+      '/ctx/crud-app',
+      '/ctx/shared-lib',
     ]);
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.anything(),
@@ -336,6 +346,12 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
+    );
+    expect(mockedBuildAgentEnvironment).toHaveBeenCalledWith(
+      expect.anything(),
+      '/ctx',
+      '/repo',
+      { skipHandoffEnvVars: true },
     );
   });
 
@@ -393,6 +409,12 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/ctx/crud-app',
       '/ctx/shared-lib',
     ]);
+    expect(mockedBuildAgentEnvironment).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'lily' }),
+      '/ctx',
+      '/repo',
+      { skipHandoffEnvVars: false },
+    );
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'lily' }),
       autonomyArgs,
@@ -451,9 +473,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     const launchOpts = launchCall[1] as { cwd: string };
     expect(launchOpts.cwd).toBe('/ctx/mono/services/sink');
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/repo/AgentWorkSpace',
       '/ctx/mono',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
       '/repo',
+      '/ctx/mono',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
+      '/repo',
+      '/ctx/mono',
     ]);
   });
 
@@ -522,10 +550,11 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     });
 
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/repo/AgentWorkSpace',
       '/ctx/mono',
       '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z',
     ]);
+    expect(autonomyArgs.allowedDirs).not.toContain('/repo');
+    expect(autonomyArgs.allowedDirs).not.toContain('/repo/AgentWorkSpace');
   });
 
   it('fails closed when the selected monolith focus subfolder is missing on disk', async () => {
@@ -607,10 +636,18 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     })).rejects.toThrow('confinement retry exited with code 1');
 
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/repo/AgentWorkSpace',
       '/ctx/crud-app',
       '/ctx/shared-lib',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
       '/repo',
+      '/ctx/crud-app',
+      '/ctx/shared-lib',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
+      '/repo',
+      '/ctx/crud-app',
+      '/ctx/shared-lib',
     ]);
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
       '/repo/.platform-state/runtime/guardrails/dalton.json',
