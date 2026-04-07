@@ -10,6 +10,37 @@ export interface LaunchOptions {
   wallClockTimeoutS?: number;
 }
 
+function isWindowsPlatform(): boolean {
+  return process.platform === 'win32';
+}
+
+export function resolveCopilotCommand(): string {
+  return isWindowsPlatform() ? 'copilot.cmd' : 'copilot';
+}
+
+function terminateChildProcess(
+  child: ChildProcess,
+  signal?: NodeJS.Signals,
+): void {
+  child.kill(isWindowsPlatform() ? undefined : signal);
+}
+
+function signalProcess(
+  pid: number,
+  signal: NodeJS.Signals | 0 = 'SIGTERM',
+): boolean {
+  try {
+    if (signal === 0 || !isWindowsPlatform()) {
+      process.kill(pid, signal);
+    } else {
+      process.kill(pid);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Launch a copilot CLI process with the given arguments.
  * Sets up SIGTERM/SIGINT signal forwarding so the child process
@@ -24,7 +55,7 @@ export function launchCopilot(
     ...options.env,
   };
 
-  const child = spawn('copilot', args, {
+  const child = spawn(resolveCopilotCommand(), args, {
     cwd: options.cwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -32,10 +63,10 @@ export function launchCopilot(
 
   // Forward termination signals to the child process.
   const onSigterm = (): void => {
-    if (child.pid && !child.killed) child.kill('SIGTERM');
+    if (child.pid && !child.killed) terminateChildProcess(child, 'SIGTERM');
   };
   const onSigint = (): void => {
-    if (child.pid && !child.killed) child.kill('SIGINT');
+    if (child.pid && !child.killed) terminateChildProcess(child, 'SIGINT');
   };
 
   process.on('SIGTERM', onSigterm);
@@ -129,12 +160,15 @@ export function waitForCopilotDetailed(
     const killChild = (): void => {
       if (termSent) return;
       termSent = true;
-      child.kill('SIGTERM');
+      terminateChildProcess(child, 'SIGTERM');
+      if (isWindowsPlatform()) {
+        return;
+      }
       graceTimer = setTimeout(() => {
         // child.killed only reflects that .kill() was called. A process is
         // still running only while both exitCode and signalCode are null.
         if (child.exitCode === null && child.signalCode === null) {
-          child.kill('SIGKILL');
+          terminateChildProcess(child, 'SIGKILL');
         }
       }, 5000);
     };
@@ -229,26 +263,26 @@ export async function waitForCopilot(
  * Send SIGTERM to a process, wait for it to exit within the grace period,
  * then SIGKILL if it has not exited.
  *
- * On Windows, SIGTERM is not supported so we use child.kill() directly.
+ * On Windows, the first termination is already a hard kill, so the Unix-style
+ * SIGTERM→SIGKILL escalation collapses to a single terminate call.
  */
 export async function gracefulKill(
   pid: number,
   timeoutMs = 3000,
 ): Promise<void> {
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch {
+  if (!signalProcess(pid, 'SIGTERM')) {
     // Process already exited or PID invalid — nothing to do.
+    return;
+  }
+
+  if (isWindowsPlatform()) {
     return;
   }
 
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    try {
-      // Signal 0 tests whether the process exists without sending a signal.
-      process.kill(pid, 0);
-    } catch {
+    if (!signalProcess(pid, 0)) {
       // Process has exited.
       return;
     }
@@ -256,11 +290,7 @@ export async function gracefulKill(
   }
 
   // Process still alive — force kill.
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    // Already exited between the check and the kill.
-  }
+  signalProcess(pid, 'SIGKILL');
 }
 
 /**
@@ -273,11 +303,11 @@ export async function cleanupProcesses(
 ): Promise<void> {
   // Send SIGTERM to all.
   for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      // Ignore — process may have already exited.
-    }
+    signalProcess(pid, 'SIGTERM');
+  }
+
+  if (isWindowsPlatform()) {
+    return;
   }
 
   const deadline = Date.now() + timeoutMs;
@@ -285,12 +315,7 @@ export async function cleanupProcesses(
   // Poll until all are gone or timeout.
   while (Date.now() < deadline) {
     const alive = pids.filter((pid) => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
+      return signalProcess(pid, 0);
     });
 
     if (alive.length === 0) {
@@ -302,11 +327,7 @@ export async function cleanupProcesses(
 
   // SIGKILL any survivors.
   for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // Already gone.
-    }
+    signalProcess(pid, 'SIGKILL');
   }
 }
 

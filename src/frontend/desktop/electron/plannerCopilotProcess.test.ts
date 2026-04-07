@@ -5,9 +5,24 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildPlannerCopilotInvocation,
   getPlanningAgentRequiredModel,
+  resolveCopilotCommand,
   spawnPlannerCopilotProcess,
 } from './plannerCopilotProcess';
 import { REPO_ROOT } from './paths';
+
+function setPlatform(platform: NodeJS.Platform): () => void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+
+  return () => {
+    if (original) {
+      Object.defineProperty(process, 'platform', original);
+    }
+  };
+}
 
 describe('buildPlannerCopilotInvocation', () => {
   it('builds the canonical planner JSONL invocation with required flags', () => {
@@ -15,7 +30,7 @@ describe('buildPlannerCopilotInvocation', () => {
       prompt: 'Reply with exactly READY.',
     });
 
-    expect(invocation.command).toBe('copilot');
+    expect(invocation.command).toBe(resolveCopilotCommand());
     expect(invocation.cwd).toBe(REPO_ROOT);
     expect(invocation.agentId).toBe('planning-agent');
     expect(invocation.model).toBe(getPlanningAgentRequiredModel());
@@ -109,6 +124,20 @@ describe('buildPlannerCopilotInvocation', () => {
 
     expect(invocation.cwd).toBe(REPO_ROOT);
   });
+
+  it('resolves the Windows Copilot shim when running on win32', () => {
+    const restorePlatform = setPlatform('win32');
+
+    try {
+      const invocation = buildPlannerCopilotInvocation({
+        prompt: 'Reply with exactly READY.',
+      });
+
+      expect(invocation.command).toBe('copilot.cmd');
+    } finally {
+      restorePlatform();
+    }
+  });
 });
 
 describe('spawnPlannerCopilotProcess', () => {
@@ -123,7 +152,7 @@ describe('spawnPlannerCopilotProcess', () => {
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
-      'copilot',
+      resolveCopilotCommand(),
       expect.arrayContaining(['--agent', 'planning-agent', '--output-format', 'json']),
       expect.objectContaining({
         cwd: REPO_ROOT,
@@ -144,7 +173,7 @@ describe('spawnPlannerCopilotProcess', () => {
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
-      'copilot',
+      resolveCopilotCommand(),
       expect.arrayContaining(['-i', 'Reply with exactly READY.']),
       expect.objectContaining({
         cwd: REPO_ROOT,

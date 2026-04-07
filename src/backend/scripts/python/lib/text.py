@@ -68,7 +68,7 @@ def compact_text(value: str, max_length: int = 320) -> str:
 
 CODE_FENCE_PATTERN = re.compile(r"^```", re.MULTILINE)
 COMMAND_LINE_PATTERN = re.compile(
-    r"^\s*[-$>]?\s*(python3?|make|npm|npx|bash|sh|pytest|pip|cd|./)\s*",
+    r"^\s*[-$>]?\s*(?:(?:cmd(?:\.exe)?\s+/c)|python3?|py|make|npm|npx|bash|sh|pytest|pip|cd|powershell(?:\.exe)?|pwsh(?:\.exe)?|\./|\.\\)\s*",
     re.MULTILINE,
 )
 TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|", re.MULTILINE)

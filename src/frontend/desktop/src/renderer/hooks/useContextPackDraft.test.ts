@@ -59,6 +59,10 @@ describe('pure helpers', () => {
       expect(directoryName('/tmp/packs/orders-estate')).toBe('orders-estate');
     });
 
+    it('extracts the last segment from Windows-native paths', () => {
+      expect(directoryName('C:\\packs\\orders-estate')).toBe('orders-estate');
+    });
+
     it('returns "context-pack" for root path', () => {
       expect(directoryName('/')).toBe('context-pack');
     });

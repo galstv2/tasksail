@@ -27,6 +27,7 @@ from lib.paths import (
     resolve_repo_relative_path,
 )
 from lib.text import (
+    COMMAND_LINE_PATTERN,
     compact_text,
     extract_bullet_items,
     extract_list,
@@ -276,6 +277,20 @@ class ExtractBulletItemsTests(unittest.TestCase):
     def test_handles_dash_and_star(self) -> None:
         items = extract_bullet_items(["- one", "* two", "3. three"])
         self.assertEqual(items, ["one", "two", "three"])
+
+
+class CommandLinePatternTests(unittest.TestCase):
+    def test_matches_windows_native_commands(self) -> None:
+        cases = [
+            "powershell -File scripts/check.ps1",
+            "pwsh -Command Get-ChildItem",
+            "cmd /c dir",
+            r".\scripts\check.bat",
+            "py -m pytest tests/domains/test_infra/test_script_lib.py",
+        ]
+        for value in cases:
+            with self.subTest(value=value):
+                self.assertIsNotNone(COMMAND_LINE_PATTERN.search(value))
 
 
 class CompactTextTests(unittest.TestCase):

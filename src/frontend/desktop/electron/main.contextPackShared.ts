@@ -23,7 +23,8 @@ export const REPO_CONTEXT_APP_PATH = join(
   'src/backend/scripts/python/repo-context-app.py',
 );
 export const REPO_CONTEXT_PYTHON_BIN =
-  process.env.DESKTOP_REPO_CONTEXT_PYTHON_BIN ?? 'python3';
+  process.env.DESKTOP_REPO_CONTEXT_PYTHON_BIN ??
+  (process.platform === 'win32' ? 'python' : 'python3');
 
 export type ScriptResult = {
   stdout: string;
@@ -68,6 +69,17 @@ export function titleizeValue(value: string): string {
     .trim()
     .replace(/[-_]+/g, ' ')
     .replace(/\b\w/g, (segment) => segment.toUpperCase()) || 'Context Pack';
+}
+
+export function portablePathBasename(filePath: string): string {
+  const trimmedPath = filePath.trim().replace(/[\\/]+$/, '');
+  if (!trimmedPath) {
+    return '';
+  }
+
+  const segments = trimmedPath.split(/[\\/]+/).filter(Boolean);
+  const candidate = segments.at(-1) ?? '';
+  return /^[A-Za-z]:$/.test(candidate) ? '' : candidate;
 }
 
 export { stringOrNull, resolve };

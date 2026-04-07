@@ -51,8 +51,14 @@ export function titleizeValue(value: string): string {
 }
 
 export function directoryName(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? 'context-pack';
+  const trimmedPath = path.trim().replace(/[\\/]+$/, '');
+  if (!trimmedPath) {
+    return 'context-pack';
+  }
+
+  const segments = trimmedPath.split(/[\\/]+/).filter(Boolean);
+  const candidate = segments[segments.length - 1];
+  return candidate && !/^[A-Za-z]:$/.test(candidate) ? candidate : 'context-pack';
 }
 
 export function parseCsv(value: string): string[] {

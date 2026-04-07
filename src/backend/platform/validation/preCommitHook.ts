@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, readTextFile } from '../core/index.js';
 import { FILE_SIZE_LIMITS, REFACTOR_THRESHOLD, loadBaseline } from './fileSizes.js';
 
@@ -13,7 +14,7 @@ export async function getGitStagedFiles(repoRoot?: string): Promise<string[]> {
     ['diff', '--cached', '--name-only', '--diff-filter=ACMR'],
     { cwd: root },
   );
-  return stdout.split('\n').filter(Boolean);
+  return splitCommandOutputLines(stdout);
 }
 
 export interface PreCommitResult {

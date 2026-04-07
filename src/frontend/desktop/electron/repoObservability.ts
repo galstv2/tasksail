@@ -196,7 +196,11 @@ function parseTimestamp(value: string | null | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function probePidLiveness(pid: number | null, launchStartedAt?: string | null): AgentTerminalSession['liveness'] {
+export function probePidLiveness(
+  pid: number | null,
+  launchStartedAt?: string | null,
+  platform: NodeJS.Platform = process.platform,
+): AgentTerminalSession['liveness'] {
   if (pid === null || pid <= 0) {
     return 'unknown';
   }
@@ -219,6 +223,12 @@ function probePidLiveness(pid: number | null, launchStartedAt?: string | null): 
   // If the process started significantly after the receipt was written, the
   // PID was recycled by the OS for a different process.
   if (launchStartedAt) {
+    if (platform === 'win32') {
+      // Best-effort on Windows: keep the cheap existence probe above, but skip
+      // the POSIX-only start-time check instead of shelling out to `ps`.
+      return 'alive';
+    }
+
     try {
       const output = execSync(`ps -p ${pid} -o lstart=`, { encoding: 'utf-8', timeout: 2000, env: { ...process.env, LC_TIME: 'C' } }).trim();
       if (output) {

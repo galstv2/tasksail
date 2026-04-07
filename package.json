@@ -12,7 +12,7 @@
     "test": "vitest run --config src/backend/platform/vitest.config.ts",
     "test:watch": "vitest --config src/backend/platform/vitest.config.ts",
     "lint": "tsc --noEmit -p src/backend/platform/tsconfig.json",
-    "clean": "rm -rf src/backend/platform/dist",
+    "clean": "node -e \"require('node:fs').rmSync('src/backend/platform/dist',{recursive:true,force:true})\"",
     "setup": "tsx src/backend/platform/setup/cli.ts",
     "validate": "tsx src/backend/platform/validation/cli.ts validate",
     "local-checks": "tsx src/backend/platform/validation/cli.ts local-checks",

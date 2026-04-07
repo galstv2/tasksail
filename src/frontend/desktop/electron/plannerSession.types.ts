@@ -112,7 +112,7 @@ export type PlannerEventParseFailure = {
 export type PlannerEventParseResult = PlannerEventParseSuccess | PlannerEventParseFailure;
 
 export type PlannerCopilotInvocation = {
-  command: 'copilot';
+  command: string;
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;

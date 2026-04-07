@@ -54,6 +54,32 @@ const MAX_OUTPUT_LINES = 200;
 /** Cap in-flight accumulation to prevent OOM from verbose commands. */
 const MAX_CAPTURE_BYTES = 512 * 1024; // 512 KB
 
+type TestCaptureShellInvocation = {
+  file: string;
+  args: string[];
+  detached: boolean;
+};
+
+function isWindowsPlatform(): boolean {
+  return process.platform === 'win32';
+}
+
+export function resolveTestCaptureShell(command: string): TestCaptureShellInvocation {
+  if (isWindowsPlatform()) {
+    return {
+      file: process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe',
+      args: ['/c', command],
+      detached: false,
+    };
+  }
+
+  return {
+    file: 'sh',
+    args: ['-c', command],
+    detached: true,
+  };
+}
+
 /**
  * Extract validation commands from slice content.
  * Resolves the semantic validation-commands section and extracts code-fenced command blocks.
@@ -88,10 +114,20 @@ export function extractValidationCommands(sliceContent: string): string[] {
 }
 
 /**
- * Kill the entire process group (sh + children). Falls back to direct
- * child kill if the group is already dead.
+ * Kill the entire process group on Unix (sh + children). On Windows, fall back
+ * to terminating the spawned shell directly because negative-PID group signals
+ * are not supported.
  */
 function killProcessGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  if (!child.pid) {
+    return;
+  }
+
+  if (isWindowsPlatform()) {
+    try { child.kill(signal); } catch { /* already dead */ }
+    return;
+  }
+
   try {
     process.kill(-child.pid!, signal);
   } catch {
@@ -114,12 +150,15 @@ async function runSingleCommand(
     let timedOut = false;
     let aborted = false;
 
-    const child = spawn('sh', ['-c', command], {
+    const shellInvocation = resolveTestCaptureShell(command);
+    const child = spawn(shellInvocation.file, shellInvocation.args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
+      detached: shellInvocation.detached,
     });
-    child.unref();
+    if (shellInvocation.detached) {
+      child.unref();
+    }
 
     child.stdout.on('data', (data: Buffer) => {
       if (stdout.length < MAX_CAPTURE_BYTES) stdout += data.toString();
@@ -132,7 +171,9 @@ async function runSingleCommand(
 
     const killWithEscalation = (): void => {
       killProcessGroup(child, 'SIGTERM');
-      killEscalation = setTimeout(() => killProcessGroup(child, 'SIGKILL'), 5_000);
+      if (!isWindowsPlatform()) {
+        killEscalation = setTimeout(() => killProcessGroup(child, 'SIGKILL'), 5_000);
+      }
     };
 
     const timer = setTimeout(() => {

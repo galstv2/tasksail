@@ -51,6 +51,14 @@ const ARTIFACT_AUTHOR_DENY_TOOLS = [
 
 let cachedPlannerRegistryEntry: PlannerAgentRegistryEntry | null = null;
 
+function isWindowsPlatform(): boolean {
+  return process.platform === 'win32';
+}
+
+export function resolveCopilotCommand(): string {
+  return isWindowsPlatform() ? 'copilot.cmd' : 'copilot';
+}
+
 function loadPlanningAgentRegistryEntry(): PlannerAgentRegistryEntry {
   if (cachedPlannerRegistryEntry) {
     return cachedPlannerRegistryEntry;
@@ -141,7 +149,7 @@ export function buildPlannerCopilotInvocation(
   const promptMode = options.promptMode ?? 'one-shot';
 
   return {
-    command: 'copilot',
+    command: resolveCopilotCommand(),
     args: buildPlannerLaunchArgs({
       model,
       allowedRoots: allowedDirsForArgs,

@@ -99,6 +99,7 @@ describe('verification Dalton prompts', () => {
     const prompt = buildVerificationDaltonPrompt(['dotnet test']);
 
     expect(prompt).toContain('Fix broken builds, failing tests, and obvious bugs');
+    expect(prompt).toContain('obvious performance problems in the changed code');
     expect(prompt).toContain('Do NOT fix style preferences or refactor working code');
   });
 });

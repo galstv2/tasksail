@@ -37,6 +37,7 @@ import {
   CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
   CONTEXT_ESTATE_DISCOVERY_SCRIPT_PATH,
   QMD_SEED_PLAN_SCRIPT_PATH,
+  portablePathBasename,
   REPO_CONTEXT_APP_PATH,
   REPO_CONTEXT_PYTHON_BIN,
   type ScriptResult,
@@ -201,6 +202,7 @@ export async function executeContextPackDiscoveryAction(
   runner: PythonScriptRunner = runPythonScriptCommand,
 ): Promise<DesktopInvokeResult> {
   const normalizedRootPath = resolve(payload.rootPath);
+  const suggestedName = portablePathBasename(normalizedRootPath);
   try {
     const result = await runner(buildContextPackDiscoveryArgs({ rootPath: normalizedRootPath, mode: payload.mode }));
     const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -215,8 +217,8 @@ export async function executeContextPackDiscoveryAction(
       discoveryMode: parsed.discovery_mode === 'distributed' || parsed.discovery_mode === 'monolith'
         ? parsed.discovery_mode : payload.mode,
       estateType,
-      suggestedContextPackId: slugifyValue(normalizedRootPath.split('/').at(-1) ?? 'context-pack'),
-      suggestedDisplayName: titleizeValue(normalizedRootPath.split('/').at(-1) ?? 'context pack'),
+      suggestedContextPackId: slugifyValue(suggestedName || 'context-pack'),
+      suggestedDisplayName: titleizeValue(suggestedName || 'context pack'),
       warnings: stringArray(parsed.warnings),
       candidateRepos: Array.isArray(parsed.candidate_repos)
         ? parsed.candidate_repos

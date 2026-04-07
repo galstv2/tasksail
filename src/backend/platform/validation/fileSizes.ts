@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, readTextFile, getErrorMessage } from '../core/index.js';
 
 const execFileAsync = promisify(execFile);
@@ -73,7 +74,7 @@ async function listTrackedFiles(repoRoot: string): Promise<string[]> {
       ['ls-files', '--cached', '--others', '--exclude-standard'],
       { cwd: repoRoot },
     );
-    return stdout.split('\n').filter(Boolean);
+    return splitCommandOutputLines(stdout);
   } catch (err: unknown) {
     process.stderr.write(`Warning: git ls-files failed: ${getErrorMessage(err)}\n`);
     return [];

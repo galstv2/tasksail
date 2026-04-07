@@ -102,7 +102,7 @@ export function markdownSectionsHaveContent(
 
 export const CODE_FENCE_PATTERN = /^```/m;
 export const COMMAND_LINE_PATTERN =
-  /^\s*[-$>]?\s*(?:python3?|make|npm|npx|bash|sh|pytest|pip|cd|\.\/)\s*/m;
+  /^\s*[-$>]?\s*(?:(?:cmd(?:\.exe)?\s+\/c)|python3?|py|make|npm|npx|bash|sh|pytest|pip|cd|powershell(?:\.exe)?|pwsh(?:\.exe)?|\.\/|\.\\)\s*/m;
 export const TABLE_ROW_PATTERN = /^\s*\|.*\|/m;
 
 /**
@@ -129,4 +129,3 @@ export function extractBulletItems(lines: readonly string[]): string[] {
   }
   return items;
 }
-

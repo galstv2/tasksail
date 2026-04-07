@@ -17,6 +17,10 @@ import type {
 
 const KILL_GRACE_MS = 5000;
 
+function isWindowsPlatform(): boolean {
+  return process.platform === 'win32';
+}
+
 export type PlannerSendResult = 'sent' | 'no-session' | 'busy';
 
 type PlannerEventEmitter = (event: PlannerStreamEvent) => void;
@@ -172,18 +176,22 @@ export class PlannerSessionBroker {
       return;
     }
 
-    child.kill('SIGTERM');
-    const forceKillTimer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Process already exited.
-      }
-    }, KILL_GRACE_MS);
+    if (isWindowsPlatform()) {
+      // On Windows, SIGTERM and SIGKILL both map to TerminateProcess — the
+      // graceful-to-hard escalation collapses to a single hard kill.
+      child.kill();
+    } else {
+      child.kill('SIGTERM');
+      const forceKillTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+        }
+      }, KILL_GRACE_MS);
 
-    child.once('exit', () => {
-      clearTimeout(forceKillTimer);
-    });
+      child.once('exit', () => {
+        clearTimeout(forceKillTimer);
+      });
+    }
   }
 
   isSessionActive(): boolean {

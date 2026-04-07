@@ -13,7 +13,7 @@ import {
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { pathExists, stringOrNull, repoFs } from './utils';
-import { stringArray } from './main.contextPackShared';
+import { portablePathBasename, stringArray } from './main.contextPackShared';
 
 const ENV_FILE_PATH = join(REPO_ROOT, '.env');
 const WORKSPACE_SYNC_STATE_PATH = join(
@@ -282,7 +282,7 @@ async function inspectContextPackDir(
     return null;
   }
 
-  let contextPackId = normalizedDir.split('/').at(-1) ?? normalizedDir;
+  let contextPackId = portablePathBasename(normalizedDir) || normalizedDir;
   let displayName = contextPackId;
   let estateType: string | null = null;
   let defaultScopeMode: WorkspaceScopeMode | null = 'focused';

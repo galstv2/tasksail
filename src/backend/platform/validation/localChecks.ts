@@ -30,6 +30,21 @@ export interface LocalChecksResult {
   advisoryWarnings: string[];
 }
 
+function runDesktopNpmCommand(
+  args: string[],
+  cwd: string,
+): Promise<void> {
+  if (process.platform === 'win32') {
+    const command = process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe';
+    return execFileAsync(command, ['/d', '/s', '/c', 'npm', ...args], {
+      cwd,
+      timeout: 120_000,
+    }).then(() => undefined);
+  }
+
+  return execFileAsync('npm', args, { cwd, timeout: 120_000 }).then(() => undefined);
+}
+
 async function timedCheck(
   name: string,
   fn: () => Promise<void>,
@@ -67,12 +82,12 @@ async function runPytest(
 
 async function runDesktopTests(repoRoot: string): Promise<void> {
   const desktopDir = path.join(repoRoot, 'src', 'frontend', 'desktop');
-  await execFileAsync('npm', ['test'], { cwd: desktopDir, timeout: 120_000 });
+  await runDesktopNpmCommand(['test'], desktopDir);
 }
 
 async function runDesktopBuild(repoRoot: string): Promise<void> {
   const desktopDir = path.join(repoRoot, 'src', 'frontend', 'desktop');
-  await execFileAsync('npm', ['run', 'build'], { cwd: desktopDir, timeout: 120_000 });
+  await runDesktopNpmCommand(['run', 'build'], desktopDir);
 }
 
 /**

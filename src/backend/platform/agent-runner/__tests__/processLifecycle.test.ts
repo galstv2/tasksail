@@ -2,7 +2,43 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { spawn } from 'node:child_process';
-import { gracefulKill, cleanupProcesses, waitForCopilot, waitForCopilotDetailed } from '../processLifecycle.js';
+import {
+  cleanupProcesses,
+  gracefulKill,
+  resolveCopilotCommand,
+  waitForCopilot,
+  waitForCopilotDetailed,
+} from '../processLifecycle.js';
+
+function setPlatform(platform: NodeJS.Platform): () => void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+
+  return () => {
+    if (original) {
+      Object.defineProperty(process, 'platform', original);
+    }
+  };
+}
+
+describe('resolveCopilotCommand', () => {
+  it('uses the Unix copilot binary on non-Windows platforms', () => {
+    expect(resolveCopilotCommand()).toBe('copilot');
+  });
+
+  it('uses the Windows copilot shim on win32', () => {
+    const restorePlatform = setPlatform('win32');
+
+    try {
+      expect(resolveCopilotCommand()).toBe('copilot.cmd');
+    } finally {
+      restorePlatform();
+    }
+  });
+});
 
 describe('gracefulKill', () => {
   it('handles an already-exited PID without throwing', async () => {
@@ -137,6 +173,35 @@ describe('waitForCopilot', () => {
 
     await expect(wait).resolves.toBe(1);
     expect((child as unknown as FakeChild).signalCode).toBe('SIGKILL');
+  });
+
+  it('uses a single terminate call on Windows timeouts', async () => {
+    const restorePlatform = setPlatform('win32');
+    vi.useFakeTimers();
+
+    class FakeChild extends EventEmitter {
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      killed = false;
+      kill = vi.fn((_signal?: NodeJS.Signals) => {
+        this.killed = true;
+        this.emit('close', 1);
+        return true;
+      });
+    }
+
+    try {
+      const child = new FakeChild() as unknown as ChildProcess;
+      const wait = waitForCopilot(child, { wallClockTimeoutMs: 100 });
+
+      await vi.advanceTimersByTimeAsync(5_100);
+
+      await expect(wait).resolves.toBe(1);
+      expect((child as unknown as FakeChild).kill).toHaveBeenCalledTimes(1);
+      expect((child as unknown as FakeChild).kill).toHaveBeenCalledWith(undefined);
+    } finally {
+      restorePlatform();
+    }
   });
 });
 

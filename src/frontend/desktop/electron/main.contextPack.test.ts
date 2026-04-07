@@ -336,6 +336,33 @@ describe('electron main bootstrap — context pack operations', () => {
     });
   });
 
+  it('derives discovery suggestions from Windows-native root paths', async () => {
+    const { executeContextPackDiscoveryAction } = await import('./main');
+
+    const result = await executeContextPackDiscoveryAction(
+      { rootPath: 'C:\\workspace\\orders-estate', mode: 'distributed' },
+      vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          discovery_mode: 'distributed',
+          estate_type: 'distributed',
+          warnings: [],
+          candidate_repos: [],
+          candidate_focus_areas: [],
+          high_signal_paths: [],
+        }),
+        stderr: '',
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        suggestedContextPackId: 'orders-estate',
+        suggestedDisplayName: 'Orders Estate',
+      }),
+    });
+  });
+
   it('skips initial seeding during context-pack creation when seedOnCreate is false', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-create-'));
     try {

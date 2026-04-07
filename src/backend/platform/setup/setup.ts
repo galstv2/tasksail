@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
 import { createRuntimeFromConfig } from '../container/runtime.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
@@ -48,7 +49,7 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
       ['ls-files', 'AgentWorkSpace/'],
       { cwd: repoRoot },
     );
-    for (const file of stdout.split('\n').filter(Boolean)) {
+    for (const file of splitCommandOutputLines(stdout)) {
       if (file.startsWith('AgentWorkSpace/templates/')) continue;
       trackedPaths.add(file);
     }

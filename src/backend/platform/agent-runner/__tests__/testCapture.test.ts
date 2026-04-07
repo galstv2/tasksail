@@ -1,14 +1,24 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
 const existsSync = vi.fn();
 const resolveSelectedPrimaryRepoRoot = vi.fn();
+const spawn = vi.fn();
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
     ...actual,
     existsSync,
+  };
+});
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  return {
+    ...actual,
+    spawn,
   };
 });
 
@@ -20,6 +30,7 @@ const {
   buildTestCapturePrompt,
   extractValidationCommands,
   resolveTestCaptureCwd,
+  runTestCapture,
 } = await import('../pipeline/testCapture.js');
 
 const externalRegistry: ExternalMcpRegistry = {
@@ -37,11 +48,71 @@ const externalRegistry: ExternalMcpRegistry = {
   ],
 };
 
+function setPlatform(platform: NodeJS.Platform): () => void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: platform,
+  });
+
+  return () => {
+    if (original) {
+      Object.defineProperty(process, 'platform', original);
+    }
+  };
+}
+
+type MockChildProcess = EventEmitter & {
+  pid: number;
+  killed: boolean;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  kill: ReturnType<typeof vi.fn>;
+  unref: ReturnType<typeof vi.fn>;
+};
+
+function createMockChildProcess(options?: {
+  closeOnNextTick?: boolean;
+  onKill?: (child: MockChildProcess, signal?: NodeJS.Signals) => void;
+}): MockChildProcess {
+  const child = new EventEmitter() as MockChildProcess;
+  child.pid = 4321;
+  child.killed = false;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.unref = vi.fn();
+  child.kill = vi.fn((signal?: NodeJS.Signals) => {
+    child.killed = true;
+    child.signalCode = signal ?? null;
+    options?.onKill?.(child, signal);
+    return true;
+  });
+
+  if (options?.closeOnNextTick !== false) {
+    queueMicrotask(() => {
+      child.exitCode = 0;
+      child.emit('close', 0);
+    });
+  }
+
+  return child;
+}
+
 describe('resolveTestCaptureCwd', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     existsSync.mockReset();
     resolveSelectedPrimaryRepoRoot.mockReset();
+    spawn.mockReset();
+  });
+
+  afterEach(() => {
+    delete process.env['ComSpec'];
+    delete process.env['COMSPEC'];
   });
 
   it('uses the platform repo root when no context pack is active', async () => {
@@ -161,5 +232,76 @@ describe('extractValidationCommands', () => {
     );
 
     expect(commands).toEqual(['pnpm test', 'npm run smoke']);
+  });
+});
+
+describe('runTestCapture', () => {
+  it('launches commands through sh on Unix platforms', async () => {
+    spawn.mockImplementation(() => createMockChildProcess());
+
+    await expect(runTestCapture(['pnpm test'], '/repo')).resolves.toHaveLength(1);
+
+    expect(spawn).toHaveBeenCalledWith(
+      'sh',
+      ['-c', 'pnpm test'],
+      expect.objectContaining({
+        cwd: '/repo',
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  });
+
+  it('launches commands through cmd.exe on Windows platforms', async () => {
+    const restorePlatform = setPlatform('win32');
+    process.env['ComSpec'] = 'C:\\Windows\\System32\\cmd.exe';
+    spawn.mockImplementation(() => createMockChildProcess());
+
+    try {
+      await expect(runTestCapture(['npm test'], 'C:\\repo')).resolves.toHaveLength(1);
+    } finally {
+      restorePlatform();
+    }
+
+    expect(spawn).toHaveBeenCalledWith(
+      'C:\\Windows\\System32\\cmd.exe',
+      ['/c', 'npm test'],
+      expect.objectContaining({
+        cwd: 'C:\\repo',
+        detached: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  });
+
+  it('avoids Unix-style negative PID process-group kills on Windows', async () => {
+    const restorePlatform = setPlatform('win32');
+    const controller = new AbortController();
+    const processKillSpy = vi.spyOn(process, 'kill');
+    const child = createMockChildProcess({
+      closeOnNextTick: false,
+      onKill: (currentChild) => {
+        currentChild.exitCode = 1;
+        currentChild.emit('close', 1);
+      },
+    });
+    spawn.mockImplementation(() => child);
+
+    try {
+      const capture = runTestCapture(['npm test'], 'C:\\repo', 5_000, controller.signal);
+      controller.abort();
+      await expect(capture).resolves.toEqual([
+        expect.objectContaining({
+          command: 'npm test',
+          timedOut: true,
+        }),
+      ]);
+    } finally {
+      restorePlatform();
+      processKillSpy.mockRestore();
+    }
+
+    expect(processKillSpy).not.toHaveBeenCalledWith(-child.pid, expect.anything());
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 });

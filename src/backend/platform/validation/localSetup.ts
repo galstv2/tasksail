@@ -9,12 +9,18 @@ export interface ToolCheck {
   checkCmd: string[];
 }
 
-export const REQUIRED_TOOLS: ToolCheck[] = [
-  { name: 'git', checkCmd: ['git', '--version'] },
-  { name: 'node', checkCmd: ['node', '--version'] },
-  { name: 'python3', checkCmd: ['python3', '--version'] },
-  { name: 'pnpm', checkCmd: ['pnpm', '--version'] },
-];
+export function getRequiredTools(platform: NodeJS.Platform = process.platform): ToolCheck[] {
+  return [
+    { name: 'git', checkCmd: ['git', '--version'] },
+    { name: 'node', checkCmd: ['node', '--version'] },
+    platform === 'win32'
+      ? { name: 'python', checkCmd: ['python', '--version'] }
+      : { name: 'python3', checkCmd: ['python3', '--version'] },
+    { name: 'pnpm', checkCmd: ['pnpm', '--version'] },
+  ];
+}
+
+export const REQUIRED_TOOLS: ToolCheck[] = getRequiredTools();
 
 export interface LocalSetupResult {
   valid: boolean;
@@ -35,7 +41,7 @@ export async function validateLocalSetup(repoRoot?: string): Promise<LocalSetupR
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  for (const tool of REQUIRED_TOOLS) {
+  for (const tool of getRequiredTools()) {
     const available = await isToolAvailable(tool.checkCmd);
     if (!available) {
       errors.push(`Required tool not found: ${tool.name} (tried: ${tool.checkCmd.join(' ')})`);

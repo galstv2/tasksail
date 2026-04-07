@@ -46,6 +46,29 @@ type RuntimeResolution =
   | { ok: false; error: string };
 
 type SpawnResult = { exitCode: number; stdout: string; stderr: string };
+type CliCommand = { command: string; args: string[] };
+
+function isWindowsPlatform(): boolean {
+  return process.platform === 'win32';
+}
+
+function resolveCliCommand(
+  cliAbsPath: string,
+  subcommand: string,
+  args: string[],
+): CliCommand {
+  if (isWindowsPlatform()) {
+    return {
+      command: process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npx', 'tsx', cliAbsPath, subcommand, ...args],
+    };
+  }
+
+  return {
+    command: 'npx',
+    args: ['tsx', cliAbsPath, subcommand, ...args],
+  };
+}
 
 function spawnCli(
   repoRoot: string,
@@ -55,9 +78,10 @@ function spawnCli(
 ): Promise<SpawnResult> {
   return new Promise((resolve) => {
     const cliAbsPath = join(repoRoot, CLI_PATH);
+    const cliCommand = resolveCliCommand(cliAbsPath, subcommand, args);
     const child: ChildProcess = spawn(
-      'npx',
-      ['tsx', cliAbsPath, subcommand, ...args],
+      cliCommand.command,
+      cliCommand.args,
       {
         cwd: repoRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -72,9 +96,14 @@ function spawnCli(
 
     // Escalate from SIGTERM → SIGKILL if the process does not exit.
     const timer = setTimeout(() => {
+      if (isWindowsPlatform()) {
+        child.kill();
+        return;
+      }
+
       child.kill('SIGTERM');
       setTimeout(() => {
-        if (!child.killed) child.kill('SIGKILL');
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }, SIGKILL_GRACE_MS);
     }, timeoutMs);
 
