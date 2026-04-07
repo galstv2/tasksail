@@ -47,7 +47,6 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       onPreviewSwitch={noop}
       onApplySwitch={noop}
       onClearActive={noop}
-      onOpenReinforcement={noop}
       onOpenPlannerModal={noop}
       showMultiPrimaryWarning={false}
       onDismissMultiPrimaryWarning={noop}

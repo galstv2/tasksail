@@ -262,12 +262,9 @@ export function useContextPackCreation(
   const onWizardUpdatePart = useCallback(
     (key: string, field: keyof PartDraft, value: string | boolean) => {
       setWizardParts((previous) =>
-        previous.map((part) => {
-          if (field === 'primary' && value === true) {
-            return { ...part, primary: part.key === key };
-          }
-          return part.key === key ? { ...part, [field]: value } : part;
-        }),
+        previous.map((part) =>
+          part.key === key ? { ...part, [field]: value } : part,
+        ),
       );
     },
     [],

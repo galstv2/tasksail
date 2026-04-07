@@ -37,7 +37,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     loading: false,
     error: null as string | null,
     onSelectSession: vi.fn(),
-    activeWorkGuard: { status: 'allowed' } as ActiveWorkGuardState,
+    activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true } as ActiveWorkGuardState,
     onStartRealignment: vi.fn(),
     ...overrides,
   };
@@ -116,7 +116,7 @@ describe('RealignmentReviewPanel', () => {
   it('shows start button enabled when guard is allowed', () => {
     render(
       <RealignmentReviewPanel
-        {...defaultProps({ activeWorkGuard: { status: 'allowed' } })}
+        {...defaultProps({ activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true } })}
       />,
     );
     const btn = screen.getByTestId('realignment-start');
@@ -153,18 +153,33 @@ describe('RealignmentReviewPanel', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('calls onStartRealignment when start button clicked', () => {
+  it('shows confirmation dialog and calls onStartRealignment on confirm', () => {
     const onStartRealignment = vi.fn();
     render(
       <RealignmentReviewPanel
         {...defaultProps({
-          activeWorkGuard: { status: 'allowed' },
+          activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true },
           onStartRealignment,
         })}
       />,
     );
     fireEvent.click(screen.getByTestId('realignment-start'));
+    expect(onStartRealignment).not.toHaveBeenCalled();
+    expect(screen.getByText('Start corrective realignment?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Start realignment'));
     expect(onStartRealignment).toHaveBeenCalled();
+  });
+
+  it('disables start button when no unprocessed feedback exists', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: false },
+        })}
+      />,
+    );
+    expect(screen.getByTestId('realignment-start')).toBeDisabled();
   });
 
   it('does not show guard section in detail view', () => {

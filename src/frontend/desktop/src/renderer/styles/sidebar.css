@@ -106,7 +106,7 @@
 }
 
 .sidebar-icon-btn--accent:hover {
-  background: var(--ts-surface-alt);
+  background: var(--ts-bg-hover);
   color: var(--ts-text);
 }
 
@@ -168,16 +168,15 @@
   gap: 0.35rem;
   padding: 0.5rem 0.35rem 0.65rem;
   border-top: 1px solid var(--ts-border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.03));
   flex-shrink: 0;
 }
 
 .sidebar-collapsed-action {
   width: var(--ts-btn-md);
   height: var(--ts-btn-md);
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--ts-radius-md);
-  background: var(--ts-surface-alt);
+  background: transparent;
   color: var(--ts-text-soft);
   display: flex;
   align-items: center;
@@ -185,16 +184,12 @@
   justify-self: center;
   cursor: pointer;
   transition: background var(--ts-duration) var(--ts-ease),
-              color var(--ts-duration) var(--ts-ease),
-              border-color var(--ts-duration) var(--ts-ease),
-              box-shadow var(--ts-duration) var(--ts-ease);
+              color var(--ts-duration) var(--ts-ease);
 }
 
 .sidebar-collapsed-action:hover {
-  background: var(--ts-surface);
+  background: var(--ts-bg-hover);
   color: var(--ts-text);
-  border-color: var(--ts-border);
-  box-shadow: var(--ts-shadow-sm);
 }
 
 .sidebar-collapsed-action--primary {
@@ -205,13 +200,11 @@
 .sidebar-collapsed-action:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .sidebar-collapsed-action:disabled:hover {
-  background: var(--ts-surface-alt);
+  background: transparent;
   color: var(--ts-text-soft);
-  border-color: transparent;
 }
 
 /* ── Sidebar typography ──────────────────────────────────────────────── */
@@ -309,8 +302,9 @@
 .sidebar-active-bar__label {
   flex: 1;
   min-width: 0;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 500;
+  letter-spacing: -0.005em;
   line-height: 1.35;
   color: var(--ts-text-muted);
   white-space: normal;
@@ -326,13 +320,11 @@
 .status-chip--sm {
   font-size: 0.68rem;
   padding: 0.15rem 0.45rem;
-  letter-spacing: 0.03em;
 }
 
 .status-chip--xs {
   font-size: 0.68rem;
   padding: 0.1rem 0.35rem;
-  letter-spacing: 0.03em;
 }
 
 /* ── Scrollable region ───────────────────────────────────────────────── */
@@ -433,9 +425,8 @@
 
 .ts-select__status {
   flex-shrink: 0;
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 0.64rem;
+  font-weight: 500;
   padding: 0.1rem 0.35rem;
   border-radius: var(--ts-radius-pill);
   white-space: nowrap;

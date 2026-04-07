@@ -3,6 +3,7 @@ import type {
   FocusAreaEntryDraft,
 } from '../../contextPackCreationTypes';
 import { classNames } from '../../utils/classNames';
+import { PrimaryToggleLabel } from './icons';
 
 type FocusAreaCardProps = {
   focusArea: FocusAreaEntryDraft;
@@ -46,7 +47,7 @@ function FocusAreaCard({
                   focusArea.repositoryType === 'primary' && 'scope-focus-row__type--primary',
                 )}
               >
-                {focusArea.repositoryType === 'primary' ? 'Active' : 'Context'}
+                {focusArea.repositoryType === 'primary' ? 'Primary' : 'Support'}
               </span>
             ) : null}
           </span>
@@ -124,8 +125,7 @@ function FocusAreaCard({
         onClick={() => onSetPrimaryFocusArea(focusArea.key)}
         aria-pressed={focusArea.primary}
       >
-        <span className="context-pack-modal__toggle-dot" />
-        Start from here
+        <PrimaryToggleLabel primary={focusArea.primary} />
       </button>
     </article>
   );

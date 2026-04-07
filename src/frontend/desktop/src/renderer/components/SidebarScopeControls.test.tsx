@@ -181,7 +181,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Active' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Primary' })).toBeInTheDocument();
   });
 
   it('shows the relative path and combined tooltip for monolith focus rows', () => {

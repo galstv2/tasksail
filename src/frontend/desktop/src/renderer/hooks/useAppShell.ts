@@ -43,6 +43,7 @@ export type UseAppShellResult = {
   openMcpConfigModal: () => void;
   enabledMcpServerCount: number;
   reinforcementModalProps: ReinforcementModalProps;
+  openReinforcementModal: () => void;
   taskBoardProps: TaskBoardProps;
 };
 
@@ -115,10 +116,9 @@ export function useAppShell(
       ...contextPackSidebarProps,
       collapsed: effectiveSidebarCollapsed,
       onToggleCollapse: toggleSidebar,
-      onOpenReinforcement: openReinforcementModal,
       onOpenPlannerModal: openPlannerModal,
     }),
-    [contextPackSidebarProps, effectiveSidebarCollapsed, toggleSidebar, openReinforcementModal, openPlannerModal],
+    [contextPackSidebarProps, effectiveSidebarCollapsed, toggleSidebar, openPlannerModal],
   );
 
   const terminalFeedProps = useMemo(
@@ -177,6 +177,7 @@ export function useAppShell(
     openMcpConfigModal,
     enabledMcpServerCount,
     reinforcementModalProps,
+    openReinforcementModal,
     taskBoardProps,
   };
 }

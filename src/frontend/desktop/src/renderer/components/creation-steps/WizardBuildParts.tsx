@@ -8,7 +8,7 @@ import {
   getRoleOption,
   isWizardPartConfigured,
 } from './buildWizardConstants';
-import { CloseIcon, CollapseIcon, EditIcon, PlusIcon } from './icons';
+import { CloseIcon, CollapseIcon, EditIcon, PlusIcon, PrimaryToggleLabel } from './icons';
 
 type WizardBuildPartsProps = {
   busy: boolean;
@@ -83,7 +83,7 @@ function WizardBuildParts({
                 <div className="context-pack-modal__wizard-part-actions">
                   {part.primary ? (
                     <span className="context-pack-modal__repo-chip context-pack-modal__repo-chip--primary">
-                      Active
+                      Primary
                     </span>
                   ) : null}
                   <button
@@ -196,8 +196,7 @@ function WizardBuildParts({
                       onClick={() => onUpdatePart(part.key, 'primary', !part.primary)}
                       aria-pressed={part.primary}
                     >
-                      <span className="context-pack-modal__toggle-dot" />
-                      Start from here
+                      <PrimaryToggleLabel primary={part.primary} />
                     </button>
                     <button
                       type="button"

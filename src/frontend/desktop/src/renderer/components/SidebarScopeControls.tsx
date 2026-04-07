@@ -91,14 +91,14 @@ function SidebarScopeControls({
                                 target.repositoryType === 'primary' && 'scope-focus-row__type--primary',
                                 onToggleRepositoryType && 'scope-focus-row__type--clickable',
                               )}
-                              title={`Click to change to ${target.repositoryType === 'primary' ? 'Context' : 'Active'}`}
+                              title={`Click to change to ${target.repositoryType === 'primary' ? 'Support' : 'Primary'}`}
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 onToggleRepositoryType?.(target.focusId, target.repositoryType!);
                               }}
                             >
-                              {target.repositoryType === 'primary' ? 'Active' : 'Context'}
+                              {target.repositoryType === 'primary' ? 'Primary' : 'Support'}
                             </button>
                           ) : null}
                           {target.systemLayer ? (

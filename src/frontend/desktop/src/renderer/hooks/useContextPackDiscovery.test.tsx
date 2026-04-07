@@ -151,10 +151,10 @@ describe('buildDraftFromDiscovery', () => {
 
     const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
 
-    expect(result.focusAreas.map((focusArea) => focusArea.primary)).toEqual([true, false]);
+    expect(result.focusAreas.map((focusArea) => focusArea.primary)).toEqual([true, true]);
     expect(result.focusAreas.map((focusArea) => focusArea.repositoryType)).toEqual([
       'primary',
-      'support',
+      'primary',
     ]);
   });
 

@@ -159,7 +159,7 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="terminal-feed-events">{result.terminalFeedProps.activityStream.length}</div>
       <div data-testid="reinforcement-modal-open">{String(result.reinforcementModalProps.isOpen)}</div>
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
-      <div data-testid="sidebar-has-open-reinforcement">{String(typeof result.contextPackSidebarProps.onOpenReinforcement === 'function')}</div>
+      <div data-testid="has-open-reinforcement">{String(typeof result.openReinforcementModal === 'function')}</div>
       <div data-testid="has-open-agent-config">{String(typeof result.openAgentConfigModal === 'function')}</div>
     </section>
   );
@@ -221,7 +221,7 @@ describe('useAppShell', () => {
 
     expect(screen.getByTestId('reinforcement-modal-open')).toHaveTextContent('false');
     expect(screen.getByTestId('reinforcement-has-context-pack')).toHaveTextContent('true');
-    expect(screen.getByTestId('sidebar-has-open-reinforcement')).toHaveTextContent('true');
+    expect(screen.getByTestId('has-open-reinforcement')).toHaveTextContent('true');
     expect(screen.getByTestId('has-open-agent-config')).toHaveTextContent('true');
   });
 

@@ -46,7 +46,6 @@ const defaultProps = {
   onPreviewSwitch: vi.fn(),
   onApplySwitch: vi.fn(),
   onClearActive: vi.fn(),
-  onOpenReinforcement: vi.fn(),
   onOpenPlannerModal: vi.fn(),
   showMultiPrimaryWarning: false,
   onDismissMultiPrimaryWarning: vi.fn(),
@@ -137,21 +136,6 @@ describe('ContextPackSidebarExpanded', () => {
   it('enables Clear when an active context pack exists', () => {
     render(<ContextPackSidebarExpanded {...defaultProps} activeContextPackDir="/packs/my-pack" />);
     expect(screen.getByLabelText('Clear pack')).not.toBeDisabled();
-  });
-
-  it('renders a Rewards button that calls onOpenReinforcement', () => {
-    const onOpenReinforcement = vi.fn();
-    render(
-      <ContextPackSidebarExpanded
-        {...defaultProps}
-        activeContextPackDir="/packs/my-pack"
-        onOpenReinforcement={onOpenReinforcement}
-      />,
-    );
-    const btn = screen.getByTestId('reinforcement-open-btn');
-    expect(btn).toBeInTheDocument();
-    fireEvent.click(btn);
-    expect(onOpenReinforcement).toHaveBeenCalledTimes(1);
   });
 
   it('renders generic primary selection warning copy', () => {

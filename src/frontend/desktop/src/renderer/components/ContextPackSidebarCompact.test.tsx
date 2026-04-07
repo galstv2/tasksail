@@ -39,7 +39,6 @@ const defaultProps = {
   onPreviewSwitch: vi.fn(),
   onApplySwitch: vi.fn(),
   onClearActive: vi.fn(),
-  onOpenReinforcement: vi.fn(),
   onOpenPlannerModal: vi.fn(),
 };
 

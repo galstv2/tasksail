@@ -111,7 +111,6 @@ function createSidebarProps() {
     onPreviewSwitch: vi.fn(),
     onApplySwitch: vi.fn(),
     onClearActive: vi.fn(),
-    onOpenReinforcement: vi.fn(),
     onOpenPlannerModal: vi.fn(),
     showMultiPrimaryWarning: false,
     onDismissMultiPrimaryWarning: vi.fn(),

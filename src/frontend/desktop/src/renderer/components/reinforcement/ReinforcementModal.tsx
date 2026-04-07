@@ -8,6 +8,7 @@ import { useReinforcementTasks } from '../../hooks/useReinforcementTasks';
 import { useRealignmentDocument } from '../../hooks/useRealignmentDocument';
 import { useActiveWorkGuard } from '../../hooks/useActiveWorkGuard';
 import { filterSessionsForTasks, selectScopedSession } from '../../selectors/reinforcementSessionFilter';
+import { CloseIcon } from '../creation-steps/icons';
 import FeedbackPanel from './FeedbackPanel';
 import GlobalRealignmentEditor from './GlobalRealignmentEditor';
 import RealignmentReviewPanel from './RealignmentReviewPanel';
@@ -71,7 +72,6 @@ function ReinforcementModal({
   const { guard: activeWorkGuard, startRealignment } = useActiveWorkGuard(hasActiveContextPack);
 
   const doc = useRealignmentDocument(hasActiveContextPack);
-  const { onSave: saveDoc } = doc;
 
   const feedback = useFeedbackSubmission();
 
@@ -91,12 +91,6 @@ function ReinforcementModal({
       submitFeedback(activeContextPackDir).catch(() => {});
     }
   }, [activeContextPackDir, submitFeedback]);
-
-  const handleDocSave = useCallback(() => {
-    if (activeContextPackDir) {
-      saveDoc(activeContextPackDir).catch(() => {});
-    }
-  }, [activeContextPackDir, saveDoc]);
 
   const handleStartRealignment = useCallback(() => {
     if (!activeContextPackDir) return;
@@ -143,9 +137,7 @@ function ReinforcementModal({
             onClick={onClose}
             aria-label="Close"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
         <div className="reinforcement-modal__body">
@@ -205,24 +197,17 @@ function ReinforcementModal({
             <GlobalRealignmentEditor
               hasActiveContextPack={hasActiveContextPack}
               draft={doc.draft}
-              version={doc.version}
               updatedAt={doc.updatedAt}
               loading={doc.loading}
               loadError={doc.loadError}
-              saveState={doc.saveState}
-              dirty={doc.dirty}
-              onFieldChange={doc.onFieldChange}
-              onSave={handleDocSave}
-              onDiscard={doc.onDiscard}
-              onReload={doc.reload}
             />
           )}
         </div>
         <div className="reinforcement-modal__footer">
+          <span className="reinforcement-modal__footer-esc">ESC to close</span>
           <span className="reinforcement-modal__footer-tab-hint">
             {TABS.length} tabs
           </span>
-          <span className="reinforcement-modal__footer-esc">ESC to close</span>
         </div>
       </div>
     </div>

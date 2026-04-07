@@ -111,8 +111,9 @@
 .context-pack-modal__section-header .panel__meta,
 .context-pack-modal__card-header .panel__meta {
   margin: 0.1rem 0 0;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   line-height: 1.3;
+  color: var(--ts-text-soft);
 }
 
 .context-pack-modal__body {
@@ -229,7 +230,7 @@
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.45rem;
   padding: 0.4rem 0.5rem;
-  border-radius: var(--ts-radius-sm);
+  border-radius: var(--ts-radius-md);
   background: color-mix(in srgb, var(--ts-surface-alt) 40%, var(--ts-surface));
   border: 1px solid var(--ts-border);
 }
@@ -327,6 +328,13 @@
   background: var(--ts-accent);
 }
 
+.context-pack-modal__toggle-hint {
+  font-size: 0.62rem;
+  font-weight: 400;
+  opacity: 0.6;
+  margin-left: 0.15rem;
+}
+
 .context-pack-modal__wizard {
   display: grid;
   grid-template-columns: minmax(90px, 128px) minmax(0, 1fr);
@@ -379,15 +387,13 @@
 
 .context-pack-modal__wizard-choice-kicker {
   display: inline-flex;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.4rem;
   padding: 0.1rem 0.35rem;
   border-radius: var(--ts-radius-pill);
   background: var(--ts-surface);
   color: var(--ts-text-soft);
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 0.64rem;
+  font-weight: 500;
 }
 
 .context-pack-modal__wizard-part-card {

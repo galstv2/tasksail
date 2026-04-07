@@ -3,6 +3,7 @@ import { readFile, access } from 'node:fs/promises';
 import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
+import { readJsonSafe, reinforcementDir } from './reinforcementRead.js';
 
 export interface SubmitReinforcementFeedbackOptions {
   contextPackDir: string;
@@ -197,39 +198,67 @@ export interface ActiveWorkGuardResult {
   allowed: boolean;
   activeTaskId: string | null;
   message: string;
+  hasUnprocessedFeedback: boolean;
 }
 
-/**
- * Check whether UI-triggered corrective realignment is allowed.
- * Blocked when an active pending item is claimed in the queue.
- */
-const ALLOWED_RESULT: ActiveWorkGuardResult = {
-  allowed: true,
-  activeTaskId: null,
-  message: 'No active work. Corrective realignment is allowed.',
-};
+type TimestampedEntry = { created_at?: string };
+type EntriesFile = { entries?: TimestampedEntry[] };
+
+async function computeHasUnprocessedFeedback(repoRoot: string): Promise<boolean> {
+  const rDir = reinforcementDir(repoRoot);
+
+  const feedbackFile = await readJsonSafe<EntriesFile>(path.join(rDir, 'feedback-events.json'));
+  const feedbackEvents = feedbackFile?.entries ?? [];
+  if (feedbackEvents.length === 0) return false;
+
+  const sessionsFile = await readJsonSafe<EntriesFile>(path.join(rDir, 'realignment', 'sessions.json'));
+  const sessions = sessionsFile?.entries ?? [];
+  if (sessions.length === 0) return true;
+
+  const lastSessionTime = sessions
+    .map((s) => s.created_at ?? '')
+    .sort()
+    .pop() ?? '';
+
+  return feedbackEvents.some((e) => (e.created_at ?? '') > lastSessionTime);
+}
 
 export async function checkActiveWorkGuard(
   repoRoot?: string,
 ): Promise<ActiveWorkGuardResult> {
   const root = repoRoot ?? findRepoRoot();
   const { activeItemLink, pendingDir } = resolveQueuePaths(root);
+  const hasUnprocessedFeedback = await computeHasUnprocessedFeedback(root);
 
   let name: string;
   try {
     name = (await readFile(activeItemLink, 'utf-8')).trim();
   } catch {
-    // ENOENT or other read failure — no active item
-    return ALLOWED_RESULT;
+    return {
+      allowed: true,
+      activeTaskId: null,
+      message: 'No active work. Corrective realignment is allowed.',
+      hasUnprocessedFeedback,
+    };
   }
 
   if (!name) {
-    return ALLOWED_RESULT;
+    return {
+      allowed: true,
+      activeTaskId: null,
+      message: 'No active work. Corrective realignment is allowed.',
+      hasUnprocessedFeedback,
+    };
   }
   try {
     await access(path.join(pendingDir, name));
   } catch {
-    return ALLOWED_RESULT;
+    return {
+      allowed: true,
+      activeTaskId: null,
+      message: 'No active work. Corrective realignment is allowed.',
+      hasUnprocessedFeedback,
+    };
   }
 
   const activeTaskId = name.replace(/\.md$/, '');
@@ -237,6 +266,7 @@ export async function checkActiveWorkGuard(
     allowed: false,
     activeTaskId,
     message: `Corrective realignment is blocked while pending item "${activeTaskId}" is active. Complete or remove the active item before starting realignment.`,
+    hasUnprocessedFeedback,
   };
 }
 

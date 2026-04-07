@@ -30,7 +30,6 @@ export type ContextPackSidebarProps = {
   showMultiPrimaryWarning: boolean;
   onDismissMultiPrimaryWarning: () => void;
   onToggleRepositoryType?: (repoId: string, currentType: 'primary' | 'support') => void;
-  onOpenReinforcement: () => void;
   onOpenPlannerModal: () => void;
 };
 
@@ -53,7 +52,6 @@ function ContextPackSidebar({
           onPreviewSwitch={rest.onPreviewSwitch}
           onApplySwitch={rest.onApplySwitch}
           onClearActive={rest.onClearActive}
-          onOpenReinforcement={rest.onOpenReinforcement}
           onOpenPlannerModal={rest.onOpenPlannerModal}
         />
       );

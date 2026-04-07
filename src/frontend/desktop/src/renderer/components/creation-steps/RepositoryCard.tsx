@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { ChevronIcon } from './icons';
+import { ChevronIcon, PrimaryToggleLabel } from './icons';
 
 import type {
   ContextPackCreationDraft,
@@ -205,8 +205,7 @@ function RepositoryCard({
         onClick={() => onSetPrimaryRepository(repository.key)}
         aria-pressed={repository.primary}
       >
-        <span className="context-pack-modal__toggle-dot" />
-        Start from here
+        <PrimaryToggleLabel primary={repository.primary} />
       </button>
     </article>
   );

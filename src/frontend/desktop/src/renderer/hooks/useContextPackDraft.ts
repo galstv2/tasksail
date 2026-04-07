@@ -162,17 +162,13 @@ function ensurePrimaryRepository(
 function ensurePrimaryFocusArea(
   focusAreas: FocusAreaEntryDraft[],
 ): FocusAreaEntryDraft[] {
-  if (focusAreas.length === 0) {
+  if (focusAreas.length === 0 || focusAreas.some((f) => f.primary)) {
     return focusAreas;
   }
-  const primaryIndex = focusAreas.findIndex(
-    (focusArea) => focusArea.primary || focusArea.repositoryType === 'primary',
-  );
-  const resolvedPrimaryIndex = primaryIndex >= 0 ? primaryIndex : 0;
   return focusAreas.map((f, i) =>
-    i === resolvedPrimaryIndex
+    i === 0
       ? { ...f, primary: true, repositoryType: 'primary', defaultFocusable: true }
-      : { ...f, primary: false, repositoryType: 'support' },
+      : f,
   );
 }
 
@@ -419,12 +415,16 @@ export function useContextPackDraft(
     (key: string) => {
       updateDraft((draft) => ({
         ...draft,
-        focusAreas: draft.focusAreas.map((f) => ({
-          ...f,
-          primary: f.key === key,
-          repositoryType: f.key === key ? 'primary' : 'support',
-          defaultFocusable: f.key === key ? true : f.defaultFocusable,
-        })),
+        focusAreas: draft.focusAreas.map((f) => {
+          if (f.key !== key) return f;
+          const toggled = !f.primary;
+          return {
+            ...f,
+            primary: toggled,
+            repositoryType: toggled ? 'primary' : 'support',
+            defaultFocusable: toggled ? true : f.defaultFocusable,
+          };
+        }),
       }));
     },
     [updateDraft],

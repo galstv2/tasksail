@@ -25,7 +25,7 @@ type RefreshOptions = {
 };
 
 export type UseContextPackSelectionResult = {
-  contextPackSidebarProps: Omit<ContextPackSidebarProps, 'collapsed' | 'onToggleCollapse' | 'onOpenReinforcement' | 'onOpenPlannerModal'>;
+  contextPackSidebarProps: Omit<ContextPackSidebarProps, 'collapsed' | 'onToggleCollapse' | 'onOpenPlannerModal'>;
   contextPackCreationModalProps: ContextPackCreationModalProps;
 };
 

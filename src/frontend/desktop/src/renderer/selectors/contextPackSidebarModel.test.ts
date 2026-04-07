@@ -144,7 +144,7 @@ describe('buildFocusHint', () => {
 
   it('returns distributed-platform hint for selected repos', () => {
     const hint = buildFocusHint({ selectedPack: makePack() });
-    expect(hint).toContain('selected repos');
+    expect(hint).toContain('Primary repository');
   });
 
   it('returns monolith hint for non-distributed packs', () => {
@@ -152,7 +152,7 @@ describe('buildFocusHint', () => {
       selectedPack: makePack({ estateType: 'monolith' }),
     });
     expect(hint).toBe(
-      'Agents work in the active folder. Other checked folders are available as read-only context.',
+      'Agents work in the Primary folder. Other checked folders are available as read-only support.',
     );
   });
 });

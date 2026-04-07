@@ -120,7 +120,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
                   repo.primary && 'context-pack-modal__repo-chip--primary',
                 )}
               >
-                {repo.primary && 'Active \u2022 '}
+                {repo.primary && 'Primary \u2022 '}
                 {repo.repoName || repo.repoId || 'Unnamed'}
                 {repo.systemLayer && (
                   <span className="context-pack-modal__repo-chip__layer">
@@ -142,7 +142,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
                       focusArea.repositoryType === 'primary' && 'context-pack-modal__repo-chip--primary',
                     )}
                     >
-                      {focusArea.repositoryType === 'primary' ? 'Active \u2022 ' : 'Context \u2022 '}
+                      {focusArea.repositoryType === 'primary' ? 'Primary \u2022 ' : 'Support \u2022 '}
                       {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
                       {(focusArea.relativePath || focusArea.focusType) ? (
                         <span className="context-pack-modal__repo-chip__layer">

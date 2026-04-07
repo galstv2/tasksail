@@ -1,5 +1,9 @@
+import { useState } from 'react';
+
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
 import type { ActiveWorkGuardState } from '../../hooks/useActiveWorkGuard';
+import ConfirmOverlay from '../ConfirmOverlay';
+import { StarIcon } from '../creation-steps/icons';
 import RealignmentSessionDetail from './RealignmentSessionDetail';
 import RealignmentSessionList from './RealignmentSessionList';
 
@@ -26,6 +30,7 @@ function RealignmentReviewPanel({
   activeWorkGuard,
   onStartRealignment,
 }: RealignmentReviewPanelProps): JSX.Element {
+  const [confirmOpen, setConfirmOpen] = useState(false);
   if (!hasActiveContextPack) {
     return (
       <div className="realignment-panel" data-testid="realignment-panel">
@@ -85,8 +90,8 @@ function RealignmentReviewPanel({
         <button
           type="button"
           className="realignment-panel__start-btn"
-          disabled={activeWorkGuard.status !== 'allowed'}
-          onClick={onStartRealignment}
+          disabled={activeWorkGuard.status !== 'allowed' || !activeWorkGuard.hasUnprocessedFeedback}
+          onClick={() => setConfirmOpen(true)}
           data-testid="realignment-start"
         >
           {activeWorkGuard.status === 'loading'
@@ -94,6 +99,21 @@ function RealignmentReviewPanel({
             : 'Start Corrective Realignment'}
         </button>
       </div>
+
+      <ConfirmOverlay
+        visible={confirmOpen}
+        icon={<StarIcon size={20} />}
+        title="Start corrective realignment?"
+        body="This will analyze recent feedback, update the realignment document, and adjust agent behavior going forward."
+        confirmLabel="Start realignment"
+        cancelLabel="Cancel"
+        autoFocusCancel
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onStartRealignment();
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

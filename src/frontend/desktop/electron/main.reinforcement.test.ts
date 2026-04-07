@@ -384,6 +384,7 @@ describe('reinforcement IPC actions', () => {
         allowed: true,
         activeTaskId: null,
         message: 'No active work.',
+        hasUnprocessedFeedback: false,
       });
 
       const result = await handleDesktopAction({
@@ -407,6 +408,7 @@ describe('reinforcement IPC actions', () => {
         allowed: false,
         activeTaskId: 'T-1',
         message: 'Blocked.',
+        hasUnprocessedFeedback: false,
       });
 
       const result = await handleDesktopAction({

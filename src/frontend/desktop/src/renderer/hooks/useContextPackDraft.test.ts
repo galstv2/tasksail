@@ -143,13 +143,13 @@ describe('pure helpers', () => {
       expect(normalized.focusAreas[0].repositoryType).toBe('primary');
     });
 
-    it('collapses multiple monolith primary focus areas to the first typed primary', () => {
+    it('preserves multiple monolith primary focus areas without collapsing', () => {
       const draft: ContextPackCreationDraft = {
         ...INITIAL_DRAFT,
         mode: 'monolith',
         repositories: [createRepositoryEntry({ key: 'r1', primary: true })],
         focusAreas: [
-          createFocusAreaEntry({ key: 'f1', focusName: 'One', repositoryType: 'primary' }),
+          createFocusAreaEntry({ key: 'f1', focusName: 'One', primary: true, repositoryType: 'primary' }),
           createFocusAreaEntry({ key: 'f2', focusName: 'Two', primary: true, repositoryType: 'primary' }),
           createFocusAreaEntry({ key: 'f3', focusName: 'Three', repositoryType: 'support' }),
         ],
@@ -159,12 +159,12 @@ describe('pure helpers', () => {
 
       expect(normalized.focusAreas.map((focusArea) => focusArea.repositoryType)).toEqual([
         'primary',
-        'support',
+        'primary',
         'support',
       ]);
       expect(normalized.focusAreas.map((focusArea) => focusArea.primary)).toEqual([
         true,
-        false,
+        true,
         false,
       ]);
     });
@@ -493,7 +493,7 @@ describe('useContextPackDraft hook', () => {
     expect(result.current.draft.focusAreas[0].focusName).toBe('Core Module');
   });
 
-  it('updateFocusAreaPrimary sets only the target as primary', () => {
+  it('updateFocusAreaPrimary toggles primary independently per focus area', () => {
     const { result } = renderHook(() => useTestDraft());
 
     act(() => {
@@ -505,15 +505,28 @@ describe('useContextPackDraft hook', () => {
       result.current.addFocusArea();
     });
 
+    // ensurePrimaryFocusArea marks the first as primary on creation
+    expect(result.current.draft.focusAreas[0].primary).toBe(true);
+    expect(result.current.draft.focusAreas[1].primary).toBe(false);
+
     const secondKey = result.current.draft.focusAreas[1].key;
 
     act(() => {
       result.current.updateFocusAreaPrimary(secondKey);
     });
 
-    expect(result.current.draft.focusAreas[0].primary).toBe(false);
+    // Both are now primary — independent toggling allows multiple
+    expect(result.current.draft.focusAreas[0].primary).toBe(true);
     expect(result.current.draft.focusAreas[1].primary).toBe(true);
-    expect(result.current.draft.focusAreas[0].repositoryType).toBe('support');
+    expect(result.current.draft.focusAreas[0].repositoryType).toBe('primary');
     expect(result.current.draft.focusAreas[1].repositoryType).toBe('primary');
+
+    // Toggle the second back off
+    act(() => {
+      result.current.updateFocusAreaPrimary(secondKey);
+    });
+
+    expect(result.current.draft.focusAreas[1].primary).toBe(false);
+    expect(result.current.draft.focusAreas[1].repositoryType).toBe('support');
   });
 });

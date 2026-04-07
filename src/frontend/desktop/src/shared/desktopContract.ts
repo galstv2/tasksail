@@ -843,6 +843,7 @@ export type ReinforcementCheckActiveWorkGuardResponse = {
   allowed: boolean;
   message: string;
   activeTaskId: string | null;
+  hasUnprocessedFeedback: boolean;
 };
 
 export type ReinforcementStartRealignmentRequest = {

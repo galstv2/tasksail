@@ -54,7 +54,7 @@ describe('ReviewStep', () => {
       ],
     };
     render(<ReviewStep draft={draft} />);
-    const chips = screen.getAllByText(/Active/);
+    const chips = screen.getAllByText(/Primary/);
     expect(chips.length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/web/)).toBeInTheDocument();
   });
@@ -83,8 +83,8 @@ describe('ReviewStep', () => {
 
     render(<ReviewStep draft={draft} />);
 
-    expect(screen.getByText(/Active • Core Module/)).toBeInTheDocument();
-    expect(screen.getByText(/Context • Docs/)).toBeInTheDocument();
+    expect(screen.getByText(/Primary • Core Module/)).toBeInTheDocument();
+    expect(screen.getByText(/Support • Docs/)).toBeInTheDocument();
     expect(screen.getByText(/services\/core/)).toBeInTheDocument();
   });
 

@@ -62,10 +62,10 @@
   font-family: var(--ts-font-sans);
   font-size: 0.92rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.015em;
 }
 
-.planner-modal__header button {
+.planner-modal__close-btn {
   border: none;
   border-radius: var(--ts-radius-pill);
   background: var(--ts-bg-hover);
@@ -82,12 +82,12 @@
               opacity var(--ts-duration) var(--ts-ease);
 }
 
-.planner-modal__header button:hover {
+.planner-modal__close-btn:hover {
   background: rgba(30, 50, 100, 0.09);
   color: var(--ts-text);
 }
 
-.planner-modal__header button:active {
+.planner-modal__close-btn:active {
   opacity: 0.7;
 }
 
@@ -177,10 +177,9 @@
 }
 
 .planner-msg__role {
-  font-size: 0.66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 .planner-msg--operator .planner-msg__role {
@@ -223,7 +222,7 @@
 .planner-modal__composer textarea:focus {
   outline: none;
   border-color: var(--ts-accent);
-  box-shadow: 0 0 0 3px var(--ts-accent-subtle);
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
 }
 
 .planner-modal__composer button {
@@ -255,29 +254,28 @@
 }
 
 .planner-modal__child-task-toggle {
-  border: 1px solid var(--ts-border);
+  border: none;
   border-radius: var(--ts-radius-md);
-  padding: 0.2rem 0.5rem;
-  background: transparent;
+  padding: 0.22rem 0.45rem;
+  background: var(--ts-surface-alt);
   color: var(--ts-text-soft);
   cursor: pointer;
+  font-family: var(--ts-font-sans);
   font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
   transition: background var(--ts-duration) var(--ts-ease),
-              color var(--ts-duration) var(--ts-ease),
-              border-color var(--ts-duration) var(--ts-ease);
+              color var(--ts-duration) var(--ts-ease);
 }
 
 .planner-modal__child-task-toggle:hover:not(:disabled) {
-  background: var(--ts-surface-alt);
+  background: var(--ts-bg-hover);
   color: var(--ts-text);
 }
 
 .planner-modal__child-task-toggle--active {
-  background: var(--ts-accent-subtle);
-  border-color: var(--ts-accent);
+  background: var(--ts-accent-tint);
   color: var(--ts-accent);
+  font-weight: 600;
 }
 
 .planner-modal__child-task-toggle:disabled {
@@ -422,7 +420,6 @@
   gap: 0.4rem;
   padding: 0.55rem 0.85rem;
   border-top: 1px solid var(--ts-border);
-  background: var(--ts-surface);
 }
 
 .planner-modal__actions .action-button {
@@ -432,10 +429,10 @@
 }
 
 .planner-modal__footer-esc {
-  font-family: var(--ts-font-mono);
-  font-size: 0.7rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
-  opacity: 0.65;
+  opacity: 0.4;
   margin-right: auto;
 }
 
@@ -447,15 +444,16 @@
   transition:
     background var(--ts-duration) var(--ts-ease),
     border-color var(--ts-duration) var(--ts-ease),
-    box-shadow var(--ts-duration) var(--ts-ease),
-    transform 120ms var(--ts-ease);
+    opacity var(--ts-duration) var(--ts-ease);
 }
 
 .planner-modal__actions .action-button--primary:hover:not(:disabled) {
   background: var(--ts-accent-hover);
   border-color: var(--ts-accent-hover);
-  box-shadow: var(--ts-shadow-sm);
-  transform: translateY(-1px);
+}
+
+.planner-modal__actions .action-button--primary:active:not(:disabled) {
+  opacity: 0.8;
 }
 
 .planner-modal__actions .action-button--primary:disabled {
@@ -469,14 +467,13 @@
 .planner-modal__session-status {
   display: inline-flex;
   align-items: center;
-  padding: 0.15rem 0.45rem;
+  padding: 0.15rem 0.4rem;
   font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.66rem;
+  font-weight: 500;
   border-radius: var(--ts-radius-pill);
-  border: 1px solid var(--ts-border);
+  border: none;
+  background: var(--ts-surface-alt);
   color: var(--ts-text-soft);
   transition: color var(--ts-duration) var(--ts-ease),
               border-color var(--ts-duration) var(--ts-ease),
@@ -631,7 +628,7 @@
 
 .planner-modal__draft-preview-body--clickable {
   cursor: pointer;
-  transition: background 150ms var(--ts-ease);
+  transition: background var(--ts-duration) var(--ts-ease);
 }
 
 .planner-modal__draft-preview-body--clickable:hover {

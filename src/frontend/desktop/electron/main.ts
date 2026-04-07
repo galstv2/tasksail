@@ -659,6 +659,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
         allowed: true,
         message: result.message,
         activeTaskId: null,
+        hasUnprocessedFeedback: result.hasUnprocessedFeedback,
       },
     };
   },

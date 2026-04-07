@@ -6,7 +6,7 @@ import { desktopShellClient } from '../services/desktopShellClient';
 
 export type ActiveWorkGuardState =
   | { status: 'loading' }
-  | { status: 'allowed' }
+  | { status: 'allowed'; hasUnprocessedFeedback: boolean }
   | { status: 'blocked'; message: string; activeTaskId: string | null };
 
 export type StartRealignmentState =
@@ -31,14 +31,14 @@ export function useActiveWorkGuard(
 
   const check = useCallback(async () => {
     if (!hasActiveContextPack) {
-      setGuard({ status: 'allowed' });
+      setGuard({ status: 'allowed', hasUnprocessedFeedback: false });
       return;
     }
     setGuard({ status: 'loading' });
     const result = await client.checkActiveWorkGuard();
     if (result.ok && result.response.action === 'reinforcement.checkActiveWorkGuard') {
       if (result.response.allowed) {
-        setGuard({ status: 'allowed' });
+        setGuard({ status: 'allowed', hasUnprocessedFeedback: result.response.hasUnprocessedFeedback });
       } else {
         setGuard({
           status: 'blocked',

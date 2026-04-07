@@ -4,6 +4,7 @@ import type { ArchivedTaskEntry, MarkdownFileSelection, StagedDraftContent } fro
 import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } from '../plannerComposer';
 import { getPlannerConversationLabel } from '../../shared/agentRoster';
 import { classNames } from '../utils/classNames';
+import { CloseIcon } from './creation-steps/icons';
 import SailScreen from './SailScreen';
 import MarkdownView from './MarkdownView';
 import ModalShell from './ModalShell';
@@ -215,8 +216,8 @@ function PlannerModal({
             >
               Child Task
             </button>
-            <button type="button" onClick={onClose} aria-label="Close planner">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            <button type="button" className="planner-modal__close-btn" onClick={onClose} aria-label="Close planner">
+              <CloseIcon />
             </button>
           </div>
         </header>
@@ -291,7 +292,7 @@ function PlannerModal({
                 <path d="M2 4h12v8H5l-3 2V4z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
                 <path d="M5 7h6M5 9h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
               </svg>
-              <p>Start a conversation to begin planning your task.</p>
+              <p>Start a conversation with Lily to begin planning your task.</p>
             </div>
           ) : (
             messages.map((msg, idx) => (

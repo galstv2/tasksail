@@ -108,10 +108,10 @@ export function buildFocusHint(args: {
   }
 
   if (selectedPack.estateType === 'distributed-platform') {
-    return 'Only the selected repos are included in the workspace.';
+    return 'Agents work in the Primary repository. Other checked repositories are available as read-only support.';
   }
 
-  return 'Agents work in the active folder. Other checked folders are available as read-only context.';
+  return 'Agents work in the Primary folder. Other checked folders are available as read-only support.';
 }
 
 export function summarizeSwitchResult(

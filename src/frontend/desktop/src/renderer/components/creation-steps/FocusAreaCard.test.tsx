@@ -41,7 +41,7 @@ describe('FocusAreaCard', () => {
   it('primary toggle calls onSetPrimaryFocusArea', () => {
     const onSetPrimaryFocusArea = vi.fn();
     render(<FocusAreaCard {...defaultProps} onSetPrimaryFocusArea={onSetPrimaryFocusArea} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start from here' }));
+    fireEvent.click(screen.getByRole('button', { name: /Support/i }));
     expect(onSetPrimaryFocusArea).toHaveBeenCalledWith('f1');
   });
 
@@ -53,8 +53,8 @@ describe('FocusAreaCard', () => {
       />,
     );
 
-    expect(screen.getByText('Start from here')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Primary/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Primary/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('field change calls onFocusAreaFieldChange', () => {

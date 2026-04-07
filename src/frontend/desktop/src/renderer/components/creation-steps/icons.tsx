@@ -1,4 +1,4 @@
-/** Shared inline SVG icons for the context-pack creation flow. */
+/** Shared inline SVG icons — platform UI standard. */
 
 export function ChevronIcon(): JSX.Element {
   return (
@@ -36,6 +36,35 @@ export function PlusIcon(): JSX.Element {
   return (
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
       <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function PrimaryToggleLabel({ primary }: { primary: boolean }): JSX.Element {
+  return (
+    <>
+      <span className="context-pack-modal__toggle-dot" />
+      {primary ? 'Primary' : 'Support'}
+      <span className="context-pack-modal__toggle-hint">
+        {primary ? 'Service or app' : 'Library, docs, or support'}
+      </span>
+    </>
+  );
+}
+
+export function StarIcon({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <path d="M8 1l2 4h4l-3.2 2.8L12 13 8 10.2 4 13l1.2-5.2L2 5h4l2-4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function RefreshIcon({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.1-3.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M13 2v3h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
