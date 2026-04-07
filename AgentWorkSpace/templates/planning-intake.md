@@ -2,7 +2,7 @@
 
 ## Task Lineage
 
-<!-- These lineage fields are usually filled in by task-creation tooling. If you are authoring this markdown directly, use "standard" or "child-task" for Task Kind, preserve child-task lineage values when applicable, and leave lineage fields blank for standard tasks. -->
+<!-- Captured automatically at submission time. Do not edit manually. -->
 
 - Task Kind:
 - Parent Task ID:
@@ -22,24 +22,24 @@
 - Selected Focus IDs:
 
 ## Request Summary
-<!-- (2+ sentences) — keep it lean for simple asks; add more detail for complex asks when needed. State what the operator wants done and why. -->
+<!-- (2+ sentences) — say what the task is, why it is being asked for, and what concrete result is wanted. Use the operator's exact terms when possible. Include any behavior, artifact, or workflow that must stay unchanged. Do not do codebase research here; give the clearest possible statement of the ask. -->
 
 ## Desired Outcome
-<!-- (1+ sentences) — keep it brief for simple asks; expand for complex asks if helpful. Describe success from the operator's perspective. -->
+<!-- (1+ sentences) — describe what success looks like when this task is complete. Name the end state clearly, especially any required UX, behavior, policy, or artifact outcome. -->
 
 ## Constraints
-<!-- (0+ bullets) — keep only the needed constraints for simple asks; add more for complex asks when helpful. Use "None" if not applicable. -->
+<!-- (0+ bullets) — list only real boundaries that must be preserved. Use one bullet per constraint. Include out-of-scope items, unchanged behavior, compatibility requirements, ordering limits, or areas that must not be modified. Use "None" if not applicable. -->
 
 ## Acceptance Signals
-<!-- (1+ bullets) — add the minimum clear checks for simple asks; include more for complex asks as needed. Each should be measurable and verifiable. -->
+<!-- (1+ bullets) — list the clearest checks that would show the task is done. Keep them concrete and verifiable. Include both what should change and what must still work if that matters. -->
 
 ## Parent Task Carry-Forward Summary
-<!-- (0+ bullets) — required for "child-task" to preserve parent carry-forward context; leave blank for "standard" tasks -->
+<!-- (0+ bullets) — required for "child-task"; leave blank for "standard" tasks. Record only the parent context that still matters: preserved decisions, inherited constraints, unresolved risks, and what changed from the parent task. -->
 
 ## Suggested Routing
-<!-- (1 word) - Recommended Execution: "Simple" for lean asks, "Complex" when extra structure is helpful. -->
+<!-- (1 word) - Recommended Execution: "Simple" or "Complex". Choose "Simple" for one coherent ask. Choose "Complex" only when the work clearly breaks into separate streams or slices. -->
 - Recommended Execution:
-<!-- (1-2 sentences) - Explain why this should stay lean or expand. -->
+<!-- (1-2 sentences) - Briefly explain why this should stay simple or become complex. Focus on scope shape: one coherent change, tightly coupled sequential work, or clearly separate work streams. -->
 - Decision Rationale:
 
 ## Source

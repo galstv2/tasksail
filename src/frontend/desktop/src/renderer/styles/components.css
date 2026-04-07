@@ -102,17 +102,17 @@ select {
 }
 
 .action-button {
-  border: 1px solid var(--ts-border-strong);
+  border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   padding: 0.5rem 0.85rem;
   background: var(--ts-surface);
   color: var(--ts-text);
   cursor: pointer;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 500;
   transition: background var(--ts-duration) var(--ts-ease),
               border-color var(--ts-duration) var(--ts-ease),
-              box-shadow var(--ts-duration) var(--ts-ease);
+              opacity var(--ts-duration) var(--ts-ease);
 }
 
 .action-button--secondary {
@@ -120,9 +120,11 @@ select {
 }
 
 .action-button:hover {
-  background: var(--ts-surface);
-  border-color: var(--ts-accent);
-  box-shadow: var(--ts-shadow-sm);
+  border-color: var(--ts-border-strong);
+}
+
+.action-button:active:not(:disabled) {
+  opacity: 0.7;
 }
 
 .action-button:disabled {
@@ -131,10 +133,8 @@ select {
 }
 
 .status-chip {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 0.74rem;
+  font-weight: 500;
   border-radius: var(--ts-radius-pill);
   padding: 0.25rem 0.55rem;
   background: var(--ts-surface-alt);
@@ -207,7 +207,7 @@ select {
 .composer-field select:focus {
   outline: none;
   border-color: var(--ts-accent);
-  box-shadow: 0 0 0 3px var(--ts-accent-subtle);
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
 }
 
 
@@ -385,6 +385,18 @@ select {
   padding: 0;
   font-size: 1.1rem;
   line-height: 1;
+}
+
+
+/* ── Panel chrome title (shared by terminal + task board) ────────────── */
+
+.terminal-feed__title,
+.task-board__title {
+  font-family: var(--ts-font-sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--terminal-text);
+  letter-spacing: 0.01em;
 }
 
 

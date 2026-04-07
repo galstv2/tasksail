@@ -56,6 +56,12 @@
   --ts-accent-subtle:    rgba(208, 139, 62, 0.10);
   --ts-accent-tint:      rgba(208, 139, 62, 0.10);
 
+  /* ── Brand palette — matches dock icon ───────────────────────────── */
+  --ts-brand-burgundy:   #8c2f3b;
+  --ts-brand-gold:       #b8862d;
+  --ts-brand-purple:     #2a1a3e;
+  --ts-brand-blue:       #2d4a8c;
+
   /* ── Secondary accent — cool teal ─────────────────────────────────── */
   --ts-accent2:          #2d8a8a;
   --ts-accent2-hover:    #247474;

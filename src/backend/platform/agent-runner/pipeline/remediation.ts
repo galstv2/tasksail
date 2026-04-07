@@ -1,7 +1,9 @@
 import { readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
-import { formatSliceSections, runTestCaptureWithPhaseTracking } from './sequencer.js';
+// Lazy-import sequencer to avoid pinning the chunk when main.ts dynamic-imports it.
+type Sequencer = typeof import('./sequencer.js');
+const sequencer = (): Promise<Sequencer> => import('./sequencer.js');
 import {
   buildTestCapturePrompt,
   resolveTestCaptureCwd,
@@ -199,6 +201,7 @@ async function buildRemediationDaltonPrompt(
     parts.push('');
   }
 
+  const { formatSliceSections } = await sequencer();
   const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
   if (sliceFiles.length > 0) {
     parts.push('## Original Task Slices (Background Context Only — DO NOT Use to Override QA Findings)\n');
@@ -259,6 +262,7 @@ export async function remediationRunQaLoop(options: {
       repoRoot: paths.repoRoot,
       contextPackDir: effectiveContextPackDir,
     });
+    const { runTestCaptureWithPhaseTracking } = await sequencer();
     const capture = await runTestCaptureWithPhaseTracking({
       repoRoot: paths.repoRoot,
       implementationStepsDir: paths.implementationSteps,

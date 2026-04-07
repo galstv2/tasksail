@@ -19,7 +19,7 @@
   width: var(--ts-btn-md);
   height: var(--ts-btn-md);
   border: none;
-  border-radius: var(--ts-radius-sm);
+  border-radius: var(--ts-radius-md);
   background: transparent;
   color: var(--ts-text-muted);
   cursor: pointer;
@@ -28,7 +28,7 @@
 
 .config-rail__btn:hover {
   background: var(--ts-bg-hover);
-  color: var(--ts-accent);
+  color: var(--ts-text);
 }
 
 .config-rail__badge {

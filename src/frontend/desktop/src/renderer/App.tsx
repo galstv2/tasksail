@@ -67,9 +67,9 @@ function AppContent(): JSX.Element {
       <header className="shell__header">
         <div className="shell__brand">
           <svg className="shell__logo" width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 4 L20 12 L12 12 Z" fill="var(--ts-brand-burgundy)" stroke="none"/>
+            <path d="M12 6 L6 12 L12 12 Z" fill="var(--ts-brand-burgundy)" stroke="none"/>
             <path d="M12 3 L12 19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <path d="M12 4 L20 12 L12 12 Z" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-            <path d="M12 6 L6 12 L12 12 Z" fill="currentColor" opacity="0.08" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M5 19 C7 17, 10 17, 12 19 C14 17, 17 17, 19 19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
           </svg>
           <h1 className="shell__title">TaskSail</h1>

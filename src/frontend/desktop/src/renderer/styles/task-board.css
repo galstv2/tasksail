@@ -35,17 +35,10 @@
   border-radius: 50%;
 }
 
-.task-board-dot--amber  { background: var(--terminal-amber); }
-.task-board-dot--blue   { background: var(--terminal-cyan); }
-.task-board-dot--green  { background: var(--terminal-green); }
+.task-board-dot--amber  { background: var(--ts-brand-burgundy); }
+.task-board-dot--blue   { background: var(--ts-brand-gold); }
+.task-board-dot--green  { background: var(--ts-brand-blue); }
 
-.task-board__title {
-  font-family: var(--ts-font-sans);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--terminal-text);
-  letter-spacing: 0.01em;
-}
 
 .task-board__summary {
   font-family: var(--ts-font-mono);
@@ -120,8 +113,7 @@
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--terminal-text);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
 }
 
 .task-board-column__count {
@@ -162,7 +154,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 0.45rem 0.55rem;
-  border-radius: var(--ts-radius-sm);
+  border-radius: var(--ts-radius-md);
   background: var(--terminal-chrome);
   border: 1px solid var(--terminal-border);
   font-size: 0.76rem;
@@ -170,7 +162,6 @@
   box-shadow: var(--ts-shadow-sm);
   cursor: default;
   transition: box-shadow var(--ts-duration) var(--ts-ease),
-              transform var(--ts-duration) var(--ts-ease),
               border-color var(--ts-duration) var(--ts-ease);
 }
 
@@ -194,7 +185,7 @@
   font-size: 0.7rem;
   color: var(--terminal-text-muted);
   opacity: 0;
-  transition: opacity 150ms var(--ts-ease);
+  transition: opacity var(--ts-duration) var(--ts-ease);
   pointer-events: none;
 }
 
@@ -246,12 +237,10 @@
   padding: 1px 6px;
   font-family: var(--ts-font-sans);
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ts-accent);
   background: rgba(200, 135, 58, 0.12);
   border-radius: var(--ts-radius-pill);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .task-board-card--clickable {
@@ -260,7 +249,6 @@
 
 .task-board-card--clickable:hover {
   border-color: rgba(255, 255, 255, 0.14);
-  transform: translateY(-1px);
 }
 
 /* ── Card delete button ────────────────────────────────────────────── */
@@ -282,9 +270,9 @@
   line-height: 1;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 150ms var(--ts-ease),
-              background 150ms var(--ts-ease),
-              border-color 150ms var(--ts-ease);
+  transition: opacity var(--ts-duration) var(--ts-ease),
+              background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
 }
 
 .task-board-card:hover .task-board-card__delete {
@@ -353,8 +341,8 @@
   border: 1px solid var(--terminal-border);
   background: var(--terminal-chrome);
   color: var(--terminal-text);
-  transition: background 150ms var(--ts-ease),
-              border-color 150ms var(--ts-ease);
+  transition: background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
 }
 
 .task-board-confirm__btn:hover {

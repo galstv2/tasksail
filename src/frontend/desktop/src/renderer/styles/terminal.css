@@ -214,9 +214,9 @@
   border-radius: 50%;
 }
 
-.terminal-dot--red    { background: var(--terminal-red); }
-.terminal-dot--yellow { background: var(--terminal-amber); }
-.terminal-dot--green  { background: var(--terminal-green); }
+.terminal-dot--red    { background: var(--ts-brand-burgundy); }
+.terminal-dot--yellow { background: var(--ts-brand-gold); }
+.terminal-dot--green  { background: var(--ts-brand-blue); }
 
 .terminal-feed__tabs {
   display: flex;

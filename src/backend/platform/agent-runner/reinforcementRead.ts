@@ -55,7 +55,7 @@ export interface GlobalRealignmentDocData {
 
 // ── JSON helpers ───────────────────────────────────────────────────────────
 
-export async function readJsonSafe<T>(filePath: string): Promise<T | null> {
+async function readJsonSafe<T>(filePath: string): Promise<T | null> {
   try {
     const raw = await readFile(filePath, 'utf-8');
     return JSON.parse(raw) as T;
@@ -66,7 +66,7 @@ export async function readJsonSafe<T>(filePath: string): Promise<T | null> {
 
 type JsonRecord = Record<string, unknown>;
 
-export function reinforcementDir(repoRoot: string): string {
+function reinforcementDir(repoRoot: string): string {
   return path.join(repoRoot, 'AgentWorkSpace', 'qmd', 'reinforcement');
 }
 

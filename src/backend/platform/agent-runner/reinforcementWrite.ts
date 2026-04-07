@@ -3,7 +3,6 @@ import { readFile, access } from 'node:fs/promises';
 import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
-import { readJsonSafe, reinforcementDir } from './reinforcementRead.js';
 
 export interface SubmitReinforcementFeedbackOptions {
   contextPackDir: string;
@@ -199,6 +198,19 @@ export interface ActiveWorkGuardResult {
   activeTaskId: string | null;
   message: string;
   hasUnprocessedFeedback: boolean;
+}
+
+function reinforcementDir(repoRoot: string): string {
+  return path.join(repoRoot, 'AgentWorkSpace', 'qmd', 'reinforcement');
+}
+
+async function readJsonSafe<T>(filePath: string): Promise<T | null> {
+  try {
+    const raw = await readFile(filePath, 'utf-8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
 }
 
 type TimestampedEntry = { created_at?: string };

@@ -203,10 +203,10 @@
 }
 
 .modal-shell__footer-esc {
-  font-family: var(--ts-font-mono);
-  font-size: 0.7rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.68rem;
   color: var(--ts-text-soft);
-  opacity: 0.65;
+  opacity: 0.4;
   margin-right: auto;
 }
 
