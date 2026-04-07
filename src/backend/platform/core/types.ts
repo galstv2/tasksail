@@ -45,6 +45,7 @@ export type AgentId =
   | 'lily'
   | 'alice'
   | 'dalton'
+  | 'dalton-verify'
   | 'ron';
 
 /** All supported agent identifiers, including operator-only roles. */
@@ -52,6 +53,7 @@ export const ALL_AGENT_IDS: AgentId[] = [
   'lily',
   'alice',
   'dalton',
+  'dalton-verify',
   'ron',
 ];
 

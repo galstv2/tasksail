@@ -25,6 +25,8 @@ export interface RunRoleAgentOptions {
   contextPackDir?: string;
   dryRun?: boolean;
   promptOverride?: string;
+  /** Verification-only TaskSail runtime directory allowlist override. */
+  verificationTempAllowedDir?: string;
   wallClockBudget?: number;
   idleTimeout?: number;
   skipWorkflowValidation?: boolean;

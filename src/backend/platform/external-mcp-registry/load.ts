@@ -440,12 +440,17 @@ function validateAgentScope(
  * Agent IDs in agent_scope are NOT validated against the agent registry.
  * Unknown IDs are harmless no-ops.
  */
+export function resolveBehavioralBaseMcpAgentId(agentId: string): string {
+  return agentId === 'dalton-verify' ? 'dalton' : agentId;
+}
+
 export function getExternalServersForAgent(
   registry: ExternalMcpRegistry,
   agentId: string,
 ): ExternalMcpServer[] {
+  const effectiveAgentId = resolveBehavioralBaseMcpAgentId(agentId);
   return registry.external_servers.filter((s) =>
-    s.enabled && s.agent_scope.agent_ids.includes(agentId),
+    s.enabled && s.agent_scope.agent_ids.includes(effectiveAgentId),
   );
 }
 

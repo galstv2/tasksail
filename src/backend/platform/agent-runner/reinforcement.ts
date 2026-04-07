@@ -2,7 +2,7 @@ import type { AgentId } from '../core/index.js';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ResolvedContext } from './types.js';
-import { toRegistryId } from './metadata.js';
+import { resolveBehavioralBaseRegistryId } from './conventions.js';
 
 /** Active workflow roles consume reinforcement context. */
 const REINFORCEMENT_AGENTS = new Set([
@@ -16,7 +16,7 @@ const REINFORCEMENT_AGENTS = new Set([
  * Check whether an agent role requires reinforcement context injection.
  */
 export function roleRequiresReinforcement(agentId: AgentId): boolean {
-  return REINFORCEMENT_AGENTS.has(toRegistryId(agentId));
+  return REINFORCEMENT_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
 }
 
 /**
@@ -49,7 +49,7 @@ export async function resolveReinforcementContext(
 
   const agentRewardMd = path.join(
     repoRoot, 'AgentWorkSpace', 'qmd', 'glopml', 'agent-rewards',
-    `${toRegistryId(agentId)}.md`,
+    `${resolveBehavioralBaseRegistryId(agentId)}.md`,
   );
   if (existsSync(agentRewardMd)) {
     return {

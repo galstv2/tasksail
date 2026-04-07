@@ -168,6 +168,11 @@ def load_validated_external_mcp(root_dir: str | Path) -> dict[str, Any]:
     return data
 
 
+def resolve_behavioral_base_mcp_agent_id(agent_id: str) -> str:
+    """Resolve the effective MCP scope agent ID for Dalton-family agents."""
+    return "dalton" if agent_id == "dalton-verify" else agent_id
+
+
 def select_servers_for_agent(
     servers: list[dict[str, Any]],
     agent_id: str,
@@ -176,8 +181,9 @@ def select_servers_for_agent(
     Filter external servers to those that are enabled and whose
     agent_scope includes the given agent ID.
     """
+    effective_agent_id = resolve_behavioral_base_mcp_agent_id(agent_id)
     return [
         s for s in servers
         if s.get("enabled", False)
-        and agent_id in s.get("agent_scope", {}).get("agent_ids", [])
+        and effective_agent_id in s.get("agent_scope", {}).get("agent_ids", [])
     ]

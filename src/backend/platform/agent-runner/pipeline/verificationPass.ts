@@ -18,6 +18,8 @@ export function buildVerificationDaltonPrompt(
   validationCommands: string[],
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
+  verificationDiffAbsolutePath?: string,
+  verificationDiffWarning?: string,
 ): string {
   const parts: string[] = [
     'You are running a code quality verification pass. Another engineer just',
@@ -33,7 +35,9 @@ export function buildVerificationDaltonPrompt(
     '1. **Build the project.** Run the build command. If it fails, fix the build errors.',
     '2. **Run the full test suite.** If any tests fail, fix them.',
     '3. **Run every validation command listed below.** If any command fails, fix the issue.',
-    '4. **Read the changed code.** Browse the recently modified files. For each file:',
+    '4. **Read the changed code.** Start from the staged verification diff file',
+    '   at the absolute path provided below, then open and inspect the referenced',
+    '   repo files directly. For each file:',
     '   - Is the code clean, readable, and well-structured?',
     '   - Are variable and function names clear and consistent with the codebase?',
     '   - Is error handling present and correct?',
@@ -57,7 +61,24 @@ export function buildVerificationDaltonPrompt(
     '',
   ];
   appendFocusBlock(parts, primaryFocusRelativePath);
-  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
+  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton-verify');
+
+  if (verificationDiffAbsolutePath || verificationDiffWarning) {
+    parts.push('## Verification Diff File\n');
+    if (verificationDiffAbsolutePath) {
+      parts.push('Read the staged verification diff file at this absolute path before browsing outward:\n');
+      parts.push(`- \`${verificationDiffAbsolutePath}\``);
+      parts.push('');
+      parts.push('This file was staged by the orchestrator for this verification pass.');
+      parts.push('If the file contains `# No git diff available. Skip this file and scope your review to the files listed in the assigned slice.`, treat that as an empty-diff sentinel and fall back to the slice-listed files.');
+    }
+    if (verificationDiffWarning) {
+      parts.push('');
+      parts.push(`Warning: ${verificationDiffWarning}`);
+      parts.push('If the staged diff file is unavailable or incomplete, inspect the changed repo files manually.');
+    }
+    parts.push('');
+  }
 
   if (validationCommands.length > 0) {
     parts.push('## Validation Commands\n');
@@ -80,6 +101,8 @@ export async function resolveVerificationDaltonPrompt(
   implStepsDir: string,
   primaryFocusRelativePath?: string,
   externalMcpRegistry?: ExternalMcpRegistry,
+  verificationDiffAbsolutePath?: string,
+  verificationDiffWarning?: string,
 ): Promise<string | undefined> {
   const commands = await collectSliceValidationCommands(implStepsDir)
     .catch(() => [] as string[]);
@@ -90,5 +113,7 @@ export async function resolveVerificationDaltonPrompt(
     commands,
     primaryFocusRelativePath,
     externalMcpRegistry,
+    verificationDiffAbsolutePath,
+    verificationDiffWarning,
   );
 }

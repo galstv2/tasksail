@@ -23,6 +23,13 @@ interface RegistryPayload {
   agents?: unknown;
 }
 
+const CANONICAL_WORKFLOW_AGENT_IDS = new Set([
+  'planning-agent',
+  'product-manager',
+  'software-engineer',
+  'qa',
+]);
+
 export function buildExpectedInstructionHeading(roleName: string, humanName: string): string {
   if (humanName) {
     return `# ${roleName} (${humanName}) — Instructions`;
@@ -87,18 +94,22 @@ export async function loadNamedAgentTeam(
     }
 
     const presentFields = new Set(Object.keys(item));
-    const missingFields = [...REQUIRED_AGENT_REGISTRY_FIELDS].filter((field) => !presentFields.has(field));
     const agentId = String(item.agent_id ?? '').trim();
-
-    if (missingFields.length > 0) {
-      errors.push(
-        `Registry entry '${agentId || 'unknown'}' is missing required fields: ${missingFields.sort().join(', ')}.`,
-      );
-      continue;
-    }
 
     if (!agentId) {
       errors.push('Registry entries must declare a non-empty agent_id.');
+      continue;
+    }
+
+    if (!CANONICAL_WORKFLOW_AGENT_IDS.has(agentId)) {
+      continue;
+    }
+
+    const missingFields = [...REQUIRED_AGENT_REGISTRY_FIELDS].filter((field) => !presentFields.has(field));
+    if (missingFields.length > 0) {
+      errors.push(
+        `Registry entry '${agentId}' is missing required fields: ${missingFields.sort().join(', ')}.`,
+      );
       continue;
     }
 

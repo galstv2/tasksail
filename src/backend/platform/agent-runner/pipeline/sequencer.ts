@@ -4,11 +4,12 @@ import {
   writeTextFile,
   ensureDir,
   nowIsoCompact,
+  getErrorMessage,
   STANDARD_AGENT_ORDER,
 } from '../../core/index.js';
 import type { AgentId } from '../../core/index.js';
 import path from 'node:path';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import type { PipelineOptions, PipelineReceipt } from '../types.js';
 import { runRoleAgent } from '../roleAgent.js';
 import { runRuntimePolicyCheck } from '../guardrails.js';
@@ -37,6 +38,7 @@ import {
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import type { AgentMcpLaunchStatus } from '../types.js';
+import { captureCodeDiff } from '../pythonHelpers.js';
 
 const MISSING_MCP_LAUNCH_STATUS: AgentMcpLaunchStatus = {
   status: 'unknown',
@@ -50,8 +52,112 @@ interface PipelineLock {
   release: () => Promise<void>;
 }
 
-function formatErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+interface VerificationDiffStage {
+  verificationRunId: string;
+  verificationDiffDir: string;
+  verificationDiffAbsolutePath: string;
+}
+
+
+function resolveVerificationDiffStage(repoRoot: string): VerificationDiffStage {
+  const verificationRunId = nowIsoCompact();
+  const verificationDiffDir = path.join(
+    repoRoot,
+    '.platform-state',
+    'runtime',
+    'verification',
+    verificationRunId,
+  );
+  return {
+    verificationRunId,
+    verificationDiffDir,
+    verificationDiffAbsolutePath: path.join(verificationDiffDir, 'code-changes.diff'),
+  };
+}
+
+function joinVerificationWarnings(...warnings: Array<string | undefined>): string | undefined {
+  const messages = warnings
+    .map((warning) => warning?.trim())
+    .filter((warning): warning is string => Boolean(warning));
+  return messages.length > 0 ? messages.join(' ') : undefined;
+}
+
+async function refreshVerificationQaDiffArtifact(options: {
+  repoRoot: string;
+  handoffsDir: string;
+  contextPackDir?: string;
+  abortSignal?: AbortSignal;
+  reason: 'pre-verification' | 'post-verification';
+}): Promise<string | undefined> {
+  const outputPath = path.join(options.handoffsDir, 'code-changes.diff');
+  try {
+    const result = await captureCodeDiff({
+      outputPath,
+      contextPackDir: options.contextPackDir,
+      repoRoot: options.repoRoot,
+      abortSignal: options.abortSignal,
+    });
+    const diagnostics: string[] = [];
+    if (result.exitCode !== 0) {
+      diagnostics.push(`diff generation exited with code ${result.exitCode}.`);
+    }
+    if (result.stderr.trim()) {
+      diagnostics.push(result.stderr.trim());
+    }
+    if (diagnostics.length === 0) {
+      return undefined;
+    }
+    const warning = `The orchestrator reported a ${options.reason} verification diff warning: ${diagnostics.join(' ')}`;
+    console.warn(`[pipeline] ${warning}`);
+    return warning;
+  } catch (error) {
+    const warning = `The orchestrator could not refresh the ${options.reason} verification diff artifact: ${getErrorMessage(error)}`;
+    console.warn(`[pipeline] ${warning}`);
+    return warning;
+  }
+}
+
+async function cleanupVerificationDiffStage(
+  verificationDiffStage: VerificationDiffStage,
+  reason: 'stale-cleanup' | 'post-verification-cleanup',
+): Promise<void> {
+  try {
+    await rm(verificationDiffStage.verificationDiffAbsolutePath, { force: true });
+  } catch (error) {
+    console.warn(
+      `[pipeline] Failed ${reason} for verification diff file ${verificationDiffStage.verificationDiffAbsolutePath}: ${getErrorMessage(error)}`,
+    );
+  }
+
+  try {
+    await rm(verificationDiffStage.verificationDiffDir, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(
+      `[pipeline] Failed ${reason} for verification diff directory ${verificationDiffStage.verificationDiffDir}: ${getErrorMessage(error)}`,
+    );
+  }
+}
+
+async function stageVerificationDiffArtifact(options: {
+  sharedDiffPath: string;
+  verificationDiffStage: VerificationDiffStage;
+}): Promise<{ staged: boolean; warning?: string }> {
+  await cleanupVerificationDiffStage(options.verificationDiffStage, 'stale-cleanup');
+
+  try {
+    await mkdir(options.verificationDiffStage.verificationDiffDir, { recursive: true });
+    await copyFile(
+      options.sharedDiffPath,
+      options.verificationDiffStage.verificationDiffAbsolutePath,
+    );
+    return { staged: true };
+  } catch (error) {
+    const warning =
+      `The orchestrator could not stage the verification diff file at ${options.verificationDiffStage.verificationDiffAbsolutePath}: ` +
+      `${getErrorMessage(error)}. Inspect the changed repo files manually.`;
+    console.warn(`[pipeline] ${warning}`);
+    return { staged: false, warning };
+  }
 }
 
 async function withInternalOrchestratorEnv<T>(
@@ -479,25 +585,63 @@ export async function runPipelineSequence(
       let daltonRemediationActive = false;
       const runPostDaltonPasses = async (): Promise<TestCaptureResult[]> => {
         if (!daltonRemediationActive) {
-          const verificationPrompt = await resolveVerificationDaltonPrompt(
-            paths.handoffs,
-            paths.implementationSteps,
-            primaryFocusRelativePath,
-            externalMcpRegistry,
-          );
-          if (verificationPrompt) {
-            console.log('[pipeline] Launching Dalton verification pass.');
-            const verifyStart = Date.now();
-            const verificationResult = await runRoleAgent({
-              agentId: 'dalton',
-              skipWorkflowValidation: true,
+          const sharedVerificationDiffPath = path.join(paths.handoffs, 'code-changes.diff');
+          const verificationDiffStage = resolveVerificationDiffStage(paths.repoRoot);
+          const diffGenerationWarning = await refreshVerificationQaDiffArtifact({
+            repoRoot: paths.repoRoot,
+            handoffsDir: paths.handoffs,
+            contextPackDir: effectiveContextPackDir,
+            abortSignal: abortController.signal,
+            reason: 'pre-verification',
+          });
+          const stagedVerificationDiff = await stageVerificationDiffArtifact({
+            sharedDiffPath: sharedVerificationDiffPath,
+            verificationDiffStage,
+          });
+
+          let verificationRan = false;
+          try {
+            const verificationPrompt = await resolveVerificationDaltonPrompt(
+              paths.handoffs,
+              paths.implementationSteps,
+              primaryFocusRelativePath,
+              externalMcpRegistry,
+              verificationDiffStage.verificationDiffAbsolutePath,
+              joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
+            );
+            if (verificationPrompt) {
+              console.log('[pipeline] Launching Dalton verification pass.');
+              const verifyStart = Date.now();
+              const verificationResult = await runRoleAgent({
+                agentId: 'dalton-verify',
+                skipWorkflowValidation: true,
+                contextPackDir: effectiveContextPackDir,
+                verificationTempAllowedDir: stagedVerificationDiff.staged
+                  ? verificationDiffStage.verificationDiffDir
+                  : undefined,
+                abortSignal: abortController.signal,
+                promptOverride: verificationPrompt,
+                launchPhase: 'Verification',
+              });
+              verificationRan = true;
+              agentMcpStatuses['dalton-verify'] = verificationResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+              agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
+            }
+          } finally {
+            await cleanupVerificationDiffStage(
+              verificationDiffStage,
+              'post-verification-cleanup',
+            );
+          }
+
+          if (verificationRan) {
+            await refreshVerificationQaDiffArtifact({
+              repoRoot: paths.repoRoot,
+              handoffsDir: paths.handoffs,
               contextPackDir: effectiveContextPackDir,
               abortSignal: abortController.signal,
-              promptOverride: verificationPrompt,
-              launchPhase: 'Verification',
+              reason: 'post-verification',
             });
-            agentMcpStatuses['dalton-verify'] = verificationResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-            agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
           }
         }
         const capture = await runTestCaptureWithPhaseTracking({
@@ -693,7 +837,7 @@ export async function runPipelineSequence(
     const killed = abortController.signal.aborted || killRequest !== undefined;
     const failureReason = killed
       ? `Pipeline killed: ${killRequest?.reason ?? 'operator-request'}`
-      : formatErrorMessage(err);
+      : getErrorMessage(err);
     const failureStatus: PipelineReceipt['status'] = killed ? 'killed' : 'failed';
     const failureReceipt: PipelineReceipt = {
       status: failureStatus,

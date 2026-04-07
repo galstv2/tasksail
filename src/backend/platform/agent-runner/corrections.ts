@@ -2,7 +2,7 @@ import type { AgentId } from '../core/index.js';
 import { readTextFile } from '../core/index.js';
 import path from 'node:path';
 import type { ResolvedContext } from './types.js';
-import { toRegistryId } from './metadata.js';
+import { resolveBehavioralBaseRegistryId } from './conventions.js';
 
 /** All active workflow roles consume behavior corrections. */
 const CORRECTIONS_AGENTS = new Set([
@@ -16,7 +16,7 @@ const CORRECTIONS_AGENTS = new Set([
  * Check whether an agent role requires corrections context injection.
  */
 export function roleRequiresCorrections(agentId: AgentId): boolean {
-  return CORRECTIONS_AGENTS.has(toRegistryId(agentId));
+  return CORRECTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
 }
 
 /**

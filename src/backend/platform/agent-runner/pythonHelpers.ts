@@ -79,23 +79,27 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
  * Generate AgentWorkSpace/handoffs/code-changes.diff for QA review.
  */
 export async function captureCodeDiff(options: {
-  contextPackDir: string;
   outputPath: string;
+  contextPackDir?: string;
   repoRoot?: string;
   abortSignal?: AbortSignal;
 }): Promise<PythonResult> {
   const paths = resolvePaths(options.repoRoot);
   const helperPath = helperPathForRepo(paths.repoRoot);
+  const args = [
+    'capture-code-diff',
+    options.outputPath,
+    '--repo-root',
+    paths.repoRoot,
+  ];
+
+  if (options.contextPackDir) {
+    args.push('--context-pack-dir', options.contextPackDir);
+  }
 
   return runPython(
     helperPath,
-    [
-      'capture-code-diff',
-      options.contextPackDir,
-      options.outputPath,
-      '--repo-root',
-      paths.repoRoot,
-    ],
+    args,
     {
       cwd: paths.repoRoot,
       abortSignal: options.abortSignal,

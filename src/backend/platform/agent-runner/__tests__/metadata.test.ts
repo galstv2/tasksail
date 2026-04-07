@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
+  ALL_AGENT_IDS,
+  FAST_PATH_AGENT_ORDER,
+  STANDARD_AGENT_ORDER,
+} from '../../core/types.js';
+import {
   resolveAgentProfile,
   resolveActiveModel,
   toRegistryId,
@@ -24,6 +29,18 @@ const MOCK_REGISTRY: RegistryJson = {
       wall_clock_timeout_s: 600,
       workflow_order: 4,
       allowed_dirs: ['src/', 'tests/', 'packages/'],
+      deny_rules: ['git add', 'git commit', 'git push', 'rm -rf'],
+    },
+    {
+      agent_id: 'software-engineer-verify',
+      role_name: 'Verification Engineer',
+      human_name: 'Dalton (Verify)',
+      instruction_path: '.github/copilot/instructions/software-engineer.instructions.md',
+      agent_profile_path: '.github/agents/software-engineer.md',
+      autonomy_profile: 'repo-executor',
+      required_model: 'claude-sonnet-4.6',
+      wall_clock_timeout_s: 900,
+      workflow_order: 99,
       deny_rules: ['git add', 'git commit', 'git push', 'rm -rf'],
     },
     {
@@ -52,12 +69,26 @@ const MOCK_REGISTRY: RegistryJson = {
 };
 
 describe('toRegistryId / fromRegistryId', () => {
+  it('includes dalton-verify in the full agent id list only', () => {
+    expect(ALL_AGENT_IDS).toContain('dalton-verify');
+    expect(STANDARD_AGENT_ORDER).not.toContain('dalton-verify');
+    expect(FAST_PATH_AGENT_ORDER).not.toContain('dalton-verify');
+  });
+
   it('maps dalton to software-engineer', () => {
     expect(toRegistryId('dalton')).toBe('software-engineer');
   });
 
+  it('maps dalton-verify to software-engineer-verify', () => {
+    expect(toRegistryId('dalton-verify')).toBe('software-engineer-verify');
+  });
+
   it('maps software-engineer pmck to dalton', () => {
     expect(fromRegistryId('software-engineer')).toBe('dalton');
+  });
+
+  it('maps software-engineer-verify back to dalton-verify', () => {
+    expect(fromRegistryId('software-engineer-verify')).toBe('dalton-verify');
   });
 
   it('returns undefined for unknown registry id', () => {
@@ -97,6 +128,17 @@ describe('resolveAgentProfile', () => {
     const profile = resolveAgentProfile(MOCK_REGISTRY, 'alice');
     expect(profile.autonomyProfile).toBe('artifact-author');
     expect(profile.requiredModel).toBe('gpt-5.4');
+  });
+
+  it('resolves dalton-verify profile with its verification registry entry', () => {
+    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton-verify');
+    expect(profile.id).toBe('dalton-verify');
+    expect(profile.registryId).toBe('software-engineer-verify');
+    expect(profile.displayName).toBe('Dalton (Verify)');
+    expect(profile.role).toBe('Verification Engineer');
+    expect(profile.requiredModel).toBe('claude-sonnet-4.6');
+    expect(profile.autonomyProfile).toBe('repo-executor');
+    expect(profile.workflowOrder).toBe(99);
   });
 
   it('throws for agent not in registry', () => {

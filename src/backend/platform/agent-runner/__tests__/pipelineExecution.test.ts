@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +15,8 @@ const prewarmPipelineContext = vi.fn();
 const remediationHasBlockingFindings = vi.fn();
 const remediationRunQaLoop = vi.fn();
 const captureRetryBaseline = vi.fn();
+const resolveVerificationDaltonPrompt = vi.fn();
+const captureCodeDiff = vi.fn();
 const nowIsoCompact = vi.fn(() => '2026-03-26T00-00-00Z');
 const readEnvAssignment = vi.fn(() => undefined);
 const safeJsonParse = vi.fn((content: string) => JSON.parse(content));
@@ -54,6 +56,14 @@ vi.mock('../pipeline/contextPrewarm.js', () => ({
 vi.mock('../pipeline/remediation.js', () => ({
   remediationHasBlockingFindings,
   remediationRunQaLoop,
+}));
+
+vi.mock('../pipeline/verificationPass.js', () => ({
+  resolveVerificationDaltonPrompt,
+}));
+
+vi.mock('../pythonHelpers.js', () => ({
+  captureCodeDiff,
 }));
 
 vi.mock('../../queue/retryBaseline.js', () => ({
@@ -116,6 +126,12 @@ describe('runPipelineSequence', () => {
     );
     remediationHasBlockingFindings.mockResolvedValue(false);
     remediationRunQaLoop.mockResolvedValue(undefined);
+    resolveVerificationDaltonPrompt.mockResolvedValue(undefined);
+    captureCodeDiff.mockImplementation(async ({ outputPath }: { outputPath: string }) => {
+      mkdirSync(path.dirname(outputPath), { recursive: true });
+      writeFileSync(outputPath, '# --- Repo: repo ---\n+change\n', 'utf-8');
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
     runPolicyValidation.mockResolvedValue({ passed: true, stdout: '', stderr: '', exitCode: 0 });
     completePendingItem.mockResolvedValue(undefined);
     captureRetryBaseline.mockResolvedValue({
@@ -315,6 +331,130 @@ describe('runPipelineSequence', () => {
       'dalton',
       'ron',
     ]);
+  });
+
+  it('launches the verification pass as dalton-verify', async () => {
+    readTextFile.mockImplementation(async () => null);
+    resolveVerificationDaltonPrompt.mockImplementation(async (
+      _handoffsDir: string,
+      _implementationStepsDir: string,
+      _primaryFocusRelativePath: string | undefined,
+      _externalMcpRegistry: unknown,
+      verificationDiffAbsolutePath?: string,
+    ) => {
+      expect(verificationDiffAbsolutePath).toBe(path.join(
+        repoRoot,
+        '.platform-state',
+        'runtime',
+        'verification',
+        '2026-03-26T00-00-00Z',
+        'code-changes.diff',
+      ));
+      expect(existsSync(verificationDiffAbsolutePath!)).toBe(true);
+      return 'verify the implementation';
+    });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot, startAt: 'dalton' });
+
+    expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
+      'dalton',
+      'dalton-verify',
+      'ron',
+    ]);
+    expect(captureCodeDiff).toHaveBeenCalledTimes(2);
+    expect(captureCodeDiff.mock.invocationCallOrder[0]).toBeLessThan(
+      resolveVerificationDaltonPrompt.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(runRoleAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'dalton-verify',
+      launchPhase: 'Verification',
+      promptOverride: 'verify the implementation',
+      verificationTempAllowedDir: path.join(
+        repoRoot,
+        '.platform-state',
+        'runtime',
+        'verification',
+        '2026-03-26T00-00-00Z',
+      ),
+      skipWorkflowValidation: true,
+    }));
+    expect(resolveVerificationDaltonPrompt).toHaveBeenCalledWith(
+      path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
+      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      undefined,
+      undefined,
+      path.join(
+        repoRoot,
+        '.platform-state',
+        'runtime',
+        'verification',
+        '2026-03-26T00-00-00Z',
+        'code-changes.diff',
+      ),
+      undefined,
+    );
+    expect(existsSync(path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'verification',
+      '2026-03-26T00-00-00Z',
+    ))).toBe(false);
+  });
+
+  it('cleans stale verification temp state before staging and removes it after verification failures', async () => {
+    readTextFile.mockImplementation(async () => null);
+    const staleDir = path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'verification',
+      '2026-03-26T00-00-00Z',
+    );
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(path.join(staleDir, 'code-changes.diff'), 'stale diff', 'utf-8');
+    resolveVerificationDaltonPrompt.mockImplementation(async (
+      _handoffsDir: string,
+      _implementationStepsDir: string,
+      _primaryFocusRelativePath: string | undefined,
+      _externalMcpRegistry: unknown,
+      verificationDiffAbsolutePath?: string,
+    ) => {
+      expect(verificationDiffAbsolutePath).toBe(path.join(staleDir, 'code-changes.diff'));
+      expect(existsSync(verificationDiffAbsolutePath!)).toBe(true);
+      expect(readFileSync(verificationDiffAbsolutePath!, 'utf-8')).toContain('fresh change');
+      return 'verify the implementation';
+    });
+    captureCodeDiff.mockImplementation(async ({ outputPath }: { outputPath: string }) => {
+      mkdirSync(path.dirname(outputPath), { recursive: true });
+      writeFileSync(outputPath, '# --- Repo: repo ---\n+fresh change\n', 'utf-8');
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    runRoleAgent.mockImplementation(async ({ agentId }: { agentId: string }) => {
+      if (agentId === 'dalton-verify') {
+        throw new Error('verification failed');
+      }
+      return {
+        exitCode: 0,
+        agentId,
+        durationMs: 1,
+        mcpLaunch: {
+          status: 'not-applicable',
+          reason: 'no external MCP servers apply to this agent',
+          injectionEnabled: false,
+          selectedServerIds: [],
+          excludedServerIds: [],
+        },
+      };
+    });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+
+    await expect(runPipelineSequence({ repoRoot, startAt: 'dalton' })).rejects.toThrow('verification failed');
+    expect(existsSync(path.join(staleDir, 'code-changes.diff'))).toBe(false);
+    expect(existsSync(staleDir)).toBe(false);
+    expect(captureCodeDiff).toHaveBeenCalledTimes(1);
   });
 
   it('removes slice-template.md before starting Dalton', async () => {

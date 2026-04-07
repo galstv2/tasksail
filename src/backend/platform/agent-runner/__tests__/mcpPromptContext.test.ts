@@ -83,6 +83,20 @@ describe('buildMcpContextBlock', () => {
     expect(block).toContain('- "Release Notes" may help with checking rollout notes');
     expect(block).not.toContain('\n`Guide`');
   });
+
+  it('maps dalton-verify to the Dalton-family MCP scope', () => {
+    const registry = createRegistry([
+      createServer({
+        id: 'dalton-only',
+        display_name: 'Dalton Helper',
+        agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
+      }),
+    ]);
+
+    const block = buildMcpContextBlock(registry, 'dalton-verify');
+
+    expect(block).toContain('"Dalton Helper"');
+  });
 });
 
 describe('buildMcpContextBlockFromServers', () => {

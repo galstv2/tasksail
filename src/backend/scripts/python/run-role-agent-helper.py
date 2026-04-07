@@ -138,8 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     reinforcement_parser.set_defaults(func=cmd_render_reinforcement_context)
 
     diff_parser = subparsers.add_parser("capture-code-diff")
-    diff_parser.add_argument("context_pack_dir")
     diff_parser.add_argument("output_path")
+    diff_parser.add_argument("--context-pack-dir", default=None)
     diff_parser.add_argument("--repo-root", default=None)
     diff_parser.set_defaults(func=_cmd_capture_code_diff)
 

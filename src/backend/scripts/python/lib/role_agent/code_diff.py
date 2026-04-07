@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,20 @@ def _git_diff(repo_path: Path) -> str:
     Uses ``git add -N .`` (intent-to-add) so that new files created by
     agents appear in the diff output even though agents cannot commit.
     """
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        logger.debug("git probe failed for %s", repo_path)
+        return ""
+
+    if probe.returncode != 0:
+        return ""
+
     # Mark untracked files as intent-to-add so they appear in diffs.
     try:
         subprocess.run(
@@ -34,7 +49,7 @@ def _git_diff(repo_path: Path) -> str:
             capture_output=True,
             timeout=10,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.SubprocessError, OSError):
         logger.debug("git add -N failed for %s", repo_path)
 
     try:
@@ -46,9 +61,17 @@ def _git_diff(repo_path: Path) -> str:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.SubprocessError, OSError):
         pass
     return ""
+
+
+def _is_accessible_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        logger.debug("Skipping unreadable directory %s", path)
+        return False
 
 
 def _load_workspace_folders(repo_root: Path) -> list[Path]:
@@ -61,8 +84,13 @@ def _load_workspace_folders(repo_root: Path) -> list[Path]:
     except (json.JSONDecodeError, OSError):
         logger.debug("Failed to parse workspace file %s", ws_path)
         return []
+    if not isinstance(data, dict):
+        logger.debug("Workspace file %s did not contain an object payload", ws_path)
+        return []
     folders: list[Path] = []
     for entry in data.get("folders", []):
+        if not isinstance(entry, dict):
+            continue
         raw = entry.get("path", "")
         if not raw:
             continue
@@ -71,7 +99,7 @@ def _load_workspace_folders(repo_root: Path) -> list[Path]:
             path = (repo_root / path).resolve()
         if path.resolve() == repo_root.resolve():
             continue
-        if path.is_dir():
+        if _is_accessible_dir(path):
             folders.append(path)
     return folders
 
@@ -88,18 +116,25 @@ def _load_repo_sources(
     except (json.JSONDecodeError, OSError):
         logger.debug("Failed to parse repo-sources manifest %s", manifest_path)
         return []
+    if not isinstance(data, dict):
+        logger.debug("Repo-sources manifest %s did not contain an object payload", manifest_path)
+        return []
     repos: list[tuple[str, Path]] = []
     for repo in data.get("repositories", []):
+        if not isinstance(repo, dict):
+            continue
         repo_name = repo.get("repo_name", repo.get("repo_id", "unknown"))
         for local_path in repo.get("local_paths", []):
+            if not isinstance(local_path, str):
+                continue
             path = Path(local_path)
-            if path.is_dir():
+            if _is_accessible_dir(path):
                 repos.append((repo_name, path))
     return repos
 
 
 def _resolve_repo_entries(
-    cp_dir: Path,
+    cp_dir: Path | None,
     root: Path,
 ) -> list[tuple[str, Path]]:
     """Resolve active repos: workspace folders → manifest → monolith fallback.
@@ -111,16 +146,17 @@ def _resolve_repo_entries(
     if ws_folders:
         return [(f.name, f) for f in ws_folders]
 
-    manifest_repos = _load_repo_sources(cp_dir)
-    if manifest_repos:
-        # Exclude the platform repo — it's the orchestrator, not a target.
-        return [
-            (name, path)
-            for name, path in manifest_repos
-            if path.resolve() != root.resolve()
-        ]
+    if cp_dir is not None:
+        manifest_repos = _load_repo_sources(cp_dir)
+        if manifest_repos:
+            # Exclude the platform repo — it's the orchestrator, not a target.
+            return [
+                (name, path)
+                for name, path in manifest_repos
+                if path.resolve() != root.resolve()
+            ]
 
-    return [(cp_dir.name, cp_dir)]
+    return [(root.name, root)]
 
 
 def _build_header(repo_names: list[str]) -> str:
@@ -134,7 +170,7 @@ def _build_header(repo_names: list[str]) -> str:
 
 
 def capture_code_diff(
-    context_pack_dir: str,
+    context_pack_dir: str | None,
     output_path: str,
     repo_root: str | None = None,
 ) -> tuple[int, list[str]]:
@@ -144,8 +180,8 @@ def capture_code_diff(
     repo names without a second resolution pass.
     """
     out = Path(output_path)
-    cp_dir = Path(context_pack_dir).resolve()
-    root = Path(repo_root).resolve() if repo_root else cp_dir
+    cp_dir = Path(context_pack_dir).resolve() if context_pack_dir else None
+    root = Path(repo_root).resolve() if repo_root else (cp_dir or Path.cwd()).resolve()
 
     entries = _resolve_repo_entries(cp_dir, root)
     repo_names = [name for name, _ in entries]
@@ -153,13 +189,22 @@ def capture_code_diff(
 
     sections: list[str] = []
     for name, folder in entries:
-        diff = _git_diff(folder)
+        try:
+            diff = _git_diff(folder)
+        except Exception as exc:  # pragma: no cover - defensive hardening
+            logger.warning("Skipping repo diff for %s (%s): %s", name, folder, exc)
+            continue
         if diff:
             sections.append(f"# --- Repo: {name} ({folder}) ---\n{diff}")
 
-    if sections:
-        out.write_text(header + "\n".join(sections), encoding="utf-8")
-    else:
-        out.write_text(header + _EMPTY_SENTINEL, encoding="utf-8")
+    content = header + "\n".join(sections) if sections else header + _EMPTY_SENTINEL
+    try:
+        out.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"[code-diff] Failed to write diff artifact to {out}: {exc}",
+            file=sys.stderr,
+        )
+        return 1, repo_names
 
     return 0, repo_names

@@ -55,6 +55,28 @@
       "workflow_order": 2
     },
     {
+      "agent_id": "software-engineer-verify",
+      "role_name": "Verification Engineer",
+      "human_name": "Dalton (Verify)",
+      "instruction_path": ".github/copilot/instructions/software-engineer.instructions.md",
+      "agent_profile_path": ".github/agents/software-engineer.md",
+      "autonomy_profile": "repo-executor",
+      "required_model": "claude-sonnet-4.6",
+      "deny_rules": [
+        "shell(git add)",
+        "shell(git commit)",
+        "shell(git push)",
+        "shell(gh pr create)",
+        "shell(rm:*)",
+        "shell(sudo)",
+        "shell(su)",
+        "shell(doas)",
+        "shell(chown:*)"
+      ],
+      "wall_clock_timeout_s": 900,
+      "workflow_order": 99
+    },
+    {
       "agent_id": "qa",
       "role_name": "QA and Closeout",
       "human_name": "Ron",

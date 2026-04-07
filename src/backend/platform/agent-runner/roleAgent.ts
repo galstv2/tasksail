@@ -26,14 +26,24 @@ import {
   validateDaltonBoundaryChanges,
 } from './confinement.js';
 
+function isDaltonFamilyAgent(agentId: RunRoleAgentOptions['agentId']): boolean {
+  return agentId === 'dalton' || agentId === 'dalton-verify';
+}
+
+function daltonFamilyRuntimeLabel(agentId: RunRoleAgentOptions['agentId']): string {
+  return agentId === 'dalton'
+    ? 'Dalton'
+    : `Dalton-family agent "${agentId}"`;
+}
+
 function launchPromptPath(repoRoot: string, agentId: RunRoleAgentOptions['agentId']): string {
   const promptFile = agentId === 'lily'
     ? 'plan-task.prompt.md'
     : agentId === 'alice'
       ? 'start-task.prompt.md'
-      : agentId === 'dalton'
+      : isDaltonFamilyAgent(agentId)
         ? 'execute-task.prompt.md'
-      : 'continue-task.prompt.md';
+        : 'continue-task.prompt.md';
   return path.join(repoRoot, '.github', 'copilot', 'prompts', promptFile);
 }
 
@@ -41,8 +51,8 @@ function confinementRetryPromptPath(
   repoRoot: string,
   agentId: RunRoleAgentOptions['agentId'],
 ): string {
-  if (agentId !== 'dalton') {
-    throw new Error(`Confinement retry prompt is only defined for Dalton. Got: ${agentId}`);
+  if (!isDaltonFamilyAgent(agentId)) {
+    throw new Error(`Confinement retry prompt is only defined for Dalton-family agents. Got: ${agentId}`);
   }
   return path.join(repoRoot, '.github', 'copilot', 'prompts', 'execute-task-retry.prompt.md');
 }
@@ -194,20 +204,26 @@ function hasConcreteArtifactRemediation(prompt: string): boolean {
 
 function incompleteArtifactOwnerLabel(agentId: RunRoleAgentOptions['agentId']): string {
   if (agentId === 'alice') return 'Alice';
-  if (agentId === 'dalton') return 'Dalton';
+  if (isDaltonFamilyAgent(agentId)) return 'Dalton';
   if (agentId === 'ron') return 'Ron';
   return agentId;
 }
 
-function resolveDaltonLaunchCwd(focused: FocusedRepoResult): string {
+function resolveDaltonLaunchCwd(
+  focused: FocusedRepoResult,
+  agentId: RunRoleAgentOptions['agentId'],
+): string {
   if (!focused.primaryFocusRelativePath) {
     return focused.primaryRepoRoot;
   }
 
   const focusCwd = path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
   if (!existsSync(focusCwd)) {
+    const launchAgentLabel = agentId === 'dalton'
+      ? 'agent "dalton"'
+      : `Dalton-family agent "${agentId}"`;
     throw new Error(
-      `Cannot launch agent "dalton": selected monolith focus subfolder "${focused.primaryFocusRelativePath}" ` +
+      `Cannot launch ${launchAgentLabel}: selected monolith focus subfolder "${focused.primaryFocusRelativePath}" ` +
       `does not exist at "${focusCwd}".`,
     );
   }
@@ -280,9 +296,11 @@ async function refreshQaCodeDiff(options: {
   });
 
   if (result.exitCode !== 0) {
-    throw new Error(
-      `Failed to generate QA code diff at ${outputPath}: ${result.stderr || result.stdout || 'unknown error'}`,
+    console.warn(
+      `[roleAgent] failed to generate QA code diff at ${outputPath}; continuing without refreshed diff:`,
+      result.stderr || result.stdout || 'unknown error',
     );
+    return;
   }
 }
 
@@ -588,7 +606,10 @@ export async function runRoleAgent(
   const usesFocusedRepoContext = options.agentId === 'lily';
   const needsFocusedRepoVisibility = profile.autonomyProfile === 'qa-executor';
   const enforcesSelectedPrimaryBoundary =
-    profile.autonomyProfile === 'repo-executor' && options.agentId === 'dalton';
+    profile.autonomyProfile === 'repo-executor' && isDaltonFamilyAgent(options.agentId);
+  const verificationTempAllowedDir = options.agentId === 'dalton-verify'
+    ? options.verificationTempAllowedDir?.trim() || undefined
+    : undefined;
   let agentCwd = paths.repoRoot;
   let focused;
   let preRunBoundarySnapshot: ChangedPathsSnapshot | undefined;
@@ -622,9 +643,16 @@ export async function runRoleAgent(
         }
         if (usesFocusedRepoLaunch) {
           agentCwd = enforcesSelectedPrimaryBoundary
-            ? resolveDaltonLaunchCwd(focused)
+            ? resolveDaltonLaunchCwd(focused, options.agentId)
             : focused.primaryRepoRoot;
-          autonomyArgs.allowedDirs.push(paths.repoRoot);
+          const focusedLaunchPlatformDir = verificationTempAllowedDir
+            ?? (options.agentId === 'dalton-verify' ? undefined : paths.repoRoot);
+          if (
+            focusedLaunchPlatformDir &&
+            !autonomyArgs.allowedDirs.includes(focusedLaunchPlatformDir)
+          ) {
+            autonomyArgs.allowedDirs.push(focusedLaunchPlatformDir);
+          }
         }
         if (enforcesSelectedPrimaryBoundary) {
           preRunBoundarySnapshot = await captureChangedPathsSnapshot([
@@ -635,8 +663,8 @@ export async function runRoleAgent(
       } else if (usesFocusedRepoLaunch || enforcesSelectedPrimaryBoundary) {
         throw new Error(
           enforcesSelectedPrimaryBoundary
-            ? `Cannot resolve the selected primary boundary for Dalton from context pack "${options.contextPackDir}". ` +
-              'Failing closed — Dalton requires an authoritative active task/workspace selection with exactly one selected primary target.'
+            ? `Cannot resolve the selected primary boundary for ${daltonFamilyRuntimeLabel(options.agentId)} from context pack "${options.contextPackDir}". ` +
+              'Failing closed — Dalton-family launches require an authoritative active task/workspace selection with exactly one selected primary target.'
             : `Cannot resolve focused repo root for repo-executor "${options.agentId}" ` +
               `from context pack "${options.contextPackDir}". ` +
               `Failing closed — repo-executor requires a resolvable focused repo.`,
@@ -1108,9 +1136,9 @@ export async function runRoleAgent(
     }
   }
 
-  // Dalton has no required artifacts (artifact I/O was removed from the SWE
-  // pipeline), so skip the artifact completion check entirely for Dalton.
-  let artifactsComplete = options.agentId === 'dalton' || await artifactCompletionCheck();
+  // Dalton-family agents have no required SWE artifacts (artifact I/O was
+  // removed from the SWE pipeline), so skip the artifact completion check.
+  let artifactsComplete = isDaltonFamilyAgent(options.agentId) || await artifactCompletionCheck();
   const nextAgentId = NEXT_AGENT_BY_CURRENT[options.agentId];
 
   if (options.agentId === 'alice') {

@@ -47,13 +47,25 @@ describe('verification Dalton prompts', () => {
       ['pnpm test'],
       'services/sink',
       daltonRegistry,
+      '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
     );
 
     expect(prompt).toContain('## Monolith Focus Scope');
     expect(prompt).toContain('## External MCP Guidance');
+    expect(prompt).toContain('## Verification Diff File');
     expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
     expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff');
     expect(prompt).toContain('## Validation Commands');
+  });
+
+  it('uses dalton-verify prompt scoping while preserving Dalton-family MCP guidance', async () => {
+    const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = buildVerificationDaltonPrompt(['pnpm test'], undefined, daltonRegistry);
+
+    expect(prompt).toContain('## External MCP Guidance');
+    expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
   });
 
   it('preserves no-focus behavior when no focus path is provided', async () => {
@@ -75,11 +87,16 @@ describe('verification Dalton prompts', () => {
       '/implementation-steps',
       'services/sink',
       daltonRegistry,
+      '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
+      'The orchestrator could not stage the verification diff file.',
     );
 
     expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps');
     expect(prompt).toContain('## External MCP Guidance');
+    expect(prompt).toContain('## Verification Diff File');
     expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff');
+    expect(prompt).toContain('Warning: The orchestrator could not stage the verification diff file.');
     expect(prompt).not.toContain('Implementation Spec');
   });
 
@@ -101,5 +118,22 @@ describe('verification Dalton prompts', () => {
     expect(prompt).toContain('Fix broken builds, failing tests, and obvious bugs');
     expect(prompt).toContain('obvious performance problems in the changed code');
     expect(prompt).toContain('Do NOT fix style preferences or refactor working code');
+  });
+
+  it('tells Dalton to start from the staged diff file and handle the empty sentinel fallback', async () => {
+    const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = buildVerificationDaltonPrompt(
+      ['pnpm test'],
+      undefined,
+      undefined,
+      '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
+      'The orchestrator could not refresh the pre-verification verification diff artifact.',
+    );
+
+    expect(prompt).toContain('Start from the staged verification diff file');
+    expect(prompt).toContain('open and inspect the referenced');
+    expect(prompt).toContain('# No git diff available. Skip this file and scope your review to the files listed in the assigned slice.');
+    expect(prompt).toContain('inspect the changed repo files manually');
   });
 });

@@ -9,11 +9,19 @@ const CONVENTIONS_AGENTS = new Set([
   'software-engineer',
 ]);
 
+export function resolveBehavioralBaseRegistryId(agentId: AgentId): string {
+  const registryId = toRegistryId(agentId);
+  if (registryId === 'software-engineer-verify') {
+    return 'software-engineer';
+  }
+  return registryId;
+}
+
 /**
  * Check whether an agent role requires conventions context injection.
  */
 export function roleRequiresConventions(agentId: AgentId): boolean {
-  return CONVENTIONS_AGENTS.has(toRegistryId(agentId));
+  return CONVENTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
 }
 
 /**

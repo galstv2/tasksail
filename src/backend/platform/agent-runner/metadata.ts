@@ -16,6 +16,7 @@ const AGENT_ID_TO_REGISTRY_ID: Record<AgentId, string> = {
   lily: 'planning-agent',
   alice: 'product-manager',
   dalton: 'software-engineer',
+  'dalton-verify': 'software-engineer-verify',
   ron: 'qa',
 };
 
