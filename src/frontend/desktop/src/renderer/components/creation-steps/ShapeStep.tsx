@@ -44,11 +44,11 @@ function ShapeStep({
 
       <div className="panel__title-row context-pack-modal__section-header">
         <div>
-          <h3>
+          <p className="context-pack-modal__section-label">
             {draft.mode === 'distributed'
               ? 'Repository estate definition'
               : 'Monolith focus definition'}
-          </h3>
+          </p>
           <p className="panel__meta">
             {draft.mode === 'distributed'
               ? 'Discovery suggestions stay editable and extra repositories can be added manually.'
@@ -84,7 +84,7 @@ function ShapeStep({
         <>
           <div className="panel__title-row context-pack-modal__section-header">
             <div>
-              <h3>Focus areas</h3>
+              <p className="context-pack-modal__section-label">Focus areas</p>
               <p className="panel__meta">
                 Focus areas come from discovery but remain editable.
               </p>

@@ -14,21 +14,20 @@ function RoleSelector({
   onSelect,
 }: RoleSelectorProps): JSX.Element {
   return (
-    <div className="context-pack-modal__wizard-choice-grid">
+    <div className="context-pack-modal__wizard-chip-grid">
       {ROLE_OPTIONS.map((option) => (
         <button
           key={option.value}
           type="button"
           className={classNames(
-            'context-pack-modal__editor-card',
-            'context-pack-modal__wizard-select-card',
-            selectedRole === option.value && 'context-pack-modal__editor-card--active',
+            'context-pack-modal__wizard-chip',
+            selectedRole === option.value && 'context-pack-modal__wizard-chip--active',
           )}
           disabled={busy}
           onClick={() => onSelect(option.value)}
+          title={option.description}
         >
-          <strong>{option.label}</strong>
-          <span>{option.description}</span>
+          {option.label}
         </button>
       ))}
     </div>

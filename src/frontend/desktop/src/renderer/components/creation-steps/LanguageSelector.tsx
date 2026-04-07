@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { classNames } from '../../utils/classNames';
 import { getLanguagesForRole } from './buildWizardConstants';
+import { ChevronIcon } from './icons';
 
 type LanguageSelectorProps = {
   busy: boolean;
@@ -11,14 +12,6 @@ type LanguageSelectorProps = {
   onSelect: (value: string, isOther: boolean) => void;
   onOtherLanguageChange: (value: string) => void;
 };
-
-function ChevronIcon(): JSX.Element {
-  return (
-    <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-      <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function LanguageSelector({
   busy,
@@ -33,36 +26,34 @@ function LanguageSelector({
 
   return (
     <div className="context-pack-modal__wizard-language">
-      <div className="context-pack-modal__wizard-choice-grid">
+      <div className="context-pack-modal__wizard-chip-grid">
         {primary.map((entry) => (
           <button
             key={entry.value}
             type="button"
             className={classNames(
-              'context-pack-modal__editor-card',
-              'context-pack-modal__wizard-select-card',
-              language === entry.value && !languageIsOther && 'context-pack-modal__editor-card--active',
+              'context-pack-modal__wizard-chip',
+              language === entry.value && !languageIsOther && 'context-pack-modal__wizard-chip--active',
             )}
             disabled={busy}
             onClick={() => onSelect(entry.value, false)}
           >
-            <strong>{entry.label}</strong>
             <span className="context-pack-modal__wizard-language-hint">{entry.hint}</span>
+            {entry.label}
           </button>
         ))}
 
         <button
           type="button"
           className={classNames(
-            'context-pack-modal__editor-card',
-            'context-pack-modal__wizard-select-card',
-            languageIsOther && 'context-pack-modal__editor-card--active',
+            'context-pack-modal__wizard-chip',
+            languageIsOther && 'context-pack-modal__wizard-chip--active',
           )}
           disabled={busy}
           onClick={() => onSelect(languageIsOther ? language : '', true)}
         >
-          <strong>Other</strong>
           <span className="context-pack-modal__wizard-language-hint">…</span>
+          Other
         </button>
       </div>
 
@@ -77,27 +68,26 @@ function LanguageSelector({
             onClick={() => setShowMoreLanguages((previous) => !previous)}
           >
             <ChevronIcon />
-            {showMoreLanguages ? 'Hide more languages' : 'Show more languages'}
+            {showMoreLanguages ? 'Less' : 'More languages'}
           </button>
 
           {showMoreLanguages ? (
-            <div className="context-pack-modal__wizard-choice-grid context-pack-modal__wizard-choice-grid--compact">
+            <div className="context-pack-modal__wizard-chip-grid">
               {secondary.map((entry) => (
                 <button
                   key={entry.value}
                   type="button"
                   className={classNames(
-                    'context-pack-modal__editor-card',
-                    'context-pack-modal__wizard-select-card',
+                    'context-pack-modal__wizard-chip',
                     language === entry.value
                       && !languageIsOther
-                      && 'context-pack-modal__editor-card--active',
+                      && 'context-pack-modal__wizard-chip--active',
                   )}
                   disabled={busy}
                   onClick={() => onSelect(entry.value, false)}
                 >
-                  <strong>{entry.label}</strong>
                   <span className="context-pack-modal__wizard-language-hint">{entry.hint}</span>
+                  {entry.label}
                 </button>
               ))}
             </div>

@@ -13,12 +13,9 @@ function WizardProjectName({
 }: WizardProjectNameProps): JSX.Element {
   return (
     <section className="context-pack-modal__wizard-section">
-      <div>
-        <h3>Give your project a name</h3>
-        <p className="panel__meta">
-          This is how your project will appear in the dashboard. You can change it anytime.
-        </p>
-      </div>
+      <p className="context-pack-modal__wizard-heading">
+        Name your project
+      </p>
 
       <label className="composer-field">
         <span>Display name</span>

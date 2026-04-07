@@ -49,37 +49,31 @@ function SetupStep({
 
   return (
     <div className="context-pack-modal__body">
-      <div className="context-pack-modal__origin-toggle" role="radiogroup" aria-label="Creation origin">
-        <label
+      <div className="context-pack-modal__seg-control" role="radiogroup" aria-label="Creation origin">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={draft.creationOrigin === 'existing'}
           className={classNames(
-            'stream-toggle',
-            draft.creationOrigin === 'existing' && 'context-pack-modal__origin-toggle-option--active',
+            'context-pack-modal__seg-option',
+            draft.creationOrigin === 'existing' && 'context-pack-modal__seg-option--active',
           )}
+          onClick={() => onDraftFieldChange('creationOrigin', 'existing')}
         >
-          <input
-            type="radio"
-            name="creation-origin"
-            value="existing"
-            checked={draft.creationOrigin === 'existing'}
-            onChange={() => onDraftFieldChange('creationOrigin', 'existing')}
-          />
           Existing project
-        </label>
-        <label
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={draft.creationOrigin === 'new'}
           className={classNames(
-            'stream-toggle',
-            draft.creationOrigin === 'new' && 'context-pack-modal__origin-toggle-option--active',
+            'context-pack-modal__seg-option',
+            draft.creationOrigin === 'new' && 'context-pack-modal__seg-option--active',
           )}
+          onClick={() => onDraftFieldChange('creationOrigin', 'new')}
         >
-          <input
-            type="radio"
-            name="creation-origin"
-            value="new"
-            checked={draft.creationOrigin === 'new'}
-            onChange={() => onDraftFieldChange('creationOrigin', 'new')}
-          />
           New project
-        </label>
+        </button>
       </div>
 
       {canRenderWizard ? (

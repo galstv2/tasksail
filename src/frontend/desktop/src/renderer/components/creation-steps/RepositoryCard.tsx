@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 
+import { ChevronIcon } from './icons';
+
 import type {
   ContextPackCreationDraft,
   ContextPackCreationModalProps,
@@ -17,14 +19,6 @@ type RepositoryCardProps = {
   onSetPrimaryRepository: ContextPackCreationModalProps['onSetPrimaryRepository'];
   onRemoveRepository: ContextPackCreationModalProps['onRemoveRepository'];
 };
-
-function ChevronIcon(): JSX.Element {
-  return (
-    <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-      <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function countConfiguredAdvanced(repo: RepositoryEntryDraft): number {
   let count = 0;
@@ -58,11 +52,11 @@ function RepositoryCard({
     >
       <div className="panel__title-row context-pack-modal__card-header">
         <div>
-          <h4>
+          <span className="context-pack-modal__card-label">
             {mode === 'monolith' && index === 0
               ? 'Main repository'
               : `Repository ${index + 1}`}
-          </h4>
+          </span>
           <p className="panel__meta">
             {repository.primary
               ? 'Primary working repository.'
@@ -204,14 +198,18 @@ function RepositoryCard({
         </div>
       )}
 
-      <label className="stream-toggle context-pack-modal__primary-toggle">
-        <input
-          type="checkbox"
-          checked={repository.primary}
-          onChange={() => onSetPrimaryRepository(repository.key)}
-        />
-        <span>Primary (service/app)</span>
-      </label>
+      <button
+        type="button"
+        className={classNames(
+          'context-pack-modal__toggle-pill',
+          repository.primary && 'context-pack-modal__toggle-pill--active',
+        )}
+        onClick={() => onSetPrimaryRepository(repository.key)}
+        aria-pressed={repository.primary}
+      >
+        <span className="context-pack-modal__toggle-dot" />
+        Primary (service/app)
+      </button>
     </article>
   );
 }

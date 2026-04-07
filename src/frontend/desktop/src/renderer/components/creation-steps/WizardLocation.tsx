@@ -27,15 +27,12 @@ function WizardLocation({
 
   return (
     <section className="context-pack-modal__wizard-section">
-      <div>
-        <h3>Choose a location for your project</h3>
-        <p className="panel__meta">
-          Pick an existing folder or create a new one. This is where your code will live.
-        </p>
-      </div>
+      <p className="context-pack-modal__wizard-heading">
+        Where should your project live?
+      </p>
 
       <label className="composer-field">
-        <span>Project location</span>
+        <span>Folder</span>
         <div className="context-pack-modal__path-row">
           <input
             value={discoveryRoot}

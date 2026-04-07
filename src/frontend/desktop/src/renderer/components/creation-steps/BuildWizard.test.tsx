@@ -72,7 +72,7 @@ describe('BuildWizard', () => {
 
     expect(screen.getByText('Build your project')).toBeInTheDocument();
     expect(screen.getByText('What does this part do?')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /\+ Add another part/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add another part/i })).toBeInTheDocument();
   });
 
   it('auto-completes documentation parts with markdown', () => {
@@ -87,7 +87,7 @@ describe('BuildWizard', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documentation Docs, specs, and reference material' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Documentation' }));
 
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'role', 'documents');
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'language', 'markdown');
@@ -110,7 +110,9 @@ describe('BuildWizard', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Other …' }));
+    const otherBtn = screen.getAllByRole('button').find((btn) => btn.textContent?.includes('Other'));
+    expect(otherBtn).toBeTruthy();
+    fireEvent.click(otherBtn!);
     expect(onUpdatePart).toHaveBeenCalledWith('part-1', 'languageIsOther', true);
 
     rerender(

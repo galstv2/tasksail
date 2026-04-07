@@ -36,8 +36,8 @@ const defaultProps = {
 describe('SetupStep', () => {
   it('renders creation origin toggle', () => {
     render(<SetupStep {...defaultProps} />);
-    expect(screen.getByLabelText('Existing project')).toBeInTheDocument();
-    expect(screen.getByLabelText('New project')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Existing project' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'New project' })).toBeInTheDocument();
   });
 
   it('renders discovery root input and read-only destination', () => {

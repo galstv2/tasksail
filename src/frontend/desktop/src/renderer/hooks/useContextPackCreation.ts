@@ -101,7 +101,7 @@ export function useContextPackCreation(
       },
       discovery: { status: 'idle' },
       error: '',
-      message: 'Set the target path, discovery root, and estate mode before scanning.',
+      message: '',
     });
   }, [options.defaultContextPackParentDir]);
 

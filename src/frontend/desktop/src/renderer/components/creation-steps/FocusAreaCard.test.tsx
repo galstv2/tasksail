@@ -38,10 +38,10 @@ describe('FocusAreaCard', () => {
     expect(onRemoveFocusArea).toHaveBeenCalledWith('f1');
   });
 
-  it('primary radio calls onSetPrimaryFocusArea', () => {
+  it('primary toggle calls onSetPrimaryFocusArea', () => {
     const onSetPrimaryFocusArea = vi.fn();
     render(<FocusAreaCard {...defaultProps} onSetPrimaryFocusArea={onSetPrimaryFocusArea} />);
-    fireEvent.click(screen.getByRole('radio'));
+    fireEvent.click(screen.getByRole('button', { name: 'Primary working folder' }));
     expect(onSetPrimaryFocusArea).toHaveBeenCalledWith('f1');
   });
 

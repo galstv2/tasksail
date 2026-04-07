@@ -14,6 +14,7 @@ import {
   WIZARD_STEPS,
   isWizardPartConfigured,
 } from './creation-steps/buildWizardConstants';
+import { CloseIcon } from './creation-steps/icons';
 
 const STEPS: { key: ContextPackCreationModalStep; label: string }[] = [
   { key: 'setup', label: 'Setup' },
@@ -168,11 +169,12 @@ function ContextPackCreationModal({
           </div>
           <button
             type="button"
-            className="action-button action-button--secondary"
+            className="context-pack-modal__close"
             disabled={busy}
             onClick={onClose}
+            aria-label="Close"
           >
-            Close
+            <CloseIcon />
           </button>
         </div>
 
@@ -180,7 +182,7 @@ function ContextPackCreationModal({
           {STEPS.map((s, i) => {
             const state = stepState(s.key, step);
             return (
-              <div key={s.key} style={{ display: 'flex', alignItems: 'center' }}>
+              <div key={s.key}>
                 {i > 0 && <span className="context-pack-modal__step-sep" />}
                 <span
                   className={classNames(
@@ -197,6 +199,7 @@ function ContextPackCreationModal({
           })}
         </nav>
 
+        <div className="context-pack-modal__scroll-body">
         {message ? <p className="panel__lede">{message}</p> : null}
         {error ? <p className="panel__error">{error}</p> : null}
 
@@ -235,6 +238,7 @@ function ContextPackCreationModal({
         ) : null}
 
         {step === 'review' ? <ReviewStep draft={draft} /> : null}
+        </div>
 
         <div className="action-row context-pack-modal__footer">
           <span className="context-pack-modal__footer-esc">ESC to close</span>

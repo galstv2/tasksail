@@ -14,12 +14,9 @@ function WizardProjectType({
 }: WizardProjectTypeProps): JSX.Element {
   return (
     <section className="context-pack-modal__wizard-section">
-      <div>
-        <h3>What kind of project are you building?</h3>
-        <p className="panel__meta">
-          Choose the structure that best matches how your code is organized.
-        </p>
-      </div>
+      <p className="context-pack-modal__wizard-heading">
+        What kind of project are you building?
+      </p>
 
       <div className="context-pack-modal__wizard-type-grid">
         <button
@@ -33,7 +30,7 @@ function WizardProjectType({
           onClick={() => onSelect('monolith')}
         >
           <span className="context-pack-modal__wizard-choice-kicker">Single repo</span>
-          <h4>Monolith</h4>
+          <strong>Monolith</strong>
           <p className="panel__meta">
             All components share the same repository, organized into folders.
           </p>
@@ -50,7 +47,7 @@ function WizardProjectType({
           onClick={() => onSelect('distributed')}
         >
           <span className="context-pack-modal__wizard-choice-kicker">Multi-repo</span>
-          <h4>Distributed</h4>
+          <strong>Distributed</strong>
           <p className="panel__meta">
             Each component has its own repository. They may interact with each other.
           </p>

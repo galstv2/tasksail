@@ -37,7 +37,7 @@ function FocusAreaCard({
     <article className="context-pack-modal__editor-card">
       <div className="panel__title-row context-pack-modal__card-header">
         <div>
-          <h4>
+          <span className="context-pack-modal__card-label">
             Focus area {index + 1}
             {focusArea.repositoryType ? (
               <span
@@ -49,7 +49,7 @@ function FocusAreaCard({
                 {focusArea.repositoryType === 'primary' ? 'Primary' : 'Support'}
               </span>
             ) : null}
-          </h4>
+          </span>
           <p className="panel__meta">Editable monolith focus suggestion.</p>
         </div>
         <button
@@ -115,15 +115,18 @@ function FocusAreaCard({
         </label>
       </div>
 
-      <label className="stream-toggle context-pack-modal__primary-toggle">
-        <input
-          type="radio"
-          checked={focusArea.primary}
-          name="primary-focus-area"
-          onChange={() => onSetPrimaryFocusArea(focusArea.key)}
-        />
-        <span>Primary working folder</span>
-      </label>
+      <button
+        type="button"
+        className={classNames(
+          'context-pack-modal__toggle-pill',
+          focusArea.primary && 'context-pack-modal__toggle-pill--active',
+        )}
+        onClick={() => onSetPrimaryFocusArea(focusArea.key)}
+        aria-pressed={focusArea.primary}
+      >
+        <span className="context-pack-modal__toggle-dot" />
+        Primary working folder
+      </button>
     </article>
   );
 }

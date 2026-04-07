@@ -117,13 +117,13 @@ describe('ContextPackCreationModal', () => {
   it('calls onClose when Close is clicked', () => {
     const onClose = vi.fn();
     render(<ContextPackCreationModal {...makeProps({ onClose })} />);
-    fireEvent.click(screen.getByText('Close'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('disables buttons when busy', () => {
     render(<ContextPackCreationModal {...makeProps({ busy: true })} />);
-    expect(screen.getByText('Close')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
     expect(screen.getByText('Next')).toBeDisabled();
   });
 

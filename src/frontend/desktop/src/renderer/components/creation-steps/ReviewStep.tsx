@@ -93,7 +93,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
     <div className="context-pack-modal__body">
       <div className="context-pack-modal__review-grid">
         <section className="context-pack-modal__editor-card">
-          <h3>Pack summary</h3>
+          <p className="context-pack-modal__section-label">Pack summary</p>
           <dl className="mapping-list">
             <div>
               <dt>Destination</dt>
@@ -132,7 +132,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
           </div>
           {isMonolithMode(draft.mode) && draft.focusAreas.length > 0 ? (
             <>
-              <h4>Focus areas</h4>
+              <p className="context-pack-modal__section-label">Focus areas</p>
               <div className="context-pack-modal__repo-chips">
                 {draft.focusAreas.map((focusArea) => (
                   <span
@@ -160,7 +160,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
         </section>
 
         <section className="context-pack-modal__editor-card">
-          <h3>Readiness</h3>
+          <p className="context-pack-modal__section-label">Readiness</p>
           <div className="context-pack-modal__validation-list">
             {checks.map((check) => (
               <div

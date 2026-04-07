@@ -49,10 +49,10 @@ describe('RepositoryCard', () => {
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
   });
 
-  it('primary checkbox calls onSetPrimaryRepository', () => {
+  it('primary toggle calls onSetPrimaryRepository', () => {
     const onSetPrimaryRepository = vi.fn();
     render(<RepositoryCard {...defaultProps} onSetPrimaryRepository={onSetPrimaryRepository} />);
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Primary/i }));
     expect(onSetPrimaryRepository).toHaveBeenCalledWith('r1');
   });
 

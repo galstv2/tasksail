@@ -8,6 +8,7 @@ import {
   getRoleOption,
   isWizardPartConfigured,
 } from './buildWizardConstants';
+import { CloseIcon, CollapseIcon, EditIcon, PlusIcon } from './icons';
 
 type WizardBuildPartsProps = {
   busy: boolean;
@@ -60,12 +61,9 @@ function WizardBuildParts({
 }: WizardBuildPartsProps): JSX.Element {
   return (
     <section className="context-pack-modal__wizard-section">
-      <div>
-        <h3>Build your project</h3>
-        <p className="panel__meta">
-          Add each repository or folder, then choose what it does and what language it uses.
-        </p>
-      </div>
+      <p className="context-pack-modal__wizard-heading">
+        Build your project
+      </p>
 
       <div className="context-pack-modal__editor-list">
         {parts.map((part, index) => {
@@ -84,7 +82,7 @@ function WizardBuildParts({
             >
               <div className="panel__title-row context-pack-modal__card-header">
                 <div>
-                  <h4>{partName}</h4>
+                  <span className="context-pack-modal__card-label">{partName}</span>
                   <p className="panel__meta">
                     {roleLabel}
                     {part.role ? ` • ${resolveLanguageLabel(part)}` : ''}
@@ -99,19 +97,23 @@ function WizardBuildParts({
                   ) : null}
                   <button
                     type="button"
-                    className="action-button action-button--secondary"
+                    className="context-pack-modal__icon-btn"
                     disabled={busy}
                     onClick={() => onUpdatePart(part.key, 'editing', !part.editing)}
+                    aria-label={part.editing ? 'Collapse' : 'Edit'}
+                    title={part.editing ? 'Collapse' : 'Edit'}
                   >
-                    {part.editing ? 'Collapse' : 'Edit'}
+                    {part.editing ? <CollapseIcon /> : <EditIcon />}
                   </button>
                   <button
                     type="button"
-                    className="action-button action-button--secondary"
+                    className="context-pack-modal__icon-btn context-pack-modal__icon-btn--danger"
                     disabled={busy}
                     onClick={() => onRemovePart(part.key)}
+                    aria-label="Remove"
+                    title="Remove"
                   >
-                    Remove
+                    <CloseIcon />
                   </button>
                 </div>
               </div>
@@ -162,15 +164,18 @@ function WizardBuildParts({
                       </label>
                     </div>
 
-                    <label className="stream-toggle context-pack-modal__primary-toggle">
-                      <input
-                        type="radio"
-                        name="wizard-primary-part"
-                        checked={part.primary}
-                        onChange={() => onUpdatePart(part.key, 'primary', true)}
-                      />
-                      <span>Primary part</span>
-                    </label>
+                    <button
+                      type="button"
+                      className={classNames(
+                        'context-pack-modal__toggle-pill',
+                        part.primary && 'context-pack-modal__toggle-pill--active',
+                      )}
+                      onClick={() => onUpdatePart(part.key, 'primary', !part.primary)}
+                      aria-pressed={part.primary}
+                    >
+                      <span className="context-pack-modal__toggle-dot" />
+                      Primary part
+                    </button>
 
                     <div className="context-pack-modal__wizard-question">
                       <h5>What does this part do?</h5>
@@ -239,7 +244,7 @@ function WizardBuildParts({
                     <div className="context-pack-modal__wizard-part-footer">
                       <button
                         type="button"
-                        className="action-button action-button--primary"
+                        className="context-pack-modal__text-btn context-pack-modal__text-btn--accent"
                         disabled={!isWizardPartConfigured(part)}
                         onClick={() => onUpdatePart(part.key, 'editing', false)}
                       >
@@ -256,11 +261,12 @@ function WizardBuildParts({
 
       <button
         type="button"
-        className="action-button action-button--secondary"
+        className="context-pack-modal__text-btn"
         disabled={busy}
         onClick={onAddPart}
       >
-        + Add another part
+        <PlusIcon />
+        Add another part
       </button>
     </section>
   );
