@@ -1,9 +1,21 @@
+import { useState } from 'react';
+
+const SAIL_PHRASES = [
+  'Sailing away!',
+  'This is going to be great!',
+  'Let\u2019s make it happen!',
+  'Here we go!',
+  'All hands on deck!',
+];
+
 type SailScreenProps = {
   sailPhase: 'countdown' | 'sailing';
   countdown: number;
 };
 
 function SailScreen({ sailPhase, countdown }: SailScreenProps): JSX.Element {
+  const [phrase] = useState(() => SAIL_PHRASES[Math.floor(Math.random() * SAIL_PHRASES.length)]);
+
   return (
     <div className="sail-overlay" role="presentation">
       <div className="sail-pill" role="dialog" aria-modal="true" aria-label="Submitting task" aria-live="polite">
@@ -20,7 +32,7 @@ function SailScreen({ sailPhase, countdown }: SailScreenProps): JSX.Element {
               <path d="M18 9l-6 10h6Z" fill="currentColor" opacity="0.06" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
               <path d="M10 27c0 3 4 5 8 5s8-2 8-5Z" fill="currentColor" opacity="0.08" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             </svg>
-            <span className="sail-away__label">Sailing away</span>
+            <span className="sail-away__label">{phrase}</span>
             <span className="sail-away__dots">
               <span className="sail-away__dot" />
               <span className="sail-away__dot" />
