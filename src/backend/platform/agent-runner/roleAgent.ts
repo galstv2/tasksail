@@ -246,20 +246,17 @@ function buildArtifactCleanupPrompt(options: {
   return sections.join('\n');
 }
 
-const RECOVERABLE_ARTIFACT_AUTHOR_DENIAL_PATTERNS = [
+const RECOVERABLE_DENIED_ACTION_PATTERNS = [
   /permission denied and could not request permission from user/i,
   /could not request permission from user/i,
+  /permission to run this tool was denied due the following rules/i,
 ];
 
-function isRecoverableArtifactAuthorDeniedAction(
-  autonomyProfile: string,
+function isRecoverableDeniedActionExit(
   runSummary: Awaited<ReturnType<typeof waitForCopilotDetailed>>,
 ): boolean {
-  if (autonomyProfile !== 'artifact-author') {
-    return false;
-  }
   const combinedOutput = `${runSummary.stdoutTail}\n${runSummary.stderrTail}`;
-  return RECOVERABLE_ARTIFACT_AUTHOR_DENIAL_PATTERNS.some((pattern) => pattern.test(combinedOutput));
+  return RECOVERABLE_DENIED_ACTION_PATTERNS.some((pattern) => pattern.test(combinedOutput));
 }
 
 function buildDeniedActionContinuationPrompt(agentId: RunRoleAgentOptions['agentId']): string {
@@ -955,8 +952,8 @@ export async function runRoleAgent(
     });
   };
 
-  if (exitCode !== 0 && isRecoverableArtifactAuthorDeniedAction(profile.autonomyProfile, runSummary)) {
-    const artifactsCompleteAfterDeniedExit = await artifactCompletionCheck();
+  if (exitCode !== 0 && isRecoverableDeniedActionExit(runSummary)) {
+    const artifactsCompleteAfterDeniedExit = isDaltonFamilyAgent(options.agentId) || await artifactCompletionCheck();
     if (artifactsCompleteAfterDeniedExit) {
       runSummary = {
         ...runSummary,

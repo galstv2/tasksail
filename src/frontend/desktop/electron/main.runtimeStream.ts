@@ -24,7 +24,7 @@ const PIPELINE_PHASE_FILE = join(RUNTIME_DIR, 'pipeline-phase.json');
 
 const PIPELINE_PHASE_MESSAGES: Record<string, { message: string; severity: StreamEventOptions['severity'] }> = {
   'test-capture-started': { message: 'Capturing test evidence.', severity: 'info' },
-  'test-capture-completed': { message: 'Test evidence captured.', severity: 'success' },
+  'test-capture-completed': { message: 'Test evidence captured.', severity: 'info' },
   'test-capture-skipped': { message: 'Test capture skipped — could not resolve target repo.', severity: 'warning' },
 };
 
