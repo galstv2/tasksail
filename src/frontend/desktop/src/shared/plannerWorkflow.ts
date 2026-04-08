@@ -11,17 +11,17 @@ const DRAFT_WRITE_CAUTION =
   'Wait until I confirm that all required editable sections are satisfied before saving.';
 
 /**
- * Wraps the operator's first message in a fresh planner session with the
+ * Wraps the Guide's first message in a fresh planner session with the
  * draft-write caution so Lily does not write to staging prematurely.
  * Child-task and markdown-review flows inject their own caution via
  * dedicated builders — this covers the regular fresh-session path.
  */
-export function wrapFreshSessionMessage(operatorText: string): string {
-  return `${DRAFT_WRITE_CAUTION}\n\n${operatorText}`;
+export function wrapFreshSessionMessage(guideText: string): string {
+  return `${DRAFT_WRITE_CAUTION}\n\n${guideText}`;
 }
 
 export const PLANNER_SAVE_DRAFT_WORKFLOW = {
-  operatorMessage: '[Operator] Please save the current spec draft now.',
+  guideMessage: 'Lily, let\u2019s save what we have so far. Please draft the spec now.',
   prompt:
     'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
     'Edit the current staged file in place and preserve the existing shell structure. ' +
@@ -38,16 +38,16 @@ export function buildChildTaskStarterPrompt(args: {
   carryForwardSummary: string;
 }): string {
   return (
-    '[Operator] This is a child-task workflow. The staged planning document already contains the platform-owned title and lineage shell.\n\n' +
+    'This is a child-task workflow. The staged planning document already contains the platform-owned title and lineage shell.\n\n' +
     `Parent task title: ${args.parentTaskTitle}\n` +
     (args.carryForwardSummary ? `Known carry-forward context: ${args.carryForwardSummary}\n` : '') +
     '\n' +
-    'The parent task was selected by the operator from the active context pack archive. ' +
+    'The parent task was selected by the Guide from the active context pack archive. ' +
     'You are creating a child-task intake that continues from this parent.\n\n' +
     'Rules:\n' +
     '- Fill or refine only the editable sections in the staged document.\n' +
     '- Do NOT change the generated title or any platform-owned sections.\n' +
-    '- The operator will provide or you should ask for: Request Summary, Desired Outcome, ' +
+    '- The Guide will provide or you should ask for: Request Summary, Desired Outcome, ' +
     'Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
     '- Ask follow-up questions for any missing required content. Do not guess or fabricate.\n' +
     `- ${DRAFT_WRITE_CAUTION}`
@@ -56,7 +56,7 @@ export function buildChildTaskStarterPrompt(args: {
 
 export function buildMarkdownReviewPrompt(filename: string, content: string): string {
   return (
-    `[Operator] I am attaching the Markdown file "${filename}" for you to review.\n\n` +
+    `I am attaching the Markdown file "${filename}" for you to review.\n\n` +
     wrapAttachedFile(content) +
     '\n\n' +
     'Compare this file against AgentWorkSpace/templates/planning-intake.md. ' +
@@ -77,7 +77,7 @@ export function buildChildTaskMarkdownReviewPrompt(
   content: string,
 ): string {
   return (
-    `[Operator] I am attaching the Markdown file "${filename}" as supporting context ` +
+    `I am attaching the Markdown file "${filename}" as supporting context ` +
     'for the active child-task workflow.\n\n' +
     wrapAttachedFile(content) +
     '\n\n' +

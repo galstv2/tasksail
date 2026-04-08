@@ -92,3 +92,4 @@ pnpm-debug.log*
 tmp/
 temp/
 CLAUDE.md
+.github/copilot-instructions.md

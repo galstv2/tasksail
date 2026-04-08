@@ -5,7 +5,7 @@ Use the repository instruction files as the source of truth.
 This phase is only for shaping intake into a queue-ready task under `AgentWorkSpace/dropbox/`.
 
 Stay in planning scope:
-- work from the operator request
+- work from the Guide request
 - when the task targets an external context pack, browse the primary repo first to verify your understanding of the project structure, patterns, and tech stack before editing the staged document
 - ask only for missing planning details
 - keep simple intake concise and reviewable

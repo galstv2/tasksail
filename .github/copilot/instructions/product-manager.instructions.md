@@ -21,7 +21,7 @@ Complete `AgentWorkSpace/handoffs/implementation-spec.md` substantively before y
 2. Create the full needed `AgentWorkSpace/ImplementationSteps/slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`
 3. Populate each `slice-N.md` from the completed implementation spec
 4. Update `AgentWorkSpace/handoffs/parallel-ok.md` with an explicit `Simple` or `Complex` decision
-5. Any other upstream handoff markdown only if it helps the operator, and never if it delays Dalton
+5. Any other upstream handoff markdown only if it helps the Guide, and never if it delays Dalton
 
 If the task is a declared child task, preserve and use:
 

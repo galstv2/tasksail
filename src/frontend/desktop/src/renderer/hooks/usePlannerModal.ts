@@ -258,7 +258,7 @@ export function usePlannerModal(
           const reviewPrompt = childTaskModeRef.current && parentTask
             ? buildChildTaskMarkdownReviewPrompt(attachedFile.filename, attachedFile.content)
             : buildMarkdownReviewPrompt(attachedFile.filename, attachedFile.content);
-          messageToSend = text ? `${reviewPrompt}\n\nAdditional context from the operator:\n${text}` : reviewPrompt;
+          messageToSend = text ? `${reviewPrompt}\n\nAdditional context from the Guide:\n${text}` : reviewPrompt;
         }
 
         const result = await client.sendPlannerMessage(messageToSend);
@@ -283,7 +283,7 @@ export function usePlannerModal(
     setStagedDraft(null);
     setDraftError('');
     setAwaitingDraft(true);
-    plannerStream.sendMessage(PLANNER_SAVE_DRAFT_WORKFLOW.operatorMessage);
+    plannerStream.sendMessage(PLANNER_SAVE_DRAFT_WORKFLOW.guideMessage);
 
     void (async () => {
       try {
