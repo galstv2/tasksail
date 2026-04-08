@@ -100,11 +100,6 @@ function TerminalFeed({
   return (
     <div className="terminal-feed" aria-label="Terminal feed">
       <div className="terminal-feed__chrome">
-        <div className="terminal-feed__dots">
-          <span className="terminal-dot terminal-dot--red" />
-          <span className="terminal-dot terminal-dot--yellow" />
-          <span className="terminal-dot terminal-dot--green" />
-        </div>
         <span className="terminal-feed__title">Terminal</span>
         <div className="terminal-feed__tabs" role="tablist" aria-label="Role filter">
           {ROLE_TABS.map((tab) => (

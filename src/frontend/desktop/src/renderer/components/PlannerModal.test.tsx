@@ -185,8 +185,10 @@ describe('PlannerModal', () => {
     const conversation = screen.getByLabelText('Conversation');
     expect(within(conversation).getByText('Build a billing feature')).toBeInTheDocument();
     expect(within(conversation).getByText('I will create a plan for billing.')).toBeInTheDocument();
-    expect(within(conversation).getByText('You')).toBeInTheDocument();
-    expect(within(conversation).getByText('Lily')).toBeInTheDocument();
+    const operatorMsg = conversation.querySelector('.planner-msg--operator');
+    const plannerMsg = conversation.querySelector('.planner-msg--planner');
+    expect(operatorMsg).toBeInTheDocument();
+    expect(plannerMsg).toBeInTheDocument();
   });
 
   it('renders child-task toggle in header', () => {

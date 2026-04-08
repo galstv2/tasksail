@@ -49,72 +49,72 @@
 
 .stream-role--planner,
 .stream-event--planner {
-  border-color: var(--terminal-cyan);
+  border-color: var(--ts-brand-cloudblue);
 }
 
 .stream-role--planner {
-  background: rgba(88, 166, 255, 0.16);
-  color: var(--terminal-cyan-light);
+  background: rgba(137, 184, 240, 0.16);
+  color: var(--ts-brand-cloudblue);
 }
 
 .stream-role--queue,
 .stream-event--queue {
-  border-color: var(--terminal-green);
+  border-color: var(--ts-brand-green-light);
 }
 
 .stream-role--queue {
-  background: rgba(63, 185, 80, 0.16);
-  color: var(--terminal-green-light);
+  background: rgba(90, 173, 112, 0.16);
+  color: var(--ts-brand-green-light);
 }
 
 .stream-role--workflow,
 .stream-event--workflow {
-  border-color: var(--terminal-amber);
+  border-color: var(--ts-brand-gold-light);
 }
 
 .stream-role--workflow {
-  background: rgba(210, 153, 34, 0.16);
-  color: var(--terminal-amber-light);
+  background: rgba(212, 166, 69, 0.16);
+  color: var(--ts-brand-gold-light);
 }
 
 .stream-role--operator,
 .stream-event--operator {
-  border-color: var(--terminal-magenta);
+  border-color: var(--ts-brand-burgundy-light);
 }
 
 .stream-role--operator {
-  background: rgba(188, 140, 255, 0.16);
-  color: var(--terminal-magenta-light);
+  background: rgba(196, 90, 104, 0.16);
+  color: var(--ts-brand-burgundy-light);
 }
 
 .stream-role--system,
 .stream-event--system {
-  border-color: var(--terminal-gray);
+  border-color: var(--ts-brand-gray);
 }
 
 .stream-role--system {
-  background: rgba(139, 148, 158, 0.16);
-  color: var(--terminal-text);
+  background: rgba(107, 122, 141, 0.16);
+  color: var(--ts-brand-gray-light);
 }
 
 .stream-severity--info {
-  background: rgba(88, 166, 255, 0.16);
-  color: var(--terminal-cyan-pale);
+  background: rgba(137, 184, 240, 0.16);
+  color: var(--ts-brand-cloudblue);
 }
 
 .stream-severity--success {
-  background: rgba(63, 185, 80, 0.16);
-  color: var(--terminal-green-pale);
+  background: rgba(90, 173, 112, 0.16);
+  color: var(--ts-brand-green-light);
 }
 
 .stream-severity--warning {
-  background: rgba(210, 153, 34, 0.16);
-  color: var(--terminal-amber-light);
+  background: rgba(212, 166, 69, 0.16);
+  color: var(--ts-brand-gold-light);
 }
 
 .stream-severity--error {
-  background: rgba(248, 81, 73, 0.18);
-  color: var(--terminal-red-light);
+  background: rgba(196, 90, 104, 0.18);
+  color: var(--ts-brand-burgundy-light);
 }
 
 .stream-event__metadata {
@@ -202,21 +202,6 @@
   flex-shrink: 0;
 }
 
-.terminal-feed__dots {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.terminal-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.terminal-dot--red    { background: var(--ts-brand-burgundy); }
-.terminal-dot--yellow { background: var(--ts-brand-gold); }
-.terminal-dot--green  { background: var(--ts-brand-blue); }
 
 .terminal-feed__tabs {
   display: flex;
@@ -286,16 +271,16 @@
   font-weight: 600;
 }
 
-.terminal-role--planner  { color: var(--terminal-cyan); }
-.terminal-role--queue    { color: var(--terminal-green); }
-.terminal-role--workflow { color: var(--terminal-amber); }
-.terminal-role--operator { color: var(--terminal-magenta); }
-.terminal-role--system   { color: var(--terminal-gray); }
+.terminal-role--planner  { color: var(--ts-brand-cloudblue); }
+.terminal-role--queue    { color: var(--ts-brand-green-light); }
+.terminal-role--workflow { color: var(--ts-brand-gold-light); }
+.terminal-role--operator { color: var(--ts-brand-burgundy-light); }
+.terminal-role--system   { color: var(--ts-brand-gray-light); }
 
 /* Runtime milestone lines get a subtle left accent to distinguish
    backend pipeline progress from operator-initiated IPC events. */
 .terminal-line--runtime {
-  border-left: 2px solid rgba(210, 153, 34, 0.25);
+  border-left: 2px solid rgba(212, 166, 69, 0.25);
   padding-left: 0.5em;
   margin-left: -0.5em;
 }
@@ -316,9 +301,9 @@
   word-break: break-word;
 }
 
-.terminal-message--success { color: var(--terminal-green); }
-.terminal-message--warning { color: var(--terminal-amber); }
-.terminal-message--error   { color: var(--terminal-red); }
+.terminal-message--success { color: var(--ts-brand-green-light); }
+.terminal-message--warning { color: var(--ts-brand-gold-light); }
+.terminal-message--error   { color: var(--ts-brand-burgundy-light); }
 
 .terminal-cursor {
   display: inline-block;

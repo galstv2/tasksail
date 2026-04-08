@@ -484,7 +484,7 @@ select {
 .obs-section__body {
   margin: 0.4rem 0 0;
   font-size: 0.76rem;
-  color: var(--terminal-gray);
+  color: var(--ts-brand-gray);
   line-height: 1.45;
 }
 
@@ -506,10 +506,10 @@ select {
   white-space: nowrap;
 }
 
-.obs-badge--ok    { background: rgba(63, 185, 80, 0.15);  color: var(--terminal-green); }
-.obs-badge--warn  { background: rgba(210, 153, 34, 0.15); color: var(--terminal-amber); }
-.obs-badge--error { background: rgba(248, 81, 73, 0.15);  color: var(--terminal-red); }
-.obs-badge--idle  { background: rgba(139, 148, 158, 0.12); color: var(--terminal-gray); }
+.obs-badge--ok    { background: rgba(90, 173, 112, 0.15);  color: var(--ts-brand-green-light); }
+.obs-badge--warn  { background: rgba(212, 166, 69, 0.15); color: var(--ts-brand-gold-light); }
+.obs-badge--error { background: rgba(196, 90, 104, 0.15);  color: var(--ts-brand-burgundy-light); }
+.obs-badge--idle  { background: rgba(107, 122, 141, 0.12); color: var(--ts-brand-gray); }
 
 /* ── Observability stat row ──────────────────────────────────────────── */
 
@@ -523,15 +523,15 @@ select {
 .obs-stat {
   font-size: 0.68rem;
   font-weight: 500;
-  color: var(--terminal-gray);
+  color: var(--ts-brand-gray);
   padding: 0.1rem 0.35rem;
   border-radius: var(--ts-radius-sm);
-  background: rgba(139, 148, 158, 0.1);
+  background: rgba(107, 122, 141, 0.1);
 }
 
-.obs-stat--ok    { color: var(--terminal-green); background: rgba(63, 185, 80, 0.1); }
-.obs-stat--warn  { color: var(--terminal-amber); background: rgba(210, 153, 34, 0.1); }
-.obs-stat--error { color: var(--terminal-red);   background: rgba(248, 81, 73, 0.1); }
+.obs-stat--ok    { color: var(--ts-brand-green-light); background: rgba(90, 173, 112, 0.1); }
+.obs-stat--warn  { color: var(--ts-brand-gold-light); background: rgba(212, 166, 69, 0.1); }
+.obs-stat--error { color: var(--ts-brand-burgundy-light);   background: rgba(196, 90, 104, 0.1); }
 
 /* ── Observability timeline ──────────────────────────────────────────── */
 
@@ -624,9 +624,9 @@ select {
   flex-shrink: 0;
 }
 
-.obs-file-row__status--ok      { color: var(--terminal-green); background: rgba(63, 185, 80, 0.12); }
-.obs-file-row__status--warn    { color: var(--terminal-amber); background: rgba(210, 153, 34, 0.12); }
-.obs-file-row__status--missing { color: var(--terminal-red);   background: rgba(248, 81, 73, 0.12); }
+.obs-file-row__status--ok      { color: var(--ts-brand-green-light); background: rgba(90, 173, 112, 0.12); }
+.obs-file-row__status--warn    { color: var(--ts-brand-gold-light); background: rgba(212, 166, 69, 0.12); }
+.obs-file-row__status--missing { color: var(--ts-brand-burgundy-light);   background: rgba(196, 90, 104, 0.12); }
 
 .obs-file-row__detail {
   display: block;
@@ -705,20 +705,20 @@ select {
 
 .operator-queue__status--ok,
 .operator-queue__pill--active {
-  color: var(--terminal-green);
-  background: rgba(63, 185, 80, 0.12);
+  color: var(--ts-brand-green-light);
+  background: rgba(90, 173, 112, 0.12);
 }
 
 .operator-queue__status--warn,
 .operator-queue__pill--pending {
-  color: var(--terminal-amber);
-  background: rgba(210, 153, 34, 0.12);
+  color: var(--ts-brand-gold-light);
+  background: rgba(212, 166, 69, 0.12);
 }
 
 .operator-queue__status--error,
 .operator-queue__pill--failed {
-  color: var(--terminal-red);
-  background: rgba(248, 81, 73, 0.12);
+  color: var(--ts-brand-burgundy-light);
+  background: rgba(196, 90, 104, 0.12);
 }
 
 .operator-queue__failure,
@@ -727,10 +727,10 @@ select {
 }
 
 .operator-queue__failure {
-  border: 1px solid rgba(248, 81, 73, 0.3);
+  border: 1px solid rgba(196, 90, 104, 0.3);
   border-radius: var(--ts-radius-md);
   padding: 0.6rem;
-  background: rgba(248, 81, 73, 0.06);
+  background: rgba(196, 90, 104, 0.06);
 }
 
 .operator-queue__failure-title {
@@ -775,8 +775,8 @@ select {
 }
 
 .obs-action-btn--danger {
-  border-color: rgba(248, 81, 73, 0.4);
-  color: var(--terminal-red);
+  border-color: rgba(196, 90, 104, 0.4);
+  color: var(--ts-brand-burgundy-light);
 }
 
 .obs-action-btn--ghost {
@@ -826,8 +826,8 @@ select {
 
 :root.theme-dark .status-chip { background: rgba(180, 200, 240, 0.06); }
 :root.theme-dark .status-chip--active { background: var(--ts-accent-subtle); color: var(--ts-accent); }
-:root.theme-dark .status-chip--blocked { background: rgba(210, 153, 34, 0.10); color: var(--terminal-amber-light); }
-:root.theme-dark .status-chip--completed { background: rgba(63, 185, 80, 0.08); color: var(--terminal-green-light); }
+:root.theme-dark .status-chip--blocked { background: rgba(212, 166, 69, 0.10); color: var(--ts-brand-gold-light); }
+:root.theme-dark .status-chip--completed { background: rgba(90, 173, 112, 0.08); color: var(--ts-brand-green-light); }
 :root.theme-dark .status-chip--idle,
-:root.theme-dark .status-chip--owner { background: rgba(180, 200, 240, 0.04); color: var(--terminal-gray); }
+:root.theme-dark .status-chip--owner { background: rgba(180, 200, 240, 0.04); color: var(--ts-brand-gray); }
 

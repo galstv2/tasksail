@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   LifecycleState,
@@ -142,6 +142,18 @@ export function useAppShell(
   const onRefreshRepoState = useCallback(async () => {
     await Promise.all([refreshObservedState(), taskBoard.refresh()]);
   }, [refreshObservedState, taskBoard.refresh]);
+
+  // Auto-refresh the task board and observability state when the active
+  // context pack changes (e.g. user clicks Apply on a different pack).
+  const activePackDir = contextPackSidebarProps.activeContextPackDir;
+  const activePackDirOnMountRef = useRef(activePackDir);
+  useEffect(() => {
+    if (activePackDirOnMountRef.current === activePackDir) {
+      return;
+    }
+    activePackDirOnMountRef.current = activePackDir;
+    void onRefreshRepoState();
+  }, [activePackDir, onRefreshRepoState]);
 
   const taskBoardProps: TaskBoardProps = useMemo(
     () => ({

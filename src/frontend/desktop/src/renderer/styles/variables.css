@@ -57,10 +57,21 @@
   --ts-accent-tint:      rgba(208, 139, 62, 0.10);
 
   /* ── Brand palette — matches dock icon ───────────────────────────── */
-  --ts-brand-burgundy:   #8c2f3b;
-  --ts-brand-gold:       #b8862d;
-  --ts-brand-purple:     #2a1a3e;
-  --ts-brand-blue:       #2d4a8c;
+  --ts-brand-burgundy:       #8c2f3b;
+  --ts-brand-burgundy-light: #c45a68;
+  --ts-brand-gold:           #b8862d;
+  --ts-brand-gold-light:     #d4a645;
+  --ts-brand-purple:         #2a1a3e;
+  --ts-brand-blue:           #2d4a8c;
+  --ts-brand-green:          #2d7a4a;
+  --ts-brand-green-light:    #5aad70;
+  --ts-brand-gray:           #6b7a8d;
+  --ts-brand-gray-light:     #95a3b5;
+  --ts-brand-cloudblue:      #89b8f0;
+
+  /* ── Chat bubble tokens ────────────────────────────────────────────── */
+  --ts-chat-sender:      var(--ts-brand-cloudblue);
+  --ts-chat-receiver:    #d8dfe8;
 
   /* ── Secondary accent — cool teal ─────────────────────────────────── */
   --ts-accent2:          #2d8a8a;
@@ -212,6 +223,7 @@
   --ts-accent2-hover:    #4cc0c0;
   --ts-accent2-subtle:   rgba(58, 173, 173, 0.12);
   --ts-accent2-tint:     rgba(58, 173, 173, 0.10);
+  --ts-chat-receiver:    #2a3040;
   --ts-shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.35);
   --ts-shadow-md:  0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
   --ts-shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.35), 0 12px 40px rgba(0, 0, 0, 0.30);

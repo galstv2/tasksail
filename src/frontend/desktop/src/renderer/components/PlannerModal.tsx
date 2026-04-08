@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ArchivedTaskEntry, MarkdownFileSelection, StagedDraftContent } from '../../shared/desktopContract';
 import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } from '../plannerComposer';
-import { getPlannerConversationLabel } from '../../shared/agentRoster';
 import { classNames } from '../utils/classNames';
 import { CloseIcon } from './creation-steps/icons';
 import SailScreen from './SailScreen';
@@ -32,8 +31,8 @@ export type PlannerModalProps = {
   stagedDraft?: StagedDraftContent | null;
   draftError?: string;
   onViewDraft?: () => void;
+  onRefreshDraft?: () => Promise<void>;
   onFinalizeSpec?: () => void;
-  onDismissDraftPreview?: () => void;
   selectedMarkdownFile?: MarkdownFileSelection | null;
   onPickMarkdownFile?: () => void;
   onClearSelectedFile?: () => void;
@@ -47,6 +46,8 @@ export type PlannerModalProps = {
 };
 
 type SailPhase = 'countdown' | 'sailing' | null;
+
+const LILY_GREETING = "Hi there! I'm Lily, the planning specialist. Let's figure out what you need.";
 
 function PlannerModal({
   isOpen,
@@ -69,8 +70,8 @@ function PlannerModal({
   stagedDraft,
   draftError,
   onViewDraft,
+  onRefreshDraft,
   onFinalizeSpec,
-  onDismissDraftPreview,
   selectedMarkdownFile,
   onPickMarkdownFile,
   onClearSelectedFile,
@@ -86,22 +87,19 @@ function PlannerModal({
   const conversationRef = useRef<HTMLDivElement>(null);
   const [sailPhase, setSailPhase] = useState<SailPhase>(null);
   const [countdown, setCountdown] = useState(3);
-  const [draftViewMode, setDraftViewMode] = useState<'rendered' | 'source'>('rendered');
-  const [draftExpanded, setDraftExpanded] = useState(false);
+  const [draftPopoutOpen, setDraftPopoutOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setSailPhase(null);
       setCountdown(3);
-      setDraftViewMode('rendered');
-      setDraftExpanded(false);
+      setDraftPopoutOpen(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
     if (!stagedDraft) {
-      setDraftViewMode('rendered');
-      setDraftExpanded(false);
+      setDraftPopoutOpen(false);
     }
   }, [stagedDraft]);
 
@@ -174,6 +172,7 @@ function PlannerModal({
   }
 
   return (
+    <>
     <div
       className="planner-modal__overlay"
       onClick={onClose}
@@ -201,7 +200,7 @@ function PlannerModal({
                 )}
                 aria-label={`Session ${sessionStatus}`}
               >
-                {sessionStatus}
+                {sessionStatus === 'busy' ? 'thinking' : sessionStatus}
               </span>
             )}
           </div>
@@ -286,29 +285,27 @@ function PlannerModal({
           ref={conversationRef}
           aria-label="Conversation"
         >
-          {messages.length === 0 ? (
-            <div className="planner-modal__empty">
-              <svg width="32" height="32" viewBox="0 0 16 16" fill="none" opacity="0.3">
-                <path d="M2 4h12v8H5l-3 2V4z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
-                <path d="M5 7h6M5 9h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-              <p>Start a conversation with Lily to begin planning your task.</p>
+          {messages.length === 0 && (
+            <div className={classNames('planner-msg', 'planner-msg--planner')}>
+              <div className="planner-msg__body">
+                <MarkdownView content={LILY_GREETING} />
+              </div>
             </div>
-          ) : (
-            messages.map((msg, idx) => (
-              <div key={msg.id} className={classNames('planner-msg', `planner-msg--${msg.role}`)}>
-                <span className="planner-msg__role">
-                  {msg.role === 'operator' ? 'You' : getPlannerConversationLabel(msg.role)}
-                </span>
-                <p>
-                  {msg.text}
-                  {isStreaming && msg.role === 'planner' && idx === messages.length - 1 && (
+          )}
+          {messages.map((msg, idx) => (
+            <div key={msg.id} className={classNames('planner-msg', `planner-msg--${msg.role}`)}>
+              {msg.role === 'planner' ? (
+                <div className="planner-msg__body">
+                  <MarkdownView content={msg.text} />
+                  {isStreaming && idx === messages.length - 1 && (
                     <span className="planner-msg__cursor" aria-hidden="true">{'\u2588'}</span>
                   )}
-                </p>
-              </div>
-            ))
-          )}
+                </div>
+              ) : (
+                <p>{msg.text}</p>
+              )}
+            </div>
+          ))}
         </div>
 
         {selectedMarkdownFile && (
@@ -333,7 +330,7 @@ function PlannerModal({
 
         <div className="planner-modal__composer">
           <textarea
-            placeholder={childTaskBlocked ? 'Select a parent task to begin child-task planning.' : "Describe what you'd like to build..."}
+            placeholder={childTaskBlocked ? 'Select a parent task to begin child-task planning.' : messages.length === 0 ? 'Start a conversation with Lily to begin planning your task.' : ''}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -349,87 +346,6 @@ function PlannerModal({
           </button>
         </div>
 
-        {stagedDraft && (
-          <div className="planner-modal__draft-preview" aria-label="Draft preview">
-            <div className="planner-modal__draft-preview-header">
-              <span className="planner-modal__draft-preview-filename">{stagedDraft.filename}</span>
-              <span className="planner-modal__draft-preview-time">
-                {new Date(stagedDraft.modifiedAt).toLocaleTimeString()}
-              </span>
-              <div className="planner-modal__draft-preview-tabs">
-                <button
-                  type="button"
-                  className={classNames('planner-modal__draft-preview-tab', draftViewMode === 'rendered' && 'planner-modal__draft-preview-tab--active')}
-                  onClick={() => setDraftViewMode('rendered')}
-                >
-                  Preview
-                </button>
-                <button
-                  type="button"
-                  className={classNames('planner-modal__draft-preview-tab', draftViewMode === 'source' && 'planner-modal__draft-preview-tab--active')}
-                  onClick={() => setDraftViewMode('source')}
-                >
-                  Source
-                </button>
-              </div>
-              <button
-                type="button"
-                className="planner-modal__draft-expand-btn"
-                onClick={() => setDraftExpanded(true)}
-                aria-label="Expand draft"
-                title="Expand draft"
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                  <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="planner-modal__draft-preview-dismiss"
-                onClick={onDismissDraftPreview}
-                aria-label="Dismiss draft preview"
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-              </button>
-            </div>
-            <div
-              className="planner-modal__draft-preview-body planner-modal__draft-preview-body--clickable"
-              onClick={() => setDraftExpanded(true)}
-              role="button"
-              tabIndex={0}
-              aria-label="Click to expand draft"
-            >
-              {!draftExpanded && (draftViewMode === 'rendered' ? (
-                <MarkdownView content={stagedDraft.content} />
-              ) : (
-                <pre className="planner-modal__draft-preview-source">{stagedDraft.content}</pre>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {stagedDraft && draftExpanded && (
-          <ModalShell
-            isOpen={true}
-            onClose={() => setDraftExpanded(false)}
-            title={stagedDraft.filename}
-            maxWidth="700px"
-            variant="terminal"
-            accentColor="var(--terminal-cyan)"
-            className="planner-draft-popout"
-            zIndex={101}
-            footer={<>
-              <span className="planner-draft-popout__time">
-                Last saved {new Date(stagedDraft.modifiedAt).toLocaleTimeString()}
-              </span>
-              <span className="modal-shell__footer-esc">ESC to close</span>
-            </>}
-            ariaLabel={`Draft: ${stagedDraft.filename}`}
-          >
-            <MarkdownView content={stagedDraft.content} />
-          </ModalShell>
-        )}
-
         {sessionStatus === 'active' || sessionStatus === 'busy' || sessionStatus === 'failed' ? (
           <div className="planner-modal__actions">
             <span className="planner-modal__footer-esc">ESC to close</span>
@@ -440,6 +356,14 @@ function PlannerModal({
               disabled={!!isStreaming || !!awaitingDraft}
             >
               {awaitingDraft ? 'Drafting\u2026' : 'Draft Spec'}
+            </button>
+            <button
+              type="button"
+              className="action-button"
+              onClick={() => { void onRefreshDraft?.()?.then(() => setDraftPopoutOpen(true)); }}
+              disabled={!stagedDraft}
+            >
+              View Draft
             </button>
             <button
               type="button"
@@ -473,6 +397,28 @@ function PlannerModal({
         )}
       </section>
     </div>
+    {stagedDraft && draftPopoutOpen && (
+      <ModalShell
+        isOpen={true}
+        onClose={() => setDraftPopoutOpen(false)}
+        title={stagedDraft.filename}
+        maxWidth="700px"
+        variant="terminal"
+        accentColor="var(--terminal-cyan)"
+        className="planner-draft-popout"
+        zIndex={101}
+        footer={<>
+          <span className="modal-shell__footer-esc">ESC to close</span>
+          <span className="planner-draft-popout__time">
+            Last saved {new Date(stagedDraft.modifiedAt).toLocaleTimeString()}
+          </span>
+        </>}
+        ariaLabel={`Draft: ${stagedDraft.filename}`}
+      >
+        <MarkdownView content={stagedDraft.content} />
+      </ModalShell>
+    )}
+    </>
   );
 }
 

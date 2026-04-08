@@ -7,8 +7,10 @@ export type MarkdownViewProps = {
 type Block =
   | { type: 'h1'; text: string }
   | { type: 'h2'; text: string }
+  | { type: 'h3'; text: string }
   | { type: 'meta'; label: string; value: string }
   | { type: 'bullet'; text: string }
+  | { type: 'numbered'; index: string; text: string }
   | { type: 'code'; lang: string; lines: string[] }
   | { type: 'paragraph'; text: string };
 
@@ -46,6 +48,11 @@ function parseBlocks(raw: string): Block[] {
       i++;
       continue;
     }
+    if (line.startsWith('### ')) {
+      blocks.push({ type: 'h3', text: line.slice(4).trim() });
+      i++;
+      continue;
+    }
 
     // Metadata line: "- Label: Value"
     const metaMatch = line.match(/^-\s+([A-Za-z][A-Za-z0-9 ]+):\s+(.+)$/);
@@ -58,6 +65,14 @@ function parseBlocks(raw: string): Block[] {
     // Bullet item
     if (line.match(/^[-*]\s+/)) {
       blocks.push({ type: 'bullet', text: line.replace(/^[-*]\s+/, '') });
+      i++;
+      continue;
+    }
+
+    // Numbered list item
+    const numMatch = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numMatch) {
+      blocks.push({ type: 'numbered', index: numMatch[1], text: numMatch[2] });
       i++;
       continue;
     }
@@ -104,6 +119,12 @@ export default function MarkdownView({ content }: MarkdownViewProps): JSX.Elemen
                 {block.text}
               </h2>
             );
+          case 'h3':
+            return (
+              <h3 key={idx} className="task-md-view__h3">
+                {block.text}
+              </h3>
+            );
           case 'meta':
             return (
               <div key={idx} className="task-md-view__meta-line">
@@ -118,6 +139,13 @@ export default function MarkdownView({ content }: MarkdownViewProps): JSX.Elemen
             return (
               <div key={idx} className="task-md-view__bullet">
                 <span className="task-md-view__bullet-marker" aria-hidden="true" />
+                <span dangerouslySetInnerHTML={{ __html: renderInline(block.text) }} />
+              </div>
+            );
+          case 'numbered':
+            return (
+              <div key={idx} className="task-md-view__numbered">
+                <span className="task-md-view__numbered-index">{block.index}.</span>
                 <span dangerouslySetInnerHTML={{ __html: renderInline(block.text) }} />
               </div>
             );

@@ -284,14 +284,16 @@ export async function initializeStagedPlanningDraft(
 
   const taskKind = options.lineage?.taskKind ?? 'standard';
   const parentTaskId = trimOrEmpty(options.lineage?.parentTaskId);
+  const draftFilename = buildPlannerStagedFilename(title, now);
+  const fileTitle = draftFilename.replace(/\.md$/, '');
   const metadata: PlannerStagingSidecar = {
     version: 1,
     ownership: 'planner-session',
     sessionId: options.sessionId,
-    draftFilename: buildPlannerStagedFilename(title, now),
+    draftFilename,
     draftPath: '',
     createdAt: normalizeIsoTimestamp(now),
-    title,
+    title: fileTitle,
     primaryRepoId: trimOrEmpty(options.focusedRepo?.primaryRepoId),
     primaryRepoRoot: trimOrEmpty(options.focusedRepo?.primaryRepoRoot),
     primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,

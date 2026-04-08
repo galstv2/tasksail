@@ -37,7 +37,7 @@
 .shell__header .status-chip--active {
   background: var(--ts-accent-subtle);
   color: var(--ts-accent);
-  border-color: rgba(200, 135, 58, 0.20);
+  border-color: rgba(184, 134, 45, 0.20);
 }
 
 .shell__brand {

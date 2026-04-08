@@ -325,6 +325,22 @@ export function usePlannerModal(
     })();
   }, [plannerStream, client]);
 
+  const refreshStagedDraft = useCallback(async (): Promise<void> => {
+    try {
+      const readResult = await client.readStagedDraft();
+      if (!readResult.ok) {
+        setDraftError(readResult.error);
+        return;
+      }
+      const response = readResult.response;
+      if (response.action === 'planner.readStagedDraft' && response.mode === 'found' && response.draft) {
+        setStagedDraft(response.draft);
+      }
+    } catch (error: unknown) {
+      setDraftError(normalizeIpcThrownError(error, 'Failed to refresh staged draft.'));
+    }
+  }, [client]);
+
   const handleFinalizeSpec = useCallback(async (): Promise<void> => {
     try {
       const result = await client.finalizeSpec(childTaskModeRef.current ? 'child-task' : undefined);
@@ -344,11 +360,6 @@ export function usePlannerModal(
       setDraftError(normalizeIpcThrownError(error, 'Spec finalization failed unexpectedly.'));
     }
   }, [client]);
-
-  const handleDismissDraftPreview = useCallback((): void => {
-    setStagedDraft(null);
-    setDraftError('');
-  }, []);
 
   const handlePickMarkdownFile = useCallback((): void => {
     void (async () => {
@@ -423,8 +434,8 @@ export function usePlannerModal(
       awaitingDraft,
       stagedDraft,
       onViewDraft: handleViewDraft,
+      onRefreshDraft: refreshStagedDraft,
       onFinalizeSpec: handleFinalizeSpec,
-      onDismissDraftPreview: handleDismissDraftPreview,
       selectedMarkdownFile,
       onPickMarkdownFile: handlePickMarkdownFile,
       onClearSelectedFile: handleClearSelectedFile,
@@ -436,7 +447,7 @@ export function usePlannerModal(
       loadingArchivedTasks,
       childTaskBlocked,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, handleFinalizeSpec, handleDismissDraftPreview, selectedMarkdownFile, handlePickMarkdownFile, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
   );
 
   return { plannerModalProps, openPlannerModal };

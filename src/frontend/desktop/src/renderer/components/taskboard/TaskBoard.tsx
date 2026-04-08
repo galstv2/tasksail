@@ -186,11 +186,6 @@ function TaskBoard({
   return (
     <div className="task-board" aria-label="Task board">
       <div className="task-board__chrome">
-        <div className="task-board__dots">
-          <span className="task-board-dot task-board-dot--amber" />
-          <span className="task-board-dot task-board-dot--blue" />
-          <span className="task-board-dot task-board-dot--green" />
-        </div>
         <span className="task-board__title">Task Board</span>
         <span className="task-board__summary">
           {totalCount} task{totalCount !== 1 ? 's' : ''}

@@ -222,7 +222,7 @@ export function deriveStageCopy(args: {
   }
 
   const standardStageCopy: Record<ComposerStage, string> = {
-    compose: 'Start drafting with Lily before sending anything to the queue.',
+    compose: 'Plan your task with Lily, then send it to the queue.',
     preview: 'Review the queue-ready markdown shape without calling repo helper scripts.',
     confirm: 'Confirm the draft and submit it through the approved dropbox helper path.',
   };

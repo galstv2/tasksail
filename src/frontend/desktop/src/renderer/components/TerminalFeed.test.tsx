@@ -40,14 +40,10 @@ function renderFeed(overrides: Partial<TerminalFeedProps> = {}) {
 }
 
 describe('TerminalFeed', () => {
-  it('renders terminal chrome with traffic-light dots', () => {
+  it('renders terminal chrome with title', () => {
     renderFeed();
     const feed = screen.getByLabelText('Terminal feed');
-    const dots = feed.querySelectorAll('.terminal-dot');
-    expect(dots).toHaveLength(3);
-    expect(dots[0]).toHaveClass('terminal-dot--red');
-    expect(dots[1]).toHaveClass('terminal-dot--yellow');
-    expect(dots[2]).toHaveClass('terminal-dot--green');
+    expect(feed.querySelector('.terminal-feed__title')).toHaveTextContent('Terminal');
   });
 
   it('renders role filter tabs (All, Planner, Queue, Workflow, System)', () => {

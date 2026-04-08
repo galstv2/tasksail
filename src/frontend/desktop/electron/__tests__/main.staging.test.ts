@@ -57,8 +57,8 @@ describe('planner staging helpers', () => {
       now: new Date('2026-01-02T03:04:05.000Z'),
     });
 
-    expect(metadata.title).toBe('backend / services/orders');
     expect(metadata.draftFilename).toBe('20260102T030405Z_backend-services-orders.md');
+    expect(metadata.title).toBe('20260102T030405Z_backend-services-orders');
 
     const readResult = await readOwnedStagedDraft('planner-101');
     expect(readResult.error).toBeNull();
@@ -66,7 +66,7 @@ describe('planner staging helpers', () => {
     expect(readResult.draft).toEqual(expect.objectContaining({
       filename: '20260102T030405Z_backend-services-orders.md',
     }));
-    expect(readResult.draft?.content).toContain('# backend / services/orders');
+    expect(readResult.draft?.content).toContain('# 20260102T030405Z_backend-services-orders');
     expect(readResult.draft?.content).toContain('- Context Pack Dir: /contextpacks/orders');
     expect(readResult.draft?.content).toContain('- Selected Focus IDs: orders');
     expect(readResult.draft?.content).toContain('- Recommended Execution:');
@@ -74,7 +74,7 @@ describe('planner staging helpers', () => {
 
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
-      title: 'backend / services/orders',
+      title: '20260102T030405Z_backend-services-orders',
     }));
     await expect(readPlannerStagingLockOwnership()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',

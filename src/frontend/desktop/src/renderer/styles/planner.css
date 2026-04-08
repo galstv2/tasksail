@@ -131,63 +131,82 @@
   min-height: 200px;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  align-items: flex-start;
+  gap: 0.5rem;
   background: var(--ts-surface);
 }
 
-.planner-modal__empty {
-  margin: auto 0;
-  color: var(--ts-text-soft);
-  font-size: 0.8rem;
-  text-align: center;
-  padding: 2rem 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.planner-modal__empty p {
-  margin: 0;
-}
-
 .planner-msg {
-  margin-bottom: 0;
-  padding: 0.5rem 0.65rem;
-  border-radius: var(--ts-radius-md);
-  transition: background var(--ts-duration) var(--ts-ease);
+  padding: 0.55rem 0.75rem;
+  max-width: 85%;
 }
 
 .planner-msg--operator {
-  background: var(--ts-surface-alt);
+  align-self: flex-end;
+  background: var(--ts-chat-sender);
+  border-radius: var(--ts-radius-xl);
 }
 
 .planner-msg--planner {
-  background: transparent;
-}
-
-.planner-msg:hover {
-  background: var(--ts-surface-strong);
+  align-self: flex-start;
+  background: var(--ts-chat-receiver);
+  border-radius: var(--ts-radius-xl);
 }
 
 .planner-msg p {
   margin: 0.15rem 0 0;
   font-size: 0.84rem;
   line-height: 1.55;
+  color: var(--ts-text);
 }
 
-.planner-msg__role {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+.planner-msg__body {
+  margin-top: 0.15rem;
 }
 
-.planner-msg--operator .planner-msg__role {
-  color: var(--terminal-magenta, #d2a8ff);
+.planner-msg__body .task-md-view {
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--ts-text);
 }
 
-.planner-msg--planner .planner-msg__role {
-  color: var(--terminal-cyan, #79c0ff);
+.planner-msg__body .task-md-view__h1 {
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.35rem;
+  color: var(--ts-brand-blue);
+}
+
+.planner-msg__body .task-md-view__h2 {
+  font-size: 0.88rem;
+  margin: 0.75rem 0 0.35rem;
+  padding-bottom: 0.2rem;
+  color: var(--ts-text);
+  border-bottom-color: var(--ts-border);
+}
+
+.planner-msg__body .task-md-view__h3 {
+  font-size: 0.84rem;
+  margin: 0.6rem 0 0.25rem;
+  color: var(--ts-text);
+}
+
+.planner-msg__body .task-md-view__inline-code {
+  color: var(--ts-brand-blue);
+  background: rgba(45, 74, 140, 0.08);
+  border-color: rgba(45, 74, 140, 0.12);
+}
+
+.planner-msg__body .task-md-view__bullet-marker::before {
+  color: var(--ts-brand-blue);
+}
+
+.planner-msg__body .task-md-view__numbered-index {
+  color: var(--ts-brand-blue);
+}
+
+.planner-msg__body .task-md-view__meta-label {
+  color: var(--ts-text-muted);
 }
 
 .planner-msg__cursor {
@@ -489,7 +508,7 @@
 .planner-modal__session-status--active {
   color: var(--ts-success);
   border-color: var(--ts-success);
-  background: rgba(63, 185, 80, 0.06);
+  background: rgba(90, 173, 112, 0.06);
 }
 
 .planner-modal__session-status--busy {
@@ -504,137 +523,6 @@
   background: rgba(220, 38, 38, 0.05);
 }
 
-/* ── §24.02a1  Draft preview panel ──────────────────────────────────── */
-
-.planner-modal__draft-preview {
-  border-top: 1px solid var(--ts-border);
-  background: var(--ts-surface-alt);
-  overflow: hidden;
-}
-
-.planner-modal__draft-preview-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  border-bottom: 1px solid var(--ts-border);
-}
-
-.planner-modal__draft-preview-filename {
-  font-family: var(--ts-font-mono);
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--ts-accent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.planner-modal__draft-preview-time {
-  font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
-  color: var(--ts-text-soft);
-  margin-left: auto;
-}
-
-.planner-modal__draft-preview-dismiss,
-.planner-modal__draft-expand-btn {
-  border: none;
-  background: transparent;
-  color: var(--ts-text-soft);
-  cursor: pointer;
-  padding: 0.15rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--ts-radius-sm);
-  transition: background var(--ts-duration) var(--ts-ease),
-              color var(--ts-duration) var(--ts-ease);
-}
-
-.planner-modal__draft-preview-dismiss:hover {
-  background: var(--ts-surface-strong);
-  color: var(--ts-text);
-}
-
-.planner-modal__draft-preview-tabs {
-  display: flex;
-  gap: 2px;
-  background: var(--ts-surface-strong);
-  border-radius: var(--ts-radius-sm);
-  padding: 2px;
-}
-
-.planner-modal__draft-preview-tab {
-  border: none;
-  background: transparent;
-  color: var(--ts-text-soft);
-  font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--ts-radius-sm);
-  cursor: pointer;
-  transition: background var(--ts-duration) var(--ts-ease),
-              color var(--ts-duration) var(--ts-ease);
-}
-
-.planner-modal__draft-preview-tab:hover {
-  color: var(--ts-text-muted);
-}
-
-.planner-modal__draft-preview-tab--active {
-  background: var(--ts-surface);
-  color: var(--ts-accent);
-  box-shadow: var(--ts-shadow-sm);
-}
-
-.planner-modal__draft-preview-body {
-  padding: 0.65rem 0.85rem;
-  max-height: 240px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
-}
-
-.planner-modal__draft-preview-body::-webkit-scrollbar { width: var(--ts-scrollbar-width); }
-.planner-modal__draft-preview-body::-webkit-scrollbar-track { background: var(--ts-scrollbar-track); }
-.planner-modal__draft-preview-body::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb);
-  border-radius: var(--ts-radius-pill);
-}
-.planner-modal__draft-preview-body::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-scrollbar-thumb-hover);
-}
-
-.planner-modal__draft-preview-source {
-  margin: 0;
-  font-family: var(--ts-font-mono);
-  font-size: 0.73rem;
-  color: var(--ts-text);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.planner-modal__draft-expand-btn:hover {
-  background: var(--ts-surface-strong);
-  color: var(--ts-accent);
-}
-
-/* ── Draft preview body clickable ────────────────────────────────────── */
-
-.planner-modal__draft-preview-body--clickable {
-  cursor: pointer;
-  transition: background var(--ts-duration) var(--ts-ease);
-}
-
-.planner-modal__draft-preview-body--clickable:hover {
-  background: color-mix(in srgb, var(--ts-accent) 3%, transparent);
-}
-
 /* ── Draft pop-out modal ─────────────────────────────────────────────── */
 
 .planner-draft-popout .modal-shell__body {
@@ -645,6 +533,7 @@
   font-family: var(--ts-font-mono);
   font-size: 0.68rem;
   color: var(--ts-text-soft);
+  margin-left: auto;
 }
 
 /* ── §24.02b  Reconnect bar ────────────────────────────────────────── */
@@ -683,14 +572,35 @@
 
 /* ── §24.1  Sail-Away Screen ─────────────────────────────────────────── */
 
-.sail-screen {
+/* ── Sail overlay — compact centered toast ────────────────────────── */
+
+.sail-overlay {
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 180px;
+  background: rgba(0, 0, 0, 0.25);
+  z-index: var(--ts-z-modal);
+  animation: sail-overlay-in 200ms ease forwards;
+}
+
+@keyframes sail-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.sail-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 100px;
   background: var(--ts-surface);
+  border-radius: var(--ts-radius-xl);
+  box-shadow: var(--ts-shadow-xl);
   user-select: none;
+  overflow: hidden;
 }
 
 /* ── Countdown ───────────────────────────────────────────────────────── */
@@ -699,8 +609,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
 }
 
 .sail-countdown__number {

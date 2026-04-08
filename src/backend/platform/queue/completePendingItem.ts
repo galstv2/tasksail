@@ -38,6 +38,7 @@ export async function completePendingItem(
     );
   }
 
+  let resolvedArchiveMdPath: string | undefined;
   if (!options.skipArchive) {
     const contextPackDir = options.contextPackDir
       ?? await requireAuthorizedActiveContextPack({ repoRoot });
@@ -67,6 +68,9 @@ export async function completePendingItem(
         `Completion blocked: task archival failed (exit ${archiveResult.exitCode}).${suffix}`,
       );
     }
+    if (typeof archiveResult.data?.record_md_path === 'string') {
+      resolvedArchiveMdPath = archiveResult.data.record_md_path;
+    }
   }
 
   const release = await acquireDirLockOrThrow(
@@ -94,6 +98,7 @@ export async function completePendingItem(
       try {
         await transitionTask(repoRoot, activeTaskId, 'active', 'completed', {
           completedAt: new Date().toISOString(),
+          archivePath: resolvedArchiveMdPath ?? null,
         });
       } catch { /* best-effort */ }
     }
