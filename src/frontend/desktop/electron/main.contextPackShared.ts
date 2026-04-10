@@ -82,4 +82,8 @@ export function portablePathBasename(filePath: string): string {
   return /^[A-Za-z]:$/.test(candidate) ? '' : candidate;
 }
 
+export function readDeepFocusPath(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 export { stringOrNull, resolve };

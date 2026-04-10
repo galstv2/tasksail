@@ -145,6 +145,20 @@ describe('resolveTestCaptureCwd', () => {
     })).resolves.toBe('/target-repo/services/sink');
   });
 
+  it('uses the parent directory when the selected focus target is a file', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/target-repo',
+      primaryFocusRelativePath: 'services/sink/index.ts',
+      primaryFocusTargetKind: 'file',
+    });
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/sink');
+
+    await expect(resolveTestCaptureCwd({
+      repoRoot: '/platform',
+      contextPackDir: '/context-pack',
+    })).resolves.toBe('/target-repo/services/sink');
+  });
+
   it('returns undefined when the selected monolith focus subfolder is missing on disk', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue({
       primaryRepoRoot: '/target-repo',
@@ -172,7 +186,7 @@ describe('buildTestCapturePrompt', () => {
   it('adds Ron-scoped external MCP guidance when matching servers exist', () => {
     const prompt = buildTestCapturePrompt(
       [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       externalRegistry,
     );
 

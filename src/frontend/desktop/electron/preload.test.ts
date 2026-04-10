@@ -47,6 +47,7 @@ describe('electron preload bridge', () => {
         discoverContextPackPrefill: expect.any(Function),
         createContextPack: expect.any(Function),
         listContextPacks: expect.any(Function),
+        listRepoTree: expect.any(Function),
         reseedContextPack: expect.any(Function),
         previewContextPackSwitch: expect.any(Function),
         applyContextPackSwitch: expect.any(Function),
@@ -153,6 +154,7 @@ describe('electron preload bridge', () => {
       },
     });
     await desktopShellApi.listContextPacks();
+    await desktopShellApi.listRepoTree('/tmp/estate-root/orders-api', 'src/components');
     await desktopShellApi.reseedContextPack('/tmp/context-packs/orders-estate');
     await desktopShellApi.previewContextPackSwitch(
       '/tmp/context-packs/orders-estate',
@@ -265,6 +267,13 @@ describe('electron preload bridge', () => {
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.list',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPack.listRepoTree',
+      payload: {
+        repoLocalPath: '/tmp/estate-root/orders-api',
+        relativePath: 'src/components',
+      },
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.reseed',

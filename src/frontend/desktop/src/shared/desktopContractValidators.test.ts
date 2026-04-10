@@ -109,6 +109,45 @@ describe('validateDesktopActionRequest', () => {
       expect(errors).toEqual([]);
     });
 
+    it('accepts valid deep focus switch metadata', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          selectedRepoIds: ['orders-api'],
+          deepFocusEnabled: true,
+          selectedFocusPath: 'src/orders',
+          selectedFocusTargetKind: 'directory',
+          selectedTestTarget: {
+            path: 'tests/orders',
+            kind: 'directory',
+          },
+          selectedSupportTargets: [
+            {
+              path: 'docs/orders.md',
+              kind: 'file',
+            },
+          ],
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('accepts repo-root deep focus metadata without selectedFocusTargetKind', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          selectedRepoIds: ['orders-api'],
+          deepFocusEnabled: true,
+          selectedFocusPath: '',
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
     it('validates selectedRepoIds array entries', () => {
       const errors = validateDesktopActionRequest({
         action: 'contextPack.previewSwitch',
@@ -120,6 +159,36 @@ describe('validateDesktopActionRequest', () => {
       });
       expect(errors).toContainEqual(
         'payload.selectedRepoIds[1] must be a non-empty string.',
+      );
+    });
+
+    it('rejects deep focus metadata when deep focus is disabled', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.previewSwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          selectedFocusPath: 'src/orders',
+        },
+      });
+      expect(errors).toContainEqual(
+        'payload.deepFocusEnabled must be true when Deep Focus target metadata is provided.',
+      );
+    });
+
+    it('rejects multi-select repo ids in deep focus mode', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.previewSwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedRepoIds: ['orders-api', 'orders-web'],
+          selectedFocusTargetKind: 'directory',
+        },
+      });
+      expect(errors).toContainEqual(
+        'payload.selectedRepoIds must contain at most one entry when deepFocusEnabled is true.',
       );
     });
   });

@@ -45,7 +45,7 @@ describe('verification Dalton prompts', () => {
 
     const prompt = buildVerificationDaltonPrompt(
       ['pnpm test'],
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       daltonRegistry,
       '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
     );
@@ -54,7 +54,7 @@ describe('verification Dalton prompts', () => {
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('## Verification Diff File');
     expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
-    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff');
     expect(prompt).toContain('## Validation Commands');
   });
@@ -85,7 +85,7 @@ describe('verification Dalton prompts', () => {
     const prompt = await resolveVerificationDaltonPrompt(
       '/handoffs',
       '/implementation-steps',
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       daltonRegistry,
       '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
       'The orchestrator could not stage the verification diff file.',
@@ -94,7 +94,7 @@ describe('verification Dalton prompts', () => {
     expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('## Verification Diff File');
-    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff');
     expect(prompt).toContain('Warning: The orchestrator could not stage the verification diff file.');
     expect(prompt).not.toContain('Implementation Spec');

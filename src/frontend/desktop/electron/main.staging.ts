@@ -9,6 +9,11 @@ import {
 } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FocusedRepoResult } from '../../../backend/platform/context-pack/focusedRepo.js';
+import type {
+  FocusTarget,
+  FocusTargetKind,
+  NormalizedSupportTarget,
+} from '../../../backend/platform/context-pack/deepFocusNormalization.js';
 import { sleep } from '../../../backend/platform/core/io.js';
 import { slugify } from '../../../backend/platform/core/text.js';
 import { formatContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
@@ -41,6 +46,11 @@ export type PlannerStagingContextPackBinding = {
   scopeMode: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled: boolean;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: FocusTargetKind | null;
+  selectedTestTarget: FocusTarget | null;
+  selectedSupportTargets: NormalizedSupportTarget[];
 };
 
 export type PlannerStagingSidecar = {
@@ -54,6 +64,10 @@ export type PlannerStagingSidecar = {
   primaryRepoId: string;
   primaryRepoRoot: string;
   primaryFocusRelativePath: string | null;
+  deepFocusEnabled: boolean;
+  primaryFocusTargetKind: FocusTargetKind | null;
+  selectedTestTarget: FocusTarget | null;
+  supportTargets: NormalizedSupportTarget[];
   lineage: PlannerStagingLineage;
   contextPackBinding: PlannerStagingContextPackBinding;
 };
@@ -72,6 +86,10 @@ export type InitializeStagedPlanningDraftOptions = {
     | 'primaryRepoId'
     | 'primaryRepoRoot'
     | 'primaryFocusRelativePath'
+    | 'deepFocusEnabled'
+    | 'primaryFocusTargetKind'
+    | 'selectedTestTarget'
+    | 'supportTargets'
     | 'selectedRepoIds'
     | 'selectedFocusIds'
   >;
@@ -173,6 +191,7 @@ export function derivePlannerDraftTitle(args: {
   primaryRepoId?: string | null;
   primaryRepoRoot?: string | null;
   primaryFocusRelativePath?: string | null;
+  primaryFocusTargetKind?: FocusTargetKind | null;
 }): string {
   const primaryRepoId = trimOrEmpty(args.primaryRepoId);
   const primaryRepoRoot = trimOrEmpty(args.primaryRepoRoot);
@@ -183,7 +202,12 @@ export function derivePlannerDraftTitle(args: {
   }
 
   const primaryFocusRelativePath = trimOrEmpty(args.primaryFocusRelativePath);
-  return primaryFocusRelativePath ? `${baseTitle} / ${primaryFocusRelativePath}` : baseTitle;
+  if (!primaryFocusRelativePath) {
+    return baseTitle;
+  }
+
+  const title = `${baseTitle} / ${primaryFocusRelativePath}`;
+  return args.primaryFocusTargetKind === 'file' ? `${title} (file)` : title;
 }
 
 export async function readPlannerStagingSidecar(): Promise<PlannerStagingSidecar | null> {
@@ -276,6 +300,7 @@ export async function initializeStagedPlanningDraft(
     primaryRepoId: options.focusedRepo?.primaryRepoId,
     primaryRepoRoot: options.focusedRepo?.primaryRepoRoot,
     primaryFocusRelativePath: options.focusedRepo?.primaryFocusRelativePath,
+    primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind,
   });
 
   if (!title) {
@@ -286,6 +311,14 @@ export async function initializeStagedPlanningDraft(
   const parentTaskId = trimOrEmpty(options.lineage?.parentTaskId);
   const draftFilename = buildPlannerStagedFilename(title, now);
   const fileTitle = draftFilename.replace(/\.md$/, '');
+  const isDeepFocus = options.focusedRepo?.deepFocusEnabled === true;
+  const deepFocusTestTarget = isDeepFocus
+    ? (options.focusedRepo!.selectedTestTarget ? { ...options.focusedRepo!.selectedTestTarget } : null)
+    : null;
+  const deepFocusSupportTargets = isDeepFocus
+    ? options.focusedRepo!.supportTargets?.map((target) => ({ ...target })) ?? []
+    : [];
+
   const metadata: PlannerStagingSidecar = {
     version: 1,
     ownership: 'planner-session',
@@ -297,6 +330,10 @@ export async function initializeStagedPlanningDraft(
     primaryRepoId: trimOrEmpty(options.focusedRepo?.primaryRepoId),
     primaryRepoRoot: trimOrEmpty(options.focusedRepo?.primaryRepoRoot),
     primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+    deepFocusEnabled: isDeepFocus,
+    primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
+    selectedTestTarget: deepFocusTestTarget,
+    supportTargets: deepFocusSupportTargets,
     lineage: {
       taskKind,
       parentTaskId,
@@ -311,6 +348,11 @@ export async function initializeStagedPlanningDraft(
       scopeMode: derivePlannerScopeMode(options.focusedRepo, options.contextPackDir),
       selectedRepoIds: [...(options.focusedRepo?.selectedRepoIds ?? [])],
       selectedFocusIds: [...(options.focusedRepo?.selectedFocusIds ?? [])],
+      deepFocusEnabled: isDeepFocus,
+      selectedFocusPath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+      selectedFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
+      selectedTestTarget: deepFocusTestTarget,
+      selectedSupportTargets: deepFocusSupportTargets,
     },
   };
   metadata.draftPath = join(STAGING_DIR, metadata.draftFilename);

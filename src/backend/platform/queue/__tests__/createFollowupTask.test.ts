@@ -129,4 +129,23 @@ describe('createFollowupTask', () => {
       createFollowupTask({ ...PMSE_OPTIONS, followupReason: '' }),
     ).rejects.toThrow('--followup-reason is required');
   });
+
+  it('forwards Deep Focus metadata to the dropbox task creator', async () => {
+    await createFollowupTask({
+      ...PMSE_OPTIONS,
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    }));
+  });
 });

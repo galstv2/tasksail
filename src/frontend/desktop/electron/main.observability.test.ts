@@ -50,6 +50,18 @@ vi.mock('../../../backend/platform/context-pack/focusedRepo.js', () => ({
     estateType: 'distributed-platform',
     authoritySource: 'manifest-primary',
   })),
+  resolveSelectedPrimaryRepoRoot: vi.fn(async () => ({
+    primaryRepoId: 'test-repo',
+    primaryRepoRoot: '/repos/test-repo',
+    primaryFocusRelativePath: null,
+    visibleRepoRoots: ['/repos/test-repo'],
+    declaredRepoRoots: ['/repos/test-repo'],
+    selectedRepoIds: ['test-repo'],
+    selectedFocusIds: [],
+    estateType: 'distributed-platform',
+    authoritySource: 'manifest-primary',
+  })),
+  collectFocusedRepoTargetDirectoryRoots: vi.fn(() => []),
 }));
 
 vi.mock('./main.staging', () => ({

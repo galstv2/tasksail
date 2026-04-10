@@ -294,6 +294,13 @@ describe("App", () => {
       'focused',
       ['orders-api'],
       [],
+      {
+        deepFocusEnabled: false,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedTestTarget: undefined,
+        selectedSupportTargets: [],
+      },
     );
   });
 

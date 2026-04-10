@@ -22,7 +22,7 @@
 - Selected Focus IDs:
 
 ## Request Summary
-<!-- (2+ sentences) — say what the task is, why it is being asked for, and what concrete result is wanted. Use the operator's exact terms when possible. Include any behavior, artifact, or workflow that must stay unchanged. Do not do codebase research here; give the clearest possible statement of the ask. -->
+<!-- (2+ sentences) — say what the task is, why it is being asked for, and what concrete result is wanted. Use the Guide's exact terms when possible. Include any behavior, artifact, or workflow that must stay unchanged. Do not do codebase research here; give the clearest possible statement of the ask. -->
 
 ## Desired Outcome
 <!-- (1+ sentences) — describe what success looks like when this task is complete. Name the end state clearly, especially any required UX, behavior, policy, or artifact outcome. -->

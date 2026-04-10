@@ -8,7 +8,7 @@ import {
   buildTestCapturePrompt,
   resolveTestCaptureCwd,
 } from './testCapture.js';
-import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
@@ -176,7 +176,7 @@ export async function remediationClearCloseoutArtifacts(
 async function buildRemediationDaltonPrompt(
   issuesContent: string | undefined,
   implStepsDir: string,
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
 ): Promise<string> {
   const parts: string[] = [
@@ -192,7 +192,7 @@ async function buildRemediationDaltonPrompt(
     '6. Do not add, refactor, or improve anything beyond what the Required Fix demands. Surgical precision only.',
     '',
   ];
-  appendFocusBlock(parts, primaryFocusRelativePath);
+  appendFocusBlock(parts, focusScope);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (issuesContent?.trim()) {
@@ -221,7 +221,7 @@ export async function remediationRunQaLoop(options: {
   maxCycles?: number;
   repoRoot?: string;
   contextPackDir?: string;
-  primaryFocusRelativePath?: string;
+  focusScope?: FocusScopePromptOptions;
   externalMcpRegistry?: ExternalMcpRegistry;
   abortSignal?: AbortSignal;
 }): Promise<void> {
@@ -237,7 +237,7 @@ export async function remediationRunQaLoop(options: {
     const remediationPrompt = await buildRemediationDaltonPrompt(
       priorFindings,
       paths.implementationSteps,
-      options.primaryFocusRelativePath,
+      options.focusScope,
       options.externalMcpRegistry,
     );
 
@@ -274,7 +274,7 @@ export async function remediationRunQaLoop(options: {
     }
     const ronPromptOverride = buildTestCapturePrompt(
       capture.results,
-      options.primaryFocusRelativePath,
+      options.focusScope,
       options.externalMcpRegistry,
     );
 

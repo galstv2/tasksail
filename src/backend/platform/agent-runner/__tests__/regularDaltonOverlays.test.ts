@@ -1,18 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const existsSync = vi.fn<(path: string) => boolean>();
 const readTextFile = vi.fn<(path: string) => Promise<string | null>>();
 const resolveConventionsContext = vi.fn();
 const resolveCorrectionsContext = vi.fn();
 const resolveReinforcementContext = vi.fn();
-
-vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
-  return {
-    ...actual,
-    existsSync,
-  };
-});
 
 vi.mock('../../core/index.js', () => ({
   readTextFile,
@@ -46,8 +37,7 @@ describe('formatRegularDaltonOverlaySections', () => {
     });
   });
 
-  it('checks overlay existence before reading and skips missing overlays', async () => {
-    existsSync.mockImplementation((candidate: string) => candidate !== '/repo/.platform-state/runtime/context-pack-corrections.md');
+  it('skips overlays whose content is unavailable', async () => {
     readTextFile.mockImplementation(async (candidate: string) => {
       if (candidate === '/repo/.platform-state/runtime/context-pack-conventions.md') {
         return '# Conventions\nFollow the pack rules.';
@@ -71,11 +61,8 @@ describe('formatRegularDaltonOverlaySections', () => {
     expect(prompt).toContain('---\n\n### Reinforcement');
     expect(prompt).toContain('### Reinforcement');
     expect(prompt).toContain('Keep changes tightly scoped.');
-    expect(existsSync).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-conventions.md');
-    expect(existsSync).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-corrections.md');
-    expect(existsSync).toHaveBeenCalledWith('/repo/AgentWorkSpace/qmd/global/agent-rewards/software-engineer.md');
     expect(readTextFile).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-conventions.md');
+    expect(readTextFile).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-corrections.md');
     expect(readTextFile).toHaveBeenCalledWith('/repo/AgentWorkSpace/qmd/global/agent-rewards/software-engineer.md');
-    expect(readTextFile).not.toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-corrections.md');
   });
 });

@@ -9,6 +9,9 @@
   border-right: 1px solid var(--ts-border);
   box-shadow: none;
   background: var(--ts-sidebar-bg);
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
 }
 
 /* ── Sidebar header ──────────────────────────────────────────────────── */
@@ -871,4 +874,825 @@
 
 .sidebar-toolbar-btn:hover svg {
   opacity: 1;
+}
+
+
+/* ── Deep Focus Mode ───────────────────────────────────────────────────── */
+
+.sidebar-footer--hidden {
+  display: none;
+}
+
+.deep-focus-sidebar--expanded {
+  position: relative;
+  overflow: visible;
+  z-index: calc(var(--ts-z-dropdown) + 4);
+}
+
+.deep-focus-sidebar--closing {
+  position: relative;
+  overflow: visible;
+  z-index: calc(var(--ts-z-dropdown) + 3);
+}
+
+.deep-focus-shell {
+  position: relative;
+  overflow: visible;
+  transition:
+    width 250ms var(--ts-ease),
+    box-shadow 250ms var(--ts-ease);
+}
+
+.deep-focus-shell--expanded {
+  width: 420px;
+  max-width: min(420px, calc(100vw - 2.5rem));
+  box-shadow: var(--ts-shadow-xl);
+  z-index: calc(var(--ts-z-dropdown) + 4);
+  transition:
+    width 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 250ms var(--ts-ease);
+}
+
+.deep-focus-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.deep-focus-toggle-row__label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ts-text-muted);
+}
+
+.deep-focus-toggle {
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-strong, var(--ts-surface-alt));
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition:
+    background var(--ts-duration) var(--ts-ease),
+    box-shadow 250ms var(--ts-ease);
+}
+
+.deep-focus-toggle--active {
+  box-shadow: 0 0 8px var(--ts-accent-subtle);
+}
+
+.deep-focus-toggle__knob {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--ts-text-soft);
+  transition: background 250ms var(--ts-ease);
+}
+
+.deep-focus-toggle--active .deep-focus-toggle__knob {
+  animation: deepFocusKnobOn 250ms var(--ts-ease) forwards;
+  background: var(--ts-accent);
+}
+
+.deep-focus-toggle:not(.deep-focus-toggle--active) .deep-focus-toggle__knob {
+  animation: deepFocusKnobOff 250ms var(--ts-ease) forwards;
+}
+
+.deep-focus-backdrop {
+  position: fixed;
+  inset: 42px 0 0;
+  border: none;
+  background: rgba(8, 12, 20, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease-out;
+  z-index: calc(var(--ts-z-dropdown) + 1);
+}
+
+.deep-focus-backdrop--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.deep-focus-backdrop--closing {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-in;
+}
+
+.deep-focus-summary {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.6rem 0.6rem;
+  border-top: 1px solid var(--ts-border);
+}
+
+.deep-focus-summary__primary,
+.deep-focus-summary__test,
+.deep-focus-summary__support {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.4rem 0.5rem;
+  border-left: 3px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-surface-alt);
+}
+
+.deep-focus-summary__primary {
+  border-left-color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+.deep-focus-summary__primary--colocated {
+  background:
+    linear-gradient(to bottom, var(--ts-accent) 0 60%, var(--ts-success) 60% 100%) left / 3px 100% no-repeat,
+    var(--ts-accent-subtle);
+  border-left-color: transparent;
+}
+
+.deep-focus-summary__test {
+  border-left-width: 2px;
+  border-left-color: var(--ts-success);
+}
+
+.deep-focus-summary__test--dismissed {
+  border-left-color: var(--ts-warning);
+  background: color-mix(in srgb, var(--ts-warning) 8%, var(--ts-surface-alt));
+}
+
+.deep-focus-summary__support {
+  border-left-width: 1px;
+  border-left-color: var(--ts-accent2);
+}
+
+.deep-focus-summary__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.deep-focus-summary__title {
+  min-width: 0;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--ts-text);
+}
+
+.deep-focus-summary__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ts-font-mono);
+  font-size: 0.65rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-summary__empty {
+  margin: 0;
+  padding: 0.55rem 0.35rem;
+  color: var(--ts-text-soft);
+  font-size: 0.74rem;
+  font-style: italic;
+  text-align: center;
+}
+
+.deep-focus-summary__metrics {
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-summary__overflow {
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-summary__action {
+  width: 100%;
+  justify-content: center;
+}
+
+.deep-focus-editor {
+  border-top: 1px solid var(--ts-border);
+}
+
+.deep-focus-editor__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 540px;
+  max-height: min(70vh, 720px);
+}
+
+.deep-focus-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.25rem 0.6rem;
+  border-top: 1px solid var(--ts-border);
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+  overflow: hidden;
+}
+
+.deep-focus-breadcrumb__item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.deep-focus-breadcrumb__segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 200ms ease;
+}
+
+.deep-focus-breadcrumb__segment:hover:not(.deep-focus-breadcrumb__segment--current) {
+  color: var(--ts-text-muted);
+}
+
+.deep-focus-breadcrumb__segment svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-breadcrumb__segment--current {
+  color: var(--ts-text);
+  font-weight: 600;
+  cursor: default;
+}
+
+.deep-focus-breadcrumb__item:last-child .deep-focus-breadcrumb__segment {
+  animation: deepFocusBreadcrumbSegmentIn 200ms ease both;
+}
+
+.deep-focus-breadcrumb__separator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: color-mix(in srgb, var(--ts-text-soft) 50%, transparent);
+}
+
+.deep-focus-breadcrumb__overflow {
+  position: relative;
+}
+
+.deep-focus-breadcrumb__overflow summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.deep-focus-breadcrumb__overflow summary::-webkit-details-marker {
+  display: none;
+}
+
+.deep-focus-breadcrumb__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  padding: 0.2rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  box-shadow: var(--ts-shadow-lg);
+  z-index: calc(var(--ts-z-dropdown) + 3);
+}
+
+.deep-focus-breadcrumb__menu-item {
+  width: 100%;
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  padding: 0.35rem 0.45rem;
+  background: transparent;
+  color: var(--ts-text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.deep-focus-breadcrumb__menu-item:hover {
+  background: var(--ts-bg-hover);
+}
+
+.deep-focus-list {
+  flex: 1;
+  min-height: 220px;
+  overflow-y: auto;
+  padding: 0.35rem 0.35rem 0.55rem;
+  display: grid;
+  align-content: start;
+  gap: 0.18rem;
+  transition:
+    opacity 180ms ease,
+    transform 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deep-focus-list--drill-forward-exit,
+.deep-focus-list--drill-backward-exit {
+  opacity: 0.72;
+}
+
+.deep-focus-list--drill-forward-exit {
+  transform: translateX(-40%);
+  transition:
+    opacity 180ms ease,
+    transform 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deep-focus-list--drill-backward-exit {
+  transform: translateX(20%);
+  transition:
+    opacity 180ms ease,
+    transform 200ms var(--ts-ease);
+}
+
+.deep-focus-list--drill-forward-enter,
+.deep-focus-list--drill-backward-enter {
+  opacity: 1;
+}
+
+.deep-focus-list--drill-forward-enter {
+  animation: deepFocusDrillForwardIn 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deep-focus-list--drill-backward-enter {
+  animation: deepFocusDrillBackwardIn 200ms var(--ts-ease);
+}
+
+@keyframes deepFocusDrillForwardIn {
+  from {
+    opacity: 0;
+    transform: translateX(25%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes deepFocusDrillBackwardIn {
+  from {
+    opacity: 0;
+    transform: translateX(-40%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.deep-focus-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 24px 24px 16px;
+  gap: 0.35rem;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.32rem 0.45rem;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  transition:
+    background 200ms ease,
+    box-shadow 150ms ease;
+}
+
+.deep-focus-row:hover {
+  background: var(--ts-bg-hover);
+}
+
+.deep-focus-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.deep-focus-row--directory {
+  color: var(--ts-text);
+  font-weight: 500;
+}
+
+.deep-focus-row--file {
+  color: var(--ts-text-muted);
+  font-weight: 400;
+}
+
+.deep-focus-row--selected {
+  border-left-color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+.deep-focus-row--selected .status-chip--active {
+  animation: deepFocusBadgeEntrance 200ms ease both;
+}
+
+.deep-focus-row--test-selected {
+  border-left-width: 2px;
+  border-left-color: var(--ts-success);
+}
+
+.deep-focus-row--support-selected {
+  border-left-width: 1px;
+  border-left-color: var(--ts-accent2);
+}
+
+.deep-focus-row--primary-and-test {
+  border-left-color: transparent;
+  background:
+    linear-gradient(to bottom, var(--ts-accent) 0 60%, var(--ts-success) 60% 100%) left / 3px 100% no-repeat,
+    var(--ts-accent-subtle);
+}
+
+.deep-focus-row--primary-and-test .deep-focus-row__test-toggle--active {
+  filter: drop-shadow(0 0 3px var(--ts-success-tint));
+}
+
+.deep-focus-row__icon,
+.deep-focus-row__chevron {
+  color: var(--ts-text-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.deep-focus-row__chevron {
+  transition: transform 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deep-focus-row__chevron--drilling {
+  transform: rotate(90deg);
+}
+
+.deep-focus-row__icon svg,
+.deep-focus-row__chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-row__label {
+  min-width: 0;
+  display: grid;
+  gap: 0.06rem;
+}
+
+.deep-focus-row__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.deep-focus-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-focus-row__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-row__test-toggle,
+.deep-focus-row__support-toggle {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--ts-radius-pill);
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.deep-focus-row__test-toggle svg,
+.deep-focus-row__support-toggle svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.deep-focus-row__test-toggle--active {
+  color: var(--ts-success);
+}
+
+.deep-focus-row__support-toggle--active {
+  color: var(--ts-accent2);
+}
+
+.deep-focus-row__test-toggle--disabled,
+.deep-focus-row__support-toggle--disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.deep-focus-row {
+  animation: deepFocusRowEntrance 200ms ease both;
+}
+
+.deep-focus-row:nth-child(1)  { animation-delay: 0ms; }
+.deep-focus-row:nth-child(2)  { animation-delay: 30ms; }
+.deep-focus-row:nth-child(3)  { animation-delay: 60ms; }
+.deep-focus-row:nth-child(4)  { animation-delay: 90ms; }
+.deep-focus-row:nth-child(5)  { animation-delay: 120ms; }
+.deep-focus-row:nth-child(6)  { animation-delay: 150ms; }
+.deep-focus-row:nth-child(7)  { animation-delay: 180ms; }
+.deep-focus-row:nth-child(8)  { animation-delay: 210ms; }
+.deep-focus-row:nth-child(n+9) { animation-delay: 240ms; }
+
+.deep-focus-loading-row,
+.deep-focus-truncation-notice,
+.deep-focus-empty-state {
+  border-radius: var(--ts-radius-sm);
+  padding: 0.45rem 0.55rem;
+  text-align: center;
+  color: var(--ts-text-soft);
+  font-size: 0.72rem;
+}
+
+.deep-focus-loading-row {
+  height: 28px;
+  border: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+  animation:
+    deepFocusLoadingFadeIn 100ms ease both,
+    cardGridLoadPulse 800ms 100ms ease-in-out infinite alternate;
+}
+
+.deep-focus-truncation-notice {
+  background: var(--ts-surface-alt);
+  font-style: italic;
+}
+
+.deep-focus-empty-state {
+  align-self: stretch;
+  padding: 1.5rem 0.55rem;
+  font-style: italic;
+}
+
+.deep-focus-selection-tray {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border-top: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+  flex-shrink: 0;
+}
+
+.deep-focus-selection-tray--collapsed {
+  gap: 0;
+}
+
+.deep-focus-selection-tray__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.deep-focus-selection-tray__summary-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--ts-text-soft);
+  text-align: left;
+}
+
+.deep-focus-selection-tray__toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-selection-tray__toggle-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-selection-tray__section {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.deep-focus-selection-tray__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-selection-tray__value,
+.deep-focus-selection-tray__empty {
+  display: grid;
+  gap: 0.08rem;
+  padding: 0.35rem 0.45rem;
+  border-left: 3px solid var(--ts-accent);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-surface);
+  color: var(--ts-text);
+}
+
+.deep-focus-selection-tray__value--colocated {
+  background:
+    linear-gradient(to bottom, var(--ts-accent) 0 60%, var(--ts-success) 60% 100%) left / 3px 100% no-repeat,
+    var(--ts-surface);
+  border-left-color: transparent;
+}
+
+.deep-focus-selection-tray__value--test {
+  border-left-width: 2px;
+  border-left-color: var(--ts-success);
+}
+
+.deep-focus-selection-tray__value--dismissed {
+  border-left-width: 2px;
+  border-left-color: var(--ts-warning);
+  background: color-mix(in srgb, var(--ts-warning) 8%, var(--ts-surface));
+}
+
+.deep-focus-selection-tray__empty {
+  border-left-color: transparent;
+  color: var(--ts-text-soft);
+  font-style: italic;
+}
+
+.deep-focus-selection-tray__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ts-font-mono);
+  font-size: 0.64rem;
+  color: var(--ts-text-soft);
+}
+
+.deep-focus-selection-tray__test-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  border-left: 2px solid var(--ts-warning-tint);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-surface);
+  font-size: 0.65rem;
+  color: var(--ts-warning);
+}
+
+.deep-focus-selection-tray__test-nudge button {
+  border: none;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.deep-focus-selection-tray__support-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.deep-focus-selection-tray__support-item {
+  padding: 0.18rem 0.35rem;
+  border-left: 1px solid var(--ts-accent2);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-surface);
+  color: var(--ts-text-muted);
+  font-size: 0.7rem;
+}
+
+.deep-focus-selection-tray__overflow {
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
+  align-self: center;
+}
+
+.deep-focus-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-top: 1px solid var(--ts-border);
+  background: var(--ts-sidebar-bg);
+}
+
+.deep-focus-back-button {
+  position: absolute;
+  top: 3rem;
+  left: 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.deep-focus-back-button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+/* ── Deep Focus keyframes ─────────────────────────────────────────────── */
+
+@keyframes deepFocusKnobOn {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(16px) scale(1.03, 1); }
+  100% { transform: translateX(16px) scale(1, 1); }
+}
+
+@keyframes deepFocusKnobOff {
+  0%   { transform: translateX(16px); }
+  50%  { transform: translateX(0) scale(1.03, 1); }
+  100% { transform: translateX(0) scale(1, 1); }
+}
+
+@keyframes deepFocusRowEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusLoadingFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 0.6; }
+}
+
+@keyframes deepFocusBadgeEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusBreadcrumbSegmentIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }

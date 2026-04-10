@@ -26,6 +26,15 @@ export {
 
 export { resolveFocusedRepoRoot, resolveWorkspaceRepoRoots } from './focusedRepo.js';
 export type { FocusedRepoResult } from './focusedRepo.js';
+export {
+  normalizeRelativePath,
+  normalizeSupportTargets,
+  validateTestTarget,
+  isDescendantOrEqual,
+  isStrictAncestor,
+  hasTraversal,
+} from './deepFocusNormalization.js';
+export type { NormalizedSupportTarget } from './deepFocusNormalization.js';
 
 export { main as cli } from './cli.js';
 

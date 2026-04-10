@@ -76,6 +76,20 @@ export function createMockClient(
         ok: true,
         response: createListContextPacksResponse(),
       }),
+    listRepoTree: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'contextPack.listRepoTree',
+          mode: 'read-only',
+          message: 'Listed repo tree entries.',
+          entries: [],
+          currentPath: '',
+          repoLocalPath: '/tmp/repo',
+          truncated: false,
+        },
+      }),
     reseedContextPack: vi
       .fn()
       .mockResolvedValue({ ok: true, response: createReseedResponse() }),

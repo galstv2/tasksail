@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const initializeStagedPlanningDraft = vi.fn();
 const clearStagingArtifacts = vi.fn();
 const resolveFocusedRepoRoot = vi.fn();
+const resolveSelectedPrimaryRepoRoot = vi.fn();
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -17,9 +18,14 @@ vi.mock('./main.staging', () => ({
   initializeStagedPlanningDraft,
 }));
 
-vi.mock('../../../backend/platform/context-pack/focusedRepo.js', () => ({
-  resolveFocusedRepoRoot,
-}));
+vi.mock('../../../backend/platform/context-pack/focusedRepo.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/context-pack/focusedRepo.js')>();
+  return {
+    ...actual,
+    resolveSelectedPrimaryRepoRoot,
+    resolveFocusedRepoRoot,
+  };
+});
 
 describe('plannerSession staging bootstrap', () => {
   beforeEach(() => {
@@ -29,6 +35,7 @@ describe('plannerSession staging bootstrap', () => {
   });
 
   it('initializes staging once for a newly created session', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
     resolveFocusedRepoRoot.mockResolvedValue({
       primaryRepoRoot: '/repos/backend',
       visibleRepoRoots: ['/repos/backend'],
@@ -63,6 +70,7 @@ describe('plannerSession staging bootstrap', () => {
   });
 
   it('does not reinitialize staging when the session is reused', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
     resolveFocusedRepoRoot.mockResolvedValue(undefined);
     initializeStagedPlanningDraft.mockResolvedValue(undefined);
     clearStagingArtifacts.mockResolvedValue(undefined);
@@ -76,6 +84,7 @@ describe('plannerSession staging bootstrap', () => {
   });
 
   it('cleans up owned staging when the planner session ends', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
     resolveFocusedRepoRoot.mockResolvedValue(undefined);
     initializeStagedPlanningDraft.mockResolvedValue(undefined);
     clearStagingArtifacts.mockResolvedValue(undefined);
@@ -87,5 +96,59 @@ describe('plannerSession staging bootstrap', () => {
 
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(1, { force: true });
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(2, { sessionId: 'planner-101' });
+  });
+
+  it('uses selected-primary resolution for Deep Focus sessions and carries raw test metadata into staging', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repos/backend',
+      visibleRepoRoots: ['/repos/backend'],
+      declaredRepoRoots: ['/repos/backend'],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'backend',
+      primaryFocusId: undefined,
+      primaryFocusRelativePath: 'src/handler.ts',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'file',
+      selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+      testTarget: undefined,
+      supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      authoritySource: 'workspace-sync-state',
+    });
+    resolveFocusedRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repos/backend',
+      visibleRepoRoots: ['/repos/backend'],
+      declaredRepoRoots: ['/repos/backend'],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'backend',
+      primaryFocusId: undefined,
+      primaryFocusRelativePath: undefined,
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      authoritySource: 'manifest-primary',
+    });
+    initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    clearStagingArtifacts.mockResolvedValue(undefined);
+
+    const plannerSession = await import('./plannerSession');
+    await plannerSession.startSession('/contextpacks/orders');
+
+    expect(resolveSelectedPrimaryRepoRoot).toHaveBeenCalledWith('/contextpacks/orders', expect.any(String));
+    expect(initializeStagedPlanningDraft).toHaveBeenCalledWith({
+      sessionId: 'planner-101',
+      contextPackDir: '/contextpacks/orders',
+      focusedRepo: {
+        primaryRepoId: 'backend',
+        primaryRepoRoot: '/repos/backend',
+        primaryFocusRelativePath: 'src/handler.ts',
+        deepFocusEnabled: true,
+        primaryFocusTargetKind: 'file',
+        selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+        supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: [],
+      },
+    });
   });
 });

@@ -184,6 +184,11 @@ describe('summarizeSwitchResult', () => {
       managedFolders: [],
       targetFolders: [],
       lastSyncedAt: null,
+      deepFocusEnabled: false,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
     };
     expect(summarizeSwitchResult(result)).toBe('apply · complete · 2 warnings');
   });

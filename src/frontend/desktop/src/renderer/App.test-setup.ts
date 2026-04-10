@@ -279,6 +279,18 @@ export function installAppTestHarness(): void {
           ],
         },
       }),
+      listRepoTree: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'contextPack.listRepoTree',
+          mode: 'read-only',
+          message: 'Listed repo tree entries.',
+          entries: [],
+          currentPath: '',
+          repoLocalPath: '/tmp/context-packs/orders-estate/orders-api',
+          truncated: false,
+        },
+      }),
       reseedContextPack: vi.fn().mockResolvedValue({
         ok: true,
         response: {

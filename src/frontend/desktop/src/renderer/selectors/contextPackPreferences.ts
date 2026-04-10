@@ -1,10 +1,105 @@
 import type {
   ContextPackCatalogEntry,
+  ContextPackDeepFocusState,
+  ContextPackDeepFocusTarget,
   WorkspaceScopeMode,
 } from '../../shared/desktopContract';
 
+export const EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE: ContextPackDeepFocusState = {
+  deepFocusEnabled: false,
+  selectedFocusPath: null,
+  selectedFocusTargetKind: null,
+  selectedTestTarget: undefined,
+  selectedSupportTargets: [],
+};
+
 export function selectPreferredScopeMode(): WorkspaceScopeMode {
   return 'focused';
+}
+
+function isTargetEqual(
+  left: ContextPackDeepFocusTarget | null | undefined,
+  right: ContextPackDeepFocusTarget | null | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.path === right.path && left.kind === right.kind;
+}
+
+function areTargetListsEqual(
+  left: readonly ContextPackDeepFocusTarget[],
+  right: readonly ContextPackDeepFocusTarget[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((target, index) => isTargetEqual(target, right[index]));
+}
+
+export function isDeepFocusStateEqual(
+  left: ContextPackDeepFocusState | null | undefined,
+  right: ContextPackDeepFocusState | null | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.deepFocusEnabled === right.deepFocusEnabled
+    && left.selectedFocusPath === right.selectedFocusPath
+    && left.selectedFocusTargetKind === right.selectedFocusTargetKind
+    && isTargetEqual(left.selectedTestTarget, right.selectedTestTarget)
+    && areTargetListsEqual(left.selectedSupportTargets, right.selectedSupportTargets)
+  );
+}
+
+function cloneDeepFocusTarget(
+  target: ContextPackDeepFocusTarget | null | undefined,
+): ContextPackDeepFocusTarget | null | undefined {
+  if (target === undefined) {
+    return undefined;
+  }
+  return target ? { ...target } : null;
+}
+
+function cloneDeepFocusState(
+  state: ContextPackDeepFocusState,
+): ContextPackDeepFocusState {
+  return {
+    deepFocusEnabled: state.deepFocusEnabled,
+    selectedFocusPath: state.selectedFocusPath,
+    selectedFocusTargetKind: state.selectedFocusTargetKind,
+    selectedTestTarget: cloneDeepFocusTarget(state.selectedTestTarget),
+    selectedSupportTargets: state.selectedSupportTargets.map((target) => ({ ...target })),
+  };
+}
+
+export function selectLastAppliedDeepFocusState(
+  contextPack: ContextPackCatalogEntry | undefined,
+): ContextPackDeepFocusState {
+  if (!contextPack || contextPack.lastAppliedDeepFocusEnabled !== true) {
+    return cloneDeepFocusState(EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE);
+  }
+
+  return {
+    deepFocusEnabled: true,
+    selectedFocusPath: contextPack.lastAppliedSelectedFocusPath ?? null,
+    selectedFocusTargetKind: contextPack.lastAppliedSelectedFocusTargetKind ?? null,
+    selectedTestTarget: cloneDeepFocusTarget(
+      Object.prototype.hasOwnProperty.call(contextPack, 'lastAppliedSelectedTestTarget')
+        ? contextPack.lastAppliedSelectedTestTarget
+        : undefined,
+    ),
+    selectedSupportTargets: (contextPack.lastAppliedSelectedSupportTargets ?? []).map((target) => ({ ...target })),
+  };
+}
+
+export function selectPreferredDeepFocusState(
+  contextPack: ContextPackCatalogEntry | undefined,
+  candidates: Array<ContextPackDeepFocusState | null | undefined>,
+): ContextPackDeepFocusState {
+  for (const candidate of candidates) {
+    if (candidate) {
+      return cloneDeepFocusState(candidate);
+    }
+  }
+  return selectLastAppliedDeepFocusState(contextPack);
 }
 
 export function selectPreferredWorkingRepoIds(

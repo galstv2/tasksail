@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {
   act,
   createClient,
@@ -45,6 +46,16 @@ describe('useContextPackSelection', () => {
               lastAppliedScopeMode: 'focused',
               lastAppliedSelectedRepoIds: ['orders-web'],
               lastAppliedSelectedFocusIds: [],
+              lastAppliedDeepFocusEnabled: true,
+              lastAppliedSelectedFocusPath: 'src/orders',
+              lastAppliedSelectedFocusTargetKind: 'directory',
+              lastAppliedSelectedTestTarget: {
+                path: 'tests/orders',
+                kind: 'directory',
+              },
+              lastAppliedSelectedSupportTargets: [
+                { path: 'docs/orders.md', kind: 'file' },
+              ],
               repoCount: 2,
               primaryWorkingRepoIds: ['orders-api'],
               focusTargets: [
@@ -92,10 +103,19 @@ describe('useContextPackSelection', () => {
     render(<ContextPackSelectionHarness client={client} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('selected-repo-ids')).toHaveTextContent(
+      expect(screen.getByTestId('selected-repo-ids').textContent).toContain(
         'orders-web',
       );
     });
+    expect(screen.getByTestId('deep-focus-enabled').textContent).toContain('true');
+    expect(screen.getByTestId('selected-focus-path').textContent).toContain('src/orders');
+    expect(screen.getByTestId('selected-focus-target-kind').textContent).toContain('directory');
+    expect(screen.getByTestId('selected-test-target').textContent).toContain(
+      'tests/orders:directory',
+    );
+    expect(screen.getByTestId('selected-support-targets').textContent).toContain(
+      'docs/orders.md:file',
+    );
   });
 
   it('clears active state and refreshes the catalog after success', async () => {
@@ -201,7 +221,7 @@ describe('useContextPackSelection', () => {
     render(<ContextPackSelectionHarness client={client} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('active-pack')).toHaveTextContent(
+      expect(screen.getByTestId('active-pack').textContent).toContain(
         '/tmp/context-packs/orders-estate',
       );
     });
@@ -211,9 +231,9 @@ describe('useContextPackSelection', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('active-pack')).toHaveTextContent('none');
+      expect(screen.getByTestId('active-pack').textContent).toContain('none');
     });
-    expect(screen.getByTestId('message')).toHaveTextContent(
+    expect(screen.getByTestId('message').textContent).toContain(
       'Active context-pack workspace state cleared through the approved wrapper seam.',
     );
   });

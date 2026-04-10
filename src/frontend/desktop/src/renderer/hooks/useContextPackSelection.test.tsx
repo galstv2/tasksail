@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import {
   act,
   createClient,
@@ -54,6 +56,13 @@ describe('useContextPackSelection', () => {
       'focused',
       ['orders-api'],
       [],
+      {
+        deepFocusEnabled: false,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedTestTarget: undefined,
+        selectedSupportTargets: [],
+      },
     );
   });
 
@@ -137,6 +146,80 @@ describe('useContextPackSelection', () => {
         'focused',
         ['billing-api'],
         [],
+        {
+          deepFocusEnabled: false,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedTestTarget: undefined,
+          selectedSupportTargets: [],
+        },
+      );
+    });
+  });
+
+  it('commits and clears deep focus selections locally', async () => {
+    render(<ContextPackSelectionHarness client={createClient()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Commit deep focus' }));
+    });
+
+    expect(screen.getByTestId('deep-focus-enabled')).toHaveTextContent('true');
+    expect(screen.getByTestId('selected-focus-path')).toHaveTextContent('src/features/orders');
+    expect(screen.getByTestId('selected-test-target')).toHaveTextContent('tests/orders:directory');
+    expect(screen.getByTestId('selected-support-targets')).toHaveTextContent('docs/orders.md:file');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Clear deep focus' }));
+    });
+
+    expect(screen.getByTestId('deep-focus-enabled')).toHaveTextContent('false');
+    expect(screen.getByTestId('selected-focus-path')).toHaveTextContent('none');
+    expect(screen.getByTestId('selected-test-target')).toHaveTextContent('unset');
+    expect(screen.getByTestId('selected-support-targets')).toHaveTextContent('none');
+  });
+
+  it('persists explicit no-tests separately from an unset test target', async () => {
+    const client = createClient();
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+    });
+
+    expect(screen.getByTestId('selected-test-target')).toHaveTextContent('unset');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Commit deep focus no tests' }));
+    });
+
+    expect(screen.getByTestId('selected-test-target')).toHaveTextContent('none');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Run preview' }));
+    });
+
+    await waitFor(() => {
+      expect(client.previewContextPackSwitch).toHaveBeenLastCalledWith(
+        '/tmp/context-packs/orders-estate',
+        'focused',
+        ['orders-api'],
+        [],
+        {
+          deepFocusEnabled: true,
+          selectedFocusPath: 'src/features/orders',
+          selectedFocusTargetKind: 'directory',
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
       );
     });
   });

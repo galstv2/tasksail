@@ -99,6 +99,8 @@ export {
   resolveContextPackSearchRoots,
   deriveContextPackRuntimeState,
   listAvailableContextPacks,
+  CONTEXT_PACK_TREE_STATIC_DENY_LIST,
+  executeContextPackListRepoTreeAction,
   buildContextPackWorkspaceArgs,
   runContextPackWorkspaceScript,
   buildContextPackReseedArgs,
@@ -124,6 +126,7 @@ import {
 
 import {
   listAvailableContextPacks,
+  executeContextPackListRepoTreeAction,
   pickContextPackDirectoryAction,
   pickMarkdownFileAction,
   executeContextPackDiscoveryAction,
@@ -321,6 +324,9 @@ type DesktopActionHandlers = {
     payload: import('../src/shared/desktopContract').ContextPackCreateRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   listContextPacks: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>;
+  listRepoTree: (
+    payload: import('../src/shared/desktopContract').ContextPackListRepoTreeRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   reseedContextPack: (
     payload: import('../src/shared/desktopContract').ContextPackReseedPayload,
   ) => Promise<DesktopInvokeResult>;
@@ -513,6 +519,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     executeContextPackDiscoveryAction(payload),
   createContextPack: (payload) => executeContextPackCreateAction(payload),
   listContextPacks: () => listAvailableContextPacks(),
+  listRepoTree: (payload) => executeContextPackListRepoTreeAction(payload),
   reseedContextPack: (payload) => executeContextPackReseedAction(payload),
   previewContextPackSwitch: (payload) =>
     executeContextPackWorkspaceAction(
@@ -1048,6 +1055,11 @@ export async function handleDesktopAction(
               scopeMode: metadata.contextPackBinding.scopeMode,
               selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
               selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+              deepFocusEnabled: metadata.deepFocusEnabled,
+              selectedFocusPath: metadata.primaryFocusRelativePath,
+              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+              selectedTestTarget: metadata.selectedTestTarget,
+              selectedSupportTargets: metadata.supportTargets,
               repoRoot: REPO_ROOT,
             });
           }
@@ -1066,6 +1078,11 @@ export async function handleDesktopAction(
             scopeMode: metadata.contextPackBinding.scopeMode,
             selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
             selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+            deepFocusEnabled: metadata.deepFocusEnabled,
+            selectedFocusPath: metadata.primaryFocusRelativePath,
+            selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+            selectedTestTarget: metadata.selectedTestTarget,
+            selectedSupportTargets: metadata.supportTargets,
             repoRoot: REPO_ROOT,
           });
         });
@@ -1117,6 +1134,8 @@ export async function handleDesktopAction(
         { message: 'Created context pack.', source: 'contextPack.create', role: 'workflow', severity: 'success' });
     case 'contextPack.list':
       return { ok: true, response: await resolvedHandlers.listContextPacks() };
+    case 'contextPack.listRepoTree':
+      return resolvedHandlers.listRepoTree(request.payload);
     case 'contextPack.reseed':
       return withStreamEvent(resolvedHandlers.reseedContextPack(request.payload),
         { message: 'Reseeded context pack.', source: 'contextPack.reseed', role: 'workflow' });

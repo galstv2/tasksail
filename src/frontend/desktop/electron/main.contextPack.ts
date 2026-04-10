@@ -12,6 +12,11 @@ export {
 } from './main.contextPackCatalog';
 
 export {
+  CONTEXT_PACK_TREE_STATIC_DENY_LIST,
+  executeContextPackListRepoTreeAction,
+} from './main.contextPackTree';
+
+export {
   buildContextPackWorkspaceArgs,
   runContextPackWorkspaceScript,
   buildContextPackReseedArgs,

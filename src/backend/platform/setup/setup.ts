@@ -8,6 +8,7 @@ import { createRuntimeFromConfig } from '../container/runtime.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
 import { seedMcpRegistry } from '../mcp-registry/index.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
+import { seedDeepFocusIgnoreConfig } from '../deep-focus-ignore/seed.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -171,14 +172,30 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     });
   }
 
-  // 7. Mark tracked runtime files as skip-worktree
+  // 7. Seed Deep Focus ignore config
+  try {
+    const seedResult = await seedDeepFocusIgnoreConfig(root);
+    steps.push({
+      name: 'deep-focus-ignore-seed',
+      status: seedResult.action === 'failed' ? 'failed' : 'ok',
+      message: seedResult.action === 'failed' ? seedResult.error : seedResult.action,
+    });
+  } catch (err) {
+    steps.push({
+      name: 'deep-focus-ignore-seed',
+      status: 'failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 8. Mark tracked runtime files as skip-worktree
   const skipStatus = await markRuntimeFilesSkipWorktree(root);
   steps.push({
     name: 'skip-worktree',
     status: skipStatus as 'ok' | 'failed',
   });
 
-  // 8. Optionally start container services
+  // 9. Optionally start container services
   if (skipContainerServices) {
     steps.push({
       name: 'container-services',

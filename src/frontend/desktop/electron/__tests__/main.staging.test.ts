@@ -34,6 +34,13 @@ describe('planner staging helpers', () => {
       primaryRepoId: '',
       primaryRepoRoot: '/repos/payments',
     })).toBe('payments');
+
+    expect(derivePlannerDraftTitle({
+      primaryRepoId: 'backend',
+      primaryRepoRoot: '/repos/backend',
+      primaryFocusRelativePath: 'src/handler.ts',
+      primaryFocusTargetKind: 'file',
+    })).toBe('backend / src/handler.ts (file)');
   });
 
   it('initializes an owned staged shell with sidecar metadata and lock ownership', async () => {
@@ -78,6 +85,44 @@ describe('planner staging helpers', () => {
     }));
     await expect(readPlannerStagingLockOwnership()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
+    }));
+  });
+
+  it('persists Deep Focus staging metadata for planner-originated drafts', async () => {
+    const {
+      initializeStagedPlanningDraft,
+      readPlannerStagingSidecar,
+    } = await import('../main.staging');
+
+    await initializeStagedPlanningDraft({
+      sessionId: 'planner-109',
+      contextPackDir: '/contextpacks/orders',
+      focusedRepo: {
+        primaryRepoId: 'backend',
+        primaryRepoRoot: '/repos/backend',
+        primaryFocusRelativePath: 'src/handler.ts',
+        deepFocusEnabled: true,
+        primaryFocusTargetKind: 'file',
+        selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+        supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: [],
+      },
+      now: new Date('2026-02-09T10:11:12.000Z'),
+    });
+
+    const { draft } = await (await import('../main.staging')).readOwnedStagedDraft('planner-109');
+    expect(draft?.content).toContain('- Deep Focus Enabled: true');
+    expect(draft?.content).toContain('- Selected Focus Path: src/handler.ts');
+    expect(draft?.content).toContain('- Selected Test Target: {"path":"tests/handler.test.ts","kind":"file"}');
+
+    await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
+      sessionId: 'planner-109',
+      deepFocusEnabled: true,
+      primaryFocusRelativePath: 'src/handler.ts',
+      primaryFocusTargetKind: 'file',
+      selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+      supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
     }));
   });
 

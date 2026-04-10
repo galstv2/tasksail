@@ -34,6 +34,12 @@ import { REPO_ROOT } from './paths';
 import { stringOrNull } from './utils';
 import { setActiveContextPackEnv } from '../../../backend/platform/context-pack/activate';
 import {
+  normalizeRelativePath,
+  normalizeSupportTargets,
+  validateTestTarget,
+  type FocusTarget,
+} from '../../../backend/platform/context-pack/deepFocusNormalization';
+import {
   CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
   CONTEXT_ESTATE_DISCOVERY_SCRIPT_PATH,
   QMD_SEED_PLAN_SCRIPT_PATH,
@@ -49,10 +55,76 @@ import {
   stringArray,
   slugifyValue,
   titleizeValue,
+  readDeepFocusPath,
 } from './main.contextPackShared';
 import { listAvailableContextPacks } from './main.contextPackCatalog';
 
 const execFileAsync = promisify(execFile);
+
+function normalizeDeepFocusTarget(target: FocusTarget): FocusTarget {
+  return {
+    path: normalizeRelativePath(target.path),
+    kind: target.kind,
+  };
+}
+
+function normalizeContextPackSwitchPayload(
+  payload: ContextPackSwitchPayload,
+): ContextPackSwitchPayload {
+  if (payload.deepFocusEnabled !== true) {
+    return {
+      ...payload,
+      deepFocusEnabled: false,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    };
+  }
+
+  const selectedFocusPath = normalizeRelativePath(payload.selectedFocusPath ?? '');
+  if (
+    selectedFocusPath
+    && payload.selectedFocusTargetKind !== 'directory'
+    && payload.selectedFocusTargetKind !== 'file'
+  ) {
+    throw new Error('Deep Focus apply requires selectedFocusTargetKind to be directory or file.');
+  }
+
+  const selectedTestTarget = payload.selectedTestTarget === undefined
+    ? undefined
+    : payload.selectedTestTarget === null
+      ? null
+      : normalizeDeepFocusTarget(payload.selectedTestTarget);
+  const selectedPrimaryKind = payload.selectedFocusTargetKind ?? 'directory';
+
+  if (selectedTestTarget) {
+    const validation = validateTestTarget({
+      primaryPath: selectedFocusPath,
+      primaryKind: selectedPrimaryKind,
+      testTarget: selectedTestTarget,
+    });
+    if (!validation.valid) {
+      throw new Error(validation.reason);
+    }
+  }
+
+  const selectedSupportTargets = normalizeSupportTargets({
+    primaryPath: selectedFocusPath,
+    primaryKind: selectedPrimaryKind,
+    testTarget: selectedTestTarget ?? undefined,
+    rawTargets: payload.selectedSupportTargets ?? [],
+  }).map(({ path, kind }) => ({ path, kind }));
+
+  return {
+    ...payload,
+    deepFocusEnabled: true,
+    selectedFocusPath,
+    selectedFocusTargetKind: payload.selectedFocusTargetKind,
+    selectedTestTarget,
+    selectedSupportTargets,
+  };
+}
 
 async function initGitReposForNewProject(
   payload: ContextPackCreateRequest['payload'],
@@ -79,13 +151,29 @@ export function buildContextPackWorkspaceArgs(
 ): string[] {
   const args = ['--action', action];
   if (payload) {
-    args.push('--context-pack-dir', payload.contextPackDir);
-    args.push('--scope-mode', payload.scopeMode);
-    for (const repoId of payload.selectedRepoIds ?? []) {
+    const normalizedPayload = normalizeContextPackSwitchPayload(payload);
+    args.push('--context-pack-dir', normalizedPayload.contextPackDir);
+    args.push('--scope-mode', normalizedPayload.scopeMode);
+    for (const repoId of normalizedPayload.selectedRepoIds ?? []) {
       args.push('--selected-repo-id', repoId);
     }
-    for (const focusId of payload.selectedFocusIds ?? []) {
+    for (const focusId of normalizedPayload.selectedFocusIds ?? []) {
       args.push('--selected-focus-id', focusId);
+    }
+    if (normalizedPayload.deepFocusEnabled) {
+      args.push('--deep-focus-enabled');
+      if (normalizedPayload.selectedFocusPath !== undefined && normalizedPayload.selectedFocusPath !== null) {
+        args.push('--selected-focus-path', normalizedPayload.selectedFocusPath);
+      }
+      if (normalizedPayload.selectedFocusTargetKind) {
+        args.push('--selected-focus-target-kind', normalizedPayload.selectedFocusTargetKind);
+      }
+      if (normalizedPayload.selectedTestTarget !== undefined) {
+        args.push('--selected-test-target', JSON.stringify(normalizedPayload.selectedTestTarget));
+      }
+      for (const supportTarget of normalizedPayload.selectedSupportTargets ?? []) {
+        args.push('--selected-support-target', JSON.stringify(supportTarget));
+      }
     }
   }
   return args;
@@ -416,6 +504,19 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
   const workspace = typeof payload.workspace === 'object' && payload.workspace !== null ? (payload.workspace as Record<string, unknown>) : {};
   const activation = typeof payload.activation === 'object' && payload.activation !== null ? (payload.activation as Record<string, unknown>) : {};
   const wrapperAction = stringOrNull(payload.action);
+  const selectedTestTarget = typeof workspace.selected_test_target === 'object' && workspace.selected_test_target !== null
+    ? workspace.selected_test_target as Record<string, unknown>
+    : null;
+  const hasSelectedTestTargetField = Object.prototype.hasOwnProperty.call(
+    workspace,
+    'selected_test_target',
+  );
+  const selectedSupportTargets = Array.isArray(workspace.selected_support_targets)
+    ? workspace.selected_support_targets.filter(
+        (target): target is Record<string, unknown> =>
+          typeof target === 'object' && target !== null,
+      )
+    : [];
   return {
     ok: payload.ok === true,
     wrapperAction: wrapperAction === 'apply' || wrapperAction === 'clear' ? wrapperAction : 'preview',
@@ -441,6 +542,29 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
     managedFolders: stringArray(workspace.managed_folders),
     targetFolders: stringArray(workspace.target_folders),
     lastSyncedAt: stringOrNull(workspace.last_synced_at),
+    deepFocusEnabled: workspace.deep_focus_enabled === true,
+    selectedFocusPath: readDeepFocusPath(workspace.selected_focus_path),
+    selectedFocusTargetKind:
+      workspace.selected_focus_target_kind === 'directory'
+      || workspace.selected_focus_target_kind === 'file'
+        ? workspace.selected_focus_target_kind
+        : null,
+    selectedTestTarget:
+      !hasSelectedTestTargetField
+        ? undefined
+        : selectedTestTarget
+          ? {
+              path: stringOrNull(selectedTestTarget.path) ?? '',
+              kind:
+                selectedTestTarget.kind === 'directory' || selectedTestTarget.kind === 'file'
+                  ? selectedTestTarget.kind
+                  : 'directory',
+            }
+          : null,
+    selectedSupportTargets: selectedSupportTargets.map((target) => ({
+      path: stringOrNull(target.path) ?? '',
+      kind: target.kind === 'directory' || target.kind === 'file' ? target.kind : 'directory',
+    })),
   };
 }
 

@@ -1,0 +1,49 @@
+export type ContextPackFocusTargetKind = 'directory' | 'file';
+
+export type ContextPackDeepFocusTarget = {
+  path: string;
+  kind: ContextPackFocusTargetKind;
+};
+
+export type ContextPackSwitchDeepFocusSelection = {
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string | null;
+  selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
+  selectedTestTarget?: ContextPackDeepFocusTarget | null;
+  selectedSupportTargets?: ContextPackDeepFocusTarget[];
+};
+
+export type ContextPackDeepFocusState = {
+  deepFocusEnabled: boolean;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
+};
+
+export type ContextPackListRepoTreePayload = {
+  repoLocalPath: string;
+  relativePath?: string;
+};
+
+export type ContextPackRepoTreeEntry = {
+  name: string;
+  relativePath: string;
+  kind: 'directory' | 'file';
+  hasChildren: boolean;
+};
+
+export type ContextPackListRepoTreeRequest = {
+  action: 'contextPack.listRepoTree';
+  payload: ContextPackListRepoTreePayload;
+};
+
+export type ContextPackListRepoTreeResponse = {
+  action: 'contextPack.listRepoTree';
+  mode: 'read-only';
+  message: string;
+  entries: ContextPackRepoTreeEntry[];
+  currentPath: string;
+  repoLocalPath: string;
+  truncated: boolean;
+};

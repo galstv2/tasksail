@@ -51,6 +51,11 @@ describe('main.taskQueue direct submission hardening', () => {
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
       selectedFocusIds: ['api'],
+      deepFocusEnabled: false,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
       managedFolders: [],
       attachedManagedFolders: [],
       missingManagedFolders: [],
@@ -73,6 +78,23 @@ describe('main.taskQueue direct submission hardening', () => {
   });
 
   it('derives the canonical direct-submission title from the active context pack instead of trusting the renderer title', async () => {
+    vi.mocked(readWorkspaceSyncStateSnapshot).mockResolvedValue({
+      activeContextPackDir: '/context-packs/sample-pack',
+      activeContextPackId: 'sample-pack-id',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      managedFolders: [],
+      attachedManagedFolders: [],
+      missingManagedFolders: [],
+      status: 'active',
+      lastSyncedAt: '2026-03-07T18:30:00Z',
+    });
     vi.mocked(createDropboxTask).mockResolvedValue(
       '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
     );
@@ -94,6 +116,11 @@ describe('main.taskQueue direct submission hardening', () => {
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
       selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     }));
     expect(result).toEqual({
       filePath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
@@ -102,6 +129,23 @@ describe('main.taskQueue direct submission hardening', () => {
   });
 
   it('derives direct follow-up lineage from the active context-pack archive before creating the child task', async () => {
+    vi.mocked(readWorkspaceSyncStateSnapshot).mockResolvedValue({
+      activeContextPackDir: '/context-packs/sample-pack',
+      activeContextPackId: 'sample-pack-id',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      managedFolders: [],
+      attachedManagedFolders: [],
+      missingManagedFolders: [],
+      status: 'active',
+      lastSyncedAt: '2026-03-07T18:30:00Z',
+    });
     vi.mocked(createFollowupTask).mockResolvedValue(
       '/repo/AgentWorkSpace/dropbox/20260307T183500Z_backend-apps-api.md',
     );
@@ -145,6 +189,11 @@ describe('main.taskQueue direct submission hardening', () => {
       rootTaskId: 'ROOT-001',
       followupReason: 'Continue the next slice from completed findings.',
       carryForwardSummary: 'Preserve the validated audit-trail constraints.',
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     }));
     expect(result).toEqual({
       filePath: '/repo/AgentWorkSpace/dropbox/20260307T183500Z_backend-apps-api.md',

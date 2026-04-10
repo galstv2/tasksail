@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +34,11 @@ const defaultSnapshot: SwitchingStateSnapshot = {
   scopeMode: 'focused',
   selectedRepoIds: ['repo-1'],
   selectedFocusIds: [],
+  deepFocusEnabled: false,
+  selectedFocusPath: null,
+  selectedFocusTargetKind: null,
+  selectedTestTarget: null,
+  selectedSupportTargets: [],
 };
 
 function renderSwitchingHook(
@@ -89,6 +95,13 @@ describe('useContextPackSwitching', () => {
       'focused',
       ['repo-1'],
       [],
+      {
+        deepFocusEnabled: false,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
     );
     expect(result.current.lastResult).not.toBeNull();
     expect(setMessage).toHaveBeenCalledWith(previewResponse.message);
@@ -115,6 +128,46 @@ describe('useContextPackSwitching', () => {
       preferredContextPackDir: '/tmp/pack',
       preserveFeedback: true,
     });
+  });
+
+  it('forwards deep focus selections through apply', async () => {
+    const client = createMockClient({
+      applyContextPackSwitch: vi.fn().mockResolvedValue({
+        ok: true,
+        response: createSwitchResponse('contextPack.applySwitch', 'applied'),
+      }),
+    });
+
+    const { result } = renderSwitchingHook(
+      client,
+      () => ({
+        ...defaultSnapshot,
+        deepFocusEnabled: true,
+        selectedRepoIds: ['repo-1'],
+        selectedFocusPath: 'src/features/orders',
+        selectedFocusTargetKind: 'directory',
+        selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+        selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }),
+    );
+
+    await act(async () => {
+      await result.current.runAction('apply');
+    });
+
+    expect(client.applyContextPackSwitch).toHaveBeenCalledWith(
+      '/tmp/pack',
+      'focused',
+      ['repo-1'],
+      [],
+      {
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/features/orders',
+        selectedFocusTargetKind: 'directory',
+        selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+        selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      },
+    );
   });
 
   it('clear calls clearActiveContextPack and triggers refresh', async () => {

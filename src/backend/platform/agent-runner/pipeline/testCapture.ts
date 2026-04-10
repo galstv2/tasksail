@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import { readTextFile, getErrorMessage } from '../../core/index.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
-import { appendFocusBlock } from './monolithFocusPrompt.js';
+import {
+  appendFocusBlock,
+  type FocusScopePromptOptions,
+} from './focusScopePrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
@@ -19,7 +22,11 @@ export interface TestCaptureResult {
 }
 
 export function resolveTestCaptureCwdFromFocused(
-  focused: { primaryRepoRoot: string; primaryFocusRelativePath?: string } | undefined,
+  focused: {
+    primaryRepoRoot: string;
+    primaryFocusRelativePath?: string;
+    primaryFocusTargetKind?: 'directory' | 'file';
+  } | undefined,
 ): string | undefined {
   if (!focused) {
     return undefined;
@@ -29,7 +36,9 @@ export function resolveTestCaptureCwdFromFocused(
     return focused.primaryRepoRoot;
   }
 
-  const focusCwd = path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
+  const focusCwd = focused.primaryFocusTargetKind === 'file'
+    ? path.join(focused.primaryRepoRoot, path.dirname(focused.primaryFocusRelativePath))
+    : path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
   return existsSync(focusCwd) ? focusCwd : undefined;
 }
 
@@ -319,7 +328,7 @@ export async function captureSliceValidation(
  */
 export function buildTestCapturePrompt(
   results: TestCaptureResult[],
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   warning?: string,
 ): string {
@@ -328,7 +337,8 @@ export function buildTestCapturePrompt(
     'Review the code changes and orchestrator test results below.',
     '',
   ];
-  appendFocusBlock(parts, primaryFocusRelativePath, {
+  appendFocusBlock(parts, {
+    ...focusScope,
     launchContextLine: 'Use this focus path as the primary implementation scope while reviewing the changes below.',
     scopeLine: 'This prompt does not change your launch CWD or broader QA authority.',
   });

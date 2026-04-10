@@ -9,7 +9,11 @@ import path from 'node:path';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { ensureDir, readTextFile } from '../core/index.js';
-import { extractTaskTitle, extractContextPackBinding } from './markdown.js';
+import {
+  extractTaskTitle,
+  extractContextPackBinding,
+  type TaskContextPackTarget,
+} from './markdown.js';
 
 const REGISTRY_RELATIVE_PATH = '.platform-state/task-registry.json';
 const SCHEMA_VERSION = 1;
@@ -26,6 +30,11 @@ export interface TaskRegistryEntry {
   scopeMode: string | null;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string;
+  selectedFocusTargetKind?: 'directory' | 'file';
+  selectedTestTarget?: TaskContextPackTarget | null;
+  selectedSupportTargets?: TaskContextPackTarget[];
   createdAt: string | null;
   completedAt: string | null;
   archivePath: string | null;
@@ -212,6 +221,11 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
         scopeMode: binding?.scopeMode ?? null,
         selectedRepoIds: binding?.selectedRepoIds ?? [],
         selectedFocusIds: binding?.selectedFocusIds ?? [],
+        deepFocusEnabled: binding?.deepFocusEnabled,
+        selectedFocusPath: binding?.selectedFocusPath,
+        selectedFocusTargetKind: binding?.selectedFocusTargetKind,
+        selectedTestTarget: binding?.selectedTestTarget,
+        selectedSupportTargets: binding?.selectedSupportTargets,
         createdAt: null,
         completedAt: null,
         archivePath: null,

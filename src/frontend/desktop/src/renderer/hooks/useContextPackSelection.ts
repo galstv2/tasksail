@@ -3,13 +3,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ContextPackCreateExecutionResult,
   ContextPackCatalogEntry,
+  ContextPackDeepFocusState,
+  ContextPackFocusTargetKind,
   ContextPackListResponse,
+  ContextPackListRepoTreeResponse,
+  ContextPackDeepFocusTarget,
 } from '../../shared/desktopContract';
 import { isContextPackListResponse } from '../../shared/desktopContractTypeGuards';
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
 import type { ContextPackSidebarProps } from '../components/ContextPackSidebar';
 import { selectPreferredContextPackDir } from '../selectors/contextPackSidebarModel';
 import {
+  EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
+  isDeepFocusStateEqual,
+  selectLastAppliedDeepFocusState,
+  selectPreferredDeepFocusState,
   selectPreferredWorkingRepoIds,
   selectPreferredWorkingFocusIds,
   toggleFocusSelection,
@@ -22,6 +30,16 @@ import { useContextPackSwitching, type SwitchingStateSnapshot } from './useConte
 type RefreshOptions = {
   preferredContextPackDir?: string;
   preserveFeedback?: boolean;
+};
+
+type DeepFocusSelectionCommit = {
+  deepFocusEnabled: boolean;
+  selectedRepoIds?: string[];
+  selectedFocusIds?: string[];
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
 
 export type UseContextPackSelectionResult = {
@@ -57,6 +75,11 @@ function buildSessionCreatedCatalogEntry(
     lastAppliedScopeMode: null,
     lastAppliedSelectedRepoIds: [],
     lastAppliedSelectedFocusIds: [],
+    lastAppliedDeepFocusEnabled: false,
+    lastAppliedSelectedFocusPath: null,
+    lastAppliedSelectedFocusTargetKind: null,
+    lastAppliedSelectedTestTarget: undefined,
+    lastAppliedSelectedSupportTargets: [],
   };
 }
 
@@ -94,6 +117,8 @@ export function useContextPackSelection(
   const selectedContextPackDirRef = useRef('');
   const [selectedRepoIds, setSelectedRepoIds] = useState<string[]>([]);
   const [selectedFocusIds, setSelectedFocusIds] = useState<string[]>([]);
+  const [selectedDeepFocusState, setSelectedDeepFocusState] =
+    useState<ContextPackDeepFocusState | null>(null);
   const [refreshPending, setRefreshPending] = useState(false);
   const [message, setMessage] = useState('Loading context packs…');
   const [error, setError] = useState('');
@@ -119,7 +144,12 @@ export function useContextPackSelection(
     scopeMode: 'focused',
     selectedRepoIds,
     selectedFocusIds,
-  }), [selectedRepoIds, selectedFocusIds]);
+    deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
+    selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
+    selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
+    selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
+    selectedSupportTargets: selectedDeepFocusState?.selectedSupportTargets ?? [],
+  }), [selectedDeepFocusState, selectedRepoIds, selectedFocusIds]);
 
   const refreshCatalog = useCallback(
     async ({ preferredContextPackDir, preserveFeedback }: RefreshOptions = {}) => {
@@ -163,6 +193,8 @@ export function useContextPackSelection(
       const nextSelectedPack = mergedContextPacks.find(
         (entry) => entry.contextPackDir === nextSelectedContextPackDir,
       );
+      const preserveCurrentDeepFocus =
+        selectedContextPackDirRef.current === nextSelectedContextPackDir;
 
       setCatalogResponse({
         ...response,
@@ -182,6 +214,13 @@ export function useContextPackSelection(
           nextSelectedPack?.lastAppliedSelectedFocusIds,
         ]),
       );
+      setSelectedDeepFocusState((current) => {
+        const next = selectPreferredDeepFocusState(
+          nextSelectedPack,
+          [preserveCurrentDeepFocus ? current : null],
+        );
+        return isDeepFocusStateEqual(current, next) ? current : next;
+      });
       setError('');
       if (!preserveFeedback) {
         setMessage(response.message);
@@ -246,6 +285,7 @@ export function useContextPackSelection(
           selectedPack?.lastAppliedSelectedFocusIds,
         ]),
       );
+      setSelectedDeepFocusState(selectLastAppliedDeepFocusState(selectedPack));
     },
     [catalogResponse],
   );
@@ -269,6 +309,79 @@ export function useContextPackSelection(
     [catalogResponse],
   );
 
+  const handleCommitDeepFocusSelection = useCallback(
+    (selection: DeepFocusSelectionCommit) => {
+      const selectedPack = catalogResponse?.contextPacks.find(
+        (entry) => entry.contextPackDir === selectedContextPackDirRef.current,
+      );
+      const knownRepoIds = new Set(
+        (selectedPack?.focusTargets ?? [])
+          .map((target) => target.repoId)
+          .filter((repoId): repoId is string => typeof repoId === 'string' && repoId.length > 0),
+      );
+      const knownFocusIds = new Set(
+        (selectedPack?.focusTargets ?? []).map((target) => target.focusId),
+      );
+
+      if (selection.selectedRepoIds) {
+        setSelectedRepoIds(
+          selection.selectedRepoIds.filter((repoId) => knownRepoIds.has(repoId)),
+        );
+      }
+      if (selection.selectedFocusIds) {
+        setSelectedFocusIds(
+          selection.selectedFocusIds.filter((focusId) => knownFocusIds.has(focusId)),
+        );
+      }
+
+      setSelectedDeepFocusState(
+        selection.deepFocusEnabled
+          ? {
+            deepFocusEnabled: true,
+            selectedFocusPath: selection.selectedFocusPath,
+            selectedFocusTargetKind: selection.selectedFocusTargetKind,
+            selectedTestTarget:
+              selection.selectedTestTarget === undefined
+                ? undefined
+                : selection.selectedTestTarget
+                  ? { ...selection.selectedTestTarget }
+                  : null,
+            selectedSupportTargets: selection.selectedSupportTargets.map((target) => ({ ...target })),
+          }
+          : {
+            ...EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
+          },
+      );
+    },
+    [catalogResponse],
+  );
+
+  const handleListRepoTree = useCallback(
+    async (
+      repoLocalPath: string,
+      relativePath?: string,
+    ): Promise<ContextPackListRepoTreeResponse | null> => {
+      const result = await client.listRepoTree(repoLocalPath, relativePath);
+      if (!result.ok) {
+        setError(result.error);
+        return null;
+      }
+      const response = result.response;
+      if (
+        typeof response !== 'object'
+        || response === null
+        || !('action' in response)
+        || response.action !== 'contextPack.listRepoTree'
+      ) {
+        setError('Context-pack repo tree listing returned an unexpected response.');
+        return null;
+      }
+      setError('');
+      return response as ContextPackListRepoTreeResponse;
+    },
+    [client],
+  );
+
   return {
     contextPackSidebarProps: {
       contextPacks: catalogResponse?.contextPacks ?? [],
@@ -276,6 +389,13 @@ export function useContextPackSelection(
       selectedContextPackDir,
       selectedRepoIds,
       selectedFocusIds,
+      deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
+      selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
+      selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
+      selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
+      selectedSupportTargets:
+        selectedDeepFocusState?.selectedSupportTargets
+        ?? EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE.selectedSupportTargets,
       actionPending: refreshPending ? 'refresh' : actionPending,
       message,
       error,
@@ -283,6 +403,8 @@ export function useContextPackSelection(
       lastReseedResult,
       onSelectContextPack: handleSelectContextPack,
       onSelectWorkingFocus: handleSelectWorkingFocus,
+      onCommitDeepFocusSelection: handleCommitDeepFocusSelection,
+      onListRepoTree: handleListRepoTree,
       onRefreshCatalog: () => refreshCatalog(),
       onOpenCreateModal: contextPackCreationModalProps.onOpen,
       onReseedContextPack: () => runReseedAction(),

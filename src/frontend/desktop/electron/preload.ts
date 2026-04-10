@@ -207,6 +207,17 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.list',
     }),
+  listRepoTree: async (
+    repoLocalPath: string,
+    relativePath?: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPack.listRepoTree',
+      payload: {
+        repoLocalPath,
+        ...(relativePath !== undefined ? { relativePath } : {}),
+      },
+    }),
   reseedContextPack: async (
     contextPackDir: string,
   ): Promise<DesktopInvokeResult> =>
@@ -230,6 +241,7 @@ export const desktopShellApi = {
     scopeMode: WorkspaceScopeMode = 'focused',
     selectedRepoIds: string[] = [],
     selectedFocusIds: string[] = [],
+    deepFocusSelection: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection = {},
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.previewSwitch',
@@ -238,6 +250,7 @@ export const desktopShellApi = {
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
+        ...deepFocusSelection,
       },
     }),
   applyContextPackSwitch: async (
@@ -245,6 +258,7 @@ export const desktopShellApi = {
     scopeMode: WorkspaceScopeMode = 'focused',
     selectedRepoIds: string[] = [],
     selectedFocusIds: string[] = [],
+    deepFocusSelection: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection = {},
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.applySwitch',
@@ -253,6 +267,7 @@ export const desktopShellApi = {
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
+        ...deepFocusSelection,
       },
     }),
   clearActiveContextPack: async (): Promise<DesktopInvokeResult> =>
@@ -624,6 +639,10 @@ export type DesktopShellApi = {
   }) => Promise<DesktopInvokeResult>;
   activateContextPack: (packId: string) => Promise<DesktopInvokeResult>;
   listContextPacks: () => Promise<DesktopInvokeResult>;
+  listRepoTree: (
+    repoLocalPath: string,
+    relativePath?: string,
+  ) => Promise<DesktopInvokeResult>;
   reseedContextPack: (
     contextPackDir: string,
   ) => Promise<DesktopInvokeResult>;
@@ -637,12 +656,14 @@ export type DesktopShellApi = {
     scopeMode?: WorkspaceScopeMode,
     selectedRepoIds?: string[],
     selectedFocusIds?: string[],
+    deepFocusSelection?: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection,
   ) => Promise<DesktopInvokeResult>;
   applyContextPackSwitch: (
     contextPackDir: string,
     scopeMode?: WorkspaceScopeMode,
     selectedRepoIds?: string[],
     selectedFocusIds?: string[],
+    deepFocusSelection?: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection,
   ) => Promise<DesktopInvokeResult>;
   clearActiveContextPack: () => Promise<DesktopInvokeResult>;
   startPlannerSession: (contextPackDir?: string) => Promise<DesktopInvokeResult>;

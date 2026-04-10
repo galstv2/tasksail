@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
+import { normalizeRelativePath } from '../context-pack/deepFocusNormalization.js';
 
 export interface ChangedPathsSnapshot {
   byRepoRoot: Record<string, string[]>;
@@ -88,11 +89,25 @@ function isAllowedChangedPath(options: {
   }
 
   const focusPath = normalizeRelativePath(options.focused.primaryFocusRelativePath);
-  return normalizedPath === focusPath || normalizedPath.startsWith(`${focusPath}/`);
-}
+  const primaryKind = options.focused.primaryFocusTargetKind ?? 'directory';
+  const inPrimary = primaryKind === 'file'
+    ? normalizedPath === focusPath
+    : normalizedPath === focusPath || normalizedPath.startsWith(`${focusPath}/`);
+  if (inPrimary) {
+    return true;
+  }
 
-function normalizeRelativePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+/g, '/');
+  if (options.focused.testTarget) {
+    const testPath = normalizeRelativePath(options.focused.testTarget.path);
+    const inTest = options.focused.testTarget.kind === 'file'
+      ? normalizedPath === testPath
+      : normalizedPath === testPath || normalizedPath.startsWith(`${testPath}/`);
+    if (inTest) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function listChangedPaths(repoRoot: string): Promise<string[]> {

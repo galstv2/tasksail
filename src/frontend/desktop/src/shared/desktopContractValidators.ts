@@ -17,6 +17,7 @@ const DESKTOP_ACTION_NAMES = [
   'contextPack.discoverPrefill',
   'contextPack.create',
   'contextPack.list',
+  'contextPack.listRepoTree',
   'contextPack.reseed',
   'contextPack.previewSwitch',
   'contextPack.applySwitch',
@@ -66,6 +67,7 @@ const TASK_KINDS = ['standard', 'child-task'] as const;
 const SUGGESTED_PATHS = ['sequential', 'parallel'] as const;
 const SOURCE_STATES = ['idle', 'active', 'blocked', 'completed', 'complete'] as const;
 const WORKSPACE_SCOPE_MODES: readonly WorkspaceScopeMode[] = ['focused'] as const;
+const CONTEXT_PACK_FOCUS_TARGET_KINDS = ['directory', 'file'] as const;
 const CONTEXT_PACK_DIRECTORY_PURPOSES = [
   'discovery-root',
   'context-pack-destination',
@@ -87,7 +89,7 @@ const CONTEXT_PACK_SYSTEM_LAYERS = [
 const REINFORCEMENT_FEEDBACK_TYPES = ['none', 'positive', 'negative'] as const;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {
@@ -150,6 +152,162 @@ function validateContextPackSwitchPayload(value: unknown): string[] {
   }
   errors.push(...validateSelectedIds(value.selectedRepoIds, 'selectedRepoIds'));
   errors.push(...validateSelectedIds(value.selectedFocusIds, 'selectedFocusIds'));
+  errors.push(...validateDeepFocusSwitchFields(value));
+  return errors;
+}
+
+function isRelativeContractPath(value: unknown): value is string {
+  return typeof value === 'string'
+    && !value.startsWith('/')
+    && !/^[A-Za-z]:[\\/]/.test(value)
+    && !/(^|[\\/])\.\.([\\/]|$)/.test(value);
+}
+
+function validateOptionalRelativePath(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!isRelativeContractPath(value)) {
+    return [`${fieldName} must be a repo-root-relative path without traversal.`];
+  }
+  return [];
+}
+
+function validateDeepFocusTarget(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (!isRecord(value)) {
+    return [`${fieldName} must be an object.`];
+  }
+
+  const errors = validateOptionalRelativePath(value.path, `${fieldName}.path`);
+  if (!isOneOf(value.kind, CONTEXT_PACK_FOCUS_TARGET_KINDS)) {
+    errors.push(`${fieldName}.kind must be directory or file.`);
+  }
+  return errors;
+}
+
+function validateDeepFocusTargetList(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return [`${fieldName} must be an array when provided.`];
+  }
+
+  const errors: string[] = [];
+  for (const [index, item] of value.entries()) {
+    errors.push(...validateDeepFocusTarget(item, `${fieldName}[${index}]`));
+  }
+  return errors;
+}
+
+function validateDeepFocusSwitchFields(
+  value: Record<string, unknown>,
+): string[] {
+  const errors: string[] = [];
+  const normalizedSelectedFocusPath = typeof value.selectedFocusPath === 'string'
+    ? value.selectedFocusPath.trim()
+    : undefined;
+  if (
+    value.deepFocusEnabled !== undefined
+    && typeof value.deepFocusEnabled !== 'boolean'
+  ) {
+    errors.push('payload.deepFocusEnabled must be a boolean when provided.');
+  }
+
+  errors.push(
+    ...validateOptionalRelativePath(
+      value.selectedFocusPath,
+      'payload.selectedFocusPath',
+    ),
+  );
+
+  if (
+    value.selectedFocusTargetKind !== undefined
+    && value.selectedFocusTargetKind !== null
+    && !isOneOf(value.selectedFocusTargetKind, CONTEXT_PACK_FOCUS_TARGET_KINDS)
+  ) {
+    errors.push(
+      'payload.selectedFocusTargetKind must be directory or file when provided.',
+    );
+  }
+
+  if (
+    value.selectedTestTarget !== undefined
+    && value.selectedTestTarget !== null
+  ) {
+    errors.push(
+      ...validateDeepFocusTarget(
+        value.selectedTestTarget,
+        'payload.selectedTestTarget',
+      ),
+    );
+  }
+
+  errors.push(
+    ...validateDeepFocusTargetList(
+      value.selectedSupportTargets,
+      'payload.selectedSupportTargets',
+    ),
+  );
+
+  const deepFocusEnabled = value.deepFocusEnabled === true;
+  if (deepFocusEnabled) {
+    if (Array.isArray(value.selectedRepoIds) && value.selectedRepoIds.length > 1) {
+      errors.push(
+        'payload.selectedRepoIds must contain at most one entry when deepFocusEnabled is true.',
+      );
+    }
+    if (Array.isArray(value.selectedFocusIds) && value.selectedFocusIds.length > 1) {
+      errors.push(
+        'payload.selectedFocusIds must contain at most one entry when deepFocusEnabled is true.',
+      );
+    }
+    if (
+      normalizedSelectedFocusPath !== undefined
+      && normalizedSelectedFocusPath.length > 0
+      && value.selectedFocusTargetKind == null
+    ) {
+      errors.push(
+        'payload.selectedFocusTargetKind is required when payload.selectedFocusPath is provided in Deep Focus mode.',
+      );
+    }
+    if (
+      (normalizedSelectedFocusPath === undefined || normalizedSelectedFocusPath.length === 0)
+      && value.selectedFocusTargetKind === 'file'
+    ) {
+      errors.push(
+        'payload.selectedFocusTargetKind cannot be file when payload.selectedFocusPath is empty in Deep Focus mode.',
+      );
+    }
+    return errors;
+  }
+
+  if (
+    value.selectedFocusPath !== undefined
+    || value.selectedFocusTargetKind !== undefined
+    || value.selectedTestTarget !== undefined
+  ) {
+    errors.push(
+      'payload.deepFocusEnabled must be true when Deep Focus target metadata is provided.',
+    );
+  }
+  if (
+    Array.isArray(value.selectedSupportTargets)
+    && value.selectedSupportTargets.length > 0
+  ) {
+    errors.push(
+      'payload.selectedSupportTargets must be absent or empty unless payload.deepFocusEnabled is true.',
+    );
+  }
   return errors;
 }
 
@@ -504,6 +662,29 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'planner.pickMarkdownFile':
     case 'planner.listArchivedTasks':
       return [];
+    case 'contextPack.listRepoTree': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+
+      const errors: string[] = [];
+      if (!isAbsolutePath(request.payload.repoLocalPath)) {
+        errors.push('payload.repoLocalPath must be an absolute path string.');
+      }
+      if (request.payload.relativePath !== undefined) {
+        if (!isString(request.payload.relativePath)) {
+          errors.push('payload.relativePath must be a string when provided.');
+        } else if (
+          request.payload.relativePath.startsWith('/')
+          || request.payload.relativePath.startsWith('\\')
+          || /^[A-Za-z]:[\\/]/.test(request.payload.relativePath)
+          || request.payload.relativePath.includes('..')
+        ) {
+          errors.push('payload.relativePath must be a repo-root-relative path without traversal.');
+        }
+      }
+      return errors;
+    }
     case 'planner.startSession': {
       if (request.payload === undefined || request.payload === null) {
         return [];

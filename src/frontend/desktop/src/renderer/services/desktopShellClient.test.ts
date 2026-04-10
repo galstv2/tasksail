@@ -26,6 +26,7 @@ describe('desktopShellClient', () => {
       discoverContextPackPrefill: vi.fn(),
       createContextPack: vi.fn(),
       listContextPacks: vi.fn(),
+      listRepoTree: vi.fn(),
       reseedContextPack: vi.fn(),
       previewContextPackSwitch: vi.fn(),
       applyContextPackSwitch: vi.fn(),
@@ -79,6 +80,7 @@ describe('desktopShellClient', () => {
       discoverContextPackPrefill: vi.fn(),
       createContextPack: vi.fn(),
       listContextPacks: vi.fn(),
+      listRepoTree: vi.fn(),
       reseedContextPack: vi.fn(),
       previewContextPackSwitch: vi.fn(),
       applyContextPackSwitch: vi.fn(),
@@ -164,8 +166,9 @@ describe('desktopShellClient', () => {
         .mockResolvedValue({ ok: true, response: { action: 'contextPack.discoverPrefill' } }),
       createContextPack: vi
         .fn()
-        .mockResolvedValue({ ok: true, response: { action: 'contextPack.create' } }),
+       .mockResolvedValue({ ok: true, response: { action: 'contextPack.create' } }),
       listContextPacks: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.list' } }),
+      listRepoTree: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.listRepoTree' } }),
       reseedContextPack: vi
         .fn()
         .mockResolvedValue({ ok: true, response: { action: 'contextPack.reseed' } }),
@@ -206,6 +209,7 @@ describe('desktopShellClient', () => {
       },
     });
     await client.listContextPacks();
+    await client.listRepoTree('/tmp/estate-root/orders-api', 'src');
     await client.reseedContextPack('/tmp/context-packs/orders-estate');
     await client.previewContextPackSwitch(
       '/tmp/context-packs/orders-estate',
@@ -248,6 +252,7 @@ describe('desktopShellClient', () => {
       },
     });
     expect(shell.listContextPacks).toHaveBeenCalledTimes(1);
+    expect(shell.listRepoTree).toHaveBeenCalledWith('/tmp/estate-root/orders-api', 'src');
     expect(shell.reseedContextPack).toHaveBeenCalledWith(
       '/tmp/context-packs/orders-estate',
     );
@@ -256,12 +261,14 @@ describe('desktopShellClient', () => {
       'focused',
       ['orders-api'],
       ['services-billing'],
+      undefined,
     );
     expect(shell.applyContextPackSwitch).toHaveBeenCalledWith(
       '/tmp/context-packs/orders-estate',
       'focused',
       ['orders-api'],
       ['services-billing'],
+      undefined,
     );
     expect(shell.clearActiveContextPack).toHaveBeenCalledTimes(1);
     expect(shell.activateContextPack).toHaveBeenCalledWith('platform-default');
@@ -280,6 +287,7 @@ describe('desktopShellClient', () => {
       discoverContextPackPrefill: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.discoverPrefill' } }),
       createContextPack: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.create' } }),
       listContextPacks: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.list' } }),
+      listRepoTree: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.listRepoTree' } }),
       reseedContextPack: vi
         .fn()
         .mockResolvedValue({ ok: true, response: { action: 'contextPack.reseed' } }),
@@ -378,6 +386,7 @@ describe('desktopShellClient', () => {
     );
     expect(window.desktopShell.previewContextPackSwitch).toHaveBeenCalledWith(
       '/tmp/context-packs/orders-estate',
+      undefined,
       undefined,
       undefined,
       undefined,

@@ -92,6 +92,17 @@ describe('buildAutonomyEnvironment', () => {
         primaryRepoId: 'monolith-app',
         primaryFocusId: 'api',
         primaryFocusRelativePath: 'apps/api',
+        deepFocusEnabled: true,
+        primaryFocusTargetKind: 'directory',
+        testTarget: {
+          path: 'tests/api',
+          kind: 'directory',
+          resolvedPath: '/workspace/repo/tests/api',
+        },
+        supportTargets: [
+          { path: 'shared/types.ts', kind: 'file', effectiveScope: 'exact-file' },
+        ],
+        warnings: ['Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.'],
         selectedRepoIds: ['monolith-app', 'docs-site'],
         selectedFocusIds: ['web', 'api'],
         authoritySource: 'active-task-sidecar',
@@ -104,11 +115,17 @@ describe('buildAutonomyEnvironment', () => {
         allowed_roots?: string[];
         working_directory?: string;
         working_directory_kind?: string;
+        warnings?: string[];
         focused_targeting?: {
           primary_repo_root?: string;
           primary_repo_id?: string;
           visible_repo_roots?: string[];
           primary_focus_relative_path?: string | null;
+          deep_focus_enabled?: boolean;
+          primary_focus_target_kind?: string | null;
+          test_target?: { path?: string; kind?: string } | null;
+          support_targets?: Array<{ path?: string; kind?: string; effectiveScope?: string }>;
+          warnings?: string[];
         } | null;
       };
       external_mcp_context?: {
@@ -123,6 +140,9 @@ describe('buildAutonomyEnvironment', () => {
     };
 
     expect(env['COPILOT_PRIMARY_FOCUS_PATH']).toBe('apps/api');
+    expect(env['COPILOT_PRIMARY_FOCUS_TARGET_KIND']).toBe('directory');
+    expect(env['COPILOT_TEST_TARGET_PATH']).toBe('tests/api');
+    expect(env['COPILOT_TEST_TARGET_KIND']).toBe('directory');
     expect(env['COPILOT_TARGET_REPOS_JSON']).toBe(JSON.stringify(['/workspace/repo', '/workspace/support']));
     expect(env['RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR']).toBe('.');
     expect(env['RUN_ROLE_AGENT_AUTONOMY_BOUNDARY_KIND']).toBe('active-context-pack');
@@ -133,11 +153,26 @@ describe('buildAutonomyEnvironment', () => {
     expect(profileJson.boundary_context?.selected_focus_ids).toEqual(['web', 'api']);
     expect(profileJson.boundary_context?.allowed_roots).toEqual(['/workspace/repo', '/workspace/support']);
     expect(profileJson.boundary_context?.target_folders).toEqual(['/workspace/repo', '/workspace/support']);
+    expect(profileJson.boundary_context?.warnings).toEqual([
+      'Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.',
+    ]);
     expect(profileJson.boundary_context?.focused_targeting).toEqual({
       primary_repo_root: '/workspace/repo',
       primary_repo_id: 'monolith-app',
       visible_repo_roots: ['/workspace/repo', '/workspace/support'],
       primary_focus_relative_path: 'apps/api',
+      deep_focus_enabled: true,
+      primary_focus_target_kind: 'directory',
+      test_target: {
+        path: 'tests/api',
+        kind: 'directory',
+      },
+      support_targets: [
+        { path: 'shared/types.ts', kind: 'file', effectiveScope: 'exact-file' },
+      ],
+      warnings: [
+        'Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.',
+      ],
     });
     expect(profileJson.external_mcp_context).toEqual({
       status: 'available',
@@ -213,6 +248,46 @@ describe('buildAutonomyEnvironment', () => {
     );
 
     expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_PATH');
+    expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_TARGET_KIND');
+    expect(env).not.toHaveProperty('COPILOT_TEST_TARGET_PATH');
+    expect(env).not.toHaveProperty('COPILOT_TEST_TARGET_KIND');
+  });
+
+  it('preserves repo-root Deep Focus metadata without exporting a fabricated target kind', () => {
+    const env = buildAutonomyEnvironment(
+      profile,
+      autonomyArgs,
+      '/workspace/repo',
+      '/workspace/repo',
+      {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'monolith',
+        primaryRepoId: 'monolith-app',
+        primaryFocusRelativePath: '',
+        deepFocusEnabled: true,
+        selectedRepoIds: ['monolith-app'],
+        selectedFocusIds: ['api'],
+        authoritySource: 'active-task-sidecar',
+      },
+      '/workspace/repo/context-pack',
+    );
+    const profileJson = JSON.parse(env['RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON'] ?? '{}') as {
+      boundary_context?: {
+        focused_targeting?: {
+          primary_focus_relative_path?: string | null;
+          primary_focus_target_kind?: string | null;
+        } | null;
+      };
+    };
+
+    expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_PATH');
+    expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_TARGET_KIND');
+    expect(profileJson.boundary_context?.focused_targeting).toEqual(expect.objectContaining({
+      primary_focus_relative_path: '',
+      primary_focus_target_kind: null,
+    }));
   });
 
   it('omits focused targeting exports but preserves platform-root launch metadata when focused resolution is unavailable', () => {

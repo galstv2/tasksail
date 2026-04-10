@@ -22,6 +22,7 @@ import {
   SLICE_TEMPLATE_FILENAME,
   implementationStepsTemplatePath,
 } from '../paths.js';
+import { formatContextPackBindingSection } from '../markdown.js';
 
 describe('acquireDirLock', () => {
   let tmpDir: string;
@@ -247,6 +248,54 @@ describe('activateNextPendingItemIfReady', () => {
     expect(readdirSync(guardrailsDir).filter((name) => name.endsWith('.json'))).toEqual([]);
     expect(existsSync(path.join(runtimeDir, 'pipeline-receipt.json'))).toBe(false);
     expect(existsSync(path.join(runtimeDir, 'last-reset-ts'))).toBe(true);
+  });
+
+  it('persists repo-root Deep Focus fields to the active-task sidecar during activation', async () => {
+    const repoRoot = path.join(tmpDir, 'repo');
+    const repoPendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
+    const repoHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    const repoTemplatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    const activeContextPackPath = path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json');
+    mkdirSync(repoPendingDir, { recursive: true });
+    mkdirSync(repoHandoffsDir, { recursive: true });
+    mkdirSync(repoTemplatesDir, { recursive: true });
+
+    const binding = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+    });
+    writeFileSync(path.join(repoPendingDir, 'task-006.md'), `# Repo root task
+
+${binding}
+
+## Request Summary
+
+Body
+`);
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(repoTemplatesDir, filename), `# ${filename}\n`);
+    }
+    writeFileSync(path.join(repoTemplatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+    const activated = await activateNextPendingItemIfReady(
+      repoPendingDir,
+      repoHandoffsDir,
+      repoTemplatesDir,
+    );
+
+    expect(activated).toBe(true);
+    expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).toEqual(expect.objectContaining({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+    }));
+    expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).not.toHaveProperty('selectedFocusTargetKind');
   });
 });
 

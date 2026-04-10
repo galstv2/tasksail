@@ -1,5 +1,8 @@
 import type {
   ContextPackCatalogEntry,
+  ContextPackDeepFocusTarget,
+  ContextPackFocusTargetKind,
+  ContextPackListRepoTreeResponse,
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
 } from '../../shared/desktopContract';
@@ -12,6 +15,11 @@ export type ContextPackSidebarProps = {
   selectedContextPackDir: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string | null;
+  selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
+  selectedTestTarget?: ContextPackDeepFocusTarget | null;
+  selectedSupportTargets?: ContextPackDeepFocusTarget[];
   actionPending: 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed' | null;
   message: string;
   error: string;
@@ -30,6 +38,19 @@ export type ContextPackSidebarProps = {
   showMultiPrimaryWarning: boolean;
   onDismissMultiPrimaryWarning: () => void;
   onToggleRepositoryType?: (repoId: string, currentType: 'primary' | 'support') => void;
+  onCommitDeepFocusSelection: (selection: {
+    deepFocusEnabled: boolean;
+    selectedRepoIds?: string[];
+    selectedFocusIds?: string[];
+    selectedFocusPath: string | null;
+    selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+    selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+    selectedSupportTargets: ContextPackDeepFocusTarget[];
+  }) => void;
+  onListRepoTree: (
+    repoLocalPath: string,
+    relativePath?: string,
+  ) => Promise<ContextPackListRepoTreeResponse | null>;
   onOpenPlannerModal: () => void;
 };
 
@@ -38,23 +59,23 @@ function ContextPackSidebar({
   ...rest
 }: ContextPackSidebarProps): JSX.Element {
   if (collapsed) {
-      return (
-        <ContextPackSidebarCompact
-          contextPacks={rest.contextPacks}
-          activeContextPackDir={rest.activeContextPackDir}
-          selectedContextPackDir={rest.selectedContextPackDir}
-          actionPending={rest.actionPending}
-          onToggleCollapse={rest.onToggleCollapse}
-          onSelectContextPack={rest.onSelectContextPack}
-          onRefreshCatalog={rest.onRefreshCatalog}
-          onOpenCreateModal={rest.onOpenCreateModal}
-          onReseedContextPack={rest.onReseedContextPack}
-          onPreviewSwitch={rest.onPreviewSwitch}
-          onApplySwitch={rest.onApplySwitch}
-          onClearActive={rest.onClearActive}
-          onOpenPlannerModal={rest.onOpenPlannerModal}
-        />
-      );
+    return (
+      <ContextPackSidebarCompact
+        contextPacks={rest.contextPacks}
+        activeContextPackDir={rest.activeContextPackDir}
+        selectedContextPackDir={rest.selectedContextPackDir}
+        actionPending={rest.actionPending}
+        onToggleCollapse={rest.onToggleCollapse}
+        onSelectContextPack={rest.onSelectContextPack}
+        onRefreshCatalog={rest.onRefreshCatalog}
+        onOpenCreateModal={rest.onOpenCreateModal}
+        onReseedContextPack={rest.onReseedContextPack}
+        onPreviewSwitch={rest.onPreviewSwitch}
+        onApplySwitch={rest.onApplySwitch}
+        onClearActive={rest.onClearActive}
+        onOpenPlannerModal={rest.onOpenPlannerModal}
+      />
+    );
   }
 
   return <ContextPackSidebarExpanded {...rest} />;

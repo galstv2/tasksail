@@ -30,6 +30,10 @@ describe('setupRepo', () => {
       path.join(tmpDir, 'config', 'platform.default.json'),
       JSON.stringify({ schema_version: 1, container_runtime: 'docker' }, null, 2),
     );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'config', 'deep-focus-ignore.default.json'),
+      JSON.stringify({ extensions: [], patterns: [] }, null, 2),
+    );
   });
 
   afterEach(async () => {
@@ -62,6 +66,20 @@ describe('setupRepo', () => {
     const mcpRegistryIndex = result.steps.findIndex((s) => s.name === 'mcp-registry-seed');
     expect(platformConfigIndex).toBeGreaterThan(-1);
     expect(mcpRegistryIndex).toBeGreaterThan(platformConfigIndex);
+  });
+
+  it('seeds the deep focus ignore runtime file from the tracked default', async () => {
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+
+    expect(result.steps.find((step) => step.name === 'deep-focus-ignore-seed')?.status).toBe('ok');
+    expect(
+      JSON.parse(
+        await fs.promises.readFile(
+          path.join(tmpDir, '.platform-state', 'deep-focus-ignore.json'),
+          'utf-8',
+        ),
+      ),
+    ).toEqual({ extensions: [], patterns: [] });
   });
 
   it('skips container services when skipContainerServices is true', async () => {

@@ -18,6 +18,11 @@ from src.backend.mcp.workspace_context_sync_resolution import (
     resolve_distributed_repo_selection,
     resolve_monolith_focus_selection,
 )
+from src.backend.mcp.workspace_context_sync_deep_focus import (
+    extract_deep_focus_fields,
+    load_deep_focus_selection_from_state,
+    normalize_deep_focus_selection,
+)
 from src.backend.mcp.workspace_context_sync_workspace import (
     WorkspaceFolderEntry,
     build_sync_preview,
@@ -30,8 +35,6 @@ from src.backend.mcp.workspace_context_sync_workspace import (
 SYNC_STATE_VERSION = 1
 DEFAULT_WORKSPACE_FILE = "tasksail.code-workspace"
 DEFAULT_STATE_FILE = ".platform-state/workspace-context-sync.json"
-
-
 class WorkspaceContextSyncService:
     def __init__(
         self,
@@ -60,7 +63,6 @@ class WorkspaceContextSyncService:
         if not isinstance(folders, list):
             raise ValueError("Workspace file must include a folders list")
         return payload
-
     def load_sync_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
             return {
@@ -71,6 +73,7 @@ class WorkspaceContextSyncService:
                 "scope_mode": "",
                 "selected_repo_ids": [],
                 "selected_focus_ids": [],
+                **normalize_deep_focus_selection(),
                 "managed_folders": [],
                 "last_synced_at": "",
                 "status": "idle",
@@ -109,6 +112,7 @@ class WorkspaceContextSyncService:
             ]
             if isinstance(selected_focus_ids, list)
             else [],
+            **load_deep_focus_selection_from_state(state),
             "managed_folders": [
                 normalize_any_path(Path(str(item))).as_posix()
                 for item in managed_folders
@@ -127,6 +131,7 @@ class WorkspaceContextSyncService:
         selected_repo_ids: list[str] | None = None,
         selected_focus_ids: list[str] | None = None,
         scope_mode: str = "focused",
+        deep_focus: dict[str, Any] | None = None,
         include_context_pack_root: bool = True,
     ) -> dict[str, Any]:
         if scope_mode not in ALLOWED_SCOPE_MODES:
@@ -260,6 +265,7 @@ class WorkspaceContextSyncService:
                     target_paths.append(resolved_target)
 
         deduped_targets = dedupe_paths(target_paths)
+        deep_focus_selection = deep_focus or normalize_deep_focus_selection()
         return {
             "context_pack_id": context_pack_id,
             "estate_type": estate_type,
@@ -270,6 +276,7 @@ class WorkspaceContextSyncService:
             "selected_focus_ids": effective_selected_focus_ids,
             "target_folders": [path.as_posix() for path in deduped_targets],
             "warnings": warnings,
+            **deep_focus_selection,
         }
 
     def preview_sync(
@@ -279,12 +286,14 @@ class WorkspaceContextSyncService:
         selected_repo_ids: list[str] | None = None,
         selected_focus_ids: list[str] | None = None,
         scope_mode: str = "focused",
+        deep_focus: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         target_info = self.resolve_context_pack_targets(
             context_pack_dir,
             selected_repo_ids=selected_repo_ids,
             selected_focus_ids=selected_focus_ids,
             scope_mode=scope_mode,
+            deep_focus=deep_focus,
         )
         workspace_payload = self.load_workspace()
         workspace_entries = load_workspace_entries(
@@ -298,7 +307,7 @@ class WorkspaceContextSyncService:
                 Path(path) for path in target_info["target_folders"]
             ],
         )
-        return {
+        result = {
             "action": "preview",
             "workspace_file": str(self.workspace_file),
             "state_file": str(self.state_file),
@@ -312,7 +321,9 @@ class WorkspaceContextSyncService:
             "folders_to_remove": preview["folders_to_remove"],
             "managed_folders": preview["managed_folders"],
             "warnings": target_info["warnings"],
+            **extract_deep_focus_fields(target_info),
         }
+        return result
 
     def apply_sync(
         self,
@@ -321,12 +332,14 @@ class WorkspaceContextSyncService:
         selected_repo_ids: list[str] | None = None,
         selected_focus_ids: list[str] | None = None,
         scope_mode: str = "focused",
+        deep_focus: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         preview = self.preview_sync(
             context_pack_dir,
             selected_repo_ids=selected_repo_ids,
             selected_focus_ids=selected_focus_ids,
             scope_mode=scope_mode,
+            deep_focus=deep_focus,
         )
         workspace_payload = self.load_workspace()
         workspace_entries = load_workspace_entries(
@@ -353,6 +366,7 @@ class WorkspaceContextSyncService:
             "scope_mode": preview["scope_mode"],
             "selected_repo_ids": preview["selected_repo_ids"],
             "selected_focus_ids": preview["selected_focus_ids"],
+            **extract_deep_focus_fields(preview),
             "managed_folders": preview_model["managed_folders"],
             "last_synced_at": self.now(),
             "status": "success",
@@ -389,6 +403,7 @@ class WorkspaceContextSyncService:
             "scope_mode": "",
             "selected_repo_ids": [],
             "selected_focus_ids": [],
+            **normalize_deep_focus_selection(),
             "managed_folders": [],
             "last_synced_at": self.now(),
             "status": "cleared",
@@ -402,6 +417,7 @@ class WorkspaceContextSyncService:
             "scope_mode": "",
             "selected_repo_ids": [],
             "selected_focus_ids": [],
+            **normalize_deep_focus_selection(),
             "folders_to_add": [],
             "folders_to_remove": preview_model["folders_to_remove"],
             "managed_folders": [],
@@ -423,7 +439,6 @@ class WorkspaceContextSyncService:
             workspace_payload, self.workspace_file
         )
         state = self.load_sync_state()
-
         workspace_paths = {
             entry.normalized_path for entry in workspace_entries
         }

@@ -1,5 +1,5 @@
 import { collectSliceValidationCommands } from './testCapture.js';
-import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 
@@ -16,7 +16,7 @@ import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
  */
 export function buildVerificationDaltonPrompt(
   validationCommands: string[],
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   verificationDiffAbsolutePath?: string,
   verificationDiffWarning?: string,
@@ -60,7 +60,7 @@ export function buildVerificationDaltonPrompt(
     'and validation commands succeed.',
     '',
   ];
-  appendFocusBlock(parts, primaryFocusRelativePath);
+  appendFocusBlock(parts, focusScope);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton-verify');
 
   if (verificationDiffAbsolutePath || verificationDiffWarning) {
@@ -99,7 +99,7 @@ export function buildVerificationDaltonPrompt(
 export async function resolveVerificationDaltonPrompt(
   _handoffsDir: string,
   implStepsDir: string,
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   verificationDiffAbsolutePath?: string,
   verificationDiffWarning?: string,
@@ -111,7 +111,7 @@ export async function resolveVerificationDaltonPrompt(
   }
   return buildVerificationDaltonPrompt(
     commands,
-    primaryFocusRelativePath,
+    focusScope,
     externalMcpRegistry,
     verificationDiffAbsolutePath,
     verificationDiffWarning,

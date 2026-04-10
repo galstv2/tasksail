@@ -193,6 +193,16 @@ describe('desktopContract', () => {
 
     expect(
       validateDesktopActionRequest({
+        action: 'contextPack.listRepoTree',
+        payload: {
+          repoLocalPath: '/tmp/estate-root/orders-api',
+          relativePath: 'src/components',
+        },
+      }),
+    ).toEqual([]);
+
+    expect(
+      validateDesktopActionRequest({
         action: 'contextPack.clearActive',
       }),
     ).toEqual([]);
@@ -208,6 +218,19 @@ describe('desktopContract', () => {
   });
 
   it('rejects malformed context-pack switch payloads', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'contextPack.listRepoTree',
+        payload: {
+          repoLocalPath: 'relative/path',
+          relativePath: '../secrets',
+        },
+      }),
+    ).toEqual([
+      'payload.repoLocalPath must be an absolute path string.',
+      'payload.relativePath must be a repo-root-relative path without traversal.',
+    ]);
+
     expect(
       validateDesktopActionRequest({
         action: 'contextPack.applySwitch',

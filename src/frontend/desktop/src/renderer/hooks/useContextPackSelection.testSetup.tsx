@@ -1,5 +1,6 @@
+import * as matchers from '@testing-library/jest-dom/matchers';
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
 
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { ToastProvider } from '../contexts/ToastContext';
@@ -11,6 +12,8 @@ import {
   createReseedResponse,
   createSwitchResponse,
 } from '../../test';
+
+expect.extend(matchers);
 
 afterEach(() => {
   cleanup();
@@ -34,6 +37,7 @@ export const ordersEstatePack: ContextPackCatalogEntry = {
       displayName: 'Orders API',
       kind: 'repository',
       repoId: 'orders-api',
+      repoLocalPath: '/tmp/context-packs/orders-estate/orders-api',
       serviceName: 'Orders API',
       systemLayer: 'backend',
       repoRole: 'backend-service',
@@ -51,6 +55,7 @@ export const ordersEstatePack: ContextPackCatalogEntry = {
       displayName: 'Orders Web',
       kind: 'repository',
       repoId: 'orders-web',
+      repoLocalPath: '/tmp/context-packs/orders-estate/orders-web',
       serviceName: 'Orders Web',
       systemLayer: 'frontend',
       repoRole: 'frontend',
@@ -84,6 +89,7 @@ export const billingEstatePack: ContextPackCatalogEntry = {
       displayName: 'Billing API',
       kind: 'repository',
       repoId: 'billing-api',
+      repoLocalPath: '/tmp/context-packs/billing-estate/billing-api',
       serviceName: 'Billing API',
       systemLayer: 'backend',
       repoRole: 'backend-service',
@@ -225,6 +231,26 @@ export function ContextPackSelectionContent({
       <div data-testid="selected-focus-ids">
         {contextPackSidebarProps.selectedFocusIds.join(',') || 'none'}
       </div>
+      <div data-testid="deep-focus-enabled">
+        {contextPackSidebarProps.deepFocusEnabled ? 'true' : 'false'}
+      </div>
+      <div data-testid="selected-focus-path">
+        {contextPackSidebarProps.selectedFocusPath ?? 'none'}
+      </div>
+      <div data-testid="selected-focus-target-kind">
+        {contextPackSidebarProps.selectedFocusTargetKind ?? 'none'}
+      </div>
+      <div data-testid="selected-test-target">
+        {contextPackSidebarProps.selectedTestTarget === undefined
+          ? 'unset'
+          : contextPackSidebarProps.selectedTestTarget
+            ? `${contextPackSidebarProps.selectedTestTarget.path}:${contextPackSidebarProps.selectedTestTarget.kind}`
+            : 'none'}
+      </div>
+      <div data-testid="selected-support-targets">
+        {contextPackSidebarProps.selectedSupportTargets?.map((target) => `${target.path}:${target.kind}`).join(',')
+          || 'none'}
+      </div>
       <div data-testid="message">{contextPackSidebarProps.message}</div>
       <div data-testid="error">{contextPackSidebarProps.error || 'no-error'}</div>
       <div data-testid="result-stage">
@@ -275,6 +301,51 @@ export function ContextPackSelectionContent({
         }
       >
         Select identity focus
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          contextPackSidebarProps.onCommitDeepFocusSelection({
+            deepFocusEnabled: true,
+            selectedRepoIds: ['orders-api'],
+            selectedFocusPath: 'src/features/orders',
+            selectedFocusTargetKind: 'directory',
+            selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+            selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+          })
+        }
+      >
+        Commit deep focus
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          contextPackSidebarProps.onCommitDeepFocusSelection({
+            deepFocusEnabled: true,
+            selectedRepoIds: ['orders-api'],
+            selectedFocusPath: 'src/features/orders',
+            selectedFocusTargetKind: 'directory',
+            selectedTestTarget: null,
+            selectedSupportTargets: [],
+          })
+        }
+      >
+        Commit deep focus no tests
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          contextPackSidebarProps.onCommitDeepFocusSelection({
+            deepFocusEnabled: false,
+            selectedRepoIds: ['orders-api'],
+            selectedFocusPath: null,
+            selectedFocusTargetKind: null,
+            selectedTestTarget: undefined,
+            selectedSupportTargets: [],
+          })
+        }
+      >
+        Clear deep focus
       </button>
       <button
         type="button"

@@ -6,6 +6,8 @@ import {
   extractTaskMetadataValue,
   printTaskMetadataBlock,
   printTaskLineageBlock,
+  extractContextPackBinding,
+  formatContextPackBindingSection,
 } from '../markdown.js';
 
 describe('extractTaskTitle', () => {
@@ -107,5 +109,141 @@ describe('printTaskLineageBlock', () => {
       'Parent Task ID': '',
     });
     expect(result).toBe('- Task Kind: standard\n- Parent Task ID:');
+  });
+});
+
+describe('context pack binding markdown', () => {
+  it('formats and extracts Deep Focus binding metadata', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+    const content = `# Task
+
+${section}
+
+## Request Summary
+
+Body
+`;
+
+    expect(section).toContain('- Deep Focus Enabled: true');
+    expect(section).toContain('- Selected Test Target: {"path":"tests/orders","kind":"directory"}');
+    expect(section).toContain('- Selected Support Targets: [{"path":"docs/orders.md","kind":"file"}]');
+    expect(extractContextPackBinding(content)).toEqual({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+  });
+
+  it('keeps legacy binding output unchanged when Deep Focus is disabled', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+    });
+    const content = `# Task
+
+${section}
+
+## Request Summary
+
+Body
+`;
+
+    expect(section).not.toContain('Deep Focus Enabled');
+    expect(extractContextPackBinding(content)).toEqual({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+    });
+  });
+
+  it('preserves repo-root Deep Focus binding metadata without fabricating a target kind', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+    });
+    const content = `# Task
+
+${section}
+
+## Request Summary
+
+Body
+`;
+
+    expect(extractContextPackBinding(content)).toEqual({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+      selectedFocusTargetKind: undefined,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    });
+  });
+
+  it('fails open while parsing malformed Deep Focus JSON', () => {
+    const content = `# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+- Context Pack ID: orders
+- Scope Mode: focused
+- Selected Repo IDs: backend
+- Selected Focus IDs: api
+- Deep Focus Enabled: true
+- Selected Focus Path: src/orders
+- Selected Focus Target Kind: directory
+- Selected Test Target: {"path":"tests/orders"
+- Selected Support Targets: not-json
+
+## Request Summary
+
+Body
+`;
+
+    expect(extractContextPackBinding(content)).toEqual({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    });
   });
 });

@@ -33,6 +33,11 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       selectedContextPackDir={packs[0]?.contextPackDir ?? ''}
       selectedRepoIds={[]}
       selectedFocusIds={[]}
+      deepFocusEnabled={false}
+      selectedFocusPath={null}
+      selectedFocusTargetKind={null}
+      selectedTestTarget={null}
+      selectedSupportTargets={[]}
       actionPending={null}
       message=""
       error=""
@@ -47,6 +52,8 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       onPreviewSwitch={noop}
       onApplySwitch={noop}
       onClearActive={noop}
+      onCommitDeepFocusSelection={noop}
+      onListRepoTree={async () => null}
       onOpenPlannerModal={noop}
       showMultiPrimaryWarning={false}
       onDismissMultiPrimaryWarning={noop}

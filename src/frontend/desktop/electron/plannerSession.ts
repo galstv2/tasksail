@@ -1,6 +1,11 @@
 import { BrowserWindow } from 'electron';
 
-import { resolveFocusedRepoRoot, type FocusedRepoResult } from '../../../backend/platform/context-pack/focusedRepo.js';
+import {
+  collectFocusedRepoTargetDirectoryRoots,
+  resolveFocusedRepoRoot,
+  resolveSelectedPrimaryRepoRoot,
+  type FocusedRepoResult,
+} from '../../../backend/platform/context-pack/focusedRepo.js';
 import { DESKTOP_SHELL_PLANNER_EVENT_CHANNEL } from '../src/shared/desktopContract';
 import { PLANNER_SAVE_DRAFT_WORKFLOW, wrapFreshSessionMessage } from '../src/shared/plannerWorkflow';
 import { REPO_ROOT } from './paths';
@@ -25,10 +30,16 @@ const broker = new PlannerSessionBroker({
 let firstMessageSent = false;
 
 export async function startSession(contextPackDir: string): Promise<{ sessionId: string; created: boolean }> {
-  const focused = await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
-  const allowedRoots = dedupeRoots([...getPlanningAgentAllowedRoots(), ...(focused?.visibleRepoRoots ?? [])]);
-  const workingDirectory = focused?.primaryRepoRoot ?? undefined;
-  const result = broker.startSession({ contextPackDir, allowedRoots, workingDirectory });
+  const selectedFocused = await resolveSelectedPrimaryRepoRoot(contextPackDir, REPO_ROOT);
+  const focused = selectedFocused?.deepFocusEnabled === true
+    ? selectedFocused
+    : await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
+  const allowedRoots = dedupeRoots([
+    ...getPlanningAgentAllowedRoots(),
+    ...(focused?.visibleRepoRoots ?? []),
+    ...(focused?.deepFocusEnabled === true ? collectFocusedRepoTargetDirectoryRoots(focused) : []),
+  ]);
+  const result = broker.startSession({ contextPackDir, allowedRoots });
 
   if (!result.created) {
     return result;
@@ -109,7 +120,15 @@ function toStagingFocusedRepo(
   focused?: FocusedRepoResult,
 ): Pick<
   FocusedRepoResult,
-  'primaryRepoId' | 'primaryRepoRoot' | 'primaryFocusRelativePath' | 'selectedRepoIds' | 'selectedFocusIds'
+  | 'primaryRepoId'
+  | 'primaryRepoRoot'
+  | 'primaryFocusRelativePath'
+  | 'deepFocusEnabled'
+  | 'primaryFocusTargetKind'
+  | 'selectedTestTarget'
+  | 'supportTargets'
+  | 'selectedRepoIds'
+  | 'selectedFocusIds'
 > | undefined {
   if (!focused) {
     return undefined;
@@ -119,6 +138,14 @@ function toStagingFocusedRepo(
     primaryRepoId: focused.primaryRepoId,
     primaryRepoRoot: focused.primaryRepoRoot,
     primaryFocusRelativePath: focused.primaryFocusRelativePath,
+    deepFocusEnabled: focused.deepFocusEnabled,
+    primaryFocusTargetKind: focused.primaryFocusTargetKind,
+    selectedTestTarget: focused.selectedTestTarget
+      ? { ...focused.selectedTestTarget }
+      : focused.deepFocusEnabled === true
+        ? null
+        : undefined,
+    supportTargets: focused.supportTargets?.map((target) => ({ ...target })),
     selectedRepoIds: [...focused.selectedRepoIds],
     selectedFocusIds: [...focused.selectedFocusIds],
   };

@@ -26,7 +26,7 @@ import {
   resolveTestCaptureCwdFromFocused,
   type TestCaptureResult,
 } from './testCapture.js';
-import { appendFocusBlock } from './monolithFocusPrompt.js';
+import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
 import { runPolicyValidation } from '../../queue/policyValidation.js';
@@ -246,14 +246,14 @@ function extractPolicyFailureDetails(
 
 export function buildFleetDaltonCleanupPrompt(
   cleanupContext: string,
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
 ): string {
   const sections = [
     'Your previous Dalton fleet run did not leave the workflow ready for QA.',
     '',
   ];
-  appendFocusBlock(sections, primaryFocusRelativePath);
+  appendFocusBlock(sections, focusScope);
   appendMcpContextBlock(sections, externalMcpRegistry, 'dalton');
   if (cleanupContext.trim()) {
     sections.push(cleanupContext.trim(), '');
@@ -444,7 +444,7 @@ export async function formatSliceSections(
 export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   regularDaltonContext?: RegularDaltonPromptContext,
 ): Promise<string> {
@@ -460,7 +460,7 @@ export async function buildFleetPrompt(
     'run in parallel vs. which must be sequential.',
     '',
   ];
-  appendFocusBlock(parts, primaryFocusRelativePath);
+  appendFocusBlock(parts, focusScope);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   const implSpec = await readImplSpec(handoffsDir);
@@ -494,7 +494,7 @@ export async function buildFleetPrompt(
 export async function buildSimpleDaltonPrompt(
   implStepsDir: string,
   handoffsDir: string,
-  primaryFocusRelativePath?: string,
+  focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   regularDaltonContext?: RegularDaltonPromptContext,
 ): Promise<string> {
@@ -503,7 +503,7 @@ export async function buildSimpleDaltonPrompt(
   const implSpec = await readImplSpec(handoffsDir);
 
   const parts: string[] = [];
-  appendFocusBlock(parts, primaryFocusRelativePath);
+  appendFocusBlock(parts, focusScope);
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (implSpec?.trim()) {
@@ -763,7 +763,7 @@ export async function runPipelineSequence(
       const selectedPrimary = effectiveContextPackDir
         ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
         : undefined;
-      const primaryFocusRelativePath = selectedPrimary?.primaryFocusRelativePath;
+      const focusScope = toFocusScopePromptOptions(selectedPrimary);
       const testCaptureCwd = effectiveContextPackDir
         ? resolveTestCaptureCwdFromFocused(selectedPrimary)
         : paths.repoRoot;
@@ -791,7 +791,7 @@ export async function runPipelineSequence(
             const verificationPrompt = await resolveVerificationDaltonPrompt(
               paths.handoffs,
               paths.implementationSteps,
-              primaryFocusRelativePath,
+              focusScope,
               externalMcpRegistry,
               verificationDiffStage.verificationDiffAbsolutePath,
               joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
@@ -861,7 +861,7 @@ export async function runPipelineSequence(
             const fleetPrompt = await buildFleetPrompt(
               paths.implementationSteps,
               paths.handoffs,
-              primaryFocusRelativePath,
+              focusScope,
               externalMcpRegistry,
               {
                 repoRoot: paths.repoRoot,
@@ -887,7 +887,7 @@ export async function runPipelineSequence(
               });
               const cleanupPrompt = buildFleetDaltonCleanupPrompt(
                 cleanupContext,
-                primaryFocusRelativePath,
+                focusScope,
                 externalMcpRegistry,
               );
               const cleanupResult = await runRoleAgent({
@@ -915,7 +915,7 @@ export async function runPipelineSequence(
           agentPromptOverride = await buildSimpleDaltonPrompt(
             paths.implementationSteps,
             paths.handoffs,
-            primaryFocusRelativePath,
+            focusScope,
             externalMcpRegistry,
             {
               repoRoot: paths.repoRoot,
@@ -925,7 +925,7 @@ export async function runPipelineSequence(
         } else if (agentId === 'ron') {
           agentPromptOverride = buildTestCapturePrompt(
             testCaptureResults,
-            primaryFocusRelativePath,
+            focusScope,
             externalMcpRegistry,
             testCaptureWarning,
           );
@@ -957,7 +957,7 @@ export async function runPipelineSequence(
               maxCycles: maxRemediationCycles,
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
-              primaryFocusRelativePath,
+              focusScope,
               externalMcpRegistry,
               abortSignal: abortController.signal,
             });
@@ -1055,4 +1055,29 @@ export async function runPipelineSequence(
     await clearPipelineKill(paths.repoRoot);
     await lock.release();
   }
+}
+
+function toFocusScopePromptOptions(selectedPrimary?: {
+  primaryFocusRelativePath?: string;
+  primaryFocusTargetKind?: 'directory' | 'file';
+  testTarget?: { path: string; kind: 'directory' | 'file' };
+  supportTargets?: FocusScopePromptOptions['supportTargets'];
+  estateType?: string;
+}): FocusScopePromptOptions | undefined {
+  if (!selectedPrimary) {
+    return undefined;
+  }
+
+  return {
+    primaryFocusRelativePath: selectedPrimary.primaryFocusRelativePath,
+    primaryFocusTargetKind: selectedPrimary.primaryFocusTargetKind,
+    testTarget: selectedPrimary.testTarget
+      ? {
+          path: selectedPrimary.testTarget.path,
+          kind: selectedPrimary.testTarget.kind,
+        }
+      : undefined,
+    supportTargets: selectedPrimary.supportTargets,
+    estateType: selectedPrimary.estateType,
+  };
 }

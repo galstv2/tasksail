@@ -1,8 +1,13 @@
+// @vitest-environment jsdom
+
+import * as matchers from '@testing-library/jest-dom/matchers';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
 import ContextPackSidebarExpanded from './ContextPackSidebarExpanded';
+
+expect.extend(matchers);
 
 afterEach(() => {
   cleanup();
@@ -32,6 +37,11 @@ const defaultProps = {
   selectedContextPackDir: '',
   selectedRepoIds: [] as string[],
   selectedFocusIds: [] as string[],
+  deepFocusEnabled: false,
+  selectedFocusPath: null,
+  selectedFocusTargetKind: null,
+  selectedTestTarget: undefined,
+  selectedSupportTargets: [],
   actionPending: null as 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed' | null,
   message: '',
   error: '',
@@ -46,6 +56,8 @@ const defaultProps = {
   onPreviewSwitch: vi.fn(),
   onApplySwitch: vi.fn(),
   onClearActive: vi.fn(),
+  onCommitDeepFocusSelection: vi.fn(),
+  onListRepoTree: vi.fn().mockResolvedValue(null),
   onOpenPlannerModal: vi.fn(),
   showMultiPrimaryWarning: false,
   onDismissMultiPrimaryWarning: vi.fn(),
@@ -149,5 +161,48 @@ describe('ContextPackSidebarExpanded', () => {
     expect(screen.getByRole('alertdialog', { name: 'Primary selection required' })).toBeInTheDocument();
     expect(screen.getByText('Primary Selection Required')).toBeInTheDocument();
     expect(screen.getByText(/Exactly one Primary must be selected/)).toBeInTheDocument();
+  });
+
+  it('keeps expanded sidebar layering classes during editor close choreography', async () => {
+    const pack = makePack({
+      estateType: 'distributed-platform',
+      focusTargets: [
+        {
+          focusId: 'repo-1',
+          displayName: 'Frontend',
+          kind: 'repository',
+          repoId: 'repo-1',
+          repoLocalPath: '/tmp/repo-1',
+          serviceName: null,
+          systemLayer: 'frontend',
+          repoRole: null,
+          repositoryType: null,
+          relativePath: null,
+          focusType: null,
+          group: null,
+          defaultFocusable: true,
+          activationPriority: 0,
+          adjacentRepoIds: [],
+          adjacentFocusIds: [],
+        },
+      ],
+    });
+
+    const { container } = render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={[pack]}
+        selectedContextPackDir="/packs/my-pack"
+        selectedRepoIds={['repo-1']}
+        deepFocusEnabled
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    await screen.findByTestId('deep-focus-editor');
+    expect(container.querySelector('.context-pack-sidebar')).toHaveClass('deep-focus-sidebar--expanded');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel Deep Focus editing' })[0]!);
+    expect(container.querySelector('.context-pack-sidebar')).toHaveClass('deep-focus-sidebar--closing');
   });
 });

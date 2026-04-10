@@ -7,13 +7,15 @@ import { delimiter, join, resolve } from 'node:path';
 import {
   type ContextPackCatalogEntry,
   type ContextPackCatalogSource,
+  type ContextPackDeepFocusTarget,
+  type ContextPackFocusTargetKind,
   type ContextPackFocusTarget,
   type ContextPackListResponse,
   type WorkspaceScopeMode,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { pathExists, stringOrNull, repoFs } from './utils';
-import { portablePathBasename, stringArray } from './main.contextPackShared';
+import { portablePathBasename, readDeepFocusPath, stringArray } from './main.contextPackShared';
 
 const ENV_FILE_PATH = join(REPO_ROOT, '.env');
 const WORKSPACE_SYNC_STATE_PATH = join(
@@ -29,6 +31,11 @@ type WorkspaceSyncStateSnapshot = {
   scopeMode: WorkspaceScopeMode | null;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled: boolean;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
   managedFolders: string[];
   attachedManagedFolders: string[];
   missingManagedFolders: string[];
@@ -38,6 +45,50 @@ type WorkspaceSyncStateSnapshot = {
 
 function repositoryTypeOrNull(value: unknown): 'primary' | 'support' | null {
   return value === 'primary' || value === 'support' ? value : null;
+}
+
+function resolveFirstLocalPath(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  for (const entry of value) {
+    if (typeof entry === 'string' && entry.trim().length > 0) {
+      return resolve(entry);
+    }
+  }
+
+  return null;
+}
+
+function parseDeepFocusTarget(
+  value: unknown,
+): ContextPackDeepFocusTarget | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const target = value as { path?: unknown; kind?: unknown };
+  if (
+    typeof target.path !== 'string'
+    || (target.kind !== 'directory' && target.kind !== 'file')
+  ) {
+    return null;
+  }
+  return {
+    path: target.path,
+    kind: target.kind,
+  };
+}
+
+function parseDeepFocusTargetList(
+  value: unknown,
+): ContextPackDeepFocusTarget[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((target) => parseDeepFocusTarget(target))
+    .filter((target): target is ContextPackDeepFocusTarget => target !== null);
 }
 
 function parseConfiguredPaths(value: string | undefined): string[] {
@@ -149,6 +200,11 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       scopeMode: null,
       selectedRepoIds: [],
       selectedFocusIds: [],
+        deepFocusEnabled: false,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedTestTarget: undefined,
+        selectedSupportTargets: [],
       managedFolders: [],
       attachedManagedFolders: [],
       missingManagedFolders: [],
@@ -164,6 +220,11 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       scope_mode?: unknown;
       selected_repo_ids?: unknown;
       selected_focus_ids?: unknown;
+      deep_focus_enabled?: unknown;
+      selected_focus_path?: unknown;
+      selected_focus_target_kind?: unknown;
+      selected_test_target?: unknown;
+      selected_support_targets?: unknown;
       managed_folders?: unknown;
       status?: unknown;
       last_synced_at?: unknown;
@@ -172,12 +233,29 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
     const managedFolders = stringArray(state.managed_folders).map((path) => resolve(path));
     const attachedManagedFolders = managedFolders.filter((path) => workspacePaths.has(path));
     const missingManagedFolders = managedFolders.filter((path) => !workspacePaths.has(path));
+    const deepFocusEnabled = state.deep_focus_enabled === true;
     return {
       activeContextPackDir: activeContextPackDir ? resolve(activeContextPackDir) : null,
       activeContextPackId: stringOrNull(state.active_context_pack_id),
       scopeMode: 'focused',
       selectedRepoIds: stringArray(state.selected_repo_ids),
       selectedFocusIds: stringArray(state.selected_focus_ids),
+      deepFocusEnabled,
+      selectedFocusPath: deepFocusEnabled ? readDeepFocusPath(state.selected_focus_path) : null,
+      selectedFocusTargetKind:
+        deepFocusEnabled
+        && (state.selected_focus_target_kind === 'directory'
+          || state.selected_focus_target_kind === 'file')
+          ? state.selected_focus_target_kind
+          : null,
+      selectedTestTarget:
+        deepFocusEnabled
+          ? Object.prototype.hasOwnProperty.call(state, 'selected_test_target')
+            ? parseDeepFocusTarget(state.selected_test_target)
+            : undefined
+          : undefined,
+      selectedSupportTargets:
+        deepFocusEnabled ? parseDeepFocusTargetList(state.selected_support_targets) : [],
       managedFolders,
       attachedManagedFolders,
       missingManagedFolders,
@@ -193,6 +271,11 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       scopeMode: null,
       selectedRepoIds: [],
       selectedFocusIds: [],
+      deepFocusEnabled: false,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
       managedFolders: [],
       attachedManagedFolders: [],
       missingManagedFolders: [],
@@ -217,6 +300,11 @@ export function deriveContextPackRuntimeState(
   | 'lastAppliedScopeMode'
   | 'lastAppliedSelectedRepoIds'
   | 'lastAppliedSelectedFocusIds'
+  | 'lastAppliedDeepFocusEnabled'
+  | 'lastAppliedSelectedFocusPath'
+  | 'lastAppliedSelectedFocusTargetKind'
+  | 'lastAppliedSelectedTestTarget'
+  | 'lastAppliedSelectedSupportTargets'
 > {
   const normalizedContextPackDir = resolve(contextPackDir);
   const stateActiveDir = syncState.activeContextPackDir;
@@ -256,6 +344,14 @@ export function deriveContextPackRuntimeState(
     lastAppliedScopeMode: stateTracksEntry ? syncState.scopeMode : null,
     lastAppliedSelectedRepoIds: stateTracksEntry ? syncState.selectedRepoIds : [],
     lastAppliedSelectedFocusIds: stateTracksEntry ? syncState.selectedFocusIds : [],
+    lastAppliedDeepFocusEnabled: stateTracksEntry ? syncState.deepFocusEnabled : false,
+    lastAppliedSelectedFocusPath: stateTracksEntry ? syncState.selectedFocusPath : null,
+    lastAppliedSelectedFocusTargetKind:
+      stateTracksEntry ? syncState.selectedFocusTargetKind : null,
+    lastAppliedSelectedTestTarget:
+      stateTracksEntry ? syncState.selectedTestTarget : undefined,
+    lastAppliedSelectedSupportTargets:
+      stateTracksEntry ? syncState.selectedSupportTargets : [],
   };
 }
 
@@ -298,6 +394,7 @@ async function inspectContextPackDir(
         default_scope_mode?: unknown;
         primary_working_repo_ids?: unknown;
         primary_focus_area_ids?: unknown;
+        repository?: unknown;
         repositories?: unknown;
         focusable_areas?: unknown;
       };
@@ -311,8 +408,13 @@ async function inspectContextPackDir(
             (item): item is Record<string, unknown> => typeof item === 'object' && item !== null,
           )
         : [];
+      const monolithRepository = typeof manifest.repository === 'object' && manifest.repository !== null
+        ? manifest.repository as Record<string, unknown>
+        : null;
       repoCount = repositories.length;
       if (estateType === 'monolith' || estateType === 'monolith-platform') {
+        const monolithRepoLocalPath = resolveFirstLocalPath(monolithRepository?.local_paths)
+          ?? resolveFirstLocalPath(repositories[0]?.local_paths);
         const focusableAreas = Array.isArray(manifest.focusable_areas)
           ? manifest.focusable_areas.filter(
               (item): item is Record<string, unknown> => typeof item === 'object' && item !== null,
@@ -327,7 +429,9 @@ async function inspectContextPackDir(
             focusId,
             displayName: stringOrNull(area.focus_name) ?? stringOrNull(area.relative_path) ?? focusId,
             kind: 'focus-area',
-            repoId: null, serviceName: null, systemLayer: null, repoRole: null,
+            repoId: stringOrNull(monolithRepository?.repo_id),
+            repoLocalPath: monolithRepoLocalPath,
+            serviceName: null, systemLayer: null, repoRole: null,
             repositoryType: repositoryTypeOrNull(area.repository_type),
             relativePath: stringOrNull(area.relative_path),
             focusType: stringOrNull(area.focus_type),
@@ -352,6 +456,7 @@ async function inspectContextPackDir(
             displayName: stringOrNull(repo.service_name) ?? stringOrNull(repo.repo_name) ?? repoId,
             kind: 'repository',
             repoId,
+            repoLocalPath: resolveFirstLocalPath(repo.local_paths),
             serviceName: stringOrNull(repo.service_name),
             systemLayer: stringOrNull(repo.system_layer),
             repoRole: stringOrNull(repo.repo_role),

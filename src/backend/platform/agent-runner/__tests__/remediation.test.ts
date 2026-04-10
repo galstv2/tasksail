@@ -82,7 +82,7 @@ describe('remediationRunQaLoop', () => {
       remediationRunQaLoop({
         repoRoot,
         maxCycles: 1,
-        primaryFocusRelativePath: 'services/sink',
+        focusScope: { primaryFocusRelativePath: 'services/sink' },
         externalMcpRegistry: externalRegistry,
       }),
     ).rejects.toThrow('failed during QA revalidation');
@@ -94,7 +94,7 @@ describe('remediationRunQaLoop', () => {
     ).toBe(originalIssues);
     expect(runRoleAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({
       agentId: 'dalton',
-      promptOverride: expect.stringContaining('Primary focus path: `services/sink`'),
+      promptOverride: expect.stringContaining('Primary focus path: `services/sink/`'),
     }));
     expect(runRoleAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
       agentId: 'ron',

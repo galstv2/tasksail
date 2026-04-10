@@ -103,6 +103,18 @@
   grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) 40px;
   flex: 1;
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
+}
+
+.shell__body:has(.deep-focus-sidebar--expanded),
+.shell__body:has(.deep-focus-sidebar--closing) {
+  overflow: visible;
+}
+
+.shell__body:has(.deep-focus-sidebar--expanded) .shell-main,
+.shell__body:has(.deep-focus-sidebar--closing) .shell-main {
+  z-index: 0;
 }
 
 .shell__body.sidebar--collapsed {
@@ -118,6 +130,8 @@
   padding: 0.5rem 0.65rem;
   background: var(--ts-main-bg);
   box-sizing: border-box;
+  position: relative;
+  z-index: 0;
 }
 
 

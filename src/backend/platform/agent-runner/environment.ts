@@ -109,9 +109,19 @@ export function buildAutonomyEnvironment(
           primary_repo_id: focused.primaryRepoId,
           visible_repo_roots: focused.visibleRepoRoots,
           primary_focus_relative_path: focused.primaryFocusRelativePath ?? null,
+          deep_focus_enabled: focused.deepFocusEnabled ?? false,
+          primary_focus_target_kind: focused.primaryFocusTargetKind ?? null,
+          test_target: focused.testTarget
+            ? {
+                path: focused.testTarget.path,
+                kind: focused.testTarget.kind,
+              }
+            : null,
+          support_targets: focused.supportTargets ?? [],
+          warnings: focused.warnings ?? [],
         }
       : null,
-    warnings: [],
+    warnings: focused?.warnings ?? [],
     resolution_status: contextPackDir ? 'resolved' : 'missing-active-context-pack',
     context_pack_boundary_enforced: Boolean(contextPackDir),
   };
@@ -162,6 +172,15 @@ export function buildAutonomyEnvironment(
     ...(focused?.visibleRepoRoots?.length ? { COPILOT_TARGET_REPOS_JSON: JSON.stringify(focused.visibleRepoRoots) } : {}),
     ...(focused?.primaryFocusRelativePath
       ? { COPILOT_PRIMARY_FOCUS_PATH: focused.primaryFocusRelativePath }
+      : {}),
+    ...(focused?.primaryFocusTargetKind
+      ? { COPILOT_PRIMARY_FOCUS_TARGET_KIND: focused.primaryFocusTargetKind }
+      : {}),
+    ...(focused?.testTarget
+      ? {
+          COPILOT_TEST_TARGET_PATH: focused.testTarget.path,
+          COPILOT_TEST_TARGET_KIND: focused.testTarget.kind,
+        }
       : {}),
   };
 }

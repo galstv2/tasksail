@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 import { buildCompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import { classNames } from '../utils/classNames';
 import type { ContextPackSidebarProps } from './ContextPackSidebar';
@@ -13,6 +15,11 @@ function ContextPackSidebarExpanded({
   selectedContextPackDir,
   selectedRepoIds,
   selectedFocusIds,
+  deepFocusEnabled,
+  selectedFocusPath,
+  selectedFocusTargetKind,
+  selectedTestTarget,
+  selectedSupportTargets,
   actionPending,
   message,
   error,
@@ -21,6 +28,8 @@ function ContextPackSidebarExpanded({
   onSelectWorkingFocus,
   onRefreshCatalog,
   onOpenCreateModal,
+  onCommitDeepFocusSelection,
+  onListRepoTree,
   onReseedContextPack,
   onPreviewSwitch,
   onApplySwitch,
@@ -30,6 +39,8 @@ function ContextPackSidebarExpanded({
   onToggleRepositoryType,
   onOpenPlannerModal,
 }: ContextPackSidebarExpandedProps): JSX.Element {
+  const [deepFocusExpanded, setDeepFocusExpanded] = useState(false);
+  const [deepFocusClosing, setDeepFocusClosing] = useState(false);
   const activePack = contextPacks.find((entry) => entry.isActive);
   const selectedPack = contextPacks.find(
     (entry) => entry.contextPackDir === selectedContextPackDir,
@@ -51,8 +62,49 @@ function ContextPackSidebarExpanded({
     lastReseedResult: null,
   });
 
+  useEffect(() => {
+    setDeepFocusExpanded(false);
+    setDeepFocusClosing(false);
+  }, [selectedContextPackDir]);
+
+  useEffect(() => {
+    if (deepFocusExpanded) {
+      setDeepFocusClosing(false);
+      return;
+    }
+    if (!deepFocusClosing) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDeepFocusClosing(false);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [deepFocusClosing, deepFocusExpanded]);
+
+  const handleDeepFocusEditorToggle = (expanded: boolean) => {
+    if (expanded) {
+      setDeepFocusClosing(false);
+      setDeepFocusExpanded(true);
+      return;
+    }
+    setDeepFocusExpanded((wasExpanded) => {
+      if (wasExpanded) {
+        setDeepFocusClosing(true);
+      }
+      return false;
+    });
+  };
+
   return (
-    <aside className="panel context-pack-sidebar" aria-label="Context pack sidebar">
+    <aside
+      className={classNames(
+        'panel',
+        'context-pack-sidebar',
+        deepFocusExpanded && 'deep-focus-sidebar--expanded',
+        deepFocusClosing && 'deep-focus-sidebar--closing',
+      )}
+      aria-label="Context pack sidebar"
+    >
       {/* ── Sticky header ──────────────────────────── */}
       <div className="sidebar-header">
         <div className="sidebar-header__left">
@@ -122,16 +174,24 @@ function ContextPackSidebarExpanded({
           <SidebarScopeControls
             selectedPack={selectedPack}
             selectedWorkingFocusIds={selectedWorkingFocusIds}
+            deepFocusEnabled={deepFocusEnabled ?? false}
+            selectedFocusPath={selectedFocusPath ?? null}
+            selectedFocusTargetKind={selectedFocusTargetKind ?? null}
+            selectedTestTarget={selectedTestTarget ?? null}
+            selectedSupportTargets={selectedSupportTargets ?? []}
             focusHint={sidebarModel.focusHint}
             onSelectWorkingFocus={onSelectWorkingFocus}
             onToggleRepositoryType={onToggleRepositoryType}
-            sidebarModel={sidebarModel}
-          />
+             onCommitDeepFocusSelection={onCommitDeepFocusSelection}
+             onListRepoTree={onListRepoTree}
+             onDeepFocusEditorToggle={handleDeepFocusEditorToggle}
+             sidebarModel={sidebarModel}
+           />
         ) : null}
       </div>
 
       {/* ── Sticky footer actions ──────────────────── */}
-      <div className="sidebar-footer">
+      <div className={classNames('sidebar-footer', deepFocusExpanded && 'sidebar-footer--hidden')}>
         {error ? (
           <p className="sidebar-meta sidebar-meta--error" data-testid="context-pack-error">
             {error}

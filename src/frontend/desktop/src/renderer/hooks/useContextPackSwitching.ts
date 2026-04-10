@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   ContextPackCatalogEntry,
+  ContextPackDeepFocusTarget,
+  ContextPackFocusTargetKind,
   ContextPackListResponse,
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
@@ -23,6 +25,11 @@ export type SwitchingStateSnapshot = {
   scopeMode: WorkspaceScopeMode;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled: boolean;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
 
 type RefreshOptions = {
@@ -68,6 +75,11 @@ export function useContextPackSwitching(
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
+        deepFocusEnabled,
+        selectedFocusPath,
+        selectedFocusTargetKind,
+        selectedTestTarget,
+        selectedSupportTargets,
       } = getState();
       const hasActiveContextPack = Boolean(catalogResponse?.activeContextPackDir);
 
@@ -133,6 +145,13 @@ export function useContextPackSwitching(
                 scopeMode,
                 selectedRepoIds,
                 selectedFocusIds,
+                {
+                  deepFocusEnabled,
+                  selectedFocusPath,
+                  selectedFocusTargetKind,
+                  selectedTestTarget,
+                  selectedSupportTargets,
+                },
               )
             : action === 'apply'
               ? await client.applyContextPackSwitch(
@@ -140,6 +159,13 @@ export function useContextPackSwitching(
                   scopeMode,
                   selectedRepoIds,
                   selectedFocusIds,
+                  {
+                    deepFocusEnabled,
+                    selectedFocusPath,
+                    selectedFocusTargetKind,
+                    selectedTestTarget,
+                    selectedSupportTargets,
+                  },
                 )
               : await client.clearActiveContextPack();
 

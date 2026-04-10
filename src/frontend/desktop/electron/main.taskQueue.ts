@@ -5,6 +5,7 @@ import {
   type FollowUpDirectSubmissionDraft,
   type PlannerDirectSubmissionDraft,
 } from '../src/shared/desktopContract';
+import type { ContextPackDeepFocusTarget } from '../src/shared/desktopContractDeepFocus';
 import { emitStreamEvent } from './main.stream';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
@@ -47,6 +48,11 @@ type ResolvedDirectSubmissionContext = {
   scopeMode?: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string | null;
+  selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedTestTarget?: ContextPackDeepFocusTarget | null;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
   contextPackName: string;
 };
 
@@ -102,6 +108,7 @@ async function resolveDirectSubmissionContext(
     primaryRepoId: focused.primaryRepoId,
     primaryRepoRoot: focused.primaryRepoRoot,
     primaryFocusRelativePath: focused.primaryFocusRelativePath,
+    primaryFocusTargetKind: focused.primaryFocusTargetKind,
   }).trim();
   if (!title) {
     throw new Error('Direct queue submission blocked: canonical title derivation returned an empty value.');
@@ -118,6 +125,19 @@ async function resolveDirectSubmissionContext(
     selectedFocusIds: syncState.selectedFocusIds.length > 0
       ? syncState.selectedFocusIds
       : focused.selectedFocusIds,
+    deepFocusEnabled: syncState.deepFocusEnabled,
+    selectedFocusPath: syncState.deepFocusEnabled
+      ? syncState.selectedFocusPath
+      : null,
+    selectedFocusTargetKind: syncState.deepFocusEnabled
+      ? syncState.selectedFocusTargetKind
+      : null,
+    selectedTestTarget: syncState.deepFocusEnabled
+      ? syncState.selectedTestTarget
+      : null,
+    selectedSupportTargets: syncState.deepFocusEnabled
+      ? syncState.selectedSupportTargets
+      : [],
     contextPackName: basename(contextPackDir),
   };
 }
@@ -262,6 +282,11 @@ export async function runDropboxTaskScript(options: {
     scopeMode: context.scopeMode,
     selectedRepoIds: context.selectedRepoIds,
     selectedFocusIds: context.selectedFocusIds,
+    deepFocusEnabled: context.deepFocusEnabled,
+    selectedFocusPath: context.selectedFocusPath,
+    selectedFocusTargetKind: context.selectedFocusTargetKind,
+    selectedTestTarget: context.selectedTestTarget,
+    selectedSupportTargets: context.selectedSupportTargets,
   });
   emitStreamEvent({ message: `Created dropbox task: ${filePath}`, source: 'createDropboxTask', role: 'queue' });
   return { filePath, title: context.title };
@@ -306,6 +331,11 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
     scopeMode: context.scopeMode,
     selectedRepoIds: context.selectedRepoIds,
     selectedFocusIds: context.selectedFocusIds,
+    deepFocusEnabled: context.deepFocusEnabled,
+    selectedFocusPath: context.selectedFocusPath,
+    selectedFocusTargetKind: context.selectedFocusTargetKind,
+    selectedTestTarget: context.selectedTestTarget,
+    selectedSupportTargets: context.selectedSupportTargets,
   });
   emitStreamEvent({ message: `Created child-task follow-up: ${filePath}`, source: 'createFollowupTask', role: 'queue' });
   return { filePath, title: context.title, rootTaskId: parentMetadata.rootTaskId };

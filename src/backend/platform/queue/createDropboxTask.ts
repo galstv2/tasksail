@@ -7,7 +7,10 @@ import {
   ensurePathWithinDropbox,
 } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
-import { formatContextPackBindingSection } from './markdown.js';
+import {
+  formatContextPackBindingSection,
+  type TaskContextPackTarget,
+} from './markdown.js';
 
 export interface CreateDropboxTaskOptions {
   title: string;
@@ -44,6 +47,16 @@ export interface CreateDropboxTaskOptions {
   selectedRepoIds?: string[];
   /** Selected focus IDs at submission time. */
   selectedFocusIds?: string[];
+  /** Whether Deep Focus metadata should be persisted. */
+  deepFocusEnabled?: boolean;
+  /** Selected Deep Focus path relative to the primary repo root. */
+  selectedFocusPath?: string | null;
+  /** Selected Deep Focus target kind. */
+  selectedFocusTargetKind?: 'directory' | 'file' | null;
+  /** Optional Deep Focus test target. */
+  selectedTestTarget?: TaskContextPackTarget | null;
+  /** Normalized Deep Focus support targets. */
+  selectedSupportTargets?: TaskContextPackTarget[];
 }
 
 export const CANONICAL_TASK_FILENAME_SEPARATOR = '_';
@@ -155,6 +168,11 @@ export async function createDropboxTask(
     scopeMode: (options.scopeMode ?? '').trim() || undefined,
     selectedRepoIds: options.selectedRepoIds,
     selectedFocusIds: options.selectedFocusIds,
+    deepFocusEnabled: options.deepFocusEnabled,
+    selectedFocusPath: options.selectedFocusPath,
+    selectedFocusTargetKind: options.selectedFocusTargetKind,
+    selectedTestTarget: options.selectedTestTarget,
+    selectedSupportTargets: options.selectedSupportTargets,
   });
 
   const content = `# ${title}

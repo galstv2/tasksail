@@ -28,6 +28,7 @@ type DesktopShellClient = Pick<
   | 'discoverContextPackPrefill'
   | 'createContextPack'
   | 'listContextPacks'
+  | 'listRepoTree'
   | 'reseedContextPack'
   | 'setRepositoryType'
   | 'previewContextPackSwitch'
@@ -101,6 +102,8 @@ export function createDesktopShellClient(
       readShell().discoverContextPackPrefill(rootPath, mode),
     createContextPack: (payload) => readShell().createContextPack(payload),
     listContextPacks: () => readShell().listContextPacks(),
+    listRepoTree: (repoLocalPath: string, relativePath?: string) =>
+      readShell().listRepoTree(repoLocalPath, relativePath),
     reseedContextPack: (contextPackDir) =>
       readShell().reseedContextPack(contextPackDir),
     setRepositoryType: (contextPackDir, repoId, repositoryType) =>
@@ -110,24 +113,28 @@ export function createDesktopShellClient(
       scopeMode,
       selectedRepoIds,
       selectedFocusIds,
+      deepFocusSelection,
     ) =>
       readShell().previewContextPackSwitch(
         contextPackDir,
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
+        deepFocusSelection,
       ),
     applyContextPackSwitch: (
       contextPackDir,
       scopeMode,
       selectedRepoIds,
       selectedFocusIds,
+      deepFocusSelection,
     ) =>
       readShell().applyContextPackSwitch(
         contextPackDir,
         scopeMode,
         selectedRepoIds,
         selectedFocusIds,
+        deepFocusSelection,
       ),
     clearActiveContextPack: () => readShell().clearActiveContextPack(),
     activateContextPack: (packId) => readShell().activateContextPack(packId),

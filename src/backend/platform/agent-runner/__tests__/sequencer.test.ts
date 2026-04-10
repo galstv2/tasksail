@@ -206,7 +206,7 @@ describe('buildFleetPrompt', () => {
     const prompt = await buildFleetPrompt(
       implStepsDir,
       handoffsDir,
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       createExternalMcpRegistry(['dalton']),
       { repoRoot: dir, contextPackDir },
     );
@@ -214,7 +214,7 @@ describe('buildFleetPrompt', () => {
     expect(prompt).toContain('## Monolith Focus Scope');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('"Prompt Guide" may help with triaging implementation work');
-    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('## Implementation Spec');
     expect(prompt).toContain('Honor the contract.');
@@ -271,13 +271,13 @@ describe('buildFleetDaltonCleanupPrompt', () => {
         '',
         'blocking',
       ].join('\n'),
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       createExternalMcpRegistry(['dalton']),
     );
     expect(prompt).toContain('did not leave the workflow ready for QA');
     expect(prompt).toContain('## Monolith Focus Scope');
     expect(prompt).toContain('## External MCP Guidance');
-    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('closeout.qa-review-approved');
     expect(prompt).toContain('## Inline Blocking Artifact Context');
     expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
@@ -342,14 +342,14 @@ describe('buildSimpleDaltonPrompt', () => {
     const prompt = await buildSimpleDaltonPrompt(
       implStepsDir,
       handoffsDir,
-      'services/sink',
+      { primaryFocusRelativePath: 'services/sink' },
       createExternalMcpRegistry(['dalton']),
       { repoRoot: dir, contextPackDir },
     );
 
     expect(prompt).toContain('## Monolith Focus Scope');
     expect(prompt).toContain('## External MCP Guidance');
-    expect(prompt).toContain('Primary focus path: `services/sink`');
+    expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('implementation changes must stay within the selected focus area.');
     expect(prompt).toContain('## Implementation Spec');

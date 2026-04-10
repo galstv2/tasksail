@@ -75,6 +75,16 @@ export interface TaskContextPackBinding {
   scopeMode: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string;
+  selectedFocusTargetKind?: 'directory' | 'file';
+  selectedTestTarget?: TaskContextPackTarget | null;
+  selectedSupportTargets?: TaskContextPackTarget[];
+}
+
+export interface TaskContextPackTarget {
+  path: string;
+  kind: 'directory' | 'file';
 }
 
 /**
@@ -91,12 +101,31 @@ export function extractContextPackBinding(
   const dir = extractLabeledValue(section, 'Context Pack Dir');
   if (!dir) return null;
 
-  return {
+  const binding: TaskContextPackBinding = {
     contextPackDir: dir,
     contextPackId: extractLabeledValue(section, 'Context Pack ID'),
     scopeMode: extractLabeledValue(section, 'Scope Mode'),
     selectedRepoIds: commaSplit(extractLabeledValue(section, 'Selected Repo IDs')),
     selectedFocusIds: commaSplit(extractLabeledValue(section, 'Selected Focus IDs')),
+  };
+
+  if (extractLabeledValue(section, 'Deep Focus Enabled') !== 'true') {
+    return binding;
+  }
+
+  return {
+    ...binding,
+    deepFocusEnabled: true,
+    selectedFocusPath: extractLabeledValue(section, 'Selected Focus Path'),
+    selectedFocusTargetKind: parseTargetKind(
+      extractLabeledValue(section, 'Selected Focus Target Kind'),
+    ),
+    selectedTestTarget: parseContextPackTarget(
+      extractLabeledValue(section, 'Selected Test Target'),
+    ),
+    selectedSupportTargets: parseContextPackTargetList(
+      extractLabeledValue(section, 'Selected Support Targets'),
+    ),
   };
 }
 
@@ -110,8 +139,13 @@ export function formatContextPackBindingSection(binding: {
   scopeMode?: string;
   selectedRepoIds?: string[];
   selectedFocusIds?: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string | null;
+  selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedTestTarget?: TaskContextPackTarget | null;
+  selectedSupportTargets?: TaskContextPackTarget[];
 }): string {
-  return [
+  const lines = [
     '## Context Pack Binding',
     '',
     `- Context Pack Dir: ${binding.contextPackDir ?? ''}`,
@@ -119,11 +153,70 @@ export function formatContextPackBindingSection(binding: {
     `- Scope Mode: ${binding.scopeMode ?? ''}`,
     `- Selected Repo IDs: ${(binding.selectedRepoIds ?? []).join(', ')}`,
     `- Selected Focus IDs: ${(binding.selectedFocusIds ?? []).join(', ')}`,
-  ].join('\n');
+  ];
+
+  if (binding.deepFocusEnabled === true) {
+    lines.push('- Deep Focus Enabled: true');
+    lines.push(`- Selected Focus Path: ${binding.selectedFocusPath ?? ''}`);
+    lines.push(
+      `- Selected Focus Target Kind: ${binding.selectedFocusTargetKind ?? ''}`,
+    );
+    if (binding.selectedTestTarget) {
+      lines.push(`- Selected Test Target: ${JSON.stringify(binding.selectedTestTarget)}`);
+    }
+    lines.push(
+      `- Selected Support Targets: ${JSON.stringify(binding.selectedSupportTargets ?? [])}`,
+    );
+  }
+
+  return lines.join('\n');
 }
 
 function commaSplit(value: string): string[] {
   return value ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+}
+
+function parseTargetKind(value: string): 'directory' | 'file' | undefined {
+  return value === 'directory' || value === 'file' ? value : undefined;
+}
+
+function parseContextPackTarget(value: string): TaskContextPackTarget | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return isContextPackTarget(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseContextPackTargetList(value: string): TaskContextPackTarget[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(isContextPackTarget);
+  } catch {
+    return [];
+  }
+}
+
+function isContextPackTarget(value: unknown): value is TaskContextPackTarget {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.path === 'string'
+    && (candidate.kind === 'directory' || candidate.kind === 'file');
 }
 
 /**
@@ -131,7 +224,7 @@ function commaSplit(value: string): string[] {
  */
 function extractLabeledValue(text: string, label: string): string {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`^- ${escapedLabel}:\\s*(.*)$`, 'm');
+  const regex = new RegExp(`^- ${escapedLabel}:[ \\t]*(.*)$`, 'm');
   const match = text.match(regex);
   return match ? match[1].trim() : '';
 }

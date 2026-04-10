@@ -1,40 +1,40 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolvePaths, getErrorMessage } from '../core/index.js';
-import type { RunRoleAgentOptions, AgentRunResult, AgentMcpLaunchStatus } from './types.js';
+import { resolvePaths } from '../core/index.js';
+import type { RunRoleAgentOptions, AgentRunResult } from './types.js';
 import { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } from './metadata.js';
 import { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } from './autonomy.js';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from './environment.js';
 import { runRuntimePolicyCheck, guardrailReceiptPath, writeGuardrailReceipt } from './guardrails.js';
-import { launchCopilot, waitForCopilotDetailed } from './processLifecycle.js';
 import { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } from '../context-pack/focusedRepo.js';
-import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { readTextFile } from '../core/io.js';
 import { buildAgentArtifactRemediationPrompt, checkAgentArtifactCompletion } from './artifactCompletion.js';
 import { computeRuntimeFactsSourceSignature } from './runtimeFacts.js';
 import {
-  captureCodeDiff,
-  prepareExternalMcpLaunchContext,
-  type ExternalMcpLaunchContext,
-} from './pythonHelpers.js';
-import { writeSessionStartReceipt, writeSessionTerminalReceipt } from './sessionReceipts.js';
+  runCopilotSession,
+  correctSessionReceipt,
+  refreshQaCodeDiff,
+  mergeExternalMcpLaunchEnvironment,
+  summarizeExternalMcpLaunchContext,
+  logExternalMcpLaunchStatus,
+} from './copilotSession.js';
+import type { ChangedPathsSnapshot } from './confinement.js';
 import {
-  captureChangedPathsSnapshot,
-  type ChangedPathsSnapshot,
-  DaltonConfinementError,
-  validateDaltonBoundaryChanges,
-} from './confinement.js';
-
-function isDaltonFamilyAgent(agentId: RunRoleAgentOptions['agentId']): boolean {
-  return agentId === 'dalton' || agentId === 'dalton-verify';
-}
-
-function daltonFamilyRuntimeLabel(agentId: RunRoleAgentOptions['agentId']): string {
-  return agentId === 'dalton'
-    ? 'Dalton'
-    : `Dalton-family agent "${agentId}"`;
-}
+  buildArtifactCleanupPrompt,
+  prepareDaltonBoundary,
+  isDaltonFamilyAgent,
+  daltonFamilyRuntimeLabel,
+  handleDaltonConfinementValidation,
+} from './daltonLaunchPrep.js';
+import {
+  agentErrorWithTails,
+  extractPolicyFailureDetails,
+  hasConcreteArtifactRemediation,
+  incompleteArtifactOwnerLabel,
+  isRecoverableDeniedActionExit,
+  buildDeniedActionContinuationPrompt,
+} from './recoveryPasses.js';
 
 function launchPromptPath(repoRoot: string, agentId: RunRoleAgentOptions['agentId']): string {
   const promptFile = agentId === 'lily'
@@ -45,16 +45,6 @@ function launchPromptPath(repoRoot: string, agentId: RunRoleAgentOptions['agentI
         ? 'execute-task.prompt.md'
         : 'continue-task.prompt.md';
   return path.join(repoRoot, '.github', 'copilot', 'prompts', promptFile);
-}
-
-function confinementRetryPromptPath(
-  repoRoot: string,
-  agentId: RunRoleAgentOptions['agentId'],
-): string {
-  if (!isDaltonFamilyAgent(agentId)) {
-    throw new Error(`Confinement retry prompt is only defined for Dalton-family agents. Got: ${agentId}`);
-  }
-  return path.join(repoRoot, '.github', 'copilot', 'prompts', 'execute-task-retry.prompt.md');
 }
 
 function formatDryRunOutput(
@@ -76,22 +66,6 @@ async function resolveLaunchPrompt(
     };
   }
   const promptPath = launchPromptPath(repoRoot, agentId);
-  const prompt = (await readTextFile(promptPath))?.trim();
-  if (!prompt) {
-    throw new Error(`Launch prompt is missing or empty: ${promptPath}`);
-  }
-  return {
-    prompt,
-    promptPath,
-    promptSource: 'file',
-  };
-}
-
-async function resolveConfinementRetryPrompt(
-  repoRoot: string,
-  agentId: RunRoleAgentOptions['agentId'],
-): Promise<{ prompt: string; promptPath: string; promptSource: 'file' }> {
-  const promptPath = confinementRetryPromptPath(repoRoot, agentId);
   const prompt = (await readTextFile(promptPath))?.trim();
   if (!prompt) {
     throw new Error(`Launch prompt is missing or empty: ${promptPath}`);
@@ -126,392 +100,10 @@ function buildPromptAudit(options: {
   };
 }
 
-function formatOutputSection(label: string, content: string): string {
-  return `--- ${label} ---\n${content || '<no output>'}`;
-}
-
-function agentErrorWithTails(
-  message: string,
-  runSummary: { stdoutTail: string; stderrTail: string },
-): Error {
-  return new Error(
-    [
-      message,
-      formatOutputSection('stdout tail', runSummary.stdoutTail),
-      formatOutputSection('stderr tail', runSummary.stderrTail),
-    ].join('\n'),
-  );
-}
-
-function extractPolicyFailureDetails(
-  policyResult: { stdout: string; stderr: string },
-): string {
-  const stderr = policyResult.stderr.trim();
-  if (stderr) {
-    return stderr;
-  }
-
-  const stdout = policyResult.stdout.trim();
-  if (!stdout) {
-    return '';
-  }
-
-  try {
-    const parsed = JSON.parse(stdout) as {
-      violations?: Array<{ message?: string; rule_id?: string }>;
-      next_steps?: string[];
-    };
-    const violationLines = (parsed.violations ?? [])
-      .map((violation) => violation.message?.trim() || violation.rule_id?.trim() || '')
-      .filter((line) => line.length > 0);
-    const nextStepLines = (parsed.next_steps ?? [])
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    const combined = [...violationLines, ...nextStepLines];
-    if (combined.length > 0) {
-      return combined.join(' | ');
-    }
-  } catch {
-    // Fall back to raw stdout when the validator did not emit JSON.
-  }
-
-  return stdout;
-}
-
-function buildDaltonConfinementRetryPrompt(options: {
-  basePrompt: string;
-  violation: DaltonConfinementError;
-}): string {
-  const sections = [options.basePrompt.trim()];
-  if (options.violation.violationPaths.length > 0) {
-    sections.push(
-      '',
-      'Out-of-bound changed paths detected:',
-      ...options.violation.violationPaths.map((violationPath) => `- ${violationPath}`),
-    );
-  }
-  sections.push(
-    '',
-    'Your previous run violated the enforced implementation boundary.',
-    'Remove or repair every out-of-bound change, keep all remaining code edits inside the selected primary repo or primary monolith focus path, then finish the originally assigned slice.',
-  );
-  return sections.join('\n');
-}
-
-function hasConcreteArtifactRemediation(prompt: string): boolean {
-  return prompt.trim().length > 0;
-}
-
-function incompleteArtifactOwnerLabel(agentId: RunRoleAgentOptions['agentId']): string {
-  if (agentId === 'alice') return 'Alice';
-  if (isDaltonFamilyAgent(agentId)) return 'Dalton';
-  if (agentId === 'ron') return 'Ron';
-  return agentId;
-}
-
-function resolveDaltonLaunchCwd(
-  focused: FocusedRepoResult,
-  agentId: RunRoleAgentOptions['agentId'],
-): string {
-  if (!focused.primaryFocusRelativePath) {
-    return focused.primaryRepoRoot;
-  }
-
-  const focusCwd = path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
-  if (!existsSync(focusCwd)) {
-    const launchAgentLabel = agentId === 'dalton'
-      ? 'agent "dalton"'
-      : `Dalton-family agent "${agentId}"`;
-    throw new Error(
-      `Cannot launch ${launchAgentLabel}: selected monolith focus subfolder "${focused.primaryFocusRelativePath}" ` +
-      `does not exist at "${focusCwd}".`,
-    );
-  }
-
-  return focusCwd;
-}
-
-function buildArtifactCleanupPrompt(options: {
-  agentId: RunRoleAgentOptions['agentId'];
-  artifactPrompt: string;
-  policyFailureDetails?: string;
-}): string {
-  const sections = [
-    'Your previous run did not leave the workflow ready for the next role.',
-  ];
-  if (options.policyFailureDetails?.trim()) {
-    sections.push('', `Blocking workflow-policy details: ${options.policyFailureDetails.trim()}`);
-  }
-  sections.push('', options.artifactPrompt.trim());
-  return sections.join('\n');
-}
-
-const RECOVERABLE_DENIED_ACTION_PATTERNS = [
-  /permission denied and could not request permission from user/i,
-  /could not request permission from user/i,
-  /permission to run this tool was denied due the following rules/i,
-];
-
-function isRecoverableDeniedActionExit(
-  runSummary: Awaited<ReturnType<typeof waitForCopilotDetailed>>,
-): boolean {
-  const combinedOutput = `${runSummary.stdoutTail}\n${runSummary.stderrTail}`;
-  return RECOVERABLE_DENIED_ACTION_PATTERNS.some((pattern) => pattern.test(combinedOutput));
-}
-
-function buildDeniedActionContinuationPrompt(agentId: RunRoleAgentOptions['agentId']): string {
-  const owner = incompleteArtifactOwnerLabel(agentId);
-  return [
-    `Your previous ${owner} run attempted a denied command or permission request and exited early.`,
-    '',
-    'Do not run shell commands.',
-    'Do not request permission.',
-    'Do not retry denied tools.',
-    'Continue from the current workspace state using only allowed read/search/write tools.',
-    'If you want to verify artifact content, inspect the files directly instead of executing commands.',
-    'Finish only the remaining workflow artifacts for your role, then stop.',
-  ].join('\n');
-}
-
-async function refreshQaCodeDiff(options: {
-  agentId: RunRoleAgentOptions['agentId'];
-  contextPackDir?: string;
-  handoffsDir: string;
-  repoRoot: string;
-  abortSignal?: AbortSignal;
-}): Promise<void> {
-  if (options.agentId !== 'ron' || !options.contextPackDir) {
-    return;
-  }
-
-  const outputPath = path.join(options.handoffsDir, 'code-changes.diff');
-  const result = await captureCodeDiff({
-    contextPackDir: options.contextPackDir,
-    outputPath,
-    repoRoot: options.repoRoot,
-    abortSignal: options.abortSignal,
-  });
-
-  if (result.exitCode !== 0) {
-    console.warn(
-      `[roleAgent] failed to generate QA code diff at ${outputPath}; continuing without refreshed diff:`,
-      result.stderr || result.stdout || 'unknown error',
-    );
-    return;
-  }
-}
-
-async function mergeExternalMcpLaunchEnvironment(options: {
-  agentId: RunRoleAgentOptions['agentId'];
-  repoRoot: string;
-  agentEnv: Record<string, string>;
-  abortSignal?: AbortSignal;
-}): Promise<ExternalMcpLaunchContext | undefined> {
-  try {
-    const launchContext = await prepareExternalMcpLaunchContext({
-      agentId: options.agentId,
-      repoRoot: options.repoRoot,
-      env: options.agentEnv,
-      abortSignal: options.abortSignal,
-    });
-    if (launchContext.injectionEnabled) {
-      if (!launchContext.configFilePath && launchContext.envExports['COPILOT_HOME']) {
-        launchContext.configFilePath = path.join(launchContext.envExports['COPILOT_HOME'], 'mcp-config.json');
-      }
-      delete launchContext.envExports['COPILOT_HOME'];
-      Object.assign(options.agentEnv, launchContext.envExports);
-      return launchContext;
-    }
-    if (launchContext.status !== 'not-applicable') {
-      console.warn(
-        '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
-        `${launchContext.status}: ${launchContext.reason}`,
-      );
-    }
-    return launchContext;
-  } catch (err) {
-    console.warn(
-      '[roleAgent] external MCP launch context failed, continuing without MCP:',
-      getErrorMessage(err),
-    );
-    return undefined;
-  }
-}
-
-function summarizeExternalMcpLaunchContext(
-  launchContext: ExternalMcpLaunchContext | undefined,
-): AgentMcpLaunchStatus {
-  if (!launchContext) {
-    return {
-      status: 'unavailable',
-      reason: 'launch context helper failed',
-      injectionEnabled: false,
-      selectedServerIds: [],
-      excludedServerIds: [],
-    };
-  }
-
-  return {
-    status: launchContext.status,
-    reason: launchContext.reason,
-    injectionEnabled: launchContext.injectionEnabled,
-    selectedServerIds: [...launchContext.selectedServerIds],
-    excludedServerIds: [...launchContext.excludedServerIds],
-  };
-}
-
-function logExternalMcpLaunchStatus(
-  agentId: RunRoleAgentOptions['agentId'],
-  launchStatus: AgentMcpLaunchStatus,
-): void {
-  console.log(
-    '[roleAgent] MCP launch status:',
-    JSON.stringify({
-      agentId,
-      status: launchStatus.status,
-      injectionEnabled: launchStatus.injectionEnabled,
-      selectedServerIds: launchStatus.selectedServerIds,
-      excludedServerIds: launchStatus.excludedServerIds,
-      reason: launchStatus.reason,
-    }),
-  );
-}
-
 const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunRoleAgentOptions['agentId']>> = {
   alice: 'dalton',
   dalton: 'ron',
 };
-
-/** Correct a session receipt to 'completed' after greedy-stop or denied-action recovery overrides exitCode to 0. */
-async function correctSessionReceipt(receiptFile: string | null, agentId: string): Promise<void> {
-  if (!receiptFile) return;
-  await writeSessionTerminalReceipt({
-    receiptPath: receiptFile,
-    agentId,
-    terminalStatus: 'completed',
-    exitCode: 0,
-  }).catch(() => {});
-}
-
-async function runCopilotSession(options: {
-  copilotArgs: string[];
-  cwd: string;
-  env: Record<string, string>;
-  wallClockTimeoutS?: number;
-  idleTimeoutS?: number;
-  abortSignal?: AbortSignal;
-  greedyStopOnArtifactCompletion?: {
-    pollIntervalMs?: number;
-    completionCheck: () => Promise<boolean>;
-  };
-  session?: {
-    repoRoot: string;
-    agentId: string;
-    roleName: string;
-    displayName: string;
-    promptAudit?: {
-      promptPath: string | null;
-      promptSource: 'file' | 'override';
-      inlineAgentContext: boolean;
-      effectivePromptSha256: string;
-    };
-  };
-}): Promise<{
-  runSummary: Awaited<ReturnType<typeof waitForCopilotDetailed>>;
-  greedyStopTriggered: boolean;
-  sessionReceiptFile: string | null;
-}> {
-  const child = launchCopilot(options.copilotArgs, {
-    cwd: options.cwd,
-    env: options.env,
-    wallClockTimeoutS: options.wallClockTimeoutS,
-    idleTimeoutS: options.idleTimeoutS,
-  });
-
-  // Write session start receipt for the runtime stream watcher.
-  let sessionReceiptFile: string | undefined;
-  if (options.session) {
-    try {
-      sessionReceiptFile = await writeSessionStartReceipt({
-        ...options.session,
-        launchPid: child.pid ?? null,
-      });
-    } catch {
-      // Non-fatal — the terminal feed just won't show the start event.
-    }
-  }
-
-  let greedyStopTriggered = false;
-  let greedyMonitorError: unknown;
-  let greedyCheckInFlight = false;
-  const greedyPollIntervalMs = options.greedyStopOnArtifactCompletion?.pollIntervalMs ?? 1000;
-  const greedyTimer = options.greedyStopOnArtifactCompletion
-    ? setInterval(() => {
-      if (greedyCheckInFlight || greedyStopTriggered) {
-        return;
-      }
-      if (child.exitCode !== null || child.signalCode !== null) {
-        return;
-      }
-      greedyCheckInFlight = true;
-      void options.greedyStopOnArtifactCompletion?.completionCheck()
-        .then((complete) => {
-          if (!complete || greedyStopTriggered) {
-            return;
-          }
-          if (child.exitCode !== null || child.signalCode !== null) {
-            return;
-          }
-          greedyStopTriggered = true;
-          child.kill('SIGTERM');
-        })
-        .catch((err: unknown) => {
-          if (greedyMonitorError === undefined) {
-            greedyMonitorError = err;
-          }
-        })
-        .finally(() => {
-          greedyCheckInFlight = false;
-        });
-    }, greedyPollIntervalMs)
-    : undefined;
-
-  const runSummary = await waitForCopilotDetailed(child, {
-    wallClockTimeoutMs: options.wallClockTimeoutS !== undefined
-      ? options.wallClockTimeoutS * 1000
-      : undefined,
-    idleTimeoutMs: options.idleTimeoutS !== undefined
-      ? options.idleTimeoutS * 1000
-      : undefined,
-    abortSignal: options.abortSignal,
-  });
-  if (greedyTimer) {
-    clearInterval(greedyTimer);
-  }
-
-  // Write session terminal receipt for the runtime stream watcher.
-  if (sessionReceiptFile && options.session) {
-    try {
-      await writeSessionTerminalReceipt({
-        receiptPath: sessionReceiptFile,
-        agentId: options.session.agentId,
-        terminalStatus: runSummary.exitCode === 0 ? 'completed' : 'failed',
-        exitCode: runSummary.exitCode,
-      });
-    } catch {
-      // Non-fatal — the terminal feed just won't show the end event.
-    }
-  }
-
-  if (greedyMonitorError !== undefined) {
-    throw greedyMonitorError;
-  }
-  return {
-    runSummary,
-    greedyStopTriggered,
-    sessionReceiptFile: sessionReceiptFile ?? null,
-  };
-}
 
 /**
  * Run a role agent through the full workflow:
@@ -635,31 +227,29 @@ export async function runRoleAgent(
         : undefined;
 
       if (focused) {
-        // Add the activated reference repo set as allowed dirs so Dalton can read
-        // support repos, while post-run confinement still hard-enforces writes to
-        // the selected primary repo/focus boundary only.
-        for (const root of focused.visibleRepoRoots) {
-          autonomyArgs.allowedDirs.push(root);
-        }
-        if (usesFocusedRepoLaunch) {
-          agentCwd = enforcesSelectedPrimaryBoundary
-            ? resolveDaltonLaunchCwd(focused, options.agentId)
-            : focused.primaryRepoRoot;
-          const focusedLaunchPlatformDir = enforcesSelectedPrimaryBoundary
-            ? verificationTempAllowedDir
-            : paths.repoRoot;
-          if (
-            focusedLaunchPlatformDir &&
-            !autonomyArgs.allowedDirs.includes(focusedLaunchPlatformDir)
-          ) {
-            autonomyArgs.allowedDirs.push(focusedLaunchPlatformDir);
-          }
-        }
         if (enforcesSelectedPrimaryBoundary) {
-          preRunBoundarySnapshot = await captureChangedPathsSnapshot([
-            paths.repoRoot,
-            ...focused.declaredRepoRoots,
-          ]);
+          const daltonBoundary = await prepareDaltonBoundary(
+            focused,
+            {
+              agentId: options.agentId,
+              repoRoot: paths.repoRoot,
+              usesFocusedRepoLaunch,
+              verificationTempAllowedDir,
+            },
+            autonomyArgs,
+          );
+          agentCwd = daltonBoundary.agentCwd;
+          preRunBoundarySnapshot = daltonBoundary.preRunBoundarySnapshot;
+        } else {
+          for (const root of focused.visibleRepoRoots) {
+            autonomyArgs.allowedDirs.push(root);
+          }
+          if (usesFocusedRepoLaunch) {
+            agentCwd = focused.primaryRepoRoot;
+            if (!autonomyArgs.allowedDirs.includes(paths.repoRoot)) {
+              autonomyArgs.allowedDirs.push(paths.repoRoot);
+            }
+          }
         }
       } else if (usesFocusedRepoLaunch || enforcesSelectedPrimaryBoundary) {
         throw new Error(
@@ -1029,111 +619,50 @@ export async function runRoleAgent(
   }
 
   if (enforcesSelectedPrimaryBoundary && focused && preRunBoundarySnapshot) {
-    try {
-      const postRunBoundarySnapshot = await captureChangedPathsSnapshot([
-        paths.repoRoot,
-        ...focused.declaredRepoRoots,
-      ]);
-      validateDaltonBoundaryChanges({
-        platformRepoRoot: paths.repoRoot,
-        focused,
-        before: preRunBoundarySnapshot,
-        after: postRunBoundarySnapshot,
-      });
-    } catch (error: unknown) {
-      if (!(error instanceof DaltonConfinementError)) {
-        await writeLaunchGuardrailReceipt({
-          schema_version: 1,
-          status: 'failed',
-          agent_id: options.agentId,
-          model: activeModel,
-          exit_code: 0,
-          termination_reason: 'confinement-violation',
-          signal_code: runSummary.signalCode,
-          stdout_tail: runSummary.stdoutTail,
-          stderr_tail: getErrorMessage(error),
-          violation_paths: [],
+    const confinementResult = await handleDaltonConfinementValidation({
+      repoRoot: paths.repoRoot,
+      agentId: options.agentId,
+      activeModel,
+      focused,
+      preRunBoundarySnapshot,
+      runSummary,
+      writeLaunchGuardrailReceipt,
+      resetArtifactCompletionCache,
+      buildRetryArgs: (prompt: string) => {
+        const retryEffectivePrompt = inlineAgentContext(prompt);
+        const copilotArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', retryEffectivePrompt];
+        const promptAudit = buildPromptAudit({
+          promptPath: null,
+          promptSource: 'override',
+          inlineAgentContext: skipAgentFlag,
+          effectivePrompt: retryEffectivePrompt,
         });
-        throw error;
-      }
-
-      const retryPrompt = await resolveConfinementRetryPrompt(paths.repoRoot, options.agentId);
-      const retryEffectivePrompt = inlineAgentContext(buildDaltonConfinementRetryPrompt({
-        basePrompt: retryPrompt.prompt,
-        violation: error,
-      }));
-      const retryArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', retryEffectivePrompt];
-      const retryPromptAudit = buildPromptAudit({
-        promptPath: retryPrompt.promptPath,
-        promptSource: retryPrompt.promptSource,
-        inlineAgentContext: skipAgentFlag,
-        effectivePrompt: retryEffectivePrompt,
-      });
-      lastPromptAudit = retryPromptAudit;
-      const retrySession = await runCopilotSession({
-        copilotArgs: retryArgs,
-        cwd: agentCwd,
-        env: agentEnv,
-        wallClockTimeoutS,
-        idleTimeoutS,
-        abortSignal: options.abortSignal,
-        session: {
-          ...sessionInfo,
-          promptAudit: retryPromptAudit,
-        },
-      });
-      runSummary = retrySession.runSummary;
-      exitCode = runSummary.exitCode;
-      resetArtifactCompletionCache();
-      if (runSummary.exitCode !== 0) {
-        await writeLaunchGuardrailReceipt({
-          schema_version: 1,
-          status: 'failed',
-          agent_id: options.agentId,
-          model: activeModel,
-          exit_code: runSummary.exitCode,
-          termination_reason: runSummary.terminationReason,
-          signal_code: runSummary.signalCode,
-          stdout_tail: runSummary.stdoutTail,
-          stderr_tail: runSummary.stderrTail,
+        return { copilotArgs, promptAudit };
+      },
+      runCopilotSessionForRetry: async (args, promptAudit) => {
+        return runCopilotSession({
+          copilotArgs: args,
+          cwd: agentCwd,
+          env: agentEnv,
+          wallClockTimeoutS,
+          idleTimeoutS,
+          abortSignal: options.abortSignal,
+          session: {
+            ...sessionInfo,
+            promptAudit: promptAudit as {
+              promptPath: string | null;
+              promptSource: 'file' | 'override';
+              inlineAgentContext: boolean;
+              effectivePromptSha256: string;
+            },
+          },
         });
-        throw agentErrorWithTails(
-          `Agent "${options.agentId}" confinement retry exited with code ${runSummary.exitCode} (${runSummary.terminationReason}).`,
-          runSummary,
-        );
-      }
-
-      try {
-        const postRetryBoundarySnapshot = await captureChangedPathsSnapshot([
-          paths.repoRoot,
-          ...focused.declaredRepoRoots,
-        ]);
-        validateDaltonBoundaryChanges({
-          platformRepoRoot: paths.repoRoot,
-          focused,
-          // Compare against the original pre-run state so retry passes cannot
-          // gradually creep outside the boundary and normalize that drift.
-          before: preRunBoundarySnapshot,
-          after: postRetryBoundarySnapshot,
-        });
-      } catch (retryError: unknown) {
-        const violationPaths = retryError instanceof DaltonConfinementError
-          ? retryError.violationPaths
-          : [];
-        await writeLaunchGuardrailReceipt({
-          schema_version: 1,
-          status: 'failed',
-          agent_id: options.agentId,
-          model: activeModel,
-          exit_code: 0,
-          termination_reason: 'confinement-violation',
-          signal_code: runSummary.signalCode,
-          stdout_tail: runSummary.stdoutTail,
-          stderr_tail: getErrorMessage(retryError),
-          violation_paths: violationPaths,
-        });
-        throw retryError;
-      }
+      },
+      setLastPromptAudit: (audit) => { lastPromptAudit = audit; },
+    });
+    if (confinementResult) {
+      runSummary = confinementResult.runSummary;
+      exitCode = confinementResult.exitCode;
     }
   }
 
@@ -1184,7 +713,6 @@ export async function runRoleAgent(
       }
 
       const cleanupPrompt = buildArtifactCleanupPrompt({
-        agentId: options.agentId,
         artifactPrompt,
         policyFailureDetails,
       });
@@ -1276,7 +804,6 @@ export async function runRoleAgent(
         );
       }
       const cleanupSession = await runPromptOverrideSession(buildArtifactCleanupPrompt({
-        agentId: options.agentId,
         artifactPrompt,
       }), 'Artifact Cleanup');
       runSummary = cleanupSession.session.runSummary;

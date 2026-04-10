@@ -59,6 +59,11 @@ function buildPlannerStagingMetadata(overrides: {
   parentQmdScope?: string;
   followUpReason?: string;
   createdAt?: string;
+  deepFocusEnabled?: boolean;
+  primaryFocusRelativePath?: string | null;
+  primaryFocusTargetKind?: 'directory' | 'file' | null;
+  selectedTestTarget?: { path: string; kind: 'directory' | 'file' } | null;
+  supportTargets?: Array<{ path: string; kind: 'directory' | 'file'; effectiveScope?: string }>;
 } = {}) {
   const draftFilename = overrides.draftFilename ?? '20260321T040000Z_backend-apps-api.md';
   return {
@@ -71,7 +76,11 @@ function buildPlannerStagingMetadata(overrides: {
     title: overrides.title ?? 'backend / apps/api',
     primaryRepoId: 'backend',
     primaryRepoRoot: '/repo/backend',
-    primaryFocusRelativePath: 'apps/api',
+    primaryFocusRelativePath: overrides.primaryFocusRelativePath ?? 'apps/api',
+    deepFocusEnabled: overrides.deepFocusEnabled ?? false,
+    primaryFocusTargetKind: overrides.primaryFocusTargetKind ?? null,
+    selectedTestTarget: overrides.selectedTestTarget ?? null,
+    supportTargets: overrides.supportTargets ?? [],
     lineage: {
       taskKind: overrides.taskKind ?? 'standard',
       parentTaskId: overrides.parentTaskId ?? '',
@@ -86,6 +95,11 @@ function buildPlannerStagingMetadata(overrides: {
       scopeMode: 'focus-selection',
       selectedRepoIds: ['backend'],
       selectedFocusIds: ['api'],
+      deepFocusEnabled: overrides.deepFocusEnabled ?? false,
+      selectedFocusPath: overrides.primaryFocusRelativePath ?? 'apps/api',
+      selectedFocusTargetKind: overrides.primaryFocusTargetKind ?? null,
+      selectedTestTarget: overrides.selectedTestTarget ?? null,
+      selectedSupportTargets: (overrides.supportTargets ?? []).map((target) => ({ ...target })),
     },
   };
 }
@@ -563,6 +577,11 @@ None
       scopeMode: 'focus-selection',
       selectedRepoIds: ['backend'],
       selectedFocusIds: ['api'],
+      deepFocusEnabled: false,
+      selectedFocusPath: 'apps/api',
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
     }));
     expect(clearStagingArtifacts).not.toHaveBeenCalled();
     expect(endPlannerSession).toHaveBeenCalledOnce();
@@ -656,6 +675,111 @@ None
     });
     expect(createDropboxTask).toHaveBeenCalledOnce();
     expect(endPlannerSession).toHaveBeenCalledOnce();
+  });
+
+  it('threads Deep Focus staging metadata through planner finalization submission', async () => {
+    vi.resetModules();
+    const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040002Z_backend-src-handler-ts-file.md');
+    vi.doMock('./main.staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.staging')>();
+      return {
+        ...actual,
+        clearStagingArtifacts: vi.fn(async () => undefined),
+        readOwnedStagedDraft: vi.fn(async () => buildOwnedPlannerDraft(`# backend / src/handler.ts (file)
+
+## Task Lineage
+
+- Task Kind: standard
+- Parent Task ID:
+- Root Task ID:
+- Parent QMD Record ID:
+- Parent QMD Scope:
+- Follow-Up Reason:
+
+## Context Pack Binding
+
+- Context Pack Dir: /contextpacks/orders
+- Context Pack ID: orders
+- Scope Mode: focus-selection
+- Selected Repo IDs: backend
+- Selected Focus IDs: api
+- Deep Focus Enabled: true
+- Selected Focus Path: src/handler.ts
+- Selected Focus Target Kind: file
+- Selected Test Target: {"path":"tests/handler.test.ts","kind":"file"}
+- Selected Support Targets: [{"path":"docs","kind":"directory","effectiveScope":"full-directory"}]
+
+## Request Summary
+
+This request summary is long enough to satisfy planner finalization validation requirements.
+
+## Desired Outcome
+
+Preserve Deep Focus metadata for the downstream task submission seam.
+
+## Constraints
+
+Do not widen the selected boundary.
+
+## Acceptance Signals
+
+- Deep Focus metadata is forwarded.
+
+## Suggested Routing
+
+- Recommended Execution: sequential
+- Planner Notes: Keep the file scope exact.
+
+## Source
+
+- Created By: Planning Agent
+- Created At (UTC): 2026-03-21T04:00:00Z
+`, {
+          title: 'backend / src/handler.ts (file)',
+          deepFocusEnabled: true,
+          primaryFocusRelativePath: 'src/handler.ts',
+          primaryFocusTargetKind: 'file',
+          selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+          supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+        })),
+      };
+    });
+    vi.doMock('../../../backend/platform/queue/createDropboxTask.js', () => ({
+      createDropboxTask,
+    }));
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        { action: 'planner.finalizeSpec' },
+        {
+          getPlannerSessionState: vi.fn(() => ({
+            brokerStatus: 'completed' as const,
+            copilotSessionId: 'copilot-session-1',
+            turnId: 'turn-1',
+            content: 'Draft ready.',
+            exitCode: 0,
+            usage: null,
+            error: null,
+          })),
+          endPlannerSession: vi.fn(async () => undefined),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.finalizeSpec',
+        mode: 'finalized',
+      }),
+    });
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/handler.ts',
+      selectedFocusTargetKind: 'file',
+      selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+      selectedSupportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+    }));
   });
 
   it('blocks finalize when a child-task staged draft is missing carry-forward summary', async () => {

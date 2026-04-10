@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContextPackCatalogEntry, ContextPackFocusTarget } from '../../shared/desktopContract';
 import {
+  EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
   orderKnownFocusIds,
+  selectLastAppliedDeepFocusState,
+  selectPreferredDeepFocusState,
   selectPreferredScopeMode,
   selectPreferredWorkingFocusIds,
   selectPreferredWorkingRepoIds,
@@ -54,6 +57,58 @@ function makePack(overrides: Partial<ContextPackCatalogEntry> = {}): ContextPack
 describe('selectPreferredScopeMode', () => {
   it('always returns focused', () => {
     expect(selectPreferredScopeMode()).toBe('focused');
+  });
+});
+
+describe('deep focus selectors', () => {
+  it('restores last-applied deep focus metadata', () => {
+    const pack = makePack({
+      lastAppliedDeepFocusEnabled: true,
+      lastAppliedSelectedFocusPath: 'src/orders',
+      lastAppliedSelectedFocusTargetKind: 'directory',
+      lastAppliedSelectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      lastAppliedSelectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+
+    expect(selectLastAppliedDeepFocusState(pack)).toEqual({
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+  });
+
+  it('falls back to an empty state when no deep focus restore exists', () => {
+    expect(selectLastAppliedDeepFocusState(undefined)).toEqual(
+      EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
+    );
+  });
+
+  it('prefers the current deep focus selection over restored metadata', () => {
+    const pack = makePack({
+      lastAppliedDeepFocusEnabled: true,
+      lastAppliedSelectedFocusPath: 'src/orders',
+      lastAppliedSelectedFocusTargetKind: 'directory',
+    });
+
+    expect(
+      selectPreferredDeepFocusState(pack, [
+        {
+          deepFocusEnabled: true,
+          selectedFocusPath: 'src/live',
+          selectedFocusTargetKind: 'directory',
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      ]),
+    ).toEqual({
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/live',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    });
   });
 });
 

@@ -1,43 +1,72 @@
-import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
+import type {
+  ContextPackCatalogEntry,
+  ContextPackDeepFocusTarget,
+  ContextPackFocusTargetKind,
+  ContextPackListRepoTreeResponse,
+} from '../../shared/desktopContract';
+import type { CompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import { classNames } from '../utils/classNames';
 import { toTitleCase } from '../utils/toTitleCase';
-import type { CompactSidebarModel } from '../selectors/contextPackSidebarModel';
-
-function formatRelativeTime(iso: string): string {
-  const date = new Date(iso);
-  if (isNaN(date.getTime())) return iso;
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+import SidebarDeepFocusControls, { type DeepFocusCommit } from './SidebarDeepFocusControls';
+import { formatRelativeTime, supportsDeepFocus } from './SidebarDeepFocusUtils';
 
 type SidebarScopeControlsProps = {
   selectedPack: ContextPackCatalogEntry | undefined;
   selectedWorkingFocusIds: string[];
+  deepFocusEnabled: boolean;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
   focusHint: string | null;
   onSelectWorkingFocus: (focusId: string) => void;
   onToggleRepositoryType?: (repoId: string, currentType: 'primary' | 'support') => void;
+  onCommitDeepFocusSelection: (selection: DeepFocusCommit) => void;
+  onListRepoTree: (
+    repoLocalPath: string,
+    relativePath?: string,
+  ) => Promise<ContextPackListRepoTreeResponse | null>;
+  onDeepFocusEditorToggle?: (expanded: boolean) => void;
   sidebarModel: CompactSidebarModel;
 };
 
 function SidebarScopeControls({
   selectedPack,
   selectedWorkingFocusIds,
+  deepFocusEnabled,
+  selectedFocusPath,
+  selectedFocusTargetKind,
+  selectedTestTarget,
+  selectedSupportTargets,
   focusHint,
   onSelectWorkingFocus,
   onToggleRepositoryType,
+  onCommitDeepFocusSelection,
+  onListRepoTree,
+  onDeepFocusEditorToggle,
   sidebarModel,
 }: SidebarScopeControlsProps): JSX.Element | null {
   if (!selectedPack) {
     return null;
+  }
+
+  const showDeepFocus = supportsDeepFocus(selectedPack.estateType);
+
+  if (showDeepFocus && deepFocusEnabled) {
+    return (
+      <SidebarDeepFocusControls
+        selectedPack={selectedPack}
+        selectedWorkingFocusIds={selectedWorkingFocusIds}
+        deepFocusEnabled={deepFocusEnabled}
+        selectedFocusPath={selectedFocusPath}
+        selectedFocusTargetKind={selectedFocusTargetKind}
+        selectedTestTarget={selectedTestTarget}
+        selectedSupportTargets={selectedSupportTargets}
+        onCommitDeepFocusSelection={onCommitDeepFocusSelection}
+        onListRepoTree={onListRepoTree}
+        onDeepFocusEditorToggle={onDeepFocusEditorToggle}
+      />
+    );
   }
 
   return (
@@ -46,6 +75,31 @@ function SidebarScopeControls({
         <div className="scope-card">
           <div className="scope-card__header">
             <span className="scope-card__title">Workspace Focus</span>
+            {showDeepFocus ? (
+              <div className="deep-focus-toggle-row">
+                <span className="deep-focus-toggle-row__label">Deep Focus</span>
+                <button
+                  type="button"
+                  className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}
+                  aria-label="Toggle Deep Focus"
+                  aria-pressed={deepFocusEnabled}
+                   onClick={() => {
+                     const nextFocusId = selectedWorkingFocusIds[0] ?? selectedPack.focusTargets[0]?.focusId ?? null;
+                     onCommitDeepFocusSelection({
+                       deepFocusEnabled: true,
+                       selectedRepoIds: selectedPack.estateType === 'distributed-platform' && nextFocusId ? [nextFocusId] : [],
+                       selectedFocusIds: selectedPack.estateType === 'distributed-platform' ? [] : nextFocusId ? [nextFocusId] : [],
+                       selectedFocusPath,
+                       selectedFocusTargetKind,
+                       selectedTestTarget,
+                       selectedSupportTargets,
+                     });
+                   }}
+                >
+                  <span className="deep-focus-toggle__knob" />
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {selectedPack.focusTargets.length ? (
@@ -92,9 +146,9 @@ function SidebarScopeControls({
                                 onToggleRepositoryType && 'scope-focus-row__type--clickable',
                               )}
                               title={`Click to change to ${target.repositoryType === 'primary' ? 'Support' : 'Primary'}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
                                 onToggleRepositoryType?.(target.focusId, target.repositoryType!);
                               }}
                             >
@@ -118,7 +172,6 @@ function SidebarScopeControls({
         </div>
       </div>
 
-      {/* Selection detail */}
       <div className="sidebar-section sidebar-selection-detail" data-testid="context-pack-selection-summary">
         {sidebarModel.selectedPackSummary.length > 0 ? (
           <div className="sidebar-detail-row" aria-label="Selected context pack summary">

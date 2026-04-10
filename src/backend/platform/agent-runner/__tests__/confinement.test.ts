@@ -125,6 +125,71 @@ describe('validateDaltonBoundaryChanges', () => {
     })).toThrow(DaltonConfinementError);
   });
 
+  it('confines file focus writes to the exact selected file', () => {
+    expect(() => validateDaltonBoundaryChanges({
+      platformRepoRoot: '/platform',
+      focused: {
+        primaryRepoRoot: '/repos/crud-app',
+        visibleRepoRoots: ['/repos/crud-app'],
+        declaredRepoRoots: ['/repos/crud-app'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'crud-app',
+        primaryFocusRelativePath: 'src/handler.ts',
+        primaryFocusTargetKind: 'file',
+        selectedRepoIds: ['crud-app'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+      before: {
+        byRepoRoot: {
+          '/platform': [],
+          '/repos/crud-app': [],
+        },
+      },
+      after: {
+        byRepoRoot: {
+          '/platform': [],
+          '/repos/crud-app': ['src/handler.tsx'],
+        },
+      },
+    })).toThrow(DaltonConfinementError);
+  });
+
+  it('allows writes inside the test target boundary without widening primary writes', () => {
+    expect(() => validateDaltonBoundaryChanges({
+      platformRepoRoot: '/platform',
+      focused: {
+        primaryRepoRoot: '/repos/crud-app',
+        visibleRepoRoots: ['/repos/crud-app'],
+        declaredRepoRoots: ['/repos/crud-app'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'crud-app',
+        primaryFocusRelativePath: 'src/handler.ts',
+        primaryFocusTargetKind: 'file',
+        testTarget: {
+          path: 'tests/unit',
+          kind: 'directory',
+          resolvedPath: '/repos/crud-app/tests/unit',
+        },
+        selectedRepoIds: ['crud-app'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+      before: {
+        byRepoRoot: {
+          '/platform': [],
+          '/repos/crud-app': [],
+        },
+      },
+      after: {
+        byRepoRoot: {
+          '/platform': [],
+          '/repos/crud-app': ['tests/unit/handler.test.ts'],
+        },
+      },
+    })).not.toThrow();
+  });
+
   it('rejects platform writes to testing skip receipts', () => {
     expect(() => validateDaltonBoundaryChanges({
       platformRepoRoot: '/platform',

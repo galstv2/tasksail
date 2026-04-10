@@ -165,4 +165,28 @@ describe('createDropboxTask', () => {
     expect(content).toContain('- Follow-Up Reason: needs fix');
     expect(content).toContain('parent context here');
   });
+
+  it('persists Deep Focus binding metadata in queue markdown', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Deep Focus Task',
+      repoRoot: tmpRoot,
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+
+    const content = readFileSync(outputPath, 'utf-8');
+    expect(content).toContain('- Deep Focus Enabled: true');
+    expect(content).toContain('- Selected Focus Path: src/orders');
+    expect(content).toContain('- Selected Focus Target Kind: directory');
+    expect(content).toContain('- Selected Test Target: {"path":"tests/orders","kind":"directory"}');
+    expect(content).toContain('- Selected Support Targets: [{"path":"docs/orders.md","kind":"file"}]');
+  });
 });

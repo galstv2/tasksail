@@ -282,6 +282,66 @@ describe('electron main bootstrap — context pack operations', () => {
     ]);
   });
 
+  it('serializes deep focus switch args through the workspace wrapper', async () => {
+    const { buildContextPackWorkspaceArgs } = await import('./main');
+
+    expect(
+      buildContextPackWorkspaceArgs('apply', {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        scopeMode: 'focused',
+        selectedRepoIds: ['orders-api'],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/orders',
+        selectedFocusTargetKind: 'directory',
+        selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+        selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }),
+    ).toEqual([
+      '--action',
+      'apply',
+      '--context-pack-dir',
+      '/tmp/context-packs/orders-estate',
+      '--scope-mode',
+      'focused',
+      '--selected-repo-id',
+      'orders-api',
+      '--deep-focus-enabled',
+      '--selected-focus-path',
+      'src/orders',
+      '--selected-focus-target-kind',
+      'directory',
+      '--selected-test-target',
+      '{"path":"tests/orders","kind":"directory"}',
+      '--selected-support-target',
+      '{"path":"docs/orders.md","kind":"file"}',
+    ]);
+  });
+
+  it('serializes repo-root deep focus without requiring selectedFocusTargetKind', async () => {
+    const { buildContextPackWorkspaceArgs } = await import('./main');
+
+    expect(
+      buildContextPackWorkspaceArgs('apply', {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        scopeMode: 'focused',
+        selectedRepoIds: ['orders-api'],
+        deepFocusEnabled: true,
+      }),
+    ).toEqual([
+      '--action',
+      'apply',
+      '--context-pack-dir',
+      '/tmp/context-packs/orders-estate',
+      '--scope-mode',
+      'focused',
+      '--selected-repo-id',
+      'orders-api',
+      '--deep-focus-enabled',
+      '--selected-focus-path',
+      '',
+    ]);
+  });
+
   it('assigns repositoryType defaults during discovery prefill normalization', async () => {
     const { executeContextPackDiscoveryAction } = await import('./main');
 
@@ -546,6 +606,19 @@ describe('electron main bootstrap — context pack operations', () => {
         scopeMode: 'focused',
         selectedRepoIds: ['orders-api'],
         selectedFocusIds: [],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/orders',
+        selectedFocusTargetKind: 'directory',
+        selectedTestTarget: {
+          path: 'tests/orders',
+          kind: 'directory',
+        },
+        selectedSupportTargets: [
+          {
+            path: 'docs/orders.md',
+            kind: 'file',
+          },
+        ],
         managedFolders: [
           '/tmp/context-packs/orders-estate',
           '/tmp/estate-root/orders-api',
@@ -568,6 +641,19 @@ describe('electron main bootstrap — context pack operations', () => {
         driftDetected: true,
         lastAppliedScopeMode: 'focused',
         lastAppliedSelectedRepoIds: ['orders-api'],
+        lastAppliedDeepFocusEnabled: true,
+        lastAppliedSelectedFocusPath: 'src/orders',
+        lastAppliedSelectedFocusTargetKind: 'directory',
+        lastAppliedSelectedTestTarget: {
+          path: 'tests/orders',
+          kind: 'directory',
+        },
+        lastAppliedSelectedSupportTargets: [
+          {
+            path: 'docs/orders.md',
+            kind: 'file',
+          },
+        ],
         lastSyncedAt: '2026-03-08T12:00:00Z',
       }),
     );
@@ -677,6 +763,11 @@ describe('electron main bootstrap — context pack operations', () => {
               managedFolders: [],
               targetFolders: [],
               lastSyncedAt: null,
+              deepFocusEnabled: false,
+              selectedFocusPath: null,
+              selectedFocusTargetKind: null,
+              selectedTestTarget: null,
+              selectedSupportTargets: [],
             },
           }),
         },
