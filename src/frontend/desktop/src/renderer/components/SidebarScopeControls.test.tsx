@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { useState, type ComponentProps } from 'react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
 import type { CompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import SidebarScopeControls from './SidebarScopeControls';
+
+function ScopeControlsWithEditor(props: ComponentProps<typeof SidebarScopeControls>): JSX.Element {
+  const [editorOpen, setEditorOpen] = useState(false);
+  return (
+    <SidebarScopeControls
+      {...props}
+      editorOpen={editorOpen}
+      onDeepFocusEditorToggle={(expanded) => {
+        setEditorOpen(expanded);
+        props.onDeepFocusEditorToggle?.(expanded);
+      }}
+    />
+  );
+}
 
 expect.extend(matchers);
 
@@ -268,7 +283,7 @@ describe('SidebarScopeControls', () => {
     });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({ estateType: 'distributed-platform' })}
         selectedWorkingFocusIds={['repo-1']}
@@ -304,7 +319,7 @@ describe('SidebarScopeControls', () => {
       });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({ estateType: 'distributed-platform' })}
         selectedWorkingFocusIds={['repo-1']}
@@ -353,7 +368,7 @@ describe('SidebarScopeControls', () => {
     });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({
           estateType: 'monolith',
@@ -418,7 +433,7 @@ describe('SidebarScopeControls', () => {
     });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({
           estateType: 'monolith-platform',
@@ -481,7 +496,7 @@ describe('SidebarScopeControls', () => {
       });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({ estateType: 'distributed-platform' })}
         selectedWorkingFocusIds={['repo-1']}
@@ -523,7 +538,7 @@ describe('SidebarScopeControls', () => {
     });
 
     render(
-      <SidebarScopeControls
+      <ScopeControlsWithEditor
         {...defaultProps}
         selectedPack={makePack({ estateType: 'distributed-platform' })}
         selectedWorkingFocusIds={['repo-1']}

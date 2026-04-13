@@ -27,6 +27,7 @@ type SidebarScopeControlsProps = {
     relativePath?: string,
   ) => Promise<ContextPackListRepoTreeResponse | null>;
   onDeepFocusEditorToggle?: (expanded: boolean) => void;
+  editorOpen?: boolean;
   sidebarModel: CompactSidebarModel;
 };
 
@@ -44,6 +45,7 @@ function SidebarScopeControls({
   onCommitDeepFocusSelection,
   onListRepoTree,
   onDeepFocusEditorToggle,
+  editorOpen,
   sidebarModel,
 }: SidebarScopeControlsProps): JSX.Element | null {
   if (!selectedPack) {
@@ -65,6 +67,7 @@ function SidebarScopeControls({
         onCommitDeepFocusSelection={onCommitDeepFocusSelection}
         onListRepoTree={onListRepoTree}
         onDeepFocusEditorToggle={onDeepFocusEditorToggle}
+        editorOpen={editorOpen}
       />
     );
   }

@@ -41,6 +41,7 @@ function ContextPackSidebarExpanded({
 }: ContextPackSidebarExpandedProps): JSX.Element {
   const [deepFocusExpanded, setDeepFocusExpanded] = useState(false);
   const [deepFocusClosing, setDeepFocusClosing] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const activePack = contextPacks.find((entry) => entry.isActive);
   const selectedPack = contextPacks.find(
     (entry) => entry.contextPackDir === selectedContextPackDir,
@@ -65,6 +66,7 @@ function ContextPackSidebarExpanded({
   useEffect(() => {
     setDeepFocusExpanded(false);
     setDeepFocusClosing(false);
+    setEditorOpen(false);
   }, [selectedContextPackDir]);
 
   useEffect(() => {
@@ -82,6 +84,7 @@ function ContextPackSidebarExpanded({
   }, [deepFocusClosing, deepFocusExpanded]);
 
   const handleDeepFocusEditorToggle = (expanded: boolean) => {
+    setEditorOpen(expanded);
     if (expanded) {
       setDeepFocusClosing(false);
       setDeepFocusExpanded(true);
@@ -95,8 +98,24 @@ function ContextPackSidebarExpanded({
     });
   };
 
+  const backdropActive = deepFocusExpanded || deepFocusClosing;
+
   return (
-    <aside
+    <>
+      {backdropActive ? (
+        <button
+          type="button"
+          className={classNames(
+            'deep-focus-backdrop',
+            deepFocusExpanded && 'deep-focus-backdrop--visible',
+            deepFocusClosing && !deepFocusExpanded && 'deep-focus-backdrop--closing',
+          )}
+          aria-label="Cancel Deep Focus editing"
+          disabled={deepFocusClosing && !deepFocusExpanded}
+          onClick={() => handleDeepFocusEditorToggle(false)}
+        />
+      ) : null}
+      <aside
       className={classNames(
         'panel',
         'context-pack-sidebar',
@@ -185,6 +204,7 @@ function ContextPackSidebarExpanded({
              onCommitDeepFocusSelection={onCommitDeepFocusSelection}
              onListRepoTree={onListRepoTree}
              onDeepFocusEditorToggle={handleDeepFocusEditorToggle}
+             editorOpen={editorOpen}
              sidebarModel={sidebarModel}
            />
         ) : null}
@@ -290,7 +310,8 @@ function ContextPackSidebarExpanded({
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
 

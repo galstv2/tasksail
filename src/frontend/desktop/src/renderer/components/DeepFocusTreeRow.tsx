@@ -171,9 +171,11 @@ export function DeepFocusTreeRow({
             <span className="status-chip status-chip--xs status-chip--active">Active</span>
           ) : null}
         </span>
-        <span className="deep-focus-row__path" title={row.displayPath}>
-          {row.displayPath}
-        </span>
+        {row.displayPath && row.displayPath !== row.label ? (
+          <span className="deep-focus-row__path" title={row.displayPath}>
+            {row.displayPath}
+          </span>
+        ) : null}
       </span>
       <button
         type="button"

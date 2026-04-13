@@ -51,6 +51,7 @@ type SidebarDeepFocusControlsProps = {
     relativePath?: string,
   ) => Promise<ContextPackListRepoTreeResponse | null>;
   onDeepFocusEditorToggle?: (expanded: boolean) => void;
+  editorOpen?: boolean;
 };
 
 type DeepFocusMode = 'distributed' | 'monolith';
@@ -91,6 +92,7 @@ function SidebarDeepFocusControls({
   onCommitDeepFocusSelection,
   onListRepoTree,
   onDeepFocusEditorToggle,
+  editorOpen = false,
 }: SidebarDeepFocusControlsProps): JSX.Element {
   const deepFocusMode: DeepFocusMode =
     selectedPack.estateType === 'distributed-platform' ? 'distributed' : 'monolith';
@@ -141,7 +143,6 @@ function SidebarDeepFocusControls({
     ),
     [deepFocusMode, selectedPack.focusTargets],
   );
-  const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<DeepFocusDraft>({
     selectedWorkingFocusIds: [],
     state: {
@@ -161,43 +162,14 @@ function SidebarDeepFocusControls({
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [drillingIndex, setDrillingIndex] = useState<number | null>(null);
   const [selectionTrayCollapsed, setSelectionTrayCollapsed] = useState(true);
-  const [backdropPhase, setBackdropPhase] =
-    useState<'hidden' | 'visible' | 'closing'>('hidden');
   const [drillTransitionClass, setDrillTransitionClass] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const topLevelKeyRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
-  const backdropTimerRef = useRef<number | null>(null);
   const drillTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    onDeepFocusEditorToggle?.(editorOpen);
-  }, [editorOpen, onDeepFocusEditorToggle]);
-
-  useEffect(() => {
-    if (editorOpen) {
-      if (backdropTimerRef.current !== null) {
-        window.clearTimeout(backdropTimerRef.current);
-        backdropTimerRef.current = null;
-      }
-      setBackdropPhase('visible');
-      return;
-    }
-
-    if (backdropPhase === 'visible') {
-      setBackdropPhase('closing');
-      backdropTimerRef.current = window.setTimeout(() => {
-        setBackdropPhase('hidden');
-        backdropTimerRef.current = null;
-      }, 220);
-    }
-  }, [backdropPhase, editorOpen]);
-
-  useEffect(() => {
     return () => {
-      if (backdropTimerRef.current !== null) {
-        window.clearTimeout(backdropTimerRef.current);
-      }
       if (drillTimerRef.current !== null) {
         window.clearTimeout(drillTimerRef.current);
       }
@@ -205,13 +177,12 @@ function SidebarDeepFocusControls({
   }, []);
 
   useEffect(() => {
-    setEditorOpen(false);
+    onDeepFocusEditorToggle?.(false);
     setCurrentFrame(null);
     setFrameStack([]);
     setTreeLoading(false);
     setShowTreeLoading(false);
     setSelectionTrayCollapsed(true);
-    setBackdropPhase('hidden');
     setDrillTransitionClass(null);
     setFocusedIndex(0);
     setFocusedKey(null);
@@ -296,7 +267,7 @@ function SidebarDeepFocusControls({
   });
 
   const closeEditor = () => {
-    setEditorOpen(false);
+    onDeepFocusEditorToggle?.(false);
     setCurrentFrame(null);
     setFrameStack([]);
     setTreeLoading(false);
@@ -394,7 +365,7 @@ function SidebarDeepFocusControls({
     const nextDraft = initializeDraft();
     setDraft(nextDraft);
     setSelectionTrayCollapsed(true);
-    setEditorOpen(true);
+    onDeepFocusEditorToggle?.(true);
     setCurrentFrame(null);
     setFrameStack([]);
     setTreeTruncated(false);
@@ -701,25 +672,11 @@ function SidebarDeepFocusControls({
 
   return (
     <>
-      {backdropPhase !== 'hidden' ? (
-        <button
-          type="button"
-          className={classNames(
-            'deep-focus-backdrop',
-            backdropPhase === 'visible' && 'deep-focus-backdrop--visible',
-            backdropPhase === 'closing' && 'deep-focus-backdrop--closing',
-          )}
-          aria-label="Cancel Deep Focus editing"
-          disabled={backdropPhase === 'closing'}
-          onClick={closeEditor}
-        />
-      ) : null}
       <div className="sidebar-section">
         <div
           className={classNames(
             'scope-card',
             'deep-focus-shell',
-            editorOpen && 'deep-focus-shell--expanded',
           )}
           data-testid={editorOpen ? 'deep-focus-editor' : 'deep-focus-summary'}
         >
@@ -817,6 +774,20 @@ function SidebarDeepFocusControls({
                 hiddenBreadcrumbs={hiddenBreadcrumbs}
               />
 
+              <div className="deep-focus-editor__nav">
+                <button
+                  type="button"
+                  className="deep-focus-back-button"
+                  onClick={handleBack}
+                  aria-label={currentFrame ? 'Back one level' : 'Cancel Deep Focus editing'}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ transform: 'rotate(180deg)' }}>
+                    <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>Back</span>
+                </button>
+              </div>
+
               <div className="deep-focus-editor__body">
                 <div
                   className={classNames(
@@ -908,18 +879,6 @@ function SidebarDeepFocusControls({
                   </button>
                 </div>
               </div>
-
-              <button
-                type="button"
-                className="deep-focus-back-button"
-                onClick={handleBack}
-                aria-label={currentFrame ? 'Back one level' : 'Cancel Deep Focus editing'}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ transform: 'rotate(180deg)' }}>
-                  <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span>Back</span>
-              </button>
             </div>
           )}
         </div>

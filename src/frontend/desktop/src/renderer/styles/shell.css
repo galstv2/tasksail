@@ -109,12 +109,28 @@
 
 .shell__body:has(.deep-focus-sidebar--expanded),
 .shell__body:has(.deep-focus-sidebar--closing) {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .shell__body:has(.deep-focus-sidebar--expanded) .shell-main,
 .shell__body:has(.deep-focus-sidebar--closing) .shell-main {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 40px;
   z-index: 0;
+  pointer-events: none;
+}
+
+.shell__body:has(.deep-focus-sidebar--expanded) .shell-main {
+  filter: blur(6px) saturate(0.9);
+}
+
+.shell__body:has(.deep-focus-sidebar--expanded) .config-rail,
+.shell__body:has(.deep-focus-sidebar--closing) .config-rail {
+  grid-column: 3;
+  z-index: 2;
 }
 
 .shell__body.sidebar--collapsed {
