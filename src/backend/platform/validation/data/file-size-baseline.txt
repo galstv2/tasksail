@@ -22,7 +22,7 @@
 768 src/backend/mcp/workspace_context_sync_service.py
 742 src/backend/mcp/repo_context_mcp/services/discovery_service.py
 740 src/backend/mcp/context_pack_bootstrap.py
-700 src/backend/mcp/repo_context_mcp/services/seeding_service.py
+801 src/backend/mcp/repo_context_mcp/services/seeding_service.py
 693 src/backend/mcp/repo_context_mcp/transport/http.py
 605 src/backend/mcp/context_estate_manifest.py
 634 src/backend/mcp/repo_context_mcp/services/qmd_index_service.py

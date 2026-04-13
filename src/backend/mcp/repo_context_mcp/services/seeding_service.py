@@ -10,6 +10,7 @@ from ..file_analysis import read_preview
 from ..models import RepoSeedResult, SeedRuntimeSnapshot
 from .qmd_index_service import QmdIndexService
 from src.backend.mcp.repo_type_probe import classify_repository_type
+from src.backend.mcp.context_estate.workspace_analysis import analyze_workspace_counts
 import logging
 
 from ..utils import (
@@ -728,6 +729,10 @@ class SeedingService:
             )
         )
 
+        try:
+            report["workspace_counts"] = analyze_workspace_counts(load_json(manifest_path))
+        except Exception:  # noqa: BLE001
+            logger.warning("workspace_analysis: failed to compute workspace counts", exc_info=True)
         if all_accumulated_records:
             self.qmd_index_service.warm_and_merge_records(
                 scope_dir, all_accumulated_records,
