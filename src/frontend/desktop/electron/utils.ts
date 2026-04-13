@@ -31,3 +31,7 @@ export async function pathExists(
 export function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
+
+export function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' ? value : null;
+}

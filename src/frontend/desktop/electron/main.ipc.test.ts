@@ -204,6 +204,8 @@ describe('electron main bootstrap — IPC dispatch', () => {
                 blockedRepoCount: 0,
                 conventionsSummaryStatus: 'available',
                 conventionsPolicy: 'only-if-missing',
+                workspaceFolderCount: null,
+                workspaceFileCount: null,
               },
             },
           }),

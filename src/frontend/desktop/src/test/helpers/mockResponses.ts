@@ -198,6 +198,8 @@ export function createReseedResponse(
     blockedRepoCount: 0,
     conventionsSummaryStatus: null,
     conventionsPolicy: 'only-if-missing',
+    workspaceFolderCount: null,
+    workspaceFileCount: null,
   };
   return {
     action: 'contextPack.reseed',

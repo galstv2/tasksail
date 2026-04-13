@@ -9,15 +9,14 @@ import type {
   ContextPackRepoTreeEntry,
 } from '../../shared/desktopContract';
 import { classNames } from '../utils/classNames';
+import { formatNumber } from '../utils/formatNumber';
 import { DeepFocusBreadcrumb, type BreadcrumbItem } from './DeepFocusBreadcrumb';
 import { DeepFocusSelectionTray } from './DeepFocusSelectionTray';
 import { DeepFocusTreeRow, type TreeRowData } from './DeepFocusTreeRow';
 import {
   basename,
-  countKinds,
   formatRelativeTime,
   getPrimaryDisplayLabel,
-  getPrimaryDisplayPath,
   inferDraftPrimaryTarget,
   joinRelativePath,
   normalizeRelativePath,
@@ -196,29 +195,8 @@ function SidebarDeepFocusControls({
   const committedTopLevel = topLevelTargets.find((target) => target.id === selectedWorkingFocusIds[0])
     ?? topLevelTargets[0]
     ?? null;
-  const committedPrimaryPath = normalizeRelativePath(
-    selectedFocusPath ?? (deepFocusMode === 'monolith' ? committedTopLevel?.rootPath : null),
-  );
-  const committedPrimaryTarget = committedTopLevel
-    ? {
-      path: committedPrimaryPath,
-      kind: selectedFocusTargetKind ?? 'directory',
-    }
-    : null;
-  const compactTargets = committedPrimaryTarget
-    ? [
-      committedPrimaryTarget,
-      ...(selectedTestTarget ? [selectedTestTarget] : []),
-      ...selectedSupportTargets,
-    ]
-    : [];
-  const compactCounts = countKinds(compactTargets);
-  const hasColocatedPrimaryAndTest = Boolean(
-    committedPrimaryTarget && isSameTarget(committedPrimaryTarget, selectedTestTarget),
-  );
   const supportPreview = selectedSupportTargets.slice(0, 3);
   const supportOverflow = Math.max(0, selectedSupportTargets.length - supportPreview.length);
-  const hasExplicitNoTests = selectedTestTarget === null;
   const draftTopLevelId = draft.selectedWorkingFocusIds[0] ?? '';
   const draftTopLevel = topLevelTargets.find((target) => target.id === draftTopLevelId) ?? null;
   const draftPrimaryTarget = inferDraftPrimaryTarget(
@@ -700,27 +678,43 @@ function SidebarDeepFocusControls({
             <div className="deep-focus-summary">
               {committedTopLevel ? (
                 <>
-                  <div
-                    className={classNames(
-                      'deep-focus-summary__primary',
-                      hasColocatedPrimaryAndTest && 'deep-focus-summary__primary--colocated',
-                    )}
-                  >
-                    <div className="deep-focus-summary__title-row">
-                      <span className="deep-focus-summary__title">
-                        {getPrimaryDisplayLabel(committedTopLevel, committedPrimaryPath)}
-                      </span>
-                      <span className="status-chip status-chip--xs status-chip--active">Active</span>
+                  <div className="deep-focus-summary__workspaces">
+                    <div className="deep-focus-summary__workspaces-header">
+                      <span className="deep-focus-summary__workspaces-label">{topLevelLabel}</span>
+                      <button
+                        type="button"
+                        className="deep-focus-summary__edit-link"
+                        onClick={() => { void openEditor(); }}
+                      >
+                        Edit
+                      </button>
                     </div>
-                    <span
-                      className="deep-focus-summary__path"
-                      title={getPrimaryDisplayPath(committedTopLevel, committedPrimaryPath)}
-                    >
-                      {getPrimaryDisplayPath(committedTopLevel, committedPrimaryPath)}
-                    </span>
+                    {topLevelTargets.map((target) => {
+                      const isPrimary = target.id === committedTopLevel?.id;
+                      const focusedPath = isPrimary
+                        ? selectedFocusPath ?? target.rootPath
+                        : target.rootPath;
+                      return (
+                        <div
+                          key={target.id}
+                          className={classNames(
+                            'deep-focus-summary__workspace-item',
+                            isPrimary && 'deep-focus-summary__workspace-item--primary',
+                          )}
+                        >
+                          <span className="deep-focus-summary__workspace-dot" />
+                          <span className="deep-focus-summary__title">{target.label}</span>
+                          {focusedPath ? (
+                            <span className="deep-focus-summary__path" title={focusedPath}>
+                              {focusedPath}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {selectedTestTarget && !hasColocatedPrimaryAndTest ? (
+                  {selectedTestTarget ? (
                     <div className="deep-focus-summary__test">
                       <span className="deep-focus-summary__title">
                         Test: {basename(selectedTestTarget.path)}
@@ -729,43 +723,60 @@ function SidebarDeepFocusControls({
                         {selectedTestTarget.path}
                       </span>
                     </div>
-                  ) : hasExplicitNoTests ? (
-                    <div className="deep-focus-summary__test deep-focus-summary__test--dismissed">
-                      <span className="deep-focus-summary__title">No tests</span>
-                      <span className="deep-focus-summary__path">
-                        Explicitly applied without a dedicated test target
-                      </span>
+                  ) : null}
+
+                  {supportPreview.length > 0 ? (
+                    <div className="deep-focus-summary__workspaces">
+                      <span className="deep-focus-summary__workspaces-label">Support</span>
+                      {supportPreview.map((target) => (
+                        <div key={`${target.kind}:${target.path}`} className="deep-focus-summary__workspace-item">
+                          <span className="deep-focus-summary__workspace-dot" />
+                          <span className="deep-focus-summary__title">{basename(target.path)}</span>
+                          <span className="deep-focus-summary__path" title={target.path}>
+                            {target.path}
+                          </span>
+                        </div>
+                      ))}
+                      {supportOverflow > 0 ? (
+                        <span className="deep-focus-summary__overflow">+{supportOverflow} more</span>
+                      ) : null}
                     </div>
                   ) : null}
 
-                  {supportPreview.map((target) => (
-                    <div key={`${target.kind}:${target.path}`} className="deep-focus-summary__support">
-                      <span className="deep-focus-summary__title">{basename(target.path)}</span>
-                      <span className="deep-focus-summary__path" title={target.path}>
-                        {target.path}
-                      </span>
-                    </div>
-                  ))}
-                  {supportOverflow > 0 ? (
-                    <div className="deep-focus-summary__overflow">+{supportOverflow} more</div>
-                  ) : null}
-                  {(compactCounts.directoryCount > 0 || compactCounts.fileCount > 0) ? (
-                    <div className="deep-focus-summary__metrics">
-                      {compactCounts.directoryCount} folders · {compactCounts.fileCount} files
-                    </div>
-                  ) : null}
+                  <div className="deep-focus-summary__metrics">
+                    <span>{selectedPack.repoCount} {selectedPack.repoCount === 1 ? 'repo' : 'repos'}</span>
+                    {selectedPack.workspaceFolderCount != null ? (
+                      <>
+                        <span className="deep-focus-summary__metrics-sep" />
+                        <span>{formatNumber(selectedPack.workspaceFolderCount)} {selectedPack.workspaceFolderCount === 1 ? 'folder' : 'folders'}</span>
+                      </>
+                    ) : null}
+                    {selectedPack.workspaceFileCount != null ? (
+                      <>
+                        <span className="deep-focus-summary__metrics-sep" />
+                        <span>{formatNumber(selectedPack.workspaceFileCount)} {selectedPack.workspaceFileCount === 1 ? 'file' : 'files'}</span>
+                      </>
+                    ) : null}
+                    {selectedSupportTargets.length > 0 ? (
+                      <>
+                        <span className="deep-focus-summary__metrics-sep" />
+                        <span>{selectedSupportTargets.length} {selectedSupportTargets.length === 1 ? 'support target' : 'support targets'}</span>
+                      </>
+                    ) : null}
+                  </div>
                 </>
               ) : (
-                <p className="deep-focus-summary__empty">No focus target selected</p>
+                <>
+                  <p className="deep-focus-summary__empty">No focus target selected</p>
+                  <button
+                    type="button"
+                    className="deep-focus-summary__action"
+                    onClick={() => { void openEditor(); }}
+                  >
+                    Select Focus
+                  </button>
+                </>
               )}
-
-              <button
-                type="button"
-                className="action-button action-button--secondary deep-focus-summary__action"
-                onClick={() => { void openEditor(); }}
-              >
-                {committedTopLevel ? 'Edit Focus' : 'Select Focus'}
-              </button>
             </div>
           ) : (
             <div className="deep-focus-editor" onKeyDown={(event) => { void handleEditorKeyDown(event); }}>
@@ -884,14 +895,14 @@ function SidebarDeepFocusControls({
         </div>
       </div>
 
-      {!editorOpen ? (
-        <div className="sidebar-section sidebar-selection-detail" data-testid="context-pack-selection-summary">
-          {selectedPack.lastSyncedAt ? (
-            <p className="sidebar-meta" title={selectedPack.lastSyncedAt}>
-              Synced {formatRelativeTime(selectedPack.lastSyncedAt)}
-            </p>
-          ) : null}
-        </div>
+      {!editorOpen && selectedPack.lastSyncedAt ? (
+        <p
+          className="deep-focus-synced-caption"
+          title={selectedPack.lastSyncedAt}
+          data-testid="context-pack-selection-summary"
+        >
+          Synced {formatRelativeTime(selectedPack.lastSyncedAt)}
+        </p>
       ) : null}
     </>
   );

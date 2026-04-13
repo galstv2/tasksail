@@ -238,6 +238,8 @@ export type ContextPackCatalogEntry = {
   driftDetected?: boolean;
   restoreAvailable?: boolean;
   lastSyncedAt?: string | null;
+  workspaceFolderCount?: number | null;
+  workspaceFileCount?: number | null;
   lastAppliedScopeMode?: WorkspaceScopeMode | null;
   lastAppliedSelectedRepoIds?: string[];
   lastAppliedSelectedFocusIds?: string[];
@@ -281,6 +283,8 @@ export type ContextPackReseedExecutionResult = {
   blockedRepoCount: number;
   conventionsSummaryStatus: string | null;
   conventionsPolicy: 'only-if-missing';
+  workspaceFolderCount: number | null;
+  workspaceFileCount: number | null;
 };
 
 export type ContextPackReseedResponse = {

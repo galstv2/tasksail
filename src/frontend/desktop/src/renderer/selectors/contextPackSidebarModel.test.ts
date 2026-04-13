@@ -208,6 +208,8 @@ describe('summarizeReseedResult', () => {
       blockedRepoCount: 1,
       conventionsSummaryStatus: null,
       conventionsPolicy: 'only-if-missing',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     };
     expect(summarizeReseedResult(result)).toBe('ok · 3 seeded · 1 blocked');
   });

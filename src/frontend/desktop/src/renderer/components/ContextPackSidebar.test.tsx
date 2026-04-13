@@ -221,6 +221,8 @@ describe('ContextPackSidebar', () => {
           blockedRepoCount: 0,
           conventionsSummaryStatus: 'available',
           conventionsPolicy: 'only-if-missing',
+          workspaceFolderCount: null,
+          workspaceFileCount: null,
         }}
       />,
     );
@@ -313,6 +315,8 @@ describe('ContextPackSidebar', () => {
           blockedRepoCount: 0,
           conventionsSummaryStatus: 'available',
           conventionsPolicy: 'only-if-missing',
+          workspaceFolderCount: null,
+          workspaceFileCount: null,
         }}
       />,
     );

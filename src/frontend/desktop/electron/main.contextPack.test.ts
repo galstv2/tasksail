@@ -630,6 +630,8 @@ describe('electron main bootstrap — context pack operations', () => {
         ],
         status: 'success',
         lastSyncedAt: '2026-03-08T12:00:00Z',
+        workspaceFolderCount: null,
+        workspaceFileCount: null,
       },
     );
 

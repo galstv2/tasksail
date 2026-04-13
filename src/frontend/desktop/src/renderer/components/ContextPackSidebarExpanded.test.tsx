@@ -198,7 +198,7 @@ describe('ContextPackSidebarExpanded', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await screen.findByTestId('deep-focus-editor');
     expect(container.querySelector('.context-pack-sidebar')).toHaveClass('deep-focus-sidebar--expanded');
 

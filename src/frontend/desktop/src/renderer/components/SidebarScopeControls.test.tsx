@@ -293,9 +293,9 @@ describe('SidebarScopeControls', () => {
     );
 
     expect(screen.getByTestId('deep-focus-summary')).toBeInTheDocument();
-    expect(screen.getByText('Edit Focus')).toBeInTheDocument();
+    expect(screen.getByText('Edit')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     expect(await screen.findByTestId('deep-focus-editor')).toBeInTheDocument();
     expect(screen.getByText('Repositories')).toBeInTheDocument();
@@ -329,7 +329,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const repoRow = screen.getAllByText('Frontend')[0]?.closest('[role="button"]');
     expect(repoRow).not.toBeNull();
     fireEvent.doubleClick(repoRow!);
@@ -392,7 +392,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const areaRow = screen.getAllByText('Core Module')[0]?.closest('[role="button"]');
     expect(areaRow).not.toBeNull();
     fireEvent.doubleClick(areaRow!);
@@ -458,7 +458,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const areaRow = screen.getAllByText('Core Module')[0]?.closest('[role="button"]');
     expect(areaRow).not.toBeNull();
     fireEvent.doubleClick(areaRow!);
@@ -506,7 +506,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     const traySummary = await screen.findByTestId('deep-focus-selection-tray-summary');
     expect(traySummary).toHaveTextContent('Primary: Frontend');
@@ -547,7 +547,7 @@ describe('SidebarScopeControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Focus' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const repoRow = (await screen.findAllByText('Frontend'))[0]?.closest('[role="button"]');
     expect(repoRow).not.toBeNull();
     fireEvent.doubleClick(repoRow!);

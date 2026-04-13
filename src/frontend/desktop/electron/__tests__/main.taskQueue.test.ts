@@ -61,6 +61,8 @@ describe('main.taskQueue direct submission hardening', () => {
       missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     });
     vi.mocked(resolveSelectedPrimaryRepoRoot).mockResolvedValue({
       primaryRepoRoot: '/repos/backend',
@@ -94,6 +96,8 @@ describe('main.taskQueue direct submission hardening', () => {
       missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     });
     vi.mocked(createDropboxTask).mockResolvedValue(
       '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
@@ -145,6 +149,8 @@ describe('main.taskQueue direct submission hardening', () => {
       missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     });
     vi.mocked(createFollowupTask).mockResolvedValue(
       '/repo/AgentWorkSpace/dropbox/20260307T183500Z_backend-apps-api.md',

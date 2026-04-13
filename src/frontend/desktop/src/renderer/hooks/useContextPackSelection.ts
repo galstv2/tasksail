@@ -80,6 +80,8 @@ function buildSessionCreatedCatalogEntry(
     lastAppliedSelectedFocusTargetKind: null,
     lastAppliedSelectedTestTarget: undefined,
     lastAppliedSelectedSupportTargets: [],
+    workspaceFolderCount: null,
+    workspaceFileCount: null,
   };
 }
 

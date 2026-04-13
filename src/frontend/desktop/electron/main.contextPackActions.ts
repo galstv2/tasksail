@@ -31,7 +31,7 @@ import {
   type DesktopInvokeResult,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
-import { stringOrNull } from './utils';
+import { numberOrNull, stringOrNull } from './utils';
 import { setActiveContextPackEnv } from '../../../backend/platform/context-pack/activate';
 import {
   normalizeRelativePath,
@@ -57,7 +57,7 @@ import {
   titleizeValue,
   readDeepFocusPath,
 } from './main.contextPackShared';
-import { listAvailableContextPacks } from './main.contextPackCatalog';
+import { listAvailableContextPacks, WORKSPACE_SYNC_STATE_PATH } from './main.contextPackCatalog';
 
 const execFileAsync = promisify(execFile);
 
@@ -448,6 +448,8 @@ function normalizeContextPackReseedResult(payload: unknown, contextPackDir: stri
   const report = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : {};
   const cs = typeof report.conventions_summary === 'object' && report.conventions_summary !== null
     ? (report.conventions_summary as Record<string, unknown>) : {};
+  const wc = typeof report.workspace_counts === 'object' && report.workspace_counts !== null
+    ? (report.workspace_counts as Record<string, unknown>) : {};
   return {
     contextPackDir: resolve(contextPackDir),
     overallStatus: stringOrNull(report.overall_status) ?? 'unknown',
@@ -456,7 +458,31 @@ function normalizeContextPackReseedResult(payload: unknown, contextPackDir: stri
     blockedRepoCount: typeof report.blocked_repo_count === 'number' ? report.blocked_repo_count : 0,
     conventionsSummaryStatus: stringOrNull(cs.status) ?? null,
     conventionsPolicy: 'only-if-missing',
+    workspaceFolderCount: numberOrNull(wc.folder_count),
+    workspaceFileCount: numberOrNull(wc.file_count),
   };
+}
+
+async function updateSyncStateAfterReseed(
+  reseedResult: ContextPackReseedExecutionResult,
+): Promise<void> {
+  try {
+    let state: Record<string, unknown> = {};
+    try {
+      state = JSON.parse(await fsReadFile(WORKSPACE_SYNC_STATE_PATH, 'utf-8')) as Record<string, unknown>;
+    } catch (readErr: unknown) {
+      console.warn('updateSyncStateAfterReseed: could not read existing sync state, starting fresh:',
+        readErr instanceof Error ? readErr.message : readErr);
+    }
+    state.last_synced_at = new Date().toISOString();
+    state.workspace_folder_count = reseedResult.workspaceFolderCount;
+    state.workspace_file_count = reseedResult.workspaceFileCount;
+    await fsMkdir(dirname(WORKSPACE_SYNC_STATE_PATH), { recursive: true });
+    await fsWriteFile(WORKSPACE_SYNC_STATE_PATH, JSON.stringify(state, null, 2) + '\n', 'utf-8');
+  } catch (err: unknown) {
+    console.warn('updateSyncStateAfterReseed: failed to persist sync state:',
+      err instanceof Error ? err.message : err);
+  }
 }
 
 async function listApprovedContextPackDirs(): Promise<Set<string>> {
@@ -478,6 +504,7 @@ export async function executeContextPackReseedAction(
   try {
     const result = await runner(buildContextPackReseedArgs({ contextPackDir: normalizedContextPackDir }));
     const normalized = normalizeContextPackReseedResult(JSON.parse(result.stdout), normalizedContextPackDir);
+    await updateSyncStateAfterReseed(normalized);
     const response: ContextPackReseedResponse = {
       action: 'contextPack.reseed', mode: 'reseeded',
       message: 'Context-pack reseed completed through the approved repo-context seed seam. Conventions memo generation remains only-if-missing.',

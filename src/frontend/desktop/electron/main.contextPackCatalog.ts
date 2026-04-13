@@ -14,11 +14,11 @@ import {
   type WorkspaceScopeMode,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
-import { pathExists, stringOrNull, repoFs } from './utils';
+import { pathExists, numberOrNull, stringOrNull, repoFs } from './utils';
 import { portablePathBasename, readDeepFocusPath, stringArray } from './main.contextPackShared';
 
 const ENV_FILE_PATH = join(REPO_ROOT, '.env');
-const WORKSPACE_SYNC_STATE_PATH = join(
+export const WORKSPACE_SYNC_STATE_PATH = join(
   REPO_ROOT,
   '.platform-state/workspace-context-sync.json',
 );
@@ -41,6 +41,8 @@ type WorkspaceSyncStateSnapshot = {
   missingManagedFolders: string[];
   status: string;
   lastSyncedAt: string | null;
+  workspaceFolderCount: number | null;
+  workspaceFileCount: number | null;
 };
 
 function repositoryTypeOrNull(value: unknown): 'primary' | 'support' | null {
@@ -147,11 +149,6 @@ async function readEnvAssignment(key: string): Promise<string | null> {
   return value.replace(/^['"]|['"]$/g, '') || null;
 }
 
-async function readRecentContextPackDirs(): Promise<string[]> {
-  const snapshot = await readWorkspaceSyncStateSnapshot();
-  return snapshot.activeContextPackDir ? [snapshot.activeContextPackDir] : [];
-}
-
 function normalizeWorkspaceFolderPath(rawPath: string): string {
   return resolve(REPO_ROOT, rawPath);
 }
@@ -210,6 +207,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       missingManagedFolders: [],
       status: 'idle',
       lastSyncedAt: null,
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     };
   }
 
@@ -228,6 +227,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       managed_folders?: unknown;
       status?: unknown;
       last_synced_at?: unknown;
+      workspace_folder_count?: unknown;
+      workspace_file_count?: unknown;
     };
     const activeContextPackDir = stringOrNull(state.active_context_pack_dir);
     const managedFolders = stringArray(state.managed_folders).map((path) => resolve(path));
@@ -261,6 +262,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       missingManagedFolders,
       status: stringOrNull(state.status) ?? 'idle',
       lastSyncedAt: stringOrNull(state.last_synced_at),
+      workspaceFolderCount: numberOrNull(state.workspace_folder_count),
+      workspaceFileCount: numberOrNull(state.workspace_file_count),
     };
   } catch (error: unknown) {
     console.warn('readWorkspaceSyncStateSnapshot: failed to parse sync state:',
@@ -281,6 +284,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       missingManagedFolders: [],
       status: 'idle',
       lastSyncedAt: null,
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
     };
   }
 }
@@ -305,6 +310,8 @@ export function deriveContextPackRuntimeState(
   | 'lastAppliedSelectedFocusTargetKind'
   | 'lastAppliedSelectedTestTarget'
   | 'lastAppliedSelectedSupportTargets'
+  | 'workspaceFolderCount'
+  | 'workspaceFileCount'
 > {
   const normalizedContextPackDir = resolve(contextPackDir);
   const stateActiveDir = syncState.activeContextPackDir;
@@ -352,6 +359,8 @@ export function deriveContextPackRuntimeState(
       stateTracksEntry ? syncState.selectedTestTarget : undefined,
     lastAppliedSelectedSupportTargets:
       stateTracksEntry ? syncState.selectedSupportTargets : [],
+    workspaceFolderCount: stateTracksEntry ? syncState.workspaceFolderCount : null,
+    workspaceFileCount: stateTracksEntry ? syncState.workspaceFileCount : null,
   };
 }
 
@@ -538,7 +547,9 @@ export async function listAvailableContextPacks(): Promise<ContextPackListRespon
     (await readEnvAssignment('ACTIVE_CONTEXT_PACK_DIR'));
   const syncState = await readWorkspaceSyncStateSnapshot();
   const activeContextPackDir = envActiveContextPackDir ?? syncState.activeContextPackDir;
-  const recentContextPackDirs = await readRecentContextPackDirs();
+  const recentContextPackDirs = syncState.activeContextPackDir
+    ? [syncState.activeContextPackDir]
+    : [];
   const catalog = new Map<string, ContextPackCatalogEntry>();
 
   for (const path of configuredPaths) {

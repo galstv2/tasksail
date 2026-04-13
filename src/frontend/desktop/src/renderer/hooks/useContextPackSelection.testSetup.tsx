@@ -124,6 +124,8 @@ export function createClient(
           blockedRepoCount: 0,
           conventionsSummaryStatus: 'available',
           conventionsPolicy: 'only-if-missing',
+          workspaceFolderCount: null,
+          workspaceFileCount: null,
         },
       }),
     }),
