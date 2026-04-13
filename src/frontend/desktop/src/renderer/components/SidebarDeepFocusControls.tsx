@@ -681,7 +681,7 @@ function SidebarDeepFocusControls({
           data-testid={editorOpen ? 'deep-focus-editor' : 'deep-focus-summary'}
         >
           <div className="scope-card__header">
-            <span className="scope-card__title">Workspace Focus</span>
+            <span className="scope-card__title">Workspace Selection</span>
             <div className="deep-focus-toggle-row">
               <span className="deep-focus-toggle-row__label">Deep Focus</span>
               <button

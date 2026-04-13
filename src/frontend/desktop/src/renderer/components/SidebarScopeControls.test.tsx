@@ -104,7 +104,7 @@ describe('SidebarScopeControls', () => {
 
   it('renders workspace focus heading', () => {
     render(<SidebarScopeControls {...defaultProps} selectedPack={makePack()} />);
-    expect(screen.getByText('Workspace Focus')).toBeInTheDocument();
+    expect(screen.getByText('Workspace Selection')).toBeInTheDocument();
   });
 
   it('renders focus targets as checkboxes', () => {
