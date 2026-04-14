@@ -2,7 +2,7 @@
 
 import { useState, type ComponentProps } from 'react';
 import * as matchers from '@testing-library/jest-dom/matchers';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
@@ -335,7 +335,15 @@ describe('SidebarScopeControls', () => {
     fireEvent.doubleClick(repoRow!);
 
     const srcRow = (await screen.findAllByText('src'))[0];
-    fireEvent.click(srcRow.closest('[role="button"]')!);
+    const srcButton = srcRow.closest('[role="button"]')!;
+
+    vi.useFakeTimers();
+    fireEvent.mouseDown(srcButton, { button: 0 });
+    act(() => { vi.advanceTimersByTime(500); });
+    vi.useRealTimers();
+
+    const primaryBubble = screen.getByRole('button', { name: 'Primary' });
+    fireEvent.click(primaryBubble);
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
@@ -345,6 +353,79 @@ describe('SidebarScopeControls', () => {
         selectedFocusIds: [],
         selectedFocusPath: 'src',
         selectedFocusTargetKind: 'directory',
+      }),
+    );
+  });
+
+  it('assigns Test and Support roles via long-press popover', async () => {
+    const onCommitDeepFocusSelection = vi.fn();
+    const onListRepoTree = vi
+      .fn()
+      .mockResolvedValueOnce({
+        action: 'contextPack.listRepoTree',
+        mode: 'read-only',
+        message: 'Listed repo tree entries.',
+        entries: [
+          { name: 'src', relativePath: 'src', kind: 'directory', hasChildren: true },
+          { name: 'tests', relativePath: 'tests', kind: 'directory', hasChildren: true },
+          { name: 'lib', relativePath: 'lib', kind: 'directory', hasChildren: true },
+        ],
+        currentPath: '',
+        repoLocalPath: '/tmp/repo-1',
+        truncated: false,
+      });
+
+    render(
+      <ScopeControlsWithEditor
+        {...defaultProps}
+        selectedPack={makePack({ estateType: 'distributed-platform' })}
+        selectedWorkingFocusIds={['repo-1']}
+        deepFocusEnabled
+        onCommitDeepFocusSelection={onCommitDeepFocusSelection}
+        onListRepoTree={onListRepoTree}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const repoRow = screen.getAllByText('Frontend')[0]?.closest('[role="button"]');
+    fireEvent.doubleClick(repoRow!);
+
+    // Helper: long-press a row then click a role bubble
+    const assignRole = (rowButton: Element, roleName: string) => {
+      vi.useFakeTimers();
+      fireEvent.mouseDown(rowButton, { button: 0 });
+      act(() => { vi.advanceTimersByTime(500); });
+      vi.useRealTimers();
+      fireEvent.click(screen.getByRole('button', { name: roleName }));
+    };
+
+    // Assign src as Primary
+    const srcRow = (await screen.findAllByText('src'))[0].closest('[role="button"]')!;
+    assignRole(srcRow, 'Primary');
+
+    // Assign tests as Test
+    const testsRow = screen.getAllByText('tests')[0].closest('[role="button"]')!;
+    assignRole(testsRow, 'Test');
+
+    // Assign lib as Support
+    const libRow = screen.getAllByText('lib')[0].closest('[role="button"]')!;
+    assignRole(libRow, 'Support');
+
+    // Verify role chips appear inside their respective row containers
+    const srcContainer = srcRow.closest('.deep-focus-row-container')!;
+    expect(within(srcContainer as HTMLElement).getByText('Primary')).toBeInTheDocument();
+    const testsContainer = testsRow.closest('.deep-focus-row-container')!;
+    expect(within(testsContainer as HTMLElement).getByText('Test')).toBeInTheDocument();
+    const libContainer = libRow.closest('.deep-focus-row-container')!;
+    expect(within(libContainer as HTMLElement).getByText('Support')).toBeInTheDocument();
+
+    // Apply and verify commit
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedFocusPath: 'src',
+        selectedTestTarget: { path: 'tests', kind: 'directory' },
+        selectedSupportTargets: [{ path: 'lib', kind: 'directory' }],
       }),
     );
   });
@@ -464,7 +545,15 @@ describe('SidebarScopeControls', () => {
     fireEvent.doubleClick(areaRow!);
 
     const srcRow = (await screen.findAllByText('src'))[0];
-    fireEvent.click(srcRow.closest('[role="button"]')!);
+    const srcButton = srcRow.closest('[role="button"]')!;
+
+    vi.useFakeTimers();
+    fireEvent.mouseDown(srcButton, { button: 0 });
+    act(() => { vi.advanceTimersByTime(500); });
+    vi.useRealTimers();
+
+    const primaryBubble = screen.getByRole('button', { name: 'Primary' });
+    fireEvent.click(primaryBubble);
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(

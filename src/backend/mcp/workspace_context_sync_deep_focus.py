@@ -15,14 +15,9 @@ def normalize_deep_focus_selection(
     selected_test_target_provided: bool = False,
     selected_support_targets: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if not deep_focus_enabled:
-        return {
-            "deep_focus_enabled": False,
-            "selected_focus_path": None,
-            "selected_focus_target_kind": None,
-            "selected_support_targets": [],
-        }
-
+    # Always persist selections regardless of deep_focus_enabled — the
+    # operator may toggle deep focus off temporarily and expects selections
+    # to survive across sessions.  Only "Clear All" removes them.
     if selected_focus_path is not None and not isinstance(
         selected_focus_path, str
     ):
@@ -35,8 +30,8 @@ def normalize_deep_focus_selection(
             "selected_focus_target_kind must be directory or file when provided"
         )
 
-    result = {
-        "deep_focus_enabled": True,
+    result: dict[str, Any] = {
+        "deep_focus_enabled": bool(deep_focus_enabled),
         "selected_focus_path": selected_focus_path,
         "selected_focus_target_kind": selected_focus_target_kind,
         "selected_support_targets": normalize_deep_focus_targets(

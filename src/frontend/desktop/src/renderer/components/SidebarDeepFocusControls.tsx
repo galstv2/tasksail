@@ -12,7 +12,7 @@ import { classNames } from '../utils/classNames';
 import { formatNumber } from '../utils/formatNumber';
 import { DeepFocusBreadcrumb, type BreadcrumbItem } from './DeepFocusBreadcrumb';
 import { DeepFocusSelectionTray } from './DeepFocusSelectionTray';
-import { DeepFocusTreeRow, type TreeRowData } from './DeepFocusTreeRow';
+import { DeepFocusTreeRow, type TreeRowData, type FocusRole } from './DeepFocusTreeRow';
 import {
   basename,
   formatRelativeTime,
@@ -20,9 +20,7 @@ import {
   inferDraftPrimaryTarget,
   joinRelativePath,
   normalizeRelativePath,
-  pathContains,
   removePathPrefix,
-  targetsOverlap,
   isSameTarget,
 } from './SidebarDeepFocusUtils';
 
@@ -79,6 +77,37 @@ type TreeFrame = {
 };
 
 type DrillDirection = 'forward' | 'backward';
+
+function FolderGlyph(): JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
+      <path
+        d="M2.5 4.5a1 1 0 0 1 1-1h2.3l1.2 1.4H12.5a1 1 0 0 1 1 1v5.4a1.2 1.2 0 0 1-1.2 1.2H3.7a1.2 1.2 0 0 1-1.2-1.2z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function FileGlyph(): JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
+      <path
+        d="M4 2.5h5.2L12 5.3v8.2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"
+        fill="currentColor"
+        opacity="0.55"
+      />
+      <path
+        d="M9.2 2.5V5a.8.8 0 0 0 .8.8h2"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
 
 function SidebarDeepFocusControls({
   selectedPack,
@@ -162,6 +191,8 @@ function SidebarDeepFocusControls({
   const [drillingIndex, setDrillingIndex] = useState<number | null>(null);
   const [selectionTrayCollapsed, setSelectionTrayCollapsed] = useState(true);
   const [drillTransitionClass, setDrillTransitionClass] = useState<string | null>(null);
+  const [popoverRowIndex, setPopoverRowIndex] = useState<number | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const topLevelKeyRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
@@ -195,8 +226,6 @@ function SidebarDeepFocusControls({
   const committedTopLevel = topLevelTargets.find((target) => target.id === selectedWorkingFocusIds[0])
     ?? topLevelTargets[0]
     ?? null;
-  const supportPreview = selectedSupportTargets.slice(0, 3);
-  const supportOverflow = Math.max(0, selectedSupportTargets.length - supportPreview.length);
   const draftTopLevelId = draft.selectedWorkingFocusIds[0] ?? '';
   const draftTopLevel = topLevelTargets.find((target) => target.id === draftTopLevelId) ?? null;
   const draftPrimaryTarget = inferDraftPrimaryTarget(
@@ -253,6 +282,8 @@ function SidebarDeepFocusControls({
     setSelectionTrayCollapsed(true);
     setFocusedIndex(0);
     setFocusedKey(null);
+    setPopoverRowIndex(null);
+    setApplyError(null);
   };
 
   const initializeDraft = (): DeepFocusDraft => {
@@ -343,6 +374,8 @@ function SidebarDeepFocusControls({
     const nextDraft = initializeDraft();
     setDraft(nextDraft);
     setSelectionTrayCollapsed(true);
+    setPopoverRowIndex(null);
+    setApplyError(null);
     onDeepFocusEditorToggle?.(true);
     setCurrentFrame(null);
     setFrameStack([]);
@@ -352,6 +385,16 @@ function SidebarDeepFocusControls({
   };
 
   const applyDraft = () => {
+    if (!draftTopLevel) {
+      setApplyError('Select a Primary target before applying.');
+      return;
+    }
+    if (draft.state.selectedTestTarget && draft.state.selectedTestTarget.kind === 'file') {
+      setApplyError('Test target must be a folder, not a file.');
+      return;
+    }
+    setApplyError(null);
+    setPopoverRowIndex(null);
     onCommitDeepFocusSelection(
       buildCommit(true, draft.selectedWorkingFocusIds.slice(0, 1), draft.state),
     );
@@ -361,12 +404,13 @@ function SidebarDeepFocusControls({
   const handleToggleDeepFocus = () => {
     if (deepFocusEnabled) {
       closeEditor();
+      // Preserve selections — only flip the enabled flag
       onCommitDeepFocusSelection(
         buildCommit(false, selectedWorkingFocusIds, {
-          selectedFocusPath: null,
-          selectedFocusTargetKind: null,
-          selectedTestTarget: null,
-          selectedSupportTargets: [],
+          selectedFocusPath,
+          selectedFocusTargetKind,
+          selectedTestTarget,
+          selectedSupportTargets,
         }),
       );
       return;
@@ -383,51 +427,17 @@ function SidebarDeepFocusControls({
     );
   };
 
-  const handleSelectPrimary = (
-    topLevelId: string,
-    nextTarget: ContextPackDeepFocusTarget,
-  ) => {
-    setDraft((current) => {
-      const nextState: ContextPackDeepFocusState = {
-        ...current.state,
-        deepFocusEnabled: true,
-        selectedFocusPath: normalizeRelativePath(nextTarget.path) || null,
-        selectedFocusTargetKind: nextTarget.kind,
-        selectedSupportTargets: current.state.selectedSupportTargets.filter((target) => {
-          if (deepFocusMode === 'distributed' && topLevelId !== current.selectedWorkingFocusIds[0]) {
-            return false;
-          }
-          if (nextTarget.kind === 'file') {
-            return target.path !== nextTarget.path;
-          }
-          return !pathContains(nextTarget.path, target.path);
-        }),
-      };
-      if (
-        deepFocusMode === 'distributed'
-        && topLevelId !== current.selectedWorkingFocusIds[0]
-      ) {
-        nextState.selectedSupportTargets = [];
-        nextState.selectedTestTarget = null;
-      }
-      return {
-        selectedWorkingFocusIds: [topLevelId],
-        state: nextState,
-      };
-    });
-  };
-
-  const handleToggleTestTarget = (target: ContextPackDeepFocusTarget) => {
+  const handleClearAll = () => {
+    setApplyError(null);
+    setPopoverRowIndex(null);
     setDraft((current) => ({
-      ...current,
+      selectedWorkingFocusIds: current.selectedWorkingFocusIds,
       state: {
         ...current.state,
-        selectedTestTarget: isSameTarget(current.state.selectedTestTarget, target)
-          ? undefined
-          : target,
-        selectedSupportTargets: current.state.selectedSupportTargets.filter(
-          (supportTarget) => !targetsOverlap(supportTarget, target),
-        ),
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedTestTarget: undefined,
+        selectedSupportTargets: [],
       },
     }));
   };
@@ -440,6 +450,84 @@ function SidebarDeepFocusControls({
         selectedTestTarget: null,
       },
     }));
+  };
+
+  const handleAssignRole = (
+    role: FocusRole,
+    topLevelId: string,
+    target: ContextPackDeepFocusTarget,
+  ) => {
+    setApplyError(null);
+    setDraft((current) => {
+      const currentPrimary = inferDraftPrimaryTarget(
+        current.state.selectedFocusPath,
+        current.state.selectedFocusTargetKind,
+      );
+      const isPrimaryMatch = currentPrimary
+        && isSameTarget(currentPrimary, target)
+        && topLevelId === current.selectedWorkingFocusIds[0];
+      const isTestMatch = isSameTarget(current.state.selectedTestTarget, target);
+      const isSupportMatch = current.state.selectedSupportTargets.some(
+        (s) => isSameTarget(s, target),
+      );
+
+      if (role === 'primary') {
+        const nextTest = isTestMatch ? undefined : current.state.selectedTestTarget;
+        const nextSupport = current.state.selectedSupportTargets.filter(
+          (s) => !isSameTarget(s, target),
+        );
+        return {
+          selectedWorkingFocusIds: [topLevelId],
+          state: {
+            ...current.state,
+            deepFocusEnabled: true,
+            selectedFocusPath: normalizeRelativePath(target.path) || null,
+            selectedFocusTargetKind: target.kind,
+            selectedTestTarget: nextTest,
+            selectedSupportTargets: nextSupport,
+          },
+        };
+      }
+
+      if (role === 'test') {
+        const nextTest = isTestMatch ? undefined : target;
+        const nextFocusPath = isPrimaryMatch ? null : current.state.selectedFocusPath;
+        const nextFocusKind = isPrimaryMatch ? null : current.state.selectedFocusTargetKind;
+        const nextSupport = current.state.selectedSupportTargets.filter(
+          (s) => !isSameTarget(s, target),
+        );
+        return {
+          ...current,
+          state: {
+            ...current.state,
+            selectedFocusPath: nextFocusPath,
+            selectedFocusTargetKind: nextFocusKind,
+            selectedTestTarget: nextTest,
+            selectedSupportTargets: nextSupport,
+          },
+        };
+      }
+
+      // role === 'support'
+      const nextSupport = isSupportMatch
+        ? current.state.selectedSupportTargets.filter(
+          (s) => !isSameTarget(s, target),
+        )
+        : [...current.state.selectedSupportTargets, target];
+      const nextFocusPath = isPrimaryMatch ? null : current.state.selectedFocusPath;
+      const nextFocusKind = isPrimaryMatch ? null : current.state.selectedFocusTargetKind;
+      const nextTest = isTestMatch ? undefined : current.state.selectedTestTarget;
+      return {
+        ...current,
+        state: {
+          ...current.state,
+          selectedFocusPath: nextFocusPath,
+          selectedFocusTargetKind: nextFocusKind,
+          selectedTestTarget: nextTest,
+          selectedSupportTargets: nextSupport,
+        },
+      };
+    });
   };
 
   const currentRows: TreeRowData[] = currentFrame
@@ -471,51 +559,6 @@ function SidebarDeepFocusControls({
       isTopLevel: true,
       ancillaryAllowed: target.ancillaryAllowed,
     }));
-
-  const supportDisabledReason = (row: TreeRowData): boolean => {
-    if (!row.ancillaryAllowed) {
-      return true;
-    }
-    const target = { path: row.targetPath, kind: row.kind } satisfies ContextPackDeepFocusTarget;
-    if (
-      deepFocusMode === 'distributed'
-      && row.topLevelId !== draftTopLevelId
-    ) {
-      return true;
-    }
-    if (draft.state.selectedTestTarget && targetsOverlap(draft.state.selectedTestTarget, target)) {
-      return true;
-    }
-    if (!draftPrimaryTarget) {
-      return false;
-    }
-    if (draftPrimaryTarget.kind === 'file') {
-      return draftPrimaryTarget.path === target.path;
-    }
-    return pathContains(draftPrimaryTarget.path, target.path);
-  };
-
-  const handleToggleSupport = (target: ContextPackDeepFocusTarget, row: TreeRowData) => {
-    if (supportDisabledReason(row)) return;
-    setDraft((current) => {
-      const exists = current.state.selectedSupportTargets.some(
-        (supportTarget) =>
-          supportTarget.path === target.path && supportTarget.kind === target.kind,
-      );
-      return {
-        ...current,
-        state: {
-          ...current.state,
-          selectedSupportTargets: exists
-            ? current.state.selectedSupportTargets.filter(
-              (supportTarget) =>
-                supportTarget.path !== target.path || supportTarget.kind !== target.kind,
-            )
-            : [...current.state.selectedSupportTargets, target],
-        },
-      };
-    });
-  };
 
   const breadcrumbs: BreadcrumbItem[] = currentFrame
     ? [
@@ -661,7 +704,7 @@ function SidebarDeepFocusControls({
           <div className="scope-card__header">
             <span className="scope-card__title">Workspace Selection</span>
             <div className="deep-focus-toggle-row">
-              <span className="deep-focus-toggle-row__label">Deep Focus</span>
+              <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
               <button
                 type="button"
                 className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}
@@ -678,70 +721,67 @@ function SidebarDeepFocusControls({
             <div className="deep-focus-summary">
               {committedTopLevel ? (
                 <>
-                  <div className="deep-focus-summary__workspaces">
-                    <div className="deep-focus-summary__workspaces-header">
-                      <span className="deep-focus-summary__workspaces-label">{topLevelLabel}</span>
-                      <button
-                        type="button"
-                        className="deep-focus-summary__edit-link"
-                        onClick={() => { void openEditor(); }}
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    {topLevelTargets.map((target) => {
-                      const isPrimary = target.id === committedTopLevel?.id;
-                      const focusedPath = isPrimary
-                        ? selectedFocusPath ?? target.rootPath
-                        : target.rootPath;
-                      return (
-                        <div
-                          key={target.id}
-                          className={classNames(
-                            'deep-focus-summary__workspace-item',
-                            isPrimary && 'deep-focus-summary__workspace-item--primary',
-                          )}
-                        >
-                          <span className="deep-focus-summary__workspace-dot" />
-                          <span className="deep-focus-summary__title">{target.label}</span>
-                          {focusedPath ? (
-                            <span className="deep-focus-summary__path" title={focusedPath}>
-                              {focusedPath}
-                            </span>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                  <div className="deep-focus-summary__header">
+                    <span className="deep-focus-summary__header-title">Focus Targets</span>
+                    <button
+                      type="button"
+                      className="deep-focus-summary__edit-link"
+                      onClick={() => { void openEditor(); }}
+                    >
+                      Edit
+                    </button>
                   </div>
-
-                  {selectedTestTarget ? (
-                    <div className="deep-focus-summary__test">
-                      <span className="deep-focus-summary__title">
-                        Test: {basename(selectedTestTarget.path)}
-                      </span>
-                      <span className="deep-focus-summary__path" title={selectedTestTarget.path}>
-                        {selectedTestTarget.path}
+                  <div className="deep-focus-summary__selections">
+                    <div className="deep-focus-summary__selection-row deep-focus-summary__selection-row--primary">
+                      <span className="deep-focus-summary__selection-dot" />
+                      <span className="deep-focus-summary__selection-label">Primary</span>
+                      <span className="deep-focus-summary__selection-value" title={selectedFocusPath ?? committedTopLevel.rootPath ?? committedTopLevel.label}>
+                        {getPrimaryDisplayLabel(committedTopLevel, selectedFocusPath ?? '')}
                       </span>
                     </div>
-                  ) : null}
 
-                  {supportPreview.length > 0 ? (
-                    <div className="deep-focus-summary__workspaces">
-                      <span className="deep-focus-summary__workspaces-label">Support</span>
-                      {supportPreview.map((target) => (
-                        <div key={`${target.kind}:${target.path}`} className="deep-focus-summary__workspace-item">
-                          <span className="deep-focus-summary__workspace-dot" />
-                          <span className="deep-focus-summary__title">{basename(target.path)}</span>
-                          <span className="deep-focus-summary__path" title={target.path}>
-                            {target.path}
-                          </span>
+                    <div className={classNames(
+                      'deep-focus-summary__selection-row',
+                      'deep-focus-summary__selection-row--test',
+                      !selectedTestTarget && 'deep-focus-summary__selection-row--empty',
+                    )}>
+                      <span className="deep-focus-summary__selection-dot" />
+                      <span className="deep-focus-summary__selection-label">Test</span>
+                      <span className="deep-focus-summary__selection-value" title={selectedTestTarget?.path ?? ''}>
+                        {selectedTestTarget ? basename(selectedTestTarget.path) : 'None'}
+                      </span>
+                    </div>
+
+                    {selectedSupportTargets.length > 0 ? (
+                      <>
+                        <div className="deep-focus-summary__section-divider" />
+                        <div className="deep-focus-summary__support-header">
+                          <span className="deep-focus-summary__selection-dot deep-focus-summary__selection-dot--support" />
+                          <span className="deep-focus-summary__selection-label">Support</span>
+                          <span className="deep-focus-summary__support-count">{selectedSupportTargets.length}</span>
                         </div>
-                      ))}
-                      {supportOverflow > 0 ? (
-                        <span className="deep-focus-summary__overflow">+{supportOverflow} more</span>
-                      ) : null}
-                    </div>
-                  ) : null}
+                        <div className="deep-focus-summary__support-list">
+                          {selectedSupportTargets.map((target) => (
+                            <div
+                              key={`${target.kind}:${target.path}`}
+                              className="deep-focus-summary__support-item"
+                              title={target.path}
+                            >
+                              <span className="deep-focus-summary__support-icon">{target.kind === 'directory' ? <FolderGlyph /> : <FileGlyph />}</span>
+                              <span className="deep-focus-summary__support-name">{basename(target.path)}</span>
+                              <span className="deep-focus-summary__support-path">{target.path}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="deep-focus-summary__selection-row deep-focus-summary__selection-row--support deep-focus-summary__selection-row--empty">
+                        <span className="deep-focus-summary__selection-dot" />
+                        <span className="deep-focus-summary__selection-label">Support</span>
+                        <span className="deep-focus-summary__selection-value">None</span>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="deep-focus-summary__metrics">
                     <span>{selectedPack.repoCount} {selectedPack.repoCount === 1 ? 'repo' : 'repos'}</span>
@@ -755,12 +795,6 @@ function SidebarDeepFocusControls({
                       <>
                         <span className="deep-focus-summary__metrics-sep" />
                         <span>{formatNumber(selectedPack.workspaceFileCount)} {selectedPack.workspaceFileCount === 1 ? 'file' : 'files'}</span>
-                      </>
-                    ) : null}
-                    {selectedSupportTargets.length > 0 ? (
-                      <>
-                        <span className="deep-focus-summary__metrics-sep" />
-                        <span>{selectedSupportTargets.length} {selectedSupportTargets.length === 1 ? 'support target' : 'support targets'}</span>
                       </>
                     ) : null}
                   </div>
@@ -786,17 +820,39 @@ function SidebarDeepFocusControls({
               />
 
               <div className="deep-focus-editor__nav">
-                <button
-                  type="button"
-                  className="deep-focus-back-button"
-                  onClick={handleBack}
-                  aria-label={currentFrame ? 'Back one level' : 'Cancel Deep Focus editing'}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ transform: 'rotate(180deg)' }}>
-                    <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <span>Back</span>
-                </button>
+                {currentFrame ? (
+                  <button
+                    type="button"
+                    className="deep-focus-back-button"
+                    onClick={handleBack}
+                    aria-label="Back one level"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ transform: 'rotate(180deg)' }}>
+                      <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span>Back</span>
+                  </button>
+                ) : (
+                  <span className="deep-focus-back-button-placeholder" />
+                )}
+                <div className="deep-focus-editor__nav-right">
+                  <button
+                    type="button"
+                    className="deep-focus-clear-all-button"
+                    onClick={handleClearAll}
+                    aria-label="Clear all selections"
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    type="button"
+                    className="deep-focus-done-button"
+                    onClick={closeEditor}
+                    aria-label="Close editor"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
 
               <div className="deep-focus-editor__body">
@@ -822,14 +878,10 @@ function SidebarDeepFocusControls({
                       const isPrimary = row.topLevelId === draftTopLevelId
                         && normalizeRelativePath(row.targetPath)
                           === normalizeRelativePath(draft.state.selectedFocusPath);
-                      const isTest = row.ancillaryAllowed && isSameTarget(draft.state.selectedTestTarget, target);
-                      const isSupport = row.ancillaryAllowed && draft.state.selectedSupportTargets.some(
-                        (supportTarget) => supportTarget.path === target.path && supportTarget.kind === target.kind,
+                      const isTest = isSameTarget(draft.state.selectedTestTarget, target);
+                      const isSupport = draft.state.selectedSupportTargets.some(
+                        (supportTarget) => isSameTarget(supportTarget, target),
                       );
-                      const isSupportDisabled = supportDisabledReason(row);
-                      const testDisabled = !row.ancillaryAllowed
-                        || (deepFocusMode === 'distributed' && row.topLevelId !== draftTopLevelId)
-                        || isSupport;
 
                       return (
                         <DeepFocusTreeRow
@@ -842,14 +894,13 @@ function SidebarDeepFocusControls({
                           isPrimary={isPrimary}
                           isTest={isTest}
                           isSupport={isSupport}
-                          testDisabled={testDisabled}
-                          supportDisabled={isSupportDisabled}
+                          popoverOpen={popoverRowIndex === index}
                           rowRef={(element) => { rowRefs.current[index] = element; }}
                           onFocus={(i, id) => { setFocusedIndex(i); setFocusedKey(id); }}
-                          onSelectPrimary={handleSelectPrimary}
                           onActivate={(i) => { void handleRowActivate(i); }}
-                          onToggleTest={handleToggleTestTarget}
-                          onToggleSupport={handleToggleSupport}
+                          onLongPress={(i) => { setPopoverRowIndex(i); }}
+                          onAssignRole={handleAssignRole}
+                          onDismissPopover={() => { setPopoverRowIndex(null); }}
                         />
                       );
                     })
@@ -873,21 +924,27 @@ function SidebarDeepFocusControls({
                 />
 
                 <div className="deep-focus-footer">
-                  <button
-                    type="button"
-                    className="action-button action-button--secondary"
-                    onClick={closeEditor}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="action-button action-button--primary"
-                    onClick={applyDraft}
-                    disabled={!draftTopLevel}
-                  >
-                    Apply
-                  </button>
+                  {applyError ? (
+                    <p className="deep-focus-footer__error" role="alert">{applyError}</p>
+                  ) : null}
+                  <div className="deep-focus-footer__actions">
+                    <button
+                      type="button"
+                      className="action-button action-button--secondary"
+                      onClick={closeEditor}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="action-button action-button--primary"
+                      onClick={applyDraft}
+                      disabled={!draftTopLevel}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <p className="deep-focus-footer__hint">Touch and hold to assign a role</p>
                 </div>
               </div>
             </div>

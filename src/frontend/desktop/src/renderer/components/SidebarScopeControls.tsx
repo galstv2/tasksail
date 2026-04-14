@@ -80,7 +80,7 @@ function SidebarScopeControls({
             <span className="scope-card__title">Workspace Selection</span>
             {showDeepFocus ? (
               <div className="deep-focus-toggle-row">
-                <span className="deep-focus-toggle-row__label">Deep Focus</span>
+                <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
                 <button
                   type="button"
                   className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}

@@ -95,13 +95,7 @@ describe('useContextPackSwitching', () => {
       'focused',
       ['repo-1'],
       [],
-      {
-        deepFocusEnabled: false,
-        selectedFocusPath: null,
-        selectedFocusTargetKind: null,
-        selectedTestTarget: null,
-        selectedSupportTargets: [],
-      },
+      {},
     );
     expect(result.current.lastResult).not.toBeNull();
     expect(setMessage).toHaveBeenCalledWith(previewResponse.message);

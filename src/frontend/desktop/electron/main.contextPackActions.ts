@@ -71,24 +71,17 @@ function normalizeDeepFocusTarget(target: FocusTarget): FocusTarget {
 function normalizeContextPackSwitchPayload(
   payload: ContextPackSwitchPayload,
 ): ContextPackSwitchPayload {
-  if (payload.deepFocusEnabled !== true) {
-    return {
-      ...payload,
-      deepFocusEnabled: false,
-      selectedFocusPath: null,
-      selectedFocusTargetKind: null,
-      selectedTestTarget: null,
-      selectedSupportTargets: [],
-    };
-  }
-
   const selectedFocusPath = normalizeRelativePath(payload.selectedFocusPath ?? '');
+
   if (
     selectedFocusPath
     && payload.selectedFocusTargetKind !== 'directory'
     && payload.selectedFocusTargetKind !== 'file'
   ) {
-    throw new Error('Deep Focus apply requires selectedFocusTargetKind to be directory or file.');
+    // Only enforce when deep focus is active
+    if (payload.deepFocusEnabled === true) {
+      throw new Error('Deep Focus apply requires selectedFocusTargetKind to be directory or file.');
+    }
   }
 
   const selectedTestTarget = payload.selectedTestTarget === undefined
@@ -98,7 +91,7 @@ function normalizeContextPackSwitchPayload(
       : normalizeDeepFocusTarget(payload.selectedTestTarget);
   const selectedPrimaryKind = payload.selectedFocusTargetKind ?? 'directory';
 
-  if (selectedTestTarget) {
+  if (payload.deepFocusEnabled === true && selectedTestTarget) {
     const validation = validateTestTarget({
       primaryPath: selectedFocusPath,
       primaryKind: selectedPrimaryKind,
@@ -109,18 +102,25 @@ function normalizeContextPackSwitchPayload(
     }
   }
 
-  const selectedSupportTargets = normalizeSupportTargets({
-    primaryPath: selectedFocusPath,
-    primaryKind: selectedPrimaryKind,
-    testTarget: selectedTestTarget ?? undefined,
-    rawTargets: payload.selectedSupportTargets ?? [],
-  }).map(({ path, kind }) => ({ path, kind }));
+  // Only run deep focus validation/normalization when deep focus is active.
+  // When off, persist the raw targets unchanged so they survive the toggle.
+  const selectedSupportTargets = payload.deepFocusEnabled === true
+    ? normalizeSupportTargets({
+        primaryPath: selectedFocusPath,
+        primaryKind: selectedPrimaryKind,
+        testTarget: selectedTestTarget ?? undefined,
+        rawTargets: payload.selectedSupportTargets ?? [],
+      }).map(({ path, kind }) => ({ path, kind }))
+    : (payload.selectedSupportTargets ?? []).map((t) => ({
+        path: normalizeRelativePath(t.path),
+        kind: t.kind,
+      }));
 
   return {
     ...payload,
-    deepFocusEnabled: true,
+    deepFocusEnabled: payload.deepFocusEnabled === true,
     selectedFocusPath,
-    selectedFocusTargetKind: payload.selectedFocusTargetKind,
+    selectedFocusTargetKind: payload.selectedFocusTargetKind ?? null,
     selectedTestTarget,
     selectedSupportTargets,
   };
@@ -162,12 +162,20 @@ export function buildContextPackWorkspaceArgs(
     }
     if (normalizedPayload.deepFocusEnabled) {
       args.push('--deep-focus-enabled');
-      if (normalizedPayload.selectedFocusPath !== undefined && normalizedPayload.selectedFocusPath !== null) {
-        args.push('--selected-focus-path', normalizedPayload.selectedFocusPath);
-      }
-      if (normalizedPayload.selectedFocusTargetKind) {
-        args.push('--selected-focus-target-kind', normalizedPayload.selectedFocusTargetKind);
-      }
+    }
+    // Always persist selection args so they survive toggling deep focus off.
+    // When deep focus is enabled, emit the path even if empty (signals repo-root focus).
+    if (normalizedPayload.selectedFocusPath || normalizedPayload.deepFocusEnabled) {
+      args.push('--selected-focus-path', normalizedPayload.selectedFocusPath ?? '');
+    }
+    if (normalizedPayload.selectedFocusTargetKind) {
+      args.push('--selected-focus-target-kind', normalizedPayload.selectedFocusTargetKind);
+    }
+    // Only emit test/support target args when deep focus is active.
+    // These go through strict object validation in the Python normalizer
+    // that can throw on stale persisted data in regular mode.
+    // Persistence is handled by the state file merge in the Python service.
+    if (normalizedPayload.deepFocusEnabled) {
       if (normalizedPayload.selectedTestTarget !== undefined) {
         args.push('--selected-test-target', JSON.stringify(normalizedPayload.selectedTestTarget));
       }

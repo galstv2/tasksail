@@ -1,5 +1,9 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import type { ContextPackDeepFocusTarget, ContextPackFocusTargetKind } from '../../shared/desktopContract';
 import { classNames } from '../utils/classNames';
+
+export type FocusRole = 'primary' | 'test' | 'support';
 
 export type TreeRowData = {
   id: string;
@@ -25,15 +29,16 @@ type DeepFocusTreeRowProps = {
   isPrimary: boolean;
   isTest: boolean;
   isSupport: boolean;
-  testDisabled: boolean;
-  supportDisabled: boolean;
+  popoverOpen: boolean;
   rowRef: (element: HTMLDivElement | null) => void;
   onFocus: (index: number, id: string) => void;
-  onSelectPrimary: (topLevelId: string, target: ContextPackDeepFocusTarget) => void;
   onActivate: (index: number) => void;
-  onToggleTest: (target: ContextPackDeepFocusTarget) => void;
-  onToggleSupport: (target: ContextPackDeepFocusTarget, row: TreeRowData) => void;
+  onLongPress: (index: number) => void;
+  onAssignRole: (role: FocusRole, topLevelId: string, target: ContextPackDeepFocusTarget) => void;
+  onDismissPopover: () => void;
 };
+
+const LONG_PRESS_MS = 500;
 
 function FolderTreeIcon(): JSX.Element {
   return (
@@ -76,36 +81,6 @@ function FileNodeIcon(): JSX.Element {
   );
 }
 
-function TestTubeIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        d="M6 2.5h4M7 2.5v4.8l-2.2 3.1a2.2 2.2 0 0 0 1.8 3.6h2.8a2.2 2.2 0 0 0 1.8-3.6L9 7.3V2.5"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M5.6 11.2h4.8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SupportTargetIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <circle cx="8" cy="8" r="3.1" fill="currentColor" opacity="0.2" />
-      <path
-        d="M8 3.4v2.1M8 10.5v2.1M3.4 8h2.1M10.5 8h2.1"
-        stroke="currentColor"
-        strokeWidth="1.15"
-        strokeLinecap="round"
-      />
-      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.15" />
-    </svg>
-  );
-}
-
 function ChevronRightIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -120,6 +95,111 @@ function ChevronRightIcon(): JSX.Element {
   );
 }
 
+function RolePopover({
+  row,
+  isPrimary,
+  isTest,
+  isSupport,
+  onAssign,
+  onDismiss,
+}: {
+  row: TreeRowData;
+  isPrimary: boolean;
+  isTest: boolean;
+  isSupport: boolean;
+  onAssign: (role: FocusRole) => void;
+  onDismiss: () => void;
+}): JSX.Element {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [flipped, setFlipped] = useState(false);
+
+  useEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+    const popoverRect = el.getBoundingClientRect();
+
+    // Find the closest scrollable ancestor (the .deep-focus-list container)
+    let scrollParent: HTMLElement | null = el.parentElement;
+    while (scrollParent) {
+      const overflow = getComputedStyle(scrollParent).overflowY;
+      if (overflow === 'auto' || overflow === 'scroll' || overflow === 'hidden') break;
+      scrollParent = scrollParent.parentElement;
+    }
+    const clippingTop = scrollParent
+      ? scrollParent.getBoundingClientRect().top
+      : 0;
+
+    if (popoverRect.top < clippingTop) {
+      setFlipped(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        onDismiss();
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onDismiss();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onDismiss]);
+
+  const testDisabledForFile = row.kind === 'file';
+
+  return (
+    <div
+      ref={popoverRef}
+      className={classNames('deep-focus-role-popover', flipped && 'deep-focus-role-popover--below')}
+      role="group"
+      aria-label={`Assign role for ${row.label}`}
+    >
+      <button
+        type="button"
+        className={classNames(
+          'deep-focus-role-bubble',
+          'deep-focus-role-bubble--primary',
+          isPrimary && 'deep-focus-role-bubble--active',
+        )}
+        onClick={(e) => { e.stopPropagation(); onAssign('primary'); }}
+      >
+        Primary
+      </button>
+      <button
+        type="button"
+        className={classNames(
+          'deep-focus-role-bubble',
+          'deep-focus-role-bubble--test',
+          isTest && 'deep-focus-role-bubble--active',
+          testDisabledForFile && 'deep-focus-role-bubble--disabled',
+        )}
+        disabled={testDisabledForFile}
+        title={testDisabledForFile ? 'Test can only be assigned to folders' : undefined}
+        onClick={(e) => { e.stopPropagation(); onAssign('test'); }}
+      >
+        Test
+      </button>
+      <button
+        type="button"
+        className={classNames(
+          'deep-focus-role-bubble',
+          'deep-focus-role-bubble--support',
+          isSupport && 'deep-focus-role-bubble--active',
+        )}
+        onClick={(e) => { e.stopPropagation(); onAssign('support'); }}
+      >
+        Support
+      </button>
+    </div>
+  );
+}
+
 export function DeepFocusTreeRow({
   row,
   index,
@@ -129,97 +209,126 @@ export function DeepFocusTreeRow({
   isPrimary,
   isTest,
   isSupport,
-  testDisabled,
-  supportDisabled,
+  popoverOpen,
   rowRef,
   onFocus,
-  onSelectPrimary,
   onActivate,
-  onToggleTest,
-  onToggleSupport,
+  onLongPress,
+  onAssignRole,
+  onDismissPopover,
 }: DeepFocusTreeRowProps): JSX.Element {
-  const target: ContextPackDeepFocusTarget = {
-    path: row.targetPath,
-    kind: row.kind,
+  const target: ContextPackDeepFocusTarget = useMemo(
+    () => ({ path: row.targetPath, kind: row.kind }),
+    [row.targetPath, row.kind],
+  );
+
+  const longPressTimer = useRef<number | null>(null);
+  const [pressActive, setPressActive] = useState(false);
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    setPressActive(false);
+  }, []);
+
+  useEffect(() => {
+    return clearLongPress;
+  }, [clearLongPress]);
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    setPressActive(true);
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTimer.current = null;
+      setPressActive(false);
+      onLongPress(index);
+    }, LONG_PRESS_MS);
   };
 
+  const handleMouseUp = () => {
+    clearLongPress();
+  };
+
+  const handleMouseLeave = () => {
+    clearLongPress();
+  };
+
+  const handleAssign = useCallback(
+    (role: FocusRole) => {
+      onAssignRole(role, row.topLevelId, target);
+      onDismissPopover();
+    },
+    [onAssignRole, onDismissPopover, row.topLevelId, target],
+  );
+
+  const roleChip = isPrimary ? 'Primary' : isTest ? 'Test' : isSupport ? 'Support' : null;
+  const chipVariant = isPrimary ? 'primary' : isTest ? 'test' : isSupport ? 'support' : null;
+
   return (
-    <div
-      ref={rowRef}
-      role="button"
-      tabIndex={focusedIndex === index ? 0 : -1}
-      className={classNames(
-        'deep-focus-row',
-        row.kind === 'directory' ? 'deep-focus-row--directory' : 'deep-focus-row--file',
-        isPrimary && 'deep-focus-row--selected',
-        !isPrimary && isTest && 'deep-focus-row--test-selected',
-        isPrimary && isTest && 'deep-focus-row--primary-and-test',
-        isSupport && 'deep-focus-row--support-selected',
-      )}
-      onFocus={() => { onFocus(index, row.id); }}
-      onClick={() => onSelectPrimary(row.topLevelId, target)}
-      onDoubleClick={() => { void onActivate(index); }}
-      data-focused={focusedKey === row.id ? 'true' : undefined}
-    >
-      <span className="deep-focus-row__icon" aria-hidden="true">
-        {row.kind === 'directory' ? <FolderTreeIcon /> : <FileNodeIcon />}
-      </span>
-      <span className="deep-focus-row__label">
-        <span className="deep-focus-row__title-row">
-          <span className="deep-focus-row__name">{row.label}</span>
-          {isPrimary ? (
-            <span className="status-chip status-chip--xs status-chip--active">Active</span>
+    <div className="deep-focus-row-container">
+      {popoverOpen ? (
+        <RolePopover
+          row={row}
+          isPrimary={isPrimary}
+          isTest={isTest}
+          isSupport={isSupport}
+          onAssign={handleAssign}
+          onDismiss={onDismissPopover}
+        />
+      ) : null}
+      <div
+        ref={rowRef}
+        role="button"
+        tabIndex={focusedIndex === index ? 0 : -1}
+        className={classNames(
+          'deep-focus-row',
+          row.kind === 'directory' ? 'deep-focus-row--directory' : 'deep-focus-row--file',
+          isPrimary && 'deep-focus-row--selected',
+          !isPrimary && isTest && 'deep-focus-row--test-selected',
+          isPrimary && isTest && 'deep-focus-row--primary-and-test',
+          isSupport && 'deep-focus-row--support-selected',
+          pressActive && 'deep-focus-row--press-active',
+          popoverOpen && 'deep-focus-row--popover-open',
+        )}
+        onFocus={() => { onFocus(index, row.id); }}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onDoubleClick={() => { void onActivate(index); }}
+        data-focused={focusedKey === row.id ? 'true' : undefined}
+      >
+        <span className="deep-focus-row__icon" aria-hidden="true">
+          {row.kind === 'directory' ? <FolderTreeIcon /> : <FileNodeIcon />}
+        </span>
+        <span className="deep-focus-row__label">
+          <span className="deep-focus-row__title-row">
+            <span className="deep-focus-row__name">{row.label}</span>
+            {roleChip ? (
+              <span className={classNames('status-chip', 'status-chip--xs', `status-chip--${chipVariant}`)}>
+                {roleChip}
+              </span>
+            ) : null}
+          </span>
+          {row.displayPath && row.displayPath !== row.label ? (
+            <span className="deep-focus-row__path" title={row.displayPath}>
+              {row.displayPath}
+            </span>
           ) : null}
         </span>
-        {row.displayPath && row.displayPath !== row.label ? (
-          <span className="deep-focus-row__path" title={row.displayPath}>
-            {row.displayPath}
+        {row.kind === 'directory' ? (
+          <span
+            className={classNames(
+              'deep-focus-row__chevron',
+              drillingIndex === index && 'deep-focus-row__chevron--drilling',
+            )}
+            aria-hidden="true"
+          >
+            <ChevronRightIcon />
           </span>
         ) : null}
-      </span>
-      <button
-        type="button"
-        className={classNames(
-          'deep-focus-row__test-toggle',
-          isTest && 'deep-focus-row__test-toggle--active',
-          testDisabled && 'deep-focus-row__test-toggle--disabled',
-        )}
-        aria-label={`Toggle test target for ${row.label}`}
-        disabled={testDisabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleTest(target);
-        }}
-      >
-        <TestTubeIcon />
-      </button>
-      <button
-        type="button"
-        className={classNames(
-          'deep-focus-row__support-toggle',
-          isSupport && 'deep-focus-row__support-toggle--active',
-          supportDisabled && 'deep-focus-row__support-toggle--disabled',
-        )}
-        aria-label={`Toggle support target for ${row.label}`}
-        disabled={supportDisabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleSupport(target, row);
-        }}
-      >
-        <SupportTargetIcon />
-      </button>
-      {row.kind === 'directory' ? (
-        <span
-          className={classNames(
-            'deep-focus-row__chevron',
-            drillingIndex === index && 'deep-focus-row__chevron--drilling',
-          )}
-          aria-hidden="true"
-        >
-          <ChevronRightIcon />
-        </span>
-      ) : null}
+      </div>
     </div>
   );
 }

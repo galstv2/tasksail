@@ -265,7 +265,16 @@ class WorkspaceContextSyncService:
                     target_paths.append(resolved_target)
 
         deduped_targets = dedupe_paths(target_paths)
-        deep_focus_selection = deep_focus or normalize_deep_focus_selection()
+        # When deep_focus is None (regular mode — no deep focus CLI args),
+        # preserve existing deep focus state from the state file so persisted
+        # selections survive regular-mode applies.
+        if deep_focus is not None:
+            deep_focus_selection = deep_focus
+        else:
+            existing_state = self.load_sync_state()
+            deep_focus_selection = load_deep_focus_selection_from_state(
+                existing_state
+            )
         return {
             "context_pack_id": context_pack_id,
             "estate_type": estate_type,

@@ -242,21 +242,17 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selectedRepoIds: stringArray(state.selected_repo_ids),
       selectedFocusIds: stringArray(state.selected_focus_ids),
       deepFocusEnabled,
-      selectedFocusPath: deepFocusEnabled ? readDeepFocusPath(state.selected_focus_path) : null,
+      selectedFocusPath: readDeepFocusPath(state.selected_focus_path),
       selectedFocusTargetKind:
-        deepFocusEnabled
-        && (state.selected_focus_target_kind === 'directory'
+        (state.selected_focus_target_kind === 'directory'
           || state.selected_focus_target_kind === 'file')
           ? state.selected_focus_target_kind
           : null,
       selectedTestTarget:
-        deepFocusEnabled
-          ? Object.prototype.hasOwnProperty.call(state, 'selected_test_target')
-            ? parseDeepFocusTarget(state.selected_test_target)
-            : undefined
+        Object.prototype.hasOwnProperty.call(state, 'selected_test_target')
+          ? parseDeepFocusTarget(state.selected_test_target)
           : undefined,
-      selectedSupportTargets:
-        deepFocusEnabled ? parseDeepFocusTargetList(state.selected_support_targets) : [],
+      selectedSupportTargets: parseDeepFocusTargetList(state.selected_support_targets),
       managedFolders,
       attachedManagedFolders,
       missingManagedFolders,

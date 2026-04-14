@@ -247,13 +247,7 @@ describe('useContextPackSelection', () => {
         'focused',
         [],
         [],
-        {
-          deepFocusEnabled: false,
-          selectedFocusPath: null,
-          selectedFocusTargetKind: null,
-          selectedTestTarget: undefined,
-          selectedSupportTargets: [],
-        },
+        {},
       );
     });
   });

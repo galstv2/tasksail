@@ -112,13 +112,7 @@ describe('useContextPackSelection', () => {
         'focused',
         [],
         ['services-billing', 'services-identity'],
-        {
-          deepFocusEnabled: false,
-          selectedFocusPath: null,
-          selectedFocusTargetKind: null,
-          selectedTestTarget: undefined,
-          selectedSupportTargets: [],
-        },
+        {},
       );
     });
   });
@@ -153,13 +147,7 @@ describe('useContextPackSelection', () => {
         'focused',
         ['orders-api', 'orders-web'],
         [],
-        {
-          deepFocusEnabled: false,
-          selectedFocusPath: null,
-          selectedFocusTargetKind: null,
-          selectedTestTarget: undefined,
-          selectedSupportTargets: [],
-        },
+        {},
       );
     });
   });

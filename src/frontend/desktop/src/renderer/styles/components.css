@@ -140,9 +140,20 @@ select {
   background: var(--ts-surface-alt);
 }
 
-.status-chip--active {
+.status-chip--active,
+.status-chip--primary {
   background: var(--ts-accent-subtle);
   color: var(--ts-accent);
+}
+
+.status-chip--test {
+  background: rgba(22, 163, 74, 0.10);
+  color: var(--ts-success);
+}
+
+.status-chip--support {
+  background: color-mix(in srgb, var(--ts-accent2) 12%, transparent);
+  color: var(--ts-accent2);
 }
 
 .status-chip--blocked {

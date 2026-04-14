@@ -336,24 +336,18 @@ export function useContextPackSelection(
         );
       }
 
-      setSelectedDeepFocusState(
-        selection.deepFocusEnabled
-          ? {
-            deepFocusEnabled: true,
-            selectedFocusPath: selection.selectedFocusPath,
-            selectedFocusTargetKind: selection.selectedFocusTargetKind,
-            selectedTestTarget:
-              selection.selectedTestTarget === undefined
-                ? undefined
-                : selection.selectedTestTarget
-                  ? { ...selection.selectedTestTarget }
-                  : null,
-            selectedSupportTargets: selection.selectedSupportTargets.map((target) => ({ ...target })),
-          }
-          : {
-            ...EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
-          },
-      );
+      setSelectedDeepFocusState({
+        deepFocusEnabled: selection.deepFocusEnabled,
+        selectedFocusPath: selection.selectedFocusPath,
+        selectedFocusTargetKind: selection.selectedFocusTargetKind,
+        selectedTestTarget:
+          selection.selectedTestTarget === undefined
+            ? undefined
+            : selection.selectedTestTarget
+              ? { ...selection.selectedTestTarget }
+              : null,
+        selectedSupportTargets: selection.selectedSupportTargets.map((target) => ({ ...target })),
+      });
     },
     [catalogResponse],
   );

@@ -138,6 +138,18 @@ export function useContextPackSwitching(
 
       setActionPending(action);
       try {
+        // When deep focus is off, omit target metadata from the IPC payload.
+        // The IPC validator rejects these fields unless deepFocusEnabled is true.
+        // Persisted deep focus state is preserved by the Python state file merge.
+        const deepFocusSelection = deepFocusEnabled
+          ? {
+              deepFocusEnabled,
+              selectedFocusPath,
+              selectedFocusTargetKind,
+              selectedTestTarget,
+              selectedSupportTargets,
+            }
+          : {};
         const result =
           action === 'preview'
             ? await client.previewContextPackSwitch(
@@ -145,13 +157,7 @@ export function useContextPackSwitching(
                 scopeMode,
                 selectedRepoIds,
                 selectedFocusIds,
-                {
-                  deepFocusEnabled,
-                  selectedFocusPath,
-                  selectedFocusTargetKind,
-                  selectedTestTarget,
-                  selectedSupportTargets,
-                },
+                deepFocusSelection,
               )
             : action === 'apply'
               ? await client.applyContextPackSwitch(
@@ -159,13 +165,7 @@ export function useContextPackSwitching(
                   scopeMode,
                   selectedRepoIds,
                   selectedFocusIds,
-                  {
-                    deepFocusEnabled,
-                    selectedFocusPath,
-                    selectedFocusTargetKind,
-                    selectedTestTarget,
-                    selectedSupportTargets,
-                  },
+                  deepFocusSelection,
                 )
               : await client.clearActiveContextPack();
 

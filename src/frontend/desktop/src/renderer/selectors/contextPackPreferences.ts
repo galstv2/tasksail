@@ -73,12 +73,24 @@ function cloneDeepFocusState(
 export function selectLastAppliedDeepFocusState(
   contextPack: ContextPackCatalogEntry | undefined,
 ): ContextPackDeepFocusState {
-  if (!contextPack || contextPack.lastAppliedDeepFocusEnabled !== true) {
+  if (!contextPack) {
+    return cloneDeepFocusState(EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE);
+  }
+
+  // Always restore selections regardless of whether deep focus is currently
+  // enabled — the operator may have toggled it off temporarily and expects
+  // selections to survive across sessions.
+  const hasSelections =
+    contextPack.lastAppliedSelectedFocusPath != null
+    || contextPack.lastAppliedSelectedTestTarget != null
+    || (contextPack.lastAppliedSelectedSupportTargets ?? []).length > 0;
+
+  if (!hasSelections && contextPack.lastAppliedDeepFocusEnabled !== true) {
     return cloneDeepFocusState(EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE);
   }
 
   return {
-    deepFocusEnabled: true,
+    deepFocusEnabled: contextPack.lastAppliedDeepFocusEnabled === true,
     selectedFocusPath: contextPack.lastAppliedSelectedFocusPath ?? null,
     selectedFocusTargetKind: contextPack.lastAppliedSelectedFocusTargetKind ?? null,
     selectedTestTarget: cloneDeepFocusTarget(
