@@ -122,6 +122,8 @@ interface AuthoritativeSelection {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
+  deepFocusPrimaryRepoId?: string | null;
+  deepFocusPrimaryFocusId?: string | null;
   selectedFocusPath?: string;
   selectedFocusTargetKind?: FocusTargetKind;
   selectedTestTarget?: FocusTarget | null;
@@ -293,9 +295,18 @@ export async function resolveSelectedPrimaryRepoRoot(
 
   const estateType = manifest.estate_type ?? 'distributed-platform';
   const declaredRoots = collectDeclaredRepoRoots(manifest, resolvedPackDir);
+  // When deep focus is enabled and the dedicated ID field is set, resolve from
+  // it. When the field is null/missing (backward-compat with older state files),
+  // fall through to the regular-mode arrays via the ?? below.
+  const deepFocusPrimaryIds = selection.deepFocusEnabled === true
+    ? (estateType === 'monolith' || estateType === 'monolith-platform'
+        ? (selection.deepFocusPrimaryFocusId ? [selection.deepFocusPrimaryFocusId] : undefined)
+        : (selection.deepFocusPrimaryRepoId ? [selection.deepFocusPrimaryRepoId] : undefined))
+    : undefined;
+
   const primary = estateType === 'monolith' || estateType === 'monolith-platform'
-    ? resolveSelectedMonolithPrimary(manifest, resolvedPackDir, selection.selectedFocusIds)
-    : resolveSelectedDistributedPrimary(manifest, resolvedPackDir, selection.selectedRepoIds);
+    ? resolveSelectedMonolithPrimary(manifest, resolvedPackDir, deepFocusPrimaryIds ?? selection.selectedFocusIds)
+    : resolveSelectedDistributedPrimary(manifest, resolvedPackDir, deepFocusPrimaryIds ?? selection.selectedRepoIds);
 
   if (!primary) {
     return undefined;
@@ -404,6 +415,8 @@ interface SelectionFileDescriptor {
   repoIdsField: string;
   focusIdsField: string;
   deepFocusEnabledField?: string;
+  deepFocusPrimaryRepoIdField?: string;
+  deepFocusPrimaryFocusIdField?: string;
   focusPathField?: string;
   focusTargetKindField?: string;
   testTargetField?: string;
@@ -436,11 +449,19 @@ async function readSelectionFile(
   const deepFocusEnabled = descriptor.deepFocusEnabledField
     ? parsed?.[descriptor.deepFocusEnabledField] === true
     : undefined;
+  const deepFocusPrimaryRepoId = descriptor.deepFocusPrimaryRepoIdField
+    ? toOptionalString(parsed?.[descriptor.deepFocusPrimaryRepoIdField]) ?? null
+    : null;
+  const deepFocusPrimaryFocusId = descriptor.deepFocusPrimaryFocusIdField
+    ? toOptionalString(parsed?.[descriptor.deepFocusPrimaryFocusIdField]) ?? null
+    : null;
 
   return {
     selectedRepoIds: toStringArray(parsed?.[descriptor.repoIdsField]),
     selectedFocusIds: toStringArray(parsed?.[descriptor.focusIdsField]),
     deepFocusEnabled,
+    deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId,
     selectedFocusPath: descriptor.focusPathField
       ? deepFocusEnabled === true
         ? readDeepFocusOptionalString(parsed?.[descriptor.focusPathField], descriptor.focusPathField)
@@ -475,6 +496,8 @@ function readTaskSelectionSidecar(
     repoIdsField: 'selectedRepoIds',
     focusIdsField: 'selectedFocusIds',
     deepFocusEnabledField: 'deepFocusEnabled',
+    deepFocusPrimaryRepoIdField: 'deepFocusPrimaryRepoId',
+    deepFocusPrimaryFocusIdField: 'deepFocusPrimaryFocusId',
     focusPathField: 'selectedFocusPath',
     focusTargetKindField: 'selectedFocusTargetKind',
     testTargetField: 'selectedTestTarget',
@@ -493,6 +516,8 @@ function readWorkspaceSyncSelection(
     repoIdsField: 'selected_repo_ids',
     focusIdsField: 'selected_focus_ids',
     deepFocusEnabledField: 'deep_focus_enabled',
+    deepFocusPrimaryRepoIdField: 'deep_focus_primary_repo_id',
+    deepFocusPrimaryFocusIdField: 'deep_focus_primary_focus_id',
     focusPathField: 'selected_focus_path',
     focusTargetKindField: 'selected_focus_target_kind',
     testTargetField: 'selected_test_target',

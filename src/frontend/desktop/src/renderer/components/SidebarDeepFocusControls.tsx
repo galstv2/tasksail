@@ -26,8 +26,8 @@ import {
 
 export type DeepFocusCommit = {
   deepFocusEnabled: boolean;
-  selectedRepoIds?: string[];
-  selectedFocusIds?: string[];
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
@@ -175,6 +175,8 @@ function SidebarDeepFocusControls({
     selectedWorkingFocusIds: [],
     state: {
       deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
       selectedTestTarget: null,
@@ -253,6 +255,14 @@ function SidebarDeepFocusControls({
     `Support: ${draft.state.selectedSupportTargets.length}`,
   ].join(' · ');
 
+  const derivePrimaryIds = (nextIds: string[]): {
+    deepFocusPrimaryRepoId: string | null;
+    deepFocusPrimaryFocusId: string | null;
+  } => ({
+    deepFocusPrimaryRepoId: deepFocusMode === 'distributed' ? (nextIds[0] ?? null) : null,
+    deepFocusPrimaryFocusId: deepFocusMode === 'monolith' ? (nextIds[0] ?? null) : null,
+  });
+
   const buildCommit = (
     enabled: boolean,
     nextIds: string[],
@@ -265,8 +275,7 @@ function SidebarDeepFocusControls({
     >,
   ): DeepFocusCommit => ({
     deepFocusEnabled: enabled,
-    selectedRepoIds: deepFocusMode === 'distributed' ? nextIds : [],
-    selectedFocusIds: deepFocusMode === 'monolith' ? nextIds : [],
+    ...derivePrimaryIds(nextIds),
     selectedFocusPath: state.selectedFocusPath,
     selectedFocusTargetKind: state.selectedFocusTargetKind,
     selectedTestTarget: state.selectedTestTarget,
@@ -295,6 +304,7 @@ function SidebarDeepFocusControls({
       selectedWorkingFocusIds: nextTopLevelId ? [nextTopLevelId] : [],
       state: {
         deepFocusEnabled: true,
+        ...derivePrimaryIds(nextTopLevelId ? [nextTopLevelId] : []),
         selectedFocusPath: nextPath,
         selectedFocusTargetKind: nextPath
           ? (selectedFocusTargetKind ?? 'directory')

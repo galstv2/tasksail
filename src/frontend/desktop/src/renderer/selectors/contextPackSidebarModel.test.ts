@@ -185,6 +185,8 @@ describe('summarizeSwitchResult', () => {
       targetFolders: [],
       lastSyncedAt: null,
       deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
       selectedTestTarget: null,

@@ -90,8 +90,8 @@ function SidebarScopeControls({
                      const nextFocusId = selectedWorkingFocusIds[0] ?? selectedPack.focusTargets[0]?.focusId ?? null;
                      onCommitDeepFocusSelection({
                        deepFocusEnabled: true,
-                       selectedRepoIds: selectedPack.estateType === 'distributed-platform' && nextFocusId ? [nextFocusId] : [],
-                       selectedFocusIds: selectedPack.estateType === 'distributed-platform' ? [] : nextFocusId ? [nextFocusId] : [],
+                       deepFocusPrimaryRepoId: selectedPack.estateType === 'distributed-platform' ? (nextFocusId ?? null) : null,
+                       deepFocusPrimaryFocusId: selectedPack.estateType === 'distributed-platform' ? null : (nextFocusId ?? null),
                        selectedFocusPath,
                        selectedFocusTargetKind,
                        selectedTestTarget,

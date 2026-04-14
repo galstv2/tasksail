@@ -35,6 +35,8 @@ const defaultSnapshot: SwitchingStateSnapshot = {
   selectedRepoIds: ['repo-1'],
   selectedFocusIds: [],
   deepFocusEnabled: false,
+  deepFocusPrimaryRepoId: null,
+  deepFocusPrimaryFocusId: null,
   selectedFocusPath: null,
   selectedFocusTargetKind: null,
   selectedTestTarget: null,
@@ -137,6 +139,8 @@ describe('useContextPackSwitching', () => {
       () => ({
         ...defaultSnapshot,
         deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'repo-1',
+        deepFocusPrimaryFocusId: null,
         selectedRepoIds: ['repo-1'],
         selectedFocusPath: 'src/features/orders',
         selectedFocusTargetKind: 'directory',
@@ -156,6 +160,8 @@ describe('useContextPackSwitching', () => {
       [],
       {
         deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'repo-1',
+        deepFocusPrimaryFocusId: null,
         selectedFocusPath: 'src/features/orders',
         selectedFocusTargetKind: 'directory',
         selectedTestTarget: { path: 'tests/orders', kind: 'directory' },

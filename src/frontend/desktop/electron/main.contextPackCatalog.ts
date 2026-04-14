@@ -32,6 +32,8 @@ type WorkspaceSyncStateSnapshot = {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
@@ -198,6 +200,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selectedRepoIds: [],
       selectedFocusIds: [],
         deepFocusEnabled: false,
+        deepFocusPrimaryRepoId: null,
+        deepFocusPrimaryFocusId: null,
         selectedFocusPath: null,
         selectedFocusTargetKind: null,
         selectedTestTarget: undefined,
@@ -220,6 +224,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selected_repo_ids?: unknown;
       selected_focus_ids?: unknown;
       deep_focus_enabled?: unknown;
+      deep_focus_primary_repo_id?: unknown;
+      deep_focus_primary_focus_id?: unknown;
       selected_focus_path?: unknown;
       selected_focus_target_kind?: unknown;
       selected_test_target?: unknown;
@@ -242,6 +248,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selectedRepoIds: stringArray(state.selected_repo_ids),
       selectedFocusIds: stringArray(state.selected_focus_ids),
       deepFocusEnabled,
+      deepFocusPrimaryRepoId: stringOrNull(state.deep_focus_primary_repo_id),
+      deepFocusPrimaryFocusId: stringOrNull(state.deep_focus_primary_focus_id),
       selectedFocusPath: readDeepFocusPath(state.selected_focus_path),
       selectedFocusTargetKind:
         (state.selected_focus_target_kind === 'directory'
@@ -271,6 +279,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selectedRepoIds: [],
       selectedFocusIds: [],
       deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
       selectedTestTarget: null,
@@ -302,6 +312,8 @@ export function deriveContextPackRuntimeState(
   | 'lastAppliedSelectedRepoIds'
   | 'lastAppliedSelectedFocusIds'
   | 'lastAppliedDeepFocusEnabled'
+  | 'lastAppliedDeepFocusPrimaryRepoId'
+  | 'lastAppliedDeepFocusPrimaryFocusId'
   | 'lastAppliedSelectedFocusPath'
   | 'lastAppliedSelectedFocusTargetKind'
   | 'lastAppliedSelectedTestTarget'
@@ -348,6 +360,8 @@ export function deriveContextPackRuntimeState(
     lastAppliedSelectedRepoIds: stateTracksEntry ? syncState.selectedRepoIds : [],
     lastAppliedSelectedFocusIds: stateTracksEntry ? syncState.selectedFocusIds : [],
     lastAppliedDeepFocusEnabled: stateTracksEntry ? syncState.deepFocusEnabled : false,
+    lastAppliedDeepFocusPrimaryRepoId: stateTracksEntry ? syncState.deepFocusPrimaryRepoId : null,
+    lastAppliedDeepFocusPrimaryFocusId: stateTracksEntry ? syncState.deepFocusPrimaryFocusId : null,
     lastAppliedSelectedFocusPath: stateTracksEntry ? syncState.selectedFocusPath : null,
     lastAppliedSelectedFocusTargetKind:
       stateTracksEntry ? syncState.selectedFocusTargetKind : null,

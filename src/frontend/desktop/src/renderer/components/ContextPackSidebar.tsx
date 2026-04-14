@@ -40,8 +40,8 @@ export type ContextPackSidebarProps = {
   onToggleRepositoryType?: (repoId: string, currentType: 'primary' | 'support') => void;
   onCommitDeepFocusSelection: (selection: {
     deepFocusEnabled: boolean;
-    selectedRepoIds?: string[];
-    selectedFocusIds?: string[];
+    deepFocusPrimaryRepoId: string | null;
+    deepFocusPrimaryFocusId: string | null;
     selectedFocusPath: string | null;
     selectedFocusTargetKind: ContextPackFocusTargetKind | null;
     selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;

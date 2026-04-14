@@ -349,8 +349,8 @@ describe('SidebarScopeControls', () => {
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         deepFocusEnabled: true,
-        selectedRepoIds: ['repo-1'],
-        selectedFocusIds: [],
+        deepFocusPrimaryRepoId: 'repo-1',
+        deepFocusPrimaryFocusId: null,
         selectedFocusPath: 'src',
         selectedFocusTargetKind: 'directory',
       }),
@@ -559,8 +559,8 @@ describe('SidebarScopeControls', () => {
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         deepFocusEnabled: true,
-        selectedRepoIds: [],
-        selectedFocusIds: ['focus-1'],
+        deepFocusPrimaryRepoId: null,
+        deepFocusPrimaryFocusId: 'focus-1',
         selectedFocusPath: 'services/core-module/src',
         selectedFocusTargetKind: 'directory',
       }),

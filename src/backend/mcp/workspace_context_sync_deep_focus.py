@@ -9,6 +9,8 @@ TARGET_KINDS = {"directory", "file"}
 def normalize_deep_focus_selection(
     *,
     deep_focus_enabled: bool = False,
+    deep_focus_primary_repo_id: str | None = None,
+    deep_focus_primary_focus_id: str | None = None,
     selected_focus_path: str | None = None,
     selected_focus_target_kind: str | None = None,
     selected_test_target: dict[str, Any] | None = None,
@@ -32,6 +34,8 @@ def normalize_deep_focus_selection(
 
     result: dict[str, Any] = {
         "deep_focus_enabled": bool(deep_focus_enabled),
+        "deep_focus_primary_repo_id": deep_focus_primary_repo_id,
+        "deep_focus_primary_focus_id": deep_focus_primary_focus_id,
         "selected_focus_path": selected_focus_path,
         "selected_focus_target_kind": selected_focus_target_kind,
         "selected_support_targets": normalize_deep_focus_targets(
@@ -48,6 +52,8 @@ def normalize_deep_focus_selection(
 def load_deep_focus_selection_from_state(state: dict[str, Any]) -> dict[str, Any]:
     return normalize_deep_focus_selection(
         deep_focus_enabled=state.get("deep_focus_enabled") is True,
+        deep_focus_primary_repo_id=state.get("deep_focus_primary_repo_id"),
+        deep_focus_primary_focus_id=state.get("deep_focus_primary_focus_id"),
         selected_focus_path=state.get("selected_focus_path"),
         selected_focus_target_kind=state.get("selected_focus_target_kind"),
         selected_test_target=state.get("selected_test_target"),
@@ -77,6 +83,8 @@ def extract_deep_focus_fields(source: dict[str, Any]) -> dict[str, Any]:
     """Extract deep focus fields from a resolved target or preview dict."""
     fields: dict[str, Any] = {
         "deep_focus_enabled": source["deep_focus_enabled"],
+        "deep_focus_primary_repo_id": source.get("deep_focus_primary_repo_id"),
+        "deep_focus_primary_focus_id": source.get("deep_focus_primary_focus_id"),
         "selected_focus_path": source["selected_focus_path"],
         "selected_focus_target_kind": source["selected_focus_target_kind"],
         "selected_support_targets": source["selected_support_targets"],

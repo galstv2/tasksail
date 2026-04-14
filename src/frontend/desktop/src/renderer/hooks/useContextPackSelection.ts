@@ -34,8 +34,8 @@ type RefreshOptions = {
 
 type DeepFocusSelectionCommit = {
   deepFocusEnabled: boolean;
-  selectedRepoIds?: string[];
-  selectedFocusIds?: string[];
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
@@ -147,6 +147,8 @@ export function useContextPackSelection(
     selectedRepoIds,
     selectedFocusIds,
     deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
+    deepFocusPrimaryRepoId: selectedDeepFocusState?.deepFocusPrimaryRepoId ?? null,
+    deepFocusPrimaryFocusId: selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
     selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
     selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
     selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
@@ -313,31 +315,10 @@ export function useContextPackSelection(
 
   const handleCommitDeepFocusSelection = useCallback(
     (selection: DeepFocusSelectionCommit) => {
-      const selectedPack = catalogResponse?.contextPacks.find(
-        (entry) => entry.contextPackDir === selectedContextPackDirRef.current,
-      );
-      const knownRepoIds = new Set(
-        (selectedPack?.focusTargets ?? [])
-          .map((target) => target.repoId)
-          .filter((repoId): repoId is string => typeof repoId === 'string' && repoId.length > 0),
-      );
-      const knownFocusIds = new Set(
-        (selectedPack?.focusTargets ?? []).map((target) => target.focusId),
-      );
-
-      if (selection.selectedRepoIds) {
-        setSelectedRepoIds(
-          selection.selectedRepoIds.filter((repoId) => knownRepoIds.has(repoId)),
-        );
-      }
-      if (selection.selectedFocusIds) {
-        setSelectedFocusIds(
-          selection.selectedFocusIds.filter((focusId) => knownFocusIds.has(focusId)),
-        );
-      }
-
       setSelectedDeepFocusState({
         deepFocusEnabled: selection.deepFocusEnabled,
+        deepFocusPrimaryRepoId: selection.deepFocusPrimaryRepoId,
+        deepFocusPrimaryFocusId: selection.deepFocusPrimaryFocusId,
         selectedFocusPath: selection.selectedFocusPath,
         selectedFocusTargetKind: selection.selectedFocusTargetKind,
         selectedTestTarget:
@@ -349,7 +330,7 @@ export function useContextPackSelection(
         selectedSupportTargets: selection.selectedSupportTargets.map((target) => ({ ...target })),
       });
     },
-    [catalogResponse],
+    [],
   );
 
   const handleListRepoTree = useCallback(

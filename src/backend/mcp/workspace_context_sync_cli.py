@@ -95,6 +95,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Persist deep focus metadata alongside the selection.",
     )
     parser.add_argument(
+        "--deep-focus-primary-repo-id",
+        default=None,
+        help="Deep focus primary repo id (singular, distributed packs).",
+    )
+    parser.add_argument(
+        "--deep-focus-primary-focus-id",
+        default=None,
+        help="Deep focus primary focus area id (singular, monolith packs).",
+    )
+    parser.add_argument(
         "--selected-focus-path",
         default=None,
         help="Optional repo-relative primary focus path.",
@@ -160,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         deep_focus = normalize_deep_focus_selection(
             deep_focus_enabled=args.deep_focus_enabled,
+            deep_focus_primary_repo_id=args.deep_focus_primary_repo_id,
+            deep_focus_primary_focus_id=args.deep_focus_primary_focus_id,
             selected_focus_path=args.selected_focus_path,
             selected_focus_target_kind=args.selected_focus_target_kind,
             selected_test_target=selected_test_target,

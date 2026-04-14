@@ -203,6 +203,8 @@ describe('useContextPackSelection', () => {
         [],
         {
           deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'orders-api',
+          deepFocusPrimaryFocusId: null,
           selectedFocusPath: 'src/features/orders',
           selectedFocusTargetKind: 'directory',
           selectedTestTarget: null,

@@ -7,6 +7,8 @@ import type {
 
 export const EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE: ContextPackDeepFocusState = {
   deepFocusEnabled: false,
+  deepFocusPrimaryRepoId: null,
+  deepFocusPrimaryFocusId: null,
   selectedFocusPath: null,
   selectedFocusTargetKind: null,
   selectedTestTarget: undefined,
@@ -42,6 +44,8 @@ export function isDeepFocusStateEqual(
   if (!left || !right) return false;
   return (
     left.deepFocusEnabled === right.deepFocusEnabled
+    && left.deepFocusPrimaryRepoId === right.deepFocusPrimaryRepoId
+    && left.deepFocusPrimaryFocusId === right.deepFocusPrimaryFocusId
     && left.selectedFocusPath === right.selectedFocusPath
     && left.selectedFocusTargetKind === right.selectedFocusTargetKind
     && isTargetEqual(left.selectedTestTarget, right.selectedTestTarget)
@@ -63,6 +67,8 @@ function cloneDeepFocusState(
 ): ContextPackDeepFocusState {
   return {
     deepFocusEnabled: state.deepFocusEnabled,
+    deepFocusPrimaryRepoId: state.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: state.deepFocusPrimaryFocusId,
     selectedFocusPath: state.selectedFocusPath,
     selectedFocusTargetKind: state.selectedFocusTargetKind,
     selectedTestTarget: cloneDeepFocusTarget(state.selectedTestTarget),
@@ -83,7 +89,9 @@ export function selectLastAppliedDeepFocusState(
   const hasSelections =
     contextPack.lastAppliedSelectedFocusPath != null
     || contextPack.lastAppliedSelectedTestTarget != null
-    || (contextPack.lastAppliedSelectedSupportTargets ?? []).length > 0;
+    || (contextPack.lastAppliedSelectedSupportTargets ?? []).length > 0
+    || contextPack.lastAppliedDeepFocusPrimaryRepoId != null
+    || contextPack.lastAppliedDeepFocusPrimaryFocusId != null;
 
   if (!hasSelections && contextPack.lastAppliedDeepFocusEnabled !== true) {
     return cloneDeepFocusState(EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE);
@@ -91,6 +99,8 @@ export function selectLastAppliedDeepFocusState(
 
   return {
     deepFocusEnabled: contextPack.lastAppliedDeepFocusEnabled === true,
+    deepFocusPrimaryRepoId: contextPack.lastAppliedDeepFocusPrimaryRepoId ?? null,
+    deepFocusPrimaryFocusId: contextPack.lastAppliedDeepFocusPrimaryFocusId ?? null,
     selectedFocusPath: contextPack.lastAppliedSelectedFocusPath ?? null,
     selectedFocusTargetKind: contextPack.lastAppliedSelectedFocusTargetKind ?? null,
     selectedTestTarget: cloneDeepFocusTarget(

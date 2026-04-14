@@ -261,16 +261,6 @@ function validateDeepFocusSwitchFields(
 
   const deepFocusEnabled = value.deepFocusEnabled === true;
   if (deepFocusEnabled) {
-    if (Array.isArray(value.selectedRepoIds) && value.selectedRepoIds.length > 1) {
-      errors.push(
-        'payload.selectedRepoIds must contain at most one entry when deepFocusEnabled is true.',
-      );
-    }
-    if (Array.isArray(value.selectedFocusIds) && value.selectedFocusIds.length > 1) {
-      errors.push(
-        'payload.selectedFocusIds must contain at most one entry when deepFocusEnabled is true.',
-      );
-    }
     if (
       normalizedSelectedFocusPath !== undefined
       && normalizedSelectedFocusPath.length > 0
@@ -295,6 +285,8 @@ function validateDeepFocusSwitchFields(
     value.selectedFocusPath !== undefined
     || value.selectedFocusTargetKind !== undefined
     || value.selectedTestTarget !== undefined
+    || value.deepFocusPrimaryRepoId !== undefined
+    || value.deepFocusPrimaryFocusId !== undefined
   ) {
     errors.push(
       'payload.deepFocusEnabled must be true when Deep Focus target metadata is provided.',

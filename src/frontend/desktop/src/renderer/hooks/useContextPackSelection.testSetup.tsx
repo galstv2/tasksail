@@ -309,7 +309,8 @@ export function ContextPackSelectionContent({
         onClick={() =>
           contextPackSidebarProps.onCommitDeepFocusSelection({
             deepFocusEnabled: true,
-            selectedRepoIds: ['orders-api'],
+            deepFocusPrimaryRepoId: 'orders-api',
+            deepFocusPrimaryFocusId: null,
             selectedFocusPath: 'src/features/orders',
             selectedFocusTargetKind: 'directory',
             selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
@@ -324,7 +325,8 @@ export function ContextPackSelectionContent({
         onClick={() =>
           contextPackSidebarProps.onCommitDeepFocusSelection({
             deepFocusEnabled: true,
-            selectedRepoIds: ['orders-api'],
+            deepFocusPrimaryRepoId: 'orders-api',
+            deepFocusPrimaryFocusId: null,
             selectedFocusPath: 'src/features/orders',
             selectedFocusTargetKind: 'directory',
             selectedTestTarget: null,
@@ -339,7 +341,8 @@ export function ContextPackSelectionContent({
         onClick={() =>
           contextPackSidebarProps.onCommitDeepFocusSelection({
             deepFocusEnabled: false,
-            selectedRepoIds: ['orders-api'],
+            deepFocusPrimaryRepoId: null,
+            deepFocusPrimaryFocusId: null,
             selectedFocusPath: null,
             selectedFocusTargetKind: null,
             selectedTestTarget: undefined,

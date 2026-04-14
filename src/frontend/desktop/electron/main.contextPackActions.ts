@@ -162,6 +162,12 @@ export function buildContextPackWorkspaceArgs(
     }
     if (normalizedPayload.deepFocusEnabled) {
       args.push('--deep-focus-enabled');
+      if (normalizedPayload.deepFocusPrimaryRepoId) {
+        args.push('--deep-focus-primary-repo-id', normalizedPayload.deepFocusPrimaryRepoId);
+      }
+      if (normalizedPayload.deepFocusPrimaryFocusId) {
+        args.push('--deep-focus-primary-focus-id', normalizedPayload.deepFocusPrimaryFocusId);
+      }
     }
     // Always persist selection args so they survive toggling deep focus off.
     // When deep focus is enabled, emit the path even if empty (signals repo-root focus).
@@ -578,6 +584,8 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
     targetFolders: stringArray(workspace.target_folders),
     lastSyncedAt: stringOrNull(workspace.last_synced_at),
     deepFocusEnabled: workspace.deep_focus_enabled === true,
+    deepFocusPrimaryRepoId: stringOrNull(workspace.deep_focus_primary_repo_id),
+    deepFocusPrimaryFocusId: stringOrNull(workspace.deep_focus_primary_focus_id),
     selectedFocusPath: readDeepFocusPath(workspace.selected_focus_path),
     selectedFocusTargetKind:
       workspace.selected_focus_target_kind === 'directory'

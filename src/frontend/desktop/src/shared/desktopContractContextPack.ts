@@ -244,6 +244,8 @@ export type ContextPackCatalogEntry = {
   lastAppliedSelectedRepoIds?: string[];
   lastAppliedSelectedFocusIds?: string[];
   lastAppliedDeepFocusEnabled?: boolean;
+  lastAppliedDeepFocusPrimaryRepoId?: string | null;
+  lastAppliedDeepFocusPrimaryFocusId?: string | null;
   lastAppliedSelectedFocusPath?: string | null;
   lastAppliedSelectedFocusTargetKind?: ContextPackFocusTargetKind | null;
   lastAppliedSelectedTestTarget?: ContextPackDeepFocusTarget | null;

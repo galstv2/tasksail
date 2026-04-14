@@ -176,19 +176,17 @@ describe('validateDesktopActionRequest', () => {
       );
     });
 
-    it('rejects multi-select repo ids in deep focus mode', () => {
+    it('rejects deep focus primary fields when deepFocusEnabled is false', () => {
       const errors = validateDesktopActionRequest({
         action: 'contextPack.previewSwitch',
         payload: {
           contextPackDir: '/tmp/pack',
           scopeMode: 'focused',
-          deepFocusEnabled: true,
-          selectedRepoIds: ['orders-api', 'orders-web'],
-          selectedFocusTargetKind: 'directory',
+          deepFocusPrimaryRepoId: 'orders-api',
         },
       });
       expect(errors).toContainEqual(
-        'payload.selectedRepoIds must contain at most one entry when deepFocusEnabled is true.',
+        'payload.deepFocusEnabled must be true when Deep Focus target metadata is provided.',
       );
     });
   });

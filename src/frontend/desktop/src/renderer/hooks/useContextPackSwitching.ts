@@ -26,6 +26,8 @@ export type SwitchingStateSnapshot = {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
@@ -76,6 +78,8 @@ export function useContextPackSwitching(
         selectedRepoIds,
         selectedFocusIds,
         deepFocusEnabled,
+        deepFocusPrimaryRepoId,
+        deepFocusPrimaryFocusId,
         selectedFocusPath,
         selectedFocusTargetKind,
         selectedTestTarget,
@@ -144,6 +148,8 @@ export function useContextPackSwitching(
         const deepFocusSelection = deepFocusEnabled
           ? {
               deepFocusEnabled,
+              deepFocusPrimaryRepoId,
+              deepFocusPrimaryFocusId,
               selectedFocusPath,
               selectedFocusTargetKind,
               selectedTestTarget,

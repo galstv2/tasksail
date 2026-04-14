@@ -72,11 +72,27 @@ describe('deep focus selectors', () => {
 
     expect(selectLastAppliedDeepFocusState(pack)).toEqual({
       deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     });
+  });
+
+  it('restores non-null deep focus primary IDs from the catalog entry', () => {
+    const pack = makePack({
+      lastAppliedDeepFocusEnabled: true,
+      lastAppliedDeepFocusPrimaryRepoId: 'backend',
+      lastAppliedDeepFocusPrimaryFocusId: null,
+      lastAppliedSelectedFocusPath: 'src/orders',
+      lastAppliedSelectedFocusTargetKind: 'directory',
+    });
+
+    const state = selectLastAppliedDeepFocusState(pack);
+    expect(state.deepFocusPrimaryRepoId).toBe('backend');
+    expect(state.deepFocusPrimaryFocusId).toBeNull();
   });
 
   it('falls back to an empty state when no deep focus restore exists', () => {
@@ -96,6 +112,8 @@ describe('deep focus selectors', () => {
       selectPreferredDeepFocusState(pack, [
         {
           deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
           selectedFocusPath: 'src/live',
           selectedFocusTargetKind: 'directory',
           selectedTestTarget: null,
@@ -104,6 +122,8 @@ describe('deep focus selectors', () => {
       ]),
     ).toEqual({
       deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
       selectedFocusPath: 'src/live',
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: null,

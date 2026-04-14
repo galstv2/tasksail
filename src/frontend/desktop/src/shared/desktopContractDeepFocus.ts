@@ -7,6 +7,8 @@ export type ContextPackDeepFocusTarget = {
 
 export type ContextPackSwitchDeepFocusSelection = {
   deepFocusEnabled?: boolean;
+  deepFocusPrimaryRepoId?: string | null;
+  deepFocusPrimaryFocusId?: string | null;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
   selectedTestTarget?: ContextPackDeepFocusTarget | null;
@@ -15,6 +17,8 @@ export type ContextPackSwitchDeepFocusSelection = {
 
 export type ContextPackDeepFocusState = {
   deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
