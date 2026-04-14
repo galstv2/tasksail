@@ -14,6 +14,8 @@ type SidebarScopeControlsProps = {
   selectedPack: ContextPackCatalogEntry | undefined;
   selectedWorkingFocusIds: string[];
   deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
@@ -35,6 +37,8 @@ function SidebarScopeControls({
   selectedPack,
   selectedWorkingFocusIds,
   deepFocusEnabled,
+  deepFocusPrimaryRepoId,
+  deepFocusPrimaryFocusId,
   selectedFocusPath,
   selectedFocusTargetKind,
   selectedTestTarget,
@@ -87,11 +91,14 @@ function SidebarScopeControls({
                   aria-label="Toggle Deep Focus"
                   aria-pressed={deepFocusEnabled}
                    onClick={() => {
-                     const nextFocusId = selectedWorkingFocusIds[0] ?? selectedPack.focusTargets[0]?.focusId ?? null;
+                     const isDistributed = selectedPack.estateType === 'distributed-platform';
+                     // Restore saved deep focus primary if available; otherwise fall back to standard-mode selection.
+                     const savedPrimary = isDistributed ? deepFocusPrimaryRepoId : deepFocusPrimaryFocusId;
+                     const nextFocusId = savedPrimary ?? selectedWorkingFocusIds[0] ?? selectedPack.focusTargets[0]?.focusId ?? null;
                      onCommitDeepFocusSelection({
                        deepFocusEnabled: true,
-                       deepFocusPrimaryRepoId: selectedPack.estateType === 'distributed-platform' ? (nextFocusId ?? null) : null,
-                       deepFocusPrimaryFocusId: selectedPack.estateType === 'distributed-platform' ? null : (nextFocusId ?? null),
+                       deepFocusPrimaryRepoId: isDistributed ? (nextFocusId ?? null) : null,
+                       deepFocusPrimaryFocusId: isDistributed ? null : (nextFocusId ?? null),
                        selectedFocusPath,
                        selectedFocusTargetKind,
                        selectedTestTarget,

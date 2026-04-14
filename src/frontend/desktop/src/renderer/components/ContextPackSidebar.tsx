@@ -16,6 +16,8 @@ export type ContextPackSidebarProps = {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
+  deepFocusPrimaryRepoId?: string | null;
+  deepFocusPrimaryFocusId?: string | null;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
   selectedTestTarget?: ContextPackDeepFocusTarget | null;

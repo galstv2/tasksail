@@ -104,7 +104,8 @@ export function useContextPackSwitching(
         action !== 'clear' &&
         selectedPack?.estateType === 'distributed-platform' &&
         selectedPack.focusTargets.length > 0 &&
-        selectedRepoIds.length === 0
+        selectedRepoIds.length === 0 &&
+        !deepFocusPrimaryRepoId
       ) {
         setError('Select at least one working focus repo before running distributed activation.');
         return;
@@ -114,14 +115,16 @@ export function useContextPackSwitching(
         selectedPack &&
         selectedPack.estateType !== 'distributed-platform' &&
         selectedPack.focusTargets.length > 0 &&
-        selectedFocusIds.length === 0
+        selectedFocusIds.length === 0 &&
+        !deepFocusPrimaryFocusId
       ) {
         setError('Select at least one working focus area before running monolith activation.');
         return;
       }
       if (
         action !== 'clear' &&
-        selectedPack
+        selectedPack &&
+        !deepFocusEnabled
       ) {
         let hasTypedTargets = false;
         let selectedPrimaryCount = 0;

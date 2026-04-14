@@ -15,6 +15,7 @@ import { DeepFocusSelectionTray } from './DeepFocusSelectionTray';
 import { DeepFocusTreeRow, type TreeRowData, type FocusRole } from './DeepFocusTreeRow';
 import {
   basename,
+  buildSupportDisplayLabels,
   formatRelativeTime,
   getPrimaryDisplayLabel,
   inferDraftPrimaryTarget,
@@ -228,6 +229,11 @@ function SidebarDeepFocusControls({
   const committedTopLevel = topLevelTargets.find((target) => target.id === selectedWorkingFocusIds[0])
     ?? topLevelTargets[0]
     ?? null;
+  const committedTopLevelId = committedTopLevel?.id ?? null;
+  const supportLabels = useMemo(
+    () => buildSupportDisplayLabels(selectedSupportTargets, topLevelTargets, committedTopLevelId),
+    [selectedSupportTargets, topLevelTargets, committedTopLevelId],
+  );
   const draftTopLevelId = draft.selectedWorkingFocusIds[0] ?? '';
   const draftTopLevel = topLevelTargets.find((target) => target.id === draftTopLevelId) ?? null;
   const draftPrimaryTarget = inferDraftPrimaryTarget(
@@ -758,7 +764,9 @@ function SidebarDeepFocusControls({
                       <span className="deep-focus-summary__selection-dot" />
                       <span className="deep-focus-summary__selection-label">Test</span>
                       <span className="deep-focus-summary__selection-value" title={selectedTestTarget?.path ?? ''}>
-                        {selectedTestTarget ? basename(selectedTestTarget.path) : 'None'}
+                        {selectedTestTarget
+                          ? (selectedTestTarget.path ? basename(selectedTestTarget.path) : committedTopLevel?.label ?? 'Repo root')
+                          : 'None'}
                       </span>
                     </div>
 
@@ -771,14 +779,14 @@ function SidebarDeepFocusControls({
                           <span className="deep-focus-summary__support-count">{selectedSupportTargets.length}</span>
                         </div>
                         <div className="deep-focus-summary__support-list">
-                          {selectedSupportTargets.map((target) => (
+                          {selectedSupportTargets.map((target, index) => (
                             <div
-                              key={`${target.kind}:${target.path}`}
+                              key={`${target.kind}:${target.path || supportLabels.get(index) || index}`}
                               className="deep-focus-summary__support-item"
-                              title={target.path}
+                              title={target.path || (supportLabels.get(index) ?? basename(target.path))}
                             >
                               <span className="deep-focus-summary__support-icon">{target.kind === 'directory' ? <FolderGlyph /> : <FileGlyph />}</span>
-                              <span className="deep-focus-summary__support-name">{basename(target.path)}</span>
+                              <span className="deep-focus-summary__support-name">{supportLabels.get(index) ?? basename(target.path)}</span>
                               <span className="deep-focus-summary__support-path">{target.path}</span>
                             </div>
                           ))}

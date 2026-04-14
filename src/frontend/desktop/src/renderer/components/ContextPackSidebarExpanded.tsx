@@ -16,6 +16,8 @@ function ContextPackSidebarExpanded({
   selectedRepoIds,
   selectedFocusIds,
   deepFocusEnabled,
+  deepFocusPrimaryRepoId,
+  deepFocusPrimaryFocusId,
   selectedFocusPath,
   selectedFocusTargetKind,
   selectedTestTarget,
@@ -46,10 +48,14 @@ function ContextPackSidebarExpanded({
   const selectedPack = contextPacks.find(
     (entry) => entry.contextPackDir === selectedContextPackDir,
   );
-  const selectedWorkingFocusIds =
-    selectedPack?.estateType === 'distributed-platform'
-      ? selectedRepoIds
-      : selectedFocusIds;
+  const isDistributed = selectedPack?.estateType === 'distributed-platform';
+  const baseWorkingFocusIds = isDistributed ? selectedRepoIds : selectedFocusIds;
+  const deepFocusOverride = deepFocusEnabled
+    ? (isDistributed ? deepFocusPrimaryRepoId : deepFocusPrimaryFocusId)
+    : null;
+  const selectedWorkingFocusIds = deepFocusOverride
+    ? [deepFocusOverride]
+    : baseWorkingFocusIds;
   const hasSelection = selectedContextPackDir.length > 0;
   const hasActiveContextPack = Boolean(activeContextPackDir);
   const isBusy = actionPending !== null;
@@ -194,6 +200,8 @@ function ContextPackSidebarExpanded({
             selectedPack={selectedPack}
             selectedWorkingFocusIds={selectedWorkingFocusIds}
             deepFocusEnabled={deepFocusEnabled ?? false}
+            deepFocusPrimaryRepoId={deepFocusPrimaryRepoId ?? null}
+            deepFocusPrimaryFocusId={deepFocusPrimaryFocusId ?? null}
             selectedFocusPath={selectedFocusPath ?? null}
             selectedFocusTargetKind={selectedFocusTargetKind ?? null}
             selectedTestTarget={selectedTestTarget ?? null}

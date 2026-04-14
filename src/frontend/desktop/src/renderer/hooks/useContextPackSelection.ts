@@ -367,6 +367,8 @@ export function useContextPackSelection(
       selectedRepoIds,
       selectedFocusIds,
       deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
+      deepFocusPrimaryRepoId: selectedDeepFocusState?.deepFocusPrimaryRepoId ?? null,
+      deepFocusPrimaryFocusId: selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
       selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
       selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
       selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,

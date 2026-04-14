@@ -112,6 +112,32 @@ export function getPrimaryDisplayLabel(
   return basename(selectedPath);
 }
 
+/**
+ * Build a display-label lookup for support targets by cross-referencing
+ * empty-path targets against the non-primary top-level repos/areas.
+ *
+ * Returns a Map keyed by target index. Callers fall back to `basename()`
+ * for entries not in the map (i.e. targets with non-empty paths).
+ */
+export function buildSupportDisplayLabels(
+  supportTargets: readonly ContextPackDeepFocusTarget[],
+  topLevelTargets: ReadonlyArray<{ id: string; label: string; rootPath: string }>,
+  primaryTopLevelId: string | null,
+): Map<number, string> {
+  const labels = new Map<number, string>();
+  const nonPrimaryRoots = topLevelTargets.filter(
+    (t) => t.id !== primaryTopLevelId && t.rootPath === '',
+  );
+  let rootIndex = 0;
+  for (let i = 0; i < supportTargets.length; i++) {
+    if (!supportTargets[i].path && rootIndex < nonPrimaryRoots.length) {
+      labels.set(i, nonPrimaryRoots[rootIndex].label);
+      rootIndex++;
+    }
+  }
+  return labels;
+}
+
 export function inferDraftPrimaryTarget(
   path: string | null,
   kind: ContextPackFocusTargetKind | null,

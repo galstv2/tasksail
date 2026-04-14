@@ -85,6 +85,8 @@ const defaultProps = {
   selectedPack: undefined as ContextPackCatalogEntry | undefined,
   selectedWorkingFocusIds: [] as string[],
   deepFocusEnabled: false,
+  deepFocusPrimaryRepoId: null as string | null,
+  deepFocusPrimaryFocusId: null as string | null,
   selectedFocusPath: null as string | null,
   selectedFocusTargetKind: null,
   selectedTestTarget: undefined,
