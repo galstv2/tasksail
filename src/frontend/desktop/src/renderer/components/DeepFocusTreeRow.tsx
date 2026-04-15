@@ -18,6 +18,7 @@ export type TreeRowData = {
   repoLocalPath: string;
   isTopLevel: boolean;
   ancillaryAllowed: boolean;
+  systemLayer: string | null;
 };
 
 type DeepFocusTreeRowProps = {
@@ -265,6 +266,8 @@ export function DeepFocusTreeRow({
 
   const roleChip = isPrimary ? 'Primary' : isTest ? 'Test' : isSupport ? 'Support' : null;
   const chipVariant = isPrimary ? 'primary' : isTest ? 'test' : isSupport ? 'support' : null;
+  const isTestLayer = row.systemLayer === 'test'
+    || (row.kind === 'directory' && /[.\-_](tests?|e2e|spec)$/i.test(row.label));
 
   return (
     <div className="deep-focus-row-container">
@@ -289,6 +292,7 @@ export function DeepFocusTreeRow({
           !isPrimary && isTest && 'deep-focus-row--test-selected',
           isPrimary && isTest && 'deep-focus-row--primary-and-test',
           isSupport && 'deep-focus-row--support-selected',
+          isTestLayer && !roleChip && 'deep-focus-row--test-layer',
           pressActive && 'deep-focus-row--press-active',
           popoverOpen && 'deep-focus-row--popover-open',
         )}
@@ -308,6 +312,11 @@ export function DeepFocusTreeRow({
             {roleChip ? (
               <span className={classNames('status-chip', 'status-chip--xs', `status-chip--${chipVariant}`)}>
                 {roleChip}
+              </span>
+            ) : null}
+            {isTestLayer ? (
+              <span className={classNames('status-chip', 'status-chip--xs', 'status-chip--test-layer')}>
+                Tests
               </span>
             ) : null}
           </span>

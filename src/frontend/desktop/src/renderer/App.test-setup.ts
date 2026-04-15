@@ -809,6 +809,18 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'agentInstructions.writeFile', mode: 'mutated', message: 'Saved.', fileName: '', relativePath: '' },
       }),
+      saveDeepFocusSelections: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'deepFocus.saveSelections', mode: 'saved', message: 'Saved.' },
+      }),
+      loadDeepFocusSelections: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'deepFocus.loadSelections', mode: 'read-only', message: 'No saved selections found.', selections: null },
+      }),
+      clearDeepFocusSelections: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Cleared.' },
+      }),
     } as typeof window.desktopShell & Record<string, unknown>;
   });
 }

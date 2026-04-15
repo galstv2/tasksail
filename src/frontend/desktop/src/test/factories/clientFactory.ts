@@ -604,6 +604,18 @@ export function createMockClient(
       ok: true,
       response: { action: 'services.readStatus', mode: 'observed', status: 'healthy', lastCheckedAt: null, error: null, message: 'Healthy.' },
     }),
+    saveDeepFocusSelections: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'deepFocus.saveSelections', mode: 'saved', message: 'Deep focus selections saved.' },
+    }),
+    loadDeepFocusSelections: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'deepFocus.loadSelections', mode: 'read-only', message: 'No saved selections found.', selections: null },
+    }),
+    clearDeepFocusSelections: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Deep focus selections cleared.' },
+    }),
     listInstructionFiles: vi.fn().mockResolvedValue({
       ok: true,
       response: {

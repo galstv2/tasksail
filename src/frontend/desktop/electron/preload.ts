@@ -64,6 +64,7 @@ import {
   type WorkspaceScopeMode,
   type PlannerDirectSubmissionDraft,
   type FollowUpDirectSubmissionDraft,
+  type ContextPackDeepFocusState,
 } from '../src/shared/desktopContract';
 import { isRecord } from '../src/shared/desktopContractValidators';
 
@@ -506,6 +507,28 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'services.healthCheck',
     }),
+  saveDeepFocusSelections: async (
+    contextPackDir: string,
+    selections: ContextPackDeepFocusState,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'deepFocus.saveSelections',
+      payload: { contextPackDir, selections },
+    }),
+  loadDeepFocusSelections: async (
+    contextPackDir: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'deepFocus.loadSelections',
+      payload: { contextPackDir },
+    }),
+  clearDeepFocusSelections: async (
+    contextPackDir: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'deepFocus.clearSelections',
+      payload: { contextPackDir },
+    }),
   onStreamEvent: (
     callback: (event: import('../src/renderer/activityStream').StreamEvent) => void,
   ): (() => void) => {
@@ -725,6 +748,12 @@ export type DesktopShellApi = {
   startBackendServices: () => Promise<DesktopInvokeResult>;
   stopBackendServices: () => Promise<DesktopInvokeResult>;
   checkBackendHealth: () => Promise<DesktopInvokeResult>;
+  saveDeepFocusSelections: (
+    contextPackDir: string,
+    selections: ContextPackDeepFocusState,
+  ) => Promise<DesktopInvokeResult>;
+  loadDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
+  clearDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
   onStreamEvent: (
     callback: (event: import('../src/renderer/activityStream').StreamEvent) => void,
   ) => () => void;

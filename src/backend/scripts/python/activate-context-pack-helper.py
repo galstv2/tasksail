@@ -49,6 +49,7 @@ def cmd_infer_git_remote_owner(args: argparse.Namespace) -> None:
 ALLOWED_LAYERS = {
     "backend",
     "frontend",
+    "test",
     "infrastructure",
     "database",
     "documents",

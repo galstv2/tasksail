@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 
+import { DeepFocusInfoTip } from './DeepFocusInfoTip';
+
 import type {
   ContextPackCatalogEntry,
   ContextPackDeepFocusState,
@@ -65,6 +67,7 @@ type TopLevelTarget = {
   rootPath: string;
   repoLocalPath: string;
   ancillaryAllowed: boolean;
+  systemLayer: string | null;
 };
 
 type TreeFrame = {
@@ -148,6 +151,7 @@ function SidebarDeepFocusControls({
             rootPath: '',
             repoLocalPath: target.repoLocalPath,
             ancillaryAllowed: false,
+            systemLayer: target.systemLayer ?? null,
           }))
         : selectedPack.focusTargets
           .filter(
@@ -168,6 +172,7 @@ function SidebarDeepFocusControls({
             rootPath: normalizeRelativePath(target.relativePath),
             repoLocalPath: target.repoLocalPath,
             ancillaryAllowed: true,
+            systemLayer: target.systemLayer ?? null,
           }))
     ),
     [deepFocusMode, selectedPack.focusTargets],
@@ -196,6 +201,8 @@ function SidebarDeepFocusControls({
   const [drillTransitionClass, setDrillTransitionClass] = useState<string | null>(null);
   const [popoverRowIndex, setPopoverRowIndex] = useState<number | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const topLevelKeyRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
@@ -219,7 +226,12 @@ function SidebarDeepFocusControls({
     setDrillTransitionClass(null);
     setFocusedIndex(0);
     setFocusedKey(null);
+    setSearchQuery('');
   }, [selectedPack.contextPackDir]);
+
+  useEffect(() => {
+    setSearchQuery('');
+  }, [currentFrame]);
 
   useEffect(() => {
     if (!editorOpen) return;
@@ -446,16 +458,25 @@ function SidebarDeepFocusControls({
   const handleClearAll = () => {
     setApplyError(null);
     setPopoverRowIndex(null);
-    setDraft((current) => ({
-      selectedWorkingFocusIds: current.selectedWorkingFocusIds,
-      state: {
+    let clearedState: DeepFocusCommit | null = null;
+    setDraft((current) => {
+      clearedState = {
         ...current.state,
         selectedFocusPath: null,
         selectedFocusTargetKind: null,
-        selectedTestTarget: undefined,
-        selectedSupportTargets: [],
-      },
-    }));
+        selectedTestTarget: undefined as ContextPackDeepFocusTarget | null | undefined,
+        selectedSupportTargets: [] as ContextPackDeepFocusTarget[],
+      };
+      return {
+        selectedWorkingFocusIds: current.selectedWorkingFocusIds,
+        state: clearedState,
+      };
+    });
+    // Persist the cleared state after the state transition — side effects
+    // must not live inside the updater (React StrictMode double-invokes it).
+    if (clearedState) {
+      onCommitDeepFocusSelection(clearedState);
+    }
   };
 
   const handleDismissNoTests = () => {
@@ -546,7 +567,11 @@ function SidebarDeepFocusControls({
     });
   };
 
-  const currentRows: TreeRowData[] = currentFrame
+  const frameTopLevel = currentFrame
+    ? topLevelTargets.find((t) => t.id === currentFrame.topLevelId)
+    : null;
+
+  const currentRows: TreeRowData[] = useMemo(() => currentFrame
     ? currentFrame.entries.map((entry) => ({
       id: `tree:${entry.relativePath || entry.name}`,
       label: entry.name,
@@ -560,6 +585,7 @@ function SidebarDeepFocusControls({
       repoLocalPath: currentFrame.repoLocalPath,
       isTopLevel: false,
       ancillaryAllowed: true,
+      systemLayer: frameTopLevel?.systemLayer ?? null,
     }))
     : topLevelTargets.map((target) => ({
       id: `top:${target.id}`,
@@ -574,7 +600,19 @@ function SidebarDeepFocusControls({
       repoLocalPath: target.repoLocalPath,
       isTopLevel: true,
       ancillaryAllowed: target.ancillaryAllowed,
-    }));
+      systemLayer: target.systemLayer,
+    })), [currentFrame, topLevelTargets, frameTopLevel]);
+
+  const displayRows: Array<{ row: TreeRowData; originalIndex: number }> = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return currentRows.map((row, i) => ({ row, originalIndex: i }));
+    return currentRows.reduce<Array<{ row: TreeRowData; originalIndex: number }>>((acc, row, i) => {
+      if (row.label.toLowerCase().includes(query) || row.displayPath.toLowerCase().includes(query)) {
+        acc.push({ row, originalIndex: i });
+      }
+      return acc;
+    }, []);
+  }, [currentRows, searchQuery]);
 
   const breadcrumbs: BreadcrumbItem[] = currentFrame
     ? [
@@ -681,6 +719,11 @@ function SidebarDeepFocusControls({
   };
 
   const handleEditorKeyDown = async (event: KeyboardEvent<HTMLDivElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'f') {
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault();
       applyDraft();
@@ -721,6 +764,7 @@ function SidebarDeepFocusControls({
             <span className="scope-card__title">Workspace Selection</span>
             <div className="deep-focus-toggle-row">
               <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
+              <DeepFocusInfoTip />
               <button
                 type="button"
                 className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}
@@ -873,6 +917,34 @@ function SidebarDeepFocusControls({
                 </div>
               </div>
 
+              <div className="deep-focus-search">
+                <svg className="deep-focus-search__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.3" fill="none" />
+                  <path d="M10.3 10.3 13 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  className="deep-focus-search__input"
+                  placeholder=""
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); }}
+                  aria-label="Filter items"
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    className="deep-focus-search__clear"
+                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                    aria-label="Clear filter"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+
               <div className="deep-focus-editor__body">
                 <div
                   className={classNames(
@@ -887,8 +959,8 @@ function SidebarDeepFocusControls({
                     Array.from({ length: 4 }).map((_, index) => (
                       <div key={`loading-${index}`} className="deep-focus-loading-row" />
                     ))
-                  ) : currentRows.length > 0 ? (
-                    currentRows.map((row, index) => {
+                  ) : displayRows.length > 0 ? (
+                    displayRows.map(({ row, originalIndex }) => {
                       const target: ContextPackDeepFocusTarget = {
                         path: row.targetPath,
                         kind: row.kind,
@@ -905,15 +977,15 @@ function SidebarDeepFocusControls({
                         <DeepFocusTreeRow
                           key={row.id}
                           row={row}
-                          index={index}
+                          index={originalIndex}
                           focusedIndex={focusedIndex}
                           focusedKey={focusedKey}
                           drillingIndex={drillingIndex}
                           isPrimary={isPrimary}
                           isTest={isTest}
                           isSupport={isSupport}
-                          popoverOpen={popoverRowIndex === index}
-                          rowRef={(element) => { rowRefs.current[index] = element; }}
+                          popoverOpen={popoverRowIndex === originalIndex}
+                          rowRef={(element) => { rowRefs.current[originalIndex] = element; }}
                           onFocus={(i, id) => { setFocusedIndex(i); setFocusedKey(id); }}
                           onActivate={(i) => { void handleRowActivate(i); }}
                           onLongPress={(i) => { setPopoverRowIndex(i); }}
@@ -923,7 +995,9 @@ function SidebarDeepFocusControls({
                       );
                     })
                   ) : (
-                    <div className="deep-focus-empty-state">No items</div>
+                    <div className="deep-focus-empty-state">
+                      {searchQuery ? 'No matches' : 'No items'}
+                    </div>
                   )}
                   {treeTruncated ? (
                     <div className="deep-focus-truncation-notice">Showing first 500 items</div>
@@ -948,7 +1022,7 @@ function SidebarDeepFocusControls({
                   <div className="deep-focus-footer__actions">
                     <button
                       type="button"
-                      className="action-button action-button--secondary"
+                      className="deep-focus-footer__cancel"
                       onClick={closeEditor}
                     >
                       Cancel
@@ -962,7 +1036,6 @@ function SidebarDeepFocusControls({
                       Apply
                     </button>
                   </div>
-                  <p className="deep-focus-footer__hint">Touch and hold to assign a role</p>
                 </div>
               </div>
             </div>

@@ -491,10 +491,33 @@ async function updateSyncStateAfterReseed(
     state.last_synced_at = new Date().toISOString();
     state.workspace_folder_count = reseedResult.workspaceFolderCount;
     state.workspace_file_count = reseedResult.workspaceFileCount;
+    // Ensure the state tracks this pack so folder/file counts survive catalog reads.
+    // Without this, stateTracksEntry is false and counts are discarded.
+    if (!state.active_context_pack_dir) {
+      state.active_context_pack_dir = reseedResult.contextPackDir;
+    }
     await fsMkdir(dirname(WORKSPACE_SYNC_STATE_PATH), { recursive: true });
     await fsWriteFile(WORKSPACE_SYNC_STATE_PATH, JSON.stringify(state, null, 2) + '\n', 'utf-8');
   } catch (err: unknown) {
     console.warn('updateSyncStateAfterReseed: failed to persist sync state:',
+      err instanceof Error ? err.message : err);
+  }
+
+  // Also persist counts inside the context pack directory so they survive
+  // pack switching, app restarts, and dev/build cycles.
+  try {
+    const countsPath = join(reseedResult.contextPackDir, 'workspace-counts.json');
+    await fsWriteFile(
+      countsPath,
+      JSON.stringify({
+        folder_count: reseedResult.workspaceFolderCount,
+        file_count: reseedResult.workspaceFileCount,
+        updated_at: new Date().toISOString(),
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+  } catch (err: unknown) {
+    console.warn('updateSyncStateAfterReseed: failed to persist workspace-counts.json:',
       err instanceof Error ? err.message : err);
   }
 }
@@ -812,6 +835,101 @@ export async function executeSetRepositoryTypeAction(
       ok: false,
       action: 'contextPack.setRepositoryType',
       error: error instanceof Error ? error.message : 'Failed to update repository type.',
+    };
+  }
+}
+
+
+// ── Deep Focus selections persistence ────────────────────────────────
+
+const DEEP_FOCUS_SELECTIONS_PATH = join(
+  REPO_ROOT,
+  '.platform-state/deep-focus-selections.json',
+);
+
+type PersistedSelections = Record<string, import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState>;
+
+async function readSelectionsFile(): Promise<PersistedSelections> {
+  try {
+    return JSON.parse(await fsReadFile(DEEP_FOCUS_SELECTIONS_PATH, 'utf-8')) as PersistedSelections;
+  } catch {
+    return {};
+  }
+}
+
+async function writeSelectionsFile(selections: PersistedSelections): Promise<void> {
+  await fsMkdir(dirname(DEEP_FOCUS_SELECTIONS_PATH), { recursive: true });
+  await fsWriteFile(DEEP_FOCUS_SELECTIONS_PATH, JSON.stringify(selections, null, 2) + '\n', 'utf-8');
+}
+
+export async function saveDeepFocusSelections(
+  payload: { contextPackDir: string; selections: import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState },
+): Promise<DesktopInvokeResult> {
+  try {
+    const all = await readSelectionsFile();
+    all[payload.contextPackDir] = payload.selections;
+    await writeSelectionsFile(all);
+    return {
+      ok: true,
+      response: {
+        action: 'deepFocus.saveSelections' as const,
+        mode: 'saved' as const,
+        message: 'Deep focus selections saved.',
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'deepFocus.saveSelections',
+      error: err instanceof Error ? err.message : 'Failed to save deep focus selections.',
+    };
+  }
+}
+
+export async function loadDeepFocusSelections(
+  payload: { contextPackDir: string },
+): Promise<DesktopInvokeResult> {
+  try {
+    const all = await readSelectionsFile();
+    const selections = all[payload.contextPackDir] ?? null;
+    return {
+      ok: true,
+      response: {
+        action: 'deepFocus.loadSelections' as const,
+        mode: 'read-only' as const,
+        message: selections ? 'Deep focus selections loaded.' : 'No saved selections found.',
+        selections,
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'deepFocus.loadSelections',
+      error: err instanceof Error ? err.message : 'Failed to load deep focus selections.',
+    };
+  }
+}
+
+export async function clearDeepFocusSelections(
+  payload: { contextPackDir: string },
+): Promise<DesktopInvokeResult> {
+  try {
+    const all = await readSelectionsFile();
+    delete all[payload.contextPackDir];
+    await writeSelectionsFile(all);
+    return {
+      ok: true,
+      response: {
+        action: 'deepFocus.clearSelections' as const,
+        mode: 'cleared' as const,
+        message: 'Deep focus selections cleared.',
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'deepFocus.clearSelections',
+      error: err instanceof Error ? err.message : 'Failed to clear deep focus selections.',
     };
   }
 }

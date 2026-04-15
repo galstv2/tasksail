@@ -147,7 +147,12 @@ select {
 }
 
 .status-chip--test {
-  background: rgba(22, 163, 74, 0.10);
+  background: var(--ts-success-tint);
+  color: var(--ts-success);
+}
+
+.status-chip--test-layer {
+  background: var(--ts-success-tint);
   color: var(--ts-success);
 }
 

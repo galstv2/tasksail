@@ -6,6 +6,7 @@ import type {
 } from '../../shared/desktopContract';
 import type { CompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import { classNames } from '../utils/classNames';
+import { DeepFocusInfoTip } from './DeepFocusInfoTip';
 import { toTitleCase } from '../utils/toTitleCase';
 import SidebarDeepFocusControls, { type DeepFocusCommit } from './SidebarDeepFocusControls';
 import { formatRelativeTime, supportsDeepFocus } from './SidebarDeepFocusUtils';
@@ -85,6 +86,7 @@ function SidebarScopeControls({
             {showDeepFocus ? (
               <div className="deep-focus-toggle-row">
                 <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
+                <DeepFocusInfoTip />
                 <button
                   type="button"
                   className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}

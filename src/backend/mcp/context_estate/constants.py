@@ -79,7 +79,7 @@ DEFAULT_REPOSITORY_TYPE = "support"
 # Bootstrap constants
 # ---------------------------------------------------------------------------
 ALLOWED_LAYERS = {
-    "backend", "frontend", "infrastructure",
+    "backend", "frontend", "test", "infrastructure",
     "database", "documents", "shared",
 }
 DEFAULT_SCOPE_MODE = "focused"
@@ -105,5 +105,24 @@ FRONTEND_SIGNALS = {
 }
 
 INFRA_SIGNALS = {"terraform", "pulumi", "cdk", "cloudformation"}
+
+TEST_SIGNALS = {
+    "tests", "test", "__tests__", "spec", "e2e",
+    "cypress", "playwright",
+    "jest.config.js", "jest.config.ts",
+    "vitest.config.ts", "vitest.config.js", "vitest.config.mts",
+    "pytest.ini", "conftest.py",
+    "karma.conf.js",
+    ".rspec",
+}
+
+# Suffixes on the directory/repo name itself that indicate a test project.
+# Matched case-insensitively against the final path component.
+TEST_NAME_SUFFIXES = (
+    ".tests", ".test",
+    ".unittests", ".integrationtests", ".functionaltests",
+    "-tests", "-test", "-e2e", "-spec",
+    "_tests", "_test",
+)
 
 MAX_SCAN_FILES = 500

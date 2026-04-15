@@ -300,6 +300,7 @@ export function deriveContextPackRuntimeState(
   contextPackDir: string,
   envActiveContextPackDir: string | null,
   syncState: WorkspaceSyncStateSnapshot,
+  persistedCounts?: { folderCount: number | null; fileCount: number | null },
 ): Pick<
   ContextPackCatalogEntry,
   | 'isActive'
@@ -369,9 +370,29 @@ export function deriveContextPackRuntimeState(
       stateTracksEntry ? syncState.selectedTestTarget : undefined,
     lastAppliedSelectedSupportTargets:
       stateTracksEntry ? syncState.selectedSupportTargets : [],
-    workspaceFolderCount: stateTracksEntry ? syncState.workspaceFolderCount : null,
-    workspaceFileCount: stateTracksEntry ? syncState.workspaceFileCount : null,
+    workspaceFolderCount: stateTracksEntry
+      ? syncState.workspaceFolderCount
+      : (persistedCounts?.folderCount ?? null),
+    workspaceFileCount: stateTracksEntry
+      ? syncState.workspaceFileCount
+      : (persistedCounts?.fileCount ?? null),
   };
+}
+
+async function readPersistedWorkspaceCounts(
+  contextPackDir: string,
+): Promise<{ folderCount: number | null; fileCount: number | null }> {
+  try {
+    const raw = JSON.parse(
+      await repoFs.readFile(join(contextPackDir, 'workspace-counts.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    return {
+      folderCount: numberOrNull(raw.folder_count),
+      fileCount: numberOrNull(raw.file_count),
+    };
+  } catch {
+    return { folderCount: null, fileCount: null };
+  }
 }
 
 async function inspectContextPackDir(
@@ -386,6 +407,7 @@ async function inspectContextPackDir(
   repoCount: number;
   primaryWorkingRepoIds: string[];
   focusTargets: ContextPackFocusTarget[];
+  persistedCounts: { folderCount: number | null; fileCount: number | null };
 } | null> {
   const normalizedDir = resolve(contextPackDir);
   const manifestPath = join(normalizedDir, 'qmd/repo-sources.json');
@@ -504,11 +526,14 @@ async function inspectContextPackDir(
     }
   }
 
+  const persistedCounts = await readPersistedWorkspaceCounts(normalizedDir);
+
   return {
     manifestPath: hasManifest ? manifestPath : null,
     bootstrapReady: hasManifest || hasBootstrapAnswers,
     contextPackId, displayName, estateType, defaultScopeMode,
     repoCount, primaryWorkingRepoIds, focusTargets,
+    persistedCounts,
   };
 }
 
@@ -523,10 +548,11 @@ async function addContextPackCandidate(
   if (!inspected) return;
 
   const normalizedDir = resolve(contextPackDir);
+  const { persistedCounts } = inspected;
   if (catalog.has(normalizedDir)) {
     const existing = catalog.get(normalizedDir);
     if (existing) {
-      Object.assign(existing, deriveContextPackRuntimeState(normalizedDir, envActiveContextPackDir, syncState));
+      Object.assign(existing, deriveContextPackRuntimeState(normalizedDir, envActiveContextPackDir, syncState, persistedCounts));
     }
     return;
   }
@@ -543,7 +569,7 @@ async function addContextPackCandidate(
     repoCount: inspected.repoCount,
     primaryWorkingRepoIds: inspected.primaryWorkingRepoIds,
     focusTargets: inspected.focusTargets,
-    ...deriveContextPackRuntimeState(normalizedDir, envActiveContextPackDir, syncState),
+    ...deriveContextPackRuntimeState(normalizedDir, envActiveContextPackDir, syncState, persistedCounts),
   });
 }
 

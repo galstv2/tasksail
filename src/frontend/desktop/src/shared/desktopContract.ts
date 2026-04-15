@@ -9,6 +9,12 @@ export * from './desktopContractContextPack';
 import type {
   ContextPackListRepoTreeRequest,
   ContextPackListRepoTreeResponse,
+  DeepFocusSaveSelectionsRequest,
+  DeepFocusSaveSelectionsResponse,
+  DeepFocusLoadSelectionsRequest,
+  DeepFocusLoadSelectionsResponse,
+  DeepFocusClearSelectionsRequest,
+  DeepFocusClearSelectionsResponse,
 } from './desktopContractDeepFocus';
 import type {
   ContextPackActivationRequest,
@@ -116,7 +122,10 @@ export type DesktopActionName =
   | 'services.readStatus'
   | 'services.startBackend'
   | 'services.stopBackend'
-  | 'services.healthCheck';
+  | 'services.healthCheck'
+  | 'deepFocus.saveSelections'
+  | 'deepFocus.loadSelections'
+  | 'deepFocus.clearSelections';
 
 export type QueueStatusResponse = {
   action: 'queue.readStatus';
@@ -833,7 +842,10 @@ export type DesktopActionRequest =
   | ServicesReadStatusRequest
   | ServicesStartBackendRequest
   | ServicesStopBackendRequest
-  | ServicesHealthCheckRequest;
+  | ServicesHealthCheckRequest
+  | DeepFocusSaveSelectionsRequest
+  | DeepFocusLoadSelectionsRequest
+  | DeepFocusClearSelectionsRequest;
 
 export type DesktopActionResponse =
   | PlannerSubmitResponse
@@ -891,7 +903,10 @@ export type DesktopActionResponse =
   | TaskBoardDeleteTaskResponse
   | TaskBoardMoveToPendingResponse
   | TaskBoardMoveToOpenResponse
-  | ServicesReadStatusResponse;
+  | ServicesReadStatusResponse
+  | DeepFocusSaveSelectionsResponse
+  | DeepFocusLoadSelectionsResponse
+  | DeepFocusClearSelectionsResponse;
 
 // ---------------------------------------------------------------------------
 // Services (backend MCP container service management)

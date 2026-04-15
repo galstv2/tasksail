@@ -9,7 +9,7 @@ import type {
   ContextPackListRepoTreeResponse,
   ContextPackDeepFocusTarget,
 } from '../../shared/desktopContract';
-import { isContextPackListResponse } from '../../shared/desktopContractTypeGuards';
+import { isContextPackListResponse, isDeepFocusLoadSelectionsResponse } from '../../shared/desktopContractTypeGuards';
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
 import type { ContextPackSidebarProps } from '../components/ContextPackSidebar';
 import { selectPreferredContextPackDir } from '../selectors/contextPackSidebarModel';
@@ -218,18 +218,37 @@ export function useContextPackSelection(
           nextSelectedPack?.lastAppliedSelectedFocusIds,
         ]),
       );
-      setSelectedDeepFocusState((current) => {
-        const next = selectPreferredDeepFocusState(
-          nextSelectedPack,
-          [preserveCurrentDeepFocus ? current : null],
-        );
-        return isDeepFocusStateEqual(current, next) ? current : next;
-      });
       setError('');
       if (!preserveFeedback) {
         setMessage(response.message);
       }
-      setRefreshPending(false);
+      // Try restoring deep focus selections from disk for the initial load.
+      if (!preserveCurrentDeepFocus && nextSelectedContextPackDir) {
+        void client.loadDeepFocusSelections(nextSelectedContextPackDir).then((result) => {
+          const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
+            ? result.response.selections
+            : null;
+          if (loaded) {
+            setSelectedDeepFocusState((current) =>
+              isDeepFocusStateEqual(current, loaded) ? current : loaded,
+            );
+            return;
+          }
+          setSelectedDeepFocusState((current) => {
+            const next = selectPreferredDeepFocusState(nextSelectedPack, [null]);
+            return isDeepFocusStateEqual(current, next) ? current : next;
+          });
+        }).finally(() => setRefreshPending(false));
+      } else {
+        setSelectedDeepFocusState((current) => {
+          const next = selectPreferredDeepFocusState(
+            nextSelectedPack,
+            [preserveCurrentDeepFocus ? current : null],
+          );
+          return isDeepFocusStateEqual(current, next) ? current : next;
+        });
+        setRefreshPending(false);
+      }
     },
     [client, call],
   );
@@ -289,9 +308,15 @@ export function useContextPackSelection(
           selectedPack?.lastAppliedSelectedFocusIds,
         ]),
       );
-      setSelectedDeepFocusState(selectLastAppliedDeepFocusState(selectedPack));
+      // Try to restore persisted deep focus selections; fall back to last-applied state.
+      void client.loadDeepFocusSelections(contextPackDir).then((result) => {
+        const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
+          ? result.response.selections
+          : null;
+        setSelectedDeepFocusState(loaded ?? selectLastAppliedDeepFocusState(selectedPack));
+      });
     },
-    [catalogResponse],
+    [catalogResponse, client],
   );
 
   const handleSelectWorkingFocus = useCallback(
@@ -315,7 +340,7 @@ export function useContextPackSelection(
 
   const handleCommitDeepFocusSelection = useCallback(
     (selection: DeepFocusSelectionCommit) => {
-      setSelectedDeepFocusState({
+      const nextState: ContextPackDeepFocusState = {
         deepFocusEnabled: selection.deepFocusEnabled,
         deepFocusPrimaryRepoId: selection.deepFocusPrimaryRepoId,
         deepFocusPrimaryFocusId: selection.deepFocusPrimaryFocusId,
@@ -328,9 +353,14 @@ export function useContextPackSelection(
               ? { ...selection.selectedTestTarget }
               : null,
         selectedSupportTargets: selection.selectedSupportTargets.map((target) => ({ ...target })),
-      });
+      };
+      setSelectedDeepFocusState(nextState);
+      const packDir = selectedContextPackDirRef.current;
+      if (packDir) {
+        void client.saveDeepFocusSelections(packDir, nextState);
+      }
     },
-    [],
+    [client],
   );
 
   const handleListRepoTree = useCallback(

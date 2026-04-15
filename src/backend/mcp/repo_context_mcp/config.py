@@ -41,6 +41,7 @@ ALLOWED_LAYERS: FrozenSet[str] = frozenset(
     {
         "backend",
         "frontend",
+        "test",
         "infrastructure",
         "database",
         "documents",

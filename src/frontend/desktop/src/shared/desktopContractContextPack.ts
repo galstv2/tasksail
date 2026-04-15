@@ -107,6 +107,7 @@ export type ContextPackBootstrapRepositoryInput = {
   systemLayer:
     | 'backend'
     | 'frontend'
+    | 'test'
     | 'infrastructure'
     | 'database'
     | 'documents'

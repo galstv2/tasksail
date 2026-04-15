@@ -7,6 +7,7 @@ import type {
   ContextPackPickDirectoryResponse,
   ContextPackPreviewResponse,
   ContextPackReseedResponse,
+  DeepFocusLoadSelectionsResponse,
   TaskBoardReadBoardResponse,
 } from './desktopContract';
 
@@ -78,6 +79,17 @@ export function isCreateResponse(
     response !== null &&
     'action' in response &&
     response.action === 'contextPack.create'
+  );
+}
+
+export function isDeepFocusLoadSelectionsResponse(
+  response: unknown,
+): response is DeepFocusLoadSelectionsResponse {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'action' in response &&
+    response.action === 'deepFocus.loadSelections'
   );
 }
 

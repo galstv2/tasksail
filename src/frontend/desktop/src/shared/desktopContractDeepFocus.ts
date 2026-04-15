@@ -51,3 +51,44 @@ export type ContextPackListRepoTreeResponse = {
   repoLocalPath: string;
   truncated: boolean;
 };
+
+export type DeepFocusSaveSelectionsRequest = {
+  action: 'deepFocus.saveSelections';
+  payload: {
+    contextPackDir: string;
+    selections: ContextPackDeepFocusState;
+  };
+};
+
+export type DeepFocusLoadSelectionsRequest = {
+  action: 'deepFocus.loadSelections';
+  payload: {
+    contextPackDir: string;
+  };
+};
+
+export type DeepFocusClearSelectionsRequest = {
+  action: 'deepFocus.clearSelections';
+  payload: {
+    contextPackDir: string;
+  };
+};
+
+export type DeepFocusSaveSelectionsResponse = {
+  action: 'deepFocus.saveSelections';
+  mode: 'saved';
+  message: string;
+};
+
+export type DeepFocusLoadSelectionsResponse = {
+  action: 'deepFocus.loadSelections';
+  mode: 'read-only';
+  message: string;
+  selections: ContextPackDeepFocusState | null;
+};
+
+export type DeepFocusClearSelectionsResponse = {
+  action: 'deepFocus.clearSelections';
+  mode: 'cleared';
+  message: string;
+};

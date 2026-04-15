@@ -57,6 +57,9 @@ const DESKTOP_ACTION_NAMES = [
   'services.startBackend',
   'services.stopBackend',
   'services.healthCheck',
+  'deepFocus.saveSelections',
+  'deepFocus.loadSelections',
+  'deepFocus.clearSelections',
   'agentInstructions.listFiles',
   'agentInstructions.readFile',
   'agentInstructions.writeFile',
@@ -1027,6 +1030,24 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'services.stopBackend':
     case 'services.healthCheck':
       return [];
+    case 'deepFocus.saveSelections': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.contextPackDir)) {
+        return ['payload.contextPackDir must be a non-empty string.'];
+      }
+      if (!isRecord(request.payload.selections)) {
+        return ['payload.selections must be an object.'];
+      }
+      return [];
+    }
+    case 'deepFocus.loadSelections':
+    case 'deepFocus.clearSelections': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.contextPackDir)) {
+        return ['payload.contextPackDir must be a non-empty string.'];
+      }
+      return [];
+    }
     case 'agentInstructions.listFiles': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
       const dirs = ['profiles', 'instructions', 'prompts', 'templates'] as const;

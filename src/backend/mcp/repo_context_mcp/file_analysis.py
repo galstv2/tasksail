@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 from typing import Any
 
+from src.backend.mcp.context_estate.bootstrap_detection import _detect_system_layer
+
 from .config import (
     DEFAULT_ALLOWED_SUFFIXES,
     DEFAULT_EXCLUDED_DIRS,
@@ -226,6 +228,12 @@ def normalize_repo_entry(
             missing_roots.append(root_str)
 
     scan_targets = unique_preserving_order(scan_targets)
+
+    # Re-run system_layer detection on the resolved repo path so that
+    # reseeds pick up classification changes (e.g. test-layer detection)
+    # without requiring a full re-bootstrap.
+    if existing_roots:
+        system_layer = _detect_system_layer(Path(existing_roots[0]), system_layer)
 
     if not existing_roots:
         warnings.append(

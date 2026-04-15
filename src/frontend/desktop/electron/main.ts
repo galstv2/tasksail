@@ -137,6 +137,11 @@ import {
 } from './main.contextPack';
 
 import {
+  saveDeepFocusSelections,
+  loadDeepFocusSelections,
+  clearDeepFocusSelections,
+} from './main.contextPackActions';
+import {
   submitReinforcementFeedback,
   updateGlobalRealignmentDoc,
   checkActiveWorkGuard,
@@ -416,6 +421,15 @@ type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   moveToOpen: (
     payload: import('../src/shared/desktopContract').TaskBoardMoveToOpenRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  saveDeepFocusSelections: (
+    payload: import('../src/shared/desktopContract').DeepFocusSaveSelectionsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadDeepFocusSelections: (
+    payload: import('../src/shared/desktopContract').DeepFocusLoadSelectionsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  clearDeepFocusSelections: (
+    payload: import('../src/shared/desktopContract').DeepFocusClearSelectionsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
 };
 
@@ -775,6 +789,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     };
   },
   setRepositoryType: (payload) => executeSetRepositoryTypeAction(payload),
+  saveDeepFocusSelections: (payload) => saveDeepFocusSelections(payload),
+  loadDeepFocusSelections: (payload) => loadDeepFocusSelections(payload),
+  clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
 };
 
 function resolveDesktopActionHandlers(
@@ -1270,6 +1287,12 @@ export async function handleDesktopAction(
       }
       return { ok: true, response: resp };
     }
+    case 'deepFocus.saveSelections':
+      return resolvedHandlers.saveDeepFocusSelections(request.payload);
+    case 'deepFocus.loadSelections':
+      return resolvedHandlers.loadDeepFocusSelections(request.payload);
+    case 'deepFocus.clearSelections':
+      return resolvedHandlers.clearDeepFocusSelections(request.payload);
     default:
       return {
         ok: false,

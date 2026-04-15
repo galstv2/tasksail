@@ -13,6 +13,7 @@ DEFAULT_PLAN_FILE = "qmd/bootstrap/seed-plan.json"
 ALLOWED_LAYERS = {
     "backend",
     "frontend",
+    "test",
     "infrastructure",
     "database",
     "documents",

@@ -556,11 +556,11 @@
 }
 
 .scope-card__subtitle {
-  font-size: 0.68rem;
-  font-weight: 500;
+  font-size: 0.73rem;
+  font-weight: 600;
   letter-spacing: -0.005em;
-  color: var(--ts-text-soft);
-  padding: 0.3rem 0.6rem 0.25rem;
+  color: var(--ts-text-muted);
+  padding: 0.35rem 0.6rem 0.25rem;
   display: block;
   border-top: 1px solid var(--ts-border);
 }
@@ -955,6 +955,72 @@
   color: var(--ts-text-muted);
 }
 
+.deep-focus-info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  color: var(--ts-text-soft);
+  opacity: 0.5;
+  cursor: default;
+  flex-shrink: 0;
+  transition: opacity var(--ts-duration) var(--ts-ease);
+}
+
+.deep-focus-info-tip:hover {
+  opacity: 0.85;
+}
+
+.deep-focus-info-tip svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-info-tip__bubble {
+  position: fixed;
+  width: 200px;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ts-surface) 95%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 0.5px solid color-mix(in srgb, var(--ts-border-strong) 80%, transparent);
+  box-shadow: var(--ts-shadow-lg);
+  font-size: 0.64rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
+  color: var(--ts-text-muted);
+  z-index: var(--ts-z-modal);
+  pointer-events: none;
+  animation: deepFocusInfoTipIn 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Caret arrow */
+.deep-focus-info-tip__bubble::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 5px;
+  width: 10px;
+  height: 5px;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  background: color-mix(in srgb, var(--ts-surface) 95%, transparent);
+}
+
+@keyframes deepFocusInfoTipIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .deep-focus-toggle {
   width: 30px;
   height: 16px;
@@ -1054,7 +1120,7 @@
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: -0.005em;
-  color: var(--ts-text-soft);
+  color: var(--ts-text-muted);
 }
 
 .deep-focus-summary__selections {
@@ -1093,22 +1159,22 @@
 }
 
 .deep-focus-summary__selection-row--primary .deep-focus-summary__selection-dot {
-  background: var(--ts-brand-gold-light);
+  background: var(--ts-accent);
   opacity: 1;
 }
 
 .deep-focus-summary__selection-row--test .deep-focus-summary__selection-dot {
-  background: var(--ts-brand-burgundy-light);
+  background: var(--ts-success);
   opacity: 1;
 }
 
 .deep-focus-summary__selection-row--support .deep-focus-summary__selection-dot {
-  background: var(--ts-info);
+  background: var(--ts-accent2);
   opacity: 1;
 }
 
 .deep-focus-summary__selection-dot--support {
-  background: var(--ts-info);
+  background: var(--ts-accent2);
   opacity: 1;
 }
 
@@ -1346,6 +1412,85 @@
   border-bottom: 1px solid var(--ts-border);
   background: transparent;
   flex-shrink: 0;
+}
+
+/* ── Deep Focus Search ────────────────────────────────────────────── */
+
+.deep-focus-search {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.35rem 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--ts-radius-md);
+  background: color-mix(in srgb, var(--ts-text-muted) 8%, transparent);
+  border: 1px solid transparent;
+  transition: background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease),
+              box-shadow var(--ts-duration) var(--ts-ease);
+  flex-shrink: 0;
+}
+
+.deep-focus-search:focus-within {
+  background: color-mix(in srgb, var(--ts-text-muted) 5%, transparent);
+  border-color: color-mix(in srgb, var(--ts-accent) 40%, transparent);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ts-accent) 12%, transparent);
+}
+
+.deep-focus-search__icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--ts-text-muted);
+  opacity: 0.6;
+}
+
+.deep-focus-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.76rem;
+  font-family: inherit;
+  color: var(--ts-text);
+  padding: 0;
+  line-height: 1.3;
+}
+
+.deep-focus-search__input::placeholder {
+  color: var(--ts-text-muted);
+  opacity: 0.55;
+}
+
+.deep-focus-search__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ts-text-muted) 15%, transparent);
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.deep-focus-search__clear:hover {
+  background: color-mix(in srgb, var(--ts-text-muted) 25%, transparent);
+}
+
+.deep-focus-search__clear:focus-visible {
+  outline: 2px solid var(--ts-accent);
+  outline-offset: 1px;
+}
+
+.deep-focus-search__clear svg {
+  width: 10px;
+  height: 10px;
 }
 
 .deep-focus-editor__body {
@@ -1593,13 +1738,24 @@
   animation: deepFocusBadgeEntrance 200ms ease both;
 }
 
+.deep-focus-row--test-layer {
+  background: color-mix(in srgb, var(--ts-success) 6%, transparent);
+  border-left-color: color-mix(in srgb, var(--ts-success) 25%, transparent);
+}
+
+.deep-focus-row--test-layer:hover {
+  background: color-mix(in srgb, var(--ts-success) 8%, var(--ts-bg-hover));
+}
+
+.deep-focus-row--test-layer .status-chip--test-layer {
+  animation: deepFocusBadgeEntrance 200ms ease both;
+}
+
 .deep-focus-row--test-selected {
-  border-left-width: 2px;
   border-left-color: var(--ts-success);
 }
 
 .deep-focus-row--support-selected {
-  border-left-width: 1px;
   border-left-color: var(--ts-accent2);
 }
 
@@ -1677,13 +1833,15 @@
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
-  gap: 0.35rem;
-  padding: 0.3rem 0.4rem;
-  border-radius: var(--ts-radius-md);
-  background: var(--ts-surface);
-  border: 1px solid var(--ts-border);
-  box-shadow: var(--ts-shadow-lg);
-  animation: rolePopoverInAbove 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  gap: 0.3rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: var(--ts-radius-pill);
+  background: color-mix(in srgb, var(--ts-surface) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 0.5px solid color-mix(in srgb, var(--ts-border) 60%, transparent);
+  box-shadow: var(--ts-shadow-lg), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  animation: rolePopoverInAbove 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .deep-focus-role-popover--below {
@@ -1716,50 +1874,57 @@
 
 .deep-focus-role-bubble {
   appearance: none;
-  border: 1.5px solid var(--ts-border);
+  border: 1px solid transparent;
   border-radius: var(--ts-radius-pill);
-  background: var(--ts-surface-alt);
+  background: color-mix(in srgb, var(--ts-text-muted) 8%, transparent);
   color: var(--ts-text-muted);
   font-family: inherit;
   font-size: var(--ts-font-xs);
   font-weight: 500;
   line-height: 1;
-  padding: 0.3rem 0.65rem;
+  padding: 0.28rem 0.6rem;
   cursor: pointer;
   white-space: nowrap;
   transition:
     background 150ms ease,
     border-color 150ms ease,
     color 150ms ease,
-    transform 100ms ease;
+    transform 100ms ease,
+    box-shadow 150ms ease;
 }
 
-/* ── Inactive tints — each role has its own color identity ── */
+/* ── Inactive tints — subtle resting state, color on hover ── */
 
 .deep-focus-role-bubble--primary {
-  border-color: color-mix(in srgb, var(--ts-accent) 35%, var(--ts-border));
-  background: color-mix(in srgb, var(--ts-accent) 8%, var(--ts-surface-alt));
   color: var(--ts-accent);
 }
 
 .deep-focus-role-bubble--test {
-  border-color: color-mix(in srgb, var(--ts-success) 35%, var(--ts-border));
-  background: color-mix(in srgb, var(--ts-success) 8%, var(--ts-surface-alt));
   color: var(--ts-success);
 }
 
 .deep-focus-role-bubble--support {
-  border-color: color-mix(in srgb, var(--ts-accent2) 35%, var(--ts-border));
-  background: color-mix(in srgb, var(--ts-accent2) 8%, var(--ts-surface-alt));
   color: var(--ts-accent2);
 }
 
 .deep-focus-role-bubble:hover {
-  filter: brightness(1.1);
+  background: color-mix(in srgb, var(--ts-text-muted) 14%, transparent);
+}
+
+.deep-focus-role-bubble--primary:hover {
+  background: color-mix(in srgb, var(--ts-accent) 14%, transparent);
+}
+
+.deep-focus-role-bubble--test:hover {
+  background: color-mix(in srgb, var(--ts-success) 14%, transparent);
+}
+
+.deep-focus-role-bubble--support:hover {
+  background: color-mix(in srgb, var(--ts-accent2) 14%, transparent);
 }
 
 .deep-focus-role-bubble:active {
-  transform: scale(0.975);
+  transform: scale(0.96);
 }
 
 .deep-focus-role-bubble:focus-visible {
@@ -1771,32 +1936,34 @@
 
 .deep-focus-role-bubble--primary.deep-focus-role-bubble--active {
   background: var(--ts-accent);
-  border-color: var(--ts-accent);
+  border-color: transparent;
   color: var(--ts-text-inverse);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ts-accent) 40%, transparent);
 }
 
 .deep-focus-role-bubble--test.deep-focus-role-bubble--active {
   background: var(--ts-success);
-  border-color: var(--ts-success);
+  border-color: transparent;
   color: var(--ts-text-inverse);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ts-success) 40%, transparent);
 }
 
 .deep-focus-role-bubble--support.deep-focus-role-bubble--active {
   background: var(--ts-accent2);
-  border-color: var(--ts-accent2);
+  border-color: transparent;
   color: var(--ts-text-inverse);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ts-accent2) 40%, transparent);
 }
 
 .deep-focus-role-bubble--disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
-  border-color: var(--ts-border);
-  background: var(--ts-surface-alt);
+  background: color-mix(in srgb, var(--ts-text-muted) 5%, transparent);
   color: var(--ts-text-muted);
 }
 
 .deep-focus-role-bubble--disabled:hover {
-  filter: none;
+  background: color-mix(in srgb, var(--ts-text-muted) 5%, transparent);
 }
 
 .deep-focus-row {
@@ -2001,8 +2168,8 @@
 .deep-focus-footer {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem 0.65rem;
+  gap: 0.25rem;
+  padding: 0.4rem 0.65rem;
   border-top: 1px solid var(--ts-border);
   background: var(--ts-sidebar-bg);
   flex-shrink: 0;
@@ -2011,7 +2178,61 @@
 .deep-focus-footer__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.deep-focus-footer__cancel {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--ts-font-xs);
+  font-weight: 500;
+  padding: 0.28rem 0.55rem;
+  border-radius: var(--ts-radius-sm);
+  transition:
+    color var(--ts-duration) var(--ts-ease),
+    background var(--ts-duration) var(--ts-ease);
+}
+
+.deep-focus-footer__cancel:hover {
+  color: var(--ts-text);
+  background: var(--ts-bg-hover);
+}
+
+.deep-focus-footer__cancel:active {
+  transform: scale(0.975);
+}
+
+.deep-focus-footer__cancel:focus-visible {
+  outline: 2px solid var(--ts-accent);
+  outline-offset: 1px;
+}
+
+.deep-focus-footer__actions .action-button {
+  padding: 0.28rem 0.7rem;
+  font-size: var(--ts-font-xs);
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  font-weight: 600;
+  transition:
+    background var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    opacity var(--ts-duration) var(--ts-ease);
+}
+
+.deep-focus-footer__actions .action-button:hover:not(:disabled) {
+  background: var(--ts-accent-hover);
+  border-color: var(--ts-accent-hover);
+}
+
+.deep-focus-footer__actions .action-button:disabled {
+  opacity: 0.45;
 }
 
 .deep-focus-footer__error {
@@ -2024,13 +2245,6 @@
   font-weight: 500;
 }
 
-.deep-focus-footer__hint {
-  margin: 0;
-  text-align: center;
-  font-size: var(--ts-font-xs);
-  color: var(--ts-text-soft);
-  opacity: 0.7;
-}
 
 .deep-focus-back-button {
   border: none;

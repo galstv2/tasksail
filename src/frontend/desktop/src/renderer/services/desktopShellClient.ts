@@ -77,6 +77,9 @@ type DesktopShellClient = Pick<
   | 'startBackendServices'
   | 'stopBackendServices'
   | 'checkBackendHealth'
+  | 'saveDeepFocusSelections'
+  | 'loadDeepFocusSelections'
+  | 'clearDeepFocusSelections'
 >;
 
 type DesktopShellGetter = () => DesktopShellSource | Window['desktopShell'];
@@ -182,6 +185,12 @@ export function createDesktopShellClient(
     startBackendServices: () => readShell().startBackendServices(),
     stopBackendServices: () => readShell().stopBackendServices(),
     checkBackendHealth: () => readShell().checkBackendHealth(),
+    saveDeepFocusSelections: (contextPackDir, selections) =>
+      readShell().saveDeepFocusSelections(contextPackDir, selections),
+    loadDeepFocusSelections: (contextPackDir) =>
+      readShell().loadDeepFocusSelections(contextPackDir),
+    clearDeepFocusSelections: (contextPackDir) =>
+      readShell().clearDeepFocusSelections(contextPackDir),
   };
 }
 

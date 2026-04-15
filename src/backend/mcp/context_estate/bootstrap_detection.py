@@ -10,6 +10,8 @@ from src.backend.mcp.context_estate.constants import (
     FRONTEND_SIGNALS,
     INFRA_SIGNALS,
     MAX_SCAN_FILES,
+    TEST_NAME_SUFFIXES,
+    TEST_SIGNALS,
 )
 
 
@@ -46,13 +48,17 @@ def _detect_document_paths(repo_root: Path) -> list[str]:
 
 def _detect_system_layer(repo_root: Path, declared_layer: str) -> str:
     """Refine system_layer detection when the declared layer is generic."""
-    if declared_layer in ("frontend", "infrastructure", "database", "documents"):
+    if declared_layer in ("frontend", "infrastructure", "database", "documents", "test"):
         return declared_layer
     if not repo_root.is_dir():
         return declared_layer
+    if repo_root.name.lower().endswith(TEST_NAME_SUFFIXES):
+        return "test"
     children = {item.name for item in repo_root.iterdir()}
     if children & INFRA_SIGNALS:
         return "infrastructure"
+    if children & TEST_SIGNALS:
+        return "test"
     if children & FRONTEND_SIGNALS:
         return "frontend"
     pkg_json = repo_root / "package.json"
