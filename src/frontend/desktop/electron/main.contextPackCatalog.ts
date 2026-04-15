@@ -370,28 +370,27 @@ export function deriveContextPackRuntimeState(
       stateTracksEntry ? syncState.selectedTestTarget : undefined,
     lastAppliedSelectedSupportTargets:
       stateTracksEntry ? syncState.selectedSupportTargets : [],
-    workspaceFolderCount: stateTracksEntry
-      ? syncState.workspaceFolderCount
-      : (persistedCounts?.folderCount ?? null),
-    workspaceFileCount: stateTracksEntry
-      ? syncState.workspaceFileCount
-      : (persistedCounts?.fileCount ?? null),
+    workspaceFolderCount: (stateTracksEntry ? syncState.workspaceFolderCount : null)
+      ?? persistedCounts?.folderCount ?? null,
+    workspaceFileCount: (stateTracksEntry ? syncState.workspaceFileCount : null)
+      ?? persistedCounts?.fileCount ?? null,
   };
 }
 
 async function readPersistedWorkspaceCounts(
   contextPackDir: string,
-): Promise<{ folderCount: number | null; fileCount: number | null }> {
+): Promise<{ repoCount: number | null; folderCount: number | null; fileCount: number | null }> {
   try {
     const raw = JSON.parse(
       await repoFs.readFile(join(contextPackDir, 'workspace-counts.json'), 'utf-8'),
     ) as Record<string, unknown>;
     return {
+      repoCount: numberOrNull(raw.repo_count),
       folderCount: numberOrNull(raw.folder_count),
       fileCount: numberOrNull(raw.file_count),
     };
   } catch {
-    return { folderCount: null, fileCount: null };
+    return { repoCount: null, folderCount: null, fileCount: null };
   }
 }
 

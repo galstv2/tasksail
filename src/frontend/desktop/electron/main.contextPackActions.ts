@@ -510,6 +510,7 @@ async function updateSyncStateAfterReseed(
     await fsWriteFile(
       countsPath,
       JSON.stringify({
+        repo_count: reseedResult.seededRepoCount + reseedResult.blockedRepoCount,
         folder_count: reseedResult.workspaceFolderCount,
         file_count: reseedResult.workspaceFileCount,
         updated_at: new Date().toISOString(),

@@ -978,36 +978,42 @@
   height: 100%;
 }
 
+/* Portaled to document.body — position: fixed relative to the viewport. */
 .deep-focus-info-tip__bubble {
   position: fixed;
-  width: 200px;
-  padding: 0.4rem 0.55rem;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--ts-surface) 95%, transparent);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 0.5px solid color-mix(in srgb, var(--ts-border-strong) 80%, transparent);
+  padding: 0.45rem 0.6rem;
+  border-radius: 7px;
+  background: var(--ts-surface-alt);
+  border: 1px solid var(--ts-border-strong);
   box-shadow: var(--ts-shadow-lg);
   font-size: 0.64rem;
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: -0.006em;
-  color: var(--ts-text-muted);
-  z-index: var(--ts-z-modal);
+  color: var(--ts-text);
+  z-index: var(--ts-z-toast);
   pointer-events: none;
-  animation: deepFocusInfoTipIn 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: deepFocusInfoTipIn 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Caret arrow */
+/* Caret arrow — tracks the icon via --_caret-left set inline. */
 .deep-focus-info-tip__bubble::before {
   content: '';
   position: absolute;
   bottom: 100%;
-  right: 5px;
+  left: var(--_caret-left, 50%);
+  translate: -50% 0;
   width: 10px;
   height: 5px;
   clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-  background: color-mix(in srgb, var(--ts-surface) 95%, transparent);
+  background: var(--ts-surface-alt);
+}
+
+/* Flipped: bubble appears above the icon. */
+.deep-focus-info-tip__bubble--above::before {
+  bottom: auto;
+  top: 100%;
+  clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
 }
 
 @keyframes deepFocusInfoTipIn {
