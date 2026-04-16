@@ -386,20 +386,37 @@ export function usePlannerModal(
     setSelectedMarkdownFile(null);
   }, []);
 
-  const handleUploadSpec = useCallback(async (): Promise<void> => {
+  const handleDownloadTemplate = useCallback(async (): Promise<void> => {
+    try {
+      const content = await client.getBypassTemplate();
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'planning-intake.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      setContractError(normalizeIpcThrownError(err));
+    }
+  }, [client, setContractError]);
+
+  const handleUploadSpec = useCallback(async (): Promise<boolean> => {
     try {
       const pickResult = await client.pickMarkdownFile();
       if (!pickResult.ok || !pickResult.response || pickResult.response.action !== 'planner.pickMarkdownFile' || pickResult.response.mode === 'cancelled' || !pickResult.response.content) {
-        return;
+        return false;
       }
       const uploadResult = await client.uploadSpec(pickResult.response.content);
       if (!uploadResult.ok) {
         setContractError(uploadResult.error ?? 'Upload spec failed.');
-        return;
+        return false;
       }
       setContractError('');
+      return true;
     } catch (err: unknown) {
       setContractError(normalizeIpcThrownError(err));
+      return false;
     }
   }, [client, setContractError]);
 
@@ -456,6 +473,7 @@ export function usePlannerModal(
       selectedMarkdownFile,
       onPickMarkdownFile: handlePickMarkdownFile,
       onUploadSpec: handleUploadSpec,
+      onDownloadTemplate: handleDownloadTemplate,
       onClearSelectedFile: handleClearSelectedFile,
       childTaskMode,
       onToggleChildTaskMode: handleToggleChildTaskMode,
@@ -465,7 +483,7 @@ export function usePlannerModal(
       loadingArchivedTasks,
       childTaskBlocked,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
   );
 
   return { plannerModalProps, openPlannerModal };

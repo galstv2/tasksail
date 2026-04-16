@@ -1,4 +1,5 @@
 export const DESKTOP_SHELL_PLANNER_EVENT_CHANNEL = 'desktop-shell:planner-event';
+export const DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL = 'desktop-shell:bypass-template';
 
 export type ComposerStage = 'compose' | 'preview' | 'confirm';
 

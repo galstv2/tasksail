@@ -609,3 +609,14 @@ export async function submitFollowUpViaHelper(
     };
   }
 }
+
+export async function readBypassTemplate(): Promise<string> {
+  const templatePath = join(REPO_ROOT, 'AgentWorkSpace', 'templates', 'planning-intake.md');
+  const raw = await readFile(templatePath, 'utf-8');
+  const startIdx = raw.indexOf('## Request Summary');
+  if (startIdx === -1) return raw;
+  const endIdx = raw.indexOf('\n## Source');
+  return endIdx === -1
+    ? raw.slice(startIdx).trimEnd() + '\n'
+    : raw.slice(startIdx, endIdx).trimEnd() + '\n';
+}

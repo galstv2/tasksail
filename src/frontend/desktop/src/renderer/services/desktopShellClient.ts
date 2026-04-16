@@ -43,6 +43,7 @@ type DesktopShellClient = Pick<
   | 'finalizeSpec'
   | 'pickMarkdownFile'
   | 'uploadSpec'
+  | 'getBypassTemplate'
   | 'listArchivedTasks'
   | 'listExternalMcpServers'
   | 'addExternalMcpServer'
@@ -150,6 +151,7 @@ export function createDesktopShellClient(
     finalizeSpec: (expectedTaskKind) => readShell().finalizeSpec(expectedTaskKind),
     pickMarkdownFile: () => readShell().pickMarkdownFile(),
     uploadSpec: (content: string) => readShell().uploadSpec(content),
+    getBypassTemplate: () => readShell().getBypassTemplate(),
     listArchivedTasks: () => readShell().listArchivedTasks(),
     listExternalMcpServers: () => readShell().listExternalMcpServers(),
     addExternalMcpServer: (server) => readShell().addExternalMcpServer(server),

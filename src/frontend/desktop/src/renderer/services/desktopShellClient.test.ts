@@ -309,6 +309,7 @@ describe('desktopShellClient', () => {
       finalizeSpec: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.finalizeSpec' } }),
       pickMarkdownFile: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.pickMarkdownFile', mode: 'cancelled' } }),
       uploadSpec: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: '', draftTitle: '', submittedPath: '', observationMode: true } }),
+      getBypassTemplate: vi.fn().mockResolvedValue(''),
       listArchivedTasks: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listArchivedTasks', mode: 'empty', tasks: [] } }),
       submitReinforcementFeedback: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.submitFeedback' } }),
       updateRealignmentDoc: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.updateRealignmentDoc' } }),

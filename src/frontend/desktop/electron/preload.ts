@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL,
   DESKTOP_SHELL_INVOKE_CHANNEL,
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   DESKTOP_SHELL_STREAM_CHANNEL,
@@ -313,6 +314,8 @@ export const desktopShellApi = {
       action: 'planner.uploadSpec',
       payload: { content },
     }),
+  getBypassTemplate: async (): Promise<string> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL),
   listArchivedTasks: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listArchivedTasks',
@@ -702,6 +705,7 @@ export type DesktopShellApi = {
   finalizeSpec: (expectedTaskKind?: 'standard' | 'child-task') => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
   uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
+  getBypassTemplate: () => Promise<string>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (
     payload: ReinforcementSubmitFeedbackRequest['payload'],

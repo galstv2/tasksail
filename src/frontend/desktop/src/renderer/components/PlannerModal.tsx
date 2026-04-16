@@ -43,7 +43,8 @@ export type PlannerModalProps = {
   onSelectParentTask?: (task: ArchivedTaskEntry) => void;
   loadingArchivedTasks?: boolean;
   childTaskBlocked?: boolean;
-  onUploadSpec?: () => Promise<void>;
+  onUploadSpec?: () => Promise<boolean>;
+  onDownloadTemplate?: () => void;
 };
 
 type SailPhase = 'countdown' | 'sailing' | null;
@@ -84,6 +85,7 @@ function PlannerModal({
   loadingArchivedTasks,
   childTaskBlocked,
   onUploadSpec,
+  onDownloadTemplate,
 }: PlannerModalProps): JSX.Element | null {
   const [inputText, setInputText] = useState('');
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -161,7 +163,8 @@ function PlannerModal({
   }, [onFinalizeSpec]);
 
   const handleUploadSpecWithSail = useCallback(async (): Promise<void> => {
-    await onUploadSpec?.();
+    const submitted = await onUploadSpec?.();
+    if (!submitted) return;
     setSailPhase('countdown');
     setCountdown(3);
   }, [onUploadSpec]);
@@ -175,6 +178,28 @@ function PlannerModal({
 
   if (!isOpen) return null;
 
+  const bypassGroup = (
+    <div className="planner-modal__bypass-group">
+      <button
+        type="button"
+        className="action-button"
+        onClick={onDownloadTemplate}
+        title="Download a blank planning-intake template to fill out"
+      >
+        Download Template
+      </button>
+      <button
+        type="button"
+        className="action-button"
+        onClick={() => { void handleUploadSpecWithSail(); }}
+        disabled={!planningEnabled || !!childTaskBlocked}
+        title="Upload a completed planning-intake markdown and submit directly — skips Lily"
+      >
+        Bypass Lily
+      </button>
+    </div>
+  );
+
   if (sailPhase !== null) {
     return <SailScreen sailPhase={sailPhase} countdown={countdown} />;
   }
@@ -183,7 +208,6 @@ function PlannerModal({
     <>
     <div
       className="planner-modal__overlay"
-      onClick={onClose}
       role="presentation"
     >
       <section
@@ -306,7 +330,7 @@ function PlannerModal({
                 <div className="planner-msg__body">
                   <MarkdownView content={msg.text} />
                   {isStreaming && idx === messages.length - 1 && (
-                    <span className="planner-msg__cursor" aria-hidden="true">{'\u2588'}</span>
+                    <span className="planner-msg__cursor" aria-hidden="true" />
                   )}
                 </div>
               ) : (
@@ -346,7 +370,7 @@ function PlannerModal({
             rows={2}
             disabled={!!childTaskBlocked}
           />
-          <button type="button" onClick={onPickMarkdownFile} aria-label="Attach markdown file" className="planner-modal__attach-btn" disabled={!!childTaskBlocked}>
+          <button type="button" onClick={onPickMarkdownFile} aria-label="Attach markdown file" className="planner-modal__attach-btn" disabled={!!childTaskBlocked} title="Attach a markdown file for Lily to review">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M7.5 2.5a3.5 3.5 0 0 1 5 0 3.5 3.5 0 0 1 0 5l-6 6a2.25 2.25 0 0 1-3.18-3.18l6-6a1 1 0 0 1 1.41 1.41l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           <button type="button" onClick={handleSend} aria-label="Send message" disabled={!!childTaskBlocked}>
@@ -357,11 +381,13 @@ function PlannerModal({
         {sessionStatus === 'active' || sessionStatus === 'busy' || sessionStatus === 'failed' ? (
           <div className="planner-modal__actions">
             <span className="planner-modal__footer-esc">ESC to close</span>
+            {bypassGroup}
             <button
               type="button"
               className="action-button"
               onClick={onViewDraft}
-              disabled={!!isStreaming || !!awaitingDraft}
+              disabled={!!isStreaming || !!awaitingDraft || messages.length === 0}
+              title="Ask Lily to write a planning spec from the conversation so far"
             >
               {awaitingDraft ? 'Drafting\u2026' : 'Draft Spec'}
             </button>
@@ -370,6 +396,7 @@ function PlannerModal({
               className="action-button"
               onClick={() => { void onRefreshDraft?.()?.then(() => setDraftPopoutOpen(true)); }}
               disabled={!stagedDraft}
+              title="Review the spec Lily drafted"
             >
               View Draft
             </button>
@@ -378,6 +405,7 @@ function PlannerModal({
               className="action-button action-button--primary"
               onClick={handleFinalizeWithSail}
               disabled={!!isStreaming || sessionStatus === 'busy' || !stagedDraft}
+              title="Accept Lily's draft and submit to the task queue"
             >
               Finalize Spec
             </button>
@@ -385,27 +413,22 @@ function PlannerModal({
         ) : (
           <div className="planner-modal__actions">
             <span className="planner-modal__footer-esc">ESC to close</span>
+            {bypassGroup}
             <button
               type="button"
               className="action-button"
               onClick={onPreview}
               disabled={!planningEnabled || composerStage === 'confirm' || !!childTaskBlocked}
+              title="Preview the task before submitting"
             >
               Preview Plan
-            </button>
-            <button
-              type="button"
-              className="action-button"
-              onClick={() => { void handleUploadSpecWithSail(); }}
-              disabled={!planningEnabled || !!childTaskBlocked}
-            >
-              Upload Spec
             </button>
             <button
               type="button"
               className="action-button action-button--primary"
               onClick={handleConfirmWithSail}
               disabled={!planningEnabled || composerStage === 'compose' || !!childTaskBlocked}
+              title="Submit this task to the queue"
             >
               {primaryActionLabel || 'Submit to Queue'}
             </button>

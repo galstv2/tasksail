@@ -65,13 +65,13 @@ describe('PlannerModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('overlay click calls onClose', () => {
+  it('overlay click does not close the modal', () => {
     const onClose = vi.fn();
     const { container } = render(<PlannerModal {...makeProps({ onClose })} />);
     const overlay = container.querySelector('.planner-modal__overlay');
     expect(overlay).not.toBeNull();
     fireEvent.click(overlay!);
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('textarea accepts input and send button triggers submission', () => {

@@ -18,6 +18,7 @@ import {
   type QueueStatusResponse,
 } from '../src/shared/desktopContract';
 import { isValidDesktopActionRequest, validateDesktopActionRequest } from '../src/shared/desktopContractValidators';
+import { DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL } from '../src/shared/desktopContractPlanner';
 import {
   readObservabilitySnapshot as readObservabilitySnapshotImpl,
   readQueueStatusSnapshot as readQueueStatusSnapshotImpl,
@@ -124,6 +125,7 @@ import {
   submitDraftViaDropboxHelper,
   submitFollowUpViaHelper,
   submitUploadedSpecHelper,
+  readBypassTemplate,
 } from './main.taskQueue';
 
 import {
@@ -1340,6 +1342,8 @@ export function registerDesktopContract(): void {
 
     return handleDesktopAction(request);
   });
+
+  ipcMain.handle(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL, async () => readBypassTemplate());
 }
 
 export async function createWindow(): Promise<BrowserWindow> {

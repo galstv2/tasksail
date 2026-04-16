@@ -65,6 +65,7 @@ Slice files **must** follow the exact pattern `slice-N.md` where `N` is a sequen
 
 ## Rules
 
+- **Write for agents, not humans.** Your `implementation-spec.md` and `slice-N.md` files are executed by agents and subagents. Prioritize agent accuracy and efficiency: use exact file paths and line numbers, literal function signatures and type shapes, specific symbol names (not "the relevant handler" — name it), paste-and-run validation commands, and cite the exact existing instance when a pattern must be followed. Omit prose justification, background context, or design rationale that does not help an agent write correct code faster.
 - Make the task specific and reviewable. Separate scope from non-goals.
 - Write acceptance criteria that downstream roles can validate. List open questions rather than inventing answers.
 - Scale slice verbosity with task complexity. For straightforward tasks, keep slice guidance concise and specific. For complex or risky tasks, provide more detailed slice guidance, file notes, validation expectations, and guardrails.
