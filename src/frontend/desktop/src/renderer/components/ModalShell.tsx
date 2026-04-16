@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import { classNames } from '../utils/classNames';
 import { registerEscHandler } from '../utils/modalShellEscRegistry';
@@ -106,7 +107,7 @@ export default function ModalShell({
       }
     : undefined;
 
-  return (
+  return createPortal(
     <div
       className={overlayClasses}
       style={overlayStyle}
@@ -147,6 +148,7 @@ export default function ModalShell({
           </footer>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

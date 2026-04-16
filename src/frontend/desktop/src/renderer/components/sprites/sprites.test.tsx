@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { LilySprite } from './LilySprite';
 import { AliceSprite } from './AliceSprite';
 import { DaltonSprite } from './DaltonSprite';
+import { DaltonVerifySprite } from './DaltonVerifySprite';
 import { RonSprite } from './RonSprite';
 import { agentSpriteMap } from './index';
 
@@ -12,6 +13,7 @@ describe('agent sprites', () => {
     ['LilySprite', LilySprite],
     ['AliceSprite', AliceSprite],
     ['DaltonSprite', DaltonSprite],
+    ['DaltonVerifySprite', DaltonVerifySprite],
     ['RonSprite', RonSprite],
   ])('%s renders an accessible SVG at the requested size', (_name, Sprite) => {
     const { container } = render(<Sprite size={36} />);
@@ -23,11 +25,11 @@ describe('agent sprites', () => {
     expect(svg?.getAttribute('focusable')).toBe('false');
   });
 
-  it('agentSpriteMap covers all four named agents', () => {
+  it('agentSpriteMap covers all named agents', () => {
     expect(Object.keys(agentSpriteMap)).toEqual(
-      expect.arrayContaining(['planning-agent', 'product-manager', 'software-engineer', 'qa']),
+      expect.arrayContaining(['planning-agent', 'product-manager', 'software-engineer', 'software-engineer-verify', 'qa']),
     );
-    expect(Object.keys(agentSpriteMap)).toHaveLength(4);
+    expect(Object.keys(agentSpriteMap)).toHaveLength(5);
   });
 
   it('each sprite renders at a custom size', () => {
