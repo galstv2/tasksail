@@ -196,6 +196,23 @@ export type PlannerPickMarkdownFileResponse = {
   content: string | null;
 };
 
+export type PlannerUploadSpecRequest = {
+  action: 'planner.uploadSpec';
+  payload: {
+    content: string;
+  };
+};
+
+export type PlannerUploadSpecResponse = {
+  action: 'planner.uploadSpec';
+  mode: 'submitted';
+  accepted: true;
+  message: string;
+  draftTitle: string;
+  submittedPath: string;
+  observationMode: boolean;
+};
+
 export type ArchivedTaskEntry = {
   taskId: string;
   title: string;

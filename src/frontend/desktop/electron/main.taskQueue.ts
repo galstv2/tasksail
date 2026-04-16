@@ -16,6 +16,12 @@ import {
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { derivePlannerDraftTitle } from './main.staging';
 import { REPO_ROOT } from './paths';
+import {
+  parseMarkdownSections,
+  parsePlannerEditableDraft,
+  validatePlanningIntakeDraft,
+  type PlannerEditableDraft,
+} from './main.markdown';
 
 export type DropboxScriptRunner = (options: {
   summary: string;
@@ -389,6 +395,111 @@ export function validateFollowUpDraftForSubmission(
   }
 
   return errors;
+}
+
+const PLATFORM_OWNED_SECTIONS = ['Task Lineage', 'Context Pack Binding', 'Source'] as const;
+
+function validateUploadedSpecContent(
+  content: string,
+  sections: Map<string, string>,
+): string | null {
+  if (sections.size === 0) {
+    return 'Uploaded file contains no markdown sections. The file must start from "## Request Summary" and follow the planning-intake template.';
+  }
+
+  const forbiddenSections = PLATFORM_OWNED_SECTIONS.filter((s) => sections.has(s));
+  if (forbiddenSections.length > 0) {
+    return `Uploaded spec must not include platform-owned sections: ${forbiddenSections.join(', ')}. These are auto-generated from the active context pack. Remove them and re-upload.`;
+  }
+
+  if (/^#\s+\S/m.test(content)) {
+    return 'Uploaded spec must not include a top-level title (# heading). The title is auto-generated from the active context pack focus. Remove it and re-upload.';
+  }
+
+  return validatePlanningIntakeDraft(content, 'standard', sections);
+}
+
+export async function submitUploadedSpecHelper(
+  content: string,
+): Promise<DesktopInvokeResult> {
+  const sections = parseMarkdownSections(content);
+  const validationError = validateUploadedSpecContent(content, sections);
+  if (validationError) {
+    return {
+      ok: false,
+      action: 'planner.uploadSpec',
+      error: validationError,
+    };
+  }
+
+  let editableDraft: PlannerEditableDraft;
+  try {
+    editableDraft = parsePlannerEditableDraft(content, sections);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'planner.uploadSpec',
+      error: err instanceof Error ? err.message : 'Failed to parse uploaded spec sections.',
+    };
+  }
+
+  let context: ResolvedDirectSubmissionContext;
+  try {
+    const syncState = await readWorkspaceSyncStateSnapshot();
+    context = await resolveDirectSubmissionContext(syncState);
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'planner.uploadSpec',
+      error: err instanceof Error ? err.message : 'Failed to resolve active context pack for spec upload.',
+    };
+  }
+
+  try {
+    const filePath = await createDropboxTask({
+      title: context.title,
+      summary: editableDraft.summary,
+      desiredOutcome: editableDraft.desiredOutcome,
+      constraints: editableDraft.constraints,
+      acceptanceSignals: editableDraft.acceptanceSignals,
+      suggestedPath: editableDraft.suggestedPath,
+      planningNotes: editableDraft.planningNotes,
+      kind: 'standard',
+      contextPackDir: context.contextPackDir,
+      contextPackId: context.contextPackId,
+      scopeMode: context.scopeMode,
+      selectedRepoIds: context.selectedRepoIds,
+      selectedFocusIds: context.selectedFocusIds,
+      deepFocusEnabled: context.deepFocusEnabled,
+      selectedFocusPath: context.selectedFocusPath,
+      selectedFocusTargetKind: context.selectedFocusTargetKind,
+      selectedTestTarget: context.selectedTestTarget,
+      selectedSupportTargets: context.selectedSupportTargets,
+    });
+    emitStreamEvent({
+      message: `Uploaded spec submitted to dropbox: ${filePath}`,
+      source: 'planner.uploadSpec',
+      role: 'queue',
+    });
+    return {
+      ok: true,
+      response: {
+        action: 'planner.uploadSpec',
+        mode: 'submitted',
+        accepted: true,
+        message: 'Uploaded spec validated and submitted to the dropbox queue.',
+        draftTitle: context.title,
+        submittedPath: filePath,
+        observationMode: true,
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      action: 'planner.uploadSpec',
+      error: err instanceof Error ? err.message : 'Failed to write uploaded spec to dropbox.',
+    };
+  }
 }
 
 export async function submitDraftViaDropboxHelper(

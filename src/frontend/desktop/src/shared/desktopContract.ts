@@ -63,6 +63,8 @@ import type {
   PlannerStartSessionResponse,
   PlannerSubmitRequest,
   PlannerSubmitResponse,
+  PlannerUploadSpecRequest,
+  PlannerUploadSpecResponse,
   QueueDeletePendingItemRequest,
   QueueDeletePendingItemResponse,
   QueueStatusRequest,
@@ -94,6 +96,7 @@ export type DesktopActionName =
   | 'contextPack.setRepositoryType'
   | 'planner.pickMarkdownFile'
   | 'planner.listArchivedTasks'
+  | 'planner.uploadSpec'
   | 'reinforcement.submitFeedback'
   | 'reinforcement.updateRealignmentDoc'
   | 'reinforcement.checkActiveWorkGuard'
@@ -809,6 +812,7 @@ export type DesktopActionRequest =
   | ContextPackSetRepositoryTypeRequest
   | PlannerPickMarkdownFileRequest
   | PlannerListArchivedTasksRequest
+  | PlannerUploadSpecRequest
   | ReinforcementSubmitFeedbackRequest
   | ReinforcementUpdateRealignmentDocRequest
   | ReinforcementReadOverviewRequest
@@ -873,6 +877,7 @@ export type DesktopActionResponse =
   | ContextPackSetRepositoryTypeResponse
   | PlannerPickMarkdownFileResponse
   | PlannerListArchivedTasksResponse
+  | PlannerUploadSpecResponse
   | ReinforcementSubmitFeedbackResponse
   | ReinforcementUpdateRealignmentDocResponse
   | ReinforcementReadOverviewResponse

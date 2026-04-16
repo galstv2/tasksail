@@ -89,6 +89,7 @@ export {
   validateFollowUpDraftForSubmission,
   submitDraftViaDropboxHelper,
   submitFollowUpViaHelper,
+  submitUploadedSpecHelper,
   runDropboxTaskScript,
   runFollowUpTaskScript,
 } from './main.taskQueue';
@@ -122,6 +123,7 @@ export {
 import {
   submitDraftViaDropboxHelper,
   submitFollowUpViaHelper,
+  submitUploadedSpecHelper,
 } from './main.taskQueue';
 
 import {
@@ -431,6 +433,7 @@ type DesktopActionHandlers = {
   clearDeepFocusSelections: (
     payload: import('../src/shared/desktopContract').DeepFocusClearSelectionsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
 };
 
 export async function readQueueStatusSnapshot(
@@ -792,6 +795,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   saveDeepFocusSelections: (payload) => saveDeepFocusSelections(payload),
   loadDeepFocusSelections: (payload) => loadDeepFocusSelections(payload),
   clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
+  uploadSpec: submitUploadedSpecHelper,
 };
 
 function resolveDesktopActionHandlers(
@@ -1293,6 +1297,8 @@ export async function handleDesktopAction(
       return resolvedHandlers.loadDeepFocusSelections(request.payload);
     case 'deepFocus.clearSelections':
       return resolvedHandlers.clearDeepFocusSelections(request.payload);
+    case 'planner.uploadSpec':
+      return resolvedHandlers.uploadSpec(request.payload.content);
     default:
       return {
         ok: false,
