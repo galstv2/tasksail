@@ -308,6 +308,11 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.pickMarkdownFile',
     }),
+  uploadSpec: async (content: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.uploadSpec',
+      payload: { content },
+    }),
   listArchivedTasks: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listArchivedTasks',
@@ -696,6 +701,7 @@ export type DesktopShellApi = {
   readStagedDraft: () => Promise<DesktopInvokeResult>;
   finalizeSpec: (expectedTaskKind?: 'standard' | 'child-task') => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
+  uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (
     payload: ReinforcementSubmitFeedbackRequest['payload'],

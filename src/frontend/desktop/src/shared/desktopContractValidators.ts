@@ -26,6 +26,7 @@ const DESKTOP_ACTION_NAMES = [
   'contextPack.setRepositoryType',
   'planner.pickMarkdownFile',
   'planner.listArchivedTasks',
+  'planner.uploadSpec',
   'reinforcement.submitFeedback',
   'reinforcement.updateRealignmentDoc',
   'reinforcement.readOverview',
@@ -1073,6 +1074,13 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         errors.push('payload.content must be a string.');
       }
       return errors;
+    }
+    case 'planner.uploadSpec': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.content)) {
+        return ['planner.uploadSpec requires a non-empty content string in the payload.'];
+      }
+      return [];
     }
     default:
       return ['action must be one of the approved desktop actions.'];

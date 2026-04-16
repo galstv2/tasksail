@@ -386,6 +386,23 @@ export function usePlannerModal(
     setSelectedMarkdownFile(null);
   }, []);
 
+  const handleUploadSpec = useCallback(async (): Promise<void> => {
+    try {
+      const pickResult = await client.pickMarkdownFile();
+      if (!pickResult.ok || !pickResult.response || pickResult.response.action !== 'planner.pickMarkdownFile' || pickResult.response.mode === 'cancelled' || !pickResult.response.content) {
+        return;
+      }
+      const uploadResult = await client.uploadSpec(pickResult.response.content);
+      if (!uploadResult.ok) {
+        setContractError(uploadResult.error ?? 'Upload spec failed.');
+        return;
+      }
+      setContractError('');
+    } catch (err: unknown) {
+      setContractError(normalizeIpcThrownError(err));
+    }
+  }, [client, setContractError]);
+
   const handlePreview = useCallback(async (): Promise<void> => {
     setComposerStage('preview');
     if (!planningEnabled) {
@@ -438,6 +455,7 @@ export function usePlannerModal(
       onFinalizeSpec: handleFinalizeSpec,
       selectedMarkdownFile,
       onPickMarkdownFile: handlePickMarkdownFile,
+      onUploadSpec: handleUploadSpec,
       onClearSelectedFile: handleClearSelectedFile,
       childTaskMode,
       onToggleChildTaskMode: handleToggleChildTaskMode,
@@ -447,7 +465,7 @@ export function usePlannerModal(
       loadingArchivedTasks,
       childTaskBlocked,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, handleSendMessage, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, archivedTasks, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, childTaskBlocked],
   );
 
   return { plannerModalProps, openPlannerModal };

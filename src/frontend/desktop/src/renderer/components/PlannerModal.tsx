@@ -43,6 +43,7 @@ export type PlannerModalProps = {
   onSelectParentTask?: (task: ArchivedTaskEntry) => void;
   loadingArchivedTasks?: boolean;
   childTaskBlocked?: boolean;
+  onUploadSpec?: () => Promise<void>;
 };
 
 type SailPhase = 'countdown' | 'sailing' | null;
@@ -82,6 +83,7 @@ function PlannerModal({
   onSelectParentTask,
   loadingArchivedTasks,
   childTaskBlocked,
+  onUploadSpec,
 }: PlannerModalProps): JSX.Element | null {
   const [inputText, setInputText] = useState('');
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -157,6 +159,12 @@ function PlannerModal({
     setSailPhase('countdown');
     setCountdown(3);
   }, [onFinalizeSpec]);
+
+  const handleUploadSpecWithSail = useCallback(async (): Promise<void> => {
+    await onUploadSpec?.();
+    setSailPhase('countdown');
+    setCountdown(3);
+  }, [onUploadSpec]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -384,6 +392,14 @@ function PlannerModal({
               disabled={!planningEnabled || composerStage === 'confirm' || !!childTaskBlocked}
             >
               Preview Plan
+            </button>
+            <button
+              type="button"
+              className="action-button"
+              onClick={() => { void handleUploadSpecWithSail(); }}
+              disabled={!planningEnabled || !!childTaskBlocked}
+            >
+              Upload Spec
             </button>
             <button
               type="button"

@@ -181,6 +181,7 @@ export function createMockClient(
         ok: true,
         response: createPickMarkdownFileCancelledResponse(),
       }),
+    uploadSpec: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: '', draftTitle: '', submittedPath: '', observationMode: true } }),
     listArchivedTasks: vi
       .fn()
       .mockResolvedValue({

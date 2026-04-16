@@ -42,6 +42,7 @@ type DesktopShellClient = Pick<
   | 'readStagedDraft'
   | 'finalizeSpec'
   | 'pickMarkdownFile'
+  | 'uploadSpec'
   | 'listArchivedTasks'
   | 'listExternalMcpServers'
   | 'addExternalMcpServer'
@@ -148,6 +149,7 @@ export function createDesktopShellClient(
     readStagedDraft: () => readShell().readStagedDraft(),
     finalizeSpec: (expectedTaskKind) => readShell().finalizeSpec(expectedTaskKind),
     pickMarkdownFile: () => readShell().pickMarkdownFile(),
+    uploadSpec: (content: string) => readShell().uploadSpec(content),
     listArchivedTasks: () => readShell().listArchivedTasks(),
     listExternalMcpServers: () => readShell().listExternalMcpServers(),
     addExternalMcpServer: (server) => readShell().addExternalMcpServer(server),
