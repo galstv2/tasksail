@@ -1,5 +1,4 @@
 import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
-import { readdirSync, readFileSync } from 'node:fs';
 import { readFile as fsReadFile, readdir as fsReaddir, rm as fsRm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,6 +82,7 @@ import {
 import { startTaskRecoveryController } from './main.recovery';
 import { startRuntimeStreamWatcher } from './main.runtimeStream';
 import { emitStreamEvent, withStreamEvent } from './main.stream';
+import { cleanupWorkspaceOnQuit } from './main.cleanup';
 
 // Re-export task queue handlers so existing test imports from './main' continue to work.
 export {
@@ -1470,21 +1470,11 @@ export function registerAppLifecycle(): void {
   });
 
   app.on('before-quit', () => {
-    // Kill any running agent processes so they don't become orphans.
-    try {
-      const files = readdirSync(ROLE_SESSIONS_DIR);
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue;
-        try {
-          const receipt = JSON.parse(readFileSync(join(ROLE_SESSIONS_DIR, file), 'utf-8') as string);
-          if (receipt.terminal) continue;
-          const pid = receipt?.launch?.pid;
-          if (pid && pid > 0) {
-            process.kill(pid, 'SIGTERM');
-          }
-        } catch { /* best-effort */ }
-      }
-    } catch { /* role-sessions dir may not exist */ }
+    // Full workspace reset: kill agent PIDs, move pending/active tasks back to
+    // open (dropbox), clear handoffs, reset pipeline state, and clean ephemeral
+    // runtime directories. This prevents stale-state recovery messages on the
+    // next launch and keeps the workspace ready for a fresh session.
+    cleanupWorkspaceOnQuit();
 
     stopBoardWatcher?.();
     stopRuntimeWatcher?.();

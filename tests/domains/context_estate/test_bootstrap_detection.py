@@ -64,9 +64,9 @@ class DetectSystemLayerTests(unittest.TestCase):
 
     def test_dotnet_test_project_name_classifies_as_test(self) -> None:
         with tempfile.TemporaryDirectory() as d:
-            root = Path(d) / "Prediqx.Api.Tests"
+            root = Path(d) / "Acme.Api.Tests"
             root.mkdir()
-            (root / "Prediqx.Api.Tests.csproj").write_text("")
+            (root / "Acme.Api.Tests.csproj").write_text("")
             result = _detect_system_layer(root, "backend")
         self.assertEqual(result, "test")
 
