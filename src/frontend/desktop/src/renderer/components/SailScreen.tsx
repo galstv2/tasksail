@@ -1,45 +1,55 @@
-import { useState } from 'react';
-
-const SAIL_PHRASES = [
-  'Sailing away!',
-  'This is going to be great!',
-  'Let\u2019s make it happen!',
-  'Here we go!',
-  'All hands on deck!',
-];
+/**
+ * SailScreen — Minimal "Submitted" confirmation card.
+ *
+ * Renders a frosted-glass pill with an animated checkmark and "Submitted"
+ * label. Fades in, holds briefly, then fades out on its own.
+ * Apple HIG-inspired confirmation moment.
+ */
 
 type SailScreenProps = {
-  sailPhase: 'countdown' | 'sailing';
-  countdown: number;
+  /** When true the exit fade-out class is applied. */
+  exiting: boolean;
 };
 
-function SailScreen({ sailPhase, countdown }: SailScreenProps): JSX.Element {
-  const [phrase] = useState(() => SAIL_PHRASES[Math.floor(Math.random() * SAIL_PHRASES.length)]);
-
+function SailScreen({ exiting }: SailScreenProps): JSX.Element {
   return (
-    <div className="sail-overlay" role="presentation">
-      <div className="sail-pill" role="dialog" aria-modal="true" aria-label="Submitting task" aria-live="polite">
-        {sailPhase === 'countdown' ? (
-          <div className="sail-countdown" key={countdown}>
-            <span className="sail-countdown__number">{countdown}</span>
-            <span className="sail-countdown__ring" />
-          </div>
-        ) : (
-          <div className="sail-away">
-            <svg className="sail-away__boat" width="28" height="28" viewBox="0 0 36 36" fill="none">
-              <path d="M18 5v22" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-              <path d="M18 6l10 13H18Z" fill="currentColor" opacity="0.1" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M18 9l-6 10h6Z" fill="currentColor" opacity="0.06" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M10 27c0 3 4 5 8 5s8-2 8-5Z" fill="currentColor" opacity="0.08" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-            </svg>
-            <span className="sail-away__label">{phrase}</span>
-            <span className="sail-away__dots">
-              <span className="sail-away__dot" />
-              <span className="sail-away__dot" />
-              <span className="sail-away__dot" />
-            </span>
-          </div>
-        )}
+    <div
+      className={`sail-overlay${exiting ? ' sail-overlay--exit' : ''}`}
+      role="status"
+      aria-live="polite"
+      aria-label="Task submitted"
+    >
+      <div className="sail-pill">
+        {/* ── Animated checkmark circle ──────────────────────────────────── */}
+        <svg
+          className="sail-check"
+          width="36"
+          height="36"
+          viewBox="0 0 36 36"
+          fill="none"
+          aria-hidden="true"
+        >
+          <circle
+            className="sail-check__ring"
+            cx="18"
+            cy="18"
+            r="15"
+            stroke="var(--ts-success)"
+            strokeWidth="1.6"
+            fill="none"
+          />
+          <path
+            className="sail-check__mark"
+            d="M11.5 18.5 L16 23 L25 13"
+            stroke="var(--ts-success)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+
+        <span className="sail-label">Submitted</span>
       </div>
     </div>
   );

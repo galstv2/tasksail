@@ -97,3 +97,4 @@ CLAUDE.md
 # Validation local overrides
 packages/validation/data/file-size-pmseline.txt
 src/frontend/desktop/scripts/screenshot-docs.ts
+src/frontend/desktop/scripts/screenshot-context-pack.ts

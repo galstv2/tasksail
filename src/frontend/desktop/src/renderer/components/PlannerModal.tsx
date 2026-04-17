@@ -47,7 +47,10 @@ export type PlannerModalProps = {
   onDownloadTemplate?: () => void;
 };
 
-type SailPhase = 'countdown' | 'sailing' | null;
+/** Duration (ms) the "Submitted" card is fully visible before fading out. */
+const SUBMITTED_HOLD_MS = 1200;
+/** Duration (ms) of the exit fade animation. Must match CSS sail-fade-out. */
+const SUBMITTED_EXIT_MS = 400;
 
 const LILY_GREETING = "Hi there! I'm Lily, the planning specialist. Let's figure out what you need.";
 
@@ -89,14 +92,14 @@ function PlannerModal({
 }: PlannerModalProps): JSX.Element | null {
   const [inputText, setInputText] = useState('');
   const conversationRef = useRef<HTMLDivElement>(null);
-  const [sailPhase, setSailPhase] = useState<SailPhase>(null);
-  const [countdown, setCountdown] = useState(3);
+  const [submitted, setSubmitted] = useState(false);
+  const [submittedExiting, setSubmittedExiting] = useState(false);
   const [draftPopoutOpen, setDraftPopoutOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
-      setSailPhase(null);
-      setCountdown(3);
+      setSubmitted(false);
+      setSubmittedExiting(false);
       setDraftPopoutOpen(false);
     }
   }, [isOpen]);
@@ -108,22 +111,11 @@ function PlannerModal({
   }, [stagedDraft]);
 
   useEffect(() => {
-    if (sailPhase !== 'countdown') return;
-    if (countdown <= 0) {
-      setSailPhase('sailing');
-      return;
-    }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [sailPhase, countdown]);
-
-  useEffect(() => {
-    if (sailPhase !== 'sailing') return;
-    const timer = setTimeout(() => {
-      onClose();
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [sailPhase, onClose]);
+    if (!submitted) return;
+    const holdTimer = setTimeout(() => setSubmittedExiting(true), SUBMITTED_HOLD_MS);
+    const closeTimer = setTimeout(() => onClose(), SUBMITTED_HOLD_MS + SUBMITTED_EXIT_MS);
+    return () => { clearTimeout(holdTimer); clearTimeout(closeTimer); };
+  }, [submitted, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -152,21 +144,18 @@ function PlannerModal({
 
   const handleConfirmWithSail = useCallback((): void => {
     onConfirm();
-    setSailPhase('countdown');
-    setCountdown(3);
+    setSubmitted(true);
   }, [onConfirm]);
 
   const handleFinalizeWithSail = useCallback((): void => {
     onFinalizeSpec?.();
-    setSailPhase('countdown');
-    setCountdown(3);
+    setSubmitted(true);
   }, [onFinalizeSpec]);
 
   const handleUploadSpecWithSail = useCallback(async (): Promise<void> => {
-    const submitted = await onUploadSpec?.();
-    if (!submitted) return;
-    setSailPhase('countdown');
-    setCountdown(3);
+    const ok = await onUploadSpec?.();
+    if (!ok) return;
+    setSubmitted(true);
   }, [onUploadSpec]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
@@ -200,8 +189,8 @@ function PlannerModal({
     </div>
   );
 
-  if (sailPhase !== null) {
-    return <SailScreen sailPhase={sailPhase} countdown={countdown} />;
+  if (submitted) {
+    return <SailScreen exiting={submittedExiting} />;
   }
 
   return (

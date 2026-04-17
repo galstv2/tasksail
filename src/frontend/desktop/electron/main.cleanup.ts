@@ -145,7 +145,9 @@ function resetTaskRegistry(): void {
         set.active.fileName = set.active.fileName.replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
         set.active.taskId = set.active.fileName.replace(/\.md$/, '');
         set.open = set.open ?? [];
-        set.open.push(set.active);
+        if (!set.open.some((e: { taskId: string }) => e.taskId === set.active!.taskId)) {
+          set.open.push(set.active);
+        }
         set.active = null;
         dirty = true;
       }
@@ -156,7 +158,9 @@ function resetTaskRegistry(): void {
           entry.fileName = entry.fileName.replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
           entry.taskId = entry.fileName.replace(/\.md$/, '');
           set.open = set.open ?? [];
-          set.open.push(entry);
+          if (!set.open.some((e: { taskId: string }) => e.taskId === entry.taskId)) {
+            set.open.push(entry);
+          }
         }
         set.pending = [];
         dirty = true;
