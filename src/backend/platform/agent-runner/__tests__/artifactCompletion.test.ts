@@ -94,6 +94,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -121,6 +122,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
   });
 
@@ -148,6 +150,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
   });
 
@@ -175,6 +178,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
   });
 
@@ -194,6 +198,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     });
 
     expect(prompt).toContain('slice-search.md');
@@ -231,6 +236,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -264,6 +270,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -301,6 +308,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
 
     writeFileSync(
@@ -321,6 +329,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -343,6 +352,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     });
 
     expect(prompt).toContain('implementation-spec.md');
@@ -373,6 +383,7 @@ describe('artifactCompletion', () => {
       agentId: 'product-manager',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     });
 
     expect(prompt).toContain('parallel-ok.md');
@@ -384,6 +395,7 @@ describe('artifactCompletion', () => {
       agentId: 'software-engineer',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -392,6 +404,7 @@ describe('artifactCompletion', () => {
       agentId: 'software-engineer',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     });
     expect(prompt).toBe('');
   });
@@ -419,6 +432,7 @@ describe('artifactCompletion', () => {
       agentId: 'qa',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(true);
   });
 
@@ -429,6 +443,7 @@ describe('artifactCompletion', () => {
       agentId: 'qa',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
   });
 
@@ -439,6 +454,7 @@ describe('artifactCompletion', () => {
       agentId: 'qa',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     })).resolves.toBe(false);
   });
 
@@ -449,9 +465,45 @@ describe('artifactCompletion', () => {
       agentId: 'qa',
       handoffsDir,
       implStepsDir,
+      repoRoot,
     });
 
     expect(prompt).toContain('Difficulty Level');
     expect(prompt).toContain("'Easy', 'Medium', or 'Hard'");
+  });
+
+  it('reads qa artifacts from handoffsDir under per-task tasks/<taskId>/handoffs, not singleton AgentWorkSpace/handoffs (§4.11)', async () => {
+    const perTaskHandoffs = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 't1', 'handoffs');
+    const perTaskImplSteps = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 't1', 'ImplementationSteps');
+    mkdirSync(perTaskHandoffs, { recursive: true });
+    mkdirSync(perTaskImplSteps, { recursive: true });
+
+    // Per-task handoffs have complete qa artifacts
+    writeFileSync(
+      path.join(perTaskHandoffs, 'issues.md'),
+      '# Issues\n\n## Review Outcome\n\npass\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(perTaskHandoffs, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Retrospective Summary\n\n- concise note\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(perTaskHandoffs, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    // Singleton handoffs (under AgentWorkSpace/handoffs) are EMPTY — must NOT be read
+    // The singleton dir already exists from beforeEach; leave it without artifacts
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir: perTaskHandoffs,
+      implStepsDir: perTaskImplSteps,
+      repoRoot,
+      taskId: 't1',
+    })).resolves.toBe(true);
   });
 });

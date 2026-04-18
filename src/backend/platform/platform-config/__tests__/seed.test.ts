@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { seedPlatformConfig } from '../seed.js';
+import { getPlatformConfig, _clearPlatformConfigCache } from '../get.js';
 import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from '../types.js';
 
 const VALID_DEFAULT = JSON.stringify({
@@ -11,14 +12,28 @@ const VALID_DEFAULT = JSON.stringify({
   container_runtime: 'docker',
 });
 
+// Full default matching config/platform.default.json (with new fields)
+const FULL_DEFAULT_JSON = JSON.stringify({
+  schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+  container_runtime: 'docker',
+  max_parallel_tasks: 10,
+  retain_failed_task_worktrees: true,
+  max_retained_failed_task_worktrees: 10,
+  max_retry_generations_per_slug: 5,
+  completed_task_runtime_retention_ms: 3600000,
+  mcp_port_range: { min: 8811, max: 8820 },
+});
+
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-config-seed-'));
+  _clearPlatformConfigCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  _clearPlatformConfigCache();
 });
 
 function writeDefault(content?: string): void {
@@ -92,5 +107,39 @@ describe('seedPlatformConfig', () => {
     if (result.action === 'failed') {
       expect(result.errors[0].message).toContain('not found');
     }
+  });
+
+  it('seeding a runtime file missing new fields rewrites it to match default; getPlatformConfig returns seeded values', async () => {
+    // Write a full default with all new fields
+    writeDefault(FULL_DEFAULT_JSON);
+
+    // Write a runtime file with only the old fields (pre-refactor state)
+    fs.mkdirSync(path.dirname(runtimePath()), { recursive: true });
+    fs.writeFileSync(
+      runtimePath(),
+      JSON.stringify({
+        schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+        container_runtime: 'docker',
+      }),
+      'utf-8',
+    );
+
+    // Seed rewrites the runtime to match the default
+    const seedResult = await seedPlatformConfig(tmpDir);
+    expect(seedResult.action).toBe('updated');
+
+    // Runtime file now contains new fields
+    const runtimeData = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
+    expect(runtimeData.max_parallel_tasks).toBe(10);
+    expect(runtimeData.mcp_port_range).toEqual({ min: 8811, max: 8820 });
+
+    // getPlatformConfig returns seeded values
+    const config = await getPlatformConfig(tmpDir);
+    expect(config.max_parallel_tasks).toBe(10);
+    expect(config.retain_failed_task_worktrees).toBe(true);
+    expect(config.max_retained_failed_task_worktrees).toBe(10);
+    expect(config.max_retry_generations_per_slug).toBe(5);
+    expect(config.completed_task_runtime_retention_ms).toBe(3600000);
+    expect(config.mcp_port_range).toEqual({ min: 8811, max: 8820 });
   });
 });

@@ -1,4 +1,10 @@
 {
   "schema_version": 1,
-  "container_runtime": "podman"
+  "container_runtime": "podman",
+  "max_parallel_tasks": 10,
+  "retain_failed_task_worktrees": true,
+  "max_retained_failed_task_worktrees": 10,
+  "max_retry_generations_per_slug": 5,
+  "completed_task_runtime_retention_ms": 3600000,
+  "mcp_port_range": { "min": 8811, "max": 8820 }
 }

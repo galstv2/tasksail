@@ -1,6 +1,7 @@
 export { loadPlatformConfig } from './load.js';
 export { seedPlatformConfig } from './seed.js';
 export { resolveContainerRuntime } from './resolve.js';
+export { getPlatformConfig } from './get.js';
 
 export type {
   PlatformConfig,

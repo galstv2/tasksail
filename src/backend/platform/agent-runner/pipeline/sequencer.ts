@@ -447,6 +447,7 @@ export async function formatSliceSections(
   return { files: sliceFiles, formatted: parts.join('\n') };
 }
 
+// Invariant: implStepsDir, handoffsDir, and every sub-Dalton runRoleAgent call MUST be per-task (§4.12).
 export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,

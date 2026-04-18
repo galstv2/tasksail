@@ -83,8 +83,7 @@ function hasRealContent(artifact: WorkspaceArtifact): boolean {
   });
 }
 
-async function loadWorkspaceArtifact(rootDir: string, relativePath: string): Promise<WorkspaceArtifact> {
-  const absolutePath = path.join(rootDir, relativePath);
+async function loadWorkspaceArtifactAtPath(absolutePath: string): Promise<WorkspaceArtifact> {
   const rawText = await readTextFile(absolutePath);
   const text = rawText ?? '';
   const sections = parseSections(text);
@@ -97,6 +96,10 @@ async function loadWorkspaceArtifact(rootDir: string, relativePath: string): Pro
       && normalizeText(stripHtmlComments(lines)).length > 0
     )),
   };
+}
+
+function readHandoffArtifact(handoffsDir: string, basename: string): Promise<WorkspaceArtifact> {
+  return loadWorkspaceArtifactAtPath(path.join(handoffsDir, basename));
 }
 
 export async function listSliceFiles(stepsDir: string): Promise<string[]> {
@@ -177,8 +180,8 @@ function issuesHaveBlockingFindings(sections: Record<string, string[]>): boolean
   return severityText.includes('blocking');
 }
 
-async function qaIssuesStructured(rootDir: string): Promise<boolean> {
-  const issues = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/issues.md');
+async function qaIssuesStructured(handoffsDir: string): Promise<boolean> {
+  const issues = await readHandoffArtifact(handoffsDir, 'issues.md');
   if (!issues.exists) {
     return true;
   }
@@ -200,8 +203,8 @@ async function qaIssuesStructured(rootDir: string): Promise<boolean> {
   return true;
 }
 
-async function implementationSpecReady(rootDir: string): Promise<boolean> {
-  const spec = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/implementation-spec.md');
+async function implementationSpecReady(handoffsDir: string): Promise<boolean> {
+  const spec = await readHandoffArtifact(handoffsDir, 'implementation-spec.md');
   return spec.exists && spec.hasSubstantiveContent;
 }
 
@@ -226,21 +229,23 @@ export async function checkAgentArtifactCompletion(options: {
   agentId: string;
   handoffsDir: string;
   implStepsDir: string;
-  repoRoot?: string;
+  repoRoot: string;
+  taskId?: string;
   abortSignal?: AbortSignal;
 }): Promise<boolean> {
   const agentId = normalizeAgentId(options.agentId);
-  const rootDir = path.resolve(options.handoffsDir, '..', '..');
+  const rootDir = options.repoRoot;
 
   if (agentId === 'planning-agent') {
-    const stagingDir = path.join(rootDir, 'AgentWorkSpace', 'dropbox', '.staging');
+    const stagingDir = options.taskId
+      ? path.join(rootDir, 'AgentWorkSpace', 'tasks', options.taskId, 'dropbox-staging')
+      : path.join(rootDir, 'AgentWorkSpace', 'dropbox', '.staging');
     const intakeFiles = (await listSliceFiles(stagingDir)).filter((filePath) => filePath.endsWith('.md'));
     if (intakeFiles.length === 0) {
       return false;
     }
     for (const filePath of intakeFiles) {
-      const relativePath = path.relative(rootDir, filePath);
-      if (hasRealContent(await loadWorkspaceArtifact(rootDir, relativePath))) {
+      if (hasRealContent(await loadWorkspaceArtifactAtPath(filePath))) {
         return true;
       }
     }
@@ -248,10 +253,10 @@ export async function checkAgentArtifactCompletion(options: {
   }
 
   if (agentId === 'product-manager') {
-    if (!await implementationSpecReady(rootDir)) {
+    if (!await implementationSpecReady(options.handoffsDir)) {
       return false;
     }
-    const parallelOk = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/parallel-ok.md');
+    const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
     if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
       return false;
     }
@@ -274,23 +279,23 @@ export async function checkAgentArtifactCompletion(options: {
   // only issues.md is required — final-summary.md and retrospective-input.md
   // must NOT be written (the remediation loop handles next steps).
   if (agentId === 'qa') {
-    const issues = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/issues.md');
+    const issues = await readHandoffArtifact(options.handoffsDir, 'issues.md');
     if (!issues.exists || !hasRealContent(issues)) {
       return false;
     }
-    if (!await qaIssuesStructured(rootDir)) {
+    if (!await qaIssuesStructured(options.handoffsDir)) {
       return false;
     }
-    if (await remediationHasBlockingFindings(path.join(rootDir, 'AgentWorkSpace', 'handoffs'))) {
+    if (await remediationHasBlockingFindings(options.handoffsDir)) {
       return true;
     }
 
     // Non-blocking outcome — all closeout artifacts are required.
-    const finalSummary = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/final-summary.md');
+    const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (!finalSummary.exists || !hasRealContent(finalSummary)) {
       return false;
     }
-    const retro = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/retrospective-input.md');
+    const retro = await readHandoffArtifact(options.handoffsDir, 'retrospective-input.md');
     if (!retro.exists || !hasRealContent(retro)) {
       return false;
     }
@@ -312,7 +317,8 @@ export async function checkAgentArtifactCompletion(options: {
 
   const loaded = new Map<string, WorkspaceArtifact>();
   for (const relativePath of required) {
-    const artifact = await loadWorkspaceArtifact(rootDir, relativePath);
+    const basename = path.basename(relativePath);
+    const artifact = await readHandoffArtifact(options.handoffsDir, basename);
     loaded.set(relativePath, artifact);
     if (!artifact.exists || !hasRealContent(artifact)) {
       return false;
@@ -326,18 +332,18 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   agentId: string;
   handoffsDir: string;
   implStepsDir: string;
-  repoRoot?: string;
+  repoRoot: string;
+  taskId?: string;
   abortSignal?: AbortSignal;
 }): Promise<string> {
   const agentId = normalizeAgentId(options.agentId);
-  const rootDir = path.resolve(options.handoffsDir, '..', '..');
 
   if (agentId === 'product-manager') {
     const missingParts: string[] = [];
-    if (!await implementationSpecReady(rootDir)) {
+    if (!await implementationSpecReady(options.handoffsDir)) {
       missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/implementation-spec.md')}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
     }
-    const parallelOk = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/parallel-ok.md');
+    const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
     if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
       missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/parallel-ok.md')}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`);
     }
@@ -349,7 +355,8 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       const missingSections = await sliceMissingRequiredSections(finalSlice);
       if (missingSections.length > 0) {
         const semanticSections = missingSections.map((sectionKey) => describeSemanticSectionSpec(sectionKey));
-        missingParts.push(`- ${toPromptPath(path.relative(rootDir, finalSlice))}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
+        const sliceBasename = path.basename(finalSlice);
+        missingParts.push(`- ${toPromptPath(`AgentWorkSpace/ImplementationSteps/${sliceBasename}`)}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
       }
     }
     if (missingParts.length === 0) {
@@ -369,16 +376,17 @@ export async function buildAgentArtifactRemediationPrompt(options: {
 
   const missingParts: string[] = [];
   for (const relativePath of required) {
-    const artifact = await loadWorkspaceArtifact(rootDir, relativePath);
+    const basename = path.basename(relativePath);
+    const artifact = await readHandoffArtifact(options.handoffsDir, basename);
     if (!artifact.exists || !hasRealContent(artifact)) {
       missingParts.push(`- ${toPromptPath(relativePath)}: ${ARTIFACT_REMEDIATION_INSTRUCTIONS[relativePath] ?? `Fill in ${toPromptPath(relativePath)} with substantive content.`}`);
     }
   }
-  if (agentId === 'qa' && !await qaIssuesStructured(rootDir)) {
+  if (agentId === 'qa' && !await qaIssuesStructured(options.handoffsDir)) {
     missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/issues.md')}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
   }
   if (agentId === 'qa') {
-    const finalSummary = await loadWorkspaceArtifact(rootDir, 'AgentWorkSpace/handoffs/final-summary.md');
+    const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (finalSummary.exists) {
       const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
       if (owner !== 'qa') {

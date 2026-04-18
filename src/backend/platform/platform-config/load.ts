@@ -107,6 +107,133 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     );
   }
 
+  // max_parallel_tasks
+  let maxParallelTasks = 10;
+  const rawMaxParallel = data['max_parallel_tasks'];
+  if (rawMaxParallel === undefined) {
+    maxParallelTasks = 10;
+  } else if (
+    typeof rawMaxParallel !== 'number'
+    || !Number.isInteger(rawMaxParallel)
+    || rawMaxParallel < 1
+  ) {
+    errors.push(
+      err(
+        'max_parallel_tasks',
+        `Must be a positive integer ≥ 1, got ${JSON.stringify(rawMaxParallel)}.`,
+        'Set max_parallel_tasks to a positive integer.',
+      ),
+    );
+  } else {
+    maxParallelTasks = rawMaxParallel;
+  }
+
+  // retain_failed_task_worktrees
+  let retainFailedTaskWorktrees = true;
+  const rawRetain = data['retain_failed_task_worktrees'];
+  if (rawRetain === undefined) {
+    retainFailedTaskWorktrees = true;
+  } else if (typeof rawRetain !== 'boolean') {
+    errors.push(
+      err(
+        'retain_failed_task_worktrees',
+        `Must be a boolean, got ${JSON.stringify(rawRetain)}.`,
+        'Set retain_failed_task_worktrees to true or false.',
+      ),
+    );
+  } else {
+    retainFailedTaskWorktrees = rawRetain;
+  }
+
+  // max_retained_failed_task_worktrees
+  let maxRetainedFailedTaskWorktrees = 10;
+  const rawMaxRetained = data['max_retained_failed_task_worktrees'];
+  if (rawMaxRetained === undefined) {
+    maxRetainedFailedTaskWorktrees = 10;
+  } else if (
+    typeof rawMaxRetained !== 'number'
+    || !Number.isInteger(rawMaxRetained)
+    || rawMaxRetained < 0
+  ) {
+    errors.push(
+      err(
+        'max_retained_failed_task_worktrees',
+        `Must be a non-negative integer, got ${JSON.stringify(rawMaxRetained)}.`,
+        'Set max_retained_failed_task_worktrees to a non-negative integer.',
+      ),
+    );
+  } else {
+    maxRetainedFailedTaskWorktrees = rawMaxRetained;
+  }
+
+  // max_retry_generations_per_slug
+  let maxRetryGenerationsPerSlug = 5;
+  const rawMaxRetry = data['max_retry_generations_per_slug'];
+  if (rawMaxRetry === undefined) {
+    maxRetryGenerationsPerSlug = 5;
+  } else if (
+    typeof rawMaxRetry !== 'number'
+    || !Number.isInteger(rawMaxRetry)
+    || rawMaxRetry < 1
+  ) {
+    errors.push(
+      err(
+        'max_retry_generations_per_slug',
+        `Must be a positive integer ≥ 1, got ${JSON.stringify(rawMaxRetry)}.`,
+        'Set max_retry_generations_per_slug to a positive integer ≥ 1. Use retain_failed_task_worktrees=false to disable retention instead.',
+      ),
+    );
+  } else {
+    maxRetryGenerationsPerSlug = rawMaxRetry;
+  }
+
+  // completed_task_runtime_retention_ms
+  let completedTaskRuntimeRetentionMs = 3600000;
+  const rawRetentionMs = data['completed_task_runtime_retention_ms'];
+  if (rawRetentionMs === undefined) {
+    completedTaskRuntimeRetentionMs = 3600000;
+  } else if (
+    typeof rawRetentionMs !== 'number'
+    || !Number.isInteger(rawRetentionMs)
+    || rawRetentionMs < 0
+  ) {
+    errors.push(
+      err(
+        'completed_task_runtime_retention_ms',
+        `Must be a non-negative integer, got ${JSON.stringify(rawRetentionMs)}.`,
+        'Set completed_task_runtime_retention_ms to a non-negative integer.',
+      ),
+    );
+  } else {
+    completedTaskRuntimeRetentionMs = rawRetentionMs;
+  }
+
+  // mcp_port_range
+  let mcpPortRange: { min: number; max: number } = { min: 8811, max: 8820 };
+  const rawPortRange = data['mcp_port_range'];
+  if (rawPortRange === undefined) {
+    mcpPortRange = { min: 8811, max: 8820 };
+  } else if (
+    !isRecord(rawPortRange)
+    || typeof rawPortRange['min'] !== 'number'
+    || typeof rawPortRange['max'] !== 'number'
+    || !Number.isInteger(rawPortRange['min'])
+    || !Number.isInteger(rawPortRange['max'])
+    || rawPortRange['min'] < 1
+    || rawPortRange['max'] > 65535
+    || rawPortRange['min'] > rawPortRange['max']
+  ) {
+    errors.push(
+      err(
+        'mcp_port_range',
+        `Must be an object { min, max } with 1 ≤ min ≤ max ≤ 65535, got ${JSON.stringify(rawPortRange)}.`,
+        'Set mcp_port_range to an object with valid integer min and max port numbers.',
+      ),
+    );
+  } else {
+    mcpPortRange = { min: rawPortRange['min'] as number, max: rawPortRange['max'] as number };
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -116,6 +243,12 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     config: {
       schema_version: version as number,
       container_runtime: containerRuntime as ContainerBackend,
+      max_parallel_tasks: maxParallelTasks,
+      retain_failed_task_worktrees: retainFailedTaskWorktrees,
+      max_retained_failed_task_worktrees: maxRetainedFailedTaskWorktrees,
+      max_retry_generations_per_slug: maxRetryGenerationsPerSlug,
+      completed_task_runtime_retention_ms: completedTaskRuntimeRetentionMs,
+      mcp_port_range: mcpPortRange,
     } satisfies PlatformConfig,
     raw,
   };
