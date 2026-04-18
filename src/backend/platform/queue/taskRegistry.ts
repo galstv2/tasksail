@@ -6,7 +6,7 @@
  * The Task Board reads from the registry instead of scanning directories.
  */
 import path from 'node:path';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, rename, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { ensureDir, readTextFile } from '../core/index.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from './markdown.js';
 
 const REGISTRY_RELATIVE_PATH = '.platform-state/task-registry.json';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export type TaskState = 'open' | 'pending' | 'active' | 'failed' | 'completed';
 
@@ -43,7 +43,8 @@ export interface TaskRegistryEntry {
 export interface ContextPackTaskSet {
   open: TaskRegistryEntry[];
   pending: TaskRegistryEntry[];
-  active: TaskRegistryEntry | null;
+  /** Breaking change §4.5: active is now an array (was TaskRegistryEntry | null). */
+  active: TaskRegistryEntry[];
   failed: TaskRegistryEntry[];
   completed: TaskRegistryEntry[];
 }
@@ -53,8 +54,26 @@ export interface TaskRegistry {
   tasks: Record<string, ContextPackTaskSet>;
 }
 
+// ── In-process async mutex (no third-party deps) ──────────────────────────
+
+let _registryMutexChain: Promise<void> = Promise.resolve();
+
+/**
+ * Acquire the in-process registry mutex. Returns a release function.
+ * All load→mutate→save pairs in registerTask / transitionTask go through this.
+ */
+function acquireRegistryMutex(): Promise<() => void> {
+  let releaseFn!: () => void;
+  const next = new Promise<void>((resolve) => { releaseFn = resolve; });
+  const gate = _registryMutexChain.then(() => releaseFn);
+  _registryMutexChain = _registryMutexChain.then(() => next);
+  return gate;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
 function emptyTaskSet(): ContextPackTaskSet {
-  return { open: [], pending: [], active: null, failed: [], completed: [] };
+  return { open: [], pending: [], active: [], failed: [], completed: [] };
 }
 
 function emptyRegistry(): TaskRegistry {
@@ -76,13 +95,93 @@ function ensurePackSet(registry: TaskRegistry, key: string): ContextPackTaskSet 
   return registry.tasks[key];
 }
 
+// ── Schema version handling ───────────────────────────────────────────────
+
+/**
+ * Raw on-disk v1 shape: active was TaskRegistryEntry | null.
+ */
+interface RawContextPackTaskSetV1 {
+  open?: TaskRegistryEntry[];
+  pending?: TaskRegistryEntry[];
+  active?: TaskRegistryEntry | TaskRegistryEntry[] | null;
+  failed?: TaskRegistryEntry[];
+  completed?: TaskRegistryEntry[];
+}
+
+interface RawRegistryOnDisk {
+  schema_version?: number;
+  tasks?: Record<string, RawContextPackTaskSetV1>;
+}
+
+function migrateV1Set(raw: RawContextPackTaskSetV1): ContextPackTaskSet {
+  let active: TaskRegistryEntry[];
+  if (Array.isArray(raw.active)) {
+    active = raw.active;
+  } else if (raw.active != null) {
+    active = [raw.active];
+  } else {
+    active = [];
+  }
+  return {
+    open: raw.open ?? [],
+    pending: raw.pending ?? [],
+    active,
+    failed: raw.failed ?? [],
+    completed: raw.completed ?? [],
+  };
+}
+
 export async function loadTaskRegistry(repoRoot: string): Promise<TaskRegistry> {
   try {
     const raw = await readFile(registryPath(repoRoot), 'utf-8');
-    const parsed = JSON.parse(raw) as TaskRegistry;
-    if (parsed.schema_version !== SCHEMA_VERSION) return emptyRegistry();
-    return parsed;
-  } catch {
+    const parsed = JSON.parse(raw) as RawRegistryOnDisk;
+    const version = parsed.schema_version;
+
+    // Reject future / corrupt versions (downgrade guard)
+    if (version !== undefined && version !== null && (version < 1 || version > 2)) {
+      const err = new Error(`task-registry-stale-schema: unsupported schema_version ${version}`);
+      (err as Error & { code: string }).code = 'task-registry-stale-schema';
+      throw err;
+    }
+
+    // v1 (no schema_version, or schema_version: 1) — migrate active field in-memory
+    if (!version || version === 1) {
+      const migrated: TaskRegistry = {
+        schema_version: SCHEMA_VERSION,
+        tasks: {},
+      };
+      for (const [key, rawSet] of Object.entries(parsed.tasks ?? {})) {
+        migrated.tasks[key] = migrateV1Set(rawSet);
+      }
+      return migrated;
+    }
+
+    // v2 — already correct shape; normalise missing arrays
+    const registry: TaskRegistry = {
+      schema_version: SCHEMA_VERSION,
+      tasks: {},
+    };
+    for (const [key, rawSet] of Object.entries(parsed.tasks ?? {})) {
+      registry.tasks[key] = {
+        open: (rawSet as ContextPackTaskSet).open ?? [],
+        pending: (rawSet as ContextPackTaskSet).pending ?? [],
+        active: Array.isArray((rawSet as ContextPackTaskSet).active)
+          ? (rawSet as ContextPackTaskSet).active
+          : [],
+        failed: (rawSet as ContextPackTaskSet).failed ?? [],
+        completed: (rawSet as ContextPackTaskSet).completed ?? [],
+      };
+    }
+    return registry;
+  } catch (err: unknown) {
+    // Re-throw stale-schema errors so callers can handle them
+    if (
+      err instanceof Error &&
+      'code' in err &&
+      (err as Error & { code: string }).code === 'task-registry-stale-schema'
+    ) {
+      throw err;
+    }
     return emptyRegistry();
   }
 }
@@ -93,8 +192,10 @@ export async function saveTaskRegistry(
 ): Promise<void> {
   const filePath = registryPath(repoRoot);
   await ensureDir(path.dirname(filePath));
+  // Always stamp schema_version: 2 on write
+  const toWrite: TaskRegistry = { ...registry, schema_version: 2 };
   const tmpPath = filePath + '.tmp';
-  await writeFile(tmpPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
+  await writeFile(tmpPath, JSON.stringify(toWrite, null, 2) + '\n', 'utf-8');
   await rename(tmpPath, filePath);
 }
 
@@ -102,16 +203,25 @@ export async function registerTask(
   repoRoot: string,
   entry: TaskRegistryEntry,
 ): Promise<void> {
-  const registry = await loadTaskRegistry(repoRoot);
-  const key = contextPackKey(entry);
-  const set = ensurePackSet(registry, key);
-  const list = stateList(set, entry.state);
-  if (list && !list.some((e) => e.taskId === entry.taskId)) {
-    list.push(entry);
-  } else if (entry.state === 'active' && set.active?.taskId !== entry.taskId) {
-    set.active = entry;
+  const release = await acquireRegistryMutex();
+  try {
+    const registry = await loadTaskRegistry(repoRoot);
+    const key = contextPackKey(entry);
+    const set = ensurePackSet(registry, key);
+    if (entry.state === 'active') {
+      if (!set.active.some((e) => e.taskId === entry.taskId)) {
+        set.active.push(entry);
+      }
+    } else {
+      const list = stateList(set, entry.state);
+      if (list && !list.some((e) => e.taskId === entry.taskId)) {
+        list.push(entry);
+      }
+    }
+    await saveTaskRegistry(repoRoot, registry);
+  } finally {
+    release();
   }
-  await saveTaskRegistry(repoRoot, registry);
 }
 
 export async function transitionTask(
@@ -121,20 +231,27 @@ export async function transitionTask(
   toState: TaskState,
   updates?: Partial<TaskRegistryEntry>,
 ): Promise<void> {
-  const registry = await loadTaskRegistry(repoRoot);
-  const entry = findAndRemove(registry, taskId, fromState);
-  if (!entry) return;
+  const release = await acquireRegistryMutex();
+  try {
+    const registry = await loadTaskRegistry(repoRoot);
+    const entry = findAndRemove(registry, taskId, fromState);
+    if (!entry) return;
 
-  const updated: TaskRegistryEntry = { ...entry, state: toState, ...updates };
-  const key = contextPackKey(updated);
-  const set = ensurePackSet(registry, key);
-  if (toState === 'active') {
-    set.active = updated;
-  } else {
-    const list = stateList(set, toState);
-    if (list) list.push(updated);
+    const updated: TaskRegistryEntry = { ...entry, state: toState, ...updates };
+    const key = contextPackKey(updated);
+    const set = ensurePackSet(registry, key);
+    if (toState === 'active') {
+      if (!set.active.some((e) => e.taskId === updated.taskId)) {
+        set.active.push(updated);
+      }
+    } else {
+      const list = stateList(set, toState);
+      if (list) list.push(updated);
+    }
+    await saveTaskRegistry(repoRoot, registry);
+  } finally {
+    release();
   }
-  await saveTaskRegistry(repoRoot, registry);
 }
 
 export async function removeTask(
@@ -147,9 +264,7 @@ export async function removeTask(
     for (const state of ['open', 'pending', 'failed', 'completed'] as const) {
       set[state] = set[state].filter((e) => e.taskId !== taskId);
     }
-    if (set.active?.taskId === taskId) {
-      set.active = null;
-    }
+    set.active = set.active.filter((e) => e.taskId !== taskId);
   }
   await saveTaskRegistry(repoRoot, registry);
 }
@@ -166,7 +281,7 @@ export function getAllTasks(registry: TaskRegistry): ContextPackTaskSet {
   for (const set of Object.values(registry.tasks)) {
     merged.open.push(...set.open);
     merged.pending.push(...set.pending);
-    if (set.active && !merged.active) merged.active = set.active;
+    merged.active.push(...set.active);
     merged.failed.push(...set.failed);
     merged.completed.push(...set.completed);
   }
@@ -179,7 +294,6 @@ export function getAllTasks(registry: TaskRegistry): ContextPackTaskSet {
  * markdown.
  */
 export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry> {
-  const { readdir } = await import('node:fs/promises');
   const registry = emptyRegistry();
   const dirs: { dir: string; state: TaskState }[] = [
     { dir: path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), state: 'open' },
@@ -187,12 +301,16 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
     { dir: path.join(repoRoot, 'AgentWorkSpace', 'error-items'), state: 'failed' },
   ];
 
-  // Check for active item
-  const activeItemPath = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item');
-  let activeFileName: string | null = null;
+  // Check for active items via .active-items/ directory (§4.5)
+  const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+  let activeFileNames: string[] = [];
   try {
-    activeFileName = (await readFile(activeItemPath, 'utf-8')).trim() || null;
+    const entries = await readdir(activeItemsDir);
+    activeFileNames = entries.filter((f) => !f.endsWith('.completing'));
   } catch { /* absent */ }
+
+  // Build a set of active taskIds (without .md suffix) for quick lookup
+  const activeTaskIds = new Set(activeFileNames.map((f) => f.replace(/\.md$/, '')));
 
   for (const { dir, state } of dirs) {
     if (!existsSync(dir)) continue;
@@ -209,7 +327,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
       const taskId = fileName.replace(/\.md$/, '');
 
       const effectiveState: TaskState =
-        state === 'pending' && fileName === activeFileName ? 'active' : state;
+        state === 'pending' && activeTaskIds.has(taskId) ? 'active' : state;
 
       const entry: TaskRegistryEntry = {
         taskId,
@@ -234,7 +352,9 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
       const key = contextPackKey(entry);
       const set = ensurePackSet(registry, key);
       if (effectiveState === 'active') {
-        set.active = entry;
+        if (!set.active.some((e) => e.taskId === entry.taskId)) {
+          set.active.push(entry);
+        }
       } else {
         const list = stateList(set, effectiveState);
         if (list) list.push(entry);
@@ -257,7 +377,7 @@ function stateList(
     case 'pending': return set.pending;
     case 'failed': return set.failed;
     case 'completed': return set.completed;
-    case 'active': return null; // active is singular, not a list
+    case 'active': return null; // active is an array but managed separately
   }
 }
 
@@ -269,10 +389,9 @@ function findAndRemove(
   for (const key of Object.keys(registry.tasks)) {
     const set = registry.tasks[key];
     if (fromState === 'active') {
-      if (set.active?.taskId === taskId) {
-        const entry = set.active;
-        set.active = null;
-        return entry;
+      const idx = set.active.findIndex((e) => e.taskId === taskId);
+      if (idx >= 0) {
+        return set.active.splice(idx, 1)[0] ?? null;
       }
     } else {
       const list = stateList(set, fromState);

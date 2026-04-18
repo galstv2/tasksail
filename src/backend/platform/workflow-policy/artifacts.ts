@@ -1,7 +1,9 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { readTextFile, resolvePaths } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
+import { type QueuePaths } from '../queue/paths.js';
 import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
 import {
   CONTENT_SECTION_EXCLUSIONS,
@@ -245,15 +247,12 @@ export async function hasPendingMarkdownFiles(rootDir: string): Promise<boolean>
   }
 }
 
-export async function activeItemExists(rootDir: string): Promise<boolean> {
-  const activeItemPath = path.join(resolvePaths({ repoRoot: rootDir }).pendingItems, '.active-item');
-  const activeItem = (await readTextFile(activeItemPath))?.trim();
-  if (!activeItem) {
-    return false;
-  }
-
-  const candidate = path.join(resolvePaths({ repoRoot: rootDir }).pendingItems, activeItem);
-  return (await readTextFile(candidate)) !== undefined;
+/**
+ * Check whether a specific task's active marker exists in .active-items/.
+ * Callers MUST pass taskId explicitly.
+ */
+export function activeTaskMarkerExists(queuePaths: QueuePaths, taskId: string): boolean {
+  return existsSync(path.join(queuePaths.activeItemsDir, taskId));
 }
 
 export async function inferContextPackDir(

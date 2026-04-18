@@ -11,7 +11,78 @@ import {
 } from './paths.js';
 import { initializeTaskArtifacts, resetHandoffArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
-import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
+
+/**
+ * Regex that taskId values MUST conform to.
+ * Rules: lowercase alphanumeric, hyphens, underscores; no dots (sentinel ambiguity);
+ * no leading/trailing hyphens/underscores; 2–64 chars total.
+ */
+export const TASK_ID_PATTERN = /^[a-z0-9][a-z0-9-_]{0,62}[a-z0-9]$/;
+
+/**
+ * Error thrown when a taskId does not conform to TASK_ID_PATTERN.
+ * Callers MUST catch by `.code`, not by instanceof, to survive IPC boundaries.
+ */
+export interface InvalidTaskIdShapeError {
+  code: 'invalid-task-id-shape';
+  taskId: string;
+  pattern: string;
+  reason: string;
+}
+
+export type InvalidTaskIdShapeErrorInstance = Error & InvalidTaskIdShapeError;
+
+/**
+ * Validate a taskId against the canonical shape regex.
+ * Throws InvalidTaskIdShapeErrorInstance when invalid.
+ */
+export function validateTaskId(taskId: string): void {
+  if (!TASK_ID_PATTERN.test(taskId)) {
+    let reason = 'taskId does not match pattern';
+    if (/[A-Z]/.test(taskId)) {
+      reason = 'uppercase not allowed in taskId';
+    } else if (/\./.test(taskId)) {
+      reason = 'dot not allowed in taskId (sentinel filename ambiguity)';
+    } else if (/^[-_]/.test(taskId)) {
+      reason = 'taskId must not start with a hyphen or underscore';
+    } else if (/[-_]$/.test(taskId)) {
+      reason = 'taskId must not end with a hyphen or underscore';
+    } else if (taskId.length < 2) {
+      reason = 'taskId must be at least 2 characters';
+    } else if (taskId.length > 64) {
+      reason = 'taskId must be at most 64 characters';
+    }
+    const err = new Error(
+      `invalid-task-id-shape: taskId "${taskId}" failed pattern ${TASK_ID_PATTERN.source}: ${reason}`,
+    ) as InvalidTaskIdShapeErrorInstance;
+    err.code = 'invalid-task-id-shape';
+    err.taskId = taskId;
+    err.pattern = TASK_ID_PATTERN.source;
+    err.reason = reason;
+    throw err;
+  }
+}
+
+/**
+ * Generate a slug from a title + ISO timestamp. Output MUST pass TASK_ID_PATTERN.
+ */
+export function generateTaskId(rawTitle: string): string {
+  const now = new Date();
+  // Produce a fully lowercase timestamp: strip separators, replace 'T' with '-', drop sub-seconds
+  // e.g. "2026-04-18T23:06:49.123Z" → "20260418-230649z"
+  const ts = now.toISOString()
+    .replace(/[-:]/g, '')       // remove dashes and colons
+    .replace('T', '-')          // lowercase separator between date and time
+    .replace(/\.\d+Z$/, 'z');   // drop milliseconds, lowercase trailing Z
+  // slugify lowercases and replaces non-alnum with hyphens; then strip leading/trailing hyphens
+  const base = slugify(rawTitle).replace(/^[-_]+|[-_]+$/g, '') || 'task';
+  const candidate = `${base}-${ts}`;
+  // Trim to 64 chars, ensuring no trailing hyphen/underscore
+  let trimmed = candidate.slice(0, 64).replace(/[-_]+$/, '');
+  // Strip any dots (slugify should not produce them, but be defensive)
+  trimmed = trimmed.replace(/\./g, '-');
+  return trimmed;
+}
 
 /**
  * Check if a markdown file contains authored section content beyond
@@ -39,10 +110,16 @@ export interface InitializeTaskOptions {
   reset?: boolean;
   force?: boolean;
   repoRoot?: string;
+  /**
+   * Explicit context pack path for the new task.
+   * Required for new-task invocations. When absent and reset=true, treated as non-fatal.
+   */
+  contextPackPath?: string;
 }
 
 /**
  * Initialize or reset the handoff workspace for a new task.
+ * Writes artifacts under AgentWorkSpace/tasks/<taskId>/handoffs/ (per-task path).
  */
 export async function initializeTask(
   options: InitializeTaskOptions = {},
@@ -56,6 +133,7 @@ export async function initializeTask(
     reset = false,
     force = false,
     repoRoot: rawRepoRoot,
+    contextPackPath,
   } = options;
 
   const repoRoot = rawRepoRoot ?? findRepoRoot();
@@ -63,12 +141,15 @@ export async function initializeTask(
 
   await ensureDir(queuePaths.dropboxDir);
   await ensureDir(queuePaths.pendingDir);
-  await ensureDir(queuePaths.handoffsDir);
 
   if (reset) {
+    // Reset mode: use the singleton handoffs workspace for backward compatibility.
+    // Path constructed inline to avoid the singleton accessor.
+    const singletonHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    await ensureDir(singletonHandoffsDir);
     if (!force) {
       const ready = await handoffWorkspaceIsReady(
-        queuePaths.handoffsDir,
+        singletonHandoffsDir,
         queuePaths.templatesDir,
       );
       if (!ready) {
@@ -78,28 +159,41 @@ export async function initializeTask(
       }
     }
 
-    await resetHandoffArtifacts(queuePaths.handoffsDir, HANDOFF_FILES, {
+    await resetHandoffArtifacts(singletonHandoffsDir, HANDOFF_FILES, {
       implementationStepsDir: implementationStepsDirFor(repoRoot),
     });
     return;
   }
 
+  // Determine taskId — validate if explicit, generate if absent
+  const taskTitle = rawTitle || 'New Task';
+  let taskId: string;
+  if (rawTaskId !== undefined && rawTaskId !== '') {
+    validateTaskId(rawTaskId);
+    taskId = rawTaskId;
+  } else {
+    taskId = generateTaskId(taskTitle);
+    // Generated slugs must also pass validation (defense-in-depth)
+    validateTaskId(taskId);
+  }
+
+  // Per-task handoffs directory (§4.1B)
+  const perTaskHandoffsDir = queuePaths.taskHandoffs(taskId);
+  await ensureDir(perTaskHandoffsDir);
+
   if (!force) {
     const ready = await handoffWorkspaceIsReady(
-      queuePaths.handoffsDir,
+      perTaskHandoffsDir,
       queuePaths.templatesDir,
     );
     if (!ready) {
       throw new Error(
-        'handoffs/ is not in a reset state. Run reset after closeout, or rerun with --force.',
+        `handoffs/ for task "${taskId}" is not in a reset state. Rerun with --force.`,
       );
     }
   }
 
-  const taskTitle = rawTitle || 'New Task';
   const now = new Date();
-  const ts = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  const taskId = rawTaskId || `${slugify(taskTitle)}-${ts}`;
   const initializedAt = now.toISOString().replace(/\.\d+Z$/, 'Z');
 
   const metadata: Record<string, string> = {
@@ -115,33 +209,29 @@ export async function initializeTask(
     sections['Raw Request'] = rawRequest;
   }
 
-  const implementationStepsDir = implementationStepsDirFor(repoRoot);
+  const implementationStepsDir = queuePaths.taskImplementationSteps(taskId);
 
   await initializeTaskArtifacts({
-    handoffsDir: queuePaths.handoffsDir,
+    handoffsDir: perTaskHandoffsDir,
     templatesDir: queuePaths.templatesDir,
     metadata,
     sections,
     implementationStepsDir,
   });
-  // §3.2: resolve context pack via the policy layer (reads sidecar when
-  // TASKSAIL_TASK_ID is set, else falls back to singleton). Best-effort:
-  // missing context pack is non-fatal for task initialization.
-  let newTaskContextPackDir: string | undefined;
-  try {
-    newTaskContextPackDir = await requireAuthorizedActiveContextPack({ repoRoot });
-  } catch {
-    newTaskContextPackDir = undefined;
-  }
+
+  // §4.1B: contextPackPath is now passed explicitly; do NOT read ACTIVE_CONTEXT_PACK_DIR env.
+  // When missing, treat as non-fatal for task initialization (best-effort).
+  const resolvedContextPackDir: string | undefined = contextPackPath;
+
   await syncRetrospectiveRequiredMetadata({
     repoRoot,
-    handoffsDir: queuePaths.handoffsDir,
-    contextPackDir: newTaskContextPackDir,
+    handoffsDir: perTaskHandoffsDir,
+    contextPackDir: resolvedContextPackDir,
   });
 
   if (withStarterSlice) {
     // Verify pre-slice artifacts exist before creating a starter slice.
-    const implSpec = path.join(queuePaths.handoffsDir, 'implementation-spec.md');
+    const implSpec = path.join(perTaskHandoffsDir, 'implementation-spec.md');
     const hasImplSpec = await hasAuthoredContent(implSpec);
 
     if (!hasImplSpec) {

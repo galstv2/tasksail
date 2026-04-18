@@ -153,7 +153,7 @@ export async function readTaskBoard(
         tasks = {
           open: [...packTasks.open, ...unboundTasks.open],
           pending: [...packTasks.pending, ...unboundTasks.pending],
-          active: packTasks.active ?? unboundTasks.active,
+          active: [...packTasks.active, ...unboundTasks.active],
           failed: [...packTasks.failed, ...unboundTasks.failed],
           completed: [...packTasks.completed, ...unboundTasks.completed],
         };
@@ -163,7 +163,7 @@ export async function readTaskBoard(
 
       const dropboxItems = tasks.open.map(registryEntryToItem);
       const pendingItems = [
-        ...(tasks.active ? [registryEntryToPendingItem(tasks.active)] : []),
+        ...tasks.active.map(registryEntryToPendingItem),
         ...tasks.pending.map(registryEntryToPendingItem),
       ];
       const errorItems = tasks.failed.map(registryEntryToItem);

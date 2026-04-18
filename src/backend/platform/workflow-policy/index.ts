@@ -70,7 +70,6 @@ export {
 } from './agents.js';
 
 export {
-  activeItemExists,
   hasPendingMarkdownFiles,
   inferContextPackDir,
   listSliceFiles,

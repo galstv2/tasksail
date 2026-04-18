@@ -398,11 +398,13 @@ describe('queue rules — parity', () => {
     roots.push(repoRoot);
     writeRegistry(repoRoot);
     writeHandoffsReset(repoRoot);
-    // No active-item, no pending items.
+    // No active-items/ marker, no pending items.
+    // §4.1B: taskId is required for queue-advance mode so the rule can check activeItemsDir.
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'queue-advance',
+      taskId: 'test-task-42',
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 

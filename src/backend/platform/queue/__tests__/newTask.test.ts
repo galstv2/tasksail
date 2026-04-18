@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,17 +15,19 @@ vi.mock('../retrospectiveFlag.js', () => ({
   syncRetrospectiveRequiredMetadata: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { initializeTask } from '../newTask.js';
+import { initializeTask, validateTaskId, generateTaskId, TASK_ID_PATTERN } from '../newTask.js';
 import {
   HANDOFF_FILES,
   SLICE_TEMPLATE_FILENAME,
-  implementationStepsDirFor,
   implementationStepsTemplatePath,
 } from '../paths.js';
 
 describe('initializeTask starter slice generation', () => {
   let repoRoot: string;
   let templatesDir: string;
+  // §4.1B: initializeTask writes per-task artifacts under tasks/<taskId>/
+  // Use a fixed taskId so we can locate the per-task ImplementationSteps dir.
+  const FIXED_TASK_ID = 'alice-runtime-templates';
 
   beforeEach(() => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-new-task-'));
@@ -57,12 +60,15 @@ describe('initializeTask starter slice generation', () => {
 
     await initializeTask({
       repoRoot,
-      title: 'Alice Runtime Templates',
+      taskId: FIXED_TASK_ID,
       withStarterSlice: true,
       force: true,
     });
 
-    const implementationStepsDir = implementationStepsDirFor(repoRoot);
+    // §4.1B: per-task ImplementationSteps path
+    const implementationStepsDir = path.join(
+      repoRoot, 'AgentWorkSpace', 'tasks', FIXED_TASK_ID, 'ImplementationSteps',
+    );
     const starterSlices = readdirSync(implementationStepsDir)
       .filter((entry) => entry.endsWith('.md') && entry !== SLICE_TEMPLATE_FILENAME);
 
@@ -96,13 +102,16 @@ describe('initializeTask starter slice generation', () => {
     await expect(
       initializeTask({
         repoRoot,
-        title: 'Alice Runtime Templates',
+        taskId: FIXED_TASK_ID,
         withStarterSlice: true,
         force: true,
       }),
     ).rejects.toThrow('Starter slice blocked by missing pre-slice artifacts.');
 
-    const implementationStepsDir = implementationStepsDirFor(repoRoot);
+    // §4.1B: per-task ImplementationSteps path
+    const implementationStepsDir = path.join(
+      repoRoot, 'AgentWorkSpace', 'tasks', FIXED_TASK_ID, 'ImplementationSteps',
+    );
     const markdownFiles = readdirSync(implementationStepsDir)
       .filter((entry) => entry.endsWith('.md'));
 
@@ -125,4 +134,127 @@ describe('initializeTask starter slice generation', () => {
       options.sliceTemplate,
     );
   }
+});
+
+// ── §4.5 — validateTaskId / generateTaskId / per-task handoffs path ──────────
+
+describe('validateTaskId — MG-10 shape constraints', () => {
+  it('accepts valid taskIds', () => {
+    expect(() => validateTaskId('t1')).not.toThrow();
+    expect(() => validateTaskId('task-abc_123')).not.toThrow();
+    expect(() => validateTaskId('ab')).not.toThrow();
+    expect(() => validateTaskId('task-20240101t120000z')).not.toThrow();
+  });
+
+  it('rejects taskId with a dot — sentinel filename ambiguity', () => {
+    expect(() => validateTaskId('bad.id')).toThrowError(
+      expect.objectContaining({ code: 'invalid-task-id-shape' }),
+    );
+    const err = (() => { try { validateTaskId('bad.id'); } catch (e) { return e; } })() as { reason: string };
+    expect(err.reason).toContain('dot not allowed');
+  });
+
+  it('rejects taskId with uppercase letters', () => {
+    const err = (() => { try { validateTaskId('Bad-Id'); } catch (e) { return e; } })() as { code: string; reason: string };
+    expect(err.code).toBe('invalid-task-id-shape');
+    expect(err.reason).toContain('uppercase');
+  });
+
+  it('rejects taskId with leading hyphen', () => {
+    const err = (() => { try { validateTaskId('-leading-dash'); } catch (e) { return e; } })() as { code: string; reason: string };
+    expect(err.code).toBe('invalid-task-id-shape');
+    expect(err.reason).toContain('must not start');
+  });
+
+  it('rejects taskId with trailing hyphen', () => {
+    const err = (() => { try { validateTaskId('trailing-'); } catch (e) { return e; } })() as { code: string; reason: string };
+    expect(err.code).toBe('invalid-task-id-shape');
+    expect(err.reason).toContain('must not end');
+  });
+
+  it('rejects single-character taskId (too short)', () => {
+    const err = (() => { try { validateTaskId('a'); } catch (e) { return e; } })() as { code: string };
+    expect(err.code).toBe('invalid-task-id-shape');
+  });
+});
+
+describe('generateTaskId — slug normalization', () => {
+  it('generates a slug that passes TASK_ID_PATTERN', () => {
+    const id = generateTaskId('My Feature Title');
+    expect(TASK_ID_PATTERN.test(id)).toBe(true);
+  });
+
+  it('normalizes uppercase letters in the title', () => {
+    const id = generateTaskId('ALL CAPS TITLE');
+    expect(TASK_ID_PATTERN.test(id)).toBe(true);
+    // No uppercase in output
+    expect(/[A-Z]/.test(id)).toBe(false);
+  });
+
+  it('normalizes dots in the title (dot not allowed in taskId)', () => {
+    const id = generateTaskId('v1.2.3 Release');
+    expect(/\./.test(id)).toBe(false);
+    expect(TASK_ID_PATTERN.test(id)).toBe(true);
+  });
+
+  it('produces output of length between 2 and 64 chars', () => {
+    const id = generateTaskId('Short');
+    expect(id.length).toBeGreaterThanOrEqual(2);
+    expect(id.length).toBeLessThanOrEqual(64);
+  });
+
+  it('output does not start or end with hyphen or underscore', () => {
+    const id = generateTaskId('---starts-and-ends-weird---');
+    expect(/^[-_]/.test(id)).toBe(false);
+    expect(/[-_]$/.test(id)).toBe(false);
+    expect(TASK_ID_PATTERN.test(id)).toBe(true);
+  });
+});
+
+describe('initializeTask §4.1B — writes under tasks/<taskId>/handoffs/', () => {
+  let repoRoot: string;
+  let templatesDir: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-newtask-mg10-'));
+    templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(templatesDir, { recursive: true });
+
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n<!-- placeholder -->\n`);
+    }
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('when no taskId given, writes handoffs under tasks/<generatedId>/handoffs/', async () => {
+    await initializeTask({ repoRoot, title: 'MG10 Test Task', force: true });
+
+    const tasksDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks');
+    expect(existsSync(tasksDir)).toBe(true);
+
+    const taskDirs = readdirSync(tasksDir);
+    expect(taskDirs).toHaveLength(1);
+
+    const taskId = taskDirs[0]!;
+    expect(TASK_ID_PATTERN.test(taskId)).toBe(true);
+
+    const handoffsDir = path.join(tasksDir, taskId, 'handoffs');
+    expect(existsSync(handoffsDir)).toBe(true);
+  });
+
+  it('when explicit taskId given, writes under tasks/<taskId>/handoffs/', async () => {
+    await initializeTask({ repoRoot, taskId: 'my-explicit-task', force: true });
+
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'my-explicit-task', 'handoffs');
+    expect(existsSync(handoffsDir)).toBe(true);
+  });
+
+  it('rejects an invalid explicit taskId before touching the filesystem', async () => {
+    await expect(
+      initializeTask({ repoRoot, taskId: 'Invalid.Task', force: true }),
+    ).rejects.toMatchObject({ code: 'invalid-task-id-shape' });
+  });
 });

@@ -340,8 +340,13 @@ export async function moveDropboxItemToPending(options: {
     queuePaths.templatesDir,
   );
   if (activated) {
+    // Read newly activated item from .active-items/ directory
     try {
-      activatedItem = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim() || null;
+      const { readdirSync: rdsync } = await import('node:fs');
+      const markers = rdsync(queuePaths.activeItemsDir).filter(
+        (f: string) => !f.endsWith('.completing'),
+      );
+      activatedItem = markers.length > 0 ? (markers[0] as string) : null;
     } catch {
       // Could not read — leave null
     }

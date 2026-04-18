@@ -61,34 +61,42 @@ describe('getQueueStatus', () => {
     expect(status.dropboxItems).toEqual(['new-task.md']);
   });
 
-  it('reports the active item when set', async () => {
+  it('reports activeTasks when active marker exists in .active-items/', async () => {
+    // §4.1B: active state tracked via .active-items/<taskId>, not singleton .active-item
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
+    const activeItemsDir = path.join(pendingDir, '.active-items');
+    mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'active-task.md'), '# Active');
-    writeFileSync(path.join(pendingDir, '.active-item'), 'active-task.md');
+    writeFileSync(path.join(activeItemsDir, 'active-task'), '');
 
     const status = await getQueueStatus(tmpRoot);
 
-    expect(status.activeItem).toBe('active-task.md');
+    expect(status.activeTasks).toHaveLength(1);
+    expect(status.activeTasks[0]!.taskId).toBe('active-task');
   });
 
-  it('detects active item with blank workspace as degraded state', async () => {
+  it('detects active marker with blank workspace as degraded state', async () => {
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
+    const activeItemsDir = path.join(pendingDir, '.active-items');
+    mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'active-task.md'), '# Active');
-    writeFileSync(path.join(pendingDir, '.active-item'), 'active-task.md');
+    writeFileSync(path.join(activeItemsDir, 'active-task'), '');
     // handoffs/ is empty (blank/ready state) — crash-recovery scenario
 
     const status = await getQueueStatus(tmpRoot);
 
-    expect(status.activeItem).toBe('active-task.md');
+    expect(status.activeTasks).toHaveLength(1);
     expect(status.workspaceReady).toBe(true);
     expect(status.activeItemWithBlankWorkspace).toBe(true);
   });
 
-  it('reports activeItemWithBlankWorkspace false for normal active state', async () => {
+  it('reports activeItemWithBlankWorkspace false when workspace has task content', async () => {
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
+    const activeItemsDir = path.join(pendingDir, '.active-items');
     const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+    mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'active-task.md'), '# Active');
-    writeFileSync(path.join(pendingDir, '.active-item'), 'active-task.md');
+    writeFileSync(path.join(activeItemsDir, 'active-task'), '');
     // Write task content so workspace is NOT in ready/reset state
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
@@ -97,7 +105,7 @@ describe('getQueueStatus', () => {
 
     const status = await getQueueStatus(tmpRoot);
 
-    expect(status.activeItem).toBe('active-task.md');
+    expect(status.activeTasks).toHaveLength(1);
     expect(status.workspaceReady).toBe(false);
     expect(status.activeItemWithBlankWorkspace).toBe(false);
   });
@@ -117,12 +125,11 @@ describe('getQueueStatus', () => {
     expect(status.partialPublish).toBe(false);
   });
 
-  it('reports null active item when .active-item references missing file', async () => {
-    const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
-    writeFileSync(path.join(pendingDir, '.active-item'), 'missing.md');
-
+  it('reports empty activeTasks when .active-items/ is absent', async () => {
+    // §4.1B: no .active-items/ directory → no active tasks
     const status = await getQueueStatus(tmpRoot);
 
+    expect(status.activeTasks).toHaveLength(0);
     expect(status.activeItem).toBeNull();
   });
 
@@ -144,5 +151,63 @@ describe('getQueueStatus', () => {
     const status = await getQueueStatus(tmpRoot);
 
     expect(status.errorItemsCount).toBe(0);
+  });
+});
+
+// ── §4.1B / §4.5 — activeItemsDir-based active task reporting ────────────────
+
+describe('getQueueStatus §4.1B — activeTasks array from .active-items/', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-status-mg10-'));
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'dropbox'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('two active markers → activeTasks has two entries', async () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-b'), '');
+
+    const status = await getQueueStatus(tmpRoot);
+
+    expect(status.activeTasks).toHaveLength(2);
+    const ids = status.activeTasks.map((t) => t.taskId).sort();
+    expect(ids).toEqual(['task-a', 'task-b']);
+    expect(status.activeTasks.every((t) => t.state === 'active')).toBe(true);
+  });
+
+  it('sentinel-only directory {a, a.completing, b} → exactly 2 activeTasks (a, b), sentinel excluded', async () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+    writeFileSync(path.join(activeItemsDir, 'task-b'), '');
+
+    const status = await getQueueStatus(tmpRoot);
+
+    expect(status.activeTasks).toHaveLength(2);
+    const ids = status.activeTasks.map((t) => t.taskId).sort();
+    expect(ids).toEqual(['task-a', 'task-b']);
+  });
+
+  it('only .completing sentinels → activeTasks is empty', async () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+
+    const status = await getQueueStatus(tmpRoot);
+
+    expect(status.activeTasks).toHaveLength(0);
+  });
+
+  it('empty .active-items/ → activeTasks is empty', async () => {
+    const status = await getQueueStatus(tmpRoot);
+    expect(status.activeTasks).toHaveLength(0);
   });
 });

@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolveQueuePaths } from '../paths.js';
 
 const FAKE_ROOT = '/fake/repo';
@@ -65,5 +67,56 @@ describe('resolveQueuePaths — method accessor distinctness', () => {
   it('taskHandoffs("a") !== taskHandoffs("b")', () => {
     const qp = resolveQueuePaths(FAKE_ROOT);
     expect(qp.taskHandoffs('a')).not.toBe(qp.taskHandoffs('b'));
+  });
+});
+
+// F37 — activeItemLink function behavior
+describe('resolveQueuePaths — activeItemLink F37 sentinel filter', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-paths-f37-'));
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items'), {
+      recursive: true,
+    });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('returns undefined when .active-items/ is empty (zero non-sentinel)', () => {
+    const qp = resolveQueuePaths(tmpRoot);
+    expect(qp.activeItemLink()).toBeUndefined();
+  });
+
+  it('returns undefined when only a .completing sentinel file exists (F37 sentinel-only)', () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+    const qp = resolveQueuePaths(tmpRoot);
+    expect(qp.activeItemLink()).toBeUndefined();
+  });
+
+  it('returns the single marker path when exactly one non-sentinel file exists', () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    const qp = resolveQueuePaths(tmpRoot);
+    expect(qp.activeItemLink()).toBe(path.join(activeItemsDir, 'task-a'));
+  });
+
+  it('returns undefined when two or more non-sentinel markers exist (F37 multi-active)', () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-b'), '');
+    const qp = resolveQueuePaths(tmpRoot);
+    expect(qp.activeItemLink()).toBeUndefined();
+  });
+
+  it('excludes .completing sentinels from marker count (one real marker + one sentinel → returns marker)', () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+    const qp = resolveQueuePaths(tmpRoot);
+    expect(qp.activeItemLink()).toBe(path.join(activeItemsDir, 'task-a'));
   });
 });

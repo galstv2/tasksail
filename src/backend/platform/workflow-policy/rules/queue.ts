@@ -7,7 +7,8 @@
 import {
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
 } from '../models.js';
-import { activeItemExists, hasPendingMarkdownFiles } from '../artifacts.js';
+import { activeTaskMarkerExists, hasPendingMarkdownFiles } from '../artifacts.js';
+import { resolveQueuePaths } from '../../queue/paths.js';
 import type { PolicyValidator } from '../validator.js';
 
 export async function evaluateQueueRules(validator: PolicyValidator): Promise<void> {
@@ -19,7 +20,17 @@ export async function evaluateQueueRules(validator: PolicyValidator): Promise<vo
     return;
   }
 
-  if (await activeItemExists(validator.rootDir)) {
+  // Resolve taskId: must be provided by the validator's task context.
+  // If absent, throw — do NOT fall through to a singleton check.
+  const taskId = validator.taskId;
+  if (!taskId) {
+    throw new Error(
+      'evaluateQueueRules: taskId is required for queue-advance mode but was not provided',
+    );
+  }
+  const queuePaths = resolveQueuePaths(validator.rootDir);
+
+  if (activeTaskMarkerExists(queuePaths, taskId)) {
     if (validator.finalSummaryIsComplete()) {
       const retrospectiveGaps = validator.retrospectiveCompletionGaps();
       if (!Object.values(retrospectiveGaps).some((list) => list.length > 0)) {

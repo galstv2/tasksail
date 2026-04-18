@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { realpathSync } from 'node:fs';
-import { readFile, rename, unlink, rm, mkdir } from 'node:fs/promises';
+import { realpathSync, existsSync, readdirSync } from 'node:fs';
+import { rename, unlink, rm, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
 import { resolveQueuePaths, HANDOFF_FILES } from './paths.js';
@@ -197,17 +197,25 @@ export async function moveFailedItemToErrorItems(options: {
   const root = options.repoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(root);
 
-  let activeItem: string;
-  try {
-    activeItem = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim();
-  } catch {
-    throw new Error('No active item to move to error-items.');
+  // Resolve the active item via .active-items/ directory enumeration
+  let taskId: string;
+  if (options.taskId) {
+    taskId = options.taskId;
+  } else {
+    let markers: string[] = [];
+    if (existsSync(queuePaths.activeItemsDir)) {
+      try {
+        markers = readdirSync(queuePaths.activeItemsDir).filter(
+          (f) => !f.endsWith('.completing'),
+        );
+      } catch { /* skip */ }
+    }
+    if (markers.length === 0) {
+      throw new Error('No active item to move to error-items.');
+    }
+    taskId = markers[0]!.replace(/\.md$/, '');
   }
-  if (!activeItem) {
-    throw new Error('No active item to move to error-items.');
-  }
-
-  const taskId = activeItem.replace(/\.md$/, '');
+  const activeItem = `${taskId}.md`;
   const sourcePath = path.join(queuePaths.pendingDir, activeItem);
   await mkdir(queuePaths.errorItemsDir, { recursive: true });
   const destPath = path.join(queuePaths.errorItemsDir, activeItem);
@@ -219,7 +227,7 @@ export async function moveFailedItemToErrorItems(options: {
   try { await transitionTask(root, taskId, 'active', 'failed'); } catch { /* best-effort */ }
 
   try {
-    await unlink(queuePaths.activeItemLink);
+    await unlink(path.join(queuePaths.activeItemsDir, taskId));
   } catch {
     // Already cleared or missing — safe to continue
   }
@@ -260,7 +268,10 @@ export async function moveFailedItemToErrorItems(options: {
   );
   if (activated) {
     try {
-      nextActiveItem = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim() || null;
+      const newMarkers = readdirSync(queuePaths.activeItemsDir).filter(
+        (f) => !f.endsWith('.completing'),
+      );
+      nextActiveItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
     } catch {
       // Could not read — leave null
     }
@@ -311,8 +322,12 @@ export async function requeueErrorItem(options: {
     queuePaths.templatesDir,
   );
   if (activated) {
+    // Read the newly activated item from .active-items/ directory
     try {
-      activatedItem = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim() || null;
+      const newMarkers = readdirSync(queuePaths.activeItemsDir).filter(
+        (f) => !f.endsWith('.completing'),
+      );
+      activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
     } catch {
       // Could not read — leave null
     }

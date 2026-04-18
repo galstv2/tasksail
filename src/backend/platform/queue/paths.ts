@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readdirSync } from 'node:fs';
 import { findRepoRoot } from '../core/index.js';
 
 /**
@@ -39,7 +40,12 @@ export interface QueuePaths {
   errorItemsDir: string;
   handoffsDir: string;
   templatesDir: string;
-  activeItemLink: string;
+  /**
+   * Compatibility fallback: returns the single non-sentinel active-marker path
+   * when exactly one exists; returns undefined for zero or two-or-more (F37).
+   * Callers enumerating tasks MUST iterate activeItemsDir directly.
+   */
+  activeItemLink: () => string | undefined;
   queueLockDir: string;
   /** Runtime state: which context pack is active for the current task. */
   activeContextPackPath: string;
@@ -77,7 +83,18 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
     errorItemsDir: path.join(agentWorkSpace, 'error-items'),
     handoffsDir: path.join(agentWorkSpace, 'handoffs'),
     templatesDir: path.join(agentWorkSpace, 'templates'),
-    activeItemLink: path.join(pendingDir, '.active-item'),
+    activeItemLink: (): string | undefined => {
+      const activeItemsPath = path.join(pendingDir, '.active-items');
+      let entries: string[];
+      try {
+        entries = readdirSync(activeItemsPath);
+      } catch {
+        return undefined;
+      }
+      const markers = entries.filter((f) => !f.endsWith('.completing'));
+      if (markers.length !== 1) return undefined;
+      return path.join(activeItemsPath, markers[0]!);
+    },
     queueLockDir: path.join(pendingDir, '.queue-lock.d'),
     activeContextPackPath: path.join(platformQueueState, 'active-context-pack.json'),
     queueOrderPath: path.join(platformQueueState, 'queue-order.json'),

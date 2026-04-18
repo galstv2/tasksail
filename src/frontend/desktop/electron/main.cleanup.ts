@@ -140,15 +140,21 @@ function resetTaskRegistry(): void {
     for (const key of Object.keys(registry.tasks)) {
       const set = registry.tasks[key];
 
-      if (set.active) {
-        set.active.state = 'open';
-        set.active.fileName = set.active.fileName.replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
-        set.active.taskId = set.active.fileName.replace(/\.md$/, '');
+      // active is now TaskRegistryEntry[] (schema v2); tolerate legacy scalar (v1)
+      const activeEntries: unknown[] = Array.isArray(set.active)
+        ? set.active
+        : (set.active != null ? [set.active] : []);
+      if (activeEntries.length > 0) {
         set.open = set.open ?? [];
-        if (!set.open.some((e: { taskId: string }) => e.taskId === set.active!.taskId)) {
-          set.open.push(set.active);
+        for (const activeEntry of activeEntries as Array<{ state: string; fileName: string; taskId: string }>) {
+          activeEntry.state = 'open';
+          activeEntry.fileName = activeEntry.fileName.replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
+          activeEntry.taskId = activeEntry.fileName.replace(/\.md$/, '');
+          if (!set.open.some((e: { taskId: string }) => e.taskId === activeEntry.taskId)) {
+            set.open.push(activeEntry);
+          }
         }
-        set.active = null;
+        set.active = [];
         dirty = true;
       }
 

@@ -19,22 +19,23 @@ from src.backend.mcp.reinforcement.models import ROLE_MULTIPLIERS
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
 
-ACTIVE_ITEM_RELATIVE_PATH = "AgentWorkSpace/pendingitems/.active-item"
+ACTIVE_ITEMS_DIR_RELATIVE_PATH = "AgentWorkSpace/pendingitems/.active-items"
 
 
 def _active_item_task_id(repo_root: Path) -> str | None:
-    """Return the active task ID if a valid .active-item claim exists."""
-    marker = repo_root / ACTIVE_ITEM_RELATIVE_PATH
+    """Return the first active task ID found in .active-items/, or None."""
+    active_items_dir = repo_root / ACTIVE_ITEMS_DIR_RELATIVE_PATH
     try:
-        name = marker.read_text().strip()
+        markers = [
+            entry.name
+            for entry in active_items_dir.iterdir()
+            if not entry.name.endswith(".completing")
+        ]
     except FileNotFoundError:
         return None
-    if not name:
+    if not markers:
         return None
-    pending_file = repo_root / "AgentWorkSpace" / "pendingitems" / name
-    if not pending_file.exists():
-        return None
-    return name.removesuffix(".md")
+    return markers[0].removesuffix(".md")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

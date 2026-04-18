@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { basename } from 'node:path';
-import { unlink } from 'node:fs/promises';
+import { unlink, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
-import { findRepoRoot, readTextFile } from '../core/index.js';
+import { findRepoRoot } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { readQueueOrderManifest, writeQueueOrderManifest } from './operations.js';
 import { removeTask } from './taskRegistry.js';
@@ -37,8 +37,17 @@ export async function deletePendingItem(
     throw new Error(`Delete pending item blocked: "${queueName}" does not exist in pendingitems/.`);
   }
 
-  const claimedItem = (await readTextFile(queuePaths.activeItemLink))?.trim() || null;
-  if (claimedItem === queueName) {
+  // Check if the item to delete is currently active via .active-items/ enumeration
+  let activeMarkers: string[] = [];
+  if (existsSync(queuePaths.activeItemsDir)) {
+    try {
+      const entries = await readdir(queuePaths.activeItemsDir);
+      activeMarkers = entries.filter((f) => !f.endsWith('.completing'));
+    } catch { /* skip */ }
+  }
+  const deletedTaskId = queueName.replace(/\.md$/, '');
+  const isActive = activeMarkers.some((m) => m === deletedTaskId || m === queueName);
+  if (isActive) {
     throw new Error(
       `Delete pending item blocked: "${queueName}" is the active task.`,
     );
@@ -46,8 +55,7 @@ export async function deletePendingItem(
 
   await unlink(targetPath);
 
-  // Remove from the task registry
-  const deletedTaskId = queueName.replace(/\.md$/, '');
+  // Remove from the task registry (deletedTaskId declared above)
   try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
 
   // Remove from the queue-order manifest; delete the file when empty

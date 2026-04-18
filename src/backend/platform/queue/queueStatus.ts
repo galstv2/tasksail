@@ -1,16 +1,28 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { handoffWorkspaceIsReady, handoffPublishInProgress } from './lifecycle.js';
 
+export interface ActiveTaskEntry {
+  taskId: string;
+  state: 'active';
+  handoffsDir: string;
+}
+
 export interface QueueStatusResult {
   dropboxItems: string[];
   pendingItems: string[];
+  /** Per-task active entries (§4.1B). Replaces the singleton activeTask field. */
+  activeTasks: ActiveTaskEntry[];
+  /**
+   * @deprecated Use activeTasks[0] ?? null. Kept for CLI back-compat.
+   * Returns the filename of the first active task's pending-item file, or null.
+   */
   activeItem: string | null;
   workspaceReady: boolean;
-  /** True when .active-item exists but handoffs/ is blank — crash-recovery state. */
+  /** True when active markers exist but handoffs/ is blank — crash-recovery state. */
   activeItemWithBlankWorkspace: boolean;
   /** True when a .publish-in-progress marker exists — handoffs partially initialized. */
   partialPublish: boolean;
@@ -20,7 +32,7 @@ export interface QueueStatusResult {
 
 /**
  * Report the current queue state: dropbox items, pending items,
- * active item, and workspace readiness.
+ * active items, and workspace readiness.
  */
 export async function getQueueStatus(
   repoRoot?: string,
@@ -45,18 +57,29 @@ export async function getQueueStatus(
       .sort();
   }
 
-  // Active item
-  let activeItem: string | null = null;
-  if (existsSync(queuePaths.activeItemLink)) {
+  // Active tasks — iterate .active-items/ directory, filter .completing sentinels
+  const activeTasks: ActiveTaskEntry[] = [];
+  if (existsSync(queuePaths.activeItemsDir)) {
     try {
-      const name = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim();
-      if (name && existsSync(path.join(queuePaths.pendingDir, name))) {
-        activeItem = name;
+      const entries = await readdir(queuePaths.activeItemsDir);
+      const markers = entries.filter((f) => !f.endsWith('.completing'));
+      for (const marker of markers) {
+        const taskId = marker.replace(/\.md$/, '');
+        activeTasks.push({
+          taskId,
+          state: 'active',
+          handoffsDir: queuePaths.taskHandoffs(taskId),
+        });
       }
     } catch (err: unknown) {
-      process.stderr.write(`Warning: failed to read active-item: ${getErrorMessage(err)}\n`);
+      process.stderr.write(`Warning: failed to read active-items: ${getErrorMessage(err)}\n`);
     }
   }
+
+  // Deprecated back-compat getter: returns first active task's marker filename
+  const activeItem: string | null = activeTasks.length > 0
+    ? (path.basename(queuePaths.taskHandoffs(activeTasks[0]!.taskId).replace('/handoffs', '')) + '.md')
+    : null;
 
   // Workspace readiness
   const workspaceReady = await handoffWorkspaceIsReady(
@@ -64,8 +87,8 @@ export async function getQueueStatus(
     queuePaths.templatesDir,
   );
 
-  // Detect crash-recovery state: .active-item present but workspace is blank
-  const activeItemWithBlankWorkspace = activeItem !== null && workspaceReady;
+  // Detect crash-recovery state: active markers present but workspace is blank
+  const activeItemWithBlankWorkspace = activeTasks.length > 0 && workspaceReady;
 
   // Detect partial publish
   const partialPublish = handoffPublishInProgress(queuePaths.handoffsDir);
@@ -82,6 +105,7 @@ export async function getQueueStatus(
   return {
     dropboxItems,
     pendingItems,
+    activeTasks,
     activeItem,
     workspaceReady,
     activeItemWithBlankWorkspace,

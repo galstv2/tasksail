@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { readFile, access } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
@@ -236,16 +237,46 @@ async function computeHasUnprocessedFeedback(repoRoot: string): Promise<boolean>
 }
 
 export async function checkActiveWorkGuard(
-  repoRoot?: string,
+  options?: { repoRoot?: string; taskId?: string } | string,
 ): Promise<ActiveWorkGuardResult> {
-  const root = repoRoot ?? findRepoRoot();
-  const { activeItemLink, pendingDir } = resolveQueuePaths(root);
+  // Back-compat: accept bare string repoRoot or options object
+  const root = (typeof options === 'string' ? options : options?.repoRoot) ?? findRepoRoot();
+  const explicitTaskId = typeof options === 'object' ? options?.taskId : undefined;
+  const queuePaths = resolveQueuePaths(root);
   const hasUnprocessedFeedback = await computeHasUnprocessedFeedback(root);
 
-  let name: string;
+  // Resolve taskId: explicit param → TASKSAIL_TASK_ID env → enumerate activeItemsDir
+  const taskId = explicitTaskId ?? process.env['TASKSAIL_TASK_ID'];
+
+  if (taskId) {
+    // Per-task check using activeItemsDir
+    const markerExists = existsSync(path.join(queuePaths.activeItemsDir, taskId));
+    if (!markerExists) {
+      return {
+        allowed: true,
+        activeTaskId: null,
+        message: 'No active work. Corrective realignment is allowed.',
+        hasUnprocessedFeedback,
+      };
+    }
+    return {
+      allowed: false,
+      activeTaskId: taskId,
+      message: `Corrective realignment is blocked while pending item "${taskId}" is active. Complete or remove the active item before starting realignment.`,
+      hasUnprocessedFeedback,
+    };
+  }
+
+  // No taskId — enumerate activeItemsDir for any active task
+  let activeEntries: string[] = [];
   try {
-    name = (await readFile(activeItemLink, 'utf-8')).trim();
-  } catch {
+    const { readdirSync } = await import('node:fs');
+    activeEntries = readdirSync(queuePaths.activeItemsDir).filter(
+      (f) => !f.endsWith('.completing'),
+    );
+  } catch { /* directory absent */ }
+
+  if (activeEntries.length === 0) {
     return {
       allowed: true,
       activeTaskId: null,
@@ -254,26 +285,7 @@ export async function checkActiveWorkGuard(
     };
   }
 
-  if (!name) {
-    return {
-      allowed: true,
-      activeTaskId: null,
-      message: 'No active work. Corrective realignment is allowed.',
-      hasUnprocessedFeedback,
-    };
-  }
-  try {
-    await access(path.join(pendingDir, name));
-  } catch {
-    return {
-      allowed: true,
-      activeTaskId: null,
-      message: 'No active work. Corrective realignment is allowed.',
-      hasUnprocessedFeedback,
-    };
-  }
-
-  const activeTaskId = name.replace(/\.md$/, '');
+  const activeTaskId = activeEntries[0]!.replace(/\.md$/, '');
   return {
     allowed: false,
     activeTaskId,
