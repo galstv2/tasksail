@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { readEnvAssignment, readTextFile } from '../core/index.js';
+import { readTextFile } from '../core/index.js';
+import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
 import {
   ACTIVE_ITEM_RELATIVE_PATH,
@@ -262,12 +263,13 @@ export async function inferContextPackDir(
     return path.resolve(contextPackDir);
   }
 
-  const envValue = await readEnvAssignment(path.join(rootDir, '.env'), 'ACTIVE_CONTEXT_PACK_DIR');
-  const resolvedValue = envValue || process.env.ACTIVE_CONTEXT_PACK_DIR || '';
-
-  if (!resolvedValue) {
+  // Use the policy layer helper which reads the .task.json sidecar when
+  // TASKSAIL_TASK_ID is set, and falls back to the singleton .env path
+  // only when no task is active. Direct .env / process.env reads are
+  // UI-state only and must not be used on the task-launch path.
+  try {
+    return await requireAuthorizedActiveContextPack({ repoRoot: rootDir });
+  } catch {
     return null;
   }
-
-  return path.resolve(resolvedValue);
 }

@@ -11,6 +11,7 @@ import {
 } from './paths.js';
 import { initializeTaskArtifacts, resetHandoffArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
+import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 
 /**
  * Check if a markdown file contains authored section content beyond
@@ -123,10 +124,19 @@ export async function initializeTask(
     sections,
     implementationStepsDir,
   });
+  // §3.2: resolve context pack via the policy layer (reads sidecar when
+  // TASKSAIL_TASK_ID is set, else falls back to singleton). Best-effort:
+  // missing context pack is non-fatal for task initialization.
+  let newTaskContextPackDir: string | undefined;
+  try {
+    newTaskContextPackDir = await requireAuthorizedActiveContextPack({ repoRoot });
+  } catch {
+    newTaskContextPackDir = undefined;
+  }
   await syncRetrospectiveRequiredMetadata({
     repoRoot,
     handoffsDir: queuePaths.handoffsDir,
-    contextPackDir: process.env['ACTIVE_CONTEXT_PACK_DIR'],
+    contextPackDir: newTaskContextPackDir,
   });
 
   if (withStarterSlice) {

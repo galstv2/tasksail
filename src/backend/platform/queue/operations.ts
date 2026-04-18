@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, rmdir, readdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { moveFile, readTextFile, writeTextFile, ensureDir, getErrorMessage, findRepoRoot } from '../core/index.js';
 import { activeItemPath, deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
 import {
@@ -12,6 +14,8 @@ import {
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from './markdown.js';
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Acquire a directory-based lock using mkdir atomicity.
@@ -427,6 +431,60 @@ export async function activateNextPendingItemIfReady(
     );
   }
 
+  // Lock precedence: 1 (queue lock; sidecar write is part of activation critical section)
+  // Write the per-task .task.json sidecar. This is the authoritative context-pack binding
+  // for this task. The singleton active-context-pack.json above is kept for back-compat.
+  // Per §3.1: AgentWorkSpace/tasks/<taskId>/.task.json
+  const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
+  await ensureDir(path.dirname(perTaskSidecarPath));
+
+  // Resolve the base commit SHA of the original repo root at activation time.
+  // originalRoot at L0 is the TaskSail repo root (§4.14 will introduce per-repo worktrees).
+  const originalRoot = repoRoot;
+  let baseCommitSha = '';
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: originalRoot });
+    baseCommitSha = stdout.trim();
+  } catch {
+    // Non-fatal: leave empty if git is unavailable (e.g., bare tmpdir in tests)
+    baseCommitSha = '';
+  }
+
+  const perTaskSidecar = {
+    schema_version: 1,
+    taskId,
+    contextPackBinding: {
+      contextPackPath: contextPackBinding?.contextPackDir
+        ? path.join(contextPackBinding.contextPackDir, 'context-pack.json')
+        : null,
+      dataHostDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] ?? null,
+      dataContainerDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] ?? null,
+      repoBindings: [
+        {
+          originalRoot,
+          worktreeRoot: originalRoot,
+          worktreeBranch: `task/${taskId}`,
+          baseCommitSha,
+        },
+      ],
+    },
+    materialization: {
+      strategy: 'copy',
+      cloned: [],
+      skipped: [],
+      composeProjectName: 'repo-context-mcp',
+    },
+    frozenAt: new Date().toISOString(),
+    finalizedAt: null,
+    state: 'active',
+  };
+
+  await writeFile(
+    perTaskSidecarPath,
+    JSON.stringify(perTaskSidecar, null, 2) + '\n',
+    'utf-8',
+  );
+
   try {
     const implementationStepsDir = path.join(
       path.dirname(handoffsDir),
@@ -450,6 +508,7 @@ export async function activateNextPendingItemIfReady(
     // Roll back the claim and sidecar so queue returns to idle
     try { await unlink(linkPath); } catch { /* best-effort */ }
     try { await unlink(contextPackSidecarPath); } catch { /* best-effort */ }
+    try { await unlink(perTaskSidecarPath); } catch { /* best-effort */ }
     throw err;
   }
 

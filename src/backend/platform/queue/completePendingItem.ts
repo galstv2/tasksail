@@ -10,6 +10,7 @@ import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { buildAdvisoryFindingSection, ADVISORY_FINDING_HEADING } from '../agent-runner/pipeline/remediation.js';
 import { commitTaskSnapshot } from './errorItems.js';
 import { transitionTask } from './taskRegistry.js';
+import { readTaskJsonSafe } from './taskJson.js';
 
 export interface CompletePendingItemOptions {
   skipValidation?: boolean;
@@ -90,9 +91,17 @@ export async function completePendingItem(
     }
 
     if (activeTaskId) {
+      // Resolve the context pack dir from the per-task sidecar (§3.2).
+      // Falls through to undefined (no-op in commitTaskSnapshot) when the sidecar
+      // is absent or corrupt — best-effort, not fatal.
+      const taskSidecar = readTaskJsonSafe(activeTaskId, repoRoot);
+      const snapshotContextPackDir =
+        taskSidecar?.contextPackBinding.contextPackPath != null
+          ? path.dirname(taskSidecar.contextPackBinding.contextPackPath)
+          : undefined;
       await commitTaskSnapshot(
         repoRoot, activeTaskId, 'completed',
-        process.env['ACTIVE_CONTEXT_PACK_DIR'],
+        snapshotContextPackDir,
       );
       // Transition active → completed in the task registry
       try {

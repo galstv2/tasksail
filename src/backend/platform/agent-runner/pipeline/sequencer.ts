@@ -10,6 +10,7 @@ import {
 import type { AgentId } from '../../core/index.js';
 import path from 'node:path';
 import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { readTaskJsonSafe } from '../../queue/taskJson.js';
 import type { PipelineOptions, PipelineReceipt } from '../types.js';
 import { runRoleAgent } from '../roleAgent.js';
 import { runRuntimePolicyCheck } from '../guardrails.js';
@@ -589,7 +590,7 @@ async function handlePipelineFailure(
   try {
     await moveFailedItemToErrorItems({
       repoRoot,
-      contextPackDir: contextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined,
+      contextPackDir: contextPackDir ?? undefined,
     });
   } catch (err) {
     process.stderr.write(
@@ -638,15 +639,30 @@ async function acquirePipelineLock(repoRoot: string): Promise<PipelineLock> {
 }
 
 /**
- * Read the task-bound context pack dir from the sidecar file written at
- * activation time. Checks the canonical queue state path first, then falls
- * back to workspace-context-sync.json. Returns undefined for legacy tasks
- * or when no sidecar exists.
+ * Read the task-bound context pack dir from the per-task .task.json sidecar
+ * (§3.2). When taskId is set, reads AgentWorkSpace/tasks/<taskId>/.task.json
+ * via readTaskJsonSafe and derives the directory from contextPackPath.
+ *
+ * Falls back to the singleton active-context-pack.json only for the legacy
+ * (no taskId) case. The workspace-context-sync.json UI-written fallback has
+ * been deleted — it is a cross-task contamination hazard under parallel mode.
+ *
+ * Returns undefined for legacy tasks or when no context pack is configured.
  */
 async function resolveTaskBoundContextPackDir(
   repoRoot: string,
+  taskId?: string,
 ): Promise<string | undefined> {
-  // Primary: canonical queue state sidecar (written by activateNextPendingItemIfReady)
+  // Per-task path: read the .task.json sidecar (one of the two authorized safe callers).
+  if (taskId) {
+    const sidecar = readTaskJsonSafe(taskId, repoRoot);
+    if (sidecar?.contextPackBinding.contextPackPath) {
+      return path.dirname(sidecar.contextPackBinding.contextPackPath);
+    }
+    return undefined;
+  }
+
+  // Legacy singleton path: canonical queue state sidecar written at activation.
   try {
     const raw = await readFile(
       path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
@@ -656,19 +672,6 @@ async function resolveTaskBoundContextPackDir(
     const dir = typeof parsed.contextPackDir === 'string' ? parsed.contextPackDir.trim() : '';
     if (dir) return dir;
   } catch { /* absent for legacy tasks — fall through */ }
-
-  // Fallback: workspace-context-sync.json (written by context pack activation UI)
-  try {
-    const raw = await readFile(
-      path.join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
-      'utf-8',
-    );
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const dir = typeof parsed.active_context_pack_dir === 'string'
-      ? parsed.active_context_pack_dir.trim()
-      : '';
-    if (dir) return dir;
-  } catch { /* absent or unreadable — fall through */ }
 
   return undefined;
 }
@@ -728,11 +731,14 @@ export async function runPipelineSequence(
 
   // Resolve the task-bound context pack before the try block so the catch
   // handler can pass it to handlePipelineFailure on error.
+  // taskId comes from PipelineOptions or the environment (§3.2 migration).
+  const pipelineTaskId = (options as Record<string, unknown>)['taskId'] as string | undefined
+    ?? process.env['TASKSAIL_TASK_ID'];
   const taskBoundContextPackDir = await resolveTaskBoundContextPackDir(
     paths.repoRoot,
+    pipelineTaskId,
   );
-  const effectiveContextPackDir =
-    taskBoundContextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined;
+  const effectiveContextPackDir = taskBoundContextPackDir ?? undefined;
 
   try {
     return await withInternalOrchestratorEnv('pipeline-sequencer', async () => {

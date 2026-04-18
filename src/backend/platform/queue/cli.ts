@@ -11,6 +11,7 @@ import {
   acquireDirLockOrThrow,
 } from './operations.js';
 import { resolveQueuePaths } from './paths.js';
+import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 
 const USAGE = `Usage: task-queue <command> [options]
 
@@ -249,6 +250,16 @@ export async function main(argv: string[]): Promise<void> {
 
     case 'activate-next-pending-item': {
       const qp2 = resolveQueuePaths(flags['repo-root']);
+      // §3.2: resolve context pack via the policy layer (reads sidecar when
+      // TASKSAIL_TASK_ID is set, else falls back to singleton). Best-effort.
+      let activateContextPackDir: string | undefined;
+      try {
+        activateContextPackDir = await requireAuthorizedActiveContextPack({
+          repoRoot: flags['repo-root'],
+        });
+      } catch {
+        activateContextPackDir = undefined;
+      }
       const release2 = await acquireDirLockOrThrow(
         qp2.queueLockDir,
         'activate-next-pending-item',
@@ -258,7 +269,7 @@ export async function main(argv: string[]): Promise<void> {
           qp2.pendingDir,
           qp2.handoffsDir,
           qp2.templatesDir,
-          process.env['ACTIVE_CONTEXT_PACK_DIR'],
+          activateContextPackDir,
         );
         if (!activated) {
           process.stdout.write('waiting until handoffs/ is reset or pending items are available\n');

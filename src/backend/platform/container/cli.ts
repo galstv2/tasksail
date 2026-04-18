@@ -4,6 +4,7 @@ import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { createRuntimeFromConfig } from './runtime.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
+import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import path from 'node:path';
 
 /**
@@ -67,13 +68,22 @@ async function main(): Promise<void> {
     }
 
     case 'seed': {
-      const contextPackDir =
-        extractArg(args, '--context-pack-dir') ??
-        process.env['ACTIVE_CONTEXT_PACK_DIR'];
+      // §3.2: resolve context pack dir via the sidecar policy layer when
+      // TASKSAIL_TASK_ID is set; fall back to the singleton helper otherwise.
+      // The raw ACTIVE_CONTEXT_PACK_DIR env read is removed from the task-launch path.
+      let contextPackDir = extractArg(args, '--context-pack-dir');
+      if (!contextPackDir) {
+        const taskId = process.env['TASKSAIL_TASK_ID'];
+        try {
+          contextPackDir = await requireAuthorizedActiveContextPack({ taskId, repoRoot });
+        } catch {
+          contextPackDir = undefined;
+        }
+      }
 
       if (!contextPackDir) {
         console.error(
-          'Context pack directory required. Pass --context-pack-dir or set ACTIVE_CONTEXT_PACK_DIR.',
+          'Context pack directory required. Pass --context-pack-dir, set TASKSAIL_TASK_ID, or activate a context pack.',
         );
         process.exit(1);
       }

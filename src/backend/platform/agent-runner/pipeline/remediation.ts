@@ -1,6 +1,7 @@
 import { readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
+import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
 // Lazy-import sequencer to avoid pinning the chunk when main.ts dynamic-imports it.
 type Sequencer = typeof import('./sequencer.js');
 const sequencer = (): Promise<Sequencer> => import('./sequencer.js');
@@ -221,12 +222,29 @@ export async function remediationRunQaLoop(options: {
   maxCycles?: number;
   repoRoot?: string;
   contextPackDir?: string;
+  taskId?: string;
   focusScope?: FocusScopePromptOptions;
   externalMcpRegistry?: ExternalMcpRegistry;
   abortSignal?: AbortSignal;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
-  const effectiveContextPackDir = options.contextPackDir || process.env['ACTIVE_CONTEXT_PACK_DIR'] || undefined;
+  // §3.2: resolve context pack via sidecar when taskId or TASKSAIL_TASK_ID is set;
+  // fall back to the explicit contextPackDir option. Raw ACTIVE_CONTEXT_PACK_DIR
+  // env reads are forbidden on the non-legacy path.
+  const taskId = options.taskId ?? process.env['TASKSAIL_TASK_ID'];
+  let effectiveContextPackDir: string | undefined;
+  if (taskId) {
+    try {
+      effectiveContextPackDir = await requireAuthorizedActiveContextPack({
+        taskId,
+        repoRoot: options.repoRoot,
+      });
+    } catch {
+      effectiveContextPackDir = options.contextPackDir;
+    }
+  } else {
+    effectiveContextPackDir = options.contextPackDir;
+  }
   const paths = resolvePaths(options.repoRoot);
   const issuesFile = path.join(paths.handoffs, 'issues.md');
   let blockingFindingsRemain = false;

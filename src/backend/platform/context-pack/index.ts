@@ -7,6 +7,11 @@ export {
 
 export {
   requireAuthorizedActiveContextPack,
+  requireAuthorizedActiveContextPackBinding,
+} from './active.js';
+export type {
+  RequireAuthorizedActiveContextPackOptions,
+  TaskContextPackBindingFromSidecar,
 } from './active.js';
 
 export {
