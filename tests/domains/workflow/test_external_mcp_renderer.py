@@ -20,7 +20,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src" / "bac
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from lib.workspace_paths import copilot_home_root
 from lib.role_agent.external_mcp.renderer import (
     cleanup_stale_launches,
     resolve_headers,
@@ -29,6 +28,7 @@ from lib.role_agent.external_mcp.renderer import (
     prepare_launch_context,
     LaunchContext,
 )
+from lib.workspace_paths import copilot_home_root  # noqa: E402
 
 
 def _make_server(**overrides: Any) -> dict[str, Any]:
