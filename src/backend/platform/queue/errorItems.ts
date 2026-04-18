@@ -23,8 +23,8 @@ const PLATFORM_RESTORE_EXCLUDES = [
   'AgentWorkSpace/dropbox/**',
   'AgentWorkSpace/pendingitems',
   'AgentWorkSpace/pendingitems/**',
-  'AgentWorkSpace/erroritems',
-  'AgentWorkSpace/erroritems/**',
+  'AgentWorkSpace/error-items',
+  'AgentWorkSpace/error-items/**',
   'AgentWorkSpace/handoffs',
   'AgentWorkSpace/handoffs/**',
   'AgentWorkSpace/ImplementationSteps',
@@ -175,7 +175,7 @@ export async function commitTaskSnapshot(
 }
 
 // ---------------------------------------------------------------------------
-// Move failed item to erroritems
+// Move failed item to error-items
 // ---------------------------------------------------------------------------
 
 export interface MoveFailedItemResult {
@@ -185,7 +185,7 @@ export interface MoveFailedItemResult {
 }
 
 /**
- * Move the currently active (failed) pending item to `erroritems/`,
+ * Move the currently active (failed) pending item to `error-items/`,
  * restore the git working tree to HEAD, reset handoff artifacts,
  * and auto-advance the queue.
  */
@@ -201,10 +201,10 @@ export async function moveFailedItemToErrorItems(options: {
   try {
     activeItem = (await readFile(queuePaths.activeItemLink, 'utf-8')).trim();
   } catch {
-    throw new Error('No active item to move to erroritems.');
+    throw new Error('No active item to move to error-items.');
   }
   if (!activeItem) {
-    throw new Error('No active item to move to erroritems.');
+    throw new Error('No active item to move to error-items.');
   }
 
   const taskId = activeItem.replace(/\.md$/, '');
@@ -278,7 +278,7 @@ export async function moveFailedItemToErrorItems(options: {
 // ---------------------------------------------------------------------------
 
 /**
- * Move a failed item from `erroritems/` back to `pendingitems/` and insert
+ * Move a failed item from `error-items/` back to `pendingitems/` and insert
  * it into the queue ordering manifest at the specified position.
  */
 export async function requeueErrorItem(options: {

@@ -127,7 +127,7 @@ describe('getQueueStatus', () => {
   });
 
   it('reports error items count', async () => {
-    const errorItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'erroritems');
+    const errorItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'error-items');
     mkdirSync(errorItemsDir, { recursive: true });
     writeFileSync(path.join(errorItemsDir, 'failed-task-001.md'), '# Failed');
     writeFileSync(path.join(errorItemsDir, 'failed-task-002.md'), '# Failed 2');
@@ -137,8 +137,8 @@ describe('getQueueStatus', () => {
     expect(status.errorItemsCount).toBe(2);
   });
 
-  it('reports zero error items when erroritems/ is empty', async () => {
-    const errorItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'erroritems');
+  it('reports zero error items when error-items/ is empty', async () => {
+    const errorItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'error-items');
     mkdirSync(errorItemsDir, { recursive: true });
 
     const status = await getQueueStatus(tmpRoot);

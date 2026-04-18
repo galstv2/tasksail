@@ -600,7 +600,7 @@ async function handlePipelineFailure(
     });
   } catch (err) {
     process.stderr.write(
-      `Warning: failed to move item to erroritems/: ${err instanceof Error ? err.message : String(err)}\n`,
+      `Warning: failed to move item to error-items/: ${err instanceof Error ? err.message : String(err)}\n`,
     );
   }
 }

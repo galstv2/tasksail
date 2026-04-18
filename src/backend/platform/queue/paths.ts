@@ -74,7 +74,7 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
   return {
     dropboxDir: path.join(agentWorkSpace, 'dropbox'),
     pendingDir,
-    errorItemsDir: path.join(agentWorkSpace, 'erroritems'),
+    errorItemsDir: path.join(agentWorkSpace, 'error-items'),
     handoffsDir: path.join(agentWorkSpace, 'handoffs'),
     templatesDir: path.join(agentWorkSpace, 'templates'),
     activeItemLink: path.join(pendingDir, '.active-item'),

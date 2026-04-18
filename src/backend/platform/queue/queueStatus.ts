@@ -14,7 +14,7 @@ export interface QueueStatusResult {
   activeItemWithBlankWorkspace: boolean;
   /** True when a .publish-in-progress marker exists — handoffs partially initialized. */
   partialPublish: boolean;
-  /** Count of .md files in erroritems/ (failed tasks moved out of the queue). */
+  /** Count of .md files in error-items/ (failed tasks moved out of the queue). */
   errorItemsCount: number;
 }
 

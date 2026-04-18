@@ -69,7 +69,7 @@ function OperatorQueueSection({
 
       {typeof errorItemsCount === 'number' && errorItemsCount > 0 && (
         <p className="obs-section__info">
-          {errorItemsCount} error item(s) recorded in AgentWorkSpace/erroritems/.
+          {errorItemsCount} error item(s) recorded in AgentWorkSpace/error-items/.
         </p>
       )}
 

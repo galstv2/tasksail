@@ -142,10 +142,17 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     path.join(root, 'AgentWorkSpace', 'dropbox'),
     path.join(root, 'AgentWorkSpace', 'pendingitems'),
     path.join(root, 'AgentWorkSpace', 'handoffs'),
+    path.join(root, 'AgentWorkSpace', 'tasks'),
   ];
   try {
     for (const dir of queueDirs) {
       await ensureDir(dir);
+    }
+    // Seed .gitkeep so AgentWorkSpace/tasks/ is tracked on a fresh clone
+    // before any task has been activated (prevents pnpm run validate failures).
+    const tasksGitkeep = path.join(root, 'AgentWorkSpace', 'tasks', '.gitkeep');
+    if (!fs.existsSync(tasksGitkeep)) {
+      await fs.promises.writeFile(tasksGitkeep, '');
     }
     steps.push({ name: 'queue-dirs', status: 'ok' });
   } catch (err) {

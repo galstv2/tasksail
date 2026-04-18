@@ -4,6 +4,20 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { validateStructure, REQUIRED_DIRS, REQUIRED_FILES } from '../structure.js';
 
+describe('REQUIRED_DIRS contents', () => {
+  it('contains AgentWorkSpace/tasks and AgentWorkSpace/error-items', () => {
+    expect(REQUIRED_DIRS).toContain('AgentWorkSpace/tasks');
+    expect(REQUIRED_DIRS).toContain('AgentWorkSpace/error-items');
+  });
+
+  it('does not contain legacy singleton dirs AgentWorkSpace/handoffs or the old hyphen-free error dir', () => {
+    expect(REQUIRED_DIRS).not.toContain('AgentWorkSpace/handoffs');
+    // error-items (with hyphen) must be present; the old non-hyphenated name must NOT be present.
+    const oldErrorDir = ['AgentWorkSpace', 'error' + 'items'].join('/');
+    expect(REQUIRED_DIRS).not.toContain(oldErrorDir);
+  });
+});
+
 describe('validateStructure', () => {
   let tmpDir: string;
 

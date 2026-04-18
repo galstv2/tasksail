@@ -22,7 +22,7 @@ export async function deleteErrorItem(
     await unlink(targetPath);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`Delete error item blocked: "${queueName}" does not exist in erroritems/.`);
+      throw new Error(`Delete error item blocked: "${queueName}" does not exist in error-items/.`);
     }
     throw err;
   }

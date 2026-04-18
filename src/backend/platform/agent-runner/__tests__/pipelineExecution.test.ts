@@ -595,12 +595,12 @@ describe('runPipelineSequence', () => {
     );
   });
 
-  it('moves failed item to erroritems on agent failure', async () => {
+  it('moves failed item to error-items onagent failure', async () => {
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'), 'task content');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-01.md'), '# Slice');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item'), 'task-001.md');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'task-001.md'), '# Pending task');
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items'), { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('parallel-ok.md')) {
         return null;
@@ -617,16 +617,16 @@ describe('runPipelineSequence', () => {
     await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('product manager failed');
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-01.md'))).toBe(false);
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items', 'task-001.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'task-001.md'))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item'))).toBe(false);
   });
 
-  it('moves failed item to erroritems on kill-switch request', async () => {
+  it('moves failed item to error-items onkill-switch request', async () => {
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'), 'task content');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item'), 'task-001.md');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'task-001.md'), '# Pending task');
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items'), { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('parallel-ok.md')) {
         return null;
@@ -657,7 +657,7 @@ describe('runPipelineSequence', () => {
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('Pipeline killed');
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items', 'task-001.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-kill-switch.json'))).toBe(false);
   });
 

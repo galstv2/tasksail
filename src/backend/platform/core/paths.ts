@@ -57,7 +57,7 @@ export function resolvePaths(options: ResolvePathsOptions = {}): PlatformPaths {
     agentWorkSpace,
     dropbox: path.join(agentWorkSpace, 'dropbox'),
     pendingItems: path.join(agentWorkSpace, 'pendingitems'),
-    errorItems: path.join(agentWorkSpace, 'erroritems'),
+    errorItems: path.join(agentWorkSpace, 'error-items'),
     handoffs: taskWorktree
       ? path.join(taskWorktree, 'handoffs')
       : path.join(agentWorkSpace, 'handoffs'),

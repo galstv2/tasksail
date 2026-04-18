@@ -45,7 +45,7 @@ import {
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
-const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'erroritems');
+const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
 const ACTIVE_ITEM_PATH = join(PENDING_DIR, '.active-item');
 
 const HEAD_BYTES = 1024;

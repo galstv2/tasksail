@@ -137,7 +137,7 @@ function setupCommonMocks(): void {
     templates: '/repo/AgentWorkSpace/templates',
     implementationSteps: '/repo/AgentWorkSpace/ImplementationSteps',
     qmd: '/repo/AgentWorkSpace/qmd',
-    errorItems: '/repo/AgentWorkSpace/erroritems',
+    errorItems: '/repo/AgentWorkSpace/error-items',
     platformState: '/repo/.platform-state',
     guardrails: '/repo/.platform-state/runtime/guardrails',
     taskRuntime: '/repo/.platform-state/runtime',

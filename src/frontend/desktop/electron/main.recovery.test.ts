@@ -145,7 +145,7 @@ describe('startTaskRecoveryController', () => {
     });
     moveFailedItemToErrorItems.mockResolvedValue({
       movedItem: 'TASK-1.md',
-      errorItemPath: '/repo/AgentWorkSpace/erroritems/TASK-1.md',
+      errorItemPath: '/repo/AgentWorkSpace/error-items/TASK-1.md',
       nextActiveItem: null,
     });
   });
@@ -171,7 +171,7 @@ describe('startTaskRecoveryController', () => {
       kind: 'activation-timeout',
       status: 'auto-failed',
       queueName: 'TASK-1.md',
-      errorItemPath: '/repo/AgentWorkSpace/erroritems/TASK-1.md',
+      errorItemPath: '/repo/AgentWorkSpace/error-items/TASK-1.md',
     }));
     expect(emitStreamEvent).toHaveBeenCalledWith(expect.objectContaining({
       source: 'recovery.controller',

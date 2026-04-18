@@ -30,8 +30,8 @@ AgentWorkSpace/dropbox/.staging/*
 !AgentWorkSpace/dropbox/.staging/.gitkeep
 AgentWorkSpace/pendingitems/*
 !AgentWorkSpace/pendingitems/.gitkeep
-AgentWorkSpace/erroritems/*
-!AgentWorkSpace/erroritems/.gitkeep
+AgentWorkSpace/error-items/*
+!AgentWorkSpace/error-items/.gitkeep
 
 # Context packs (per-user local state)
 contextpacks/*
@@ -98,3 +98,12 @@ CLAUDE.md
 packages/validation/data/file-size-pmseline.txt
 src/frontend/desktop/scripts/screenshot-docs.ts
 src/frontend/desktop/scripts/screenshot-context-pack.ts
+
+# Per-task worktrees, handoffs, and CoW-cloned dep trees (parallel backend; spec §0.5)
+AgentWorkSpace/tasks/*
+!AgentWorkSpace/tasks/.gitkeep
+# Per-task runtime state (locks, receipts, phase, kill-switch, copilot-home)
+.platform-state/runtime/tasks/
+# Port-allocator shared table + lock (re-created on first allocate; §6.2)
+.platform-state/runtime/port-allocations.json
+.platform-state/runtime/port-allocations.json.lock

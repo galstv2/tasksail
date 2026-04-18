@@ -175,7 +175,7 @@ export function getAllTasks(registry: TaskRegistry): ContextPackTaskSet {
 
 /**
  * Rebuild the registry from filesystem state. Scans dropbox, pendingitems,
- * and erroritems directories, reading context pack binding from each task's
+ * and error-items directories, reading context pack binding from each task's
  * markdown.
  */
 export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry> {
@@ -184,7 +184,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
   const dirs: { dir: string; state: TaskState }[] = [
     { dir: path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), state: 'open' },
     { dir: path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), state: 'pending' },
-    { dir: path.join(repoRoot, 'AgentWorkSpace', 'erroritems'), state: 'failed' },
+    { dir: path.join(repoRoot, 'AgentWorkSpace', 'error-items'), state: 'failed' },
   ];
 
   // Check for active item
