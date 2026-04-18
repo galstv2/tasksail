@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+from ..workspace_paths import handoffs_dir
+
 
 def read_markdown_file(path: Path) -> str:
     """Read a markdown file, returning ``""`` when the file is missing."""
@@ -24,7 +26,7 @@ def extract_metadata_value(content: str, label: str) -> str:
 def resolve_task_metadata(root_dir: Path) -> tuple[str, str]:
     """Read the task ID and title from handoff artifacts."""
     professional_task = read_markdown_file(
-        root_dir / "AgentWorkSpace" / "handoffs" / "professional-task.md"
+        handoffs_dir(root_dir) / "professional-task.md"
     )
 
     task_id = extract_metadata_value(professional_task, "Task ID")

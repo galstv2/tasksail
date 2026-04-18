@@ -19,10 +19,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from ...workspace_paths import copilot_home_root
 
-# Root for per-launch Copilot home directories (relative to repo root).
-_COPILOT_HOME_ROOT = ".platform-state/runtime/copilot-home"
+logger = logging.getLogger(__name__)
 
 # Pattern to extract PID from a launch token directory name.
 # Format: <agent-id>-<epoch-ms>-<pid>
@@ -66,14 +65,14 @@ def cleanup_stale_launches(root_dir: Path, agent_id: str) -> int:
 
     Returns the number of directories deleted.
     """
-    copilot_home_root = root_dir / _COPILOT_HOME_ROOT
-    if not copilot_home_root.is_dir():
+    _chr = copilot_home_root(root_dir)
+    if not _chr.is_dir():
         return 0
 
     prefix = f"{agent_id}-"
     deleted = 0
 
-    for entry in copilot_home_root.iterdir():
+    for entry in _chr.iterdir():
         if not entry.is_dir() or not entry.name.startswith(prefix):
             continue
 
@@ -396,8 +395,8 @@ def prepare_launch_context(
     preflight_check_servers(surviving)
 
     # Step 5: create per-launch directory and render.
-    copilot_home_root = root / _COPILOT_HOME_ROOT
-    copilot_home_root.mkdir(parents=True, exist_ok=True)
+    _chr = copilot_home_root(root)
+    _chr.mkdir(parents=True, exist_ok=True)
 
     # Generate a unique launch directory. Retry with increasing delay
     # until we get a path that does not already exist, then create it
@@ -405,7 +404,7 @@ def prepare_launch_context(
     max_attempts = 5
     for attempt in range(max_attempts):
         token = _generate_launch_token(agent_id)
-        launch_dir = copilot_home_root / token
+        launch_dir = _chr / token
         try:
             launch_dir.mkdir(parents=True, exist_ok=False)
             break

@@ -9,6 +9,7 @@ from ..io import load_text
 from ..markdown import parse_metadata, parse_sections
 from ..text import compact_text, extract_list, normalize_text
 from ..time import current_utc_timestamp
+from ..workspace_paths import handoffs_dir
 from .storage import (
     detect_source_ref,
     read_existing_created_at,
@@ -17,7 +18,7 @@ from .storage import (
     sidecar_record_path,
 )
 
-RETROSPECTIVE_INPUT_PATH = Path("AgentWorkSpace/handoffs/retrospective-input.md")
+_RETROSPECTIVE_FILENAME = "retrospective-input.md"
 RETROSPECTIVE_CONTRIBUTION_RE = re.compile(r"^.+'s Contribution \((.+)\)$")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
@@ -94,7 +95,7 @@ def build_retrospective_archive(
 
     Returns ``(markdown, payload, markdown_path, record_path)``.
     """
-    retrospective_source_path = repo_root / RETROSPECTIVE_INPUT_PATH
+    retrospective_source_path = handoffs_dir(repo_root) / _RETROSPECTIVE_FILENAME
     markdown = load_text(retrospective_source_path)
     if not markdown.strip():
         raise ValueError("Retrospective handoff is missing or empty")
@@ -177,8 +178,8 @@ def build_retrospective_archive(
         "freshness_status": "fresh",
         "provenance_type": "derived",
         "provenance_sources": [
-            str(RETROSPECTIVE_INPUT_PATH),
-            "AgentWorkSpace/handoffs/final-summary.md",
+            str(retrospective_source_path.relative_to(repo_root)),
+            str((handoffs_dir(repo_root) / "final-summary.md").relative_to(repo_root)),
         ],
         "review_status": "reviewed",
         "task_id": task_id,
@@ -200,8 +201,8 @@ def build_retrospective_archive(
         "reusable_team_learnings": reusable_team_learnings,
         "anti_patterns": anti_patterns,
         "source_artifacts": [
-            str(RETROSPECTIVE_INPUT_PATH),
-            "AgentWorkSpace/handoffs/final-summary.md",
+            str(retrospective_source_path.relative_to(repo_root)),
+            str((handoffs_dir(repo_root) / "final-summary.md").relative_to(repo_root)),
         ],
         "lineage": {
             "task_kind": lineage.get("Task Kind", task_archive_payload.get("parent_task_id") and "child-task" or "standard"),

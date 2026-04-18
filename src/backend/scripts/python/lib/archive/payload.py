@@ -11,6 +11,7 @@ from ..io import load_text
 from ..markdown import parse_metadata, parse_sections
 from ..text import compact_text, extract_list, normalize_text, slugify, strip_html_comments
 from ..time import current_utc_timestamp
+from ..workspace_paths import handoffs_dir
 from .parent import find_parent_archive
 from .storage import (
     archive_storage_path,
@@ -90,21 +91,22 @@ def build_archive_payload(
 
     Returns ``(payload, record_path, parent_record_path)``.
     """
+    _handoffs = handoffs_dir(repo_root)
     mandatory_artifacts = [
-        "AgentWorkSpace/handoffs/professional-task.md",
-        "AgentWorkSpace/handoffs/final-summary.md",
+        str(_handoffs / "professional-task.md"),
+        str(_handoffs / "final-summary.md"),
     ]
-    missing = [a for a in mandatory_artifacts if not (repo_root / a).exists()]
+    missing = [a for a in mandatory_artifacts if not Path(a).exists()]
     if missing:
         raise ValueError(
             f"Archive filing blocked: mandatory source artifacts missing: {', '.join(missing)}"
         )
 
-    professional_sections = parse_sections(load_text(repo_root / "AgentWorkSpace" / "handoffs" / "professional-task.md"))
-    implementation_sections = parse_sections(load_text(repo_root / "AgentWorkSpace" / "handoffs" / "implementation-spec.md"))
-    tests_sections = parse_sections(load_text(repo_root / "AgentWorkSpace" / "handoffs" / "tests.md"))
-    issues_sections = parse_sections(load_text(repo_root / "AgentWorkSpace" / "handoffs" / "issues.md"))
-    final_sections = parse_sections(load_text(repo_root / "AgentWorkSpace" / "handoffs" / "final-summary.md"))
+    professional_sections = parse_sections(load_text(_handoffs / "professional-task.md"))
+    implementation_sections = parse_sections(load_text(_handoffs / "implementation-spec.md"))
+    tests_sections = parse_sections(load_text(_handoffs / "tests.md"))
+    issues_sections = parse_sections(load_text(_handoffs / "issues.md"))
+    final_sections = parse_sections(load_text(_handoffs / "final-summary.md"))
 
     metadata = parse_metadata(final_sections.get("Task Metadata", []))
     lineage = parse_metadata(final_sections.get("Task Lineage", [])) or parse_metadata(professional_sections.get("Task Lineage", []))
@@ -208,7 +210,7 @@ def build_archive_payload(
         "title": task_title,
         "repo_name": repo_name,
         "repo_owner": "unknown",
-        "source_path": "AgentWorkSpace/handoffs/final-summary.md",
+        "source_path": str((_handoffs / "final-summary.md").relative_to(repo_root)),
         "system_layer": "documents",
         "artifact_type": "task-archive",
         "language": "markdown",
@@ -224,10 +226,10 @@ def build_archive_payload(
         "freshness_status": "fresh",
         "provenance_type": "derived",
         "provenance_sources": [
-            "AgentWorkSpace/handoffs/professional-task.md",
-            "AgentWorkSpace/handoffs/implementation-spec.md",
-            "AgentWorkSpace/handoffs/tests.md",
-            "AgentWorkSpace/handoffs/final-summary.md",
+            str((_handoffs / "professional-task.md").relative_to(repo_root)),
+            str((_handoffs / "implementation-spec.md").relative_to(repo_root)),
+            str((_handoffs / "tests.md").relative_to(repo_root)),
+            str((_handoffs / "final-summary.md").relative_to(repo_root)),
         ],
         "review_status": "reviewed",
         "task_id": task_id,
