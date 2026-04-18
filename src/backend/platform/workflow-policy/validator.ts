@@ -1,4 +1,5 @@
-import { readTextFile } from '../core/index.js';
+import path from 'node:path';
+import { readTextFile, resolvePaths } from '../core/index.js';
 import { loadNamedAgentTeam } from './agents.js';
 import {
   inferContextPackDir,
@@ -18,6 +19,16 @@ import {
   createViolation,
   sortViolations,
 } from './models.js';
+
+/**
+ * Returns a stable bare-filename key from any relative path.
+ *
+ * toHandoffKey('professional-task.md')
+ *   → 'professional-task.md'
+ */
+export function toHandoffKey(relative: string): string {
+  return path.basename(relative);
+}
 import {
   agentIdExists,
   normalizeAgentId,
@@ -80,6 +91,7 @@ export type GuardrailExpectationResolver = (
 export interface PolicyValidatorOptions {
   rootDir: string;
   mode: PolicyValidationMode;
+  taskId?: string;
   contextPackDir?: string;
   enforce?: boolean;
   requestedAgentId?: string;
@@ -96,6 +108,7 @@ export class PolicyValidator {
   readonly phase: PolicyPhase;
   readonly requestedAgentId: string;
 
+  private readonly _taskId: string | undefined;
   private readonly requestedContextPackDir?: string;
   private readonly ruleEvaluators: PolicyRuleEvaluatorRegistry;
   private readonly resolveExpectedRuntimeAgent?: GuardrailExpectationResolver;
@@ -113,12 +126,35 @@ export class PolicyValidator {
   constructor(options: PolicyValidatorOptions) {
     this.rootDir = options.rootDir;
     this.mode = options.mode;
+    this._taskId = options.taskId;
     this.enforce = options.enforce ?? FAIL_CLOSED_DEFAULT_MODES.has(options.mode);
     this.phase = this.enforce ? 'fail-closed' : 'report-only';
     this.requestedContextPackDir = options.contextPackDir;
     this.requestedAgentId = normalizeAgentId(options.requestedAgentId ?? '');
     this.ruleEvaluators = { ...DEFAULT_RULE_EVALUATORS, ...(options.ruleEvaluators ?? {}) };
     this.resolveExpectedRuntimeAgent = options.resolveExpectedRuntimeAgent;
+  }
+
+  /** The taskId passed at construction time, if any. */
+  get taskId(): string | undefined {
+    return this._taskId;
+  }
+
+  /**
+   * The resolved handoffs directory. When taskId is set, routes to
+   * AgentWorkSpace/tasks/<taskId>/handoffs; otherwise to AgentWorkSpace/handoffs.
+   */
+  get handoffsDir(): string {
+    return resolvePaths({ repoRoot: this.rootDir, taskId: this._taskId }).handoffs;
+  }
+
+  /**
+   * The resolved ImplementationSteps directory. When taskId is set, routes to
+   * AgentWorkSpace/tasks/<taskId>/ImplementationSteps; otherwise to
+   * AgentWorkSpace/ImplementationSteps.
+   */
+  get implementationStepsDir(): string {
+    return resolvePaths({ repoRoot: this.rootDir, taskId: this._taskId }).implementationSteps;
   }
 
   get namedAgentTeam(): NamedAgentTeam {
@@ -152,15 +188,22 @@ export class PolicyValidator {
   }
 
   private async initializeInternal(): Promise<void> {
+    const handoffsDir = this.handoffsDir;
     const loadedArtifacts = await Promise.all(
-      HANDOFF_RELATIVE_PATHS.map(async (relativePath) => [
-        relativePath,
-        await loadWorkspaceArtifact(this.rootDir, relativePath),
-      ] as const),
+      HANDOFF_RELATIVE_PATHS.map(async (fullRelativePath) => {
+        const bareKey = toHandoffKey(fullRelativePath);
+        const loaded = await this.loadHandoffArtifactWithSingletonFallback(
+          handoffsDir, bareKey,
+        );
+        // Override relativePath to the stable bare-filename key so that rule code
+        // that sets artifact: artifact.relativePath produces a bare-filename violation.
+        const artifact = { ...loaded, relativePath: bareKey };
+        return [bareKey, artifact] as const;
+      }),
     );
 
-    for (const [relativePath, artifact] of loadedArtifacts) {
-      this.artifacts.set(relativePath, artifact);
+    for (const [bareKey, artifact] of loadedArtifacts) {
+      this.artifacts.set(bareKey, artifact);
     }
 
     const namedAgentTeam = await loadNamedAgentTeam(this.rootDir);
@@ -176,16 +219,40 @@ export class PolicyValidator {
     }
   }
 
-  async getArtifact(relativePath: string): Promise<WorkspaceArtifact> {
+  async getArtifact(key: string): Promise<WorkspaceArtifact> {
     await this.initialize();
-    const cached = this.artifacts.get(relativePath);
+    // Normalize to bare-filename key: 'foo.md' → 'foo.md' (idempotent).
+    const bareKey = toHandoffKey(key);
+    const cached = this.artifacts.get(bareKey);
     if (cached) {
       return cached;
     }
 
-    const artifact = await loadWorkspaceArtifact(this.rootDir, relativePath);
-    this.artifacts.set(relativePath, artifact);
+    const artifact = await this.loadHandoffArtifactWithSingletonFallback(
+      this.handoffsDir, bareKey,
+    );
+    this.artifacts.set(bareKey, artifact);
     return artifact;
+  }
+
+  // Transitional: queue lifecycle ops still write handoffs to the singleton
+  // AgentWorkSpace/handoffs/ until §4.*. When taskId is threaded, per-task
+  // handoffs may not yet exist — fall back to singleton so policy checks see
+  // what was actually written. Once §4.* migrates writers, per-task exists
+  // and this fallback becomes a no-op (preserving cross-task isolation).
+  private async loadHandoffArtifactWithSingletonFallback(
+    handoffsDir: string, bareKey: string,
+  ): Promise<WorkspaceArtifact> {
+    const primaryRelative = path.relative(
+      this.rootDir, path.join(handoffsDir, bareKey),
+    );
+    const primary = await loadWorkspaceArtifact(this.rootDir, primaryRelative);
+    if (primary.exists || !this._taskId) {
+      return primary;
+    }
+    const singletonRelative = path.join('AgentWorkSpace', 'handoffs', bareKey);
+    const singleton = await loadWorkspaceArtifact(this.rootDir, singletonRelative);
+    return singleton.exists ? singleton : primary;
   }
 
   recordRule(ruleId: string): void {
@@ -227,7 +294,7 @@ export class PolicyValidator {
     if (Object.keys(this.taskIdsByArtifact()).length > 0) {
       return true;
     }
-    return this.artifacts.get('AgentWorkSpace/handoffs/professional-task.md')?.hasSubstantiveContent ?? false;
+    return this.artifacts.get('professional-task.md')?.hasSubstantiveContent ?? false;
   }
 
   workspaceIsReset(): boolean {
@@ -240,7 +307,7 @@ export class PolicyValidator {
 
   finalSummaryIsComplete(): boolean {
     this.requireInitialized();
-    return this.artifacts.get(FINAL_SUMMARY_RELATIVE_PATH)?.hasSubstantiveContent ?? false;
+    return this.artifacts.get(toHandoffKey(FINAL_SUMMARY_RELATIVE_PATH))?.hasSubstantiveContent ?? false;
   }
 
   buildNextSteps(): string[] {
@@ -354,7 +421,7 @@ export class PolicyValidator {
   isFullRetrospectiveRequired(): boolean {
     this.requireInitialized();
     // No TaskCompletionCounter port yet — fall back to metadata.
-    const retro = this.artifacts.get(RETROSPECTIVE_INPUT_RELATIVE_PATH);
+    const retro = this.artifacts.get(toHandoffKey(RETROSPECTIVE_INPUT_RELATIVE_PATH));
     if (retro?.exists) {
       const field = (retro.metadata['Retrospective Required'] ?? '').trim().toLowerCase();
       if (field === 'false') {
@@ -374,7 +441,7 @@ export class PolicyValidator {
   retrospectiveCompletionGaps(fullCeremony?: boolean): RetrospectiveGaps {
     this.requireInitialized();
     const ceremony = fullCeremony ?? this.isFullRetrospectiveRequired();
-    const retroArtifact = this.artifacts.get(RETROSPECTIVE_INPUT_RELATIVE_PATH) ?? {
+    const retroArtifact = this.artifacts.get(toHandoffKey(RETROSPECTIVE_INPUT_RELATIVE_PATH)) ?? {
       relativePath: RETROSPECTIVE_INPUT_RELATIVE_PATH,
       exists: false,
       sections: {},

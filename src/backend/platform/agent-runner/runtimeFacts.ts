@@ -1,10 +1,8 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
-import { readTextFile, safeJsonParse, writeTextFile } from '../core/index.js';
+import { readTextFile, resolvePaths, safeJsonParse, writeTextFile } from '../core/index.js';
 import { evaluateRuntimeInference, type RuntimeAgentFacts } from '../workflow-policy/runtimeInference.js';
-
-export const WORKFLOW_FACTS_RELATIVE_PATH = '.platform-state/runtime/workflow-facts.json';
 
 export interface RuntimeWorkflowFacts {
   schema_version: 1;
@@ -49,11 +47,13 @@ async function fileStamp(filePath: string): Promise<string> {
 
 export async function computeRuntimeFactsSourceSignature(options: {
   repoRoot: string;
+  taskRuntime: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<string> {
-  const handoffsDir = options.handoffsDir ?? path.join(options.repoRoot, 'AgentWorkSpace', 'handoffs');
-  const implStepsDir = options.implStepsDir ?? path.join(options.repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+  const derivedPaths = resolvePaths({ repoRoot: options.repoRoot });
+  const handoffsDir = options.handoffsDir ?? derivedPaths.handoffs;
+  const implStepsDir = options.implStepsDir ?? derivedPaths.implementationSteps;
   const tracked = [
     ...(await collectMarkdownFiles(handoffsDir)),
     ...(await collectMarkdownFiles(implStepsDir)),
@@ -89,34 +89,37 @@ export async function computeRuntimeWorkflowFacts(options: {
 
 export async function writeRuntimeWorkflowFacts(options: {
   repoRoot: string;
+  taskRuntime: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<RuntimeWorkflowFacts> {
   const sourceSignature = await computeRuntimeFactsSourceSignature(options);
-  const cached = runtimeFactsCache.get(options.repoRoot);
+  const cacheKey = options.taskRuntime;
+  const cached = runtimeFactsCache.get(cacheKey);
   if (cached?.sourceSignature === sourceSignature) {
     return cached.facts;
   }
   const facts = await computeRuntimeWorkflowFacts(options);
   facts.source_signature = sourceSignature;
   await writeTextFile(
-    path.join(options.repoRoot, WORKFLOW_FACTS_RELATIVE_PATH),
+    path.join(options.taskRuntime, 'workflow-facts.json'),
     JSON.stringify(facts, null, 2) + '\n',
   );
-  runtimeFactsCache.set(options.repoRoot, {
+  runtimeFactsCache.set(cacheKey, {
     sourceSignature,
     facts,
   });
   return facts;
 }
 
-export async function readRuntimeWorkflowFacts(repoRoot: string): Promise<RuntimeWorkflowFacts | null> {
-  const raw = await readTextFile(path.join(repoRoot, WORKFLOW_FACTS_RELATIVE_PATH));
+export async function readRuntimeWorkflowFacts(taskRuntime: string): Promise<RuntimeWorkflowFacts | null> {
+  const filePath = path.join(taskRuntime, 'workflow-facts.json');
+  const raw = await readTextFile(filePath);
   if (!raw) {
     return null;
   }
   try {
-    return safeJsonParse<RuntimeWorkflowFacts>(raw, WORKFLOW_FACTS_RELATIVE_PATH);
+    return safeJsonParse<RuntimeWorkflowFacts>(raw, filePath);
   } catch {
     return null;
   }

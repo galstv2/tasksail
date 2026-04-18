@@ -20,6 +20,7 @@ const {
 
 describe('runtimeFacts', () => {
   let repoRoot: string;
+  let taskRuntime: string;
   let handoffsDir: string;
   let implStepsDir: string;
 
@@ -27,10 +28,12 @@ describe('runtimeFacts', () => {
     vi.clearAllMocks();
     detectParallelOk.mockResolvedValue(false);
     repoRoot = mkdtempSync(path.join(tmpdir(), 'runtime-facts-'));
+    taskRuntime = path.join(repoRoot, '.platform-state', 'runtime');
     handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
     implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
+    mkdirSync(taskRuntime, { recursive: true });
   });
 
   afterEach(async () => {
@@ -90,8 +93,8 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    await writeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
-    await writeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
 
     expect(checkAgentArtifactCompletion).toHaveBeenCalledTimes(2);
     expect(detectParallelOk).toHaveBeenCalledTimes(1);
@@ -102,7 +105,7 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    await writeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
 
     expect(checkAgentArtifactCompletion).toHaveBeenCalledTimes(4);
     expect(detectParallelOk).toHaveBeenCalledTimes(2);
@@ -115,7 +118,7 @@ describe('runtimeFacts', () => {
     mkdirSync(conventionsDir, { recursive: true });
     mkdirSync(guardrailsDir, { recursive: true });
 
-    const initialSignature = await computeRuntimeFactsSourceSignature({ repoRoot, handoffsDir, implStepsDir });
+    const initialSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
 
     writeFileSync(
       path.join(conventionsDir, 'testing-infrastructure.json'),
@@ -128,8 +131,78 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    const updatedSignature = await computeRuntimeFactsSourceSignature({ repoRoot, handoffsDir, implStepsDir });
+    const updatedSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
 
     expect(updatedSignature).toBe(initialSignature);
+  });
+
+  it('two distinct taskIds produce non-overlapping workflow-facts.json files with independent cache entries', async () => {
+    checkAgentArtifactCompletion.mockResolvedValue(true);
+    detectParallelOk.mockResolvedValue(false);
+
+    const taskRuntimeA = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa');
+    const taskRuntimeB = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-bbb');
+    const handoffsDirA = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-aaa', 'handoffs');
+    const implStepsDirA = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-aaa', 'ImplementationSteps');
+    const handoffsDirB = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-bbb', 'handoffs');
+    const implStepsDirB = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-bbb', 'ImplementationSteps');
+
+    mkdirSync(taskRuntimeA, { recursive: true });
+    mkdirSync(taskRuntimeB, { recursive: true });
+    mkdirSync(handoffsDirA, { recursive: true });
+    mkdirSync(implStepsDirA, { recursive: true });
+    mkdirSync(handoffsDirB, { recursive: true });
+    mkdirSync(implStepsDirB, { recursive: true });
+
+    // Write distinct content for each task so signatures differ
+    writeFileSync(
+      path.join(handoffsDirA, 'professional-task.md'),
+      '# Task A\n\n## Summary\n\nTask A content.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDirB, 'professional-task.md'),
+      '# Task B\n\n## Summary\n\nTask B content.\n',
+      'utf-8',
+    );
+
+    await writeRuntimeWorkflowFacts({
+      repoRoot,
+      taskRuntime: taskRuntimeA,
+      handoffsDir: handoffsDirA,
+      implStepsDir: implStepsDirA,
+    });
+    await writeRuntimeWorkflowFacts({
+      repoRoot,
+      taskRuntime: taskRuntimeB,
+      handoffsDir: handoffsDirB,
+      implStepsDir: implStepsDirB,
+    });
+
+    // Each task must have written its own workflow-facts.json
+    const fileA = path.join(taskRuntimeA, 'workflow-facts.json');
+    const fileB = path.join(taskRuntimeB, 'workflow-facts.json');
+    expect(fileA).not.toBe(fileB);
+
+    // Both files must exist
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(fileA)).toBe(true);
+    expect(existsSync(fileB)).toBe(true);
+
+    // The files are under distinct taskRuntime directories
+    expect(fileA).toContain(path.join('tasks', 'task-aaa'));
+    expect(fileB).toContain(path.join('tasks', 'task-bbb'));
+
+    // Cache entries must not collide: writing task-aaa again (unchanged) does NOT
+    // recompute (cache hit), while task-bbb is independent.
+    const callCountBefore = checkAgentArtifactCompletion.mock.calls.length;
+    await writeRuntimeWorkflowFacts({
+      repoRoot,
+      taskRuntime: taskRuntimeA,
+      handoffsDir: handoffsDirA,
+      implStepsDir: implStepsDirA,
+    });
+    // Cache hit for task-aaa: no additional calls
+    expect(checkAgentArtifactCompletion.mock.calls.length).toBe(callCountBefore);
   });
 });

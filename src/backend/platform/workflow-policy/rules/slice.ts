@@ -36,7 +36,7 @@ export async function evaluateSliceQualityRules(validator: PolicyValidator): Pro
     return;
   }
 
-  const stepsDir = path.join(validator.rootDir, 'AgentWorkSpace', 'ImplementationSteps');
+  const stepsDir = validator.implementationStepsDir;
   const sliceFiles = await listSliceFiles(stepsDir);
   if (sliceFiles.length === 0) {
     return;

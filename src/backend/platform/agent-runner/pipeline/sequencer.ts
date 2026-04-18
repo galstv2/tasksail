@@ -83,12 +83,10 @@ interface RuntimePolicySummary {
 }
 
 
-function resolveVerificationDiffStage(repoRoot: string): VerificationDiffStage {
+function resolveVerificationDiffStage(taskRuntime: string): VerificationDiffStage {
   const verificationRunId = nowIsoCompact();
   const verificationDiffDir = path.join(
-    repoRoot,
-    '.platform-state',
-    'runtime',
+    taskRuntime,
     'verification',
     verificationRunId,
   );
@@ -213,10 +211,11 @@ async function withInternalOrchestratorEnv<T>(
 
 function startKillSwitchMonitor(
   repoRoot: string,
+  taskId: string,
   abortController: AbortController,
 ): () => void {
   const timer = setInterval(() => {
-    if (pipelineKillSwitchExists(repoRoot) && !abortController.signal.aborted) {
+    if (pipelineKillSwitchExists(repoRoot, taskId) && !abortController.signal.aborted) {
       abortController.abort();
     }
   }, 250);
@@ -225,9 +224,10 @@ function startKillSwitchMonitor(
 
 function ensurePipelineNotKilled(
   repoRoot: string,
+  taskId: string,
   abortController: AbortController,
 ): void {
-  if (pipelineKillSwitchExists(repoRoot) && !abortController.signal.aborted) {
+  if (pipelineKillSwitchExists(repoRoot, taskId) && !abortController.signal.aborted) {
     abortController.abort();
   }
   if (abortController.signal.aborted) {
@@ -277,22 +277,24 @@ function cleanupArtifactLabel(artifactPath: string): string {
 
 function resolveCleanupArtifactAbsolutePath(
   artifactPath: string,
+  repoRoot: string,
   handoffsDir: string,
   implStepsDir: string,
 ): string | undefined {
-  if (artifactPath.startsWith('AgentWorkSpace/handoffs/')) {
-    return path.join(handoffsDir, artifactPath.replace(/^AgentWorkSpace\/handoffs\//, ''));
+  const absoluteArtifact = path.resolve(repoRoot, artifactPath);
+  const relToHandoffs = path.relative(handoffsDir, absoluteArtifact);
+  if (!relToHandoffs.startsWith('..')) {
+    return absoluteArtifact;
   }
-  if (artifactPath.startsWith('AgentWorkSpace/ImplementationSteps/')) {
-    return path.join(
-      implStepsDir,
-      artifactPath.replace(/^AgentWorkSpace\/ImplementationSteps\//, ''),
-    );
+  const relToImplSteps = path.relative(implStepsDir, absoluteArtifact);
+  if (!relToImplSteps.startsWith('..')) {
+    return absoluteArtifact;
   }
   return undefined;
 }
 
 async function buildInlineCleanupArtifactContext(options: {
+  repoRoot: string;
   handoffsDir: string;
   implStepsDir: string;
   violations: RuntimePolicyViolationSummary[];
@@ -312,6 +314,7 @@ async function buildInlineCleanupArtifactContext(options: {
   for (const artifactPath of uniqueArtifacts) {
     const absolutePath = resolveCleanupArtifactAbsolutePath(
       artifactPath,
+      options.repoRoot,
       options.handoffsDir,
       options.implStepsDir,
     );
@@ -345,6 +348,7 @@ function tryParseRuntimePolicySummary(policyOutput: string): RuntimePolicySummar
 }
 
 export async function buildFleetDaltonCleanupContext(options: {
+  repoRoot: string;
   handoffsDir: string;
   implStepsDir: string;
   policyResult: {
@@ -401,6 +405,7 @@ export async function buildFleetDaltonCleanupContext(options: {
   }
 
   const artifactContext = await buildInlineCleanupArtifactContext({
+    repoRoot: options.repoRoot,
     handoffsDir: options.handoffsDir,
     implStepsDir: options.implStepsDir,
     violations,
@@ -540,22 +545,21 @@ async function removeSliceTemplateIfPresent(
 }
 
 async function writePipelineReceipt(
-  repoRoot: string,
+  taskRuntime: string,
   receipt: PipelineReceipt,
 ): Promise<void> {
-  const receiptDir = path.join(repoRoot, '.platform-state', 'runtime');
-  await ensureDir(receiptDir);
+  await ensureDir(taskRuntime);
   await writeTextFile(
-    path.join(receiptDir, 'pipeline-receipt.json'),
+    path.join(taskRuntime, 'pipeline-receipt.json'),
     JSON.stringify(receipt, null, 2) + '\n',
   );
 }
 
 export async function writePipelinePhase(
-  repoRoot: string,
+  taskRuntime: string,
   phase: string,
 ): Promise<void> {
-  const phaseFile = path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-phase.json');
+  const phaseFile = path.join(taskRuntime, 'pipeline-phase.json');
   await writeTextFile(
     phaseFile,
     JSON.stringify({ phase, timestamp: nowIsoCompact() }) + '\n',
@@ -568,18 +572,18 @@ export async function writePipelinePhase(
  * or `test-capture-skipped` when it is not.
  */
 export async function runTestCaptureWithPhaseTracking(options: {
-  repoRoot: string;
+  taskRuntime: string;
   implementationStepsDir: string;
   captureCwd: string | null | undefined;
   abortSignal?: AbortSignal;
 }): Promise<{ results: TestCaptureResult[]; skipped: boolean }> {
   if (options.captureCwd) {
-    await writePipelinePhase(options.repoRoot, 'test-capture-started');
+    await writePipelinePhase(options.taskRuntime, 'test-capture-started');
     const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal);
-    await writePipelinePhase(options.repoRoot, 'test-capture-completed');
+    await writePipelinePhase(options.taskRuntime, 'test-capture-completed');
     return { results, skipped: false };
   }
-  await writePipelinePhase(options.repoRoot, 'test-capture-skipped');
+  await writePipelinePhase(options.taskRuntime, 'test-capture-skipped');
   return { results: [], skipped: true };
 }
 
@@ -601,11 +605,10 @@ async function handlePipelineFailure(
   }
 }
 
-async function acquirePipelineLock(repoRoot: string): Promise<PipelineLock> {
-  const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime');
-  const lockDir = path.join(runtimeDir, 'pipeline.lock');
+async function acquirePipelineLock(taskRuntime: string): Promise<PipelineLock> {
+  const lockDir = path.join(taskRuntime, 'pipeline.lock');
   const ownerPath = path.join(lockDir, 'owner.json');
-  await ensureDir(runtimeDir);
+  await ensureDir(taskRuntime);
 
   try {
     await mkdir(lockDir);
@@ -619,7 +622,7 @@ async function acquirePipelineLock(repoRoot: string): Promise<PipelineLock> {
         // Keep the lock contention error deterministic even if the owner file is missing.
       }
       throw new Error(
-        `Another pipeline run is already active for repo ${repoRoot}. Lock: ${lockDir}. Owner: ${ownerSummary}`,
+        `Another pipeline run is already active. Lock: ${lockDir}. Owner: ${ownerSummary}`,
       );
     }
     throw err;
@@ -722,10 +725,11 @@ export async function runPipelineSequence(
   options: PipelineOptions,
 ): Promise<PipelineReceipt> {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
-  const lock = await acquirePipelineLock(paths.repoRoot);
+  const lock = await acquirePipelineLock(paths.taskRuntime);
   const pipelineStart = Date.now();
   const abortController = new AbortController();
-  const stopKillMonitor = startKillSwitchMonitor(paths.repoRoot, abortController);
+  const pipelineTaskId = options.taskId ?? '';
+  const stopKillMonitor = startKillSwitchMonitor(paths.repoRoot, pipelineTaskId, abortController);
   let workflowPath: 'standard' = 'standard';
   let prewarmSeconds = 0;
   const agentTimings: Record<string, number> = {};
@@ -733,7 +737,6 @@ export async function runPipelineSequence(
 
   // Resolve the task-bound context pack before the try block so the catch
   // handler can pass it to handlePipelineFailure on error.
-  const pipelineTaskId = options.taskId;
   const taskBoundContextPackDir = await resolveTaskBoundContextPackDir(
     paths.repoRoot,
     pipelineTaskId,
@@ -742,7 +745,7 @@ export async function runPipelineSequence(
 
   try {
     return await withInternalOrchestratorEnv('pipeline-sequencer', async () => {
-      ensurePipelineNotKilled(paths.repoRoot, abortController);
+      ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
       workflowPath = await detectWorkflowPath(paths.handoffs);
       const agentOrder = selectAgentOrder(options);
 
@@ -779,7 +782,7 @@ export async function runPipelineSequence(
       const runPostDaltonPasses = async (): Promise<TestCaptureResult[]> => {
         if (!daltonRemediationActive) {
           const sharedVerificationDiffPath = path.join(paths.handoffs, 'code-changes.diff');
-          const verificationDiffStage = resolveVerificationDiffStage(paths.repoRoot);
+          const verificationDiffStage = resolveVerificationDiffStage(paths.taskRuntime);
           const diffGenerationWarning = await refreshVerificationQaDiffArtifact({
             repoRoot: paths.repoRoot,
             handoffsDir: paths.handoffs,
@@ -839,7 +842,7 @@ export async function runPipelineSequence(
           }
         }
         const capture = await runTestCaptureWithPhaseTracking({
-          repoRoot: paths.repoRoot,
+          taskRuntime: paths.taskRuntime,
           implementationStepsDir: paths.implementationSteps,
           captureCwd: testCaptureCwd,
           abortSignal: abortController.signal,
@@ -852,7 +855,7 @@ export async function runPipelineSequence(
       };
 
       for (let index = 0; index < agentOrder.length; index++) {
-        ensurePipelineNotKilled(paths.repoRoot, abortController);
+        ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
         const agentId = agentOrder[index];
         const agentStart = Date.now();
 
@@ -889,6 +892,7 @@ export async function runPipelineSequence(
             const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
             if (qaPolicy.exitCode !== 0) {
               const cleanupContext = await buildFleetDaltonCleanupContext({
+                repoRoot: paths.repoRoot,
                 handoffsDir: paths.handoffs,
                 implStepsDir: paths.implementationSteps,
                 policyResult: qaPolicy,
@@ -994,11 +998,11 @@ export async function runPipelineSequence(
         },
       };
 
-      await writePipelineReceipt(paths.repoRoot, receipt);
+      await writePipelineReceipt(paths.taskRuntime, receipt);
 
       // Pre-check queue-advance readiness. If policy fails (e.g. incomplete
       // retrospective), give Ron one remediation pass before attempting closeout.
-      const preCloseoutCheck = await runPolicyValidation({ mode: 'queue-advance', repoRoot: paths.repoRoot });
+      const preCloseoutCheck = await runPolicyValidation({ mode: 'queue-advance', taskId: pipelineTaskId, repoRoot: paths.repoRoot });
       if (!preCloseoutCheck.passed) {
         const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
           .filter(Boolean).join('\n').trim();
@@ -1036,7 +1040,7 @@ export async function runPipelineSequence(
       return receipt;
     });
   } catch (err) {
-    const killRequest = await readPipelineKillRequest(paths.repoRoot);
+    const killRequest = await readPipelineKillRequest(paths.repoRoot, pipelineTaskId);
     const killed = abortController.signal.aborted || killRequest !== undefined;
     const failureReason = killed
       ? `Pipeline killed: ${killRequest?.reason ?? 'operator-request'}`
@@ -1055,7 +1059,7 @@ export async function runPipelineSequence(
       },
     };
 
-    await writePipelineReceipt(paths.repoRoot, failureReceipt);
+    await writePipelineReceipt(paths.taskRuntime, failureReceipt);
     await handlePipelineFailure(paths.repoRoot, effectiveContextPackDir, options.taskId);
 
     if (killed) {
@@ -1064,7 +1068,7 @@ export async function runPipelineSequence(
     throw err;
   } finally {
     stopKillMonitor();
-    await clearPipelineKill(paths.repoRoot);
+    await clearPipelineKill(paths.repoRoot, pipelineTaskId);
     await lock.release();
   }
 }

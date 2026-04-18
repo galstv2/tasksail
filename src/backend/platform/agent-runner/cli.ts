@@ -241,6 +241,7 @@ async function handlePipeline(args: string[]): Promise<void> {
 
 async function handleKill(args: string[]): Promise<void> {
   let repoRoot: string | undefined;
+  let taskId: string | undefined;
   let reason = 'operator-request';
 
   for (let i = 0; i < args.length; i++) {
@@ -249,13 +250,17 @@ async function handleKill(args: string[]): Promise<void> {
         if (!requireValue(args, i, '--repo-root')) return;
         repoRoot = args[++i];
         break;
+      case '--task-id':
+        if (!requireValue(args, i, '--task-id')) return;
+        taskId = args[++i];
+        break;
       case '--reason':
         if (!requireValue(args, i, '--reason')) return;
         reason = args[++i];
         break;
       case '--help':
       case '-h':
-        process.stdout.write('Usage: agent-runner kill [--repo-root <path>] [--reason <text>]\n');
+        process.stdout.write('Usage: agent-runner kill --task-id <id> [--repo-root <path>] [--reason <text>]\n');
         return;
       default:
         process.stderr.write(`Unknown option: ${args[i]}\n`);
@@ -264,12 +269,19 @@ async function handleKill(args: string[]): Promise<void> {
     }
   }
 
-  await requestPipelineKill(repoRoot ?? process.cwd(), reason);
+  if (!taskId) {
+    process.stderr.write('Error: --task-id is required for kill command.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  await requestPipelineKill(repoRoot ?? process.cwd(), taskId, reason);
   process.stdout.write('Pipeline kill requested.\n');
 }
 
 async function handleClearKill(args: string[]): Promise<void> {
   let repoRoot: string | undefined;
+  let taskId: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -277,9 +289,13 @@ async function handleClearKill(args: string[]): Promise<void> {
         if (!requireValue(args, i, '--repo-root')) return;
         repoRoot = args[++i];
         break;
+      case '--task-id':
+        if (!requireValue(args, i, '--task-id')) return;
+        taskId = args[++i];
+        break;
       case '--help':
       case '-h':
-        process.stdout.write('Usage: agent-runner clear-kill [--repo-root <path>]\n');
+        process.stdout.write('Usage: agent-runner clear-kill --task-id <id> [--repo-root <path>]\n');
         return;
       default:
         process.stderr.write(`Unknown option: ${args[i]}\n`);
@@ -288,7 +304,13 @@ async function handleClearKill(args: string[]): Promise<void> {
     }
   }
 
-  const cleared = await clearPipelineKill(repoRoot ?? process.cwd());
+  if (!taskId) {
+    process.stderr.write('Error: --task-id is required for clear-kill command.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  const cleared = await clearPipelineKill(repoRoot ?? process.cwd(), taskId);
   process.stdout.write(cleared ? 'Cleared pipeline kill request.\n' : 'No pipeline kill request was present.\n');
 }
 

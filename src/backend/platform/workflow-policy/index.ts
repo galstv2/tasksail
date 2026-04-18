@@ -15,7 +15,6 @@ export type {
 } from './types.js';
 
 export {
-  ACTIVE_ITEM_RELATIVE_PATH,
   AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
   AGENT_REGISTRY_RELATIVE_PATH,
@@ -96,6 +95,7 @@ export {
   FULL_EVALUATION_SEQUENCE,
   LIGHTWEIGHT_EVALUATION_SEQUENCE,
   PolicyValidator,
+  toHandoffKey,
 } from './validator.js';
 
 export type {

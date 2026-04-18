@@ -138,7 +138,8 @@ export async function runCopilotSession(options: {
     completionCheck: () => Promise<boolean>;
   };
   session?: {
-    repoRoot: string;
+    taskRuntime: string;
+    launchId: string;
     agentId: string;
     roleName: string;
     displayName: string;

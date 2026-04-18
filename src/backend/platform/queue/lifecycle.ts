@@ -5,6 +5,7 @@ import {
   readTextFile,
   ensureDir,
   copyFileSafe,
+  resolvePaths,
 } from '../core/index.js';
 import {
   templateSourceFor,
@@ -147,29 +148,32 @@ export async function resetHandoffArtifacts(
 }
 
 /**
- * Clear runtime receipts when a new task successfully activates.
+ * Clear runtime receipts for a specific task when it successfully activates.
  *
- * We intentionally do not clear these during failure/reset of the current task,
- * so operators can still inspect the receipts from the failed run until the
- * next task actually starts.
+ * Clears only the task-scoped subdirectories under
+ * `.platform-state/runtime/tasks/<taskId>/`:
+ *   - guardrails/
+ *   - role-sessions/
+ *
+ * All other tasks' subtrees remain untouched. We intentionally do not clear
+ * these during failure/reset of the current task, so operators can still
+ * inspect the receipts from the failed run until the next task actually starts.
  */
 export async function clearRuntimeReceipts(
-  platformStateDir: string,
+  repoRoot: string,
+  taskId: string,
 ): Promise<void> {
-  const runtimeDir = path.join(platformStateDir, 'runtime');
-  if (!existsSync(runtimeDir)) {
-    return;
-  }
+  const paths = resolvePaths({ repoRoot, taskId });
+  const taskRuntimeDir = paths.taskRuntime;
 
   await Promise.all([
-    clearJsonFilesInDir(path.join(runtimeDir, 'role-sessions')),
-    clearJsonFilesInDir(path.join(runtimeDir, 'guardrails')),
-    unlink(path.join(runtimeDir, 'pipeline-receipt.json')).catch(() => {}),
-    unlink(path.join(runtimeDir, 'workflow-facts.json')).catch(() => {}),
+    clearJsonFilesInDir(path.join(taskRuntimeDir, 'guardrails')),
+    clearJsonFilesInDir(path.join(taskRuntimeDir, 'role-sessions')),
   ]);
 
+  await ensureDir(taskRuntimeDir);
   await writeFile(
-    path.join(runtimeDir, 'last-reset-ts'),
+    path.join(taskRuntimeDir, 'last-reset-ts'),
     Math.floor(Date.now() / 1000).toString(),
     'utf-8',
   );

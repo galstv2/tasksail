@@ -122,7 +122,7 @@ def resolve_headers(
         m = _ENV_VAR_REF.match(value)
         if m:
             var_name = m.group(1)
-            env_val = os.environ.get(var_name)
+            env_val = os.environ.get(var_name)  # process-global; not per-task
             if env_val is None:
                 print(
                     f"[external-mcp] Server '{server.get('id', '?')}' excluded: "

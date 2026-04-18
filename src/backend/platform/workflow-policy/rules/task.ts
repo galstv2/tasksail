@@ -4,9 +4,10 @@
  * Ported from Python: src/backend/scripts/python/lib/policy/rules_task.py
  */
 
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
-const TASK_RELATIVE_PATH = 'AgentWorkSpace/handoffs/professional-task.md';
+const TASK_RELATIVE_PATH = toHandoffKey('professional-task.md');
 
 export async function evaluateRequiredTaskArtifacts(
   validator: PolicyValidator,

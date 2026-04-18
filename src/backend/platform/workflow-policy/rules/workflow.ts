@@ -4,9 +4,10 @@
  * Ported from Python: src/backend/scripts/python/lib/policy/rules_workflow.py
  */
 
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
-const IMPLEMENTATION_SPEC_RELATIVE_PATH = 'AgentWorkSpace/handoffs/implementation-spec.md';
+const IMPLEMENTATION_SPEC_RELATIVE_PATH = toHandoffKey('implementation-spec.md');
 
 export async function evaluateWorkflowPathRules(validator: PolicyValidator): Promise<void> {
   validator.recordRule('path.standard-requires-implementation-spec');
@@ -25,9 +26,9 @@ export async function evaluateWorkflowPathRules(validator: PolicyValidator): Pro
       rule_id: 'path.standard-requires-implementation-spec',
       artifact: implementationSpec.relativePath,
       message:
-        'AgentWorkSpace/handoffs/implementation-spec.md does not contain planning content yet.',
+        'implementation-spec.md does not contain planning content yet.',
       remediation:
-        'Create or complete AgentWorkSpace/handoffs/implementation-spec.md before treating the task as implementation-ready on the standard path.',
+        'Create or complete implementation-spec.md before treating the task as implementation-ready on the standard path.',
     });
   }
 }

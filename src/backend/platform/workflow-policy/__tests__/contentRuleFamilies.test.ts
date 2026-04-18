@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PolicyValidator } from '../index.js';
+import { resolvePaths } from '../../core/index.js';
 import { evaluateIntakeQualityRules } from '../rules/intake.js';
 import { evaluateSliceQualityRules } from '../rules/slice.js';
 import { evaluateSpecQualityRules } from '../rules/spec.js';
@@ -67,6 +68,7 @@ function createRegistryFixture(repoRoot: string): void {
 }
 
 function createBlankHandoffs(repoRoot: string): void {
+  const handoffsDir = resolvePaths({ repoRoot }).handoffs;
   for (const fileName of [
     'professional-task.md',
     'implementation-spec.md',
@@ -74,15 +76,16 @@ function createBlankHandoffs(repoRoot: string): void {
     'final-summary.md',
     'issues.md',
   ]) {
-    writeRepoFile(repoRoot, `AgentWorkSpace/handoffs/${fileName}`, '');
+    writeRepoFile(repoRoot, path.relative(repoRoot, path.join(handoffsDir, fileName)), '');
   }
 }
 
 function createActiveTask(repoRoot: string, extraLineage: string[] = []): void {
   createBlankHandoffs(repoRoot);
+  const handoffsDir = resolvePaths({ repoRoot }).handoffs;
   writeRepoFile(
     repoRoot,
-    'AgentWorkSpace/handoffs/professional-task.md',
+    path.relative(repoRoot, path.join(handoffsDir, 'professional-task.md')),
     [
       '# Professional Task',
       '',
@@ -198,7 +201,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -274,7 +277,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -373,7 +376,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -454,7 +457,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -546,7 +549,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -579,9 +582,9 @@ describe('workflow-policy content rule families', () => {
         }),
         expect.objectContaining({
           rule_id: 'task.lineage-consistency',
-          artifact: 'AgentWorkSpace/handoffs/implementation-spec.md',
+          artifact: 'implementation-spec.md',
           message:
-            "Lineage field 'Parent Task ID' is 'parent-2' in AgentWorkSpace/handoffs/implementation-spec.md but 'parent-1' in AgentWorkSpace/handoffs/professional-task.md.",
+            "Lineage field 'Parent Task ID' is 'parent-2' in implementation-spec.md but 'parent-1' in professional-task.md.",
         }),
       ]),
     );
@@ -657,7 +660,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/implementation-spec.md',
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',

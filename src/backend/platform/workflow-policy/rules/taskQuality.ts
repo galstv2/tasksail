@@ -15,9 +15,10 @@ import {
 } from '../models.js';
 import { extractBulletItems, normalizeText } from '../matching.js';
 import { parseSections } from '../artifacts.js';
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
-const TASK_RELATIVE_PATH = 'AgentWorkSpace/handoffs/professional-task.md';
+const TASK_RELATIVE_PATH = toHandoffKey('professional-task.md');
 
 export async function evaluateTaskQualityRules(validator: PolicyValidator): Promise<void> {
   validator.recordRule('task.required-section-present');
@@ -46,7 +47,7 @@ export async function evaluateTaskQualityRules(validator: PolicyValidator): Prom
     return;
   }
 
-  const taskPath = path.join(validator.rootDir, TASK_RELATIVE_PATH);
+  const taskPath = path.join(validator.handoffsDir, TASK_RELATIVE_PATH);
   const text = await readTextFile(taskPath);
   if (!text?.trim()) {
     return;

@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PolicyValidator } from '../index.js';
+import { resolvePaths } from '../../core/index.js';
 import { evaluateCloseoutRules } from '../rules/closeout.js';
 import { evaluateParallelOkContentRules } from '../rules/parallelOkContent.js';
-import { evaluateTemplateStructureRules } from '../rules/template.js';
 import { evaluateTransitionLegalityRules } from '../rules/transition.js';
 
 function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
@@ -66,10 +66,26 @@ function createRegistryFixture(repoRoot: string): void {
   );
 }
 
+const TEST_TASK_ID = 'task-123';
+
+function handoffsPath(repoRoot: string, fileName: string): string {
+  return path.relative(repoRoot, path.join(
+    resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs,
+    fileName,
+  ));
+}
+
+function taskRuntimePath(repoRoot: string, relativePath: string): string {
+  return path.relative(repoRoot, path.join(
+    resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).taskRuntime,
+    relativePath,
+  ));
+}
+
 function createActiveTaskFixture(repoRoot: string): void {
   writeRepoFile(
     repoRoot,
-    'AgentWorkSpace/handoffs/professional-task.md',
+    handoffsPath(repoRoot, 'professional-task.md'),
     [
       '# Professional Task',
       '',
@@ -84,7 +100,7 @@ function createActiveTaskFixture(repoRoot: string): void {
   );
 
   for (const fileName of ['implementation-spec.md', 'retrospective-input.md', 'final-summary.md', 'issues.md']) {
-    writeRepoFile(repoRoot, `AgentWorkSpace/handoffs/${fileName}`, '');
+    writeRepoFile(repoRoot, handoffsPath(repoRoot, fileName), '');
   }
 }
 
@@ -103,7 +119,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/issues.md',
+      handoffsPath(repoRoot, 'issues.md'),
       [
         '# QA Issues',
         '',
@@ -115,7 +131,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/final-summary.md',
+      handoffsPath(repoRoot, 'final-summary.md'),
       [
         '# Final Summary',
         '',
@@ -139,7 +155,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/retrospective-input.md',
+      handoffsPath(repoRoot, 'retrospective-input.md'),
       [
         '# Retrospective Input',
         '',
@@ -161,7 +177,7 @@ describe('workflow-policy rule parity', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-closeout' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-closeout', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateCloseoutRules(validator);
 
@@ -171,13 +187,13 @@ describe('workflow-policy rule parity', () => {
           rule_id: 'closeout.retrospective-action-items-required',
           severity: 'warning',
           message:
-            'Retrospective action items are incomplete in AgentWorkSpace/handoffs/retrospective-input.md; Action Items must contain at least one bullet.',
+            'Retrospective action items are incomplete in retrospective-input.md; Action Items must contain at least one bullet.',
         }),
         expect.objectContaining({
           rule_id: 'closeout.retrospective-role-contributions-required',
           severity: 'warning',
           message:
-            "Retrospective is missing contribution sections in AgentWorkSpace/handoffs/retrospective-input.md; missing or blank: Lily's Contribution (Planning Specialist), Alice's Contribution (Product Manager), Dalton's Contribution (Software Engineer), Ron's Contribution (QA and Closeout).",
+            "Retrospective is missing contribution sections in retrospective-input.md; missing or blank: Lily's Contribution (Planning Specialist), Alice's Contribution (Product Manager), Dalton's Contribution (Software Engineer), Ron's Contribution (QA and Closeout).",
         }),
       ]),
     );
@@ -191,7 +207,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/final-summary.md',
+      handoffsPath(repoRoot, 'final-summary.md'),
       [
         '# Final Summary',
         '',
@@ -207,7 +223,7 @@ describe('workflow-policy rule parity', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'queue-advance' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'queue-advance', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateTransitionLegalityRules(validator);
 
@@ -228,7 +244,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/issues.md',
+      handoffsPath(repoRoot, 'issues.md'),
       [
         '# QA Issues',
         '',
@@ -248,13 +264,14 @@ describe('workflow-policy rule parity', () => {
     );
     writeRepoFile(
       repoRoot,
-      '.platform-state/runtime/guardrails/software-engineer.json',
+      taskRuntimePath(repoRoot, 'guardrails/software-engineer.json'),
       JSON.stringify({ status: 'passed' }, null, 2),
     );
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       requestedAgentId: 'qa',
       resolveExpectedRuntimeAgent: () => ({
         expectedAgentId: 'qa',
@@ -279,7 +296,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      '.platform-state/runtime/workflow-facts.json',
+      taskRuntimePath(repoRoot, 'workflow-facts.json'),
       JSON.stringify({
         schema_version: 1,
         source: 'typescript',
@@ -293,7 +310,7 @@ describe('workflow-policy rule parity', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/handoffs/parallel-ok.md',
+      handoffsPath(repoRoot, 'parallel-ok.md'),
       [
         '# Parallel OK',
         '',
@@ -311,9 +328,13 @@ describe('workflow-policy rule parity', () => {
       ].join('\n'),
     );
 
+    const implStepsDir = path.relative(
+      repoRoot,
+      resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).implementationSteps,
+    );
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/ImplementationSteps/slice-1.md',
+      `${implStepsDir}/slice-1.md`,
       [
         '# Slice 1',
         '',
@@ -323,7 +344,7 @@ describe('workflow-policy rule parity', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateParallelOkContentRules(validator);
 
@@ -337,8 +358,7 @@ describe('workflow-policy rule parity', () => {
         expect.objectContaining({
           rule_id: 'parallel-ok.slices-exist',
           severity: 'warning',
-          message:
-            "Independent Slices references 'slice-42' but no matching file exists in AgentWorkSpace/ImplementationSteps/.",
+          message: expect.stringContaining("Independent Slices references 'slice-42' but no matching file exists in"),
         }),
       ]),
     );

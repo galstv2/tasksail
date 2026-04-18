@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { readTextFile } from '../core/index.js';
+import { readTextFile, resolvePaths } from '../core/index.js';
 import { checkAgentArtifactCompletion, detectParallelOk } from '../agent-runner/artifactCompletion.js';
 
-const ISSUES_MD_RELATIVE_PATH = 'AgentWorkSpace/handoffs/issues.md';
-const FINAL_SUMMARY_MD_RELATIVE_PATH = 'AgentWorkSpace/handoffs/final-summary.md';
+const ISSUES_MD_FILENAME = 'issues.md';
+const FINAL_SUMMARY_MD_FILENAME = 'final-summary.md';
 
 const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const AGENT_ID_ALIASES: Record<string, string> = {
@@ -66,8 +66,8 @@ function normalizeAgentId(value: string): string {
   return AGENT_ID_ALIASES[normalized] ?? normalized;
 }
 
-async function loadArtifact(repoRoot: string, relativePath: string): Promise<RuntimeInferenceArtifact> {
-  const rawText = await readTextFile(path.join(repoRoot, relativePath));
+async function loadArtifact(absolutePath: string): Promise<RuntimeInferenceArtifact> {
+  const rawText = await readTextFile(absolutePath);
   const sections = parseSections(rawText ?? '');
   return {
     exists: rawText !== undefined,
@@ -81,8 +81,8 @@ function issuesHaveBlockingFindings(artifact: RuntimeInferenceArtifact): boolean
   return severityText.includes('blocking');
 }
 
-async function remediationNextAgent(repoRoot: string): Promise<{ agentId: string; source: string } | null> {
-  const artifact = await loadArtifact(repoRoot, ISSUES_MD_RELATIVE_PATH);
+async function remediationNextAgent(handoffsDir: string): Promise<{ agentId: string; source: string } | null> {
+  const artifact = await loadArtifact(path.join(handoffsDir, ISSUES_MD_FILENAME));
   if (!artifact.exists || !artifact.hasSubstantiveContent) {
     return null;
   }
@@ -96,8 +96,8 @@ async function remediationNextAgent(repoRoot: string): Promise<{ agentId: string
   return null;
 }
 
-async function closeoutNextAgent(repoRoot: string): Promise<{ agentId: string; source: string } | null> {
-  const finalSummary = await loadArtifact(repoRoot, FINAL_SUMMARY_MD_RELATIVE_PATH);
+async function closeoutNextAgent(handoffsDir: string): Promise<{ agentId: string; source: string } | null> {
+  const finalSummary = await loadArtifact(path.join(handoffsDir, FINAL_SUMMARY_MD_FILENAME));
   if (!finalSummary.exists || !finalSummary.hasSubstantiveContent) {
     return null;
   }
@@ -108,14 +108,9 @@ async function closeoutNextAgent(repoRoot: string): Promise<{ agentId: string; s
   return { agentId: owner, source: 'final-summary closeout owner' };
 }
 
-async function softwareEngineerCompleted(repoRoot: string): Promise<boolean> {
-  const roleSessionPath = path.join(
-    repoRoot,
-    '.platform-state',
-    'runtime',
-    'role-sessions',
-    'software-engineer.json',
-  );
+async function softwareEngineerCompleted(repoRoot: string, taskId?: string): Promise<boolean> {
+  const taskRuntime = resolvePaths({ repoRoot, taskId }).taskRuntime;
+  const roleSessionPath = path.join(taskRuntime, 'role-sessions', 'software-engineer.json');
   const roleSessionRaw = await readTextFile(roleSessionPath);
   if (roleSessionRaw) {
     try {
@@ -130,13 +125,7 @@ async function softwareEngineerCompleted(repoRoot: string): Promise<boolean> {
     }
   }
 
-  const guardrailPath = path.join(
-    repoRoot,
-    '.platform-state',
-    'runtime',
-    'guardrails',
-    'software-engineer.json',
-  );
+  const guardrailPath = path.join(taskRuntime, 'guardrails', 'software-engineer.json');
   const guardrailRaw = await readTextFile(guardrailPath);
   if (!guardrailRaw) {
     return false;
@@ -155,16 +144,18 @@ async function softwareEngineerCompleted(repoRoot: string): Promise<boolean> {
 
 export async function computeRuntimeCompletionFacts(options: {
   repoRoot: string;
+  taskId?: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<Record<string, RuntimeAgentFacts>> {
-  const handoffsDir = options.handoffsDir ?? path.join(options.repoRoot, 'AgentWorkSpace', 'handoffs');
-  const implStepsDir = options.implStepsDir ?? path.join(options.repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
+  const handoffsDir = options.handoffsDir ?? paths.handoffs;
+  const implStepsDir = options.implStepsDir ?? paths.implementationSteps;
 
   const sharedOpts = { handoffsDir, implStepsDir, repoRoot: options.repoRoot };
   const [pmCompleted, sweCompleted, qaCompleted] = await Promise.all([
     checkAgentArtifactCompletion({ agentId: 'product-manager', ...sharedOpts }),
-    softwareEngineerCompleted(options.repoRoot),
+    softwareEngineerCompleted(options.repoRoot, options.taskId),
     checkAgentArtifactCompletion({ agentId: 'qa', ...sharedOpts }),
   ]);
   return {
@@ -188,13 +179,15 @@ export function inferNextAgentFromCompletion(
 
 export async function evaluateRuntimeInference(options: {
   repoRoot: string;
+  taskId?: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<RuntimeInferenceResult> {
-  const handoffsDir = options.handoffsDir ?? path.join(options.repoRoot, 'AgentWorkSpace', 'handoffs');
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
+  const handoffsDir = options.handoffsDir ?? paths.handoffs;
   const completion = await computeRuntimeCompletionFacts(options);
-  const remediation = await remediationNextAgent(options.repoRoot);
-  const closeout = await closeoutNextAgent(options.repoRoot);
+  const remediation = await remediationNextAgent(handoffsDir);
+  const closeout = await closeoutNextAgent(handoffsDir);
   const nextAgent = remediation ?? closeout ?? inferNextAgentFromCompletion(completion);
 
   return {

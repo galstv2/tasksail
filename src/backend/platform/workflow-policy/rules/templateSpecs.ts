@@ -46,10 +46,10 @@ export const LINEAGE_METADATA_LABELS = [
 export const ALLOWED_TASK_KINDS = new Set(['', 'standard', 'child-task']);
 
 export const LINEAGE_HANDOFFS = new Set([
-  'AgentWorkSpace/handoffs/professional-task.md',
-  'AgentWorkSpace/handoffs/implementation-spec.md',
-  'AgentWorkSpace/handoffs/retrospective-input.md',
-  'AgentWorkSpace/handoffs/final-summary.md',
+  'professional-task.md',
+  'implementation-spec.md',
+  'retrospective-input.md',
+  'final-summary.md',
 ]);
 
 /**
@@ -64,7 +64,7 @@ export function buildContributionSectionNames(
 }
 
 export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
-  'AgentWorkSpace/handoffs/professional-task.md': {
+  'professional-task.md': {
     title: 'Professional Task',
     sections: [
       'Task Metadata',
@@ -81,7 +81,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'Open Questions',
     ],
   },
-  'AgentWorkSpace/handoffs/implementation-spec.md': {
+  'implementation-spec.md': {
     title: 'Implementation Spec',
     sections: [
       'Task Metadata',
@@ -97,7 +97,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       ...SPEC_RECOMMENDED_SECTION_SPECS,
     ],
   },
-  'AgentWorkSpace/handoffs/parallel-ok.md': {
+  'parallel-ok.md': {
     title: 'Parallel OK',
     sections: [
       'Task Metadata',
@@ -107,7 +107,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'Coordination Notes',
     ],
   },
-  'AgentWorkSpace/handoffs/issues.md': {
+  'issues.md': {
     title: 'QA Issues',
     sections: [
       'Task Metadata',
@@ -123,7 +123,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'Retest Instructions',
     ],
   },
-  'AgentWorkSpace/handoffs/final-summary.md': {
+  'final-summary.md': {
     title: 'Final Summary',
     sections: [
       'Task Metadata',
@@ -140,7 +140,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'Difficulty Assessment',
     ],
   },
-  'AgentWorkSpace/handoffs/retrospective-input.md': {
+  'retrospective-input.md': {
     title: 'Retrospective Input',
     extra_metadata_labels: ['Retrospective Required'],
     sections: [

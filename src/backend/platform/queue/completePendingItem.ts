@@ -31,12 +31,26 @@ export async function completePendingItem(
   const repoRoot = options.repoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(repoRoot);
 
+  // Read the active task ID before policy validation so it can be threaded into
+  // the policy check and archive calls. Falls through to undefined when the
+  // .active-item marker is absent — completeActiveItem will surface the error.
+  let activeTaskId: string | undefined;
+  try {
+    const activeName = (await readFile(
+      path.join(queuePaths.pendingDir, '.active-item'), 'utf-8',
+    )).trim();
+    activeTaskId = activeName.replace(/\.md$/, '');
+  } catch {
+    // Will be caught by completeActiveItem below
+  }
+
   if (!options.skipValidation) {
-    await assertPolicyPasses(
-      'queue-advance',
+    await assertPolicyPasses({
+      mode: 'queue-advance',
       repoRoot,
-      'Completion blocked by queue-advance policy validation.',
-    );
+      taskId: activeTaskId ?? '',
+      errorMessage: 'Completion blocked by queue-advance policy validation.',
+    });
   }
 
   let resolvedArchiveMdPath: string | undefined;
@@ -58,7 +72,7 @@ export async function completePendingItem(
       }
     }
 
-    const archiveResult = await fileTaskArchive({ contextPackDir, repoRoot });
+    const archiveResult = await fileTaskArchive({ contextPackDir, taskId: activeTaskId ?? '', repoRoot });
     if (!archiveResult.passed) {
       const details = [archiveResult.stdout, archiveResult.stderr]
         .filter(Boolean)
@@ -80,15 +94,6 @@ export async function completePendingItem(
   );
 
   try {
-    let activeTaskId: string | undefined;
-    try {
-      const activeName = (await readFile(
-        path.join(queuePaths.pendingDir, '.active-item'), 'utf-8',
-      )).trim();
-      activeTaskId = activeName.replace(/\.md$/, '');
-    } catch {
-      // Will be caught by completeActiveItem below
-    }
 
     if (activeTaskId) {
       // Resolve the context pack dir from the per-task sidecar (§3.2).

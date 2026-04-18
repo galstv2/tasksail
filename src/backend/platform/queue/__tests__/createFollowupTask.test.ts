@@ -40,11 +40,12 @@ describe('createFollowupTask', () => {
   it('calls assertPolicyPasses with pre-closeout mode before creating task', async () => {
     await createFollowupTask({ ...PMSE_OPTIONS, repoRoot: '/explicit/root' });
 
-    expect(assertPolicyPasses).toHaveBeenCalledWith(
-      'pre-closeout',
-      '/explicit/root',
-      'Follow-up creation blocked by closeout policy validation.',
-    );
+    expect(assertPolicyPasses).toHaveBeenCalledWith({
+      mode: 'pre-closeout',
+      repoRoot: '/explicit/root',
+      taskId: 'TASK-001',
+      errorMessage: 'Follow-up creation blocked by closeout policy validation.',
+    });
     expect(createDropboxTask).toHaveBeenCalled();
   });
 
@@ -53,9 +54,11 @@ describe('createFollowupTask', () => {
 
     expect(findRepoRoot).toHaveBeenCalled();
     expect(assertPolicyPasses).toHaveBeenCalledWith(
-      'pre-closeout',
-      '/resolved/repo/root',
-      expect.any(String),
+      expect.objectContaining({
+        mode: 'pre-closeout',
+        repoRoot: '/resolved/repo/root',
+        taskId: 'TASK-001',
+      }),
     );
   });
 

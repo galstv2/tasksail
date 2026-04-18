@@ -218,9 +218,9 @@ describe('activateNextPendingItemIfReady', () => {
     const repoPendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
     const repoHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
     const repoTemplatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
-    const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime');
-    const roleSessionsDir = path.join(runtimeDir, 'role-sessions');
-    const guardrailsDir = path.join(runtimeDir, 'guardrails');
+    const taskRuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-005');
+    const roleSessionsDir = path.join(taskRuntimeDir, 'role-sessions');
+    const guardrailsDir = path.join(taskRuntimeDir, 'guardrails');
     mkdirSync(repoPendingDir, { recursive: true });
     mkdirSync(repoHandoffsDir, { recursive: true });
     mkdirSync(repoTemplatesDir, { recursive: true });
@@ -229,7 +229,6 @@ describe('activateNextPendingItemIfReady', () => {
 
     writeFileSync(path.join(roleSessionsDir, 'dalton.json'), '{"status":"failed"}\n');
     writeFileSync(path.join(guardrailsDir, 'dalton.json'), '{"status":"failed"}\n');
-    writeFileSync(path.join(runtimeDir, 'pipeline-receipt.json'), '{"status":"failed"}\n');
 
     writeFileSync(path.join(repoPendingDir, 'task-005.md'), '# Add audit trail\n');
     for (const filename of HANDOFF_FILES) {
@@ -246,8 +245,7 @@ describe('activateNextPendingItemIfReady', () => {
     expect(activated).toBe(true);
     expect(readdirSync(roleSessionsDir).filter((name) => name.endsWith('.json'))).toEqual([]);
     expect(readdirSync(guardrailsDir).filter((name) => name.endsWith('.json'))).toEqual([]);
-    expect(existsSync(path.join(runtimeDir, 'pipeline-receipt.json'))).toBe(false);
-    expect(existsSync(path.join(runtimeDir, 'last-reset-ts'))).toBe(true);
+    expect(existsSync(path.join(taskRuntimeDir, 'last-reset-ts'))).toBe(true);
   });
 
   it('persists repo-root Deep Focus fields to the active-task sidecar during activation', async () => {

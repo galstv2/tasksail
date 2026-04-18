@@ -52,14 +52,14 @@ export const ALLOWED_SYSTEM_LAYERS = new Set([
   'shared',
 ]);
 
-export const RETROSPECTIVE_INPUT_RELATIVE_PATH = 'AgentWorkSpace/handoffs/retrospective-input.md';
+export const RETROSPECTIVE_INPUT_RELATIVE_PATH = 'retrospective-input.md';
 
 export const HANDOFF_RELATIVE_PATHS = [
-  'AgentWorkSpace/handoffs/professional-task.md',
-  'AgentWorkSpace/handoffs/implementation-spec.md',
+  'professional-task.md',
+  'implementation-spec.md',
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
-  'AgentWorkSpace/handoffs/final-summary.md',
-  'AgentWorkSpace/handoffs/issues.md',
+  'final-summary.md',
+  'issues.md',
 ] as const;
 
 export const CONTENT_SECTION_EXCLUSIONS = new Set([
@@ -68,7 +68,6 @@ export const CONTENT_SECTION_EXCLUSIONS = new Set([
   'Difficulty Assessment',
 ]);
 
-export const ACTIVE_ITEM_RELATIVE_PATH = 'AgentWorkSpace/pendingitems/.active-item';
 export const AGENT_MODEL_CATALOG_RELATIVE_PATH = 'config/agent-model-catalog.default.json';
 export const AGENT_REGISTRY_RELATIVE_PATH = '.github/agents/registry.json';
 
@@ -99,8 +98,8 @@ export function findSectionSpec(
   return spec;
 }
 
-export const ISSUES_MD_RELATIVE_PATH = 'AgentWorkSpace/handoffs/issues.md';
-export const FINAL_SUMMARY_RELATIVE_PATH = 'AgentWorkSpace/handoffs/final-summary.md';
+export const ISSUES_MD_RELATIVE_PATH = 'issues.md';
+export const FINAL_SUMMARY_RELATIVE_PATH = 'final-summary.md';
 
 // ---------------------------------------------------------------------------
 // Difficulty levels

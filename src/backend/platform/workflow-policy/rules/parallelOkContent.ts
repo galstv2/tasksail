@@ -8,9 +8,10 @@ import path from 'node:path';
 import { extractBulletItems, normalizeText } from '../matching.js';
 import { listSliceFiles, parallelOkHasActiveApproval } from '../artifacts.js';
 import type { WorkspaceArtifact } from '../types.js';
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
-const ARTIFACT = 'AgentWorkSpace/handoffs/parallel-ok.md';
+const ARTIFACT = toHandoffKey('parallel-ok.md');
 
 function shouldFire(validator: PolicyValidator): boolean {
   return (
@@ -90,11 +91,12 @@ async function checkSlicesExist(
     return;
   }
 
-  const stepsDir = path.join(validator.rootDir, 'AgentWorkSpace', 'ImplementationSteps');
+  const stepsDir = validator.implementationStepsDir;
   const sliceFiles = await listSliceFiles(stepsDir);
   const existingIds = new Set(
     sliceFiles.map((p) => path.basename(p, '.md')),
   );
+  const stepsDirRelative = path.relative(validator.rootDir, stepsDir);
 
   for (const item of items) {
     const sliceId = item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '') ?? '';
@@ -103,8 +105,8 @@ async function checkSlicesExist(
         rule_id: 'parallel-ok.slices-exist',
         artifact: ARTIFACT,
         severity: 'warning',
-        message: `Independent Slices references '${sliceId}' but no matching file exists in AgentWorkSpace/ImplementationSteps/.`,
-        remediation: `Create AgentWorkSpace/ImplementationSteps/${sliceId}.md or remove it from the Independent Slices list.`,
+        message: `Independent Slices references '${sliceId}' but no matching file exists in ${stepsDirRelative}/.`,
+        remediation: `Create ${stepsDirRelative}/${sliceId}.md or remove it from the Independent Slices list.`,
       });
     }
   }

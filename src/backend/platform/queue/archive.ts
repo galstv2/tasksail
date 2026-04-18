@@ -4,6 +4,7 @@ import { assertPolicyPasses } from './policyValidation.js';
 
 export interface FileTaskArchiveOptions {
   contextPackDir: string;
+  taskId: string; // REQUIRED — archive operates on a completed task
   repoRoot?: string;
   qmdScope?: string;
   resume?: boolean;
@@ -27,11 +28,12 @@ export async function fileTaskArchive(
   options: FileTaskArchiveOptions,
 ): Promise<FileTaskArchiveResult> {
   const repoRoot = options.repoRoot ?? findRepoRoot();
-  await assertPolicyPasses(
-    'pre-archive',
+  await assertPolicyPasses({
+    mode: 'pre-archive',
     repoRoot,
-    'Archive filing blocked by workflow policy validation.',
-  );
+    taskId: options.taskId,
+    errorMessage: 'Archive filing blocked by workflow policy validation.',
+  });
   const scriptPath = path.join(
     repoRoot,
     'src', 'backend', 'scripts', 'python',

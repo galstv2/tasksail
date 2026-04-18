@@ -158,12 +158,15 @@ export async function runRoleAgent(
     const policyResult = await runRuntimePolicyCheck(
       paths.repoRoot,
       options.agentId,
+      'runtime',
+      options.taskId,
     );
     if (policyResult.exitCode !== 0) {
       const failureDetails = extractPolicyFailureDetails(policyResult);
       const receiptPath = guardrailReceiptPath(
-        paths.guardrails,
+        paths.repoRoot,
         options.agentId,
+        options.taskId,
       );
       await writeGuardrailReceipt(receiptPath, {
         schema_version: 1,
@@ -185,6 +188,7 @@ export async function runRoleAgent(
     profile,
     options.contextPackDir,
     paths.repoRoot,
+    options.taskId,
   );
 
   // 3b. When a context pack is active, resolve scoped target repos and add
@@ -462,6 +466,7 @@ export async function runRoleAgent(
     }
     const signature = await computeRuntimeFactsSourceSignature({
       repoRoot: paths.repoRoot,
+      taskRuntime: paths.taskRuntime,
       handoffsDir: paths.handoffs,
       implStepsDir: paths.implementationSteps,
     });
@@ -484,8 +489,15 @@ export async function runRoleAgent(
     return artifactCompletionInFlight;
   };
 
+  // Compute launchId at invocation time: epochMs-pid pair is collision-resistant
+  // within any single host process lifetime. Fleet-mode (§4.12) launches multiple
+  // concurrent sub-Daltons with the same agentId — each must get its own launchId
+  // so their receipts do not overwrite each other and §5.2 recoverOnStartup can
+  // enumerate all pids per task and detect which are still alive.
+  const launchId = `${Date.now()}-${process.pid}`;
   const sessionInfo = {
-    repoRoot: paths.repoRoot,
+    taskRuntime: paths.taskRuntime,
+    launchId,
     agentId: options.agentId,
     roleName: profile.role,
     displayName: profile.displayName,
@@ -527,8 +539,9 @@ export async function runRoleAgent(
 
   const durationMs = Date.now() - startTime;
   const receiptPath = guardrailReceiptPath(
-    paths.guardrails,
+    paths.repoRoot,
     options.agentId,
+    options.taskId,
   );
   let lastPromptAudit = promptAudit;
   const writeLaunchGuardrailReceipt = async (data: Record<string, unknown>): Promise<void> => {
@@ -674,7 +687,7 @@ export async function runRoleAgent(
 
   if (options.agentId === 'alice') {
     let nextPolicyResult = artifactsComplete && nextAgentId
-      ? await runRuntimePolicyCheck(paths.repoRoot, nextAgentId)
+      ? await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId)
       : undefined;
     const nextPolicyBlocked = nextPolicyResult !== undefined && nextPolicyResult.exitCode !== 0;
     if (!artifactsComplete || nextPolicyBlocked) {
@@ -758,7 +771,7 @@ export async function runRoleAgent(
       }
 
       if (nextAgentId) {
-        nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId);
+        nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
         if (nextPolicyResult.exitCode !== 0) {
           const finalFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
           await writeLaunchGuardrailReceipt({
@@ -864,7 +877,7 @@ export async function runRoleAgent(
   }
 
   if (options.agentId !== 'alice' && nextAgentId && !options.skipWorkflowValidation) {
-    let nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId);
+    let nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
     if (nextPolicyResult.exitCode !== 0) {
       const nextFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
       let shouldRetryCurrentAgent = true;
@@ -932,7 +945,7 @@ export async function runRoleAgent(
         );
       }
 
-      nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId);
+      nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
       if (nextPolicyResult.exitCode !== 0) {
         const finalFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
         await writeLaunchGuardrailReceipt({

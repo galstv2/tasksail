@@ -288,14 +288,19 @@ describe('buildFleetDaltonCleanupPrompt', () => {
 describe('buildFleetDaltonCleanupContext', () => {
   it('inlines policy violations and blocking artifact content without handoff env vars', async () => {
     const dir = makeTmpDir();
+    const handoffsDir = path.join(dir, 'AgentWorkSpace', 'handoffs');
+    const implStepsDir = path.join(dir, 'AgentWorkSpace', 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
     writeFileSync(
-      path.join(dir, 'issues.md'),
+      path.join(handoffsDir, 'issues.md'),
       '# QA Issues\n\n## Review Outcome\n\nblocking\n\n## Required Fix\n\nTighten validation.\n',
     );
 
     const context = await buildFleetDaltonCleanupContext({
-      handoffsDir: dir,
-      implStepsDir: dir,
+      repoRoot: dir,
+      handoffsDir,
+      implStepsDir,
       policyResult: {
         stdout: JSON.stringify({
           guardrail: {

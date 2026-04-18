@@ -5,13 +5,14 @@
  */
 
 import path from 'node:path';
-import { readTextFile, safeJsonParse } from '../../core/index.js';
+import { readTextFile, resolvePaths, safeJsonParse } from '../../core/index.js';
 import { ISSUES_MD_RELATIVE_PATH } from '../models.js';
 import {
   issuesHaveBlockingFindings,
   issuesSectionsHaveFindings,
 } from '../matching.js';
 import type { NamedAgentTeam } from '../types.js';
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
 function agentWorkflowOrder(namedAgentTeam: NamedAgentTeam, agentId: string): number | null {
@@ -57,10 +58,10 @@ async function checkWorkflowOrderRegression(validator: PolicyValidator): Promise
 
   validator.addViolation({
     rule_id: 'runtime.workflow-order-regression',
-    artifact: 'AgentWorkSpace/handoffs/',
+    artifact: 'handoffs/',
     severity: 'error',
     message: `Backward workflow transition: requested '${validator.requestedAgentId}' (order ${requestedOrder}) but current workflow state expects '${expectedAgentId}' (order ${expectedOrder}). Backward transitions are only allowed for documented remediation loops.`,
-    remediation: `Invoke '${expectedAgentId}' to continue the workflow, or record a remediation finding in AgentWorkSpace/handoffs/issues.md if a loop is required.`,
+    remediation: `Invoke '${expectedAgentId}' to continue the workflow, or record a remediation finding in issues.md if a loop is required.`,
   });
 }
 
@@ -83,13 +84,8 @@ async function checkRemediationLoopExecutionRequired(
   }
 
   // Check for evidence that software-engineer ran (guardrail receipt).
-  const guardrailsDir = path.join(
-    validator.rootDir,
-    '.platform-state',
-    'runtime',
-    'guardrails',
-  );
-  const engineerReceiptPath = path.join(guardrailsDir, 'software-engineer.json');
+  const taskRuntime = resolvePaths({ repoRoot: validator.rootDir, taskId: validator.taskId }).taskRuntime;
+  const engineerReceiptPath = path.join(taskRuntime, 'guardrails', 'software-engineer.json');
   let engineerRan = false;
 
   const receiptText = await readTextFile(engineerReceiptPath);
@@ -107,13 +103,7 @@ async function checkRemediationLoopExecutionRequired(
 
   if (!engineerRan) {
     // Also check role-sessions.
-    const sessionPath = path.join(
-      validator.rootDir,
-      '.platform-state',
-      'runtime',
-      'role-sessions',
-      'software-engineer.json',
-    );
+    const sessionPath = path.join(taskRuntime, 'role-sessions', 'software-engineer.json');
     const sessionText = await readTextFile(sessionPath);
     if (sessionText !== undefined) {
       try {
@@ -166,7 +156,7 @@ function checkChildTaskLineageEarly(validator: PolicyValidator, professional: {
       rule_id: 'runtime.child-task-lineage-incomplete',
       artifact: professional.relativePath,
       severity: 'error',
-      message: `Task Kind is 'child-task' but required lineage fields are missing in AgentWorkSpace/handoffs/professional-task.md: ${missing.join(', ')}.`,
+      message: `Task Kind is 'child-task' but required lineage fields are missing in professional-task.md: ${missing.join(', ')}.`,
       remediation:
         'Populate all child-task lineage fields (Parent Task ID, Root Task ID, Parent QMD Record ID, Parent QMD Scope, Follow-Up Reason) before launching workflow agents.',
     });
@@ -225,7 +215,7 @@ export async function evaluateTransitionLegalityRules(
     }
   }
 
-  const finalSummary = await validator.getArtifact('AgentWorkSpace/handoffs/final-summary.md');
+  const finalSummary = await validator.getArtifact(toHandoffKey('final-summary.md'));
   if (finalSummary.exists && finalSummary.hasSubstantiveContent) {
     const closeoutOwner = validator.readAgentIdSection(finalSummary, 'Closeout Owner Agent ID');
     if (closeoutOwner !== 'qa') {
@@ -250,7 +240,7 @@ export async function evaluateTransitionLegalityRules(
   if (expectedId && validator.requestedAgentId !== expectedId) {
     validator.addViolation({
       rule_id: 'runtime.agent-transition-legal',
-      artifact: 'AgentWorkSpace/handoffs/',
+      artifact: 'handoffs/',
       severity: 'error',
       message: `Requested agent transition is not legal for the current workflow state: expected '${expectedId}' from ${sourceLabel}, found '${validator.requestedAgentId}'.`,
       remediation: `Invoke ${expectedId} for the current workflow state or bypass the runtime check intentionally if the repo artifacts have not been updated yet.`,
@@ -260,9 +250,7 @@ export async function evaluateTransitionLegalityRules(
   if (validator.mode === 'runtime') {
     await checkWorkflowOrderRegression(validator);
     await checkRemediationLoopExecutionRequired(validator);
-    const professional = await validator.getArtifact(
-      'AgentWorkSpace/handoffs/professional-task.md',
-    );
+    const professional = await validator.getArtifact(toHandoffKey('professional-task.md'));
     checkChildTaskLineageEarly(validator, professional);
   }
 }
@@ -309,7 +297,7 @@ export async function evaluateArtifactAgentIdRules(
     });
   }
 
-  const finalSummary = await validator.getArtifact('AgentWorkSpace/handoffs/final-summary.md');
+  const finalSummary = await validator.getArtifact(toHandoffKey('final-summary.md'));
   if (finalSummary.exists && finalSummary.hasSubstantiveContent) {
     validator.validateAgentIdSection({
       artifact: finalSummary,

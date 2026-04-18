@@ -42,20 +42,20 @@ export async function evaluateQueueRules(validator: PolicyValidator): Promise<vo
       validator.addViolation({
         rule_id: 'queue.retrospective-required',
         artifact: RETROSPECTIVE_INPUT_RELATIVE_PATH,
-        message: `Cannot advance the queue because the active task has not completed the required retrospective in AgentWorkSpace/handoffs/retrospective-input.md${detailSuffix}.`,
+        message: `Cannot advance the queue because the active task has not completed the required retrospective in retrospective-input.md${detailSuffix}.`,
         remediation:
-          'Complete the required retrospective sections in AgentWorkSpace/handoffs/retrospective-input.md before removing the active pending item.',
+          'Complete the required retrospective sections in retrospective-input.md before removing the active pending item.',
       });
       return;
     }
 
     validator.addViolation({
       rule_id: 'queue.closeout-required',
-      artifact: 'AgentWorkSpace/pendingitems/.active-item',
+      artifact: 'pendingitems/.active-item',
       message:
-        'Cannot advance the queue because the active pending item has not completed task closeout in AgentWorkSpace/handoffs/final-summary.md.',
+        'Cannot advance the queue because the active pending item has not completed task closeout in final-summary.md.',
       remediation:
-        'Finish AgentWorkSpace/handoffs/final-summary.md and rerun the queue completion step before removing the active pending item.',
+        'Finish final-summary.md and rerun the queue completion step before removing the active pending item.',
     });
     return;
   }
@@ -70,10 +70,10 @@ export async function evaluateQueueRules(validator: PolicyValidator): Promise<vo
 
   validator.addViolation({
     rule_id: 'queue.workspace-reset-required',
-    artifact: 'AgentWorkSpace/handoffs/',
+    artifact: 'handoffs/',
     message:
-      'Cannot activate the next pending item because AgentWorkSpace/handoffs/ is not reset after the prior task.',
+      'Cannot activate the next pending item because the handoffs workspace is not reset after the prior task.',
     remediation:
-      'Run the documented reset flow so AgentWorkSpace/handoffs/ returns to its blank template state before the queue activates the next pending item.',
+      'Run the documented reset flow so the handoffs workspace returns to its blank template state before the queue activates the next pending item.',
   });
 }

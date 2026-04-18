@@ -1,15 +1,15 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { readTextFile } from '../core/index.js';
+import { readTextFile, resolvePaths } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
 import {
-  ACTIVE_ITEM_RELATIVE_PATH,
   CONTENT_SECTION_EXCLUSIONS,
   METADATA_LINE,
   SECTION_HEADING,
   type SemanticSectionSpec,
 } from './models.js';
+
 import {
   markdownSectionsHaveContent,
   normalizeIdentifier,
@@ -221,7 +221,8 @@ export async function parallelOkHasActiveApproval(
   rootDir: string,
   artifact: WorkspaceArtifact,
 ): Promise<boolean> {
-  const runtimeFacts = await readRuntimeWorkflowFacts(rootDir);
+  const taskRuntime = resolvePaths({ repoRoot: rootDir }).taskRuntime;
+  const runtimeFacts = await readRuntimeWorkflowFacts(taskRuntime);
   const authoritative = runtimeFacts?.parallel?.active_approval;
   if (typeof authoritative === 'boolean') {
     return authoritative;
@@ -232,7 +233,7 @@ export async function parallelOkHasActiveApproval(
 }
 
 export async function hasPendingMarkdownFiles(rootDir: string): Promise<boolean> {
-  const pendingDir = path.join(rootDir, 'AgentWorkSpace', 'pendingitems');
+  const pendingDir = resolvePaths({ repoRoot: rootDir }).pendingItems;
   try {
     const entries = await readdir(pendingDir, { withFileTypes: true });
     return entries.some((entry) => entry.isFile() && entry.name.endsWith('.md'));
@@ -245,13 +246,13 @@ export async function hasPendingMarkdownFiles(rootDir: string): Promise<boolean>
 }
 
 export async function activeItemExists(rootDir: string): Promise<boolean> {
-  const activeItemPath = path.join(rootDir, ACTIVE_ITEM_RELATIVE_PATH);
+  const activeItemPath = path.join(resolvePaths({ repoRoot: rootDir }).pendingItems, '.active-item');
   const activeItem = (await readTextFile(activeItemPath))?.trim();
   if (!activeItem) {
     return false;
   }
 
-  const candidate = path.join(rootDir, 'AgentWorkSpace', 'pendingitems', activeItem);
+  const candidate = path.join(resolvePaths({ repoRoot: rootDir }).pendingItems, activeItem);
   return (await readTextFile(candidate)) !== undefined;
 }
 

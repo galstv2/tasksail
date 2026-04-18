@@ -78,11 +78,12 @@ export async function createFollowupTask(
 
   // Validate parent closeout before creating the follow-up
   if (!force) {
-    await assertPolicyPasses(
-      'pre-closeout',
-      repoRoot ?? findRepoRoot(),
-      'Follow-up creation blocked by closeout policy validation.',
-    );
+    await assertPolicyPasses({
+      mode: 'pre-closeout',
+      repoRoot: repoRoot ?? findRepoRoot(),
+      taskId: parentTaskId,
+      errorMessage: 'Follow-up creation blocked by closeout policy validation.',
+    });
   }
 
   return createDropboxTask({

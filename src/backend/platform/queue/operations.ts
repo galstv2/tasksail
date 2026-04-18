@@ -503,7 +503,7 @@ export async function activateNextPendingItemIfReady(
       handoffsDir,
       contextPackDir: contextPackBinding?.contextPackDir ?? contextPackDir,
     });
-    await clearRuntimeReceipts(path.join(repoRoot, '.platform-state'));
+    await clearRuntimeReceipts(repoRoot, taskId);
   } catch (err) {
     // Roll back the claim and sidecar so queue returns to idle
     try { await unlink(linkPath); } catch { /* best-effort */ }

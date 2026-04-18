@@ -34,20 +34,23 @@ async function listGlob(pattern: string): Promise<string[]> {
 
 async function computeRuntimePolicyStateKey(options: {
   repoRoot: string;
+  taskId?: string;
   handoffsDir: string;
   implStepsDir: string;
   agentId: AgentId;
   mode: string;
 }): Promise<string> {
+  const taskRuntime = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId }).taskRuntime;
   const runtimeFactsSignature = await computeRuntimeFactsSourceSignature({
     repoRoot: options.repoRoot,
+    taskRuntime,
     handoffsDir: options.handoffsDir,
     implStepsDir: options.implStepsDir,
   });
   const [conventionsFiles, guardrailFiles, roleSessionFiles] = await Promise.all([
-    listGlob(path.join(options.repoRoot, '.platform-state', 'runtime', 'conventions', '*.json')),
-    listGlob(path.join(options.repoRoot, '.platform-state', 'runtime', 'guardrails', '*.json')),
-    listGlob(path.join(options.repoRoot, '.platform-state', 'runtime', 'role-sessions', '*.json')),
+    listGlob(path.join(taskRuntime, 'conventions', '*.json')),
+    listGlob(path.join(taskRuntime, 'guardrails', '*.json')),
+    listGlob(path.join(taskRuntime, 'role-sessions', '*.json')),
   ]);
   const tracked = [
     path.join(options.repoRoot, '.github', 'agents', 'registry.json'),
@@ -66,12 +69,15 @@ async function computeRuntimePolicyStateKey(options: {
 
 /**
  * Compute the guardrail receipt file path for an agent invocation.
+ * Resolves to `<taskRuntime>/guardrails/<agentId>.json`.
  */
 export function guardrailReceiptPath(
-  guardrailsDir: string,
+  repoRoot: string,
   agentId: AgentId,
+  taskId?: string,
 ): string {
-  return path.join(guardrailsDir, `${agentId}.json`);
+  const taskRuntime = resolvePaths({ repoRoot, taskId }).taskRuntime;
+  return path.join(taskRuntime, 'guardrails', `${agentId}.json`);
 }
 
 /**
@@ -97,21 +103,25 @@ export async function runRuntimePolicyCheck(
   repoRoot: string,
   agentId: AgentId,
   mode: PolicyValidationMode = 'runtime',
+  taskId?: string,
 ): Promise<PythonResult> {
-  const paths = resolvePaths({ repoRoot });
+  const paths = resolvePaths({ repoRoot, taskId });
   await writeRuntimeWorkflowFacts({
     repoRoot,
+    taskRuntime: paths.taskRuntime,
     handoffsDir: paths.handoffs,
     implStepsDir: paths.implementationSteps,
   });
   const stateKey = await computeRuntimePolicyStateKey({
     repoRoot,
+    taskId,
     handoffsDir: paths.handoffs,
     implStepsDir: paths.implementationSteps,
     agentId,
     mode,
   });
-  const cached = policyResultCache.get(repoRoot);
+  const cacheKey = `${repoRoot}::${taskId ?? '__singleton__'}`;
+  const cached = policyResultCache.get(cacheKey);
   if (cached?.key === stateKey) {
     return cached.result;
   }
@@ -119,6 +129,7 @@ export async function runRuntimePolicyCheck(
   const result = await evaluateWorkflowPolicy({
     repoRoot,
     mode,
+    taskId,
     enforce: true,
     requestedAgentId: agentId,
     format: 'json',
@@ -128,7 +139,7 @@ export async function runRuntimePolicyCheck(
     stderr: result.stderr,
     exitCode: result.exitCode,
   };
-  policyResultCache.set(repoRoot, {
+  policyResultCache.set(cacheKey, {
     key: stateKey,
     result: cachedResult,
   });

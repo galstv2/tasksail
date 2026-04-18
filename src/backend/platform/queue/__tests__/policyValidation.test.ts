@@ -42,6 +42,7 @@ describe('policyValidation', () => {
 
     const result = await runPolicyValidation({
       mode: 'pre-archive',
+      taskId: 'task-abc',
       repoRoot: '/fake/repo',
     });
 
@@ -55,6 +56,7 @@ describe('policyValidation', () => {
     expect(mockEvaluateWorkflowPolicy).toHaveBeenCalledWith({
       repoRoot: '/fake/repo',
       mode: 'pre-archive',
+      taskId: 'task-abc',
       enforce: undefined,
       format: 'text',
     });
@@ -80,6 +82,7 @@ describe('policyValidation', () => {
 
     const result = await runPolicyValidation({
       mode: 'pre-archive',
+      taskId: 'task-abc',
       repoRoot: '/fake/repo',
     });
 
@@ -110,7 +113,7 @@ describe('policyValidation', () => {
     } satisfies WorkflowPolicyExecutionResult);
 
     await expect(
-      assertPolicyPasses('pre-archive', '/fake/repo', 'Archive blocked by policy validation.'),
+      assertPolicyPasses({ mode: 'pre-archive', repoRoot: '/fake/repo', taskId: 'task-abc', errorMessage: 'Archive blocked by policy validation.' }),
     ).rejects.toThrow(
       'Archive blocked by policy validation.\nstdout details',
     );
@@ -135,7 +138,7 @@ describe('policyValidation', () => {
     } satisfies WorkflowPolicyExecutionResult);
 
     await expect(
-      assertPolicyPasses('pre-archive', '/fake/repo', 'Archive blocked by policy validation.'),
+      assertPolicyPasses({ mode: 'pre-archive', repoRoot: '/fake/repo', taskId: 'task-abc', errorMessage: 'Archive blocked by policy validation.' }),
     ).rejects.toThrow(
       'Archive blocked by policy validation.\nstdout details\nstderr details',
     );

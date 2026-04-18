@@ -88,12 +88,14 @@ describe('runPipelineSequence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'pipeline-exec-'));
-    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime'), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id'), { recursive: true });
     resolvePaths.mockReturnValue({
       repoRoot,
       handoffs: path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
       implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
       platformState: path.join(repoRoot, '.platform-state'),
+      taskRuntime: path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id'),
+      templates: path.join(repoRoot, 'AgentWorkSpace', 'templates'),
     });
     mkdirSync(path.join(repoRoot, '.git'));
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
@@ -224,7 +226,7 @@ describe('runPipelineSequence', () => {
     await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const receiptRaw = await import('node:fs/promises').then(({ readFile }) => readFile(
-      path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-receipt.json'),
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-receipt.json'),
       'utf-8',
     ));
     const receipt = JSON.parse(receiptRaw) as {
@@ -351,6 +353,8 @@ describe('runPipelineSequence', () => {
         repoRoot,
         '.platform-state',
         'runtime',
+        'tasks',
+        'test-task-id',
         'verification',
         '2026-03-26T00-00-00Z',
         'code-changes.diff',
@@ -379,6 +383,8 @@ describe('runPipelineSequence', () => {
         repoRoot,
         '.platform-state',
         'runtime',
+        'tasks',
+        'test-task-id',
         'verification',
         '2026-03-26T00-00-00Z',
       ),
@@ -393,6 +399,8 @@ describe('runPipelineSequence', () => {
         repoRoot,
         '.platform-state',
         'runtime',
+        'tasks',
+        'test-task-id',
         'verification',
         '2026-03-26T00-00-00Z',
         'code-changes.diff',
@@ -403,6 +411,8 @@ describe('runPipelineSequence', () => {
       repoRoot,
       '.platform-state',
       'runtime',
+      'tasks',
+      'test-task-id',
       'verification',
       '2026-03-26T00-00-00Z',
     ))).toBe(false);
@@ -414,6 +424,8 @@ describe('runPipelineSequence', () => {
       repoRoot,
       '.platform-state',
       'runtime',
+      'tasks',
+      'test-task-id',
       'verification',
       '2026-03-26T00-00-00Z',
     );
@@ -573,7 +585,7 @@ describe('runPipelineSequence', () => {
   });
 
   it('rejects when a pipeline lock already exists', async () => {
-    const lockDir = path.join(repoRoot, '.platform-state', 'runtime', 'pipeline.lock');
+    const lockDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline.lock');
     mkdirSync(lockDir, { recursive: true });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
@@ -636,7 +648,7 @@ describe('runPipelineSequence', () => {
 
     setTimeout(() => {
       writeFileSync(
-        path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-kill-switch.json'),
+        path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-kill-switch.json'),
         JSON.stringify({ requestedAt: '2026-03-25T00:00:00Z', reason: 'operator requested kill' }),
         'utf-8',
       );
@@ -646,7 +658,7 @@ describe('runPipelineSequence', () => {
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('Pipeline killed');
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
-    expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-kill-switch.json'))).toBe(false);
+    expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-kill-switch.json'))).toBe(false);
   });
 
   it('launches Ron closeout remediation when queue-advance policy fails', async () => {
@@ -683,5 +695,57 @@ describe('runPipelineSequence', () => {
 
     const ronCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'ron');
     expect(ronCalls.length).toBe(1);
+  });
+
+  it('kill-switch for task-B does not abort task-A pipeline', async () => {
+    const taskAId = 'task-A';
+    const taskBId = 'task-B';
+
+    // Set up per-task runtime dirs for both tasks.
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskAId), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskBId), { recursive: true });
+
+    // Make resolvePaths return per-task-A paths so the sequencer reads task-A runtime.
+    resolvePaths.mockReturnValue({
+      repoRoot,
+      handoffs: path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
+      implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      platformState: path.join(repoRoot, '.platform-state'),
+      taskRuntime: path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskAId),
+      templates: path.join(repoRoot, 'AgentWorkSpace', 'templates'),
+    });
+
+    readTextFile.mockImplementation(async (filePath: string) => {
+      if (existsSync(filePath)) {
+        return readFileSync(filePath, 'utf-8');
+      }
+      if (filePath.endsWith('parallel-ok.md')) return null;
+      return null;
+    });
+
+    // Write the kill-switch file for task-B BEFORE the pipeline runs.
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskBId, 'pipeline-kill-switch.json'),
+      JSON.stringify({ requestedAt: '2026-03-25T00:00:00Z', reason: 'operator killed task-B' }),
+      'utf-8',
+    );
+
+    // Task-A pipeline must complete normally — the task-B kill switch is irrelevant.
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await expect(runPipelineSequence({ repoRoot, taskId: taskAId })).resolves.not.toThrow();
+
+    // Task-A's kill-switch path must remain absent.
+    expect(
+      existsSync(
+        path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskAId, 'pipeline-kill-switch.json'),
+      ),
+    ).toBe(false);
+
+    // Task-B's kill-switch is untouched by task-A's pipeline.
+    expect(
+      existsSync(
+        path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskBId, 'pipeline-kill-switch.json'),
+      ),
+    ).toBe(true);
   });
 });

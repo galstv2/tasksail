@@ -77,6 +77,7 @@ describe('completePendingItem archive integration', () => {
 
     expect(mockFileTaskArchive).toHaveBeenCalledWith({
       contextPackDir: '/packs/pack-a',
+      taskId: '',
       repoRoot: '/fake/repo',
     });
     expect(mockSyncRetrospectiveRequiredMetadata).toHaveBeenCalledWith({

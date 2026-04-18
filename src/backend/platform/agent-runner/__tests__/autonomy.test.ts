@@ -187,6 +187,17 @@ describe('resolveAutonomyProfile', () => {
     expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
   });
 
+  it('qa-executor without taskId uses singleton handoffs path (legacy back-compat)', () => {
+    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', undefined);
+    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/handoffs');
+  });
+
+  it('qa-executor with taskId uses per-task handoffs path', () => {
+    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', 'task-abc-123');
+    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-abc-123/handoffs');
+    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
+  });
+
   it('qa-executor without contextPackDir does not add --disallow-temp-dir', () => {
     const args = resolveAutonomyProfile(makeQaExecutor());
     expect(args.additionalFlags).not.toContain('--disallow-temp-dir');
@@ -268,6 +279,42 @@ describe('buildCopilotArgs', () => {
     const args = buildCopilotArgs(profile, autonomy);
     expect(args).toContain('--add-dir');
     expect(args).toContain('/repo/src');
+  });
+
+  it('qa-executor --add-dir uses singleton handoffs path when taskId absent', () => {
+    const profile = makeQaExecutor();
+    const autonomy = resolveAutonomyProfile(profile, undefined, '/repo', undefined);
+    const args = buildCopilotArgs(profile, autonomy);
+    expect(args).toContain('--add-dir');
+    expect(args).toContain('/repo/AgentWorkSpace/handoffs');
+  });
+
+  it('qa-executor --add-dir uses per-task handoffs path when taskId present', () => {
+    const profile = makeQaExecutor();
+    const autonomy = resolveAutonomyProfile(profile, undefined, '/repo', 'task-xyz-789');
+    const args = buildCopilotArgs(profile, autonomy);
+    expect(args).toContain('--add-dir');
+    expect(args).toContain('/repo/AgentWorkSpace/tasks/task-xyz-789/handoffs');
+    expect(args).not.toContain('/repo/AgentWorkSpace/handoffs');
+  });
+
+  it('§3.5: qa-executor --add-dir yields distinct per-task paths for two taskIds (t1 vs t2)', () => {
+    const profile = makeQaExecutor();
+    const autonomyT1 = resolveAutonomyProfile(profile, undefined, '/repo', 't1');
+    const autonomyT2 = resolveAutonomyProfile(profile, undefined, '/repo', 't2');
+    const argsT1 = buildCopilotArgs(profile, autonomyT1);
+    const argsT2 = buildCopilotArgs(profile, autonomyT2);
+
+    const t1Handoffs = '/repo/AgentWorkSpace/tasks/t1/handoffs';
+    const t2Handoffs = '/repo/AgentWorkSpace/tasks/t2/handoffs';
+
+    expect(argsT1).toContain(t1Handoffs);
+    expect(argsT2).toContain(t2Handoffs);
+
+    expect(argsT1).not.toContain(t2Handoffs);
+    expect(argsT2).not.toContain(t1Handoffs);
+    expect(argsT1).not.toContain('/repo/AgentWorkSpace/handoffs');
+    expect(argsT2).not.toContain('/repo/AgentWorkSpace/handoffs');
   });
 
   it('includes --disallow-temp-dir for repo-executor with context pack', () => {

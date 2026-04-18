@@ -20,7 +20,7 @@ export function evaluatePlanningAgentRules(validator: PolicyValidator): void {
   if (validator.hasActiveTask()) {
     validator.addViolation({
       rule_id: 'runtime.planning-agent-pre-task-only',
-      artifact: 'AgentWorkSpace/handoffs/',
+      artifact: 'handoffs/',
       severity: 'warning',
       message:
         'Planning agent requested while an active task exists. Intake will be queued behind the current task.',

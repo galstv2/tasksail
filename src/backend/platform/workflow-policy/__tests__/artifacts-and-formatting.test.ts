@@ -16,6 +16,7 @@ import {
   SLICE_REQUIRED_SECTION_SPECS,
   SPEC_REQUIRED_SECTION_SPECS,
 } from '../models.js';
+import { resolvePaths } from '../../core/index.js';
 
 describe('workflow-policy artifacts and formatting', () => {
   const createdRoots: string[] = [];
@@ -28,9 +29,9 @@ describe('workflow-policy artifacts and formatting', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-artifact-'));
     createdRoots.push(repoRoot);
 
-    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    const { handoffs: handoffsDir, taskRuntime } = resolvePaths({ repoRoot });
     mkdirSync(handoffsDir, { recursive: true });
-    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime'), { recursive: true });
+    mkdirSync(taskRuntime, { recursive: true });
 
     writeFileSync(
       path.join(handoffsDir, 'parallel-plan.md'),
@@ -49,7 +50,7 @@ describe('workflow-policy artifacts and formatting', () => {
     );
 
     writeFileSync(
-      path.join(repoRoot, '.platform-state', 'runtime', 'workflow-facts.json'),
+      path.join(taskRuntime, 'workflow-facts.json'),
       JSON.stringify({
         schema_version: 1,
         source: 'typescript',
@@ -62,7 +63,7 @@ describe('workflow-policy artifacts and formatting', () => {
       'utf-8',
     );
 
-    const artifact = await loadWorkspaceArtifact(repoRoot, 'AgentWorkSpace/handoffs/parallel-plan.md');
+    const artifact = await loadWorkspaceArtifact(repoRoot, path.relative(repoRoot, path.join(handoffsDir, 'parallel-plan.md')));
 
     expect(artifact.metadata).toEqual({ 'Task ID': 'task-42' });
     expect(artifact.taskLineage).toEqual({ 'Parent Task ID': 'parent-1' });

@@ -275,7 +275,7 @@ export async function remediationRunQaLoop(options: {
     });
     const { runTestCaptureWithPhaseTracking } = await sequencer();
     const capture = await runTestCaptureWithPhaseTracking({
-      repoRoot: paths.repoRoot,
+      taskRuntime: paths.taskRuntime,
       implementationStepsDir: paths.implementationSteps,
       captureCwd,
       abortSignal: options.abortSignal,

@@ -295,4 +295,51 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     const result = readTaskJsonSafe(taskId, repoRoot);
     expect(result).toBeNull();
   });
+
+  // §3.5 Phase 3 gate — sidecar wins over mutated .env under TASKSAIL_TASK_ID.
+  it('§3.5: with TASKSAIL_TASK_ID set, returns the sidecar-bound pack even when .env is mutated mid-run', async () => {
+    const taskId = 'task-a';
+    const packADir = path.join(repoRoot, 'packs', 'a');
+    const packBDir = path.join(repoRoot, 'packs', 'b');
+    mkdirSync(packADir, { recursive: true });
+    mkdirSync(packBDir, { recursive: true });
+
+    // Activate task A with a sidecar pointing at pack A.
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: path.join(packADir, 'context-pack.json'),
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+          composeProjectName: 'repo-context-mcp',
+        },
+      }, null, 2) + '\n',
+    );
+
+    // Mutate .env mid-run to point at pack B — should NOT affect task A's binding.
+    writeFileSync(
+      path.join(repoRoot, '.env'),
+      `ACTIVE_CONTEXT_PACK_DIR=${packBDir}\n`,
+    );
+
+    process.env['TASKSAIL_TASK_ID'] = taskId;
+    const resolved = await requireAuthorizedActiveContextPack({ repoRoot });
+
+    expect(resolved).toBe(packADir);
+    expect(resolved).not.toBe(packBDir);
+  });
 });

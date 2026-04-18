@@ -5,6 +5,9 @@ import {
 } from '../../external-mcp-registry/index.js';
 import type { ExternalMcpRegistryHealth } from '../types.js';
 
+// Exempt: read-only shared config, not per-task runtime state (§2.6 audit).
+// SAFE: header env resolution is process-global; per-task header values are not supported.
+// Adding per-task headers requires re-keying this cache by (repoRoot, headerEnvDigest).
 const externalMcpRegistryCache = new Map<string, ExternalMcpRegistry>();
 const externalMcpRegistryLoads = new Map<string, Promise<ExternalMcpRegistry>>();
 const externalMcpRegistryHealthCache = new Map<string, ExternalMcpRegistryHealth>();
@@ -67,6 +70,11 @@ export async function prewarmExternalMcpRegistry(repoRoot: string): Promise<Exte
     }
   })();
 
+  // CRITICAL: set map entry before any await to preserve dedup under concurrent callers.
+  // The IIFE above creates the Promise synchronously; the first await is inside the IIFE
+  // (deferred as a microtask). This line runs synchronously so a second concurrent caller
+  // entering prewarmExternalMcpRegistry in the same event-loop tick will hit the
+  // `if (pending) return pending` branch above and share the same Promise.
   externalMcpRegistryLoads.set(repoRoot, loadPromise);
   return loadPromise;
 }

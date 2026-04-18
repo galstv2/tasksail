@@ -40,16 +40,18 @@ describe('fileTaskArchive', () => {
 
     const result = await fileTaskArchive({
       contextPackDir: '/packs/pack-a',
+      taskId: 'task-abc',
       repoRoot: '/fake/repo',
     });
 
     expect(result.passed).toBe(true);
     expect(result.data).toEqual(archiveOutput);
-    expect(mockAssertPolicyPasses).toHaveBeenCalledWith(
-      'pre-archive',
-      '/fake/repo',
-      'Archive filing blocked by workflow policy validation.',
-    );
+    expect(mockAssertPolicyPasses).toHaveBeenCalledWith({
+      mode: 'pre-archive',
+      repoRoot: '/fake/repo',
+      taskId: 'task-abc',
+      errorMessage: 'Archive filing blocked by workflow policy validation.',
+    });
     expect(mockAssertPolicyPasses.mock.invocationCallOrder[0])
       .toBeLessThan(mockRunPython.mock.invocationCallOrder[0]!);
 
@@ -72,6 +74,7 @@ describe('fileTaskArchive', () => {
 
     await fileTaskArchive({
       contextPackDir: '/packs/pack-a',
+      taskId: 'task-abc',
       repoRoot: '/fake/repo',
       qmdScope: 'custom/scope',
       resume: true,
@@ -91,6 +94,7 @@ describe('fileTaskArchive', () => {
     await expect(
       fileTaskArchive({
         contextPackDir: '/packs/pack-a',
+        taskId: 'task-abc',
         repoRoot: '/fake/repo',
       }),
     ).rejects.toThrow('Archive filing blocked by workflow policy validation.');
@@ -105,6 +109,7 @@ describe('fileTaskArchive', () => {
 
     const result = await fileTaskArchive({
       contextPackDir: '/packs/pack-a',
+      taskId: 'task-abc',
       repoRoot: '/fake/repo',
     });
 

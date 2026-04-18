@@ -2,7 +2,6 @@ import path from 'node:path';
 import { writeTextFile } from '../core/index.js';
 import { readTextFile } from '../core/io.js';
 
-const ROLE_SESSIONS_SUBDIR = path.join('.platform-state', 'runtime', 'role-sessions');
 const MAX_SESSION_HISTORY = 20;
 
 type PromptAuditMetadata = {
@@ -12,8 +11,23 @@ type PromptAuditMetadata = {
   effectivePromptSha256: string;
 };
 
-function sessionReceiptPath(repoRoot: string, agentId: string): string {
-  return path.join(repoRoot, ROLE_SESSIONS_SUBDIR, `${agentId}.json`);
+/**
+ * Build the per-launch receipt path.
+ *
+ * Path: <taskRuntime>/role-sessions/<agentId>-<launchId>.json
+ *
+ * `launchId` is `${epochMs}-${pid}` — caller-supplied, derived at runRoleAgent
+ * invocation time. The pair is collision-resistant within any single host
+ * process lifetime.
+ *
+ * Fleet-mode note (§4.12): multiple concurrent sub-Daltons share the same
+ * agentId ('dalton'). Without a per-launch suffix, the second sub-Dalton's
+ * writeSessionStartReceipt would overwrite the first's. §5.2's recoverOnStartup
+ * pid scan enumerates ALL `${agentId}-${launchId}.json` files per task and
+ * treats the task as live if ANY pid is still alive.
+ */
+function sessionReceiptPath(taskRuntime: string, agentId: string, launchId: string): string {
+  return path.join(taskRuntime, 'role-sessions', `${agentId}-${launchId}.json`);
 }
 
 /**
@@ -21,7 +35,8 @@ function sessionReceiptPath(repoRoot: string, agentId: string): string {
  * the agent launch and emit a "started" event to the terminal feed.
  */
 export async function writeSessionStartReceipt(options: {
-  repoRoot: string;
+  taskRuntime: string;
+  launchId: string;
   agentId: string;
   roleName: string;
   displayName: string;
@@ -30,7 +45,7 @@ export async function writeSessionStartReceipt(options: {
   /** Optional launch phase label (e.g. "Verification") shown in the terminal UI. */
   launchPhase?: string;
 }): Promise<string> {
-  const receiptPath = sessionReceiptPath(options.repoRoot, options.agentId);
+  const receiptPath = sessionReceiptPath(options.taskRuntime, options.agentId, options.launchId);
 
   // Preserve previous session in history so the frontend watcher can observe
   // the completed/failed state even after this file is overwritten.
@@ -49,6 +64,7 @@ export async function writeSessionStartReceipt(options: {
 
   const receipt = {
     agent_id: options.agentId,
+    launch_id: options.launchId,
     role_name: options.roleName,
     session_kind: 'task-role',
     ...(options.launchPhase != null ? { launch_phase: options.launchPhase } : {}),

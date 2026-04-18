@@ -5,6 +5,7 @@ import { PolicyValidator } from './validator.js';
 export interface EvaluateWorkflowPolicyOptions {
   repoRoot: string;
   mode: PolicyValidationMode;
+  taskId?: string;
   contextPackDir?: string;
   enforce?: boolean;
   requestedAgentId?: string;
@@ -28,6 +29,7 @@ export async function evaluateWorkflowPolicy(
   const validator = new PolicyValidator({
     rootDir: options.repoRoot,
     mode: options.mode,
+    taskId: options.taskId,
     contextPackDir: options.contextPackDir,
     enforce: options.enforce,
     requestedAgentId: options.requestedAgentId,

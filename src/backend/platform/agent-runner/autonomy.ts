@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { AgentProfile, CopilotArgs } from './types.js';
 import type { AutonomyProfile } from '../core/index.js';
+import { resolvePaths } from '../core/index.js';
 import { resolveActiveModel } from './metadata.js';
 
 /**
@@ -50,6 +51,7 @@ export function resolveAutonomyProfile(
   profile: AgentProfile,
   contextPackDir?: string,
   repoRoot?: string,
+  taskId?: string,
 ): CopilotArgs {
   const allowTools: string[] = [];
   const denyTools: string[] = [];
@@ -85,8 +87,10 @@ export function resolveAutonomyProfile(
 
   // qa-executor (Ron) needs handoff dir access for writing issues.md, final-summary.md, etc.
   // repo-executor (Dalton) receives all context via prompt and writes no platform artifacts.
+  // When taskId is present the handoffs path is scoped per-task; otherwise the legacy singleton
+  // path is used for backward compatibility with single-task callers.
   if (profile.autonomyProfile === 'qa-executor' && repoRoot) {
-    allowedDirs.push(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'));
+    allowedDirs.push(resolvePaths({ repoRoot, taskId }).handoffs);
   }
 
   // Context-pack boundary enforcement: disallow temp dir to prevent

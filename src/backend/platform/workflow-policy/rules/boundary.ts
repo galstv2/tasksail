@@ -20,7 +20,7 @@ export async function evaluateBoundaryRules(validator: PolicyValidator): Promise
       .join(', ');
     validator.addViolation({
       rule_id: 'boundary.task-id-consistency',
-      artifact: 'AgentWorkSpace/handoffs/',
+      artifact: 'handoffs/',
       message: `Active handoff artifacts disagree on Task ID, so repo artifacts no longer describe one authoritative current task. Observed: ${mismatchedFiles}.`,
       remediation:
         'Reset or restamp the inconsistent handoff files so every populated active artifact uses the same Task ID.',
@@ -42,7 +42,7 @@ export async function evaluateBoundaryRules(validator: PolicyValidator): Promise
   if (orphaned.length > 0) {
     validator.addViolation({
       rule_id: 'boundary.orphaned-workspace-content',
-      artifact: 'AgentWorkSpace/handoffs/',
+      artifact: 'handoffs/',
       message: `Downstream handoff content is present even though no active task metadata was detected. Affected artifacts: ${orphaned.join(', ')}.`,
       remediation:
         'Either initialize the active task metadata or reset the orphaned handoff artifacts back to their canonical blank templates.',

@@ -4,7 +4,6 @@
  * Ported from Python: src/backend/scripts/python/lib/policy/rules_qa_execution.py
  */
 
-import path from 'node:path';
 import {
   ALLOWED_FINDING_TYPES,
   ALLOWED_ISSUE_SEVERITIES,
@@ -75,7 +74,7 @@ export async function evaluateQaExecutionRules(validator: PolicyValidator): Prom
     return;
   }
 
-  const stepsDir = path.join(validator.rootDir, 'AgentWorkSpace', 'ImplementationSteps');
+  const stepsDir = validator.implementationStepsDir;
   const sliceFiles = await listSliceFiles(stepsDir);
   if (sliceFiles.length === 0) {
     return;

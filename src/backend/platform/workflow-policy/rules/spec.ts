@@ -19,9 +19,10 @@ import {
   normalizeText,
 } from '../matching.js';
 import { parseSections, resolveSemanticSection } from '../artifacts.js';
+import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
-const SPEC_RELATIVE_PATH = 'AgentWorkSpace/handoffs/implementation-spec.md';
+const SPEC_RELATIVE_PATH = toHandoffKey('implementation-spec.md');
 
 export async function evaluateSpecQualityRules(validator: PolicyValidator): Promise<void> {
   validator.recordRule('spec.required-section-present');
@@ -40,7 +41,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
     return;
   }
 
-  const specPath = `${validator.rootDir}/${SPEC_RELATIVE_PATH}`;
+  const specPath = `${validator.handoffsDir}/${SPEC_RELATIVE_PATH}`;
   const text = await readTextFile(specPath);
   if (!text?.trim()) {
     return;
@@ -125,9 +126,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
     });
   }
 
-  const professional = await validator.getArtifact(
-    'AgentWorkSpace/handoffs/professional-task.md',
-  );
+  const professional = await validator.getArtifact('professional-task.md');
   if (professional.hasSubstantiveContent) {
     const taskKind = (professional.taskLineage['Task Kind'] ?? '').trim();
     if (taskKind === 'child-task') {
