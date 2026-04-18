@@ -4,14 +4,14 @@ Use the repository instruction files as the source of truth.
 
 Authoritative inputs:
 - the active queued task in `AgentWorkSpace/pendingitems/` when present
-- `AgentWorkSpace/handoffs/professional-task.md`
+- `$COPILOT_HANDOFFS_DIR/professional-task.md`
 - the current repository state
 
-Your job is to start the task at the correct role and leave the workflow ready for Dalton or Ron as appropriate. For the Product Manager role, complete `AgentWorkSpace/handoffs/implementation-spec.md` first, then create the full `slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`, then populate each slice from the completed implementation spec.
+Your job is to start the task at the correct role and leave the workflow ready for Dalton or Ron as appropriate. For the Product Manager role, complete `$COPILOT_HANDOFFS_DIR/implementation-spec.md` first, then create the full `slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`, then populate each slice from the completed implementation spec.
 
 Do not invent workflow state. Let the role instructions define the exact write order and completion gate.
 
-For the Product Manager role, treat the queued intake as raw source material for the slice plan. The authoritative Dalton handoff is the `AgentWorkSpace/ImplementationSteps/slice-N.md` set plus, when fleet Dalton execution is approved, `AgentWorkSpace/handoffs/parallel-ok.md`, but `AgentWorkSpace/handoffs/implementation-spec.md` must be completed before the slice set is created and handed off.
+For the Product Manager role, treat the queued intake as raw source material for the slice plan. The authoritative Dalton handoff is the `$COPILOT_IMPL_STEPS_DIR/slice-N.md` set plus, when fleet Dalton execution is approved, `$COPILOT_HANDOFFS_DIR/parallel-ok.md`, but `$COPILOT_HANDOFFS_DIR/implementation-spec.md` must be completed before the slice set is created and handed off.
 
 The handoff markdown files are already seeded. Update those seeded files in place; do not delete and recreate them. Use repo-local file editing, not shell redirection, for workflow artifact authoring.
 For the Product Manager role, after the implementation spec is complete, always create the full needed `slice-N.md` placeholder file set next, even if there is only one slice, as verbatim copies of `AgentWorkSpace/templates/slice-template.md`, then go back and populate each slice from the completed implementation spec. Do not leave the slice set partially created.

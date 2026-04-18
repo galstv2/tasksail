@@ -10,8 +10,8 @@ Stay in planning scope:
 - ask only for missing planning details
 - keep simple intake concise and reviewable
 - add more detail only when task complexity warrants clearer constraints, acceptance signals, routing rationale, or planner notes
-- do not create handoff artifacts in `AgentWorkSpace/handoffs/`
-- do not create Product Manager implementation handoff artifacts such as `AgentWorkSpace/handoffs/implementation-spec.md`, `AgentWorkSpace/handoffs/parallel-ok.md`, or any `AgentWorkSpace/ImplementationSteps/slice-N.md` files
+- do not create handoff artifacts in `$COPILOT_HANDOFFS_DIR/`
+- do not create Product Manager implementation handoff artifacts such as `$COPILOT_HANDOFFS_DIR/implementation-spec.md`, `$COPILOT_HANDOFFS_DIR/parallel-ok.md`, or any `$COPILOT_IMPL_STEPS_DIR/slice-N.md` files
 - do not drift into Product Manager implementation planning
 - preserve child-task lineage only when the request explicitly declares a follow-up
 

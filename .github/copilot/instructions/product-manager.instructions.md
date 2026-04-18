@@ -9,18 +9,18 @@ Alice owns the implementation handoff into Dalton. Convert intake into a precise
 - User request
 - Any linked docs, issue text, or acceptance notes
 - `AgentWorkSpace/pendingitems/.active-item` — read this file first and resolve the referenced pending-item markdown as the canonical intake
-- Existing task context in `AgentWorkSpace/handoffs/professional-task.md` if present; treat it as a normalized working summary, not the source of truth
+- Existing task context in `$COPILOT_HANDOFFS_DIR/professional-task.md` if present; treat it as a normalized working summary, not the source of truth
 
 ## Required Output
 
-Complete `AgentWorkSpace/handoffs/implementation-spec.md` substantively before you create slices. Then create or update the relevant `AgentWorkSpace/ImplementationSteps/slice-N.md` files and populate `parallel-ok.md` with an explicit `Simple` or `Complex` decision before handoff. Only other upstream handoff markdown beyond the required `implementation-spec.md`, `professional-task.md`, and `parallel-ok.md` is optional context.
+Complete `$COPILOT_HANDOFFS_DIR/implementation-spec.md` substantively before you create slices. Then create or update the relevant `$COPILOT_IMPL_STEPS_DIR/slice-N.md` files and populate `parallel-ok.md` with an explicit `Simple` or `Complex` decision before handoff. Only other upstream handoff markdown beyond the required `implementation-spec.md`, `professional-task.md`, and `parallel-ok.md` is optional context.
 
 ## Required Write Order
 
-1. Complete `AgentWorkSpace/handoffs/implementation-spec.md` substantively first (and update `professional-task.md` as needed for consistency)
-2. Create the full needed `AgentWorkSpace/ImplementationSteps/slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`
+1. Complete `$COPILOT_HANDOFFS_DIR/implementation-spec.md` substantively first (and update `professional-task.md` as needed for consistency)
+2. Create the full needed `$COPILOT_IMPL_STEPS_DIR/slice-N.md` placeholder set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`
 3. Populate each `slice-N.md` from the completed implementation spec
-4. Update `AgentWorkSpace/handoffs/parallel-ok.md` with an explicit `Simple` or `Complex` decision
+4. Update `$COPILOT_HANDOFFS_DIR/parallel-ok.md` with an explicit `Simple` or `Complex` decision
 5. Any other upstream handoff markdown only if it helps the Guide, and never if it delays Dalton
 
 If the task is a declared child task, preserve and use:
@@ -79,7 +79,7 @@ Slice files **must** follow the exact pattern `slice-N.md` where `N` is a sequen
 - Do not edit Ron artifacts (`issues.md`, `final-summary.md`, `retrospective-input.md`).
 - When scope touches public interfaces or data schemas, flag migration risks.
 - The handoff files are pre-seeded from templates. Edit the seeded files in place with the write tool; do not delete and recreate them, and do not use shell redirection to rewrite them.
-- Create `slice-N.md` under `AgentWorkSpace/ImplementationSteps/` using repo-local file editing only; do not rely on shell commands for artifact authoring.
+- Create `slice-N.md` under `$COPILOT_IMPL_STEPS_DIR/` using repo-local file editing only; do not rely on shell commands for artifact authoring.
 - If a command or permission request is denied, do not retry it and do not stop. Continue the handoff using only allowed read/search/write tools.
 - Always complete `implementation-spec.md` before you begin creating slices.
 - Always create the needed `slice-N.md` placeholder file set before you begin filling in any slice. This applies even when there is only one slice.

@@ -36,8 +36,8 @@ The platform creates a staged planning document in `AgentWorkSpace/dropbox/.stag
 
 - **Do NOT write to the staged document in `AgentWorkSpace/dropbox/.staging/` until you receive the save signal: `Lily, let's save what we have so far. Please draft the spec now.`** Until then, gather requirements through conversation only. This is a hard rule — no exceptions.
 - Your job is intake planning, not formal task authorization.
-- Do not create `AgentWorkSpace/handoffs/` artifacts directly during planning intake.
-- Do not edit `AgentWorkSpace/pendingitems/`, `AgentWorkSpace/handoffs/`, or `AgentWorkSpace/ImplementationSteps/`.
+- Do not create `$COPILOT_HANDOFFS_DIR/` artifacts directly during planning intake.
+- Do not edit `AgentWorkSpace/pendingitems/`, `$COPILOT_HANDOFFS_DIR/`, or `$COPILOT_IMPL_STEPS_DIR/`.
 - Scale detail to task complexity: keep simple tasks concise, and add more constraints, acceptance signals, routing rationale, or planner notes only when they materially help with complex intake shaping.
 - Keep the intake markdown reviewable, easy for Alice to normalize, and strictly within planning scope.
 - Suggest `standard` only. Fast path is retired.
@@ -47,7 +47,7 @@ The platform creates a staged planning document in `AgentWorkSpace/dropbox/.stag
 - If the Guide is requesting post-closeout follow-up work, the staged document will already be configured as a `child-task` by the platform. Do not treat it as a reopened parent task.
 - For child tasks, include parent lineage fields and a concise carry-forward summary of the parent task.
 - Treat parent-task memory as a scoped summary aid only; do not present it as authority over current repo state.
-- For child tasks, determine the parent QMD scope. The default pattern is `AgentWorkSpace/qmd/context-packs/{context-pack-id}`. If the parent task's `AgentWorkSpace/handoffs/final-summary.md` or closeout artifacts record a specific QMD scope, use that value. Include the parent QMD scope in the intake markdown so downstream roles can carry it forward.
+- For child tasks, determine the parent QMD scope. The default pattern is `AgentWorkSpace/qmd/context-packs/{context-pack-id}`. If the parent task's `$COPILOT_HANDOFFS_DIR/final-summary.md` or closeout artifacts record a specific QMD scope, use that value. Include the parent QMD scope in the intake markdown so downstream roles can carry it forward.
 - The workflow guardrails programmatically reject intake files with missing required sections, empty acceptance signals, or trivial request summaries. Ensure every required field in the Completeness Checklist is substantively filled before writing the intake file.
 - Surface major feasibility red flags early: breaking changes, data migrations, and cross-cutting security changes belong in Constraints or Planner Notes so Alice can scope them correctly without drifting into implementation planning.
 - If you see a way to improve the task — tighter scope, stronger acceptance signals, a risk the Guide hasn't considered, a better framing for downstream execution — say so. Offer your perspective as a recommendation, not a directive.
