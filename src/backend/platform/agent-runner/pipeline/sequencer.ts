@@ -585,12 +585,14 @@ export async function runTestCaptureWithPhaseTracking(options: {
 
 async function handlePipelineFailure(
   repoRoot: string,
-  contextPackDir?: string,
+  contextPackDir: string | undefined,
+  taskId: string,
 ): Promise<void> {
   try {
     await moveFailedItemToErrorItems({
       repoRoot,
       contextPackDir: contextPackDir ?? undefined,
+      taskId,
     });
   } catch (err) {
     process.stderr.write(
@@ -717,9 +719,9 @@ function selectAgentOrder(options: PipelineOptions): AgentId[] {
  * handle optional parallel daltons, and the QA remediation loop.
  */
 export async function runPipelineSequence(
-  options: PipelineOptions = {},
+  options: PipelineOptions,
 ): Promise<PipelineReceipt> {
-  const paths = resolvePaths({ repoRoot: options.repoRoot });
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const lock = await acquirePipelineLock(paths.repoRoot);
   const pipelineStart = Date.now();
   const abortController = new AbortController();
@@ -731,8 +733,7 @@ export async function runPipelineSequence(
 
   // Resolve the task-bound context pack before the try block so the catch
   // handler can pass it to handlePipelineFailure on error.
-  // taskId comes from PipelineOptions or the environment (§3.2 migration).
-  const pipelineTaskId = options.taskId ?? process.env['TASKSAIL_TASK_ID'];
+  const pipelineTaskId = options.taskId;
   const taskBoundContextPackDir = await resolveTaskBoundContextPackDir(
     paths.repoRoot,
     pipelineTaskId,
@@ -1055,7 +1056,7 @@ export async function runPipelineSequence(
     };
 
     await writePipelineReceipt(paths.repoRoot, failureReceipt);
-    await handlePipelineFailure(paths.repoRoot, effectiveContextPackDir);
+    await handlePipelineFailure(paths.repoRoot, effectiveContextPackDir, options.taskId);
 
     if (killed) {
       throw new Error(failureReason);

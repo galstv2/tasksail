@@ -156,6 +156,7 @@ import {
   acquireDirLockOrThrow,
   deletePendingItem as deletePendingItemImpl,
   resolveQueuePaths,
+  getQueueStatus,
 } from '../../../backend/platform/queue';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
@@ -277,10 +278,22 @@ function schedulePipelineAutoStart(): void {
   // Guard: skip launch if a pipeline is already running. This prevents the
   // race where auto-fail activates the next task and immediately tries to
   // launch, only to fail on the lock and strand the task.
-  void pathExists(PIPELINE_LOCK_DIR).then((locked) => {
+  void pathExists(PIPELINE_LOCK_DIR).then(async (locked) => {
     if (locked) {
       return;
     }
+
+    const status = await getQueueStatus(REPO_ROOT);
+    if (!status.activeItem) {
+      emitStreamEvent({
+        message: 'pipeline.autoStart: no active pending item; skipping launch',
+        source: 'pipeline.autoStart',
+        role: 'workflow',
+        severity: 'info',
+      });
+      return;
+    }
+    const taskId = status.activeItem.replace(/\.md$/, '');
 
     emitStreamEvent({
       message: 'Launching active-task pipeline for pending item from Alice.',
@@ -289,7 +302,7 @@ function schedulePipelineAutoStart(): void {
     });
 
     return import('../../../backend/platform/agent-runner/pipeline/sequencer.js')
-      .then(({ runPipelineSequence }) => runPipelineSequence({ repoRoot: REPO_ROOT, startAt: 'alice' }))
+      .then(({ runPipelineSequence }) => runPipelineSequence({ repoRoot: REPO_ROOT, startAt: 'alice', taskId }))
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         const alreadyRunning = message.includes('Another pipeline run is already active');

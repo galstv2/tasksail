@@ -222,30 +222,22 @@ export async function remediationRunQaLoop(options: {
   maxCycles?: number;
   repoRoot?: string;
   contextPackDir?: string;
-  taskId?: string;
+  taskId: string;
   focusScope?: FocusScopePromptOptions;
   externalMcpRegistry?: ExternalMcpRegistry;
   abortSignal?: AbortSignal;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
-  // §3.2: resolve context pack via sidecar when taskId or TASKSAIL_TASK_ID is set;
-  // fall back to the explicit contextPackDir option. Raw ACTIVE_CONTEXT_PACK_DIR
-  // env reads are forbidden on the non-legacy path.
-  const taskId = options.taskId ?? process.env['TASKSAIL_TASK_ID'];
   let effectiveContextPackDir: string | undefined;
-  if (taskId) {
-    try {
-      effectiveContextPackDir = await requireAuthorizedActiveContextPack({
-        taskId,
-        repoRoot: options.repoRoot,
-      });
-    } catch {
-      effectiveContextPackDir = options.contextPackDir;
-    }
-  } else {
+  try {
+    effectiveContextPackDir = await requireAuthorizedActiveContextPack({
+      taskId: options.taskId,
+      repoRoot: options.repoRoot,
+    });
+  } catch {
     effectiveContextPackDir = options.contextPackDir;
   }
-  const paths = resolvePaths({ repoRoot: options.repoRoot });
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const issuesFile = path.join(paths.handoffs, 'issues.md');
   let blockingFindingsRemain = false;
 
@@ -262,7 +254,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'dalton',
-        taskId: taskId ?? '',
+        taskId: options.taskId,
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: remediationPrompt,
@@ -300,7 +292,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'ron',
-        taskId: taskId ?? '',
+        taskId: options.taskId,
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: ronPromptOverride,

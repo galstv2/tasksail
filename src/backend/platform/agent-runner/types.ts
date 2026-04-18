@@ -40,7 +40,7 @@ export interface RunRoleAgentOptions {
 
 /** Options for the pipeline auto-sequencer. */
 export interface PipelineOptions {
-  taskId?: string;
+  taskId: string;
   startAt?: AgentId;
   stopAfter?: AgentId;
   autoAdvance?: boolean;

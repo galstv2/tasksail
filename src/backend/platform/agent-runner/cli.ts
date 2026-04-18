@@ -178,6 +178,7 @@ async function handleRun(args: string[]): Promise<void> {
 async function handlePipeline(args: string[]): Promise<void> {
   let startAt: AgentId | undefined;
   let stopAfter: AgentId | undefined;
+  let taskId: string | undefined;
   let autoAdvance = false;
   let skipResetOnFailure = false;
 
@@ -191,6 +192,10 @@ async function handlePipeline(args: string[]): Promise<void> {
         if (!requireValue(args, i, '--stop-after')) return;
         stopAfter = args[++i] as AgentId;
         break;
+      case '--task-id':
+        if (!requireValue(args, i, '--task-id')) return;
+        taskId = args[++i];
+        break;
       case '--auto-advance':
         autoAdvance = true;
         break;
@@ -200,7 +205,7 @@ async function handlePipeline(args: string[]): Promise<void> {
       case '--help':
       case '-h':
         process.stdout.write(
-          `Usage: agent-runner pipeline [--start-at <id>] [--stop-after <id>] [--auto-advance] [--skip-reset-on-failure]\n` +
+          `Usage: agent-runner pipeline [--start-at <id>] [--stop-after <id>] [--task-id <id>] [--auto-advance] [--skip-reset-on-failure]\n` +
           `Defaults to the unattended active-task order (Alice -> Dalton -> Ron).\n`,
         );
         return;
@@ -213,6 +218,12 @@ async function handlePipeline(args: string[]): Promise<void> {
     }
   }
 
+  if (!taskId) {
+    process.stderr.write('Error: --task-id is required for pipeline command.\n');
+    process.exitCode = 1;
+    return;
+  }
+
   const normalizedStartAt = requireAgentId(startAt, '--start-at');
   if (startAt && !normalizedStartAt) return;
 
@@ -220,6 +231,7 @@ async function handlePipeline(args: string[]): Promise<void> {
   if (stopAfter && !normalizedStopAfter) return;
 
   await runPipelineSequence({
+    taskId,
     startAt: normalizedStartAt,
     stopAfter: normalizedStopAfter,
     autoAdvance,

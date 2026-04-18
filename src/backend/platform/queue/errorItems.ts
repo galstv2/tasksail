@@ -192,6 +192,7 @@ export interface MoveFailedItemResult {
 export async function moveFailedItemToErrorItems(options: {
   repoRoot?: string;
   contextPackDir?: string;
+  taskId?: string;
 }): Promise<MoveFailedItemResult> {
   const root = options.repoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(root);
