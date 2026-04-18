@@ -320,6 +320,16 @@ describe('electron main bootstrap', () => {
       },
     }));
 
+    const getQueueStatus = vi.fn(async () => ({
+      dropboxItems: [],
+      pendingItems: ['20260328-task.md'],
+      activeItem: '20260328-task.md',
+      workspaceReady: false,
+      activeItemWithBlankWorkspace: false,
+      partialPublish: false,
+      errorItemsCount: 0,
+    }));
+
     vi.doMock('./utils', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./utils')>();
       return {
@@ -338,6 +348,13 @@ describe('electron main bootstrap', () => {
     vi.doMock('../../../backend/platform/agent-runner/pipeline/sequencer.js', () => ({
       runPipelineSequence,
     }));
+    vi.doMock('../../../backend/platform/queue', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../../backend/platform/queue')>();
+      return {
+        ...actual,
+        getQueueStatus,
+      };
+    });
 
     const { handleDesktopAction } = await import('./main');
 
@@ -361,6 +378,7 @@ describe('electron main bootstrap', () => {
       expect(runPipelineSequence).toHaveBeenCalledWith({
         repoRoot: expect.any(String),
         startAt: 'alice',
+        taskId: '20260328-task',
       });
     });
   });

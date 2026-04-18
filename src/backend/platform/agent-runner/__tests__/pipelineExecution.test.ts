@@ -165,7 +165,7 @@ describe('runPipelineSequence', () => {
     });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'alice',
@@ -221,7 +221,7 @@ describe('runPipelineSequence', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const receiptRaw = await import('node:fs/promises').then(({ readFile }) => readFile(
       path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-receipt.json'),
@@ -288,7 +288,7 @@ describe('runPipelineSequence', () => {
       });
 
       const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-      await runPipelineSequence({ repoRoot, stopAfter: 'alice' });
+      await runPipelineSequence({ repoRoot, taskId: 'test-task-id', stopAfter: 'alice' });
 
     expect(observedEnv).toEqual([
       {
@@ -309,7 +309,7 @@ describe('runPipelineSequence', () => {
     });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'alice',
@@ -330,7 +330,7 @@ describe('runPipelineSequence', () => {
       .mockResolvedValueOnce(false);
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot, startAt: 'dalton' });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
 
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'dalton',
@@ -360,7 +360,7 @@ describe('runPipelineSequence', () => {
     });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot, startAt: 'dalton' });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
 
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'dalton',
@@ -456,7 +456,7 @@ describe('runPipelineSequence', () => {
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
-    await expect(runPipelineSequence({ repoRoot, startAt: 'dalton' })).rejects.toThrow('verification failed');
+    await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' })).rejects.toThrow('verification failed');
     expect(existsSync(path.join(staleDir, 'code-changes.diff'))).toBe(false);
     expect(existsSync(staleDir)).toBe(false);
     expect(captureCodeDiff).toHaveBeenCalledTimes(1);
@@ -475,7 +475,7 @@ describe('runPipelineSequence', () => {
     });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot, startAt: 'dalton' });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
 
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-template.md'))).toBe(false);
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
@@ -495,7 +495,7 @@ describe('runPipelineSequence', () => {
     );
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const daltonCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'dalton');
     expect(daltonCalls.length).toBe(1);
@@ -541,7 +541,7 @@ describe('runPipelineSequence', () => {
       });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const daltonCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'dalton');
     expect(daltonCalls).toHaveLength(2);
@@ -565,7 +565,7 @@ describe('runPipelineSequence', () => {
     );
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const ronCall = runRoleAgent.mock.calls.find(([call]) => call.agentId === 'ron');
     expect(ronCall).toBeDefined();
@@ -578,7 +578,7 @@ describe('runPipelineSequence', () => {
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
-    await expect(runPipelineSequence({ repoRoot })).rejects.toThrow(
+    await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow(
       'Another pipeline run is already active',
     );
   });
@@ -602,7 +602,7 @@ describe('runPipelineSequence', () => {
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
-    await expect(runPipelineSequence({ repoRoot })).rejects.toThrow('product manager failed');
+    await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('product manager failed');
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-01.md'))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
@@ -644,7 +644,7 @@ describe('runPipelineSequence', () => {
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
-    await expect(runPipelineSequence({ repoRoot })).rejects.toThrow('Pipeline killed');
+    await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('Pipeline killed');
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'erroritems', 'task-001.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'pipeline-kill-switch.json'))).toBe(false);
   });
@@ -662,7 +662,7 @@ describe('runPipelineSequence', () => {
     });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const ronCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'ron');
     // First Ron call is the main QA run; second is closeout remediation.
@@ -679,7 +679,7 @@ describe('runPipelineSequence', () => {
     runPolicyValidation.mockResolvedValue({ passed: true, stdout: '', stderr: '', exitCode: 0 });
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot });
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
 
     const ronCalls = runRoleAgent.mock.calls.filter(([call]) => call.agentId === 'ron');
     expect(ronCalls.length).toBe(1);

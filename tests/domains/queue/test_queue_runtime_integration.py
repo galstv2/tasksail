@@ -3,12 +3,37 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
+from unittest import mock
 
 from tests.support.handoff_factory import write_text, write_valid_retrospective
 from tests.support.repo_file_sets import QUEUE_RUNTIME_WORKSPACE_FILES
 from tests.support.script_runner import run_script
 from tests.support.workspace_builder import prepare_workspace, seed_handoffs_from_templates
+
+_SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src" / "backend" / "scripts" / "python"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from lib.workspace_paths import task_worktree_root  # noqa: E402
+
+
+class TaskWorktreeRootPathTests(unittest.TestCase):
+    """Unit assertions for task_worktree_root path switching on TASKSAIL_TASK_ID."""
+
+    def test_returns_singleton_path_when_task_id_unset(self) -> None:
+        repo_root = Path("/repo")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TASKSAIL_TASK_ID", None)
+            result = task_worktree_root(repo_root)
+        self.assertEqual(result, repo_root / "AgentWorkSpace")
+
+    def test_returns_per_task_path_when_task_id_set(self) -> None:
+        repo_root = Path("/repo")
+        with mock.patch.dict(os.environ, {"TASKSAIL_TASK_ID": "t1"}):
+            result = task_worktree_root(repo_root)
+        self.assertEqual(result, repo_root / "AgentWorkSpace" / "tasks" / "t1")
 
 
 # --------------------------------------------------------------------------

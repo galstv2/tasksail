@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildAgentEnvironment } from '../../../backend/platform/agent-runner/index.js';
+import type { AgentProfile } from '../../../backend/platform/agent-runner/types.js';
 
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
@@ -244,4 +246,23 @@ describe('electron main bootstrap — environment and observability', () => {
     );
   });
 
+});
+
+describe('buildAgentEnvironment — per-task path threading', () => {
+  const profile: AgentProfile = {
+    id: 'dalton',
+    registryId: 'software-engineer',
+    displayName: 'Dalton',
+    role: 'Software Engineer',
+    requiredModel: 'gpt-4.1',
+    autonomyProfile: 'repo-executor',
+    workflowOrder: 3,
+  };
+
+  it('emits TASKSAIL_TASK_ID and per-task COPILOT_HANDOFFS_DIR when taskId is provided', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', undefined, 'test-task-id');
+    expect(env['TASKSAIL_TASK_ID']).toBe('test-task-id');
+    expect(env['COPILOT_HANDOFFS_DIR']).toContain('tasks/test-task-id');
+    expect(env['COPILOT_IMPL_STEPS_DIR']).toContain('tasks/test-task-id');
+  });
 });

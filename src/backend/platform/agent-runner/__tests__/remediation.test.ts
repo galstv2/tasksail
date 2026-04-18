@@ -34,9 +34,19 @@ vi.mock('../roleAgent.js', () => ({
   runRoleAgent,
 }));
 
+const TEST_TASK_ID = 'test-task-id';
+
+function perTaskHandoffsDir(repoRoot: string): string {
+  return path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+}
+
+function perTaskImplStepsDir(repoRoot: string): string {
+  return path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
+}
+
 function writeIssuesFile(repoRoot: string, content: string): void {
   writeFileSync(
-    path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+    path.join(perTaskHandoffsDir(repoRoot), 'issues.md'),
     content,
     'utf-8',
   );
@@ -50,8 +60,8 @@ describe('remediationRunQaLoop', () => {
     vi.resetModules();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'remediation-test-'));
     mkdirSync(path.join(repoRoot, '.git'));
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
+    mkdirSync(perTaskHandoffsDir(repoRoot), { recursive: true });
+    mkdirSync(perTaskImplStepsDir(repoRoot), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
     writeFileSync(
       path.join(repoRoot, 'AgentWorkSpace', 'templates', 'issues.md'),
@@ -68,7 +78,7 @@ describe('remediationRunQaLoop', () => {
     const originalIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\nblocking\n';
     writeIssuesFile(repoRoot, originalIssues);
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
+      path.join(perTaskImplStepsDir(repoRoot), 'slice-1.md'),
       '# Slice 1\n\n## Purpose\n\nTighten validation.\n',
       'utf-8',
     );
@@ -81,6 +91,7 @@ describe('remediationRunQaLoop', () => {
     await expect(
       remediationRunQaLoop({
         repoRoot,
+        taskId: 'test-task-id',
         maxCycles: 1,
         focusScope: { primaryFocusRelativePath: 'services/sink' },
         externalMcpRegistry: externalRegistry,
@@ -88,7 +99,7 @@ describe('remediationRunQaLoop', () => {
     ).rejects.toThrow('failed during QA revalidation');
     expect(
       readFileSync(
-        path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+        path.join(perTaskHandoffsDir(repoRoot), 'issues.md'),
         'utf-8',
       ),
     ).toBe(originalIssues);
@@ -130,7 +141,7 @@ describe('remediationRunQaLoop', () => {
     const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
 
     await expect(
-      remediationRunQaLoop({ repoRoot, maxCycles: 2 }),
+      remediationRunQaLoop({ repoRoot, taskId: 'test-task-id', maxCycles: 2 }),
     ).rejects.toThrow('blocking findings remain');
   });
 
@@ -144,7 +155,7 @@ describe('remediationRunQaLoop', () => {
     const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
 
     await expect(
-      remediationRunQaLoop({ repoRoot, maxCycles: 1 }),
+      remediationRunQaLoop({ repoRoot, taskId: 'test-task-id', maxCycles: 1 }),
     ).rejects.toThrow('failed during QA revalidation');
     expect(runRoleAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({
       agentId: 'dalton',
@@ -168,6 +179,7 @@ describe('remediationRunQaLoop', () => {
     await expect(
       remediationRunQaLoop({
         repoRoot,
+        taskId: 'test-task-id',
         maxCycles: 1,
         externalMcpRegistry: {
           schema_version: 1,

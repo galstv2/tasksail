@@ -20,6 +20,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src" / "bac
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from lib.workspace_paths import copilot_home_root
 from lib.role_agent.external_mcp.renderer import (
     cleanup_stale_launches,
     resolve_headers,
@@ -50,7 +51,7 @@ class CleanupStaleTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmpdir = Path(tempfile.mkdtemp(prefix="ext-mcp-cleanup-"))
-        self.copilot_root = self.tmpdir / ".platform-state" / "runtime" / "copilot-home"
+        self.copilot_root = copilot_home_root(self.tmpdir)
         self.copilot_root.mkdir(parents=True)
 
     def tearDown(self) -> None:
