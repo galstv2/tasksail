@@ -284,7 +284,8 @@ function schedulePipelineAutoStart(): void {
     }
 
     const status = await getQueueStatus(REPO_ROOT);
-    if (!status.activeItem) {
+    const firstActive = status.activeTasks[0];
+    if (!firstActive) {
       emitStreamEvent({
         message: 'pipeline.autoStart: no active pending item; skipping launch',
         source: 'pipeline.autoStart',
@@ -293,7 +294,7 @@ function schedulePipelineAutoStart(): void {
       });
       return;
     }
-    const taskId = status.activeItem.replace(/\.md$/, '');
+    const taskId = firstActive.taskId;
 
     emitStreamEvent({
       message: 'Launching active-task pipeline for pending item from Alice.',

@@ -10,7 +10,6 @@ import {
   transitionTask,
   getAllTasks,
   type TaskRegistryEntry,
-  type TaskRegistry,
 } from '../taskRegistry.js';
 
 describe('taskRegistry Deep Focus persistence', () => {
@@ -96,8 +95,6 @@ describe('taskRegistry §4.5 — array active shape', () => {
   });
 
   it('getAllTasks returns active as array', async () => {
-    const registry = await loadTaskRegistry(repoRoot);
-    // Register two active tasks
     await registerTask(repoRoot, makeEntry('task1', 'active'));
     await registerTask(repoRoot, makeEntry('task2', 'active'));
 

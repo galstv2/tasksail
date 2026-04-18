@@ -5,7 +5,6 @@ import {
   mkdirSync,
   writeFileSync,
   existsSync,
-  readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
