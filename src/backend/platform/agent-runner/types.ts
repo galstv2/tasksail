@@ -22,6 +22,7 @@ export interface AgentProfile {
 /** Options for the runRoleAgent entrypoint. */
 export interface RunRoleAgentOptions {
   agentId: AgentId;
+  taskId: string;
   contextPackDir?: string;
   dryRun?: boolean;
   promptOverride?: string;
@@ -39,6 +40,7 @@ export interface RunRoleAgentOptions {
 
 /** Options for the pipeline auto-sequencer. */
 export interface PipelineOptions {
+  taskId?: string;
   startAt?: AgentId;
   stopAfter?: AgentId;
   autoAdvance?: boolean;

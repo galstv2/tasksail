@@ -97,6 +97,7 @@ Options:
 
 async function handleRun(args: string[]): Promise<void> {
   let agentId: AgentId | undefined;
+  let taskId: string | undefined;
   let dryRun = false;
   let skipWorkflowValidation = false;
   let contextPackDir: string | undefined;
@@ -107,6 +108,10 @@ async function handleRun(args: string[]): Promise<void> {
       case '--agent-id':
         if (!requireValue(args, i, '--agent-id')) return;
         agentId = args[++i] as AgentId;
+        break;
+      case '--task-id':
+        if (!requireValue(args, i, '--task-id')) return;
+        taskId = args[++i];
         break;
       case '--dry-run':
         dryRun = true;
@@ -125,7 +130,7 @@ async function handleRun(args: string[]): Promise<void> {
       case '--help':
       case '-h':
         process.stdout.write(
-          `Usage: agent-runner run --agent-id <id> [options]\n` +
+          `Usage: agent-runner run --agent-id <id> --task-id <id> [options]\n` +
           `Options:\n` +
           `  --dry-run              Print command without launching\n` +
           `  --skip-workflow-check  Skip workflow policy check\n` +
@@ -148,6 +153,12 @@ async function handleRun(args: string[]): Promise<void> {
     return;
   }
 
+  if (!taskId) {
+    process.stderr.write('Error: --task-id is required\n');
+    process.exitCode = 1;
+    return;
+  }
+
   const normalizedAgentId = requireAgentId(agentId, '--agent-id');
   if (!normalizedAgentId) return;
 
@@ -156,6 +167,7 @@ async function handleRun(args: string[]): Promise<void> {
 
   await runRoleAgent({
     agentId: normalizedAgentId,
+    taskId,
     dryRun,
     skipWorkflowValidation,
     contextPackDir,

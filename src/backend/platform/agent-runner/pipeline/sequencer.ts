@@ -719,7 +719,7 @@ function selectAgentOrder(options: PipelineOptions): AgentId[] {
 export async function runPipelineSequence(
   options: PipelineOptions = {},
 ): Promise<PipelineReceipt> {
-  const paths = resolvePaths(options.repoRoot);
+  const paths = resolvePaths({ repoRoot: options.repoRoot });
   const lock = await acquirePipelineLock(paths.repoRoot);
   const pipelineStart = Date.now();
   const abortController = new AbortController();
@@ -732,8 +732,7 @@ export async function runPipelineSequence(
   // Resolve the task-bound context pack before the try block so the catch
   // handler can pass it to handlePipelineFailure on error.
   // taskId comes from PipelineOptions or the environment (§3.2 migration).
-  const pipelineTaskId = (options as Record<string, unknown>)['taskId'] as string | undefined
-    ?? process.env['TASKSAIL_TASK_ID'];
+  const pipelineTaskId = options.taskId ?? process.env['TASKSAIL_TASK_ID'];
   const taskBoundContextPackDir = await resolveTaskBoundContextPackDir(
     paths.repoRoot,
     pipelineTaskId,
@@ -807,6 +806,7 @@ export async function runPipelineSequence(
               const verifyStart = Date.now();
               const verificationResult = await runRoleAgent({
                 agentId: 'dalton-verify',
+                taskId: pipelineTaskId ?? '',
                 skipWorkflowValidation: true,
                 contextPackDir: effectiveContextPackDir,
                 verificationTempAllowedDir: stagedVerificationDiff.staged
@@ -876,6 +876,7 @@ export async function runPipelineSequence(
             );
             const daltonResult = await runRoleAgent({
               agentId: 'dalton',
+              taskId: pipelineTaskId ?? '',
               skipWorkflowValidation: false,
               contextPackDir: effectiveContextPackDir,
               abortSignal: abortController.signal,
@@ -898,6 +899,7 @@ export async function runPipelineSequence(
               );
               const cleanupResult = await runRoleAgent({
                 agentId: 'dalton',
+                taskId: pipelineTaskId ?? '',
                 skipWorkflowValidation: true,
                 contextPackDir: effectiveContextPackDir,
                 abortSignal: abortController.signal,
@@ -939,6 +941,7 @@ export async function runPipelineSequence(
 
         const agentResult = await runRoleAgent({
           agentId,
+          taskId: pipelineTaskId ?? '',
           skipWorkflowValidation,
           contextPackDir: effectiveContextPackDir,
           abortSignal: abortController.signal,
@@ -961,6 +964,7 @@ export async function runPipelineSequence(
             await remediationClearCloseoutArtifacts(paths.handoffs, paths.templates);
             await remediationRunQaLoop({
               maxCycles: maxRemediationCycles,
+              taskId: pipelineTaskId,
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
               focusScope,
@@ -1001,6 +1005,7 @@ export async function runPipelineSequence(
         try {
           await runRoleAgent({
             agentId: 'ron',
+            taskId: pipelineTaskId ?? '',
             skipWorkflowValidation: true,
             contextPackDir: effectiveContextPackDir,
             abortSignal: abortController.signal,

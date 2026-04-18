@@ -98,7 +98,7 @@ export async function runRuntimePolicyCheck(
   agentId: AgentId,
   mode: PolicyValidationMode = 'runtime',
 ): Promise<PythonResult> {
-  const paths = resolvePaths(repoRoot);
+  const paths = resolvePaths({ repoRoot });
   await writeRuntimeWorkflowFacts({
     repoRoot,
     handoffsDir: paths.handoffs,

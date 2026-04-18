@@ -140,6 +140,7 @@ function setupCommonMocks(): void {
     errorItems: '/repo/AgentWorkSpace/erroritems',
     platformState: '/repo/.platform-state',
     guardrails: '/repo/.platform-state/runtime/guardrails',
+    taskRuntime: '/repo/.platform-state/runtime',
   });
   mockedLoadAgentRegistry.mockResolvedValue({ agents: [] } as never);
   mockedResolveAgentProfile.mockReturnValue({
@@ -241,6 +242,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
         dryRun: true,
       }),
@@ -254,6 +256,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
         dryRun: true,
       }),
@@ -267,6 +270,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     const result = await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
       dryRun: true,
     });
@@ -307,6 +311,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     });
@@ -352,6 +357,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/ctx',
       '/repo',
       { skipHandoffEnvVars: true },
+      't1',
     );
   });
 
@@ -398,6 +404,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await runRoleAgent({
       agentId: 'lily',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     });
@@ -414,6 +421,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/ctx',
       '/repo',
       { skipHandoffEnvVars: false },
+      't1',
     );
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'lily' }),
@@ -465,6 +473,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     });
@@ -521,6 +530,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     });
@@ -536,6 +546,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
@@ -549,6 +560,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton-verify',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
@@ -589,6 +601,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await runRoleAgent({
       agentId: 'dalton-verify',
+      taskId: 't1',
       contextPackDir: '/ctx',
       verificationTempAllowedDir: '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z',
       skipWorkflowValidation: true,
@@ -621,6 +634,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow(
@@ -648,6 +662,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow(
@@ -703,6 +718,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('confinement retry exited with code 1');
@@ -781,6 +797,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).resolves.toMatchObject({
@@ -860,6 +877,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton-verify',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).resolves.toMatchObject({
@@ -929,6 +947,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('retry still out-of-bound');
@@ -959,6 +978,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+      taskId: 't1',
       }),
     ).rejects.toThrow('Requested agent transition is not legal');
 

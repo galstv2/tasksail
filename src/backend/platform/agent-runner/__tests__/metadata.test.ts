@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   ALL_AGENT_IDS,
   FAST_PATH_AGENT_ORDER,
@@ -149,32 +149,16 @@ describe('resolveAgentProfile', () => {
 });
 
 describe('resolveActiveModel', () => {
-  afterEach(() => {
-    delete process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'];
-    delete process.env['COPILOT_MODEL'];
-  });
-
-  it('returns env RUN_ROLE_AGENT_ACTIVE_MODEL when set', () => {
-    process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'] = 'override-model';
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
-    expect(resolveActiveModel('dalton', profile)).toBe('override-model');
-  });
-
-  it('falls back to COPILOT_MODEL when active model not set', () => {
-    process.env['COPILOT_MODEL'] = 'copilot-model';
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
-    expect(resolveActiveModel('dalton', profile)).toBe('copilot-model');
-  });
-
-  it('falls back to profile.requiredModel when no env vars set', () => {
+  it('returns profile.requiredModel (registry-authoritative, ignores env)', () => {
     const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
     expect(resolveActiveModel('dalton', profile)).toBe('gpt-4.1');
   });
 
-  it('prioritizes RUN_ROLE_AGENT_ACTIVE_MODEL over COPILOT_MODEL', () => {
-    process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'] = 'primary';
-    process.env['COPILOT_MODEL'] = 'secondary';
+  it('throws role-registry-model-missing when profile.requiredModel is empty', () => {
     const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
-    expect(resolveActiveModel('dalton', profile)).toBe('primary');
+    const missingModelProfile = { ...profile, requiredModel: '' };
+    expect(() => resolveActiveModel('dalton', missingModelProfile)).toThrow(
+      /role-registry-model-missing/,
+    );
   });
 });

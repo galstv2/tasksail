@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from '../environment.js';
 import type { AgentProfile, CopilotArgs } from '../types.js';
 import type { ExternalMcpLaunchContext } from '../pythonHelpers.js';
@@ -37,6 +37,75 @@ describe('buildAgentEnvironment', () => {
     const env = buildAgentEnvironment(profile, '/ctx', '/repo', { skipHandoffEnvVars: false });
     expect(env).toHaveProperty('COPILOT_HANDOFFS_DIR');
     expect(env).toHaveProperty('COPILOT_IMPL_STEPS_DIR');
+  });
+
+  it('threads taskId into handoffs/implSteps paths', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', undefined, 't1');
+    expect(env['COPILOT_HANDOFFS_DIR']).toContain('tasks/t1');
+    expect(env['COPILOT_IMPL_STEPS_DIR']).toContain('tasks/t1');
+  });
+
+  it('emits TASKSAIL_TASK_ID when taskId provided', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', undefined, 't1');
+    expect(env['TASKSAIL_TASK_ID']).toBe('t1');
+  });
+
+  it('emits empty TASKSAIL_TASK_ID when taskId omitted', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo');
+    expect(env['TASKSAIL_TASK_ID']).toBe('');
+  });
+
+  describe('model-pin regression', () => {
+    const aliceProfile: AgentProfile = {
+      id: 'alice',
+      registryId: 'product-manager',
+      displayName: 'Alice',
+      role: 'Product Manager',
+      requiredModel: 'gpt-5.4',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 1,
+    };
+
+    const daltonProfile: AgentProfile = {
+      id: 'dalton',
+      registryId: 'software-engineer',
+      displayName: 'Dalton',
+      role: 'Software Engineer',
+      requiredModel: 'gpt-4.1',
+      autonomyProfile: 'repo-executor',
+      workflowOrder: 2,
+    };
+
+    beforeEach(() => {
+      vi.stubEnv('RUN_ROLE_AGENT_ACTIVE_MODEL', '');
+      vi.stubEnv('COPILOT_MODEL', '');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('emits pinned model for Alice from registry even when parent env vars are cleared', () => {
+      const env = buildAgentEnvironment(aliceProfile, '/ctx', '/repo');
+      expect(env['RUN_ROLE_AGENT_ACTIVE_MODEL']).toBe('gpt-5.4');
+      expect(env['COPILOT_MODEL']).toBe('gpt-5.4');
+    });
+
+    it('emits pinned model for Dalton from registry even when parent env vars are cleared', () => {
+      const env = buildAgentEnvironment(daltonProfile, '/ctx', '/repo');
+      expect(env['RUN_ROLE_AGENT_ACTIVE_MODEL']).toBe('gpt-4.1');
+      expect(env['COPILOT_MODEL']).toBe('gpt-4.1');
+    });
+
+    it('throws role-registry-model-missing when requiredModel is empty', () => {
+      const missingModelProfile: AgentProfile = {
+        ...aliceProfile,
+        requiredModel: '',
+      };
+      expect(() => buildAgentEnvironment(missingModelProfile, '/ctx', '/repo')).toThrow(
+        /role-registry-model-missing/,
+      );
+    });
   });
 });
 

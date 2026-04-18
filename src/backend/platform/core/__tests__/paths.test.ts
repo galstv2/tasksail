@@ -40,11 +40,34 @@ describe('resolvePaths', () => {
   });
 
   it('uses provided repo root', () => {
-    const paths = resolvePaths('/tmp/test-repo');
+    const paths = resolvePaths({ repoRoot: '/tmp/test-repo' });
     expect(paths.repoRoot).toBe('/tmp/test-repo');
     expect(paths.agentWorkSpace).toBe(
       path.join('/tmp/test-repo', 'AgentWorkSpace'),
     );
+  });
+
+  it('returns singleton paths when taskId is omitted', () => {
+    const paths = resolvePaths({ repoRoot: '/tmp/test-repo' });
+    expect(paths.handoffs).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'handoffs'));
+    expect(paths.implementationSteps).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'ImplementationSteps'));
+    expect(paths.taskRuntime).toBe(path.join('/tmp/test-repo', '.platform-state', 'runtime'));
+  });
+
+  it('routes handoffs, implementationSteps, and taskRuntime under per-task paths when taskId is set', () => {
+    const paths = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 't1' });
+    expect(paths.handoffs).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'tasks', 't1', 'handoffs'));
+    expect(paths.implementationSteps).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'tasks', 't1', 'ImplementationSteps'));
+    expect(paths.taskRuntime).toBe(path.join('/tmp/test-repo', '.platform-state', 'runtime', 'tasks', 't1'));
+  });
+
+  it('does not affect dropbox, templates, qmd, or guardrails when taskId is set', () => {
+    const base = resolvePaths({ repoRoot: '/tmp/test-repo' });
+    const task = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 't1' });
+    expect(task.dropbox).toBe(base.dropbox);
+    expect(task.templates).toBe(base.templates);
+    expect(task.qmd).toBe(base.qmd);
+    expect(task.guardrails).toBe(base.guardrails);
   });
 });
 

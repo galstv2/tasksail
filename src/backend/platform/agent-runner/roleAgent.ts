@@ -117,7 +117,7 @@ const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunR
 export async function runRoleAgent(
   options: RunRoleAgentOptions,
 ): Promise<AgentRunResult> {
-  const paths = resolvePaths();
+  const paths = resolvePaths({ taskId: options.taskId });
   const startTime = Date.now();
 
   // 1. Load registry and resolve agent profile.
@@ -341,6 +341,7 @@ export async function runRoleAgent(
     options.contextPackDir,
     paths.repoRoot,
     { skipHandoffEnvVars: enforcesSelectedPrimaryBoundary },
+    options.taskId,
   );
 
   if (options.wallClockBudget !== undefined) {

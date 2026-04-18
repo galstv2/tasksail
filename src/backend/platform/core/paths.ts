@@ -2,6 +2,14 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { PlatformPaths } from './types.js';
 
+/** Options accepted by {@link resolvePaths}. */
+export interface ResolvePathsOptions {
+  /** Override the repository root; defaults to {@link findRepoRoot}. */
+  repoRoot?: string;
+  /** When set, routes handoffs, implementationSteps, and taskRuntime under per-task subdirectories. */
+  taskId?: string;
+}
+
 /**
  * Detect the repository root by walking up from a starting directory
  * until a `.git` directory or `package.json` with our project name is found.
@@ -26,10 +34,23 @@ export function findRepoRoot(startDir?: string): string {
 
 /**
  * Resolve all standard platform paths relative to the repo root.
+ *
+ * When `options.taskId` is provided, `handoffs`, `implementationSteps`, and
+ * `taskRuntime` are routed under per-task subdirectories:
+ *   - handoffs           → AgentWorkSpace/tasks/<taskId>/handoffs
+ *   - implementationSteps → AgentWorkSpace/tasks/<taskId>/ImplementationSteps
+ *   - taskRuntime        → .platform-state/runtime/tasks/<taskId>
+ *
+ * When `taskId` is omitted the behavior is identical to the pre-refactor
+ * singleton paths (full back-compat).
  */
-export function resolvePaths(repoRoot?: string): PlatformPaths {
-  const root = repoRoot ?? findRepoRoot();
+export function resolvePaths(options: ResolvePathsOptions = {}): PlatformPaths {
+  const root = options.repoRoot ?? findRepoRoot();
+  const taskId = options.taskId;
   const agentWorkSpace = path.join(root, 'AgentWorkSpace');
+  const taskWorktree = taskId
+    ? path.join(agentWorkSpace, 'tasks', taskId)
+    : null;
 
   return {
     repoRoot: root,
@@ -37,12 +58,19 @@ export function resolvePaths(repoRoot?: string): PlatformPaths {
     dropbox: path.join(agentWorkSpace, 'dropbox'),
     pendingItems: path.join(agentWorkSpace, 'pendingitems'),
     errorItems: path.join(agentWorkSpace, 'erroritems'),
-    handoffs: path.join(agentWorkSpace, 'handoffs'),
+    handoffs: taskWorktree
+      ? path.join(taskWorktree, 'handoffs')
+      : path.join(agentWorkSpace, 'handoffs'),
     templates: path.join(agentWorkSpace, 'templates'),
-    implementationSteps: path.join(agentWorkSpace, 'ImplementationSteps'),
+    implementationSteps: taskWorktree
+      ? path.join(taskWorktree, 'ImplementationSteps')
+      : path.join(agentWorkSpace, 'ImplementationSteps'),
     qmd: path.join(agentWorkSpace, 'qmd'),
     platformState: path.join(root, '.platform-state'),
     guardrails: path.join(root, '.platform-state', 'runtime', 'guardrails'),
+    taskRuntime: taskId
+      ? path.join(root, '.platform-state', 'runtime', 'tasks', taskId)
+      : path.join(root, '.platform-state', 'runtime'),
   };
 }
 

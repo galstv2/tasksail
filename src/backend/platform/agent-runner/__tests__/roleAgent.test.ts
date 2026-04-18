@@ -142,6 +142,7 @@ function setupCommonMocks(): void {
     errorItems: '/repo/AgentWorkSpace/erroritems',
     platformState: '/repo/.platform-state',
     guardrails: '/repo/.platform-state/runtime/guardrails',
+    taskRuntime: '/repo/.platform-state/runtime',
   });
   mockedLoadAgentRegistry.mockResolvedValue({ agents: [] } as never);
   mockedResolveAgentProfile.mockReturnValue({
@@ -252,6 +253,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -275,6 +277,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -298,6 +301,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     await runRoleAgent({
       agentId: 'dalton-verify',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -320,6 +324,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -358,6 +363,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).rejects.toThrow('missing artifact section');
@@ -402,6 +408,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'alice',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -452,6 +459,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'alice',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -485,6 +493,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -511,6 +520,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton-verify',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -556,6 +566,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'alice',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).rejects.toThrow('no concrete incomplete Alice artifacts were detected');
@@ -605,6 +616,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'alice',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -671,6 +683,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'alice',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -729,6 +742,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'ron',
+        taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
       }),
@@ -779,6 +793,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'ron',
+        taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
       }),
@@ -831,6 +846,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'ron',
+        taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
       }),
@@ -893,6 +909,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'ron',
+        taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
       }),
@@ -928,6 +945,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -967,6 +985,7 @@ describe('runRoleAgent autonomy env var export', () => {
     await expect(
       runRoleAgent({
         agentId: 'ron',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).rejects.toThrow('no concrete incomplete Ron artifacts were detected');
@@ -1009,6 +1028,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     const runPromise = runRoleAgent({
       agentId: 'alice',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -1057,6 +1077,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     const runPromise = runRoleAgent({
       agentId: 'ron',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 

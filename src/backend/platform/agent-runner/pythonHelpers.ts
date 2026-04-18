@@ -84,7 +84,7 @@ export async function captureCodeDiff(options: {
   repoRoot?: string;
   abortSignal?: AbortSignal;
 }): Promise<PythonResult> {
-  const paths = resolvePaths(options.repoRoot);
+  const paths = resolvePaths({ repoRoot: options.repoRoot });
   const helperPath = helperPathForRepo(paths.repoRoot);
   const args = [
     'capture-code-diff',
@@ -116,7 +116,7 @@ export async function prepareExternalMcpLaunchContext(options: {
   env?: Record<string, string>;
   abortSignal?: AbortSignal;
 }): Promise<ExternalMcpLaunchContext> {
-  const paths = resolvePaths(options.repoRoot);
+  const paths = resolvePaths({ repoRoot: options.repoRoot });
   const helperPath = helperPathForRepo(paths.repoRoot);
   const result = await runPython(
     helperPath,

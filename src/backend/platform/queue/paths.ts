@@ -45,6 +45,19 @@ export interface QueuePaths {
   activeContextPackPath: string;
   /** Runtime state: queue ordering manifest. */
   queueOrderPath: string;
+  /**
+   * Directory that holds per-task active markers in parallel mode.
+   * Each running task writes a file here instead of the singleton .active-item.
+   */
+  activeItemsDir: string;
+  /** Per-task worktree root: AgentWorkSpace/tasks/<taskId>. */
+  taskWorktree: (taskId: string) => string;
+  /** Per-task handoffs directory: AgentWorkSpace/tasks/<taskId>/handoffs. */
+  taskHandoffs: (taskId: string) => string;
+  /** Per-task ImplementationSteps directory: AgentWorkSpace/tasks/<taskId>/ImplementationSteps. */
+  taskImplementationSteps: (taskId: string) => string;
+  /** Per-task .task.json sidecar path: AgentWorkSpace/tasks/<taskId>/.task.json. */
+  taskContextPackSidecar: (taskId: string) => string;
 }
 
 /**
@@ -56,6 +69,8 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
   const pendingDir = path.join(agentWorkSpace, 'pendingitems');
   const platformQueueState = path.join(root, '.platform-state', 'queue');
 
+  const tasksDir = path.join(agentWorkSpace, 'tasks');
+
   return {
     dropboxDir: path.join(agentWorkSpace, 'dropbox'),
     pendingDir,
@@ -66,6 +81,11 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
     queueLockDir: path.join(pendingDir, '.queue-lock.d'),
     activeContextPackPath: path.join(platformQueueState, 'active-context-pack.json'),
     queueOrderPath: path.join(platformQueueState, 'queue-order.json'),
+    activeItemsDir: path.join(pendingDir, '.active-items'),
+    taskWorktree: (taskId: string) => path.join(tasksDir, taskId),
+    taskHandoffs: (taskId: string) => path.join(tasksDir, taskId, 'handoffs'),
+    taskImplementationSteps: (taskId: string) => path.join(tasksDir, taskId, 'ImplementationSteps'),
+    taskContextPackSidecar: (taskId: string) => path.join(tasksDir, taskId, '.task.json'),
   };
 }
 

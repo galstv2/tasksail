@@ -6,6 +6,8 @@ export {
   isPathWithinBoundary,
 } from './paths.js';
 
+export type { ResolvePathsOptions } from './paths.js';
+
 export {
   parseEnv,
   loadEnv,

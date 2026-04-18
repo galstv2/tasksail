@@ -35,6 +35,7 @@ export interface PlatformPaths {
   qmd: string;
   platformState: string;
   guardrails: string;
+  taskRuntime: string;
 }
 
 /** Agent autonomy profile names. */

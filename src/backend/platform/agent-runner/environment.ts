@@ -2,6 +2,7 @@ import type { AgentProfile, CopilotArgs } from './types.js';
 import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
+import { resolvePaths } from '../core/index.js';
 import path from 'node:path';
 
 /**
@@ -13,6 +14,7 @@ export function buildAgentEnvironment(
   contextPackDir?: string,
   repoRoot?: string,
   options?: { skipHandoffEnvVars?: boolean },
+  taskId?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {};
 
@@ -39,10 +41,12 @@ export function buildAgentEnvironment(
   }
 
   if (repoRoot) {
+    const paths = resolvePaths({ repoRoot, taskId });
     if (!options?.skipHandoffEnvVars) {
-      env['COPILOT_HANDOFFS_DIR'] = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-      env['COPILOT_IMPL_STEPS_DIR'] = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+      env['COPILOT_HANDOFFS_DIR'] = paths.handoffs;
+      env['COPILOT_IMPL_STEPS_DIR'] = paths.implementationSteps;
     }
+    env['TASKSAIL_TASK_ID'] = taskId ?? '';
     env['COPILOT_PLATFORM_REPO_ROOT'] = repoRoot;
   }
 

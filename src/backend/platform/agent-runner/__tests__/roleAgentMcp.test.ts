@@ -137,8 +137,10 @@ function setupCommonMocks(): void {
     templates: '/repo/AgentWorkSpace/templates',
     implementationSteps: '/repo/AgentWorkSpace/ImplementationSteps',
     qmd: '/repo/AgentWorkSpace/qmd',
+    errorItems: '/repo/AgentWorkSpace/erroritems',
     platformState: '/repo/.platform-state',
     guardrails: '/repo/.platform-state/runtime/guardrails',
+    taskRuntime: '/repo/.platform-state/runtime',
   });
   mockedLoadAgentRegistry.mockResolvedValue({ agents: [] } as never);
   mockedResolveAgentProfile.mockReturnValue({
@@ -248,6 +250,7 @@ describe('runRoleAgent external MCP launch integration', () => {
 
     await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 
@@ -309,6 +312,7 @@ describe('runRoleAgent external MCP launch integration', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -340,6 +344,7 @@ describe('runRoleAgent external MCP launch integration', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -384,6 +389,7 @@ describe('runRoleAgent external MCP launch integration', () => {
     await expect(
       runRoleAgent({
         agentId: 'dalton',
+        taskId: 't1',
         skipWorkflowValidation: true,
       }),
     ).resolves.toMatchObject({
@@ -429,6 +435,7 @@ describe('runRoleAgent external MCP launch integration', () => {
 
     const result = await runRoleAgent({
       agentId: 'dalton',
+      taskId: 't1',
       skipWorkflowValidation: true,
     });
 

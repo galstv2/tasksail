@@ -93,21 +93,20 @@ export function resolveAgentProfile(
 
 /**
  * Resolve the active model for an agent invocation.
- * Priority: RUN_ROLE_AGENT_ACTIVE_MODEL env > COPILOT_MODEL env > profile.requiredModel.
+ * Registry-authoritative: derives the model exclusively from profile.requiredModel
+ * (which is sourced from .github/agents/registry.json). MUST NOT inherit from
+ * parent process env — env inheritance is a silent-regression vector in parallel
+ * task launches.
+ * Throws `role-registry-model-missing` if registry entry has no required_model.
  */
 export function resolveActiveModel(
-  _agentId: AgentId,
+  agentId: AgentId,
   profile: AgentProfile,
 ): string {
-  const envModel = process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'];
-  if (envModel) {
-    return envModel;
+  if (!profile.requiredModel) {
+    throw new Error(
+      `role-registry-model-missing: agent "${agentId}" has no required_model in .github/agents/registry.json`,
+    );
   }
-
-  const copilotModel = process.env['COPILOT_MODEL'];
-  if (copilotModel) {
-    return copilotModel;
-  }
-
   return profile.requiredModel;
 }

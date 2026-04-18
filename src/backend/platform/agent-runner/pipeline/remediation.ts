@@ -245,7 +245,7 @@ export async function remediationRunQaLoop(options: {
   } else {
     effectiveContextPackDir = options.contextPackDir;
   }
-  const paths = resolvePaths(options.repoRoot);
+  const paths = resolvePaths({ repoRoot: options.repoRoot });
   const issuesFile = path.join(paths.handoffs, 'issues.md');
   let blockingFindingsRemain = false;
 
@@ -262,6 +262,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'dalton',
+        taskId: taskId ?? '',
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: remediationPrompt,
@@ -299,6 +300,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'ron',
+        taskId: taskId ?? '',
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: ronPromptOverride,
