@@ -19,6 +19,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 import { REPO_ROOT } from './paths';
@@ -37,10 +38,11 @@ const RUNTIME_STATE = join(PLATFORM_STATE, 'runtime');
 const TASK_REGISTRY_PATH = join(PLATFORM_STATE, 'task-registry.json');
 
 const QUEUE_ORDER_PATH = join(QUEUE_STATE, 'queue-order.json');
-const PIPELINE_PHASE_PATH = join(RUNTIME_STATE, 'pipeline-phase.json');
-const PIPELINE_LOCK_PATH = join(RUNTIME_STATE, 'pipeline.lock');
 const ROLE_SESSIONS_DIR = join(RUNTIME_STATE, 'role-sessions');
 const COPILOT_HOME_DIR = join(RUNTIME_STATE, 'copilot-home');
+
+const TASKS_DIR = join(AGENT_WORKSPACE, 'tasks');
+const RUNTIME_TASKS_DIR = join(RUNTIME_STATE, 'tasks');
 
 /** Timestamp prefix prepended by `queueNameForSource` during move-to-pending. */
 const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
@@ -50,25 +52,29 @@ const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
 /**
  * Full workspace reset. Designed to be called synchronously from `before-quit`.
  *
- * 1. Kill active agent PIDs (from role-session receipts)
- * 2. Move pending task files back to dropbox
- * 3. Update task registry: pending/active → open
- * 4. Remove .active-item marker
- * 5. Clear handoff artifacts and ImplementationSteps
- * 6. Reset pipeline state (phase, lock, queue order)
- * 7. Clean up ephemeral runtime dirs (copilot-home, role-sessions)
+ * 1. Kill active agent PIDs (from role-session receipts — legacy singleton + per-task)
+ * 2. Tear down every worktree unconditionally
+ * 3. Move pending task files back to dropbox
+ * 4. Update task registry: pending/active → open
+ * 5. Reset .active-items/ directory
+ * 6. Clear handoff artifacts and ImplementationSteps (legacy singleton defensive no-ops)
+ * 7. Reset pipeline state (queue-order.json only — per-task paths wiped in step 8)
+ * 8. Clean up ephemeral runtime dirs (copilot-home, role-sessions, runtime/tasks/)
+ * 9. Delete port-allocations table and lock
  */
 export function cleanupWorkspaceOnQuit(): void {
   // Each step is isolated so one failure does not skip subsequent steps.
   const steps = [
-    killAgentPids,
-    movePendingFilesToDropbox,
-    resetTaskRegistry,
-    removeActiveItemMarker,
-    () => clearDirKeepGitkeep(HANDOFFS_DIR),
-    () => clearDirKeepGitkeep(IMPL_STEPS_DIR),
-    resetPipelineState,
-    clearEphemeralRuntime,
+    killAgentPids,               // step 1
+    tearDownAllWorktrees,        // step 2 (NEW)
+    movePendingFilesToDropbox,   // step 3
+    resetTaskRegistry,           // step 4
+    removeActiveItemMarker,      // step 5 (REWRITTEN — now a dir reset)
+    () => clearDirKeepGitkeep(HANDOFFS_DIR),   // step 6a
+    () => clearDirKeepGitkeep(IMPL_STEPS_DIR), // step 6b
+    resetPipelineState,          // step 7 (REWRITTEN — only queue-order.json)
+    clearEphemeralRuntime,       // step 8 (EXTENDED — wipes runtime/tasks/)
+    clearPortAllocations,        // step 9 (NEW)
   ];
   for (const step of steps) {
     try { step(); } catch { /* best-effort */ }
@@ -79,20 +85,148 @@ export function cleanupWorkspaceOnQuit(): void {
 
 /**
  * Kill agent processes by reading PID from each role-session receipt.
- * Mirrors the existing logic in main.ts `before-quit` handler.
+ * Scans both the legacy singleton ROLE_SESSIONS_DIR (pre-task planner sessions)
+ * and per-task runtime role-sessions dirs under .platform-state/runtime/tasks/.
  */
 function killAgentPids(): void {
-  if (!existsSync(ROLE_SESSIONS_DIR)) return;
-  for (const file of readdirSync(ROLE_SESSIONS_DIR)) {
-    if (!file.endsWith('.json')) continue;
+  // Legacy singleton scan (pre-task planner sessions)
+  if (existsSync(ROLE_SESSIONS_DIR)) {
+    for (const file of readdirSync(ROLE_SESSIONS_DIR)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const receipt = JSON.parse(readFileSync(join(ROLE_SESSIONS_DIR, file), 'utf-8'));
+        if (receipt.terminal) continue;
+        const pid: unknown = receipt?.launch?.pid;
+        if (typeof pid === 'number' && pid > 0) {
+          process.kill(pid, 'SIGTERM');
+        }
+      } catch { /* best-effort per receipt */ }
+    }
+  }
+
+  // Per-task scan: .platform-state/runtime/tasks/*/role-sessions/*.json
+  if (!existsSync(RUNTIME_TASKS_DIR)) return;
+  for (const taskId of readdirSync(RUNTIME_TASKS_DIR)) {
+    const taskRoleSessionsDir = join(RUNTIME_TASKS_DIR, taskId, 'role-sessions');
+    if (!existsSync(taskRoleSessionsDir)) continue;
+    for (const file of readdirSync(taskRoleSessionsDir)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const receipt = JSON.parse(readFileSync(join(taskRoleSessionsDir, file), 'utf-8'));
+        if (receipt.terminal) continue;
+        const pid: unknown = receipt?.launch?.pid;
+        if (typeof pid === 'number' && pid > 0) {
+          process.kill(pid, 'SIGTERM');
+        }
+      } catch { /* best-effort per receipt */ }
+    }
+  }
+}
+
+/**
+ * Tear down every git worktree unconditionally.
+ * Walks task-registry.json and AgentWorkSpace/tasks/<taskId>/.task.json.
+ * Every JSON parse is individually try/catch guarded.
+ * Unconditional — does NOT consult retain_failed_task_worktrees.
+ */
+function tearDownAllWorktrees(): void {
+  const seenTaskIds = new Set<string>();
+  const uniqueOriginalRoots = new Set<string>();
+
+  // Collect task IDs from task-registry.json
+  try {
+    const raw = readFileSync(TASK_REGISTRY_PATH, 'utf-8');
+    let registry: Record<string, unknown>;
     try {
-      const receipt = JSON.parse(readFileSync(join(ROLE_SESSIONS_DIR, file), 'utf-8'));
-      if (receipt.terminal) continue;
-      const pid: unknown = receipt?.launch?.pid;
-      if (typeof pid === 'number' && pid > 0) {
-        process.kill(pid, 'SIGTERM');
+      registry = JSON.parse(raw);
+    } catch {
+      console.warn('cleanup-json-parse-failed', TASK_REGISTRY_PATH);
+      registry = {};
+    }
+    // registry.tasks is a map of contextPackId → task-set; collect taskIds from active/pending entries
+    if (registry?.tasks && typeof registry.tasks === 'object') {
+      for (const set of Object.values(registry.tasks as Record<string, unknown>)) {
+        if (!set || typeof set !== 'object') continue;
+        const taskSet = set as Record<string, unknown>;
+        for (const listKey of ['active', 'pending', 'open', 'failed']) {
+          const list = taskSet[listKey];
+          if (!Array.isArray(list)) continue;
+          for (const entry of list) {
+            if (entry?.taskId && typeof entry.taskId === 'string') {
+              seenTaskIds.add(entry.taskId);
+            }
+          }
+        }
       }
-    } catch { /* best-effort per receipt */ }
+    }
+  } catch { /* registry file absent — proceed with tasks dir scan */ }
+
+  // Collect task IDs from AgentWorkSpace/tasks/*/
+  if (existsSync(TASKS_DIR)) {
+    for (const taskId of readdirSync(TASKS_DIR)) {
+      seenTaskIds.add(taskId);
+    }
+  }
+
+  // Tear down worktrees for each task
+  for (const taskId of seenTaskIds) {
+    const taskDir = join(TASKS_DIR, taskId);
+    const taskJsonPath = join(taskDir, '.task.json');
+
+    // Parse .task.json — individually guarded
+    let bindings: Array<{ originalRoot: string; worktreeRoot: string; worktreeBranch: string }> = [];
+    if (existsSync(taskJsonPath)) {
+      try {
+        const raw = readFileSync(taskJsonPath, 'utf-8');
+        let sidecar: Record<string, unknown>;
+        try {
+          sidecar = JSON.parse(raw);
+        } catch {
+          console.warn('cleanup-json-parse-failed', taskJsonPath);
+          sidecar = {};
+        }
+        const rawBindings = (sidecar?.contextPackBinding as Record<string, unknown> | undefined)?.repoBindings;
+        if (Array.isArray(rawBindings)) {
+          for (const b of rawBindings) {
+            if (
+              b &&
+              typeof b.originalRoot === 'string' && b.originalRoot &&
+              typeof b.worktreeRoot === 'string' && b.worktreeRoot &&
+              typeof b.worktreeBranch === 'string' && b.worktreeBranch
+            ) {
+              bindings.push({
+                originalRoot: b.originalRoot,
+                worktreeRoot: b.worktreeRoot,
+                worktreeBranch: b.worktreeBranch,
+              });
+            }
+          }
+        }
+      } catch { /* IO error — skip bindings for this task, still rmSync below */ }
+    }
+
+    // Git teardown per binding
+    for (const binding of bindings) {
+      try {
+        execFileSync('git', ['-C', binding.originalRoot, 'worktree', 'remove', '--force', binding.worktreeRoot], { stdio: 'ignore' });
+      } catch { /* worktree may already be gone */ }
+      try {
+        execFileSync('git', ['-C', binding.originalRoot, 'branch', '-D', binding.worktreeBranch], { stdio: 'ignore' });
+      } catch { /* branch may not exist */ }
+      uniqueOriginalRoots.add(binding.originalRoot);
+    }
+
+    // Reclaim task dir — runs regardless of JSON parse outcome
+    try {
+      rmSync(taskDir, { recursive: true, force: true });
+    } catch { /* best-effort */ }
+  }
+
+  // git worktree prune once per unique originalRoot
+  for (const originalRoot of uniqueOriginalRoots) {
+    try {
+      execFileSync('git', ['-C', originalRoot, 'worktree', 'prune'], { stdio: 'ignore' });
+    } catch { /* best-effort */ }
   }
 }
 
@@ -179,28 +313,27 @@ function resetTaskRegistry(): void {
   } catch { /* best-effort */ }
 }
 
-/** Remove the .active-item marker that the recovery controller checks on startup. */
+/**
+ * Reset the .active-items/ directory — wipe and recreate empty.
+ * Next session writes markers into this directory.
+ */
 function removeActiveItemMarker(): void {
-  try { unlinkSync(join(PENDING_DIR, '.active-item')); } catch { /* ENOENT is fine */ }
+  const activeItemsDir = join(AGENT_WORKSPACE, '.active-items');
+  rmSync(activeItemsDir, { recursive: true, force: true });
+  mkdirSync(activeItemsDir, { recursive: true });
 }
 
-/** Reset pipeline phase to idle, clear the lock, and empty the queue order. */
+/** Empty the queue-order singleton. Per-task pipeline state is wiped in clearEphemeralRuntime. */
 function resetPipelineState(): void {
-  try {
-    writeFileSync(PIPELINE_PHASE_PATH, JSON.stringify({
-      phase: 'idle',
-      timestamp: new Date().toISOString(),
-    }));
-  } catch { /* best-effort */ }
-
-  rmSync(PIPELINE_LOCK_PATH, { recursive: true, force: true });
-
   try {
     writeFileSync(QUEUE_ORDER_PATH, '{"order":[]}');
   } catch { /* best-effort */ }
 }
 
-/** Clear copilot-home ephemeral directories and role-session receipts. */
+/**
+ * Clear copilot-home ephemeral directories, legacy role-session receipts,
+ * and the per-task runtime tree (.platform-state/runtime/tasks/).
+ */
 function clearEphemeralRuntime(): void {
   if (existsSync(COPILOT_HOME_DIR)) {
     for (const entry of readdirSync(COPILOT_HOME_DIR)) {
@@ -214,6 +347,16 @@ function clearEphemeralRuntime(): void {
       try { unlinkSync(join(ROLE_SESSIONS_DIR, entry)); } catch { /* skip */ }
     }
   }
+
+  // Wipe the per-task runtime tree (guardrails, role-sessions, pipeline-phase,
+  // pipeline.lock, kill-switch — all per-task under .platform-state/runtime/tasks/<taskId>/).
+  rmSync(RUNTIME_TASKS_DIR, { recursive: true, force: true });
+}
+
+/** Delete port-allocations table and lock. Next session re-creates on first allocate. */
+function clearPortAllocations(): void {
+  rmSync(join(RUNTIME_STATE, 'port-allocations.json'), { force: true });
+  rmSync(join(RUNTIME_STATE, 'port-allocations.json.lock'), { recursive: true, force: true });
 }
 
 /** Remove all files in a directory except .gitkeep. */
