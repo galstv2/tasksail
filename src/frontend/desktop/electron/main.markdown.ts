@@ -216,9 +216,19 @@ export function parsePlannerEditableDraft(
   const sections = preParsedSections ?? parseMarkdownSections(content);
   const suggestedRouting = sections.get('Suggested Routing') ?? '';
   const suggestedPathValue = extractSectionField(suggestedRouting, 'Recommended Execution').toLowerCase();
-  if (suggestedPathValue !== 'sequential' && suggestedPathValue !== 'parallel') {
+  // Accept both vocabularies: Lily's staged template uses "sequential"/"parallel",
+  // the Bypass Lily download template uses "Simple"/"Complex". Normalize to the
+  // internal SuggestedPath type so downstream consumers stay unchanged.
+  const SUGGESTED_PATH_MAP: Record<string, 'sequential' | 'parallel'> = {
+    sequential: 'sequential',
+    parallel: 'parallel',
+    simple: 'sequential',
+    complex: 'parallel',
+  };
+  const suggestedPath = SUGGESTED_PATH_MAP[suggestedPathValue];
+  if (!suggestedPath) {
     throw new Error(
-      'Staged draft Suggested Routing must declare Recommended Execution as sequential or parallel before finalizing.',
+      'Staged draft Suggested Routing must declare Recommended Execution as Simple or Complex before finalizing.',
     );
   }
 
@@ -228,7 +238,7 @@ export function parsePlannerEditableDraft(
     constraints: stripMarkdownComments(sections.get('Constraints') ?? '').trim(),
     acceptanceSignals: stripMarkdownComments(sections.get('Acceptance Signals') ?? '').trim(),
     carryForwardSummary: stripMarkdownComments(sections.get('Parent Task Carry-Forward Summary') ?? '').trim(),
-    suggestedPath: suggestedPathValue,
+    suggestedPath,
     planningNotes: (
       extractSectionField(suggestedRouting, 'Planner Notes')
       || extractSectionField(suggestedRouting, 'Decision Rationale')
