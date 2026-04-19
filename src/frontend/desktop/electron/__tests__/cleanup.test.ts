@@ -357,4 +357,76 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     //   port-allocations.json absent (clearPortAllocations ran)
     expect(existsSync(join(TEST_REPO_ROOT, '.platform-state', 'runtime', 'port-allocations.json'))).toBe(false);
   });
+
+  // ── Test 6: §4.16 SIGKILL-and-restart orphaned worktree reap ────────────
+
+  it('§4.16 SIGKILL-restart: cleanup reaps orphaned worktree runtime dir, .active-items marker, and agent PID receipt', async () => {
+    const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
+
+    setupWorkspaceScaffold(TEST_REPO_ROOT);
+    const gitRepoRoot = createGitRepo(tmpRoot);
+
+    // ── Simulate orphaned state left by a mid-task SIGKILL ──
+
+    const orphanTaskId = 'orphan-task';
+    const orphanBranch = `task/${orphanTaskId}`;
+    const orphanWorktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', orphanTaskId, 'worktrees', 'repo');
+
+    // (a) Real git worktree so the branch + admin entry exist
+    createWorktree(gitRepoRoot, orphanWorktree, orphanBranch);
+
+    // (b) .task.json sidecar pointing at the worktree
+    writeTaskJson(TEST_REPO_ROOT, orphanTaskId, gitRepoRoot, orphanWorktree, orphanBranch);
+
+    // (c) .platform-state/runtime/tasks/orphan-task/ with guardrails + role-sessions files
+    const taskRuntimeDir = join(TEST_REPO_ROOT, '.platform-state', 'runtime', 'tasks', orphanTaskId);
+    const guardrailsDir = join(taskRuntimeDir, 'guardrails');
+    const roleSessionsDir = join(taskRuntimeDir, 'role-sessions');
+    mkdirSync(guardrailsDir, { recursive: true });
+    mkdirSync(roleSessionsDir, { recursive: true });
+    // Seed a guardrails receipt
+    writeFileSync(join(guardrailsDir, 'activation.json'), JSON.stringify({ ok: true }));
+    // Seed a role-session receipt with a non-existent PID (so kill is a no-op, not a test failure)
+    writeFileSync(
+      join(roleSessionsDir, 'dalton.json'),
+      JSON.stringify({ launch: { pid: 999999999 }, terminal: false }),
+    );
+
+    // (d) .active-items/<taskId> marker — cleanup uses AgentWorkSpace/.active-items
+    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', '.active-items');
+    mkdirSync(join(activeItemsDir, orphanTaskId), { recursive: true });
+
+    // (e) Task registry with the orphan in active state (so cleanup moves it to open)
+    writeTaskRegistry(TEST_REPO_ROOT, [orphanTaskId]);
+
+    // ── Simulate cold restart: call cleanupWorkspaceOnQuit with no prior setup ──
+    // Must not throw — resilience is part of the contract
+    expect(() => cleanupWorkspaceOnQuit()).not.toThrow();
+
+    // ── Assertions ───────────────────────────────────────────────────────────
+
+    // (1) Worktree dir must be gone (tearDownAllWorktrees ran)
+    expect(existsSync(orphanWorktree)).toBe(false);
+
+    // (2) Task dir entirely removed
+    expect(existsSync(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', orphanTaskId))).toBe(false);
+
+    // (3) Runtime tasks dir for orphan-task must be gone (clearEphemeralRuntime wipes runtime/tasks/)
+    expect(existsSync(taskRuntimeDir)).toBe(false);
+
+    // (4) .active-items/ must exist and be empty (removeActiveItemMarker ran)
+    expect(existsSync(activeItemsDir)).toBe(true);
+    expect(readdirSync(activeItemsDir)).toHaveLength(0);
+
+    // (5) Branch must be deleted from original repo
+    const branches = execFileSync('git', ['-C', gitRepoRoot, 'branch', '--list'], { encoding: 'utf-8' });
+    expect(branches).not.toContain(orphanBranch);
+
+    // (6) task-registry.json must show active[] empty (orphan moved to open)
+    const registry = JSON.parse(readFileSync(join(TEST_REPO_ROOT, '.platform-state', 'task-registry.json'), 'utf-8'));
+    for (const key of Object.keys(registry.tasks)) {
+      expect(Array.isArray(registry.tasks[key].active)).toBe(true);
+      expect(registry.tasks[key].active).toHaveLength(0);
+    }
+  });
 });
