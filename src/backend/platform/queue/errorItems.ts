@@ -14,6 +14,7 @@ import {
 import { transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
 import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
+import { release as releasePort } from '../container/portAllocator.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 
 const execFileAsync = promisify(execFileCb);
@@ -45,37 +46,6 @@ function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; std
       resolve({ stdout, stderr });
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Port-allocation release helper
-// TODO(§6.2): replace with portAllocator.release when §6.2 lands.
-// ---------------------------------------------------------------------------
-
-/**
- * Remove the failing task's entry from the shared port-allocations table.
- * Swallows ENOENT and JSON parse errors — the table may be absent for tasks
- * that did not acquire a port, and that is not an error.
- */
-async function releasePortLease(taskId: string, root: string): Promise<void> {
-  const tablePath = path.join(root, '.platform-state', 'runtime', 'port-allocations.json');
-  try {
-    const { readFile, writeFile, rename: renameFile } = await import('node:fs/promises');
-    const raw = await readFile(tablePath, 'utf-8');
-    let table: Record<string, unknown>;
-    try {
-      table = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      return; // Corrupt table — leave it alone
-    }
-    if (!(taskId in table)) return; // Not present — no-op
-    delete table[taskId];
-    const tmpPath = tablePath + '.tmp';
-    await writeFile(tmpPath, JSON.stringify(table, null, 2) + '\n', 'utf-8');
-    await renameFile(tmpPath, tablePath);
-  } catch {
-    // ENOENT or other I/O error — swallow
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -216,13 +186,16 @@ export async function moveFailedItemToErrorItems(options: {
 
   await commitTaskSnapshot(root, taskId, 'failed');
 
-  // §4.15: finalize (tear down / retain) all worktrees for this task only.
-  // This also stamps .task.json.state = "failed" and finalizedAt.
+  // §4.15 + §6.3B: finalize all worktrees and run teardown ordering
+  // (worktree → composeDownTask → portRelease → gcTaskRuntime) for this task
+  // only. This also stamps .task.json.state = "failed" and finalizedAt.
   await finalizeTaskWorktrees(taskId, 'failed', root);
 
-  // §6.2 port release — AFTER finalizeTaskWorktrees but BEFORE marker removal.
-  // TODO(§6.2): replace with portAllocator.release(taskId) when §6.2 lands.
-  await releasePortLease(taskId, root);
+  // Defense-in-depth: explicit port release. finalizeTaskWorktrees owns the
+  // canonical teardown ordering in production, but this guards test paths that
+  // mock finalize and workflow paths where finalize is a no-op for missing
+  // worktrees. releasePort is idempotent — a no-op when the row is absent.
+  try { await releasePort(taskId, root); } catch { /* best-effort */ }
 
   await rename(sourcePath, destPath);
 

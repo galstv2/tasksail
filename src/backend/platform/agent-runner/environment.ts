@@ -15,7 +15,15 @@ export function buildAgentEnvironment(
   profile: AgentProfile,
   contextPackDir?: string,
   repoRoot?: string,
-  options?: { skipHandoffEnvVars?: boolean },
+  options?: {
+    skipHandoffEnvVars?: boolean;
+    /**
+     * §6.3 per-task MCP endpoint override. When provided, overrides
+     * REPO_CONTEXT_MCP_URL and REPO_CONTEXT_MCP_PORT so the agent targets
+     * this task's per-project compose container instead of the shell default.
+     */
+    mcp?: { port: number };
+  },
   taskId?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {};
@@ -25,6 +33,11 @@ export function buildAgentEnvironment(
   env['RUN_ROLE_AGENT_ACTIVE_MODEL'] = activeModel;
 
   env['COPILOT_AGENT_ID'] = toRegistryId(profile.id);
+
+  if (options?.mcp) {
+    env['REPO_CONTEXT_MCP_URL'] = `http://localhost:${options.mcp.port}/sse`;
+    env['REPO_CONTEXT_MCP_PORT'] = String(options.mcp.port);
+  }
 
   if (profile.wallClockTimeoutS !== undefined) {
     env['COPILOT_WALL_CLOCK_TIMEOUT_S'] = String(profile.wallClockTimeoutS);

@@ -5,6 +5,11 @@ import { createRuntimeFromConfig } from './runtime.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
+import { listAllocations } from './portAllocator.js';
+import {
+  composeProjectName,
+  repoContextMcpContainerName,
+} from './containerNaming.js';
 import path from 'node:path';
 
 /**
@@ -58,6 +63,30 @@ async function main(): Promise<void> {
     case 'bootstrap': {
       const buildFlag = args.includes('--build');
       const composeFileArg = extractArg(args, '--compose-file');
+      const taskIdArg = extractArg(args, '--task-id');
+
+      // §6.3 per-task bootstrap: scope the compose project + container name +
+      // host port to this task so F4 project-name isolation auto-scopes
+      // networks and named volumes, and the host port binding matches the
+      // allocator's record. The port MUST already be allocated via
+      // `portAllocator.allocate()` before bootstrap — fail-closed otherwise.
+      if (taskIdArg) {
+        const allocations = await listAllocations(repoRoot);
+        const rec = allocations.get(taskIdArg);
+        if (!rec) {
+          console.error(
+            `bootstrap --task-id ${taskIdArg}: no port allocation found. ` +
+            `Call portAllocator.allocate() before bootstrap.`,
+          );
+          process.exit(1);
+        }
+        process.env['COMPOSE_PROJECT_NAME'] = composeProjectName(taskIdArg);
+        process.env['REPO_CONTEXT_MCP_CONTAINER_NAME'] =
+          repoContextMcpContainerName(taskIdArg);
+        process.env['REPO_CONTEXT_MCP_PORT'] = String(rec.port);
+        process.env['TASKSAIL_TASK_ID'] = taskIdArg;
+      }
+
       await runtime.bootstrap({
         repoRoot,
         composeFile: composeFileArg,

@@ -20,6 +20,7 @@ import { activateNextPendingItemIfReady } from '../operations.js';
 import { HANDOFF_FILES, SLICE_TEMPLATE_FILENAME, resolveQueuePaths } from '../paths.js';
 import { readTaskJson, readTaskJsonSafe, isTaskSidecarError } from '../taskJson.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
+import { composeProjectName } from '../../container/containerNaming.js';
 
 describe('§3.1 per-task .task.json sidecar', () => {
   let repoRoot: string;
@@ -109,7 +110,7 @@ describe('§3.1 per-task .task.json sidecar', () => {
     const mat = sidecar['materialization'] as Record<string, unknown>;
     expect(mat).toBeDefined();
     expect(mat['strategy']).toBe('copy');
-    expect(mat['composeProjectName']).toBe('repo-context-mcp');
+    expect(mat['composeProjectName']).toBe(composeProjectName(taskId));
     expect(Array.isArray(mat['cloned'])).toBe(true);
     expect(Array.isArray(mat['skipped'])).toBe(true);
   });

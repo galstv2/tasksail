@@ -20,7 +20,8 @@ import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
-import { allocate as allocatePort } from '../container/portAllocator.js';
+import { allocate as allocatePort, release as releasePort } from '../container/portAllocator.js';
+import { composeProjectName } from '../container/containerNaming.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -602,8 +603,11 @@ export async function activateNextPendingItemIfReady(
         await execFileAsync('git', ['-C', originalRoot, 'branch', '-D', worktreeBranch]).catch(() => {});
         // Step 3: fs.rm AgentWorkSpace/tasks/<taskId>/ (reclaim disk; critical on ENOSPC)
         await rm(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId), { recursive: true, force: true }).catch(() => {});
-        // Step 4: portAllocator.release(taskId) — §6.2 not yet landed; stub below.
-        await releasePortLease(taskId, originalRoot);
+        // Step 4: portAllocator.release(taskId). Idempotent silent no-op if no
+        // allocation exists (the rollback fires before allocate() runs, so this
+        // is the expected case). repoRoot (NOT originalRoot) because the
+        // allocation table lives under the platform-state dir.
+        await releasePort(taskId, repoRoot);
         // Step 5: unlink .active-items/<taskId> — marker may not yet exist; swallow errors.
         await unlink(path.join(paths.activeItemsDir, taskId)).catch(() => {});
         throw cloneErr;
@@ -639,7 +643,7 @@ export async function activateNextPendingItemIfReady(
       strategy: combinedMat.strategy,
       cloned: combinedMat.cloned,
       skipped: combinedMat.skipped,
-      composeProjectName: 'repo-context-mcp',
+      composeProjectName: composeProjectName(taskId),
     },
     frozenAt: new Date().toISOString(),
     finalizedAt: null,
@@ -681,13 +685,12 @@ export async function activateNextPendingItemIfReady(
   // pending file content is now captured in .task.json + per-task handoffs.
   try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
 
-  // §5.3 + §6.2: allocate port → MCP bootstrap → start pipeline supervisor.
-  // Port allocation is best-effort; failures are logged but do not block activation.
-  // TODO(§6.3): pass `taskContainerSlug(taskId)` as the composeProjectName arg once
-  // containerNaming.ts lands. Until then, every task still binds to the legacy
-  // singleton project, so the literal is correct for the transitional state.
+  // §5.3 + §6.2 + §6.3: allocate port → MCP bootstrap → start pipeline supervisor.
+  // composeProjectName(taskId) scopes the allocation record to this task's
+  // F4-isolated compose project; §5.2 orphan-container sweep relies on that
+  // record to correlate container → port → task.
   try {
-    await allocatePort(taskId, 'repo-context-mcp', repoRoot);
+    await allocatePort(taskId, composeProjectName(taskId), repoRoot);
   } catch (portErr) {
     console.warn(`[operations] allocatePort failed for ${taskId} (non-fatal):`, portErr);
   }
@@ -797,38 +800,4 @@ export async function completeActiveItem(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ---------------------------------------------------------------------------
-// Port allocator stub — §6.2 not yet landed
-// ---------------------------------------------------------------------------
-
-/**
- * Release any port lease recorded for `taskId` in the platform-state port
- * allocations file.  Swallows all errors — this is a best-effort cleanup step.
- *
- * TODO(§6.2): replace with portAllocator.release(taskId)
- */
-async function releasePortLease(taskId: string, _repoRoot: string): Promise<void> {
-  // Determine platform state dir by walking up from the known AgentWorkSpace convention.
-  // We cannot import findRepoRoot here because this function runs during rollback where
-  // the repoRoot is already available in the call site's closure; the param is carried
-  // through for future §6.2 wiring.
-  const portAllocPath = path.join(
-    _repoRoot,
-    '.platform-state',
-    'runtime',
-    'port-allocations.json',
-  );
-  try {
-    const { readFile: _rf, writeFile: _wf } = await import('node:fs/promises');
-    const raw = await _rf(portAllocPath, 'utf-8').catch(() => null);
-    if (!raw) return;
-    const allocs = JSON.parse(raw) as Record<string, unknown>;
-    if (!(taskId in allocs)) return;
-    delete allocs[taskId];
-    await _wf(portAllocPath, JSON.stringify(allocs, null, 2) + '\n', 'utf-8');
-  } catch {
-    // Swallow — idempotent, best-effort per §6.2 contract.
-  }
 }

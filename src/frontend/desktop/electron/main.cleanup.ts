@@ -54,6 +54,7 @@ const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
  *
  * 1. Kill active agent PIDs (from role-session receipts — legacy singleton + per-task)
  * 2. Tear down every worktree unconditionally
+ * 2b. Compose-down every `tasksail-*` project (§6.3B quit-time prefix scan)
  * 3. Move pending task files back to dropbox
  * 4. Update task registry: pending/active → open
  * 5. Reset .active-items/ directory
@@ -66,15 +67,16 @@ export function cleanupWorkspaceOnQuit(): void {
   // Each step is isolated so one failure does not skip subsequent steps.
   const steps = [
     killAgentPids,               // step 1
-    tearDownAllWorktrees,        // step 2 (NEW)
+    tearDownAllWorktrees,        // step 2
+    composeDownTaskScopedProjects, // step 2b (§6.3B)
     movePendingFilesToDropbox,   // step 3
     resetTaskRegistry,           // step 4
-    removeActiveItemMarker,      // step 5 (REWRITTEN — now a dir reset)
+    removeActiveItemMarker,      // step 5
     () => clearDirKeepGitkeep(HANDOFFS_DIR),   // step 6a
     () => clearDirKeepGitkeep(IMPL_STEPS_DIR), // step 6b
-    resetPipelineState,          // step 7 (REWRITTEN — only queue-order.json)
-    clearEphemeralRuntime,       // step 8 (EXTENDED — wipes runtime/tasks/)
-    clearPortAllocations,        // step 9 (NEW)
+    resetPipelineState,          // step 7
+    clearEphemeralRuntime,       // step 8
+    clearPortAllocations,        // step 9
   ];
   for (const step of steps) {
     try { step(); } catch { /* best-effort */ }
@@ -227,6 +229,65 @@ function tearDownAllWorktrees(): void {
     try {
       execFileSync('git', ['-C', originalRoot, 'worktree', 'prune'], { stdio: 'ignore' });
     } catch { /* best-effort */ }
+  }
+}
+
+/**
+ * §6.3B quit-time compose teardown.
+ *
+ * Enumerate every compose project whose name starts with `tasksail-` and run
+ * `<backend> compose -p <project> down` on each. Runs fully synchronously via
+ * execFileSync because Electron's before-quit cannot await async work.
+ *
+ * Backend is read from `.platform-state/platform.json` (container_runtime);
+ * defaults to `docker` if the config is unreadable. If the configured backend
+ * is not installed, the whole step is a silent no-op.
+ */
+function composeDownTaskScopedProjects(): void {
+  const backend = readContainerBackendSync();
+
+  let projectsRaw: string;
+  try {
+    projectsRaw = execFileSync(
+      backend,
+      ['compose', 'ls', '--all', '--format', 'json'],
+      // timeout: 2s — if the docker daemon socket hangs (stopped daemon, CI
+      // env, test sandbox) execFileSync would otherwise block the entire
+      // before-quit path. 2s is well under Vitest's 5s default timeout and
+      // short enough that operators quitting the app never feel it.
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 2000 },
+    );
+  } catch {
+    return; // Compose CLI missing, hung, or failed — nothing to reap.
+  }
+
+  let projects: unknown;
+  try {
+    projects = JSON.parse(projectsRaw);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(projects)) return;
+
+  for (const raw of projects) {
+    const name =
+      raw && typeof raw === 'object' && 'Name' in raw && typeof (raw as { Name: unknown }).Name === 'string'
+        ? (raw as { Name: string }).Name
+        : undefined;
+    if (!name || !name.startsWith('tasksail-')) continue;
+    try {
+      execFileSync(backend, ['compose', '-p', name, 'down'], { stdio: 'ignore', timeout: 2000 });
+    } catch { /* best-effort per project (includes timeout) */ }
+  }
+}
+
+function readContainerBackendSync(): 'docker' | 'podman' {
+  try {
+    const raw = readFileSync(join(PLATFORM_STATE, 'platform.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as { container_runtime?: unknown };
+    return cfg.container_runtime === 'podman' ? 'podman' : 'docker';
+  } catch {
+    return 'docker';
   }
 }
 

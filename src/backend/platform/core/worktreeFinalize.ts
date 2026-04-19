@@ -18,6 +18,9 @@ import { getPlatformConfig } from '../platform-config/get.js';
 import { readTaskJson, readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
+import { composeDownTask } from '../container/composeDownTask.js';
+import { release as releasePort } from '../container/portAllocator.js';
+import { composeProjectName } from '../container/containerNaming.js';
 
 const execFile = promisify(execFileCb);
 
@@ -61,7 +64,7 @@ function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcom
         strategy: 'copy',
         cloned: [],
         skipped: [],
-        composeProjectName: 'repo-context-mcp',
+        composeProjectName: composeProjectName(taskId),
       },
       frozenAt: new Date().toISOString(),
     };
@@ -283,10 +286,33 @@ export async function finalizeTaskWorktrees(
     }
   }
 
-  // §6.2B: schedule the per-task runtime-state directory for deferred GC.
-  // MUST run last so Stack C can slot `composeDownTask` and `portAllocator.release`
-  // between worktree teardown and gcTaskRuntime per §6.3B's teardown ordering
-  // invariant. gcTaskRuntime is itself best-effort — errors MUST NOT propagate.
+  // §6.3B teardown ordering — MUST follow this sequence:
+  //   1. worktree removal        (above, per-binding finalizeWorktree loop)
+  //   2. composeDownTask         (below)
+  //   3. portAllocator.release   (below)
+  //   4. gcTaskRuntime           (below)
+  // Each step is best-effort and errors MUST NOT propagate. composeDownTask
+  // tears down the per-task project's containers, networks, and named volumes;
+  // release removes the task's row from the allocation table; gcTaskRuntime
+  // schedules deferred deletion of the runtime-state dir.
+  try {
+    await composeDownTask(repoRoot, taskId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[worktreeFinalize] compose-down-task-error: taskId=${taskId} err=${msg}\n`,
+    );
+  }
+
+  try {
+    await releasePort(taskId, repoRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[worktreeFinalize] port-release-error: taskId=${taskId} err=${msg}\n`,
+    );
+  }
+
   try {
     await gcTaskRuntime(taskId, outcome, repoRoot);
   } catch (err) {
