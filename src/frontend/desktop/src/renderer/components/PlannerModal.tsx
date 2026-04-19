@@ -47,10 +47,14 @@ export type PlannerModalProps = {
   onDownloadTemplate?: () => void;
 };
 
-/** Duration (ms) the "Submitted" card is fully visible before fading out. */
+/** Minimum visible time (ms) for the "Submitted" card before it may begin fading. */
 const SUBMITTED_HOLD_MS = 1200;
 /** Duration (ms) of the exit fade animation. Must match CSS sail-fade-out. */
 const SUBMITTED_EXIT_MS = 400;
+/** Poll interval (ms) for probing whether `.staging` has been emptied by the backend finalize. */
+const STAGING_POLL_INTERVAL_MS = 150;
+/** Safety-net upper bound (ms) before the modal closes regardless of `.staging` state. */
+const STAGING_AWAIT_TIMEOUT_MS = 10_000;
 
 const LILY_GREETING = "Hi there! I'm Lily, the planning specialist. Let's figure out what you need.";
 
@@ -95,12 +99,14 @@ function PlannerModal({
   const [submitted, setSubmitted] = useState(false);
   const [submittedExiting, setSubmittedExiting] = useState(false);
   const [draftPopoutOpen, setDraftPopoutOpen] = useState(false);
+  const submittedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setSubmitted(false);
       setSubmittedExiting(false);
       setDraftPopoutOpen(false);
+      submittedAtRef.current = null;
     }
   }, [isOpen]);
 
@@ -111,11 +117,66 @@ function PlannerModal({
   }, [stagedDraft]);
 
   useEffect(() => {
+    if (submitted) {
+      if (submittedAtRef.current === null) submittedAtRef.current = Date.now();
+    } else {
+      submittedAtRef.current = null;
+    }
+  }, [submitted]);
+
+  // While submitted with non-empty staging, poll `.staging` so we observe the moment
+  // the backend finalize runs `clearStagingArtifacts` (i.e., dropbox write succeeded).
+  useEffect(() => {
+    if (!submitted || !stagedDraft || !onRefreshDraft) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function tick(): void {
+      if (cancelled) return;
+      void onRefreshDraft?.()?.finally(() => {
+        if (!cancelled) timer = setTimeout(tick, STAGING_POLL_INTERVAL_MS);
+      });
+    }
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [submitted, stagedDraft, onRefreshDraft]);
+
+  // Gated close: fade out + onClose only once `.staging` is empty AND minimum hold elapsed.
+  // Safety-net timeout prevents the modal hanging if backend never confirms.
+  useEffect(() => {
     if (!submitted) return;
-    const holdTimer = setTimeout(() => setSubmittedExiting(true), SUBMITTED_HOLD_MS);
-    const closeTimer = setTimeout(() => onClose(), SUBMITTED_HOLD_MS + SUBMITTED_EXIT_MS);
-    return () => { clearTimeout(holdTimer); clearTimeout(closeTimer); };
-  }, [submitted, onClose]);
+    const startedAt = submittedAtRef.current ?? Date.now();
+    let scheduled = false;
+    let exitTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function tryClose(): boolean {
+      if (scheduled) return true;
+      const elapsed = Date.now() - startedAt;
+      const stagingEmpty = !stagedDraft;
+      const holdMet = elapsed >= SUBMITTED_HOLD_MS;
+      const timedOut = elapsed >= STAGING_AWAIT_TIMEOUT_MS;
+      if ((stagingEmpty && holdMet) || timedOut) {
+        scheduled = true;
+        setSubmittedExiting(true);
+        exitTimer = setTimeout(() => onClose(), SUBMITTED_EXIT_MS);
+        return true;
+      }
+      return false;
+    }
+
+    if (tryClose()) {
+      return () => { if (exitTimer) clearTimeout(exitTimer); };
+    }
+    const interval = setInterval(() => {
+      if (tryClose()) clearInterval(interval);
+    }, 100);
+    return () => {
+      clearInterval(interval);
+      if (exitTimer) clearTimeout(exitTimer);
+    };
+  }, [submitted, stagedDraft, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;

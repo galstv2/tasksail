@@ -333,8 +333,13 @@ export function usePlannerModal(
         return;
       }
       const response = readResult.response;
-      if (response.action === 'planner.readStagedDraft' && response.mode === 'found' && response.draft) {
+      if (response.action !== 'planner.readStagedDraft') {
+        return;
+      }
+      if (response.mode === 'found' && response.draft) {
         setStagedDraft(response.draft);
+      } else if (response.mode === 'empty') {
+        setStagedDraft(null);
       }
     } catch (error: unknown) {
       setDraftError(normalizeIpcThrownError(error, 'Failed to refresh staged draft.'));
