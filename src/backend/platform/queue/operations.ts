@@ -20,7 +20,7 @@ import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
-import { allocatePortStub } from '../port-allocator/stub.js';
+import { allocate as allocatePort } from '../container/portAllocator.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -681,13 +681,15 @@ export async function activateNextPendingItemIfReady(
   // pending file content is now captured in .task.json + per-task handoffs.
   try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
 
-  // §5.3: allocate port → MCP bootstrap stub → start pipeline supervisor.
+  // §5.3 + §6.2: allocate port → MCP bootstrap → start pipeline supervisor.
   // Port allocation is best-effort; failures are logged but do not block activation.
-  // TODO(§6.3): replace MCP bootstrap stub with real container restart.
+  // TODO(§6.3): pass `taskContainerSlug(taskId)` as the composeProjectName arg once
+  // containerNaming.ts lands. Until then, every task still binds to the legacy
+  // singleton project, so the literal is correct for the transitional state.
   try {
-    await allocatePortStub(taskId, repoRoot);
+    await allocatePort(taskId, 'repo-context-mcp', repoRoot);
   } catch (portErr) {
-    console.warn(`[operations] allocatePortStub failed for ${taskId} (non-fatal):`, portErr);
+    console.warn(`[operations] allocatePort failed for ${taskId} (non-fatal):`, portErr);
   }
 
   // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.

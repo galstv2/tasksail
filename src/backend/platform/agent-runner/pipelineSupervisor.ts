@@ -13,7 +13,8 @@ import path from 'node:path';
 
 import { spawnPipelineForTask } from './spawnPipeline.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
-import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
+import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
+import { release as releasePort } from '../container/portAllocator.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,27 +46,6 @@ const startingMap = new Map<string, Promise<{ status: 'started'; pid: number }>>
  * While recoverOnStartup is in progress, startPipeline calls return { deferred: true }.
  */
 let isRecovering = false;
-
-// ---------------------------------------------------------------------------
-// Port stub — TODO(§6.2): replace with portAllocator.release(taskId)
-// ---------------------------------------------------------------------------
-
-async function releasePortStub(taskId: string, repoRoot: string): Promise<void> {
-  const tablePath = path.join(repoRoot, '.platform-state', 'runtime', 'port-allocations.json');
-  try {
-    const { readFile: rf, writeFile: wf, rename: ren } = await import('node:fs/promises');
-    const raw = await rf(tablePath, 'utf-8');
-    let table: Record<string, unknown>;
-    try { table = JSON.parse(raw) as Record<string, unknown>; } catch { return; }
-    if (!(taskId in table)) return;
-    delete table[taskId];
-    const tmpPath = tablePath + '.tmp';
-    await wf(tmpPath, JSON.stringify(table, null, 2) + '\n', 'utf-8');
-    await ren(tmpPath, tablePath);
-  } catch {
-    // ENOENT or I/O error — swallow
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Child stdout/stderr envelope (MUST per §5.2)
@@ -430,7 +410,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       console.log(`[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "missing-task-json", reclassifiedAs: "failed" }`);
 
       // Release port (best-effort)
-      await releasePortStub(markerTaskId, repoRoot);
+      await releasePort(markerTaskId, repoRoot);
 
       // Skip archival and finalizeTaskWorktrees (no bindings to tear down)
       // Proceed to step 3e+: registry transition handled by moveFailedItemToErrorItems
@@ -491,6 +471,17 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   // This is a stub — full implementation requires §6.3 (containerNaming, composeProjectName in .task.json).
   // We skip the container enumeration here and log a warning.
   // TODO(§6.3): implement full orphan-container sweep using containerNaming.ts prefix.
+
+  // ── Step 4c: F35 sentinel-driven runtime-GC sweep ────────────────────────
+  // §6.2B: reclaim `.platform-state/runtime/tasks/<id>/` subtrees whose
+  // `.gc-after-ts` epoch has passed. A crashed-before-timer session orphans the
+  // dir; this sweep is the authoritative restart-side reclaim.
+  try {
+    sweepRuntimeGC(repoRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[pipelineSupervisor] sweepRuntimeGC failed (non-fatal): ${msg}`);
+  }
 
   // ── Step 5: F36 assertion — lock map MUST be empty ───────────────────────
   // The pidMap starts empty (module-scope initialization) and remains empty

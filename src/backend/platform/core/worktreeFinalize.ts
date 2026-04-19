@@ -11,7 +11,7 @@
  *   - MUST NOT be acquired while holding any lock of precedence 1–6.
  */
 import path from 'node:path';
-import { readdirSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 import { getPlatformConfig } from '../platform-config/get.js';
@@ -280,6 +280,145 @@ export async function finalizeTaskWorktrees(
       process.stderr.write(
         `[worktreeFinalize] retention-eviction-error: taskId=${taskId} err=${msg}\n`,
       );
+    }
+  }
+
+  // §6.2B: schedule the per-task runtime-state directory for deferred GC.
+  // MUST run last so Stack C can slot `composeDownTask` and `portAllocator.release`
+  // between worktree teardown and gcTaskRuntime per §6.3B's teardown ordering
+  // invariant. gcTaskRuntime is itself best-effort — errors MUST NOT propagate.
+  try {
+    await gcTaskRuntime(taskId, outcome, repoRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[worktreeFinalize] gc-task-runtime-error: taskId=${taskId} err=${msg}\n`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §6.2B — per-task runtime-state GC
+// ---------------------------------------------------------------------------
+
+const GC_SENTINEL_NAME = '.gc-after-ts';
+
+function runtimeTaskDir(taskId: string, repoRoot: string): string {
+  return path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
+}
+
+function gcSentinelPath(taskId: string, repoRoot: string): string {
+  return path.join(runtimeTaskDir(taskId, repoRoot), GC_SENTINEL_NAME);
+}
+
+/**
+ * §6.2B — schedule deferred GC of `.platform-state/runtime/tasks/<taskId>/`.
+ *
+ * F35 contract: writes an on-disk sentinel FIRST (the authoritative trigger
+ * that survives crashes), THEN schedules an opportunistic `setTimeout` for the
+ * in-session common case. The opportunistic timer is not tracked — its
+ * cancellation on quit is not required because §4.10's quit-nuke wipes
+ * `.platform-state/runtime/tasks/` unconditionally and the sentinel file is the
+ * post-restart authority.
+ *
+ * Outcome semantics:
+ *   - 'completed': retain for `completed_task_runtime_retention_ms` (default 1h),
+ *     then delete.
+ *   - 'failed' with `retain_failed_task_worktrees=true`: retain indefinitely
+ *     in-session — NO sentinel is written, which the sweep interprets as
+ *     retain-indefinitely.
+ *   - 'failed' with `retain_failed_task_worktrees=false`: same retention window
+ *     as 'completed', then delete.
+ */
+export async function gcTaskRuntime(
+  taskId: string,
+  outcome: FinalizeOutcome,
+  repoRoot: string,
+): Promise<void> {
+  const cfg = await getPlatformConfig(repoRoot);
+  const retentionMs = cfg.completed_task_runtime_retention_ms;
+  const retainFailed = cfg.retain_failed_task_worktrees;
+
+  const runtimeDir = runtimeTaskDir(taskId, repoRoot);
+  if (!existsSync(runtimeDir)) {
+    // Nothing to GC — treat as silent no-op (idempotent per §6.3B).
+    return;
+  }
+
+  if (outcome === 'failed' && retainFailed) {
+    // Retain indefinitely in-session. MUST NOT write a sentinel — the sweep
+    // interprets a missing sentinel as retain-indefinitely.
+    return;
+  }
+
+  // Sentinel write MUST precede the setTimeout. If the timer fired first and a
+  // subsequent crash interrupted the sentinel write, a restart would find an
+  // orphan runtime dir with no record of why. Ordering closes that window.
+  const sentinel = gcSentinelPath(taskId, repoRoot);
+  const deleteAfter = Date.now() + retentionMs;
+  try {
+    mkdirSync(path.dirname(sentinel), { recursive: true });
+    writeFileSync(sentinel, String(deleteAfter), 'utf-8');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[worktreeFinalize] gc-sentinel-write-failed: taskId=${taskId} err=${msg}\n`,
+    );
+    // Fall through — setTimeout still fires as best-effort.
+  }
+
+  // Opportunistic in-session timer. The sentinel is authoritative, so a missed
+  // timer (process restart) is reclaimed by `sweepRuntimeGC` at next startup.
+  const timer = setTimeout(() => {
+    try {
+      if (existsSync(sentinel)) {
+        rmSync(runtimeDir, { recursive: true, force: true });
+      }
+    } catch {
+      // Open subscribers on POSIX may keep file handles alive after unlink;
+      // Windows may refuse the rm outright. Either way, the next-restart
+      // sentinel sweep is the fallback.
+    }
+  }, retentionMs);
+  // Do not hold the event loop on the timer — quit-nuke + sentinel handle the
+  // rest.
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+/**
+ * §6.2B + F35 — startup sweep for deferred GC.
+ *
+ * Called by §5.2 `recoverOnStartup`. Walks `.platform-state/runtime/tasks/`
+ * and deletes every task subtree whose `.gc-after-ts` epoch has passed.
+ * A task subtree without a sentinel is treated as retain-indefinitely (by
+ * design — see `gcTaskRuntime`'s failed+retain branch).
+ */
+export function sweepRuntimeGC(repoRoot: string, now: number = Date.now()): void {
+  const runtimeTasksDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks');
+  if (!existsSync(runtimeTasksDir)) return;
+
+  let taskIds: string[];
+  try {
+    taskIds = readdirSync(runtimeTasksDir);
+  } catch {
+    return;
+  }
+
+  for (const taskId of taskIds) {
+    const sentinel = gcSentinelPath(taskId, repoRoot);
+    if (!existsSync(sentinel)) continue;
+    let epoch: number;
+    try {
+      epoch = Number(readFileSync(sentinel, 'utf-8').trim());
+    } catch {
+      continue;
+    }
+    if (!Number.isFinite(epoch)) continue;
+    if (epoch > now) continue;
+    try {
+      rmSync(runtimeTaskDir(taskId, repoRoot), { recursive: true, force: true });
+    } catch {
+      // Open handles or permission errors — next sweep retries.
     }
   }
 }
