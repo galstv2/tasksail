@@ -162,7 +162,7 @@ ${bindingSection}
 <!-- (0+ bullets) — required for "child-task" to preserve parent carry-forward context; leave blank for "standard" tasks. -->
 
 ## Suggested Routing
-<!-- (1 word) - Recommended Execution: "sequential" for lean asks, "parallel" when extra structure is helpful. -->
+<!-- (1 word) - Recommended Execution: "Simple" for one coherent ask, "Complex" only when the work clearly breaks into separate streams or slices. -->
 - Recommended Execution:
 <!-- (1-2 sentences) - Explain why this should stay lean or expand. -->
 - Planner Notes:

@@ -216,7 +216,7 @@ export function formatDraftMarkdown(
     '',
     '## Suggested Routing',
     '',
-    `- Recommended Execution: ${draft.suggestedPath}`,
+    `- Recommended Execution: ${draft.suggestedPath === 'parallel' ? 'Complex' : 'Simple'}`,
     `- Planner Notes: ${draft.planningNotes}`,
   );
 

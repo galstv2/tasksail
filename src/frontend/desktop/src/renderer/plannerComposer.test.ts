@@ -64,7 +64,7 @@ describe('plannerComposer helpers', () => {
     expect(markdown).toContain('## Constraints');
     expect(markdown).toContain('## Acceptance Signals');
     expect(markdown).toContain('## Suggested Routing');
-    expect(markdown).toContain('- Recommended Execution: sequential');
+    expect(markdown).toContain('- Recommended Execution: Simple');
     expect(markdown).toContain('- Created By: Lily (Planning Specialist)');
   });
 
