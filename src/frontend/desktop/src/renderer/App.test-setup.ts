@@ -823,6 +823,10 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Cleared.' },
       }),
+      cancelTask: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'cancel-task', mode: 'cancelled', message: 'Pipeline stopped.', taskId: 'TASK-1' },
+      }),
     } as typeof window.desktopShell & Record<string, unknown>;
   });
 }

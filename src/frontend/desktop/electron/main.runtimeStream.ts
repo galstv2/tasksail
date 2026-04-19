@@ -15,12 +15,13 @@ import { getNodeErrorCode } from './main.textUtils';
 
 const PLATFORM_STATE_DIR = join(REPO_ROOT, '.platform-state');
 const RUNTIME_DIR = join(PLATFORM_STATE_DIR, 'runtime');
-const PARALLEL_RUNTIME_DIR = join(RUNTIME_DIR, 'parallel');
-const PARALLEL_RECEIPTS_DIR = join(PARALLEL_RUNTIME_DIR, 'receipts');
+// §5.4 F18: PARALLEL_RUNTIME_DIR and PARALLEL_RECEIPTS_DIR deleted.
+// Singleton ROLE_RUNTIME_SESSIONS_DIR and GUARDRAIL_RECEIPTS_DIR retained as
+// legacy fallback targets when no active taskIds are known.
 const ROLE_RUNTIME_SESSIONS_DIR = join(RUNTIME_DIR, 'role-sessions');
 const GUARDRAIL_RECEIPTS_DIR = join(RUNTIME_DIR, 'guardrails');
+const TASKS_RUNTIME_DIR = join(RUNTIME_DIR, 'tasks');
 const WATCH_DEBOUNCE_MS = 150;
-const PIPELINE_PHASE_FILE = join(RUNTIME_DIR, 'pipeline-phase.json');
 
 const PIPELINE_PHASE_MESSAGES: Record<string, { message: string; severity: StreamEventOptions['severity'] }> = {
   'test-capture-started': { message: 'Capturing test evidence.', severity: 'info' },
@@ -41,14 +42,53 @@ type RuntimeWatcherOptions = {
   watchFactory?: typeof watch;
 };
 
-const WATCH_TARGETS = [
-  PLATFORM_STATE_DIR,
-  RUNTIME_DIR,
-  PARALLEL_RUNTIME_DIR,
-  PARALLEL_RECEIPTS_DIR,
-  ROLE_RUNTIME_SESSIONS_DIR,
-  GUARDRAIL_RECEIPTS_DIR,
-];
+/**
+ * §5.4 F18: Compute watch targets dynamically from the set of active taskIds.
+ * Per-task subtrees are watched for each active task.
+ * Legacy singleton dirs (role-sessions, guardrails) are included as fallbacks
+ * for backward-compat when no active tasks are tracked yet.
+ */
+function computeWatchTargets(activeTaskIds: string[]): string[] {
+  const targets = new Set<string>([
+    PLATFORM_STATE_DIR,
+    RUNTIME_DIR,
+    TASKS_RUNTIME_DIR,
+  ]);
+
+  if (activeTaskIds.length === 0) {
+    // Legacy fallback: watch singleton dirs when no per-task context is active.
+    targets.add(ROLE_RUNTIME_SESSIONS_DIR);
+    targets.add(GUARDRAIL_RECEIPTS_DIR);
+  }
+
+  for (const taskId of activeTaskIds) {
+    const taskRuntimeDir = join(TASKS_RUNTIME_DIR, taskId);
+    targets.add(taskRuntimeDir);
+    targets.add(join(taskRuntimeDir, 'role-sessions'));
+    targets.add(join(taskRuntimeDir, 'guardrails'));
+  }
+
+  return [...targets];
+}
+
+/** §5.4: Currently subscribed task IDs for per-task watch targets. */
+const subscribedTaskIds = new Set<string>();
+
+/**
+ * §5.4: Subscribe a taskId so its per-task runtime subtree is watched.
+ * Call this when a pipeline is started for the task.
+ */
+export function subscribeTask(taskId: string): void {
+  subscribedTaskIds.add(taskId);
+}
+
+/**
+ * §5.4: Unsubscribe a taskId and clear its mtime cache entry.
+ * Call this when a pipeline completes or is stopped for the task.
+ */
+export function unsubscribeTask(taskId: string): void {
+  subscribedTaskIds.delete(taskId);
+}
 
 function createRuntimeStreamState(snapshot: RuntimeSnapshot): RuntimeStreamState {
   return {
@@ -272,14 +312,28 @@ export function startRuntimeStreamWatcher(
   let previousSnapshot: RuntimeSnapshot | null = null;
   let previousPipelinePhase: string | null = null;
 
+  /**
+   * §5.4: Read pipeline-phase.json from per-task runtime dirs.
+   * Checks all subscribed task runtime dirs; returns the first phase found.
+   */
   const readPipelinePhase = async (): Promise<string | null> => {
-    try {
-      const raw = await fsAdapter.readFile(PIPELINE_PHASE_FILE, 'utf-8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return typeof parsed.phase === 'string' ? parsed.phase : null;
-    } catch {
-      return null;
+    const taskIds = [...subscribedTaskIds];
+    const dirs = taskIds.length > 0
+      ? taskIds.map((id) => join(TASKS_RUNTIME_DIR, id))
+      : [RUNTIME_DIR]; // legacy fallback
+
+    for (const dir of dirs) {
+      try {
+        const phaseFile = join(dir, 'pipeline-phase.json');
+        const raw = await fsAdapter.readFile(phaseFile, 'utf-8');
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const phase = typeof parsed.phase === 'string' ? parsed.phase : null;
+        if (phase) return phase;
+      } catch {
+        // Phase file may not exist for this task dir.
+      }
     }
+    return null;
   };
 
   const checkPipelinePhase = async (): Promise<void> => {
@@ -303,8 +357,13 @@ export function startRuntimeStreamWatcher(
     }
   };
 
+  const PIPELINE_PHASE_WATCH_KEY = '__pipeline-phase-watcher__';
+
   const ensureWatchers = async (): Promise<void> => {
-    for (const target of WATCH_TARGETS) {
+    // §5.4 F18: compute watch targets dynamically from subscribed task IDs.
+    const watchTargets = computeWatchTargets([...subscribedTaskIds]);
+
+    for (const target of watchTargets) {
       if (activeWatchers.has(target) || !(await pathExists(target, fsAdapter))) {
         continue;
       }
@@ -323,9 +382,9 @@ export function startRuntimeStreamWatcher(
       }
     }
 
-    // Watch the pipeline phase file separately with no debounce so
-    // test-capture and other phase transitions appear immediately.
-    if (!activeWatchers.has(PIPELINE_PHASE_FILE)) {
+    // Watch for pipeline-phase.json changes across all task runtime dirs.
+    // §5.4: watch per-task dirs; filename filter checks 'pipeline-phase.json'.
+    if (!activeWatchers.has(PIPELINE_PHASE_WATCH_KEY)) {
       try {
         if (await pathExists(RUNTIME_DIR, fsAdapter)) {
           const phaseWatcher = watchFactory(RUNTIME_DIR, { persistent: false }, (_eventType, filename) => {
@@ -333,7 +392,7 @@ export function startRuntimeStreamWatcher(
               void checkPipelinePhase();
             }
           });
-          activeWatchers.set(PIPELINE_PHASE_FILE, phaseWatcher);
+          activeWatchers.set(PIPELINE_PHASE_WATCH_KEY, phaseWatcher);
         }
       } catch {
         // Best effort.

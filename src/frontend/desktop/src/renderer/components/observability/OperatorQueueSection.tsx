@@ -15,15 +15,22 @@ type OperatorQueueSectionProps = {
   onDeletePendingItem: (queueName: string) => Promise<void>;
 };
 
+/**
+ * §5.5: derive legacy statusTone from activeTasks array length.
+ * activeTasks.length > 0 → RUNNING (warn); otherwise → OPEN (ok).
+ */
 function statusTone(status: OperatorStatus): 'ok' | 'warn' | 'idle' {
-  switch (status) {
-    case 'RUNNING':
-      return 'warn';
-    case 'PENDING':
-      return 'warn';
-    default:
-      return 'ok';
+  return status.activeTasks.length > 0 ? 'warn' : 'ok';
+}
+
+/**
+ * Derive legacy display label from OperatorStatus for backward-compatible UI.
+ */
+function statusLabel(status: OperatorStatus): string {
+  if (status.activeTasks.length > 0) {
+    return `RUNNING (${status.activeTasks.length} active)`;
   }
+  return 'OPEN';
 }
 
 function renderItemLabel(item: PendingQueueItem): string {
@@ -63,7 +70,7 @@ function OperatorQueueSection({
             `operator-queue__status--${statusTone(operatorStatus)}`,
           )}
         >
-          {operatorStatus}
+          {statusLabel(operatorStatus)}
         </span>
       </div>
 

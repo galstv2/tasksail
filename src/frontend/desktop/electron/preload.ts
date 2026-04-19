@@ -537,6 +537,11 @@ export const desktopShellApi = {
       action: 'deepFocus.clearSelections',
       payload: { contextPackDir },
     }),
+  cancelTask: async (taskId: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'cancel-task',
+      payload: { taskId },
+    }),
   onStreamEvent: (
     callback: (event: import('../src/renderer/activityStream').StreamEvent) => void,
   ): (() => void) => {
@@ -764,6 +769,7 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   loadDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
   clearDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
+  cancelTask: (taskId: string) => Promise<DesktopInvokeResult>;
   onStreamEvent: (
     callback: (event: import('../src/renderer/activityStream').StreamEvent) => void,
   ) => () => void;

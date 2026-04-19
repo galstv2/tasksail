@@ -88,6 +88,11 @@ describe('electron main bootstrap — environment and observability', () => {
           return ['20260307T-active.md'];
         }
 
+        // §5.5: Per-task active marker (taskId as filename) in .active-items/.
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['CAP-CUSTOM-TERMINAL-06'];
+        }
+
         if (path.endsWith('/AgentWorkSpace/ImplementationSteps')) {
           return ['slice-11-pilot-request-id-propagation.md'];
         }
@@ -183,7 +188,7 @@ describe('electron main bootstrap — environment and observability', () => {
         activeTaskId: null,
         queueDepth: 0,
         pendingReviewCount: 0,
-        message: 'Observed repo queue state: 0 queued, 0 pending. Operator status: OPEN.',
+        message: 'Observed repo queue state: 0 queued, 0 pending. Active tasks: 0.',
       }),
     );
 

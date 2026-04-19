@@ -40,13 +40,15 @@ import {
   loadTaskRegistry,
   getAllTasks,
   getTasksForContextPack,
+  getRegistryPath,
   type TaskRegistryEntry,
 } from '../../../backend/platform/queue/taskRegistry.js';
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
-const ACTIVE_ITEM_PATH = join(PENDING_DIR, '.active-item');
+// §5.3: Per-task active-items directory replaces singleton .active-item file.
+const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
 
 const HEAD_BYTES = 1024;
 
@@ -185,11 +187,31 @@ export async function readTaskBoard(
     const dropboxItems = await readBoardItems(DROPBOX_DIR);
     const pendingRaw = await readBoardItems(PENDING_DIR);
 
+    // §5.3: Read active task from .active-items/ directory (per-task markers).
+    // F26 legacy fallback: if .active-items/ absent, fall back to singleton .active-item.
     let activeFileName: string | null = null;
-    if (await pathExists(ACTIVE_ITEM_PATH, fsAdapter)) {
-      const content = (await fsAdapter.readFile(ACTIVE_ITEM_PATH, 'utf-8')).trim();
-      if (content && content.endsWith('.md') && !content.startsWith('#')) {
-        activeFileName = content;
+    if (await pathExists(ACTIVE_ITEMS_DIR, fsAdapter)) {
+      try {
+        const entries = await fsAdapter.readdir(ACTIVE_ITEMS_DIR);
+        const firstMarker = entries.find((f) => !f.startsWith('.') && !f.endsWith('.completing'));
+        if (firstMarker) {
+          activeFileName = `${firstMarker}.md`;
+        }
+      } catch {
+        // Absent or unreadable — no active item.
+      }
+    } else {
+      // F26 legacy shim: singleton .active-item file.
+      const legacyActiveItemPath = join(PENDING_DIR, '.active-item');
+      if (await pathExists(legacyActiveItemPath, fsAdapter)) {
+        try {
+          const content = (await fsAdapter.readFile(legacyActiveItemPath, 'utf-8')).trim();
+          if (content && content.endsWith('.md') && !content.startsWith('#')) {
+            activeFileName = content;
+          }
+        } catch {
+          // Unreadable — skip.
+        }
       }
     }
 
@@ -514,7 +536,7 @@ export function startTaskBoardWatcher(
   // Watch the registry file and the three queue directories.
   // The registry is the primary source; directories are watched as a safety net
   // for manual file placement and legacy flows.
-  const registryFile = join(REPO_ROOT, '.platform-state', 'task-registry.json');
+  const registryFile = getRegistryPath(REPO_ROOT);
   for (const target of [registryFile, DROPBOX_DIR, PENDING_DIR, ERROR_ITEMS_DIR]) {
     try {
       watchers.push(watch(target, { persistent: false }, onFsChange));

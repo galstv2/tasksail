@@ -466,7 +466,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         queueDepth: 1,
         pendingReviewCount: 0,
         activeTaskId: null,
-        message: expect.stringContaining('Observed repo queue state: 1 queued, 0 pending. Operator status: PENDING.'),
+        message: expect.stringContaining('Observed repo queue state: 1 queued, 0 pending. Active tasks: 0.'),
       }),
     );
 
@@ -483,6 +483,36 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         ]),
       }),
     );
+  });
+
+  it('§7.0C OperatorStatus shape lock: operatorStatus is an object with activeTasks array and activeTaskId scalar', async () => {
+    // §5.5 F28: OperatorStatus changed from string enum to { activeTasks, activeTaskId }.
+    // This test locks the shape so regressions in the contract are caught immediately.
+    const { readQueueStatusSnapshot } = await import('./main');
+
+    const idleFs = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async () => ''),
+      readdir: vi.fn(async () => [] as string[]),
+    };
+
+    const snapshot = await readQueueStatusSnapshot(idleFs);
+    const { operatorStatus } = snapshot;
+
+    // operatorStatus must be an object (not a string).
+    expect(typeof operatorStatus).toBe('object');
+    expect(operatorStatus).not.toBeNull();
+
+    // activeTasks must be an array.
+    expect(Array.isArray(operatorStatus?.activeTasks)).toBe(true);
+
+    // activeTaskId must be null when no tasks are active.
+    expect(operatorStatus?.activeTaskId).toBeNull();
+
+    // No legacy string values ('OPEN', 'RUNNING', 'PENDING') should appear.
+    expect(operatorStatus).not.toBe('OPEN');
+    expect(operatorStatus).not.toBe('RUNNING');
+    expect(operatorStatus).not.toBe('PENDING');
   });
 
 });

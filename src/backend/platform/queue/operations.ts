@@ -19,6 +19,8 @@ import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from './markdown.js';
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
+import { allocatePortStub } from '../port-allocator/stub.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -678,6 +680,24 @@ export async function activateNextPendingItemIfReady(
   // In the parallel model each task has its own per-task workspace; the
   // pending file content is now captured in .task.json + per-task handoffs.
   try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+
+  // §5.3: allocate port → MCP bootstrap stub → start pipeline supervisor.
+  // Port allocation is best-effort; failures are logged but do not block activation.
+  // TODO(§6.3): replace MCP bootstrap stub with real container restart.
+  try {
+    await allocatePortStub(taskId, repoRoot);
+  } catch (portErr) {
+    console.warn(`[operations] allocatePortStub failed for ${taskId} (non-fatal):`, portErr);
+  }
+
+  // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.
+  // On failure, roll back the active markers so the queue can re-activate.
+  const pipelineResult = await startPipeline(taskId, repoRoot);
+  if ('deferred' in pipelineResult && pipelineResult.deferred) {
+    // Recovery is in progress — pipeline will be started after recoverOnStartup completes.
+    // This is not an error; the supervisor will handle re-activation.
+    return { activated: true };
+  }
 
   return { activated: true };
 }

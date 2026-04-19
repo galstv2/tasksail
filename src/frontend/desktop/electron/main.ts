@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
-import { readFile as fsReadFile, readdir as fsReaddir, rm as fsRm } from 'node:fs/promises';
+import { readFile as fsReadFile, readdir as fsReaddir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -166,8 +166,8 @@ const RENDERER_DIST = join(__dirname, '../dist');
 const PRELOAD_PATH = join(__dirname, 'preload.js');
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
-const PIPELINE_LOCK_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'pipeline.lock');
-const ROLE_SESSIONS_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
+// §5.3: PIPELINE_LOCK_DIR and ROLE_SESSIONS_DIR deleted — use per-task runtime paths.
+// Legacy singleton cleanup now delegates to pipelineSupervisor.recoverOnStartup.
 const RELEASE_DIR = join(DESKTOP_ROOT, 'release');
 
 const HELPER_STATUSES = [
@@ -195,48 +195,23 @@ export { getPackageOutputDir, getPackageArtifactName, getPackageCommand } from '
 export { validateDesktopInvokeSender, validateDevServerUrl } from './main.senderAuth';
 
 /**
+ * §5.3: cleanupStalePipelineState is superseded by pipelineSupervisor.recoverOnStartup.
+ * This legacy helper is retained for the orphaned-copilot-process kill path only.
+ * Singleton PIPELINE_LOCK_DIR and ROLE_SESSIONS_DIR deleted.
  * Clean up stale pipeline state from a crashed previous run.
  * - Removes pipeline lock if the owning process is dead.
  * - Kills orphaned copilot processes whose session receipts lack terminal status.
  */
 async function cleanupStalePipelineState(): Promise<void> {
-  // 1. Stale pipeline lock — check if owner PID is still alive.
-  if (await pathExists(PIPELINE_LOCK_DIR)) {
-    let ownerAlive = false;
-    try {
-      const ownerJson = await fsReadFile(join(PIPELINE_LOCK_DIR, 'owner.json'), 'utf-8');
-      const owner = JSON.parse(ownerJson) as { pid?: number };
-      if (owner.pid && owner.pid > 0) {
-        try {
-          process.kill(owner.pid, 0);
-          ownerAlive = true;
-        } catch (err: unknown) {
-          if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'ESRCH') {
-            ownerAlive = false;
-          } else {
-            ownerAlive = true; // EPERM = alive but not ours
-          }
-        }
-      }
-    } catch {
-      // Can't read owner.json — treat as stale.
-    }
+  // §5.3: Singleton PIPELINE_LOCK_DIR deleted. Per-task locks are checked by
+  // pipelineSupervisor.recoverOnStartup. This function is a lightweight shim
+  // that only kills legacy orphaned copilot processes from stale session receipts.
 
-    if (!ownerAlive) {
-      await fsRm(PIPELINE_LOCK_DIR, { recursive: true, force: true });
-      emitStreamEvent({
-        message: 'Cleaned up stale pipeline lock from crashed previous run.',
-        source: 'startup.recovery',
-        role: 'system',
-        severity: 'warning',
-      });
-    }
-  }
-
-  // 2. Kill orphaned copilot processes from stale session receipts.
+  // Kill orphaned copilot processes from stale session receipts (legacy singleton path).
+  const legacyRoleSessionsDir = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
   let receiptFiles: string[];
   try {
-    receiptFiles = await fsReaddir(ROLE_SESSIONS_DIR);
+    receiptFiles = await fsReaddir(legacyRoleSessionsDir);
   } catch {
     return; // Directory doesn't exist — nothing to clean.
   }
@@ -244,7 +219,7 @@ async function cleanupStalePipelineState(): Promise<void> {
   for (const file of receiptFiles) {
     if (!file.endsWith('.json')) continue;
     try {
-      const content = await fsReadFile(join(ROLE_SESSIONS_DIR, file), 'utf-8');
+      const content = await fsReadFile(join(legacyRoleSessionsDir, file), 'utf-8');
       const receipt = JSON.parse(content) as {
         agent_id?: string;
         launch?: { pid?: number };
@@ -275,11 +250,11 @@ async function cleanupStalePipelineState(): Promise<void> {
 }
 
 function schedulePipelineAutoStart(): void {
-  // Guard: skip launch if a pipeline is already running. This prevents the
-  // race where auto-fail activates the next task and immediately tries to
-  // launch, only to fail on the lock and strand the task.
-  void pathExists(PIPELINE_LOCK_DIR).then(async (locked) => {
-    if (locked) {
+  // §5.3: Guard replaced — check pipelineSupervisor.listActivePipelines() instead of
+  // the deleted PIPELINE_LOCK_DIR. If any pipeline is already supervised, skip launch.
+  void (async () => {
+    const { listActivePipelines } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
+    if (listActivePipelines().length > 0) {
       return;
     }
 
@@ -316,7 +291,7 @@ function schedulePipelineAutoStart(): void {
           severity: alreadyRunning ? 'warning' : 'error',
         });
       });
-  });
+  })();
 }
 
 let recoveryController:
@@ -450,6 +425,7 @@ type DesktopActionHandlers = {
     payload: import('../src/shared/desktopContract').DeepFocusClearSelectionsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
+  cancelTask: (taskId: string) => Promise<DesktopInvokeResult>;
 };
 
 export async function readQueueStatusSnapshot(
@@ -812,6 +788,25 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   loadDeepFocusSelections: (payload) => loadDeepFocusSelections(payload),
   clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
   uploadSpec: submitUploadedSpecHelper,
+  cancelTask: async (taskId: string) => {
+    const { stopPipeline } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
+    await stopPipeline(taskId);
+    emitStreamEvent({
+      message: `Pipeline cancelled for task ${taskId}.`,
+      source: 'pipeline.cancelTask',
+      role: 'system',
+      severity: 'warning',
+    });
+    return {
+      ok: true,
+      response: {
+        action: 'cancel-task' as const,
+        mode: 'cancelled' as const,
+        message: `Pipeline stopped for task ${taskId}.`,
+        taskId,
+      },
+    };
+  },
 };
 
 function resolveDesktopActionHandlers(
@@ -1200,12 +1195,32 @@ export async function handleDesktopAction(
       };
     case 'contextPack.previewSwitch':
       return resolvedHandlers.previewContextPackSwitch(request.payload);
-    case 'contextPack.applySwitch':
+    case 'contextPack.applySwitch': {
+      // §5.3 active-task guard: block context-pack switching while a pipeline is running.
+      const { listActivePipelines: lap } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
+      if (lap().length > 0) {
+        return {
+          ok: false,
+          action: 'contextPack.applySwitch',
+          error: 'Cannot switch context pack while a pipeline is active. Cancel the running task first.',
+        };
+      }
       return withStreamEvent(resolvedHandlers.applyContextPackSwitch(request.payload),
         { message: 'Applied workspace switch.', source: 'contextPack.applySwitch', role: 'workflow' });
-    case 'contextPack.clearActive':
+    }
+    case 'contextPack.clearActive': {
+      // §5.3 active-task guard: block clearing active context pack while a pipeline is running.
+      const { listActivePipelines: lap2 } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
+      if (lap2().length > 0) {
+        return {
+          ok: false,
+          action: 'contextPack.clearActive',
+          error: 'Cannot clear active context pack while a pipeline is active. Cancel the running task first.',
+        };
+      }
       return withStreamEvent(resolvedHandlers.clearActiveContextPack(),
         { message: 'Cleared active context pack.', source: 'contextPack.clearActive', role: 'workflow' });
+    }
     case 'planner.pickMarkdownFile':
       return resolvedHandlers.pickMarkdownFile();
     case 'planner.listArchivedTasks':
@@ -1315,6 +1330,8 @@ export async function handleDesktopAction(
       return resolvedHandlers.clearDeepFocusSelections(request.payload);
     case 'planner.uploadSpec':
       return resolvedHandlers.uploadSpec(request.payload.content);
+    case 'cancel-task':
+      return resolvedHandlers.cancelTask(request.payload.taskId);
     default:
       return {
         ok: false,

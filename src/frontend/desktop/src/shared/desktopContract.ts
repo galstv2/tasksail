@@ -128,7 +128,8 @@ export type DesktopActionName =
   | 'services.healthCheck'
   | 'deepFocus.saveSelections'
   | 'deepFocus.loadSelections'
-  | 'deepFocus.clearSelections';
+  | 'deepFocus.clearSelections'
+  | 'cancel-task';
 
 export type QueueStatusResponse = {
   action: 'queue.readStatus';
@@ -141,7 +142,24 @@ export type QueueStatusResponse = {
   message: string;
 };
 
-export type OperatorStatus = 'OPEN' | 'RUNNING' | 'PENDING';
+/**
+ * §5.5 OperatorStatus shape change (F28 — §0.3 amendment).
+ * Exception to "No frontend/IPC contract changes": this type changes from a string enum
+ * to { activeTasks: Array<{ taskId, phase, startedAt }> } carrying a back-compat
+ * activeTaskId scalar. All renderer consumers are updated in the same PR (§5.5).
+ * activeTaskId and activeTaskTitle scalar back-compat fields are preserved in
+ * ObservabilitySnapshotResponse.
+ */
+export type OperatorStatus = {
+  /** Array of currently active tasks. Empty when no tasks are active. */
+  activeTasks: Array<{ taskId: string; phase: string; startedAt: string }>;
+  /**
+   * F39 back-compat scalar: derived as activeTasks[0]?.taskId ?? null.
+   * Preserved so useAppShell.ts:176 and taskObservationModel.ts can read it
+   * without switching to activeTasks[0].
+   */
+  activeTaskId: string | null;
+};
 
 export type PendingQueueItem = {
   queueName: string;
@@ -849,7 +867,8 @@ export type DesktopActionRequest =
   | ServicesHealthCheckRequest
   | DeepFocusSaveSelectionsRequest
   | DeepFocusLoadSelectionsRequest
-  | DeepFocusClearSelectionsRequest;
+  | DeepFocusClearSelectionsRequest
+  | CancelTaskRequest;
 
 export type DesktopActionResponse =
   | PlannerSubmitResponse
@@ -911,7 +930,8 @@ export type DesktopActionResponse =
   | ServicesReadStatusResponse
   | DeepFocusSaveSelectionsResponse
   | DeepFocusLoadSelectionsResponse
-  | DeepFocusClearSelectionsResponse;
+  | DeepFocusClearSelectionsResponse
+  | CancelTaskResponse;
 
 // ---------------------------------------------------------------------------
 // Services (backend MCP container service management)
@@ -951,6 +971,22 @@ export type ServicesReadStatusResponse = {
   lastCheckedAt: string | null;
   error: string | null;
   message: string;
+};
+
+// ---------------------------------------------------------------------------
+// Cancel task (§5.3)
+// ---------------------------------------------------------------------------
+
+export type CancelTaskRequest = {
+  action: 'cancel-task';
+  payload: { taskId: string };
+};
+
+export type CancelTaskResponse = {
+  action: 'cancel-task';
+  mode: 'cancelled';
+  message: string;
+  taskId: string;
 };
 
 export const ERROR_CODE_VERSION_CONFLICT = 'version_conflict' as const;

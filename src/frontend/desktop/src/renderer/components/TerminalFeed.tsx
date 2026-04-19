@@ -166,7 +166,7 @@ function TerminalFeed({
         {drawerOpen && observabilitySnapshot && (
           <div className="observability-drawer__content" aria-label="System details">
             <OperatorQueueSection
-              operatorStatus={observabilitySnapshot.operatorStatus ?? 'OPEN'}
+              operatorStatus={observabilitySnapshot.operatorStatus ?? { activeTasks: [], activeTaskId: null }}
               pendingQueueItems={observabilitySnapshot.pendingQueueItems ?? []}
               errorItemsCount={observabilitySnapshot.errorItemsCount}
               recoveryState={observabilitySnapshot.recoveryState ?? null}

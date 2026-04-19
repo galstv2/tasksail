@@ -9,6 +9,7 @@ import {
   repairQueue,
   resolveQueuePaths,
 } from '../../../backend/platform/queue';
+import type { QueueRepairIssue } from '../../../backend/platform/queue/repairQueue.js';
 import { REPO_ROOT } from './paths';
 import { readObservabilitySnapshot } from './repoObservability';
 import {
@@ -19,11 +20,9 @@ import {
 import { emitStreamEvent } from './main.stream';
 import { pathExists, repoFs } from './utils';
 
-const ACTIVE_ITEM_PATH = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-item');
-const PIPELINE_LOCK_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'pipeline.lock');
-const PIPELINE_RECEIPT_PATH = join(REPO_ROOT, '.platform-state', 'runtime', 'pipeline-receipt.json');
-const ROLE_SESSIONS_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
-const GUARDRAILS_DIR = join(REPO_ROOT, '.platform-state', 'runtime', 'guardrails');
+// §5.3B: Per-task runtime paths. Singleton constants deleted.
+// Active markers live in ACTIVE_ITEMS_DIR (one file per taskId, §4.1 parallel model).
+const ACTIVE_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
 
 const DEFAULT_ACTIVATION_GRACE_MS = 5 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 15 * 1000;
@@ -104,26 +103,66 @@ function recoveryStatesMatch(
     && left.errorItemPath === right.errorItemPath;
 }
 
+/**
+ * §5.3B: Enumerate .active-items/ for multi-task support.
+ * Returns the taskId of the first active marker (alphabetical), or null if none.
+ * F26 legacy shim: falls back to reading singleton .active-item when .active-items/ is absent.
+ */
 async function readActiveQueueName(): Promise<string | null> {
-  if (!(await pathExists(ACTIVE_ITEM_PATH, repoFs))) {
-    return null;
+  if (await pathExists(ACTIVE_ITEMS_DIR, repoFs)) {
+    try {
+      const entries = (await readdir(ACTIVE_ITEMS_DIR)).filter(
+        (f) => !f.endsWith('.completing') && !f.startsWith('.'),
+      ).sort();
+      if (entries.length > 0) {
+        // Return first active marker as the "active queue name" (queueName = taskId + '.md').
+        return entries[0]! + '.md';
+      }
+    } catch {
+      // Fall through to legacy shim.
+    }
   }
 
+  // F26 legacy shim: read the singleton .active-item if .active-items/ is absent.
+  const legacyActiveItemPath = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-item');
+  if (!(await pathExists(legacyActiveItemPath, repoFs))) {
+    return null;
+  }
   try {
-    const content = (await readFile(ACTIVE_ITEM_PATH, 'utf-8')).trim();
+    const content = (await readFile(legacyActiveItemPath, 'utf-8')).trim();
     return content && content.endsWith('.md') ? content : null;
   } catch {
     return null;
   }
 }
 
+/**
+ * §5.3B: Return mtime of the first active marker file in ACTIVE_ITEMS_DIR.
+ * F26 legacy shim: falls back to singleton .active-item when .active-items/ is absent.
+ */
 async function readActiveItemMtimeIso(): Promise<string | null> {
-  if (!(await pathExists(ACTIVE_ITEM_PATH, repoFs))) {
-    return null;
+  if (await pathExists(ACTIVE_ITEMS_DIR, repoFs)) {
+    try {
+      const entries = (await readdir(ACTIVE_ITEMS_DIR)).filter(
+        (f) => !f.endsWith('.completing') && !f.startsWith('.'),
+      ).sort();
+      if (entries.length > 0) {
+        const markerPath = join(ACTIVE_ITEMS_DIR, entries[0]!);
+        const details = await stat(markerPath);
+        return details.mtime.toISOString();
+      }
+    } catch {
+      // Fall through to legacy shim.
+    }
   }
 
+  // F26 legacy shim.
+  const legacyActiveItemPath = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-item');
+  if (!(await pathExists(legacyActiveItemPath, repoFs))) {
+    return null;
+  }
   try {
-    const details = await stat(ACTIVE_ITEM_PATH);
+    const details = await stat(legacyActiveItemPath);
     return details.mtime.toISOString();
   } catch {
     return null;
@@ -172,10 +211,25 @@ async function fileHasRecentArtifact(
   }
 }
 
+/**
+ * §5.3B: hasPipelineStartEvidence is now per-task.
+ * Checks per-task runtime dir at .platform-state/runtime/tasks/<taskId>/.
+ * taskId is derived from activeQueueName (queueName without .md extension).
+ */
 async function hasPipelineStartEvidence(
+  taskId: string | null,
   activationStartedAt: string | null,
 ): Promise<boolean> {
-  if (await pathExists(PIPELINE_LOCK_DIR, repoFs)) {
+  if (!taskId) return false;
+
+  const taskRuntimeDir = join(REPO_ROOT, '.platform-state', 'runtime', 'tasks', taskId);
+  const roleSessionsDir = join(taskRuntimeDir, 'role-sessions');
+  const guardrailsDir = join(taskRuntimeDir, 'guardrails');
+  const pipelineReceiptPath = join(taskRuntimeDir, 'pipeline-receipt.json');
+  // §5.3B: per-task pipeline lock (no singleton PIPELINE_LOCK_DIR).
+  const pipelineLockDir = join(taskRuntimeDir, 'pipeline.lock');
+
+  if (await pathExists(pipelineLockDir, repoFs)) {
     return true;
   }
 
@@ -185,9 +239,9 @@ async function hasPipelineStartEvidence(
   }
 
   const evidence = await Promise.all([
-    fileHasRecentArtifact(PIPELINE_RECEIPT_PATH, sinceMs),
-    directoryHasRecentJsonArtifact(ROLE_SESSIONS_DIR, sinceMs),
-    directoryHasRecentJsonArtifact(GUARDRAILS_DIR, sinceMs),
+    fileHasRecentArtifact(pipelineReceiptPath, sinceMs),
+    directoryHasRecentJsonArtifact(roleSessionsDir, sinceMs),
+    directoryHasRecentJsonArtifact(guardrailsDir, sinceMs),
   ]);
 
   return evidence.some(Boolean);
@@ -201,14 +255,21 @@ function hasCriticalRuntimeFailure(taskHealth: TaskHealthRollup | undefined): bo
   return taskHealth.failedCount > 0 || taskHealth.orphanedCount > 0;
 }
 
-function isFixableRepairIssue(issue: string): boolean {
-  return issue.includes('.active-item references')
-    || issue.includes('handoffs/ is in reset state')
-    || issue.includes('Partial handoff publish detected');
+/**
+ * §5.3B: Switch on .kind (structured) instead of matching rendered strings.
+ * Fixable issues are those where autoFix can restore queue consistency.
+ */
+function isFixableRepairIssue(issue: QueueRepairIssue): boolean {
+  return issue.kind === 'marker-without-pending'
+    || issue.kind === 'sentinel-without-completed-marker';
 }
 
-function isQueueDivergenceIssue(issue: string): boolean {
-  return issue.includes('No .active-item but handoffs/ has task data');
+/**
+ * §5.3B: Queue divergence = pending items without active markers,
+ * indicating an orphaned handoffs workspace with no task claim.
+ */
+function isQueueDivergenceIssue(issue: QueueRepairIssue): boolean {
+  return issue.kind === 'pending-without-marker';
 }
 
 async function activateNextPendingItemAfterRepair(
@@ -260,11 +321,15 @@ export function startTaskRecoveryController(options: {
       return;
     }
 
-    // Guard: don't schedule a pipeline launch if one is already running.
-    // Without this, the task gets activated (claimed) but the pipeline launch
-    // fails on the lock, leaving the task stranded.
-    if (await pathExists(PIPELINE_LOCK_DIR)) {
-      return;
+    // §5.3B: Guard per-task lock instead of singleton PIPELINE_LOCK_DIR.
+    // Check if any pipeline is already active via pipelineSupervisor state.
+    // The simplest check: if the activeQueueName still has evidence, skip.
+    const taskId = queueNameToTaskId(queueName);
+    if (taskId) {
+      const taskPipelineLockDir = join(REPO_ROOT, '.platform-state', 'runtime', 'tasks', taskId, 'pipeline.lock');
+      if (await pathExists(taskPipelineLockDir)) {
+        return;
+      }
     }
 
     const activationStartedAt = await readActiveItemMtimeIso();
@@ -314,23 +379,23 @@ export function startTaskRecoveryController(options: {
 
     reconcileInFlight = true;
     try {
-      const [activeQueueName, activeItemMtime, recoveryState, observability, repairProbe, pipelineLocked] =
+      const [activeQueueName, activeItemMtime, recoveryState, observability, repairProbe] =
         await Promise.all([
           readActiveQueueName(),
           readActiveItemMtimeIso(),
           readTaskRecoveryState(),
           readObservabilitySnapshot(),
           repairQueue({ repoRoot: REPO_ROOT, dryRun: true }),
-          pathExists(PIPELINE_LOCK_DIR, repoFs),
         ]);
 
       if (!activeQueueName) {
-        const divergenceIssue = repairProbe.issues.find(isQueueDivergenceIssue) ?? null;
+        // §5.3B: use structuredIssues instead of string-matched issues array.
+        const divergenceIssue = repairProbe.structuredIssues?.find(isQueueDivergenceIssue) ?? null;
         if (divergenceIssue) {
           await persistRecoveryState(buildRecoveryState({
             kind: 'queue-divergence',
             status: 'recovery-needed',
-            summary: divergenceIssue,
+            summary: divergenceIssue.detail ?? `Queue divergence detected: ${divergenceIssue.kind}`,
             queueName: null,
             activationStartedAt: null,
             deadlineAt: null,
@@ -341,7 +406,8 @@ export function startTaskRecoveryController(options: {
         return;
       }
 
-      const fixableIssues = repairProbe.issues.filter(isFixableRepairIssue);
+      // §5.3B: use structuredIssues for fixable issue detection.
+      const fixableIssues = repairProbe.structuredIssues?.filter(isFixableRepairIssue) ?? [];
       if (fixableIssues.length > 0) {
         await withQueueLockIfAvailable('desktop.repairRecoveryState', async () => {
           const fixed = await repairQueue({ repoRoot: REPO_ROOT, autoFix: true });
@@ -381,7 +447,10 @@ export function startTaskRecoveryController(options: {
       const deadlineAt = activationStartedAt
         ? new Date(Date.parse(activationStartedAt) + activationGraceMs).toISOString()
         : null;
-      const hasRuntimeEvidence = await hasPipelineStartEvidence(activationStartedAt);
+
+      // §5.3B: hasPipelineStartEvidence is now per-task.
+      const activeTaskId = queueNameToTaskId(activeQueueName);
+      const hasRuntimeEvidence = await hasPipelineStartEvidence(activeTaskId, activationStartedAt);
       const runtimeHealth = observability.activeTask?.taskHealth;
 
       if (hasRuntimeEvidence) {
@@ -395,6 +464,14 @@ export function startTaskRecoveryController(options: {
         const activationAgeMs = activationStartedAt
           ? Date.now() - Date.parse(activationStartedAt)
           : Infinity;
+
+        // §5.3B: check per-task lock instead of singleton PIPELINE_LOCK_DIR.
+        const taskPipelineLockDir = activeTaskId
+          ? join(REPO_ROOT, '.platform-state', 'runtime', 'tasks', activeTaskId, 'pipeline.lock')
+          : null;
+        const pipelineLocked = taskPipelineLockDir
+          ? await pathExists(taskPipelineLockDir, repoFs)
+          : false;
 
         if (!pipelineLocked && activationAgeMs > RUNTIME_FAILURE_GRACE_MS && hasCriticalRuntimeFailure(runtimeHealth)) {
           await withQueueLockIfAvailable('desktop.failStrandedActiveTask', async () => {

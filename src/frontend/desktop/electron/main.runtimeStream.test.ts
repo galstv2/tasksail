@@ -3,6 +3,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSWatcher } from 'node:fs';
 
+// §7.0C: Mock pipelineSupervisor so subscribeTask/unsubscribeTask tests run
+// without spawning real processes.
+const mockListActivePipelines = vi.fn(() => [] as Array<{ taskId: string; pid: number; startedAt: string }>);
+
+vi.mock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+  startPipeline: vi.fn(async () => ({ status: 'started', pid: 9999 })),
+  stopPipeline: vi.fn(async () => undefined),
+  stopAll: vi.fn(async () => undefined),
+  listActivePipelines: mockListActivePipelines,
+  recoverOnStartup: vi.fn(async () => undefined),
+}));
+
 import type {
   AgentTerminalSession,
   GuardrailObservation,
@@ -190,5 +202,48 @@ describe('main.runtimeStream', () => {
     for (const close of closers) {
       expect(close).toHaveBeenCalled();
     }
+  });
+
+  it('§7.0C: subscribeTask causes per-task dirs to be watched; unsubscribeTask removes them', async () => {
+    const { subscribeTask, unsubscribeTask, startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    const watchedPaths: string[] = [];
+    const closers: Array<ReturnType<typeof vi.fn>> = [];
+
+    const watchFactory = vi.fn((target: string, _: { persistent: false }, _callback: () => void) => {
+      watchedPaths.push(target);
+      const close = vi.fn();
+      closers.push(close);
+      return { close } as unknown as FSWatcher;
+    });
+
+    const readSnapshot = vi.fn().mockResolvedValue({ agentTerminalSessions: [], guardrails: [] });
+    const fsAdapter = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async () => ''),
+      readdir: vi.fn(async () => [] as string[]),
+    };
+
+    // Subscribe a task before starting the watcher so per-task dirs are included.
+    subscribeTask('TASK-A');
+
+    const stop = startRuntimeStreamWatcher({
+      fsAdapter,
+      readSnapshot,
+      watchFactory: watchFactory as unknown as typeof import('node:fs').watch,
+    });
+
+    await vi.runAllTimersAsync();
+
+    // Per-task dir for TASK-A should appear in watched targets.
+    const taskDirWatched = watchedPaths.some((p) => p.includes('TASK-A'));
+    expect(taskDirWatched).toBe(true);
+
+    // Legacy singleton dirs (role-sessions, guardrails) should NOT be watched
+    // because a task is active.
+    const legacyRoleSessionsWatched = watchedPaths.some((p) => p.endsWith('role-sessions') && !p.includes('TASK-A'));
+    expect(legacyRoleSessionsWatched).toBe(false);
+
+    stop();
+    unsubscribeTask('TASK-A');
   });
 });

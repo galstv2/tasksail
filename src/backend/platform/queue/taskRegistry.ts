@@ -84,6 +84,15 @@ function registryPath(repoRoot: string): string {
   return path.join(repoRoot, REGISTRY_RELATIVE_PATH);
 }
 
+/**
+ * Public accessor for the registry file path. Callers outside this module
+ * (e.g. the Task Board fs-watcher) MUST use this instead of reconstructing
+ * the literal path — the registry's on-disk location is an internal detail.
+ */
+export function getRegistryPath(repoRoot: string): string {
+  return registryPath(repoRoot);
+}
+
 function contextPackKey(entry: Pick<TaskRegistryEntry, 'contextPackId'>): string {
   return entry.contextPackId || '_unbound';
 }

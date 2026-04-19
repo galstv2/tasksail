@@ -64,6 +64,7 @@ const DESKTOP_ACTION_NAMES = [
   'agentInstructions.listFiles',
   'agentInstructions.readFile',
   'agentInstructions.writeFile',
+  'cancel-task',
 ] as const;
 
 const COMPOSER_STAGES = ['compose', 'preview', 'confirm'] as const;
@@ -1079,6 +1080,13 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
       if (!isNonEmptyString(request.payload.content)) {
         return ['planner.uploadSpec requires a non-empty content string in the payload.'];
+      }
+      return [];
+    }
+    case 'cancel-task': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.taskId)) {
+        return ['cancel-task requires a non-empty taskId string in the payload.'];
       }
       return [];
     }
