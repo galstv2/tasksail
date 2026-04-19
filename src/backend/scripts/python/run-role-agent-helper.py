@@ -51,11 +51,14 @@ def _cmd_task_counter_position(args: argparse.Namespace) -> int:
 
 
 def _launch_context_payload(context: LaunchContext) -> dict[str, object]:
+    env_exports = dict(context.env_exports())
+    if context.copilot_home:
+        env_exports["COPILOT_HOME"] = context.copilot_home
     return {
         "status": context.status,
         "reason": context.reason,
         "injectionEnabled": context.injection_enabled,
-        "envExports": context.env_exports(),
+        "envExports": env_exports,
         "configFilePath": context.config_file_path,
         "selectedServerIds": [
             str(server.get("id", "?")) for server in context.selected_servers
