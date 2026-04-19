@@ -19,6 +19,7 @@ AGENT_CONTRACT_FILES = [
     *AGENT_PROFILE_FILES,
     ".github/copilot/prompts/start-task.prompt.md",
     ".github/copilot/prompts/continue-task.prompt.md",
+    ".github/copilot/prompts/execute-task.prompt.md",
     ".github/agents/registry.json",
 ]
 

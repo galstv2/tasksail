@@ -60,6 +60,8 @@ class RunRoleAgentTests(unittest.TestCase):
             workspace,
             "--agent-id",
             "software-engineer",
+            "--task-id",
+            "CAP-TEST",
             "--dry-run",
             "--skip-workflow-check",
         )
@@ -74,6 +76,8 @@ class RunRoleAgentTests(unittest.TestCase):
             workspace,
             "--agent-id",
             "dalton",
+            "--task-id",
+            "CAP-TEST",
             "--dry-run",
             "--skip-workflow-check",
         )
@@ -88,6 +92,8 @@ class RunRoleAgentTests(unittest.TestCase):
             workspace,
             "--agent-id",
             "unknown-agent",
+            "--task-id",
+            "CAP-TEST",
             "--dry-run",
         )
 
@@ -101,6 +107,8 @@ class RunRoleAgentTests(unittest.TestCase):
             workspace,
             "--agent-id",
             "software-engineer",
+            "--task-id",
+            "CAP-TEST",
             "--dry-run",
             "--skip-workflow-check",
             env={"RUN_ROLE_AGENT_ORCHESTRATOR_ID": "rogue-script"},
