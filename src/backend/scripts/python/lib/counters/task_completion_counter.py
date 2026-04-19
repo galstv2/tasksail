@@ -72,7 +72,14 @@ class TaskCompletionCounter:
         return self.cycle_position() % self.CYCLE_LENGTH == 0
 
     def increment(self, task_id: str) -> dict[str, Any]:
-        """Atomically increment the counter and reset at cycle boundary."""
+        """Atomically increment the counter and reset at cycle boundary.
+
+        Cycle-wrap guard: if ``completed_count`` is already 0 and
+        ``task_id`` matches ``last_archived_task_id`` the task is being
+        re-archived after a prior cycle wrap that already captured it.
+        In that case the write is skipped to prevent a spurious second
+        wrap (and a double retrospective trigger) on retry.
+        """
         import json
 
         self._counter_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +87,16 @@ class TaskCompletionCounter:
         lock_fd = acquire_file_lock(lock_path)
         try:
             state = self.read()
-            state["completed_count"] = int(state.get("completed_count", 0)) + 1
+            completed_count = int(state.get("completed_count", 0))
+            last_archived_task_id = str(state.get("last_archived_task_id", ""))
+
+            # Cycle-wrap guard: a previous increment for this task_id already
+            # wrapped the cycle (completed_count reset to 0).  Re-incrementing
+            # would incorrectly advance the counter a second time.
+            if completed_count == 0 and task_id == last_archived_task_id:
+                return state
+
+            state["completed_count"] = completed_count + 1
             state["last_archived_task_id"] = task_id
             state["last_archived_at"] = current_utc_timestamp()
 

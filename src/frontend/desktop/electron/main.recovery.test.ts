@@ -69,7 +69,7 @@ describe('startTaskRecoveryController', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-28T23:39:28.772Z'));
     acquireDirLockOrThrow.mockResolvedValue(async () => undefined);
-    activateNextPendingItemIfReady.mockResolvedValue(false);
+    activateNextPendingItemIfReady.mockResolvedValue({ activated: false });
     repairQueue.mockResolvedValue({ issues: [], fixed: [] });
     readObservabilitySnapshot.mockResolvedValue({
       action: 'observability.readSnapshot',

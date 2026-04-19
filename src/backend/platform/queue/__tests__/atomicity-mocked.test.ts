@@ -28,6 +28,7 @@ import {
   completeActiveItem,
   activateNextPendingItemIfReady,
 } from '../operations.js';
+import { resolveQueuePaths } from '../paths.js';
 
 const mockReset = vi.mocked(resetHandoffArtifacts);
 const mockInit = vi.mocked(initializeTaskArtifacts);
@@ -81,24 +82,25 @@ describe('completeActiveItem operation ordering', () => {
 // ── Test 3: activateNextPendingItemIfReady rolls pmck .active-item on init failure ──
 
 describe('activateNextPendingItemIfReady claim rollback', () => {
-  let tmpDir: string;
+  let repoRoot: string;
   let pendingDir: string;
   let handoffsDir: string;
   let templatesDir: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'tq-activate-'));
-    pendingDir = path.join(tmpDir, 'pending');
-    handoffsDir = path.join(tmpDir, 'handoffs');
-    templatesDir = path.join(tmpDir, 'templates');
-    mkdirSync(pendingDir);
-    mkdirSync(handoffsDir);
-    mkdirSync(templatesDir);
+    // Use canonical AgentWorkSpace structure so resolveQueuePaths works correctly.
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-activate-'));
+    pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(pendingDir, { recursive: true });
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(templatesDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true });
   });
 
   it('rolls pmck .active-item when initializeTaskArtifacts fails', async () => {
@@ -110,8 +112,9 @@ describe('activateNextPendingItemIfReady claim rollback', () => {
       '# Task\n- Task Title: Test Task',
     );
 
+    const queuePaths = resolveQueuePaths(repoRoot);
     await expect(
-      activateNextPendingItemIfReady(pendingDir, handoffsDir, templatesDir),
+      activateNextPendingItemIfReady({ paths: queuePaths, repoRoot }),
     ).rejects.toThrow('Simulated init failure');
 
     // .active-item should NOT exist (rolled pmck)

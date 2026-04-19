@@ -9,6 +9,7 @@ import {
   moveDropboxItemsOnce,
   activateNextPendingItemIfReady,
   acquireDirLockOrThrow,
+  getActiveTaskIds,
 } from './operations.js';
 import { resolveQueuePaths } from './paths.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
@@ -249,29 +250,47 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'activate-next-pending-item': {
-      const qp2 = resolveQueuePaths(flags['repo-root']);
-      // §3.2: resolve context pack via the policy layer (reads sidecar when
-      // TASKSAIL_TASK_ID is set, else falls back to singleton). Best-effort.
+      const repoRoot2 = flags['repo-root'] ?? process.cwd();
+      const qp2 = resolveQueuePaths(repoRoot2);
+
+      // §4.2: --task-id flag is the new required interface. When absent AND no
+      // tasks are currently active, allow the legacy singleton fallback for
+      // backwards-compat with existing tests/operators on pre-parallel flows.
+      const taskId = flags['task-id'];
+
+      // §3.2: resolve context pack via the policy layer. Explicit taskId wins;
+      // falls back to singleton env path when taskId is absent. Best-effort.
       let activateContextPackDir: string | undefined;
       try {
-        activateContextPackDir = await requireAuthorizedActiveContextPack({
-          repoRoot: flags['repo-root'],
-        });
+        if (taskId) {
+          activateContextPackDir = await requireAuthorizedActiveContextPack({
+            repoRoot: repoRoot2,
+            taskId,
+          });
+        } else {
+          // Legacy singleton back-compat: only if no tasks are currently active.
+          const activeTasks = getActiveTaskIds(qp2);
+          if (activeTasks.length === 0) {
+            activateContextPackDir = await requireAuthorizedActiveContextPack({
+              repoRoot: repoRoot2,
+            });
+          }
+        }
       } catch {
         activateContextPackDir = undefined;
       }
+
       const release2 = await acquireDirLockOrThrow(
         qp2.queueLockDir,
         'activate-next-pending-item',
       );
       try {
-        const activated = await activateNextPendingItemIfReady(
-          qp2.pendingDir,
-          qp2.handoffsDir,
-          qp2.templatesDir,
-          activateContextPackDir,
-        );
-        if (!activated) {
+        const result = await activateNextPendingItemIfReady({
+          paths: qp2,
+          repoRoot: repoRoot2,
+          contextPackDir: activateContextPackDir,
+        });
+        if (!result.activated) {
           process.stdout.write('waiting until handoffs/ is reset or pending items are available\n');
           process.exitCode = 2;
         } else {

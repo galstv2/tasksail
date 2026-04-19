@@ -21,6 +21,7 @@ import {
   HANDOFF_FILES,
   SLICE_TEMPLATE_FILENAME,
   implementationStepsTemplatePath,
+  resolveQueuePaths,
 } from '../paths.js';
 import { formatContextPackBindingSection } from '../markdown.js';
 
@@ -132,23 +133,24 @@ describe('queueNameForSource', () => {
 });
 
 describe('activateNextPendingItemIfReady', () => {
-  let tmpDir: string;
+  let repoRoot: string;
   let pendingDir: string;
   let handoffsDir: string;
   let templatesDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'tq-activate-lock-'));
-    pendingDir = path.join(tmpDir, 'pending');
-    handoffsDir = path.join(tmpDir, 'handoffs');
-    templatesDir = path.join(tmpDir, 'templates');
-    mkdirSync(pendingDir);
-    mkdirSync(handoffsDir);
-    mkdirSync(templatesDir);
+    // Use canonical AgentWorkSpace structure so resolveQueuePaths works correctly.
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-activate-lock-'));
+    pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(pendingDir, { recursive: true });
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(templatesDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true });
   });
 
   it('activates a pending item when no failure lock is present (lock system removed)', async () => {
@@ -158,13 +160,13 @@ describe('activateNextPendingItemIfReady', () => {
     }
     writeFileSync(path.join(templatesDir, 'slice-template.md'), '# slice\n');
 
-    const activated = await activateNextPendingItemIfReady(
-      pendingDir,
-      handoffsDir,
-      templatesDir,
-    );
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    });
 
-    expect(activated).toBe(true);
+    expect(result.activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
   });
 
@@ -183,28 +185,30 @@ describe('activateNextPendingItemIfReady', () => {
       '# Slice Template\n\n## Objective\n\n### Purpose\n',
     );
 
-    const activated = await activateNextPendingItemIfReady(
-      pendingDir,
-      handoffsDir,
-      templatesDir,
-    );
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    });
 
-    expect(activated).toBe(true);
+    expect(result.activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
-    expect(existsSync(path.join(handoffsDir, 'professional-task.md'))).toBe(true);
+    // §4.2: activation writes per-task handoffs to AgentWorkSpace/tasks/<taskId>/handoffs/
+    const taskHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-004', 'handoffs');
+    expect(existsSync(path.join(taskHandoffsDir, 'professional-task.md'))).toBe(true);
     const copiedSliceTemplatePath = implementationStepsTemplatePath(
-      path.join(tmpDir, 'ImplementationSteps'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-004', 'ImplementationSteps'),
     );
     expect(existsSync(copiedSliceTemplatePath)).toBe(true);
     expect(readFileSync(copiedSliceTemplatePath, 'utf-8')).toBe(
       '# Slice Template\n\n## Objective\n\n### Purpose\n',
     );
-    const retrospective = readdirSync(handoffsDir).includes('retrospective-input.md')
-      ? readFileSync(path.join(handoffsDir, 'retrospective-input.md'), 'utf-8')
+    const retrospective = readdirSync(taskHandoffsDir).includes('retrospective-input.md')
+      ? readFileSync(path.join(taskHandoffsDir, 'retrospective-input.md'), 'utf-8')
       : '';
     expect(retrospective).toContain('- Retrospective Required: false');
     const professionalTask = readFileSync(
-      path.join(handoffsDir, 'professional-task.md'),
+      path.join(taskHandoffsDir, 'professional-task.md'),
       'utf-8',
     );
     expect(professionalTask).toContain('- Task ID: task-004');
@@ -214,49 +218,35 @@ describe('activateNextPendingItemIfReady', () => {
   });
 
   it('clears prior runtime receipts only after the next task activates successfully', async () => {
-    const repoRoot = path.join(tmpDir, 'repo');
-    const repoPendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-    const repoHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    const repoTemplatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     const taskRuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-005');
     const roleSessionsDir = path.join(taskRuntimeDir, 'role-sessions');
     const guardrailsDir = path.join(taskRuntimeDir, 'guardrails');
-    mkdirSync(repoPendingDir, { recursive: true });
-    mkdirSync(repoHandoffsDir, { recursive: true });
-    mkdirSync(repoTemplatesDir, { recursive: true });
     mkdirSync(roleSessionsDir, { recursive: true });
     mkdirSync(guardrailsDir, { recursive: true });
 
     writeFileSync(path.join(roleSessionsDir, 'dalton.json'), '{"status":"failed"}\n');
     writeFileSync(path.join(guardrailsDir, 'dalton.json'), '{"status":"failed"}\n');
 
-    writeFileSync(path.join(repoPendingDir, 'task-005.md'), '# Add audit trail\n');
+    writeFileSync(path.join(pendingDir, 'task-005.md'), '# Add audit trail\n');
     for (const filename of HANDOFF_FILES) {
-      writeFileSync(path.join(repoTemplatesDir, filename), `# ${filename}\n`);
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
     }
-    writeFileSync(path.join(repoTemplatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+    writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
 
-    const activated = await activateNextPendingItemIfReady(
-      repoPendingDir,
-      repoHandoffsDir,
-      repoTemplatesDir,
-    );
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    });
 
-    expect(activated).toBe(true);
+    expect(result.activated).toBe(true);
     expect(readdirSync(roleSessionsDir).filter((name) => name.endsWith('.json'))).toEqual([]);
     expect(readdirSync(guardrailsDir).filter((name) => name.endsWith('.json'))).toEqual([]);
     expect(existsSync(path.join(taskRuntimeDir, 'last-reset-ts'))).toBe(true);
   });
 
   it('persists repo-root Deep Focus fields to the active-task sidecar during activation', async () => {
-    const repoRoot = path.join(tmpDir, 'repo');
-    const repoPendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-    const repoHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    const repoTemplatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     const activeContextPackPath = path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json');
-    mkdirSync(repoPendingDir, { recursive: true });
-    mkdirSync(repoHandoffsDir, { recursive: true });
-    mkdirSync(repoTemplatesDir, { recursive: true });
 
     const binding = formatContextPackBindingSection({
       contextPackDir: '/packs/orders',
@@ -267,7 +257,7 @@ describe('activateNextPendingItemIfReady', () => {
       deepFocusEnabled: true,
       selectedFocusPath: '',
     });
-    writeFileSync(path.join(repoPendingDir, 'task-006.md'), `# Repo root task
+    writeFileSync(path.join(pendingDir, 'task-006.md'), `# Repo root task
 
 ${binding}
 
@@ -276,17 +266,17 @@ ${binding}
 Body
 `);
     for (const filename of HANDOFF_FILES) {
-      writeFileSync(path.join(repoTemplatesDir, filename), `# ${filename}\n`);
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
     }
-    writeFileSync(path.join(repoTemplatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+    writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
 
-    const activated = await activateNextPendingItemIfReady(
-      repoPendingDir,
-      repoHandoffsDir,
-      repoTemplatesDir,
-    );
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    });
 
-    expect(activated).toBe(true);
+    expect(result.activated).toBe(true);
     expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).toEqual(expect.objectContaining({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',

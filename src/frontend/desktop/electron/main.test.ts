@@ -324,6 +324,11 @@ describe('electron main bootstrap', () => {
       dropboxItems: [],
       pendingItems: ['20260328-task.md'],
       activeItem: '20260328-task.md',
+      activeTasks: [{
+        taskId: '20260328-task',
+        state: 'active' as const,
+        handoffsDir: '/repo/AgentWorkSpace/tasks/20260328-task/handoffs',
+      }],
       workspaceReady: false,
       activeItemWithBlankWorkspace: false,
       partialPublish: false,

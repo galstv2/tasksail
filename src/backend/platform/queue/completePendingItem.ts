@@ -54,14 +54,11 @@ export async function completePendingItem(
   }
 
   let resolvedArchiveMdPath: string | undefined;
+  let archivedContextPackDir: string | undefined;
   if (!options.skipArchive) {
     const contextPackDir = options.contextPackDir
       ?? await requireAuthorizedActiveContextPack({ repoRoot });
-    await syncRetrospectiveRequiredMetadata({
-      repoRoot,
-      handoffsDir: queuePaths.handoffsDir,
-      contextPackDir,
-    });
+    archivedContextPackDir = contextPackDir;
 
     const advisorySection = await buildAdvisoryFindingSection(queuePaths.handoffsDir);
     if (advisorySection) {
@@ -94,6 +91,17 @@ export async function completePendingItem(
   );
 
   try {
+    // syncRetrospectiveRequiredMetadata runs INSIDE the queue lock window so
+    // that concurrent completions sharing the same contextPackId are serialized
+    // at the queue-lock level (precedence 3) before the per-pack counter file
+    // lock (precedence 4) is acquired inside syncRetrospectiveRequiredMetadata.
+    if (!options.skipArchive && archivedContextPackDir !== undefined) {
+      await syncRetrospectiveRequiredMetadata({
+        repoRoot,
+        handoffsDir: queuePaths.handoffsDir,
+        contextPackDir: archivedContextPackDir,
+      });
+    }
 
     if (activeTaskId) {
       // Resolve the context pack dir from the per-task sidecar (§3.2).

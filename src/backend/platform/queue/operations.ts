@@ -1,10 +1,11 @@
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, rmdir, readdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { moveFile, readTextFile, writeTextFile, ensureDir, getErrorMessage, findRepoRoot } from '../core/index.js';
+import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot } from '../core/index.js';
 import { activeItemPath, deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
+import type { QueuePaths } from './paths.js';
 import {
   handoffWorkspaceIsReady,
   resetHandoffArtifacts,
@@ -14,6 +15,7 @@ import {
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from './markdown.js';
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
+import { getPlatformConfig } from '../platform-config/get.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,22 +69,27 @@ export async function acquireDirLockOrThrow(
 }
 
 /**
- * Check if the queue has an active item (i.e., .active-item file exists and references a valid file).
+ * Return the task IDs of all currently active tasks.
+ * Reads `.active-items/<taskId>` markers, filtering out `.completing` sentinels
+ * per §4.1 marker-dir contract. Sentinels are bookkeeping and MUST NOT be
+ * counted by the activation cap guard.
  */
-export async function queueHasActiveItem(
-  pendingDir: string,
-): Promise<boolean> {
-  const linkPath = activeItemPath(pendingDir);
-  if (!existsSync(linkPath)) return false;
-
+export function getActiveTaskIds(paths: QueuePaths): string[] {
   try {
-    const name = (await readFile(linkPath, 'utf-8')).trim();
-    if (!name) return false;
-    return existsSync(path.join(pendingDir, name));
-  } catch (err: unknown) {
-    process.stderr.write(`Warning: failed to read active-item link: ${getErrorMessage(err)}\n`);
-    return false;
+    return readdirSync(paths.activeItemsDir).filter(
+      (f) => !f.endsWith('.completing'),
+    );
+  } catch {
+    return [];
   }
+}
+
+/**
+ * Return true if at least one active task marker exists in `.active-items/`.
+ * Applies the same `.completing` sentinel filter as `getActiveTaskIds`.
+ */
+export function hasAnyActiveTask(paths: QueuePaths): boolean {
+  return getActiveTaskIds(paths).length > 0;
 }
 
 /**
@@ -145,16 +152,22 @@ export async function insertIntoQueueManifest(
 /**
  * Get the path to the next pending item to activate.
  * Uses queue-order.json manifest when present, falls back to alphabetical.
+ * Skips any task IDs in the `skipTaskIds` set (already active tasks).
  */
 export async function nextPendingItemPath(
   pendingDir: string,
   queueOrderPath?: string,
+  skipTaskIds?: ReadonlySet<string>,
 ): Promise<string | null> {
   const resolvedPath = queueOrderPath
     ?? deriveQueueStatePaths(pendingDir).queueOrderPath;
   const entries = await readdir(pendingDir);
   const mdFiles = entries
-    .filter((e) => e.endsWith('.md') && !e.startsWith('.'))
+    .filter((e) => {
+      if (!e.endsWith('.md') || e.startsWith('.')) return false;
+      if (skipTaskIds && skipTaskIds.has(e.replace(/\.md$/, ''))) return false;
+      return true;
+    })
     .sort();
 
   if (mdFiles.length === 0) return null;
@@ -334,55 +347,83 @@ export async function moveDropboxItemToPending(options: {
   await insertIntoQueueManifest(queuePaths.pendingDir, finalFileName, options.insertAtIndex);
 
   let activatedItem: string | null = null;
-  const activated = await activateNextPendingItemIfReady(
-    queuePaths.pendingDir,
-    queuePaths.handoffsDir,
-    queuePaths.templatesDir,
-  );
-  if (activated) {
+  const result = await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot: root });
+  if (result.activated) {
     // Read newly activated item from .active-items/ directory
-    try {
-      const { readdirSync: rdsync } = await import('node:fs');
-      const markers = rdsync(queuePaths.activeItemsDir).filter(
-        (f: string) => !f.endsWith('.completing'),
-      );
-      activatedItem = markers.length > 0 ? (markers[0] as string) : null;
-    } catch {
-      // Could not read — leave null
-    }
+    const markers = getActiveTaskIds(queuePaths);
+    activatedItem = markers.length > 0 ? (markers[0] as string) : null;
   }
 
   return { movedItem: finalFileName, activatedItem };
 }
 
+export interface ActivateNextPendingItemOptions {
+  paths: QueuePaths;
+  repoRoot: string;
+  /** Optional context pack dir override (used by legacy callers that resolve it externally). */
+  contextPackDir?: string;
+}
+
+export interface ActivateNextPendingItemResult {
+  activated: boolean;
+  reason?: string;
+}
+
 /**
- * Activate the next pending item if the workspace is ready.
- * Returns true if an item was activated or one was already active.
+ * Activate the next pending item if the workspace is ready and the concurrency
+ * cap has not been reached. One-shot per call: activates at most one item.
+ *
+ * Returns `{ activated: true }` on success.
+ * Returns `{ activated: false, reason: 'concurrency-cap-reached' }` when the
+ *   number of active tasks equals `max_parallel_tasks` from platform config.
+ * Returns `{ activated: false }` when there are no pending items or the
+ *   workspace is not ready.
  */
 export async function activateNextPendingItemIfReady(
-  pendingDir: string,
-  handoffsDir: string,
-  templatesDir: string,
-  contextPackDir?: string,
-  queueStatePaths?: { activeContextPackPath: string; queueOrderPath: string },
-): Promise<boolean> {
-  if (await queueHasActiveItem(pendingDir)) return true;
+  options: ActivateNextPendingItemOptions,
+): Promise<ActivateNextPendingItemResult> {
+  const { paths, repoRoot, contextPackDir } = options;
+  const { pendingDir, templatesDir } = paths;
 
-  const nextItem = await nextPendingItemPath(pendingDir);
-  if (!nextItem) return false;
+  // §4.2 cap check: compare active task count against platform config limit.
+  let cap = 1;
+  try {
+    const config = await getPlatformConfig(repoRoot);
+    cap = config.max_parallel_tasks;
+  } catch {
+    // Platform config absent (e.g., bare tmpdir in tests) — default to 1.
+    cap = 1;
+  }
+
+  const currentActive = getActiveTaskIds(paths);
+  if (currentActive.length >= cap) {
+    return { activated: false, reason: 'concurrency-cap-reached' };
+  }
+
+  // Skip already-active task IDs so parallel activations pick the next
+  // unstarted pending item rather than re-selecting the already-active one.
+  const activeSet = new Set(currentActive);
+  const nextItem = await nextPendingItemPath(pendingDir, undefined, activeSet);
+  if (!nextItem) return { activated: false };
+
+  // Resolve per-task paths early so readiness check uses the task-specific dir.
+  // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
+  // They are always "ready" (empty) for a new task since the directory won't exist yet.
+  const taskId = path.basename(nextItem, '.md');
+  const taskHandoffsDir = paths.taskHandoffs(taskId);
+  const taskImplStepsDir = paths.taskImplementationSteps(taskId);
 
   const isReady = await handoffWorkspaceIsReady(
-    handoffsDir,
+    taskHandoffsDir,
     templatesDir,
   );
-  if (!isReady) return false;
+  if (!isReady) return { activated: false };
 
   // Read the queue item and initialize handoffs from it
   const content = await readTextFile(nextItem);
-  if (content === undefined) return false;
+  if (content === undefined) return { activated: false };
 
   const taskTitle = extractTaskTitle(content) || path.basename(nextItem, '.md');
-  const taskId = path.basename(nextItem, '.md');
   const queueName = path.basename(nextItem);
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
@@ -417,16 +458,19 @@ export async function activateNextPendingItemIfReady(
   const linkPath = activeItemPath(pendingDir);
   await writeFile(linkPath, queueName, 'utf-8');
 
+  // Write the per-task active marker into .active-items/<taskId>
+  await ensureDir(paths.activeItemsDir);
+  const activeMarkerPath = path.join(paths.activeItemsDir, taskId);
+  await writeFile(activeMarkerPath, queueName, 'utf-8');
+
   // Transition task from pending → active in the registry
-  const repoRoot = path.resolve(pendingDir, '..', '..');
   try {
     await transitionTask(repoRoot, taskId, 'pending', 'active');
   } catch { /* best-effort */ }
 
   // Write the task-bound context pack sidecar so the pipeline can read
   // the correct context pack without re-parsing the task markdown.
-  const contextPackSidecarPath = queueStatePaths?.activeContextPackPath
-    ?? deriveQueueStatePaths(pendingDir).activeContextPackPath;
+  const contextPackSidecarPath = deriveQueueStatePaths(pendingDir).activeContextPackPath;
   if (contextPackBinding) {
     await ensureDir(path.dirname(contextPackSidecarPath));
     await writeFile(
@@ -491,33 +535,35 @@ export async function activateNextPendingItemIfReady(
   );
 
   try {
-    const implementationStepsDir = path.join(
-      path.dirname(handoffsDir),
-      'ImplementationSteps',
-    );
     await initializeTaskArtifacts({
-      handoffsDir,
+      handoffsDir: taskHandoffsDir,
       templatesDir,
       metadata,
       lineage,
       sections,
-      implementationStepsDir,
+      implementationStepsDir: taskImplStepsDir,
     });
     await syncRetrospectiveRequiredMetadata({
-      repoRoot: path.resolve(handoffsDir, '..', '..'),
-      handoffsDir,
+      repoRoot: path.resolve(taskHandoffsDir, '..', '..', '..'),
+      handoffsDir: taskHandoffsDir,
       contextPackDir: contextPackBinding?.contextPackDir ?? contextPackDir,
     });
     await clearRuntimeReceipts(repoRoot, taskId);
   } catch (err) {
-    // Roll back the claim and sidecar so queue returns to idle
+    // Roll back the claim and sidecars so queue returns to idle
     try { await unlink(linkPath); } catch { /* best-effort */ }
+    try { await unlink(activeMarkerPath); } catch { /* best-effort */ }
     try { await unlink(contextPackSidecarPath); } catch { /* best-effort */ }
     try { await unlink(perTaskSidecarPath); } catch { /* best-effort */ }
     throw err;
   }
 
-  return true;
+  // Remove the pending item from the queue after successful activation.
+  // In the parallel model each task has its own per-task workspace; the
+  // pending file content is now captured in .task.json + per-task handoffs.
+  try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+
+  return { activated: true };
 }
 
 export interface CompleteActiveItemOptions {
@@ -540,7 +586,7 @@ export async function completeActiveItem(
   const {
     pendingDir,
     handoffsDir,
-    templatesDir,
+    templatesDir: _templatesDir,
     implementationStepsDir,
     activeContextPackPath,
     queueOrderPath,
@@ -588,8 +634,11 @@ export async function completeActiveItem(
     await unlink(activeFilePath);
   }
 
-  // 4. Advance the queue
-  await activateNextPendingItemIfReady(pendingDir, handoffsDir, templatesDir);
+  // 4. Advance the queue — note: completePendingItem.ts (§4.3) is the primary
+  // caller; this internal advance handles the completeActiveItem API path.
+  const repoRoot = path.resolve(pendingDir, '..', '..');
+  const queuePaths = resolveQueuePaths(repoRoot);
+  await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });
 }
 
 function sleep(ms: number): Promise<void> {

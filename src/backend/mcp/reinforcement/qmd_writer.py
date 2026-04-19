@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.backend.scripts.python.lib.io import atomic_write_json
+from src.backend.scripts.python.lib.locking import acquire_file_lock, release_file_lock
 from src.backend.scripts.python.lib.time import current_utc_timestamp
 
 from .models import AgentRewardMemory, SettlementRecord
@@ -69,7 +70,7 @@ class QmdRewardWriter:
     # ------------------------------------------------------------------
     # Task archive patching
     # ------------------------------------------------------------------
-    def patch_task_archive_md(
+    def patch_task_archive_md(  # Archive-index lock: held (precedence 5)
         self,
         archive_md_path: Path,
         settlement: SettlementRecord,
@@ -78,16 +79,28 @@ class QmdRewardWriter:
 
         The section is appended if absent, or replaced in place if it
         already exists.
+
+        Lock ordering: archive-index lock (precedence 5) is acquired here.
+        No higher-precedence lock (queue, counter) is held by any caller of
+        this method — it is invoked post-promotion in file-task-archive.py
+        after all queue and counter locks have been released.
         """
+        # archive_md_path lives at <scope_dir>/archive/tasks/<year>/<name>.md
+        scope_dir = archive_md_path.parents[3]
+        index_lock_path = scope_dir / ".indexes.lock"
+        lock_fd = acquire_file_lock(index_lock_path)
         try:
-            content = archive_md_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return
-        section = _render_reward_received_section(settlement)
-        content = _replace_managed_section(
-            content, "## Reward Received", section,
-        )
-        archive_md_path.write_text(content, encoding="utf-8")
+            try:
+                content = archive_md_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                return
+            section = _render_reward_received_section(settlement)
+            content = _replace_managed_section(
+                content, "## Reward Received", section,
+            )
+            archive_md_path.write_text(content, encoding="utf-8")
+        finally:
+            release_file_lock(lock_fd)
 
 
 # ── Rendering helpers ────────────────────────────────────────────────────

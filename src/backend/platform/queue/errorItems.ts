@@ -8,6 +8,7 @@ import { findRepoRoot } from '../core/index.js';
 import { resetHandoffArtifacts } from './lifecycle.js';
 import {
   activateNextPendingItemIfReady,
+  getActiveTaskIds,
   insertIntoQueueManifest,
   readQueueOrderManifest,
   writeQueueOrderManifest,
@@ -261,20 +262,13 @@ export async function moveFailedItemToErrorItems(options: {
   });
 
   let nextActiveItem: string | null = null;
-  const activated = await activateNextPendingItemIfReady(
-    queuePaths.pendingDir,
-    queuePaths.handoffsDir,
-    queuePaths.templatesDir,
-  );
-  if (activated) {
-    try {
-      const newMarkers = readdirSync(queuePaths.activeItemsDir).filter(
-        (f) => !f.endsWith('.completing'),
-      );
-      nextActiveItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
-    } catch {
-      // Could not read — leave null
-    }
+  const activateResult = await activateNextPendingItemIfReady({
+    paths: queuePaths,
+    repoRoot: root,
+  });
+  if (activateResult.activated) {
+    const newMarkers = getActiveTaskIds(queuePaths);
+    nextActiveItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
   }
 
   return {
@@ -316,21 +310,13 @@ export async function requeueErrorItem(options: {
   });
 
   let activatedItem: string | null = null;
-  const activated = await activateNextPendingItemIfReady(
-    queuePaths.pendingDir,
-    queuePaths.handoffsDir,
-    queuePaths.templatesDir,
-  );
-  if (activated) {
-    // Read the newly activated item from .active-items/ directory
-    try {
-      const newMarkers = readdirSync(queuePaths.activeItemsDir).filter(
-        (f) => !f.endsWith('.completing'),
-      );
-      activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
-    } catch {
-      // Could not read — leave null
-    }
+  const activateResult2 = await activateNextPendingItemIfReady({
+    paths: queuePaths,
+    repoRoot: root,
+  });
+  if (activateResult2.activated) {
+    const newMarkers = getActiveTaskIds(queuePaths);
+    activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
   }
 
   return { requeuedItem: options.fileName, activatedItem };

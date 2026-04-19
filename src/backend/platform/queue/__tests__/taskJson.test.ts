@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { activateNextPendingItemIfReady } from '../operations.js';
-import { HANDOFF_FILES, SLICE_TEMPLATE_FILENAME } from '../paths.js';
+import { HANDOFF_FILES, SLICE_TEMPLATE_FILENAME, resolveQueuePaths } from '../paths.js';
 import { readTaskJson, readTaskJsonSafe, isTaskSidecarError } from '../taskJson.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
 
@@ -61,13 +61,13 @@ describe('§3.1 per-task .task.json sidecar', () => {
     }
     writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
 
-    const activated = await activateNextPendingItemIfReady(
-      pendingDir,
-      handoffsDir,
-      templatesDir,
-    );
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    });
 
-    expect(activated).toBe(true);
+    expect(result.activated).toBe(true);
 
     // The per-task sidecar must exist at the canonical path
     const sidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');

@@ -214,12 +214,11 @@ function isQueueDivergenceIssue(issue: string): boolean {
 async function activateNextPendingItemAfterRepair(
   queuePaths: ReturnType<typeof resolveQueuePaths>,
 ): Promise<string | null> {
-  const activated = await activateNextPendingItemIfReady(
-    queuePaths.pendingDir,
-    queuePaths.handoffsDir,
-    queuePaths.templatesDir,
-  );
-  if (!activated) {
+  const result = await activateNextPendingItemIfReady({
+    paths: queuePaths,
+    repoRoot: REPO_ROOT,
+  });
+  if (!result.activated) {
     return null;
   }
 

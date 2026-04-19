@@ -40,7 +40,8 @@ export type { InitializeTaskOptions as InitializeTaskArtifactOptions } from './l
 export {
   acquireDirLock,
   acquireDirLockOrThrow,
-  queueHasActiveItem,
+  getActiveTaskIds,
+  hasAnyActiveTask,
   nextPendingItemPath,
   queueNameForSource,
   moveDropboxItemsOnce,
@@ -49,7 +50,11 @@ export {
   completeActiveItem,
 } from './operations.js';
 
-export type { CompleteActiveItemOptions } from './operations.js';
+export type {
+  CompleteActiveItemOptions,
+  ActivateNextPendingItemOptions,
+  ActivateNextPendingItemResult,
+} from './operations.js';
 
 export { createDropboxTask } from './createDropboxTask.js';
 export type { CreateDropboxTaskOptions } from './createDropboxTask.js';

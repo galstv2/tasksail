@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
             index_outputs: dict[str, str] = {}
 
-            def _write_archive_indexes() -> None:
+            def _write_archive_indexes() -> None:  # Archive-index lock: held
                 nonlocal index_outputs
                 index_outputs = write_archive_indexes(
                     context_pack_dir,

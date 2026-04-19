@@ -5,10 +5,17 @@ import {
   mkdirSync,
   writeFileSync,
   existsSync,
+  readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { clearRuntimeReceipts } from '../lifecycle.js';
+import {
+  activateNextPendingItemIfReady,
+  getActiveTaskIds,
+} from '../operations.js';
+import { resolveQueuePaths, HANDOFF_FILES, SLICE_TEMPLATE_FILENAME } from '../paths.js';
+import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 
 describe('clearRuntimeReceipts', () => {
   let repoRoot: string;
@@ -85,5 +92,125 @@ describe('clearRuntimeReceipts', () => {
       repoRoot, '.platform-state', 'runtime', 'tasks', 'task-new', 'last-reset-ts',
     );
     expect(existsSync(markerPath)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4.2 Activation cap tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed the canonical AgentWorkSpace structure under repoRoot and write
+ * N pending-item .md files. Returns the resolved queue paths.
+ */
+function seedQueueFixture(
+  repoRoot: string,
+  count: number,
+): ReturnType<typeof resolveQueuePaths> {
+  const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+  mkdirSync(pendingDir, { recursive: true });
+  mkdirSync(handoffsDir, { recursive: true });
+  mkdirSync(templatesDir, { recursive: true });
+
+  for (const filename of HANDOFF_FILES) {
+    writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+  }
+  writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+  for (let i = 0; i < count; i++) {
+    const taskId = `cap-task-${String(i).padStart(3, '0')}`;
+    writeFileSync(path.join(pendingDir, `${taskId}.md`), `# Task ${i}\n`);
+  }
+
+  return resolveQueuePaths(repoRoot);
+}
+
+/**
+ * Write a minimal .platform-state/platform.json with the given max_parallel_tasks.
+ */
+function writePlatformConfig(repoRoot: string, maxParallelTasks: number): void {
+  const dir = path.join(repoRoot, '.platform-state');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, 'platform.json'),
+    JSON.stringify({
+      schema_version: 1,
+      container_runtime: 'docker',
+      max_parallel_tasks: maxParallelTasks,
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+}
+
+describe('§4.2 activation cap: concurrency-cap-reached', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-cap-'));
+    // Clear the platform config memoization cache between tests.
+    _clearPlatformConfigCache();
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+    _clearPlatformConfigCache();
+  });
+
+  it('cap=1: first activation succeeds, second returns concurrency-cap-reached', async () => {
+    writePlatformConfig(repoRoot, 1);
+    const paths = seedQueueFixture(repoRoot, 2);
+
+    // First activation must succeed.
+    const r1 = await activateNextPendingItemIfReady({ paths, repoRoot });
+    expect(r1.activated).toBe(true);
+
+    // Second activation must be blocked — cap of 1 is now full.
+    const r2 = await activateNextPendingItemIfReady({ paths, repoRoot });
+    expect(r2.activated).toBe(false);
+    expect(r2.reason).toBe('concurrency-cap-reached');
+
+    // Exactly one active marker must exist.
+    expect(getActiveTaskIds(paths)).toHaveLength(1);
+  });
+
+  it('cap=2: two activations succeed, both markers present in .active-items/', async () => {
+    writePlatformConfig(repoRoot, 2);
+    const paths = seedQueueFixture(repoRoot, 2);
+
+    const r1 = await activateNextPendingItemIfReady({ paths, repoRoot });
+    expect(r1.activated).toBe(true);
+
+    const r2 = await activateNextPendingItemIfReady({ paths, repoRoot });
+    expect(r2.activated).toBe(true);
+
+    // Both markers must be present.
+    const activeIds = getActiveTaskIds(paths);
+    expect(activeIds).toHaveLength(2);
+
+    // Third activation must be blocked.
+    const r3 = await activateNextPendingItemIfReady({ paths, repoRoot });
+    expect(r3.activated).toBe(false);
+    expect(r3.reason).toBe('concurrency-cap-reached');
+  });
+
+  it('cap=3, 5 pendings: caller-side while-loop activates exactly 3, 2 remain pending', async () => {
+    writePlatformConfig(repoRoot, 3);
+    const paths = seedQueueFixture(repoRoot, 5);
+
+    // Caller-side while-loop (§4.2 contract).
+    while ((await activateNextPendingItemIfReady({ paths, repoRoot })).activated) {
+      // loop until cap full or pending empty
+    }
+
+    // Exactly 3 tasks must be active.
+    expect(getActiveTaskIds(paths)).toHaveLength(3);
+
+    // Exactly 2 pending items must remain.
+    const pendingFiles = readdirSync(paths.pendingDir).filter(
+      (f) => f.endsWith('.md') && !f.startsWith('.'),
+    );
+    expect(pendingFiles).toHaveLength(2);
   });
 });

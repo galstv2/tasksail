@@ -47,11 +47,13 @@ export async function pollDropbox(
     if (!release) return;
 
     try {
-      await activateNextPendingItemIfReady(
-        queuePaths.pendingDir,
-        queuePaths.handoffsDir,
-        queuePaths.templatesDir,
-      );
+      // Caller-side while-loop: activateNextPendingItemIfReady is one-shot per call.
+      // Loop until cap is full or no pending items remain (§4.2).
+      while (
+        (await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot })).activated
+      ) {
+        // Continue until concurrency-cap-reached or no pending items
+      }
     } finally {
       await release();
     }
