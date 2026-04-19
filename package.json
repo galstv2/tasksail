@@ -11,6 +11,7 @@
     "build": "tsc -p src/backend/platform/tsconfig.json",
     "test": "vitest run --config src/backend/platform/vitest.config.ts",
     "test:watch": "vitest --config src/backend/platform/vitest.config.ts",
+    "test:parallel": "vitest run --config src/backend/platform/vitest.config.ts --testTimeout=30000 src/backend/platform/__tests__/parallelEndToEnd.test.ts src/backend/platform/__tests__/parallelChaos.test.ts src/backend/platform/queue/__tests__/lifecycle.test.ts",
     "lint": "tsc --noEmit -p src/backend/platform/tsconfig.json",
     "clean": "node -e \"require('node:fs').rmSync('src/backend/platform/dist',{recursive:true,force:true})\"",
     "setup": "tsx src/backend/platform/setup/cli.ts",
