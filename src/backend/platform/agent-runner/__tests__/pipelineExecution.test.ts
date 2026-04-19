@@ -276,7 +276,11 @@ describe('runPipelineSequence', () => {
     });
   });
 
-  it('sets internal orchestrator bypass env while the pipeline runs and restores prior values afterwards', async () => {
+  it('does not mutate RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS in the sequencer process — bypass gate is child-env responsibility (§5.1 MG-7)', async () => {
+    // After §5.1 MG-7 deletion, the sequencer no longer sets or restores these
+    // env vars in the caller process. Instead, spawnPipelineForTask injects them
+    // into the child via fork options. Pre-existing values must be left unchanged
+    // by runPipelineSequence itself.
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'previous-bypass';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'previous-orchestrator';
     readTextFile.mockImplementation(async () => null);
@@ -286,20 +290,23 @@ describe('runPipelineSequence', () => {
         allow: process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'],
         orchestrator: process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'],
       });
-        return { exitCode: 0, agentId: 'alice', durationMs: 1 };
-      });
+      return { exitCode: 0, agentId: 'alice', durationMs: 1 };
+    });
 
-      const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-      await runPipelineSequence({ repoRoot, taskId: 'test-task-id', stopAfter: 'alice' });
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', stopAfter: 'alice' });
 
-    expect(observedEnv).toEqual([
-      {
-        allow: 'true',
-        orchestrator: 'pipeline-sequencer',
-      },
-    ]);
+    // The sequencer no longer modifies the caller's env — the child inherits
+    // RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS=true from the fork env options.
+    // Pre-existing values are unmodified throughout.
     expect(process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS']).toBe('previous-bypass');
     expect(process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID']).toBe('previous-orchestrator');
+    // When run in-process (as in tests with mocked runRoleAgent), the pre-existing
+    // env values are visible to the mock implementation.
+    expect(observedEnv[0]).toEqual({
+      allow: 'previous-bypass',
+      orchestrator: 'previous-orchestrator',
+    });
   });
 
   it('runs single Dalton when parallel-ok.md only contains the template shell', async () => {

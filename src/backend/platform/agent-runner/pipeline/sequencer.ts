@@ -182,32 +182,6 @@ async function stageVerificationDiffArtifact(options: {
   }
 }
 
-async function withInternalOrchestratorEnv<T>(
-  orchestratorId: 'pipeline-sequencer',
-  action: () => Promise<T>,
-): Promise<T> {
-  const previousAllowBypass = process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'];
-  const previousOrchestratorId = process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'];
-
-  process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
-  process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = orchestratorId;
-
-  try {
-    return await action();
-  } finally {
-    if (previousAllowBypass === undefined) {
-      delete process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'];
-    } else {
-      process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = previousAllowBypass;
-    }
-
-    if (previousOrchestratorId === undefined) {
-      delete process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'];
-    } else {
-      process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = previousOrchestratorId;
-    }
-  }
-}
 
 function startKillSwitchMonitor(
   repoRoot: string,
@@ -744,188 +718,130 @@ export async function runPipelineSequence(
   const effectiveContextPackDir = taskBoundContextPackDir ?? undefined;
 
   try {
-    return await withInternalOrchestratorEnv('pipeline-sequencer', async () => {
-      ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
-      workflowPath = await detectWorkflowPath(paths.handoffs);
-      const agentOrder = selectAgentOrder(options);
+    ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
+    workflowPath = await detectWorkflowPath(paths.handoffs);
+    const agentOrder = selectAgentOrder(options);
 
-      const prewarmStart = Date.now();
-      await prewarmPipelineContext(
-        agentOrder,
-        effectiveContextPackDir,
-        paths.repoRoot,
-      );
-      prewarmSeconds = Math.round((Date.now() - prewarmStart) / 1000);
-      const externalMcpRegistry = getCachedExternalMcpRegistry(paths.repoRoot);
-      const externalMcpRegistryHealth = getCachedExternalMcpRegistryHealth(paths.repoRoot);
-      console.log(
-        '[pipeline] external MCP registry status:',
-        JSON.stringify(externalMcpRegistryHealth),
-      );
+    const prewarmStart = Date.now();
+    await prewarmPipelineContext(
+      agentOrder,
+      effectiveContextPackDir,
+      paths.repoRoot,
+    );
+    prewarmSeconds = Math.round((Date.now() - prewarmStart) / 1000);
+    const externalMcpRegistry = getCachedExternalMcpRegistry(paths.repoRoot);
+    const externalMcpRegistryHealth = getCachedExternalMcpRegistryHealth(paths.repoRoot);
+    console.log(
+      '[pipeline] external MCP registry status:',
+      JSON.stringify(externalMcpRegistryHealth),
+    );
 
-      const maxRemediationCycles = 3;
+    const maxRemediationCycles = 3;
 
-      let isFirstAgent = true;
-      let skipNextEntryValidation = false;
-      let testCaptureResults: TestCaptureResult[] = [];
-      let testCaptureWarning: string | undefined;
-      const selectedPrimary = effectiveContextPackDir
-        ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
-        : undefined;
-      const focusScope = toFocusScopePromptOptions(selectedPrimary);
-      const testCaptureCwd = effectiveContextPackDir
-        ? resolveTestCaptureCwdFromFocused(selectedPrimary)
-        : paths.repoRoot;
+    let isFirstAgent = true;
+    let skipNextEntryValidation = false;
+    let testCaptureResults: TestCaptureResult[] = [];
+    let testCaptureWarning: string | undefined;
+    const selectedPrimary = effectiveContextPackDir
+      ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
+      : undefined;
+    const focusScope = toFocusScopePromptOptions(selectedPrimary);
+    const testCaptureCwd = effectiveContextPackDir
+      ? resolveTestCaptureCwdFromFocused(selectedPrimary)
+      : paths.repoRoot;
 
-      // Shared post-Dalton logic: optional verification pass then test capture.
-      let daltonRemediationActive = false;
-      const runPostDaltonPasses = async (): Promise<TestCaptureResult[]> => {
-        if (!daltonRemediationActive) {
-          const sharedVerificationDiffPath = path.join(paths.handoffs, 'code-changes.diff');
-          const verificationDiffStage = resolveVerificationDiffStage(paths.taskRuntime);
-          const diffGenerationWarning = await refreshVerificationQaDiffArtifact({
+    // Shared post-Dalton logic: optional verification pass then test capture.
+    let daltonRemediationActive = false;
+    const runPostDaltonPasses = async (): Promise<TestCaptureResult[]> => {
+      if (!daltonRemediationActive) {
+        const sharedVerificationDiffPath = path.join(paths.handoffs, 'code-changes.diff');
+        const verificationDiffStage = resolveVerificationDiffStage(paths.taskRuntime);
+        const diffGenerationWarning = await refreshVerificationQaDiffArtifact({
+          repoRoot: paths.repoRoot,
+          handoffsDir: paths.handoffs,
+          contextPackDir: effectiveContextPackDir,
+          abortSignal: abortController.signal,
+          reason: 'pre-verification',
+        });
+        const stagedVerificationDiff = await stageVerificationDiffArtifact({
+          sharedDiffPath: sharedVerificationDiffPath,
+          verificationDiffStage,
+        });
+
+        let verificationRan = false;
+        try {
+          const verificationPrompt = await resolveVerificationDaltonPrompt(
+            paths.handoffs,
+            paths.implementationSteps,
+            focusScope,
+            externalMcpRegistry,
+            verificationDiffStage.verificationDiffAbsolutePath,
+            joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
+          );
+          if (verificationPrompt) {
+            console.log('[pipeline] Launching Dalton verification pass.');
+            const verifyStart = Date.now();
+            const verificationResult = await runRoleAgent({
+              agentId: 'dalton-verify',
+              taskId: pipelineTaskId ?? '',
+              skipWorkflowValidation: true,
+              contextPackDir: effectiveContextPackDir,
+              verificationTempAllowedDir: stagedVerificationDiff.staged
+                ? verificationDiffStage.verificationDiffDir
+                : undefined,
+              abortSignal: abortController.signal,
+              promptOverride: verificationPrompt,
+              launchPhase: 'Verification',
+            });
+            verificationRan = true;
+            agentMcpStatuses['dalton-verify'] = verificationResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+            agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
+          }
+        } finally {
+          await cleanupVerificationDiffStage(
+            verificationDiffStage,
+            'post-verification-cleanup',
+          );
+        }
+
+        if (verificationRan) {
+          await refreshVerificationQaDiffArtifact({
             repoRoot: paths.repoRoot,
             handoffsDir: paths.handoffs,
             contextPackDir: effectiveContextPackDir,
             abortSignal: abortController.signal,
-            reason: 'pre-verification',
+            reason: 'post-verification',
           });
-          const stagedVerificationDiff = await stageVerificationDiffArtifact({
-            sharedDiffPath: sharedVerificationDiffPath,
-            verificationDiffStage,
-          });
-
-          let verificationRan = false;
-          try {
-            const verificationPrompt = await resolveVerificationDaltonPrompt(
-              paths.handoffs,
-              paths.implementationSteps,
-              focusScope,
-              externalMcpRegistry,
-              verificationDiffStage.verificationDiffAbsolutePath,
-              joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
-            );
-            if (verificationPrompt) {
-              console.log('[pipeline] Launching Dalton verification pass.');
-              const verifyStart = Date.now();
-              const verificationResult = await runRoleAgent({
-                agentId: 'dalton-verify',
-                taskId: pipelineTaskId ?? '',
-                skipWorkflowValidation: true,
-                contextPackDir: effectiveContextPackDir,
-                verificationTempAllowedDir: stagedVerificationDiff.staged
-                  ? verificationDiffStage.verificationDiffDir
-                  : undefined,
-                abortSignal: abortController.signal,
-                promptOverride: verificationPrompt,
-                launchPhase: 'Verification',
-              });
-              verificationRan = true;
-              agentMcpStatuses['dalton-verify'] = verificationResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-              agentTimings['dalton-verify'] = Math.round((Date.now() - verifyStart) / 1000);
-            }
-          } finally {
-            await cleanupVerificationDiffStage(
-              verificationDiffStage,
-              'post-verification-cleanup',
-            );
-          }
-
-          if (verificationRan) {
-            await refreshVerificationQaDiffArtifact({
-              repoRoot: paths.repoRoot,
-              handoffsDir: paths.handoffs,
-              contextPackDir: effectiveContextPackDir,
-              abortSignal: abortController.signal,
-              reason: 'post-verification',
-            });
-          }
         }
-        const capture = await runTestCaptureWithPhaseTracking({
-          taskRuntime: paths.taskRuntime,
-          implementationStepsDir: paths.implementationSteps,
-          captureCwd: testCaptureCwd,
-          abortSignal: abortController.signal,
-        });
-        if (capture.skipped) {
-          console.warn('[pipeline] target repo resolution failed; skipping test capture.');
-          testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
-        }
-        return capture.results;
-      };
+      }
+      const capture = await runTestCaptureWithPhaseTracking({
+        taskRuntime: paths.taskRuntime,
+        implementationStepsDir: paths.implementationSteps,
+        captureCwd: testCaptureCwd,
+        abortSignal: abortController.signal,
+      });
+      if (capture.skipped) {
+        console.warn('[pipeline] target repo resolution failed; skipping test capture.');
+        testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
+      }
+      return capture.results;
+    };
 
-      for (let index = 0; index < agentOrder.length; index++) {
-        ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
-        const agentId = agentOrder[index];
-        const agentStart = Date.now();
+    for (let index = 0; index < agentOrder.length; index++) {
+      ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
+      const agentId = agentOrder[index];
+      const agentStart = Date.now();
 
-        if (agentId === 'dalton') {
-          daltonRemediationActive = false;
-          await removeSliceTemplateIfPresent(paths.implementationSteps);
-          daltonRemediationActive = await remediationHasBlockingFindings(paths.handoffs);
-          const isComplex = daltonRemediationActive
-            ? false
-            : await detectParallelOk(paths.handoffs);
+      if (agentId === 'dalton') {
+        daltonRemediationActive = false;
+        await removeSliceTemplateIfPresent(paths.implementationSteps);
+        daltonRemediationActive = await remediationHasBlockingFindings(paths.handoffs);
+        const isComplex = daltonRemediationActive
+          ? false
+          : await detectParallelOk(paths.handoffs);
 
-          if (isComplex) {
-            const fleetPrompt = await buildFleetPrompt(
-              paths.implementationSteps,
-              paths.handoffs,
-              focusScope,
-              externalMcpRegistry,
-              {
-                repoRoot: paths.repoRoot,
-                contextPackDir: effectiveContextPackDir,
-              },
-            );
-            const daltonResult = await runRoleAgent({
-              agentId: 'dalton',
-              taskId: pipelineTaskId ?? '',
-              skipWorkflowValidation: false,
-              contextPackDir: effectiveContextPackDir,
-              abortSignal: abortController.signal,
-              promptOverride: fleetPrompt,
-            });
-            agentMcpStatuses['dalton'] = daltonResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-            agentTimings['dalton'] = Math.round((Date.now() - agentStart) / 1000);
-
-            const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
-            if (qaPolicy.exitCode !== 0) {
-              const cleanupContext = await buildFleetDaltonCleanupContext({
-                repoRoot: paths.repoRoot,
-                handoffsDir: paths.handoffs,
-                implStepsDir: paths.implementationSteps,
-                policyResult: qaPolicy,
-              });
-              const cleanupPrompt = buildFleetDaltonCleanupPrompt(
-                cleanupContext,
-                focusScope,
-                externalMcpRegistry,
-              );
-              const cleanupResult = await runRoleAgent({
-                agentId: 'dalton',
-                taskId: pipelineTaskId ?? '',
-                skipWorkflowValidation: true,
-                contextPackDir: effectiveContextPackDir,
-                abortSignal: abortController.signal,
-                promptOverride: cleanupPrompt,
-              });
-              agentMcpStatuses['dalton'] = cleanupResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-            }
-
-            testCaptureResults = await runPostDaltonPasses();
-            skipNextEntryValidation = true;
-            isFirstAgent = false;
-            if (options.stopAfter === 'dalton') break;
-            continue;
-          }
-        }
-
-        const skipWorkflowValidation = isFirstAgent || skipNextEntryValidation;
-
-        let agentPromptOverride: string | undefined;
-        if (agentId === 'dalton') {
-          agentPromptOverride = await buildSimpleDaltonPrompt(
+        if (isComplex) {
+          const fleetPrompt = await buildFleetPrompt(
             paths.implementationSteps,
             paths.handoffs,
             focusScope,
@@ -935,110 +851,166 @@ export async function runPipelineSequence(
               contextPackDir: effectiveContextPackDir,
             },
           );
-        } else if (agentId === 'ron') {
-          agentPromptOverride = buildTestCapturePrompt(
-            testCaptureResults,
-            focusScope,
-            externalMcpRegistry,
-            testCaptureWarning,
-          );
-        }
-
-        const agentResult = await runRoleAgent({
-          agentId,
-          taskId: pipelineTaskId ?? '',
-          skipWorkflowValidation,
-          contextPackDir: effectiveContextPackDir,
-          abortSignal: abortController.signal,
-          promptOverride: agentPromptOverride,
-        });
-        agentMcpStatuses[agentId] = agentResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-        skipNextEntryValidation = agentId === 'alice' || agentId === 'dalton';
-        isFirstAgent = false;
-
-        const agentEnd = Date.now();
-        agentTimings[agentId] = Math.round((agentEnd - agentStart) / 1000);
-
-        if (agentId === 'dalton') {
-          testCaptureResults = await runPostDaltonPasses();
-        }
-
-        if (agentId === 'ron') {
-          const hasFindings = await remediationHasBlockingFindings(paths.handoffs);
-          if (hasFindings) {
-            await remediationClearCloseoutArtifacts(paths.handoffs, paths.templates);
-            await remediationRunQaLoop({
-              maxCycles: maxRemediationCycles,
-              taskId: pipelineTaskId,
-              repoRoot: paths.repoRoot,
-              contextPackDir: effectiveContextPackDir,
-              focusScope,
-              externalMcpRegistry,
-              abortSignal: abortController.signal,
-            });
-          }
-        }
-
-        if (options.stopAfter && agentId === options.stopAfter) {
-          break;
-        }
-      }
-
-      const totalSeconds = Math.round((Date.now() - pipelineStart) / 1000);
-
-      const receipt: PipelineReceipt = {
-        status: 'completed',
-        workflowPath,
-        totalSeconds,
-        prewarmSeconds,
-        agentTimings,
-        externalMcp: {
-          registry: externalMcpRegistryHealth,
-          agents: agentMcpStatuses,
-        },
-      };
-
-      await writePipelineReceipt(paths.taskRuntime, receipt);
-
-      // Pre-check queue-advance readiness. If policy fails (e.g. incomplete
-      // retrospective), give Ron one remediation pass before attempting closeout.
-      const preCloseoutCheck = await runPolicyValidation({ mode: 'queue-advance', taskId: pipelineTaskId, repoRoot: paths.repoRoot });
-      if (!preCloseoutCheck.passed) {
-        const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
-          .filter(Boolean).join('\n').trim();
-        console.log('[pipeline] Queue-advance policy blocked — launching closeout remediation.');
-        try {
-          await runRoleAgent({
-            agentId: 'ron',
+          const daltonResult = await runRoleAgent({
+            agentId: 'dalton',
             taskId: pipelineTaskId ?? '',
-            skipWorkflowValidation: true,
+            skipWorkflowValidation: false,
             contextPackDir: effectiveContextPackDir,
             abortSignal: abortController.signal,
-            promptOverride: [
-              'Your previous QA run completed but task closeout is blocked by policy validation.',
-              '',
-              'Fix ONLY the missing handoff artifacts required for closeout.',
-              'Do not repeat QA review work — just fill in the gaps identified below.',
-              '',
-              '## Policy Failure Details',
-              '',
-              policyDetails,
-            ].join('\n'),
-            launchPhase: 'Closeout Remediation',
+            promptOverride: fleetPrompt,
           });
-        } catch (remediationErr) {
-          console.warn('[pipeline] Closeout remediation failed:', remediationErr instanceof Error ? remediationErr.message : remediationErr);
+          agentMcpStatuses['dalton'] = daltonResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+          agentTimings['dalton'] = Math.round((Date.now() - agentStart) / 1000);
+
+          const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
+          if (qaPolicy.exitCode !== 0) {
+            const cleanupContext = await buildFleetDaltonCleanupContext({
+              repoRoot: paths.repoRoot,
+              handoffsDir: paths.handoffs,
+              implStepsDir: paths.implementationSteps,
+              policyResult: qaPolicy,
+            });
+            const cleanupPrompt = buildFleetDaltonCleanupPrompt(
+              cleanupContext,
+              focusScope,
+              externalMcpRegistry,
+            );
+            const cleanupResult = await runRoleAgent({
+              agentId: 'dalton',
+              taskId: pipelineTaskId ?? '',
+              skipWorkflowValidation: true,
+              contextPackDir: effectiveContextPackDir,
+              abortSignal: abortController.signal,
+              promptOverride: cleanupPrompt,
+            });
+            agentMcpStatuses['dalton'] = cleanupResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+          }
+
+          testCaptureResults = await runPostDaltonPasses();
+          skipNextEntryValidation = true;
+          isFirstAgent = false;
+          if (options.stopAfter === 'dalton') break;
+          continue;
         }
       }
 
-      try {
-        await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
-      } catch (err) {
-        console.error('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
+      const skipWorkflowValidation = isFirstAgent || skipNextEntryValidation;
+
+      let agentPromptOverride: string | undefined;
+      if (agentId === 'dalton') {
+        agentPromptOverride = await buildSimpleDaltonPrompt(
+          paths.implementationSteps,
+          paths.handoffs,
+          focusScope,
+          externalMcpRegistry,
+          {
+            repoRoot: paths.repoRoot,
+            contextPackDir: effectiveContextPackDir,
+          },
+        );
+      } else if (agentId === 'ron') {
+        agentPromptOverride = buildTestCapturePrompt(
+          testCaptureResults,
+          focusScope,
+          externalMcpRegistry,
+          testCaptureWarning,
+        );
       }
 
-      return receipt;
-    });
+      const agentResult = await runRoleAgent({
+        agentId,
+        taskId: pipelineTaskId ?? '',
+        skipWorkflowValidation,
+        contextPackDir: effectiveContextPackDir,
+        abortSignal: abortController.signal,
+        promptOverride: agentPromptOverride,
+      });
+      agentMcpStatuses[agentId] = agentResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+      skipNextEntryValidation = agentId === 'alice' || agentId === 'dalton';
+      isFirstAgent = false;
+
+      const agentEnd = Date.now();
+      agentTimings[agentId] = Math.round((agentEnd - agentStart) / 1000);
+
+      if (agentId === 'dalton') {
+        testCaptureResults = await runPostDaltonPasses();
+      }
+
+      if (agentId === 'ron') {
+        const hasFindings = await remediationHasBlockingFindings(paths.handoffs);
+        if (hasFindings) {
+          await remediationClearCloseoutArtifacts(paths.handoffs, paths.templates);
+          await remediationRunQaLoop({
+            maxCycles: maxRemediationCycles,
+            taskId: pipelineTaskId,
+            repoRoot: paths.repoRoot,
+            contextPackDir: effectiveContextPackDir,
+            focusScope,
+            externalMcpRegistry,
+            abortSignal: abortController.signal,
+          });
+        }
+      }
+
+      if (options.stopAfter && agentId === options.stopAfter) {
+        break;
+      }
+    }
+
+    const totalSeconds = Math.round((Date.now() - pipelineStart) / 1000);
+
+    const receipt: PipelineReceipt = {
+      status: 'completed',
+      workflowPath,
+      totalSeconds,
+      prewarmSeconds,
+      agentTimings,
+      externalMcp: {
+        registry: externalMcpRegistryHealth,
+        agents: agentMcpStatuses,
+      },
+    };
+
+    await writePipelineReceipt(paths.taskRuntime, receipt);
+
+    // Pre-check queue-advance readiness. If policy fails (e.g. incomplete
+    // retrospective), give Ron one remediation pass before attempting closeout.
+    const preCloseoutCheck = await runPolicyValidation({ mode: 'queue-advance', taskId: pipelineTaskId, repoRoot: paths.repoRoot });
+    if (!preCloseoutCheck.passed) {
+      const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
+        .filter(Boolean).join('\n').trim();
+      console.log('[pipeline] Queue-advance policy blocked — launching closeout remediation.');
+      try {
+        await runRoleAgent({
+          agentId: 'ron',
+          taskId: pipelineTaskId ?? '',
+          skipWorkflowValidation: true,
+          contextPackDir: effectiveContextPackDir,
+          abortSignal: abortController.signal,
+          promptOverride: [
+            'Your previous QA run completed but task closeout is blocked by policy validation.',
+            '',
+            'Fix ONLY the missing handoff artifacts required for closeout.',
+            'Do not repeat QA review work — just fill in the gaps identified below.',
+            '',
+            '## Policy Failure Details',
+            '',
+            policyDetails,
+          ].join('\n'),
+          launchPhase: 'Closeout Remediation',
+        });
+      } catch (remediationErr) {
+        console.warn('[pipeline] Closeout remediation failed:', remediationErr instanceof Error ? remediationErr.message : remediationErr);
+      }
+    }
+
+    try {
+      await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
+    } catch (err) {
+      console.error('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
+    }
+
+    return receipt;
   } catch (err) {
     const killRequest = await readPipelineKillRequest(paths.repoRoot, pipelineTaskId);
     const killed = abortController.signal.aborted || killRequest !== undefined;
