@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -29,6 +30,20 @@ class QueuePolicyTransitionTests(unittest.TestCase):
             tree_paths=["src/backend/scripts/python/lib", "AgentWorkSpace/templates"],
         )
         seed_handoffs_from_templates(workspace)
+        platform_state = workspace / ".platform-state"
+        platform_state.mkdir(parents=True, exist_ok=True)
+        (platform_state / "platform.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "container_runtime": "docker",
+                    "max_parallel_tasks": 1,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         return workspace
 
     def run_script(
@@ -379,13 +394,14 @@ Run local checks.
         workspace: Path,
         *,
         file_name: str = "20260307-cap-321.md",
+        task_id: str = "CAP-321",
     ) -> None:
-        queue_item = workspace / "AgentWorkSpace" / "pendingitems" / file_name
-        queue_item.write_text("# Queue Item\n", encoding="utf-8")
-        (workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").write_text(
-            file_name,
-            encoding="utf-8",
-        )
+        pending = workspace / "AgentWorkSpace" / "pendingitems"
+        pending.mkdir(parents=True, exist_ok=True)
+        (pending / file_name).write_text("# Queue Item\n", encoding="utf-8")
+        active_items_dir = pending / ".active-items"
+        active_items_dir.mkdir(parents=True, exist_ok=True)
+        (active_items_dir / task_id).write_text(file_name, encoding="utf-8")
 
     def test_complete_pending_item_is_blocked_without_closeout_content(
         self,
@@ -395,7 +411,7 @@ Run local checks.
             workspace,
             final_summary_complete=False,
         )
-        self.seed_active_queue_item(workspace)
+        self.seed_active_queue_item(workspace, task_id="CAP-321")
 
         completed = self.run_script(
             workspace,
@@ -406,7 +422,15 @@ Run local checks.
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("queue.closeout-required", completed.stderr)
-        self.assertTrue((workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").exists())
+        self.assertTrue(
+            (
+                workspace
+                / "AgentWorkSpace"
+                / "pendingitems"
+                / ".active-items"
+                / "CAP-321"
+            ).exists()
+        )
 
     def test_queue_activation_waits_when_workspace_not_reset(self) -> None:
         workspace = self.create_workspace()
@@ -414,6 +438,11 @@ Run local checks.
             workspace,
             task_id="CAP-900",
             final_summary_complete=True,
+        )
+        self.seed_active_queue_item(
+            workspace,
+            file_name="20260307-cap-900.md",
+            task_id="CAP-900",
         )
         (workspace / "AgentWorkSpace" / "pendingitems" / "20260307-next-item.md").write_text(
             "# Next Item\n",
@@ -429,8 +458,11 @@ Run local checks.
 
         self.assertEqual(completed.returncode, 2)
         self.assertIn("waiting until handoffs/ is reset", completed.stdout)
-        self.assertFalse(
-            (workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").exists(),
+        active_items = workspace / "AgentWorkSpace" / "pendingitems" / ".active-items"
+        self.assertEqual(
+            sorted(p.name for p in active_items.iterdir() if not p.name.endswith(".completing")),
+            ["CAP-900"],
+            msg="Next-item must not be promoted while CAP-900 is still active",
         )
 
     def test_create_followup_task_blocks_parent_without_closeout(self) -> None:
@@ -559,7 +591,11 @@ Run local checks.
             final_summary_complete=True,
             closeout_owner_agent_id="",
         )
-        self.seed_active_queue_item(workspace)
+        self.seed_active_queue_item(
+            workspace,
+            file_name="20260307-cap-448.md",
+            task_id="CAP-448",
+        )
 
         completed = self.run_script(
             workspace,
@@ -595,7 +631,6 @@ Run local checks.
             "professional-task.md",
             "implementation-spec.md",
             "parallel-ok.md",
-            "tests.md",
             "issues.md",
             "retrospective-input.md",
             "final-summary.md",

@@ -1,6 +1,10 @@
 import { fork } from 'node:child_process';
-import { sep, join } from 'node:path';
+import { sep, join, dirname } from 'node:path';
 import type { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * F14: Resolves the pipeline child entrypoint path for the current runtime environment.
