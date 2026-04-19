@@ -686,6 +686,7 @@ export interface CompleteActiveItemOptions {
   pendingDir: string;
   handoffsDir: string;
   templatesDir: string;
+  taskId: string;
   skipValidation?: boolean;
   implementationStepsDir?: string;
   activeContextPackPath?: string;
@@ -693,14 +694,34 @@ export interface CompleteActiveItemOptions {
 }
 
 /**
- * Complete the active pending item: remove it from the queue, reset handoffs,
+ * Discriminated result from completeActiveItem.
+ *
+ * - 'completed': marker was present, handoffs reset, manifest updated.
+ * - 'no-active-marker': the per-task marker in .active-items/<taskId> was already
+ *   absent (crash-recovery re-drive observed step-4 already done). Caller
+ *   (§4.3 §5.2 recovery) interprets this as "skip to sentinel-delete only".
+ *   Does NOT advance the queue — the caller decides whether to call
+ *   activateNextPendingItemIfReady after observing this status.
+ */
+export type CompleteActiveItemResult =
+  | { status: 'completed'; taskId: string }
+  | { status: 'no-active-marker'; taskId: string };
+
+/**
+ * Complete the active pending item: reset handoffs, update queue-order manifest,
  * and optionally activate the next pending item.
+ *
+ * Uses the per-task `.active-items/<taskId>` marker introduced in §4.1.
+ * Returns a discriminated result instead of throwing when the marker is absent
+ * (F9 idempotency fix): callers treat 'no-active-marker' as crash-recovery
+ * step-4 already executed and skip to sentinel-delete only.
  */
 export async function completeActiveItem(
   options: CompleteActiveItemOptions,
-): Promise<void> {
+): Promise<CompleteActiveItemResult> {
   const {
     pendingDir,
+    taskId,
     handoffsDir,
     templatesDir: _templatesDir,
     implementationStepsDir,
@@ -711,50 +732,45 @@ export async function completeActiveItem(
   const resolvedActiveContextPackPath = activeContextPackPath ?? defaults.activeContextPackPath;
   const resolvedQueueOrderPath = queueOrderPath ?? defaults.queueOrderPath;
 
-  const linkPath = activeItemPath(pendingDir);
-  if (!existsSync(linkPath)) {
-    throw new Error('No active pending item is currently claimed.');
+  // Per-task marker path in the .active-items/ directory (§4.1 parallel model).
+  const activeItemsDir = path.join(pendingDir, '.active-items');
+  const markerPath = path.join(activeItemsDir, taskId);
+
+  if (!existsSync(markerPath)) {
+    // F9 idempotency: marker already absent — step 4 already happened in a
+    // prior (crashed) run. Return early without re-driving handoff reset or
+    // manifest update, and without throwing. Caller handles sentinel-delete.
+    return { status: 'no-active-marker', taskId };
   }
 
-  const activeName = (await readFile(linkPath, 'utf-8')).trim();
-  if (!activeName) {
-    throw new Error('Active item file is empty.');
+  // Read marker to verify it is not empty/corrupt. If it is, throw — this is a
+  // genuine inconsistency, not a crash-recovery case.
+  const markerContent = (await readFile(markerPath, 'utf-8')).trim();
+  if (!markerContent) {
+    throw new Error(`Active item marker for task '${taskId}' is present but empty or corrupt.`);
   }
 
-  const activeFilePath = path.join(pendingDir, activeName);
-
-  // 1. Reset handoffs first (repeatable; if it fails, active item is intact)
+  // 1. Reset handoffs first (repeatable; if it fails, marker is intact so retry succeeds).
   await resetHandoffArtifacts(handoffsDir, HANDOFF_FILES, {
     implementationStepsDir,
   });
 
-  // 2. Release the claim (if this fails, workspace is clean, retry will succeed)
-  await unlink(linkPath);
-
-  // 2a. Clean up the context pack sidecar if it exists
+  // 2. Clean up the context pack sidecar if it exists.
   try { await unlink(resolvedActiveContextPackPath); } catch { /* absent for legacy tasks */ }
 
-  // 2b. Remove completed item from the queue-order manifest; delete the file when empty
+  // 3. Remove completed item from the queue-order manifest; delete manifest when empty.
+  const activeName = `${taskId}.md`;
   try {
     const order = await readQueueOrderManifest(resolvedQueueOrderPath);
     const filtered = order.filter((f) => f !== activeName);
     if (filtered.length > 0) {
       await writeQueueOrderManifest(resolvedQueueOrderPath, filtered);
     } else {
-      await unlink(resolvedQueueOrderPath);
+      try { await unlink(resolvedQueueOrderPath); } catch { /* best-effort */ }
     }
   } catch { /* best-effort */ }
 
-  // 3. Delete the pending file last (the task's durable record)
-  if (existsSync(activeFilePath)) {
-    await unlink(activeFilePath);
-  }
-
-  // 4. Advance the queue — note: completePendingItem.ts (§4.3) is the primary
-  // caller; this internal advance handles the completeActiveItem API path.
-  const repoRoot = path.resolve(pendingDir, '..', '..');
-  const queuePaths = resolveQueuePaths(repoRoot);
-  await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });
+  return { status: 'completed', taskId };
 }
 
 function sleep(ms: number): Promise<void> {

@@ -38,6 +38,27 @@ export async function writeTextFile(
 }
 
 /**
+ * Atomically write text content to a file using a temp file + rename.
+ * Writes to `${filePath}.tmp-${process.pid}-${Date.now()}` then renames
+ * into place, so a crash mid-write never leaves a torn destination file.
+ * Creates parent directories if needed.
+ */
+export async function writeTextFileAtomic(
+  filePath: string,
+  content: string,
+): Promise<void> {
+  await ensureDir(path.dirname(filePath));
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    await writeFile(tmpPath, content, 'utf-8');
+    await rename(tmpPath, filePath);
+  } catch (err) {
+    try { await import('node:fs/promises').then(({ unlink }) => unlink(tmpPath)); } catch { /* best-effort cleanup */ }
+    throw err;
+  }
+}
+
+/**
  * Move a file from one location to another.
  * Creates the destination directory if it does not exist.
  */

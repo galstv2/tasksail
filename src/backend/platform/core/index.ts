@@ -32,6 +32,7 @@ export {
   ensureDir,
   readTextFile,
   writeTextFile,
+  writeTextFileAtomic,
   moveFile,
   copyFileSafe,
   createTempDir,

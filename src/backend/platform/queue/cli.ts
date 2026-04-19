@@ -138,7 +138,7 @@ export async function main(argv: string[]): Promise<void> {
     case 'status': {
       const status = await getQueueStatus(flags['repo-root']);
       process.stdout.write(`Workspace Ready: ${status.workspaceReady ? 'yes' : 'no'}\n`);
-      process.stdout.write(`Active Item: ${status.activeItem ?? 'none'}\n`);
+      process.stdout.write(`Active Item: ${status.activeTasks[0] ?? 'none'}\n`);
       if (status.activeItemWithBlankWorkspace) {
         process.stdout.write(
           'WARNING: .active-item present but handoffs/ is blank — run "task-queue repair --auto-fix" to recover\n',
@@ -164,7 +164,33 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'complete': {
+      // §4.3: --task-id is the preferred interface. When omitted and exactly one
+      // active task exists, default to that id. When omitted and N>1 active tasks
+      // exist, fail fast — never silently pick "first active".
+      let completeTaskId = flags['task-id'];
+      if (!completeTaskId) {
+        const completeRepoRoot = flags['repo-root'];
+        const completePaths = resolveQueuePaths(completeRepoRoot);
+        const activeIds = getActiveTaskIds(completePaths);
+        if (activeIds.length === 1) {
+          completeTaskId = activeIds[0]!;
+        } else if (activeIds.length === 0) {
+          process.stderr.write(
+            'Error: no active task found. Activate a task before completing.\n',
+          );
+          process.exitCode = 1;
+          return;
+        } else {
+          // N>1 active tasks — operator must disambiguate.
+          process.stderr.write(
+            `Error [completion-requires-task-id]: multiple active tasks found. Pass --task-id to specify which to complete.\nActive task IDs:\n${activeIds.map((id) => `  ${id}`).join('\n')}\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
       await completePendingItem({
+        taskId: completeTaskId,
         skipValidation: booleans.has('skip-validation') || booleans.has('force'),
         skipArchive: booleans.has('skip-archive'),
         repoRoot: flags['repo-root'],

@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { findRepoRoot, readTextFile, writeTextFile } from '../core/index.js';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
-import { completeActiveItem, acquireDirLockOrThrow } from './operations.js';
+import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
 import { fileTaskArchive } from './archive.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
@@ -10,8 +10,11 @@ import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { buildAdvisoryFindingSection, ADVISORY_FINDING_HEADING } from '../agent-runner/pipeline/remediation.js';
 import { commitTaskSnapshot } from './errorItems.js';
 import { transitionTask } from './taskRegistry.js';
+import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
 
 export interface CompletePendingItemOptions {
+  /** Required: the task ID to complete. */
+  taskId: string;
   skipValidation?: boolean;
   skipArchive?: boolean;
   repoRoot?: string;
@@ -19,117 +22,142 @@ export interface CompletePendingItemOptions {
 }
 
 /**
- * Complete the active pending item and advance the queue.
- * Runs queue-advance policy validation before allowing completion.
- * Archives the task to QMD unless skipArchive is set.
- * Wraps operations.completeActiveItem with automatic path resolution.
+ * Complete the specified pending task and advance the queue.
+ *
+ * Implements the §4.3 five-step sentinel sequence in order:
+ *   Step 0 (F38): commitTaskSnapshot — idempotent pre-archival snapshot.
+ *   1. Write .completing sentinel (idempotent pre-check, NOT wx).
+ *   2. Archival (fileTaskArchive, final-summary advisory write).
+ *   3. finalizeTaskWorktrees(taskId, 'completed', repoRoot).
+ *   4. unlinkSync activeItemsDir/<taskId> marker.
+ *   5. unlinkSync activeItemsDir/<taskId>.completing sentinel.
+ * Lock is acquired FIRST (F8 fix) before any of the above.
+ * Lock is released only after step 5.
+ * activateNextPendingItemIfReady is called after lock release.
  */
 export async function completePendingItem(
-  options: CompletePendingItemOptions = {},
+  options: CompletePendingItemOptions,
 ): Promise<void> {
+  const { taskId } = options;
   const repoRoot = options.repoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(repoRoot);
-
-  // Read the active task ID before policy validation so it can be threaded into
-  // the policy check and archive calls. Falls through to undefined when the
-  // .active-item marker is absent — completeActiveItem will surface the error.
-  let activeTaskId: string | undefined;
-  try {
-    const activeName = (await readFile(
-      path.join(queuePaths.pendingDir, '.active-item'), 'utf-8',
-    )).trim();
-    activeTaskId = activeName.replace(/\.md$/, '');
-  } catch {
-    // Will be caught by completeActiveItem below
-  }
 
   if (!options.skipValidation) {
     await assertPolicyPasses({
       mode: 'queue-advance',
       repoRoot,
-      taskId: activeTaskId ?? '',
+      taskId,
       errorMessage: 'Completion blocked by queue-advance policy validation.',
     });
   }
 
-  let resolvedArchiveMdPath: string | undefined;
-  let archivedContextPackDir: string | undefined;
-  if (!options.skipArchive) {
-    const contextPackDir = options.contextPackDir
-      ?? await requireAuthorizedActiveContextPack({ repoRoot });
-    archivedContextPackDir = contextPackDir;
-
-    const advisorySection = await buildAdvisoryFindingSection(queuePaths.handoffsDir);
-    if (advisorySection) {
-      const finalSummaryPath = path.join(queuePaths.handoffsDir, 'final-summary.md');
-      const currentContent = await readTextFile(finalSummaryPath);
-      if (currentContent && !currentContent.includes(ADVISORY_FINDING_HEADING)) {
-        await writeTextFile(finalSummaryPath, currentContent.trimEnd() + '\n\n' + advisorySection + '\n');
-      }
-    }
-
-    const archiveResult = await fileTaskArchive({ contextPackDir, taskId: activeTaskId ?? '', repoRoot });
-    if (!archiveResult.passed) {
-      const details = [archiveResult.stdout, archiveResult.stderr]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
-      const suffix = details ? `\n${details}` : '';
-      throw new Error(
-        `Completion blocked: task archival failed (exit ${archiveResult.exitCode}).${suffix}`,
-      );
-    }
-    if (typeof archiveResult.data?.record_md_path === 'string') {
-      resolvedArchiveMdPath = archiveResult.data.record_md_path;
-    }
-  }
-
+  // F8 fix: acquire the queue lock FIRST — before any archival, retrospective
+  // sync, snapshot, or sentinel writes. All five steps run inside this lock.
   const release = await acquireDirLockOrThrow(
     queuePaths.queueLockDir,
     'Completion',
   );
 
   try {
-    // syncRetrospectiveRequiredMetadata runs INSIDE the queue lock window so
-    // that concurrent completions sharing the same contextPackId are serialized
-    // at the queue-lock level (precedence 3) before the per-pack counter file
-    // lock (precedence 4) is acquired inside syncRetrospectiveRequiredMetadata.
-    if (!options.skipArchive && archivedContextPackDir !== undefined) {
+    // --- Step 0 (F38): idempotent pre-archival snapshot ---
+    // Commits staged/unstaged changes in the per-task worktree to task/<taskId>.
+    // 'nothing to commit' from git exits non-zero and is treated as success
+    // (commitTaskSnapshot swallows it). Best-effort: non-fatal on failure.
+    await commitTaskSnapshot(repoRoot, taskId, 'completed');
+
+    const activeItemsDir = queuePaths.activeItemsDir;
+    const sentinelPath = path.join(activeItemsDir, `${taskId}.completing`);
+
+    // --- Step 1: idempotent sentinel write ---
+    // Use pre-check + writeFileSync (NOT exclusive-create mode) so crash-recovery re-drives
+    // can observe the sentinel without EEXIST halting recovery.
+    if (!existsSync(sentinelPath)) {
+      writeFileSync(sentinelPath, JSON.stringify({ ts: Date.now() }));
+    }
+
+    // --- Step 2: archival ---
+    let resolvedArchiveMdPath: string | undefined;
+    if (!options.skipArchive) {
+      const contextPackDir = options.contextPackDir
+        ?? await requireAuthorizedActiveContextPack({ repoRoot });
+
+      // Write advisory findings section to final-summary.md atomically.
+      const handoffsDir = queuePaths.taskHandoffs(taskId);
+      const advisorySection = await buildAdvisoryFindingSection(handoffsDir);
+      if (advisorySection) {
+        const finalSummaryPath = path.join(handoffsDir, 'final-summary.md');
+        const currentContent = await readTextFile(finalSummaryPath);
+        if (currentContent && !currentContent.includes(ADVISORY_FINDING_HEADING)) {
+          await writeTextFileAtomic(finalSummaryPath, currentContent.trimEnd() + '\n\n' + advisorySection + '\n');
+        }
+      }
+
+      const archiveResult = await fileTaskArchive({ contextPackDir, taskId, repoRoot });
+      if (!archiveResult.passed) {
+        const details = [archiveResult.stdout, archiveResult.stderr]
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+        const suffix = details ? `\n${details}` : '';
+        throw new Error(
+          `Completion blocked: task archival failed (exit ${archiveResult.exitCode}).${suffix}`,
+        );
+      }
+      if (typeof archiveResult.data?.record_md_path === 'string') {
+        resolvedArchiveMdPath = archiveResult.data.record_md_path;
+      }
+
+      // Sync retrospective metadata inside the lock window.
       await syncRetrospectiveRequiredMetadata({
         repoRoot,
-        handoffsDir: queuePaths.handoffsDir,
-        contextPackDir: archivedContextPackDir,
+        handoffsDir: queuePaths.taskHandoffs(taskId),
+        contextPackDir,
       });
     }
 
-    if (activeTaskId) {
-      // Resolve the context pack dir from the per-task sidecar (§3.2).
-      // Falls through to undefined (no-op in commitTaskSnapshot) when the sidecar
-      // is absent or corrupt — best-effort, not fatal.
-      await commitTaskSnapshot(
-        repoRoot, activeTaskId, 'completed',
-      );
-      // Transition active → completed in the task registry
-      try {
-        await transitionTask(repoRoot, activeTaskId, 'active', 'completed', {
-          completedAt: new Date().toISOString(),
-          archivePath: resolvedArchiveMdPath ?? null,
-        });
-      } catch { /* best-effort */ }
-    }
+    // Update task registry: active → completed.
+    try {
+      await transitionTask(repoRoot, taskId, 'active', 'completed', {
+        completedAt: new Date().toISOString(),
+        archivePath: resolvedArchiveMdPath ?? null,
+      });
+    } catch { /* best-effort */ }
 
-    await completeActiveItem({
+    // Update queue-order manifest and reset handoff artifacts via completeActiveItem.
+    // Passes per-task paths (not singleton) per §4.3 requirement.
+    const completeResult = await completeActiveItem({
       pendingDir: queuePaths.pendingDir,
-      handoffsDir: queuePaths.handoffsDir,
+      taskId,
+      handoffsDir: queuePaths.taskHandoffs(taskId),
       templatesDir: queuePaths.templatesDir,
       skipValidation: options.skipValidation,
-      implementationStepsDir: path.join(
-        repoRoot,
-        'AgentWorkSpace',
-        'ImplementationSteps',
-      ),
+      implementationStepsDir: queuePaths.taskImplementationSteps(taskId),
     });
+
+    // --- Step 3: finalizeTaskWorktrees ---
+    // Only re-drive finalize when completeActiveItem confirmed the marker existed
+    // (i.e., we are not in the sentinel-without-marker recovery branch).
+    if (completeResult.status !== 'no-active-marker') {
+      await finalizeTaskWorktrees(taskId, 'completed', repoRoot);
+    }
+
+    // --- Step 4: unlink per-task active marker ---
+    // Already absent when completeResult.status === 'no-active-marker' — skip.
+    if (completeResult.status !== 'no-active-marker') {
+      try {
+        unlinkSync(path.join(activeItemsDir, taskId));
+      } catch { /* marker may already be absent if step 4 crashed and re-drove */ }
+    }
+
+    // --- Step 5: unlink sentinel ---
+    // Always attempt — even in the 'no-active-marker' branch (sentinel is present).
+    try {
+      unlinkSync(sentinelPath);
+    } catch { /* sentinel may already be absent */ }
   } finally {
     await release();
   }
+
+  // Queue advance runs AFTER lock release (§4.6 contract).
+  await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });
 }

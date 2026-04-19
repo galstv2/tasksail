@@ -1032,7 +1032,7 @@ export async function runPipelineSequence(
       }
 
       try {
-        await completePendingItem({ repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
+        await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
       } catch (err) {
         console.error('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
       }

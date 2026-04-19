@@ -56,26 +56,26 @@ describe('completeActiveItem operation ordering', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('preserves pending file and .active-item when reset fails', async () => {
+  it('preserves pending file and per-task marker when reset fails', async () => {
     mockReset.mockRejectedValue(new Error('Simulated reset failure'));
 
-    // Set up: pending file + .active-item
-    const pendingFile = 'task-001.md';
-    writeFileSync(path.join(pendingDir, pendingFile), '# Task');
-    writeFileSync(path.join(pendingDir, '.active-item'), pendingFile);
+    // Set up: per-task active-items marker (§4.1 parallel model)
+    const taskId = 'task-001';
+    const activeItemsDir = path.join(pendingDir, '.active-items');
+    mkdirSync(activeItemsDir, { recursive: true });
+    writeFileSync(path.join(activeItemsDir, taskId), JSON.stringify({ ts: Date.now() }));
 
     await expect(
       completeActiveItem({
         pendingDir,
+        taskId,
         handoffsDir,
         templatesDir,
       }),
     ).rejects.toThrow('Simulated reset failure');
 
-    // Pending file must still exist (not deleted before reset)
-    expect(existsSync(path.join(pendingDir, pendingFile))).toBe(true);
-    // .active-item must still exist
-    expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
+    // Per-task marker must still exist (marker-delete is step 4, after reset)
+    expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
   });
 });
 
