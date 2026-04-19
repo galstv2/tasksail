@@ -1,6 +1,7 @@
 """Tests for child-task queue seeding and lineage propagation."""
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 import subprocess
@@ -25,6 +26,21 @@ class ChildTaskHandoffValidationTests(unittest.TestCase):
         (temp_dir / "AgentWorkSpace" / "pendingitems").mkdir(parents=True)
         (temp_dir / "AgentWorkSpace" / "dropbox").mkdir(parents=True)
         copy_repo_tree(temp_dir, "AgentWorkSpace/templates")
+        platform_state = temp_dir / ".platform-state"
+        platform_state.mkdir(parents=True, exist_ok=True)
+        (platform_state / "platform.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "container_runtime": "docker",
+                    "max_parallel_tasks": 3,
+                    "mcp_port_range": {"min": 8811, "max": 8820},
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         return temp_dir
 
     def seed_child_task_handoffs(self, workspace: Path) -> None:
@@ -81,9 +97,12 @@ Parent task completed the first pass of queue automation and now needs a targete
         workspace = self.create_workspace()
         self.seed_child_task_handoffs(workspace)
 
-        professional = (workspace / "AgentWorkSpace" / "handoffs" / "professional-task.md").read_text(encoding="utf-8")
-        implementation = (workspace / "AgentWorkSpace" / "handoffs" / "implementation-spec.md").read_text(encoding="utf-8")
-        final_summary = (workspace / "AgentWorkSpace" / "handoffs" / "final-summary.md").read_text(encoding="utf-8")
+        task_handoffs = (
+            workspace / "AgentWorkSpace" / "tasks" / "sample-child-task" / "handoffs"
+        )
+        professional = (task_handoffs / "professional-task.md").read_text(encoding="utf-8")
+        implementation = (task_handoffs / "implementation-spec.md").read_text(encoding="utf-8")
+        final_summary = (task_handoffs / "final-summary.md").read_text(encoding="utf-8")
 
         self.assertIn("## Task Lineage", professional)
         self.assertIn("- Task Kind: child-task", professional)
