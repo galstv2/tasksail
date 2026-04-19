@@ -207,7 +207,7 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     expect(branches).not.toContain(taskBBranch);
 
     // (c) .active-items/ is an empty directory (exists, no entries)
-    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', '.active-items');
+    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
     expect(existsSync(activeItemsDir)).toBe(true);
     expect(readdirSync(activeItemsDir)).toHaveLength(0);
 
@@ -350,7 +350,7 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     expect(JSON.parse(queueOrder)).toEqual({ order: [] });
 
     //   .active-items/ exists and is empty
-    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', '.active-items');
+    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
     expect(existsSync(activeItemsDir)).toBe(true);
     expect(readdirSync(activeItemsDir)).toHaveLength(0);
 
@@ -392,9 +392,11 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
       JSON.stringify({ launch: { pid: 999999999 }, terminal: false }),
     );
 
-    // (d) .active-items/<taskId> marker — cleanup uses AgentWorkSpace/.active-items
-    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', '.active-items');
-    mkdirSync(join(activeItemsDir, orphanTaskId), { recursive: true });
+    // (d) .active-items/<taskId> marker — canonical path is pendingitems/.active-items/
+    // and markers are FILES (per operations.ts:470 writeFile), not directories.
+    const activeItemsDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    mkdirSync(activeItemsDir, { recursive: true });
+    writeFileSync(join(activeItemsDir, orphanTaskId), `${orphanTaskId}.md`);
 
     // (e) Task registry with the orphan in active state (so cleanup moves it to open)
     writeTaskRegistry(TEST_REPO_ROOT, [orphanTaskId]);

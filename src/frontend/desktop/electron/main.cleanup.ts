@@ -380,9 +380,13 @@ function resetTaskRegistry(): void {
 /**
  * Reset the .active-items/ directory — wipe and recreate empty.
  * Next session writes markers into this directory.
+ *
+ * Path must match queue/paths.ts:101 (`pendingDir/.active-items/`). Writing to
+ * `AgentWorkSpace/.active-items/` instead leaves the real marker dir stale and
+ * a phantom dir at the wrong location across quit cycles.
  */
 function removeActiveItemMarker(): void {
-  const activeItemsDir = join(AGENT_WORKSPACE, '.active-items');
+  const activeItemsDir = join(PENDING_DIR, '.active-items');
   rmSync(activeItemsDir, { recursive: true, force: true });
   mkdirSync(activeItemsDir, { recursive: true });
 }
