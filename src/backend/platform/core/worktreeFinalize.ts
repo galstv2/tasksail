@@ -15,7 +15,7 @@ import { existsSync, readdirSync, rmSync, writeFileSync, readFileSync, mkdirSync
 import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 import { getPlatformConfig } from '../platform-config/get.js';
-import { readTaskJson, readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
+import { readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
 import { composeDownTask } from '../container/composeDownTask.js';
@@ -45,6 +45,13 @@ function retentionEvictionLockPath(repoRoot: string): string {
  */
 function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcome, finalizedAt: string): void {
   const sidecarPath = resolveTaskJsonPath(taskId, repoRoot);
+  // Parent-dir precondition: if the task dir doesn't exist at all (e.g. crash
+  // before materialization, or a legacy pending item that never booted), there
+  // is nothing for the retention scanner to find — skip the write entirely.
+  // This also avoids creating a dir only to rmSync it two lines later.
+  if (!existsSync(path.dirname(sidecarPath))) {
+    return;
+  }
   let json: Record<string, unknown>;
   try {
     json = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as Record<string, unknown>;
@@ -247,10 +254,17 @@ export async function finalizeTaskWorktrees(
   outcome: FinalizeOutcome,
   repoRoot: string,
 ): Promise<void> {
-  const taskJson = readTaskJson(taskId, repoRoot);
+  // Tolerate missing sidecar: crash-recovery paths (and legacy test fixtures
+  // that seed a task without a .task.json) still need the downstream teardown
+  // chain — compose, port release, runtime GC — to run. The binding loop
+  // below is a no-op when the sidecar is absent; persistTaskJson synthesizes
+  // a minimal shell so finalizedAt is still stamped.
+  const taskJson = readTaskJsonSafe(taskId, repoRoot);
 
-  for (const binding of taskJson.contextPackBinding.repoBindings) {
-    await finalizeWorktree(binding, outcome, repoRoot);
+  if (taskJson) {
+    for (const binding of taskJson.contextPackBinding.repoBindings) {
+      await finalizeWorktree(binding, outcome, repoRoot);
+    }
   }
 
   // Stamp finalizedAt and persist BEFORE acquiring the retention-eviction lock,

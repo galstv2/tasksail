@@ -22,18 +22,22 @@ const readEnvAssignment = vi.fn(() => undefined);
 const safeJsonParse = vi.fn((content: string) => JSON.parse(content));
 const getErrorMessage = vi.fn((error: unknown) => error instanceof Error ? error.message : String(error));
 
-vi.mock('../../core/index.js', () => ({
-  readTextFile,
-  resolvePaths,
-  writeTextFile,
-  ensureDir,
-  nowIsoCompact,
-  readEnvAssignment,
-  safeJsonParse,
-  getErrorMessage,
-  STANDARD_AGENT_ORDER: ['alice', 'dalton', 'ron'],
-  FAST_PATH_AGENT_ORDER: ['alice', 'dalton', 'ron'],
-}));
+vi.mock('../../core/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../core/index.js')>('../../core/index.js');
+  return {
+    ...actual,
+    readTextFile,
+    resolvePaths,
+    writeTextFile,
+    ensureDir,
+    nowIsoCompact,
+    readEnvAssignment,
+    safeJsonParse,
+    getErrorMessage,
+    STANDARD_AGENT_ORDER: ['alice', 'dalton', 'ron'],
+    FAST_PATH_AGENT_ORDER: ['alice', 'dalton', 'ron'],
+  };
+});
 
 vi.mock('../roleAgent.js', () => ({
   runRoleAgent,
@@ -101,6 +105,24 @@ describe('runPipelineSequence', () => {
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
+    // Seed a full platform.json so failure-path callers (finalizeTaskWorktrees
+    // → getPlatformConfig) don't throw. Without this, moveFailedItemToErrorItems
+    // swallows an "Invalid platform config" error and the rename to error-items
+    // never runs.
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'platform.json'),
+      JSON.stringify({
+        schema_version: 1,
+        container_runtime: 'docker',
+        max_parallel_tasks: 2,
+        retain_failed_task_worktrees: false,
+        max_retained_failed_task_worktrees: 5,
+        max_retry_generations_per_slug: 5,
+        completed_task_runtime_retention_ms: 3600000,
+        mcp_port_range: { min: 8811, max: 8820 },
+      }, null, 2) + '\n',
+      'utf-8',
+    );
     readTextFile.mockImplementation(async (filePath: string) => {
       if (existsSync(filePath)) {
         return readFileSync(filePath, 'utf-8');
@@ -612,6 +634,11 @@ describe('runPipelineSequence', () => {
       if (filePath.endsWith('parallel-ok.md')) {
         return null;
       }
+      // Fall through to disk so platform.json (seeded in beforeEach) is read
+      // by the failure-path getPlatformConfig → loadPlatformConfig chain.
+      if (existsSync(filePath)) {
+        return readFileSync(filePath, 'utf-8');
+      }
       return null;
     });
     runRoleAgent.mockRejectedValue(new Error('product manager failed'));
@@ -619,8 +646,11 @@ describe('runPipelineSequence', () => {
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('product manager failed');
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'))).toBe(false);
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-01.md'))).toBe(false);
+    // §4.14A parallel model: moveFailedItemToErrorItems no longer touches the
+    // shared singleton handoffs/ or ImplementationSteps/ dirs (that would be a
+    // blast-radius violation against peer tasks). Per-task clones live under
+    // AgentWorkSpace/tasks/<taskId>/ and are reaped via finalizeTaskWorktrees.
+    // Only the pending→error-items rename is asserted here.
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items', 'test-task-id.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'test-task-id.md'))).toBe(false);
   });
@@ -633,6 +663,11 @@ describe('runPipelineSequence', () => {
     readTextFile.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('parallel-ok.md')) {
         return null;
+      }
+      // Fall through to disk so platform.json (seeded in beforeEach) is read
+      // by the failure-path getPlatformConfig → loadPlatformConfig chain.
+      if (existsSync(filePath)) {
+        return readFileSync(filePath, 'utf-8');
       }
       return null;
     });
