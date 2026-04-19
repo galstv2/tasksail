@@ -1,4 +1,4 @@
-name: tasksail
+name: ${COMPOSE_PROJECT_NAME:-tasksail}
 
 services:
   repo-context-mcp:
@@ -6,7 +6,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/repo-context-mcp/Dockerfile
-    container_name: repo-context-mcp
+    container_name: ${REPO_CONTEXT_MCP_CONTAINER_NAME:-repo-context-mcp}
     restart: unless-stopped
     env_file:
       - ../../.env
@@ -16,9 +16,10 @@ services:
       - ../../:/workspace:ro
       - ${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}:${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}:rw
       - ../../AgentWorkSpace/dropbox:/data/dropbox:rw
+      - ../../AgentWorkSpace/tasks/${TASKSAIL_TASK_ID:-_singleton}/handoffs:/workspace/handoffs:ro
     working_dir: /workspace
     ports:
-      - "127.0.0.1:8811:8811"
+      - "127.0.0.1:${REPO_CONTEXT_MCP_PORT:-8811}:8811"
     healthcheck:
       test:
         [
@@ -40,5 +41,4 @@ services:
 
 networks:
   platform:
-    name: tasksail-platform
     driver: bridge
