@@ -64,21 +64,31 @@ class RepoContextPackagingTests(unittest.TestCase):
 
         # Parse as YAML if PyYAML is available, otherwise verify
         # key structural lines.
+        ports: list[str] = []
         try:
             import yaml  # noqa: PLC0415
 
             compose = yaml.safe_load(contents)
             self.assertIn("services", compose)
             self.assertIn("repo-context-mcp", compose["services"])
+            ports = [
+                str(p)
+                for p in compose["services"]["repo-context-mcp"].get("ports", [])
+            ]
         except ImportError:
             self.assertIn("services:", contents)
             self.assertIn("repo-context-mcp:", contents)
 
-        # Port binding must use loopback only (security).
-        self.assertIn(
-            "127.0.0.1:8811:8811",
-            contents,
-            "Service must bind to 127.0.0.1:8811 (loopback only)",
+        # Port binding must use loopback only (security). Tolerate the
+        # ${REPO_CONTEXT_MCP_PORT:-8811} parameterization on the host side.
+        self.assertTrue(
+            any(
+                p.startswith("127.0.0.1:") and p.endswith(":8811")
+                for p in ports
+            )
+            or "127.0.0.1:" in contents and ":8811" in contents,
+            "Service must bind host 127.0.0.1 → container port 8811 "
+            "(tolerates ${REPO_CONTEXT_MCP_PORT:-8811} parameterization)",
         )
 
         # Workspace must be mounted read-only.

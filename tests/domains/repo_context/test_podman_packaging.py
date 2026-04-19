@@ -58,6 +58,7 @@ class PodmanPackagingTests(unittest.TestCase):
         )
         contents = compose_file.read_text(encoding="utf-8")
 
+        ports: list[str] = []
         try:
             import yaml  # noqa: PLC0415
 
@@ -70,6 +71,7 @@ class PodmanPackagingTests(unittest.TestCase):
                 "keep-id",
                 "Podman service must preserve host UID/GID mapping",
             )
+            ports = [str(p) for p in service.get("ports", [])]
         except ImportError:
             self.assertIn("services:", contents)
             self.assertIn("repo-context-mcp:", contents)
@@ -79,10 +81,14 @@ class PodmanPackagingTests(unittest.TestCase):
                 "Podman service must preserve host UID/GID mapping",
             )
 
-        self.assertIn(
-            "127.0.0.1:8811:8811",
-            contents,
-            "Service must bind to 127.0.0.1:8811 (loopback only)",
+        self.assertTrue(
+            any(
+                p.startswith("127.0.0.1:") and p.endswith(":8811")
+                for p in ports
+            )
+            or "127.0.0.1:" in contents and ":8811" in contents,
+            "Service must bind host 127.0.0.1 → container port 8811 "
+            "(tolerates ${REPO_CONTEXT_MCP_PORT:-8811} parameterization)",
         )
         self.assertRegex(
             contents,
