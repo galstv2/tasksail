@@ -557,3 +557,57 @@ describe('completePendingItem F38 — idempotent snapshot', () => {
     expect(mockCommitTaskSnapshot).toHaveBeenCalledTimes(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §4.6: queue-lock release ordering (no EEXIST re-entrancy)
+// §4.7: singleton .active-item read is gone (doesn't require that file to exist)
+// ---------------------------------------------------------------------------
+
+describe('completePendingItem §4.6/§4.7 lock-release + singleton-read', () => {
+  let repoRoot: string;
+  const taskId = 'lockrel-task';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-lockrel-'));
+    seedSentinelFixture(repoRoot, taskId);
+    mockRequireAuthorizedActiveContextPack.mockResolvedValue('/packs/pack-a');
+    mockSyncRetrospectiveRequiredMetadata.mockResolvedValue(undefined);
+    mockFileTaskArchive.mockResolvedValue({ passed: true, stdout: '{}', stderr: '', exitCode: 0 });
+    mockCompleteActiveItem.mockResolvedValue({ status: 'completed', taskId });
+    mockCommitTaskSnapshot.mockResolvedValue(true);
+    mockFinalizeTaskWorktrees.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('§4.6: releases the queue lock BEFORE calling activateNextPendingItemIfReady', async () => {
+    const callOrder: string[] = [];
+    const release = vi.fn().mockImplementation(async () => { callOrder.push('release'); });
+    mockAcquireDirLockOrThrow.mockResolvedValue(release);
+    mockActivateNextPendingItemIfReady.mockImplementation(async () => {
+      callOrder.push('activateNext');
+      return { activated: false, reason: 'no-pending-items' };
+    });
+
+    await completePendingItem({ taskId, skipValidation: true, repoRoot });
+
+    expect(callOrder.indexOf('release')).toBeLessThan(callOrder.indexOf('activateNext'));
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('§4.7: succeeds when no singleton AgentWorkSpace/pendingitems/.active-item file exists', async () => {
+    // Explicitly assert the singleton file is absent (we only seeded the .active-items/ dir).
+    const singletonPath = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item');
+    expect(existsSync(singletonPath)).toBe(false);
+
+    mockAcquireDirLockOrThrow.mockResolvedValue(vi.fn().mockResolvedValue(undefined));
+    mockActivateNextPendingItemIfReady.mockResolvedValue({ activated: false, reason: 'no-pending-items' });
+
+    await expect(
+      completePendingItem({ taskId, skipValidation: true, repoRoot }),
+    ).resolves.toBeUndefined();
+  });
+});
