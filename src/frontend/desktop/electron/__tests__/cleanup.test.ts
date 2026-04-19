@@ -511,4 +511,37 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     // And no accidental double-downs of the same project.
     expect(downCalls.length).toBe(2);
   });
+
+  // ── Test 8: dotfiles in AgentWorkSpace/tasks/ are not treated as task IDs ──
+
+  it('preserves dotfiles in AgentWorkSpace/tasks/ (.gitkeep, .DS_Store) — does not treat them as task dirs', async () => {
+    const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
+
+    setupWorkspaceScaffold(TEST_REPO_ROOT);
+    const gitRepoRoot = createGitRepo(tmpRoot);
+
+    // Real task that should be torn down
+    const taskId = 'real-task';
+    const branch = `task/${taskId}`;
+    const worktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    createWorktree(gitRepoRoot, worktree, branch);
+    writeTaskJson(TEST_REPO_ROOT, taskId, gitRepoRoot, worktree, branch);
+    writeTaskRegistry(TEST_REPO_ROOT, [taskId]);
+
+    // Dotfiles that must survive — they are not task IDs.
+    const tasksDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks');
+    const gitkeepPath = join(tasksDir, '.gitkeep');
+    const dsStorePath = join(tasksDir, '.DS_Store');
+    writeFileSync(gitkeepPath, '');
+    writeFileSync(dsStorePath, '');
+
+    cleanupWorkspaceOnQuit();
+
+    // Real task dir is gone
+    expect(existsSync(join(tasksDir, taskId))).toBe(false);
+
+    // Dotfiles survive
+    expect(existsSync(gitkeepPath)).toBe(true);
+    expect(existsSync(dsStorePath)).toBe(true);
+  });
 });

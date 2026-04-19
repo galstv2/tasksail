@@ -164,8 +164,11 @@ function tearDownAllWorktrees(): void {
   } catch { /* registry file absent — proceed with tasks dir scan */ }
 
   // Collect task IDs from AgentWorkSpace/tasks/*/
+  // Skip dotfiles (e.g. .gitkeep, .DS_Store) — they are never valid task IDs
+  // and would otherwise be passed to rmSync below as if they were task dirs.
   if (existsSync(TASKS_DIR)) {
     for (const taskId of readdirSync(TASKS_DIR)) {
+      if (taskId.startsWith('.')) continue;
       seenTaskIds.add(taskId);
     }
   }
