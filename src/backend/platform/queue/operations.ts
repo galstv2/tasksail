@@ -1,9 +1,12 @@
 import path from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, rmdir, readdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { mkdir, rmdir, readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot } from '../core/index.js';
+import { withOriginLock, materializeWorktreeDeps, preconditionsPass } from '../core/worktreeMaterialization.js';
+import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
+import { resolveTaskMaterializationConfig } from '../context-pack/types.js';
 import { activeItemPath, deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
 import type { QueuePaths } from './paths.js';
 import {
@@ -481,22 +484,142 @@ export async function activateNextPendingItemIfReady(
   }
 
   // Lock precedence: 1 (queue lock; sidecar write is part of activation critical section)
-  // Write the per-task .task.json sidecar. This is the authoritative context-pack binding
-  // for this task. The singleton active-context-pack.json above is kept for back-compat.
-  // Per §3.1: AgentWorkSpace/tasks/<taskId>/.task.json
+  // §4.14 — Worktree + dependency materialization.
+  // For every visible repo root in the activating context pack: run `git worktree add`,
+  // CoW-clone dependency directories, and write real worktreeRoot into .task.json.
+  // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
+
   const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
   await ensureDir(path.dirname(perTaskSidecarPath));
 
-  // Resolve the base commit SHA of the original repo root at activation time.
-  // originalRoot at L0 is the TaskSail repo root (§4.14 will introduce per-repo worktrees).
-  const originalRoot = repoRoot;
-  let baseCommitSha = '';
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: originalRoot });
-    baseCommitSha = stdout.trim();
-  } catch {
-    // Non-fatal: leave empty if git is unavailable (e.g., bare tmpdir in tests)
-    baseCommitSha = '';
+  // Resolve the set of repo roots to materialize worktrees for.
+  // If a context pack is present, iterate its visibleRepoRoots.
+  // Otherwise fall back to a single-entry list using the platform repo root.
+  let visibleRepoRoots: string[] = [];
+  const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
+  if (cpDir) {
+    try {
+      const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
+      visibleRepoRoots = focused?.visibleRepoRoots ?? [];
+    } catch {
+      // Context pack may not have a full manifest (e.g. bootstrap mode) — fall through.
+    }
+  }
+  if (visibleRepoRoots.length === 0) {
+    visibleRepoRoots = [repoRoot];
+  }
+
+  // Determine paths to clone from the context pack's taskMaterialization field.
+  // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
+  const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
+
+  // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
+  // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
+  const basenames = visibleRepoRoots.map((r) => {
+    try { return path.basename(realpathSync(r)); } catch { return path.basename(r); }
+  });
+  const basenameCount: Record<string, number> = {};
+  for (const b of basenames) {
+    basenameCount[b] = (basenameCount[b] ?? 0) + 1;
+  }
+
+  // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
+  const repoBindings: Array<{
+    originalRoot: string;
+    worktreeRoot: string;
+    worktreeBranch: string;
+    baseCommitSha: string;
+  }> = [];
+  let combinedMat: { strategy: string; cloned: string[]; skipped: string[] } = {
+    strategy: 'copy',
+    cloned: [],
+    skipped: [],
+  };
+
+  for (let i = 0; i < visibleRepoRoots.length; i++) {
+    const originalRoot = visibleRepoRoots[i]!;
+    const base = basenames[i]!;
+
+    // Resolve base commit SHA.
+    let baseCommitSha = '';
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: originalRoot });
+      baseCommitSha = stdout.trim();
+    } catch {
+      // Non-git or bare tmpdir in tests — leave empty.
+    }
+
+    // Compute repoSlug: add sha8 suffix only when two origins share a basename.
+    let repoSlug = base;
+    if ((basenameCount[base] ?? 0) > 1) {
+      const sha8 = baseCommitSha.length >= 8 ? baseCommitSha.slice(0, 8) : (baseCommitSha || 'unknown');
+      repoSlug = `${base}-${sha8}`;
+    }
+
+    const worktreePath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', repoSlug);
+    const worktreeBranch = `task/${taskId}`;
+
+    // Check preconditions before git worktree add.
+    // Skip worktree creation when repo has no commits (e.g. bare tmpdir in tests).
+    const pre = await preconditionsPass(originalRoot, taskId, worktreePath);
+    if (!pre.ok) {
+      if (pre.reason === 'empty-origin-repo') {
+        // Non-git root or empty repo — fall back to using originalRoot as the worktreeRoot
+        // (L0 compatibility for contexts without git).
+        repoBindings.push({
+          originalRoot,
+          worktreeRoot: originalRoot,
+          worktreeBranch: worktreeBranch,
+          baseCommitSha,
+        });
+        continue;
+      }
+      // branch-already-exists or worktree-already-bound — fail activation.
+      throw new Error(`activation-precondition-failed: ${pre.reason}: ${pre.detail ?? ''}`);
+    }
+
+    // Run git worktree add + CoW clone inside the per-origin async lock.
+    // CRITICAL: MUST be wrapped in withOriginLock to serialise concurrent activations
+    // that share the same origin repo.
+    const mat = await withOriginLock(originalRoot, async () => {
+      await execFileAsync('git', [
+        '-C', originalRoot,
+        'worktree', 'add',
+        '-b', worktreeBranch,
+        worktreePath,
+        baseCommitSha,
+      ]);
+      try {
+        const result = await materializeWorktreeDeps(originalRoot, worktreePath, pathsToClone);
+        return result;
+      } catch (cloneErr) {
+        // §4.14 atomic rollback — 5 steps, in order, each swallows its own errors.
+        // Step 1: git worktree remove --force (detach admin record before branch delete)
+        await execFileAsync('git', ['-C', originalRoot, 'worktree', 'remove', '--force', worktreePath]).catch(() => {});
+        // Step 2: git branch -D (remove task/<taskId> from refs)
+        await execFileAsync('git', ['-C', originalRoot, 'branch', '-D', worktreeBranch]).catch(() => {});
+        // Step 3: fs.rm AgentWorkSpace/tasks/<taskId>/ (reclaim disk; critical on ENOSPC)
+        await rm(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId), { recursive: true, force: true }).catch(() => {});
+        // Step 4: portAllocator.release(taskId) — §6.2 not yet landed; stub below.
+        await releasePortLease(taskId, originalRoot);
+        // Step 5: unlink .active-items/<taskId> — marker may not yet exist; swallow errors.
+        await unlink(path.join(paths.activeItemsDir, taskId)).catch(() => {});
+        throw cloneErr;
+      }
+    });
+
+    combinedMat = {
+      strategy: mat.strategy,
+      cloned: [...combinedMat.cloned, ...mat.cloned],
+      skipped: [...combinedMat.skipped, ...mat.skipped],
+    };
+
+    repoBindings.push({
+      originalRoot,
+      worktreeRoot: worktreePath,
+      worktreeBranch: worktreeBranch,
+      baseCommitSha,
+    });
   }
 
   const perTaskSidecar = {
@@ -508,19 +631,12 @@ export async function activateNextPendingItemIfReady(
         : null,
       dataHostDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] ?? null,
       dataContainerDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] ?? null,
-      repoBindings: [
-        {
-          originalRoot,
-          worktreeRoot: originalRoot,
-          worktreeBranch: `task/${taskId}`,
-          baseCommitSha,
-        },
-      ],
+      repoBindings,
     },
     materialization: {
-      strategy: 'copy',
-      cloned: [],
-      skipped: [],
+      strategy: combinedMat.strategy,
+      cloned: combinedMat.cloned,
+      skipped: combinedMat.skipped,
       composeProjectName: 'repo-context-mcp',
     },
     frozenAt: new Date().toISOString(),
@@ -643,4 +759,38 @@ export async function completeActiveItem(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------------------------------------------------------------------------
+// Port allocator stub — §6.2 not yet landed
+// ---------------------------------------------------------------------------
+
+/**
+ * Release any port lease recorded for `taskId` in the platform-state port
+ * allocations file.  Swallows all errors — this is a best-effort cleanup step.
+ *
+ * TODO(§6.2): replace with portAllocator.release(taskId)
+ */
+async function releasePortLease(taskId: string, _repoRoot: string): Promise<void> {
+  // Determine platform state dir by walking up from the known AgentWorkSpace convention.
+  // We cannot import findRepoRoot here because this function runs during rollback where
+  // the repoRoot is already available in the call site's closure; the param is carried
+  // through for future §6.2 wiring.
+  const portAllocPath = path.join(
+    _repoRoot,
+    '.platform-state',
+    'runtime',
+    'port-allocations.json',
+  );
+  try {
+    const { readFile: _rf, writeFile: _wf } = await import('node:fs/promises');
+    const raw = await _rf(portAllocPath, 'utf-8').catch(() => null);
+    if (!raw) return;
+    const allocs = JSON.parse(raw) as Record<string, unknown>;
+    if (!(taskId in allocs)) return;
+    delete allocs[taskId];
+    await _wf(portAllocPath, JSON.stringify(allocs, null, 2) + '\n', 'utf-8');
+  } catch {
+    // Swallow — idempotent, best-effort per §6.2 contract.
+  }
 }

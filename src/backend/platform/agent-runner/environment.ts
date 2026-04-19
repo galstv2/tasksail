@@ -1,9 +1,11 @@
+import path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { AgentProfile, CopilotArgs } from './types.js';
 import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
 import { resolvePaths } from '../core/index.js';
-import path from 'node:path';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
 
 /**
  * Build the environment variables object for an agent invocation process.
@@ -48,6 +50,35 @@ export function buildAgentEnvironment(
     }
     env['TASKSAIL_TASK_ID'] = taskId ?? '';
     env['COPILOT_PLATFORM_REPO_ROOT'] = repoRoot;
+
+    // §4.15 Branch-name surfacing: inject TASKSAIL_TASK_BRANCHES so Ron can
+    // copy the branch names into ## Task branches in final-summary.md.
+    // Reads .task.json.contextPackBinding.repoBindings[].worktreeBranch.
+    // Windows env-block ceiling: if the serialized JSON exceeds 8192 bytes,
+    // spill to a file and inject TASKSAIL_TASK_BRANCHES_FILE instead.
+    if (taskId) {
+      const taskSidecar = readTaskJsonSafe(taskId, repoRoot);
+      if (taskSidecar && taskSidecar.contextPackBinding.repoBindings.length > 0) {
+        const branches = taskSidecar.contextPackBinding.repoBindings.map((rb) => ({
+          originalRoot: rb.originalRoot,
+          branch: rb.worktreeBranch,
+        }));
+        const serialized = JSON.stringify(branches);
+        const byteLen = Buffer.byteLength(serialized, 'utf8');
+        if (byteLen <= 8192) {
+          env['TASKSAIL_TASK_BRANCHES'] = serialized;
+        } else {
+          // Spill to a file; Ron's prompt reads TASKSAIL_TASK_BRANCHES_FILE.
+          const taskRuntimeDir = path.join(
+            repoRoot, '.platform-state', 'runtime', 'tasks', taskId,
+          );
+          mkdirSync(taskRuntimeDir, { recursive: true });
+          const spillPath = path.join(taskRuntimeDir, 'task-branches.json');
+          writeFileSync(spillPath, serialized, 'utf-8');
+          env['TASKSAIL_TASK_BRANCHES_FILE'] = spillPath;
+        }
+      }
+    }
   }
 
   const missing = validateAgentEnvironment(env);

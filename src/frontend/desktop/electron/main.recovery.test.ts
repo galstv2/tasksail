@@ -165,7 +165,7 @@ describe('startTaskRecoveryController', () => {
     controller.reconcileNow();
 
     await vi.waitFor(() => {
-      expect(moveFailedItemToErrorItems).toHaveBeenCalledWith({ repoRoot: '/repo' });
+      expect(moveFailedItemToErrorItems).toHaveBeenCalledWith({ repoRoot: '/repo', taskId: 'TASK-1' });
     });
     expect(writeTaskRecoveryState).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'activation-timeout',

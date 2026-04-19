@@ -396,6 +396,18 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
         missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/final-summary.md')}: set '- Difficulty Level:' in the Difficulty Assessment section to exactly 'Easy', 'Medium', or 'Hard'.`);
       }
+      // §4.15 Branch-name surfacing: instruct Ron to copy branch names into
+      // ## Task branches in final-summary.md. Ron MUST NOT introspect git —
+      // the branch list is available in TASKSAIL_TASK_BRANCHES (inline JSON)
+      // or TASKSAIL_TASK_BRANCHES_FILE (path to a JSON file when payload > 8KB).
+      if (!finalSummary.sections['Task branches'] || finalSummary.sections['Task branches']!.join('').trim().length === 0) {
+        missingParts.push(
+          `- ${toPromptPath('AgentWorkSpace/handoffs/final-summary.md')}: add a '## Task branches' section. ` +
+          `Copy the value of the TASKSAIL_TASK_BRANCHES environment variable (a JSON array of { originalRoot, branch } objects) ` +
+          `into this section. If TASKSAIL_TASK_BRANCHES is absent or empty, read the file path from TASKSAIL_TASK_BRANCHES_FILE instead and copy its contents. ` +
+          `Do NOT run any git commands to discover branch names — use only the env var or file.`,
+        );
+      }
     }
   }
   if (missingParts.length === 0) {

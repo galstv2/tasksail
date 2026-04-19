@@ -97,7 +97,7 @@ export type { DeleteDropboxItemOptions } from './deleteDropboxItem.js';
 export { deleteErrorItem } from './deleteErrorItem.js';
 export type { DeleteErrorItemOptions } from './deleteErrorItem.js';
 
-export { moveFailedItemToErrorItems, restoreWorkingTree, commitTaskSnapshot, requeueErrorItem, moveErrorItemToDropbox } from './errorItems.js';
+export { moveFailedItemToErrorItems, commitTaskSnapshot, requeueErrorItem, moveErrorItemToDropbox } from './errorItems.js';
 export type { MoveFailedItemResult } from './errorItems.js';
 
 export { readQueueOrderManifest, writeQueueOrderManifest, insertIntoQueueManifest } from './operations.js';

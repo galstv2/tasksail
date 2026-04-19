@@ -590,13 +590,12 @@ export async function runTestCaptureWithPhaseTracking(options: {
 
 async function handlePipelineFailure(
   repoRoot: string,
-  contextPackDir: string | undefined,
+  _contextPackDir: string | undefined,
   taskId: string,
 ): Promise<void> {
   try {
     await moveFailedItemToErrorItems({
       repoRoot,
-      contextPackDir: contextPackDir ?? undefined,
       taskId,
     });
   } catch (err) {

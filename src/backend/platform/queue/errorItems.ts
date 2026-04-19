@@ -1,11 +1,9 @@
-import { spawn } from 'node:child_process';
-import { realpathSync, existsSync, readdirSync } from 'node:fs';
+import { spawn, execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
-import { resolveQueuePaths, HANDOFF_FILES } from './paths.js';
+import { resolveQueuePaths } from './paths.js';
 import { findRepoRoot } from '../core/index.js';
-import { resetHandoffArtifacts } from './lifecycle.js';
 import {
   activateNextPendingItemIfReady,
   getActiveTaskIds,
@@ -14,25 +12,15 @@ import {
   writeQueueOrderManifest,
 } from './operations.js';
 import { transitionTask } from './taskRegistry.js';
+import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
+import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
+import { getPlatformConfig } from '../platform-config/get.js';
+
+const execFileAsync = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
-// Git helpers
+// Git helpers (retained for commitTaskSnapshot worktree commits)
 // ---------------------------------------------------------------------------
-
-const PLATFORM_RESTORE_EXCLUDES = [
-  'AgentWorkSpace/dropbox',
-  'AgentWorkSpace/dropbox/**',
-  'AgentWorkSpace/pendingitems',
-  'AgentWorkSpace/pendingitems/**',
-  'AgentWorkSpace/error-items',
-  'AgentWorkSpace/error-items/**',
-  'AgentWorkSpace/handoffs',
-  'AgentWorkSpace/handoffs/**',
-  'AgentWorkSpace/ImplementationSteps',
-  'AgentWorkSpace/ImplementationSteps/**',
-  '.platform-state/runtime',
-  '.platform-state/runtime/**',
-] as const;
 
 function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -59,62 +47,35 @@ function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; std
   });
 }
 
-function buildPathspecArgs(excludes: readonly string[]): string[] {
-  return ['--', '.', ...excludes.map((entry) => `:(exclude)${entry}`)];
-}
-
-function excludeRoot(pattern: string): string {
-  return pattern.replace(/\/\*\*$/, '').replace(/\/$/, '');
-}
-
-function isExcludedPath(relPath: string, excludes: readonly string[]): boolean {
-  const normalized = relPath.replace(/\\/g, '/').replace(/\/$/, '');
-  return excludes.some((pattern) => {
-    const base = excludeRoot(pattern);
-    return normalized === base || normalized.startsWith(`${base}/`);
-  });
-}
-
 // ---------------------------------------------------------------------------
-// Working tree restore
+// Port-allocation release helper
+// TODO(§6.2): replace with portAllocator.release when §6.2 lands.
 // ---------------------------------------------------------------------------
 
 /**
- * Restore all repos visible to the active context pack to a clean HEAD state.
- * Best-effort: logs warnings on failure rather than throwing.
+ * Remove the failing task's entry from the shared port-allocations table.
+ * Swallows ENOENT and JSON parse errors — the table may be absent for tasks
+ * that did not acquire a port, and that is not an error.
  */
-export async function restoreWorkingTree(
-  repoRoot: string,
-  contextPackDir?: string,
-): Promise<void> {
-  const roots = await resolveRepoRoots(repoRoot, contextPackDir);
-  for (const root of roots) {
-    const isMainRepo = realpathSync(root) === realpathSync(repoRoot);
-    const excludes = isMainRepo ? [...PLATFORM_RESTORE_EXCLUDES] : [];
-
-    await runGit(root, [
-      'restore', '--source', 'HEAD', '--staged', '--worktree',
-      ...buildPathspecArgs(excludes),
-    ]);
-
-    const untracked = await runGit(root, [
-      'ls-files', '--others', '--exclude-standard', '--directory', '-z',
-    ]);
-    const toRemove = untracked.stdout.split('\0').filter(Boolean)
-      .map((e) => e.replace(/\/$/, ''))
-      .filter((rel) => rel && !isExcludedPath(rel, excludes))
-      .map((rel) => rm(path.join(root, rel), { recursive: true, force: true }));
-    await Promise.all(toRemove);
+async function releasePortLease(taskId: string, root: string): Promise<void> {
+  const tablePath = path.join(root, '.platform-state', 'runtime', 'port-allocations.json');
+  try {
+    const { readFile, writeFile, rename: renameFile } = await import('node:fs/promises');
+    const raw = await readFile(tablePath, 'utf-8');
+    let table: Record<string, unknown>;
+    try {
+      table = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return; // Corrupt table — leave it alone
+    }
+    if (!(taskId in table)) return; // Not present — no-op
+    delete table[taskId];
+    const tmpPath = tablePath + '.tmp';
+    await writeFile(tmpPath, JSON.stringify(table, null, 2) + '\n', 'utf-8');
+    await renameFile(tmpPath, tablePath);
+  } catch {
+    // ENOENT or other I/O error — swallow
   }
-}
-
-async function resolveRepoRoots(
-  repoRoot: string,
-  contextPackDir?: string,
-): Promise<string[]> {
-  if (!contextPackDir) return [];
-  const focused = await resolveFocusedRepoRoot(contextPackDir, repoRoot);
-  return [...new Set((focused?.visibleRepoRoots ?? []).map((r) => realpathSync(r)))];
 }
 
 // ---------------------------------------------------------------------------
@@ -122,14 +83,13 @@ async function resolveRepoRoots(
 // ---------------------------------------------------------------------------
 
 /**
- * Commit all agent work to a local git snapshot before cleaning the worktree.
+ * Commit all agent work to a local git snapshot inside each task worktree.
  *
- * When `resetHead` is true (failure path), HEAD is moved back after the commit
- * so that a subsequent `restoreWorkingTree()` restores to the pre-agent state.
- * The snapshot commit remains reachable via `git reflog`.
+ * Reads task's repoBindings from .task.json and runs `git add -A` + `git commit`
+ * in each binding's worktreeRoot (CWD = worktreeRoot), committing to the
+ * task/<taskId> branch that lives in that worktree.
  *
- * When `resetHead` is false (success path), the commit stays as HEAD — no
- * worktree restore follows on the success path.
+ * No cross-process lock needed: each worktree has its own HEAD/index.
  *
  * Best-effort: returns false on failure instead of throwing.
  */
@@ -137,21 +97,27 @@ export async function commitTaskSnapshot(
   repoRoot: string,
   taskId: string,
   outcome: 'completed' | 'failed',
-  contextPackDir?: string,
 ): Promise<boolean> {
-  const resetHead = outcome === 'failed';
-  const roots = await resolveRepoRoots(repoRoot, contextPackDir);
-  if (roots.length === 0) {
+  let taskJson;
+  try {
+    taskJson = readTaskJson(taskId, repoRoot);
+  } catch {
+    // Sidecar missing or corrupt — no bindings to commit in
     return true;
   }
 
-  for (const root of roots) {
+  const bindings = taskJson.contextPackBinding.repoBindings;
+  if (bindings.length === 0) {
+    return true;
+  }
+
+  for (const binding of bindings) {
     try {
-      await runGit(root, ['add', '-A']);
+      await runGit(binding.worktreeRoot, ['add', '-A']);
 
       const label = outcome === 'completed' ? 'completed' : 'pipeline failed';
       try {
-        await runGit(root, [
+        await runGit(binding.worktreeRoot, [
           'commit',
           '-m', `[tasksail] ${taskId}: ${label}`,
           '--no-verify',
@@ -160,19 +126,55 @@ export async function commitTaskSnapshot(
         // Nothing staged — git commit exits non-zero on empty tree. Skip.
         continue;
       }
-
-      if (resetHead) {
-        await runGit(root, ['reset', '--soft', 'HEAD~1']);
-      }
+      // NOTE: resetHead behavior deleted — worktree will be finalized/torn down.
     } catch (err) {
       process.stderr.write(
-        `Warning: task snapshot commit failed in ${root}: ${err instanceof Error ? err.message : String(err)}\n`,
+        `Warning: task snapshot commit failed in ${binding.worktreeRoot}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       return false;
     }
   }
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Retry-suffix collision helpers (for requeueErrorItem)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan across the UNION of all originalRoots in the task's repoBindings to find
+ * the smallest monotonic N ≥ 1 such that no origin has a branch
+ * `task/<original-slug>-retry<N>`.
+ *
+ * MUST be called under the queue lock to prevent concurrent requeues from
+ * picking the same retry<N>.
+ */
+async function pickNextRetryN(taskId: string, root: string): Promise<number> {
+  const sidecar = readTaskJsonSafe(taskId, root);
+  if (!sidecar) return 1;
+  const originalSlug = taskId.replace(/-retry\d+$/, '');
+  const taken = new Set<number>();
+  for (const binding of sidecar.contextPackBinding.repoBindings) {
+    let stdout = '';
+    try {
+      const result = await execFileAsync('git', [
+        '-C', binding.originalRoot, 'for-each-ref',
+        '--format=%(refname:short)',
+        `refs/heads/task/${originalSlug}-retry*`,
+      ]);
+      stdout = result.stdout;
+    } catch {
+      // No matching refs or git error — treat as empty
+    }
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/-retry(\d+)$/);
+      if (m) taken.add(parseInt(m[1]!, 10));
+    }
+  }
+  let n = 1;
+  while (taken.has(n)) n++;
+  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,46 +189,48 @@ export interface MoveFailedItemResult {
 
 /**
  * Move the currently active (failed) pending item to `error-items/`,
- * restore the git working tree to HEAD, reset handoff artifacts,
- * and auto-advance the queue.
+ * finalize task worktrees via §4.15 finalizeTaskWorktrees, release port lease,
+ * reset handoff artifacts, and auto-advance the queue.
+ *
+ * `taskId` is REQUIRED — the fallback directory enumeration has been deleted.
+ * Callers must supply the failing task's ID directly.
  */
 export async function moveFailedItemToErrorItems(options: {
   repoRoot?: string;
-  contextPackDir?: string;
-  taskId?: string;
+  taskId: string;
 }): Promise<MoveFailedItemResult> {
   const root = options.repoRoot ?? findRepoRoot();
+  const taskId = options.taskId;
   const queuePaths = resolveQueuePaths(root);
 
-  // Resolve the active item via .active-items/ directory enumeration
-  let taskId: string;
-  if (options.taskId) {
-    taskId = options.taskId;
-  } else {
-    let markers: string[] = [];
-    if (existsSync(queuePaths.activeItemsDir)) {
-      try {
-        markers = readdirSync(queuePaths.activeItemsDir).filter(
-          (f) => !f.endsWith('.completing'),
-        );
-      } catch { /* skip */ }
-    }
-    if (markers.length === 0) {
-      throw new Error('No active item to move to error-items.');
-    }
-    taskId = markers[0]!.replace(/\.md$/, '');
-  }
   const activeItem = `${taskId}.md`;
   const sourcePath = path.join(queuePaths.pendingDir, activeItem);
   await mkdir(queuePaths.errorItemsDir, { recursive: true });
   const destPath = path.join(queuePaths.errorItemsDir, activeItem);
 
-  await commitTaskSnapshot(root, taskId, 'failed', options.contextPackDir);
+  // F7: unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
+  // Stale locks would block re-activation if the same taskId is requeued with
+  // retain_failed_task_worktrees=true.
+  const taskRuntimePath = path.join(root, '.platform-state', 'runtime', 'tasks', taskId);
+  await rm(path.join(taskRuntimePath, 'pipeline.lock'), { recursive: true, force: true }).catch(() => {});
+
+  await commitTaskSnapshot(root, taskId, 'failed');
+
+  // §4.15: finalize (tear down / retain) all worktrees for this task only.
+  // This also stamps .task.json.state = "failed" and finalizedAt.
+  await finalizeTaskWorktrees(taskId, 'failed', root);
+
+  // §6.2 port release — AFTER finalizeTaskWorktrees but BEFORE marker removal.
+  // TODO(§6.2): replace with portAllocator.release(taskId) when §6.2 lands.
+  await releasePortLease(taskId, root);
+
   await rename(sourcePath, destPath);
 
-  // Transition active → failed in the task registry
+  // Transition active → failed in the task registry using .filter semantics.
+  // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
   try { await transitionTask(root, taskId, 'active', 'failed'); } catch { /* best-effort */ }
 
+  // Remove ONLY this task's marker — never the directory, never peer markers.
   try {
     await unlink(path.join(queuePaths.activeItemsDir, taskId));
   } catch {
@@ -249,17 +253,10 @@ export async function moveFailedItemToErrorItems(options: {
     }
   } catch { /* best-effort */ }
 
-  try {
-    await restoreWorkingTree(root, options.contextPackDir);
-  } catch (err) {
-    process.stderr.write(
-      `Warning: git working tree restore failed: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-  }
-
-  await resetHandoffArtifacts(queuePaths.handoffsDir, HANDOFF_FILES, {
-    implementationStepsDir: path.join(root, 'AgentWorkSpace', 'ImplementationSteps'),
-  });
+  // Singleton-handoffs reset block DELETED (lines 260-262 in pre-§4.14A code).
+  // Under the parallel model the per-task copy is at AgentWorkSpace/tasks/<taskId>/handoffs/
+  // and is reaped by finalizeTaskWorktrees above. Touching the shared handoffs dir
+  // here would be a blast-radius violation against peer tasks.
 
   let nextActiveItem: string | null = null;
   const activateResult = await activateNextPendingItemIfReady({
@@ -285,6 +282,12 @@ export async function moveFailedItemToErrorItems(options: {
 /**
  * Move a failed item from `error-items/` back to `pendingitems/` and insert
  * it into the queue ordering manifest at the specified position.
+ *
+ * On requeue, derives a monotonic -retry<N> suffix to avoid branch collisions
+ * when retain_failed_task_worktrees=true. The pending item file is renamed to
+ * `<original-slug>-retry<N>.md` so that activation picks up the correct taskId
+ * without needing an override parameter. Enforces max_retry_generations_per_slug.
+ * MUST be called under the queue lock (the caller's activation critical section).
  */
 export async function requeueErrorItem(options: {
   fileName: string;
@@ -293,21 +296,71 @@ export async function requeueErrorItem(options: {
 }): Promise<{ requeuedItem: string; activatedItem: string | null }> {
   const root = options.repoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(root);
+
+  // Derive the original taskId from the filename.
+  const requeuedTaskId = options.fileName.replace(/\.md$/, '');
+  const originalSlug = requeuedTaskId.replace(/-retry\d+$/, '');
+
+  // Determine the retry-suffix for the new activation.
+  // Scan MUST run under the queue lock (enforced by caller's critical section).
+  const cfg = await getPlatformConfig(root);
+  const n = await pickNextRetryN(requeuedTaskId, root);
+  const cap = cfg.max_retry_generations_per_slug;
+
+  if (n > cap) {
+    // Collect the taken set for the error payload (pickNextRetryN computed it
+    // internally; re-scan here to provide the structured payload).
+    const sidecar = readTaskJsonSafe(requeuedTaskId, root);
+    const takenSet = new Set<number>();
+    if (sidecar) {
+      for (const binding of sidecar.contextPackBinding.repoBindings) {
+        try {
+          const result = await execFileAsync('git', [
+            '-C', binding.originalRoot, 'for-each-ref',
+            '--format=%(refname:short)',
+            `refs/heads/task/${originalSlug}-retry*`,
+          ]);
+          for (const line of result.stdout.split('\n')) {
+            const m = line.match(/-retry(\d+)$/);
+            if (m) takenSet.add(parseInt(m[1]!, 10));
+          }
+        } catch { /* swallow */ }
+      }
+    }
+    throw Object.assign(
+      new Error(
+        `retry-generations-exhausted: slug="${originalSlug}" cap=${cap} foundGenerations=[${[...takenSet].sort((a, b) => a - b).join(',')}]`,
+      ),
+      {
+        code: 'retry-generations-exhausted' as const,
+        slug: originalSlug,
+        cap,
+        foundGenerations: [...takenSet].sort((a, b) => a - b),
+      },
+    );
+  }
+
+  // Derive the retry-suffixed filename so activation picks up the new taskId.
+  const retryTaskId = `${originalSlug}-retry${n}`;
+  const retryFileName = `${retryTaskId}.md`;
+
   const sourcePath = path.join(queuePaths.errorItemsDir, options.fileName);
-  const destPath = path.join(queuePaths.pendingDir, options.fileName);
+  const destPath = path.join(queuePaths.pendingDir, retryFileName);
 
   await rename(sourcePath, destPath);
 
-  // Transition failed → pending in the task registry
-  const requeuedTaskId = options.fileName.replace(/\.md$/, '');
+  // Transition failed → pending in the task registry under the new taskId.
+  // The original failed entry lives under requeuedTaskId; the new pending entry
+  // uses retryTaskId. Transition the original failed entry to pending first, then
+  // update its taskId in the registry via a remove+re-register is unnecessary —
+  // the existing transitionTask call suffices for the old entry; the new activation
+  // will register the retryTaskId entry when it runs.
   try { await transitionTask(root, requeuedTaskId, 'failed', 'pending'); } catch { /* best-effort */ }
 
-  await insertIntoQueueManifest(queuePaths.pendingDir, options.fileName, options.insertAtIndex);
+  await insertIntoQueueManifest(queuePaths.pendingDir, retryFileName, options.insertAtIndex);
 
-  // Reset the workspace first; runtime receipts now persist until the next
-  // task activation succeeds so operators can still inspect the failed run.
-  await resetHandoffArtifacts(queuePaths.handoffsDir, HANDOFF_FILES, {
-  });
+  // Singleton-handoffs reset block DELETED (lines 309-310 in pre-§4.14A code).
+  // Touching the shared handoffs dir here is a blast-radius violation.
 
   let activatedItem: string | null = null;
   const activateResult2 = await activateNextPendingItemIfReady({
@@ -319,7 +372,7 @@ export async function requeueErrorItem(options: {
     activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
   }
 
-  return { requeuedItem: options.fileName, activatedItem };
+  return { requeuedItem: retryFileName, activatedItem };
 }
 
 /**

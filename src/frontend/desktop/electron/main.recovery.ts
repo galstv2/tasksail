@@ -398,7 +398,10 @@ export function startTaskRecoveryController(options: {
 
         if (!pipelineLocked && activationAgeMs > RUNTIME_FAILURE_GRACE_MS && hasCriticalRuntimeFailure(runtimeHealth)) {
           await withQueueLockIfAvailable('desktop.failStrandedActiveTask', async () => {
-            const result = await moveFailedItemToErrorItems({ repoRoot: REPO_ROOT });
+            const result = await moveFailedItemToErrorItems({
+              repoRoot: REPO_ROOT,
+              taskId: activeQueueName.replace(/\.md$/, ''),
+            });
             emitStreamEvent({
               message: `Auto-failed stranded task ${result.movedItem}: ${runtimeHealth?.summary ?? 'runtime failure observed.'}`,
               source: 'recovery.controller',
@@ -435,7 +438,10 @@ export function startTaskRecoveryController(options: {
       }
 
       await withQueueLockIfAvailable('desktop.failInactiveActivation', async () => {
-        const result = await moveFailedItemToErrorItems({ repoRoot: REPO_ROOT });
+        const result = await moveFailedItemToErrorItems({
+          repoRoot: REPO_ROOT,
+          taskId: activeQueueName.replace(/\.md$/, ''),
+        });
         const summary = `No pipeline activity was observed within ${Math.round(activationGraceMs / 60000)} minutes of activation.`;
         emitStreamEvent({
           message: `Auto-failed stranded task ${result.movedItem}: ${summary}`,
