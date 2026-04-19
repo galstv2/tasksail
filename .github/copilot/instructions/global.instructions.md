@@ -10,12 +10,13 @@ This repository is the control plane for a repo-based local agent workflow on Wi
 
 Use human names in handoffs. Canonical source: `.github/agents/registry.json`.
 
-| Name | Role | Agent ID | Order |
-|---|---|---|---|
-| Lily | Planning Specialist | planning-agent | 0 |
-| Alice | Product Manager | product-manager | 1 |
-| Dalton | Software Engineer | software-engineer | 2 |
-| Ron | QA and Closeout | qa | 3 |
+| Name | Role | Agent ID | Autonomy | Order |
+|---|---|---|---|---|
+| Lily | Planning Specialist | planning-agent | artifact-author | 0 |
+| Alice | Product Manager | product-manager | artifact-author | 1 |
+| Dalton | Software Engineer | software-engineer | repo-executor | 2 |
+| Ron | QA and Closeout | qa | qa-executor | 3 |
+| Dalton (Verify) | Verification Engineer | software-engineer-verify | repo-executor | 99 |
 
 ## Context-Pack Runtime Signals
 

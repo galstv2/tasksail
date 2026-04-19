@@ -17,6 +17,7 @@ class AgentRegistryContractTests(unittest.TestCase):
             "planning-agent",
             "product-manager",
             "software-engineer",
+            "software-engineer-verify",
             "qa",
         }
         cls.required_fields = {
@@ -32,7 +33,8 @@ class AgentRegistryContractTests(unittest.TestCase):
             "planning-agent": "artifact-author",
             "product-manager": "artifact-author",
             "software-engineer": "repo-executor",
-            "qa": "artifact-author",
+            "software-engineer-verify": "repo-executor",
+            "qa": "qa-executor",
         }
 
     def load_registry(self) -> dict[str, object]:
@@ -75,7 +77,7 @@ class AgentRegistryContractTests(unittest.TestCase):
 
         self.assertEqual(
             registry_map["planning-agent"].get("required_model"),
-            "gpt-4.1",
+            "claude-sonnet-4.6",
         )
         self.assertEqual(
             registry_map["product-manager"].get("required_model"),
@@ -83,7 +85,11 @@ class AgentRegistryContractTests(unittest.TestCase):
         )
         self.assertEqual(
             registry_map["software-engineer"].get("required_model"),
-            "gpt-4.1",
+            "claude-sonnet-4.6",
+        )
+        self.assertEqual(
+            registry_map["software-engineer-verify"].get("required_model"),
+            "claude-sonnet-4.6",
         )
         self.assertEqual(
             registry_map["qa"].get("required_model"),
