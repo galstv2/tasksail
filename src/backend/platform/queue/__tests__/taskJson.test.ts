@@ -233,14 +233,16 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(caughtPayload!['expectedVersion']).toBe(1);
   });
 
-  it('F33: succeeds and returns schema_version=1 when schema_version field is absent', () => {
+  it('F33 + B7-data: succeeds and normalizes absent schema_version to current (2) in-memory', () => {
     const taskId = 'no-version-task';
     const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
     mkdirSync(taskDir, { recursive: true });
     writeFileSync(
       path.join(taskDir, '.task.json'),
       JSON.stringify({
-        // schema_version intentionally absent
+        // schema_version intentionally absent — defaults to 1, then B7-data
+        // normalization bumps the IN-MEMORY shape to CURRENT (2). The on-disk
+        // file is left untouched (no mtime churn → platform-config cache safe).
         taskId,
         state: 'active',
         frozenAt: new Date().toISOString(),
@@ -261,8 +263,15 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     );
 
     const result = readTaskJson(taskId, repoRoot);
-    expect(result.schema_version).toBe(1);
+    expect(result.schema_version).toBe(2);
     expect(result.taskId).toBe(taskId);
+
+    // On-disk file MUST NOT have been rewritten — verify schema_version is
+    // still absent on disk (normalization is read-side only).
+    const onDisk = JSON.parse(
+      readFileSync(path.join(taskDir, '.task.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    expect('schema_version' in onDisk).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -295,6 +304,112 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     writeFileSync(path.join(taskDir, '.task.json'), 'NOT JSON {{{');
     const result = readTaskJsonSafe(taskId, repoRoot);
     expect(result).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // §B7-data schema v2 normalization and per-binding mergedAt/mergedVia surfacing
+  // -------------------------------------------------------------------------
+
+  it('B7-data: reads a v1 on-disk sidecar and surfaces in-memory schema_version=2 with mergedAt undefined', () => {
+    const taskId = 'b7-v1-sidecar';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        state: 'completed',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: new Date().toISOString(),
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [{
+            originalRoot: '/tmp/origin',
+            worktreeRoot: '/tmp/wt',
+            worktreeBranch: `task/${taskId}`,
+            baseCommitSha: 'deadbeef',
+            // mergedAt + mergedVia intentionally absent on v1
+          }],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+          composeProjectName: 'tasksail-' + taskId,
+        },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    // Reader-side normalization: in-memory shape is uniformly v2.
+    expect(result.schema_version).toBe(2);
+    // Per-binding v2 fields surface as undefined for v1 records.
+    const binding = result.contextPackBinding.repoBindings[0]!;
+    expect(binding.mergedAt).toBeUndefined();
+    expect(binding.mergedVia).toBeUndefined();
+
+    // On-disk version must remain 1 (no destructive rewrite on read).
+    const onDisk = JSON.parse(
+      readFileSync(path.join(taskDir, '.task.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    expect(onDisk['schema_version']).toBe(1);
+  });
+
+  it('B7-data: reads a v2 sidecar with per-binding mergedAt/mergedVia and surfaces them verbatim', () => {
+    const taskId = 'b7-v2-sidecar';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    const mergedTs = '2026-04-15T12:34:56.000Z';
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'completed',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: new Date().toISOString(),
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            {
+              originalRoot: '/tmp/origin-1',
+              worktreeRoot: '/tmp/wt-1',
+              worktreeBranch: `task/${taskId}`,
+              baseCommitSha: 'aaaa1111',
+              mergedAt: mergedTs,
+              mergedVia: 'merged-into-head',
+            },
+            {
+              originalRoot: '/tmp/origin-2',
+              worktreeRoot: '/tmp/wt-2',
+              worktreeBranch: `task/${taskId}`,
+              baseCommitSha: 'bbbb2222',
+              mergedAt: mergedTs,
+              mergedVia: 'branch-deleted',
+            },
+          ],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+          composeProjectName: 'tasksail-' + taskId,
+        },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.schema_version).toBe(2);
+    const [b1, b2] = result.contextPackBinding.repoBindings;
+    expect(b1!.mergedAt).toBe(mergedTs);
+    expect(b1!.mergedVia).toBe('merged-into-head');
+    expect(b2!.mergedAt).toBe(mergedTs);
+    expect(b2!.mergedVia).toBe('branch-deleted');
   });
 
   // §3.5 Phase 3 gate — sidecar wins over mutated .env under TASKSAIL_TASK_ID.

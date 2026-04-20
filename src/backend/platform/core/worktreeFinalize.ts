@@ -273,14 +273,20 @@ export async function finalizeTaskWorktrees(
   persistTaskJson(taskId, repoRoot, outcome, finalizedAt);
 
   // Parent-dir cleanup policy:
-  //   completed:            always remove parent dir (artifacts consumed by archival)
+  //   completed:            preserve parent dir + .task.json sidecar (B7-data);
+  //                         only the consumed subdirs are removed. The sidecar
+  //                         is the authoritative pending-merge record consumed
+  //                         by B7-sweep merge detection. Subdir cleanup keeps
+  //                         disk usage bounded.
   //   failed+retain=false:  remove parent dir (matching no-retention intent)
   //   failed+retain=true:   PRESERVE parent dir for operator inspection
   const cfg = await getPlatformConfig(repoRoot);
   const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
 
   if (outcome === 'completed') {
-    rmSync(parentDir, { recursive: true, force: true });
+    for (const subdir of ['handoffs', 'ImplementationSteps', 'worktrees']) {
+      rmSync(path.join(parentDir, subdir), { recursive: true, force: true });
+    }
   } else if (outcome === 'failed' && !cfg.retain_failed_task_worktrees) {
     rmSync(parentDir, { recursive: true, force: true });
   }

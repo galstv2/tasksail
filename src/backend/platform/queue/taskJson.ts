@@ -18,6 +18,19 @@ export interface TaskRepoBinding {
   worktreeRoot: string;
   worktreeBranch: string;
   baseCommitSha: string;
+  /**
+   * §B7-data (schema v2): wall-clock timestamp at which B7-sweep first
+   * observed the task branch as merged-into-head or branch-deleted in the
+   * originalRoot. Absent on schema v1 sidecars and on tasks that have not
+   * yet been swept.
+   */
+  mergedAt?: string;
+  /**
+   * §B7-data (schema v2): how the merge was detected.
+   *   - 'merged-into-head' — `git merge-base --is-ancestor <branch> HEAD` succeeded.
+   *   - 'branch-deleted'   — `refs/heads/<branch>` no longer exists in originalRoot.
+   */
+  mergedVia?: 'merged-into-head' | 'branch-deleted';
 }
 
 export interface TaskContextPackBinding {
@@ -41,7 +54,12 @@ export interface TaskJson {
   materialization: TaskMaterialization;
   frozenAt: string;
   finalizedAt: string | null;
-  state: 'active' | 'completed' | 'failed';
+  /**
+   * §B7-data: 'merged' (schema v2) is stamped by B7-sweep once every binding
+   * has a `mergedAt` timestamp; the parent dir + sidecar are deleted on the
+   * next sweep pass.
+   */
+  state: 'active' | 'completed' | 'failed' | 'merged';
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +96,21 @@ export type TaskSidecarError =
 // Internal constants
 // ---------------------------------------------------------------------------
 
+/**
+ * Lowest on-disk schema version that the reader still accepts. Stays at 1 so
+ * existing v1 sidecars continue to parse without an on-disk migration; the v2
+ * fields (TaskRepoBinding.mergedAt/mergedVia, state='merged') are all optional
+ * and surface as `undefined` when absent.
+ */
 const MINIMUM_SCHEMA_VERSION = 1;
+
+/**
+ * Schema version used for newly-written sidecars (B7-data). Bumped from 1 to
+ * 2 when the per-binding mergedAt/mergedVia fields and the 'merged' state
+ * landed. Reader-side normalization stamps this onto in-memory v1 records so
+ * downstream consumers can treat the in-memory shape as v2 uniformly.
+ */
+export const CURRENT_TASK_JSON_SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Path helper
@@ -183,6 +215,15 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
       sidecarPath,
       'contextPackBinding field is absent or has wrong shape',
     );
+  }
+
+  // §B7-data normalization: in-memory shape is uniformly v2 even when the
+  // on-disk file is v1. We do NOT write back to disk on read — that would
+  // create surprising mtime churn and invalidate platform-config caches.
+  // The v2 additions (per-binding mergedAt/mergedVia, state='merged') are
+  // all optional, so v1 records simply surface `undefined` for them.
+  if (typeof json['schema_version'] === 'number' && json['schema_version'] < CURRENT_TASK_JSON_SCHEMA_VERSION) {
+    json['schema_version'] = CURRENT_TASK_JSON_SCHEMA_VERSION;
   }
 
   return json as unknown as TaskJson;

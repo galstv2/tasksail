@@ -178,7 +178,7 @@ describe('§4.15 finalizeTaskWorktrees — completed', () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('completed: worktree dir removed, branch survives, parent dir removed', async () => {
+  it('completed: worktree dir removed, branch survives, parent dir + sidecar preserved (B7-data)', async () => {
     const taskId = 'task-complete-01';
     const worktreeBranch = `task/${taskId}`;
     const worktreeRoot = path.join(
@@ -190,16 +190,28 @@ describe('§4.15 finalizeTaskWorktrees — completed', () => {
 
     await finalizeTaskWorktrees(taskId, 'completed', repoRoot);
 
-    // Worktree dir must be removed
+    // Worktree dir (and the worktrees/ subdir that contained it) must be removed.
     expect(existsSync(worktreeRoot)).toBe(false);
 
-    // Branch must survive for operator merge/PR
+    // Branch must survive for operator merge/PR.
     const branches = listBranches(originalRoot);
     expect(branches).toContain(worktreeBranch);
 
-    // Parent dir (AgentWorkSpace/tasks/<taskId>/) must be removed
+    // §B7-data: parent dir + sidecar must SURVIVE so B7-sweep can detect a
+    // future merge. The handoffs/ + ImplementationSteps/ + worktrees/ subdirs
+    // are the only things removed.
     const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
-    expect(existsSync(parentDir)).toBe(false);
+    const sidecarPath = path.join(parentDir, '.task.json');
+    expect(existsSync(parentDir)).toBe(true);
+    expect(existsSync(sidecarPath)).toBe(true);
+    expect(existsSync(path.join(parentDir, 'handoffs'))).toBe(false);
+    expect(existsSync(path.join(parentDir, 'ImplementationSteps'))).toBe(false);
+    expect(existsSync(path.join(parentDir, 'worktrees'))).toBe(false);
+
+    // Sidecar must record the success-completion state stamp.
+    const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as Record<string, unknown>;
+    expect(sidecar['state']).toBe('completed');
+    expect(typeof sidecar['finalizedAt']).toBe('string');
   });
 
   it('completed: git worktree list does NOT list the finalized worktree', async () => {
