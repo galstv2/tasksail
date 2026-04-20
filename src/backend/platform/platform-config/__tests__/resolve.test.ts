@@ -27,16 +27,39 @@ function writeRuntimeConfig(containerRuntime: string): void {
   }), 'utf-8');
 }
 
+function writeDefaultConfig(containerRuntime: string): void {
+  const configPath = path.join(tmpDir, 'config', 'platform.default.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify({
+    schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+    container_runtime: containerRuntime,
+  }), 'utf-8');
+}
+
 describe('resolveContainerRuntime', () => {
-  it('returns docker by default when no config exists', async () => {
+  it('falls back to config/platform.default.json when runtime config is missing', async () => {
+    writeDefaultConfig('podman');
     const result = await resolveContainerRuntime(tmpDir);
-    expect(result).toBe('docker');
+    expect(result).toBe('podman');
+  });
+
+  it('throws when both runtime and default configs are missing', async () => {
+    await expect(resolveContainerRuntime(tmpDir)).rejects.toThrow(
+      'Invalid platform config',
+    );
   });
 
   it('reads from platform config file', async () => {
     writeRuntimeConfig('podman');
     const result = await resolveContainerRuntime(tmpDir);
     expect(result).toBe('podman');
+  });
+
+  it('runtime config wins over default config when both present', async () => {
+    writeRuntimeConfig('docker');
+    writeDefaultConfig('podman');
+    const result = await resolveContainerRuntime(tmpDir);
+    expect(result).toBe('docker');
   });
 
   it('env var overrides config file', async () => {

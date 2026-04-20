@@ -37,6 +37,22 @@ vi.mock('../../mcp-registry/seed.js', () => ({
   }),
 }));
 
+vi.mock('../../platform-config/seed.js', () => ({
+  seedPlatformConfig: vi.fn().mockResolvedValue({
+    action: 'up-to-date',
+    config: {
+      schema_version: 1,
+      container_runtime: 'docker',
+      max_parallel_tasks: 10,
+      retain_failed_task_worktrees: true,
+      max_retained_failed_task_worktrees: 10,
+      max_retry_generations_per_slug: 5,
+      completed_task_runtime_retention_ms: 3600000,
+      mcp_port_range: { min: 8811, max: 8820 },
+    },
+  }),
+}));
+
 vi.mock('../../mcp-registry/healthSpecs.js', () => ({
   toServiceHealthSpecs: vi.fn().mockReturnValue([
     { name: 'repo-context-mcp', url: 'http://localhost:8811/health', maxRetries: 10, retryIntervalMs: 2000 },
@@ -53,6 +69,7 @@ const { bootstrapServices } = await import('../bootstrap.js');
 const { ensureEnvFile } = await import('../../core/index.js');
 const { validateComposeConfig, buildComposeCommand, execCommand } = await import('../compose.js');
 const { seedMcpRegistry } = await import('../../mcp-registry/seed.js');
+const { seedPlatformConfig } = await import('../../platform-config/seed.js');
 const { toServiceHealthSpecs } = await import('../../mcp-registry/healthSpecs.js');
 const { getEnabledComposeServices } = await import('../../mcp-registry/composeMetadata.js');
 
@@ -100,6 +117,19 @@ describe('bootstrapServices', () => {
     vi.mocked(toServiceHealthSpecs).mockReturnValue([
       { name: 'repo-context-mcp', url: 'http://localhost:8811/health', maxRetries: 10, retryIntervalMs: 2000 },
     ]);
+    vi.mocked(seedPlatformConfig).mockResolvedValue({
+      action: 'up-to-date',
+      config: {
+        schema_version: 1,
+        container_runtime: 'docker',
+        max_parallel_tasks: 10,
+        retain_failed_task_worktrees: true,
+        max_retained_failed_task_worktrees: 10,
+        max_retry_generations_per_slug: 5,
+        completed_task_runtime_retention_ms: 3600000,
+        mcp_port_range: { min: 8811, max: 8820 },
+      },
+    });
   });
 
   afterEach(() => {
@@ -114,13 +144,26 @@ describe('bootstrapServices', () => {
     ).rejects.toThrow('Compose file not found');
   });
 
-  it('calls ensureEnvFile and seedMcpRegistry in parallel', async () => {
+  it('calls ensureEnvFile, seedMcpRegistry, and seedPlatformConfig in parallel', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
 
     expect(ensureEnvFile).toHaveBeenCalledWith('/repo');
     expect(seedMcpRegistry).toHaveBeenCalledWith('/repo');
+    expect(seedPlatformConfig).toHaveBeenCalledWith('/repo');
+  });
+
+  it('throws with validation errors if platform config seed fails', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(seedPlatformConfig).mockResolvedValueOnce({
+      action: 'failed',
+      errors: [{ field: 'container_runtime', message: 'Must be docker or podman', fix: 'Fix the value.' }],
+    });
+
+    await expect(
+      bootstrapServices(mockRuntime, { repoRoot: '/repo' }),
+    ).rejects.toThrow('Platform config validation failed');
   });
 
   it('validates compose config before starting', async () => {

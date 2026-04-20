@@ -2,6 +2,21 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRuntime } from '../runtime.js';
 import { DockerRuntime } from '../docker.js';
 import { PodmanRuntime } from '../podman.js';
+import type { ContainerBackend } from '../../core/index.js';
+import type { PlatformConfig } from '../../platform-config/types.js';
+
+function makeConfig(containerRuntime: ContainerBackend): PlatformConfig {
+  return {
+    schema_version: 1,
+    container_runtime: containerRuntime,
+    max_parallel_tasks: 10,
+    retain_failed_task_worktrees: true,
+    max_retained_failed_task_worktrees: 10,
+    max_retry_generations_per_slug: 5,
+    completed_task_runtime_retention_ms: 3600000,
+    mcp_port_range: { min: 8811, max: 8820 },
+  };
+}
 
 describe('createRuntime', () => {
   afterEach(() => {
@@ -105,10 +120,8 @@ describe('resolveContainerRuntime', () => {
       await importResolveWithLoadMock();
     loadPlatformConfig.mockResolvedValue({
       valid: true,
-      config: {
-        schema_version: 1,
-        container_runtime: 'podman',
-      },
+      config: makeConfig('podman'),
+      raw: '',
     });
 
     const backend = await resolveContainerRuntime('/repo');
@@ -117,21 +130,57 @@ describe('resolveContainerRuntime', () => {
     expect(backend).toBe('podman');
   });
 
-  it('falls back to docker only when the runtime config is missing', async () => {
+  it('falls back to config/platform.default.json when runtime config is missing', async () => {
     const { resolveContainerRuntime, loadPlatformConfig } =
       await importResolveWithLoadMock();
-    loadPlatformConfig.mockResolvedValue({
-      valid: false,
+    loadPlatformConfig
+      .mockResolvedValueOnce({
+        valid: false,
+        errors: [
+          {
+            field: '(file)',
+            message: 'Platform config file not found: /repo/.platform-state/platform.json',
+            fix: 'Run "pnpm run setup" to seed the runtime platform config.',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        valid: true,
+        config: makeConfig('podman'),
+        raw: '',
+      });
+
+    await expect(resolveContainerRuntime('/repo')).resolves.toBe('podman');
+    expect(loadPlatformConfig).toHaveBeenNthCalledWith(
+      1,
+      '/repo/.platform-state/platform.json',
+    );
+    expect(loadPlatformConfig).toHaveBeenNthCalledWith(
+      2,
+      '/repo/config/platform.default.json',
+    );
+  });
+
+  it('fails closed when both runtime and default configs are missing', async () => {
+    const { resolveContainerRuntime, loadPlatformConfig } =
+      await importResolveWithLoadMock();
+    const missingError = {
+      valid: false as const,
       errors: [
         {
           field: '(file)',
-          message: 'Platform config file not found: /repo/.platform-state/platform.json',
+          message: 'Platform config file not found',
           fix: 'Run "pnpm run setup" to seed the runtime platform config.',
         },
       ],
-    });
+    };
+    loadPlatformConfig
+      .mockResolvedValueOnce(missingError)
+      .mockResolvedValueOnce(missingError);
 
-    await expect(resolveContainerRuntime('/repo')).resolves.toBe('docker');
+    await expect(resolveContainerRuntime('/repo')).rejects.toThrow(
+      'Invalid platform config at /repo/config/platform.default.json',
+    );
   });
 
   it('fails closed for invalid existing config', async () => {

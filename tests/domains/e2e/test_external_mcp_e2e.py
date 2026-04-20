@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -27,10 +28,45 @@ from lib.role_agent.external_mcp import (
 
 TEST_MCP_SERVER_DIR = ROOT.parent / "test-mcp-server"
 TEST_MCP_ENTRYPOINT = TEST_MCP_SERVER_DIR / "__main__.py"
-TEST_REGISTRY_CONFIG = ROOT / "config" / "mcp-registry-external.test.json"
 RUNTIME_REGISTRY = ROOT / ".platform-state" / "mcp-registry-external.json"
 TEST_SERVER_URL = "http://127.0.0.1:9100"
 TEST_AGENT_ID = "test-gate-agent"
+
+# Inlined registry payload — keeps the test self-contained so no fixture file
+# needs to live under config/. The schema mirrors the production external MCP
+# registry validated by `load_validated_external_mcp`.
+TEST_REGISTRY: dict[str, object] = {
+    "schema_version": 1,
+    "external_servers": [
+        {
+            "id": "test-mcp-server",
+            "display_name": "Test MCP Server",
+            "purpose": (
+                "Local test server for validating external MCP endpoint discovery"
+            ),
+            "preferred_for": [
+                "external MCP smoke tests",
+                "endpoint discovery validation",
+                "tool handshake checks",
+            ],
+            "fallback_description": (
+                "Provides a deterministic local SSE MCP endpoint for "
+                "black-box integration checks"
+            ),
+            "enabled": True,
+            "transport": "sse",
+            "url": "http://127.0.0.1:9100/sse",
+            "agent_scope": {
+                "mode": "allowlist",
+                "agent_ids": [
+                    "software-engineer",
+                    "qa",
+                    "test-gate-agent",
+                ],
+            },
+        },
+    ],
+}
 _SKIP_REASON = "Requires RUN_SLOW_TESTS=1 and copilot on PATH"
 _SHOULD_SKIP = not os.environ.get("RUN_SLOW_TESTS") or not shutil.which("copilot")
 
@@ -99,7 +135,7 @@ def _installed_test_registry() -> Iterator[None]:
         original = RUNTIME_REGISTRY.read_text(encoding="utf-8")
 
     RUNTIME_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
-    registry_text = TEST_REGISTRY_CONFIG.read_text(encoding="utf-8")
+    registry_text = json.dumps(TEST_REGISTRY, indent=2)
     RUNTIME_REGISTRY.write_text(registry_text, encoding="utf-8")
     try:
         yield

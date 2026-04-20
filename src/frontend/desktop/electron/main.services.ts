@@ -36,9 +36,9 @@ function nowIso(): string {
 
 const CLI_PATH = 'src/backend/platform/container/cli.ts';
 const PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
+const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const SIGKILL_GRACE_MS = 5_000;
-const FALLBACK_RUNTIME = 'docker';
 
 type ContainerRuntimeBinary = 'docker' | 'podman';
 type RuntimeResolution =
@@ -137,6 +137,48 @@ function describeRuntimeInstall(runtimeBinary: ContainerRuntimeBinary): string {
     : 'Docker Desktop is installed and the daemon is running.';
 }
 
+function readRuntimeFromConfigFile(
+  configPath: string,
+  relPath: string,
+): RuntimeResolution {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, 'utf-8')) as unknown;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown parse error.';
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${relPath}: ${detail} ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${relPath}: expected a JSON object. ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  const runtimeCandidate = (parsed as Record<string, unknown>)['container_runtime'];
+  if (!isSupportedRuntime(runtimeCandidate)) {
+    const renderedValue =
+      typeof runtimeCandidate === 'undefined' ? 'missing' : JSON.stringify(runtimeCandidate);
+    return {
+      ok: false,
+      error:
+        `Invalid container runtime configuration in ${relPath}: ` +
+        `container_runtime must be "docker" or "podman" (received ${renderedValue}). ` +
+        'Delete .platform-state/platform.json and re-run pnpm run setup.',
+    };
+  }
+
+  return { ok: true, runtimeBinary: runtimeCandidate };
+}
+
 function resolveRuntimeBinary(repoRoot: string): RuntimeResolution {
   const envOverride = process.env['CONTAINER_RUNTIME'];
   if (envOverride) {
@@ -150,47 +192,26 @@ function resolveRuntimeBinary(repoRoot: string): RuntimeResolution {
     };
   }
 
-  const platformConfigPath = join(repoRoot, PLATFORM_CONFIG_PATH);
-  if (!existsSync(platformConfigPath)) {
-    return { ok: true, runtimeBinary: FALLBACK_RUNTIME };
+  const runtimePath = join(repoRoot, PLATFORM_CONFIG_PATH);
+  if (existsSync(runtimePath)) {
+    return readRuntimeFromConfigFile(runtimePath, PLATFORM_CONFIG_PATH);
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(platformConfigPath, 'utf-8')) as unknown;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unknown parse error.';
-    return {
-      ok: false,
-      error:
-        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: ${detail} ` +
-        'Delete .platform-state/platform.json and re-run pnpm run setup.',
-    };
+  // Fall back to the checked-in default. Bootstrap will seed the runtime
+  // copy from this same file, but we may be called before bootstrap has
+  // run on a fresh checkout. The default is the source of truth — never
+  // hard-code 'docker' here, as that contradicts platform.default.json.
+  const defaultPath = join(repoRoot, DEFAULT_PLATFORM_CONFIG_PATH);
+  if (existsSync(defaultPath)) {
+    return readRuntimeFromConfigFile(defaultPath, DEFAULT_PLATFORM_CONFIG_PATH);
   }
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
-      ok: false,
-      error:
-        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: expected a JSON object. ` +
-        'Delete .platform-state/platform.json and re-run pnpm run setup.',
-    };
-  }
-
-  const runtimeCandidate = (parsed as Record<string, unknown>)['container_runtime'];
-  if (!isSupportedRuntime(runtimeCandidate)) {
-    const renderedValue =
-      typeof runtimeCandidate === 'undefined' ? 'missing' : JSON.stringify(runtimeCandidate);
-    return {
-      ok: false,
-      error:
-        `Invalid container runtime configuration in ${PLATFORM_CONFIG_PATH}: ` +
-        `container_runtime must be "docker" or "podman" (received ${renderedValue}). ` +
-        'Delete .platform-state/platform.json and re-run pnpm run setup.',
-    };
-  }
-
-  return { ok: true, runtimeBinary: runtimeCandidate };
+  return {
+    ok: false,
+    error:
+      `No platform configuration found. Expected ${PLATFORM_CONFIG_PATH} ` +
+      `or ${DEFAULT_PLATFORM_CONFIG_PATH}. Run "pnpm run setup".`,
+  };
 }
 
 export function checkContainerRuntimeAvailable(

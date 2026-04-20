@@ -4,6 +4,7 @@ import { ensureEnvFile } from '../core/index.js';
 import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
+import { seedPlatformConfig } from '../platform-config/seed.js';
 import type { ContainerRuntime, BootstrapOptions } from './types.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { buildComposeCommand, validateComposeConfig, execCommand } from './compose.js';
@@ -28,10 +29,15 @@ export async function bootstrapServices(
     throw new Error(`Compose file not found at ${composeFile}`);
   }
 
-  // Ensure .env and seed registry in parallel — they are independent
-  const [, seedResult] = await Promise.all([
+  // Ensure .env and seed registries in parallel — they are independent.
+  // seedPlatformConfig writes .platform-state/platform.json from the
+  // checked-in default so the runtime resolver and other consumers
+  // (port allocator, parallelism cap, retention) see a consistent file
+  // even when the operator has not run `pnpm run setup`.
+  const [, seedResult, platformSeedResult] = await Promise.all([
     ensureEnvFile(options.repoRoot),
     seedMcpRegistry(options.repoRoot),
+    seedPlatformConfig(options.repoRoot),
   ]);
 
   if (seedResult.action === 'failed') {
@@ -40,6 +46,15 @@ export async function bootstrapServices(
     );
     throw new Error(
       `MCP registry validation failed:\n${messages.join('\n')}`,
+    );
+  }
+
+  if (platformSeedResult.action === 'failed') {
+    const messages = platformSeedResult.errors.map(
+      (e) => `  ${e.field}: ${e.message} (${e.fix})`,
+    );
+    throw new Error(
+      `Platform config validation failed:\n${messages.join('\n')}`,
     );
   }
 
