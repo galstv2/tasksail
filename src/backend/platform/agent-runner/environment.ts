@@ -69,6 +69,9 @@ export function buildAgentEnvironment(
     // Reads .task.json.contextPackBinding.repoBindings[].worktreeBranch.
     // Windows env-block ceiling: if the serialized JSON exceeds 8192 bytes,
     // spill to a file and inject TASKSAIL_TASK_BRANCHES_FILE instead.
+    // §B1 Worktree CWD surfacing: inject TASKSAIL_TASK_WORKTREES alongside, so
+    // Dalton/Ron can resolve originalRoot → worktreeRoot for git commands and
+    // path references. Same encoding + spill rule as TASKSAIL_TASK_BRANCHES.
     if (taskId) {
       const taskSidecar = readTaskJsonSafe(taskId, repoRoot);
       if (taskSidecar && taskSidecar.contextPackBinding.repoBindings.length > 0) {
@@ -76,20 +79,26 @@ export function buildAgentEnvironment(
           originalRoot: rb.originalRoot,
           branch: rb.worktreeBranch,
         }));
-        const serialized = JSON.stringify(branches);
-        const byteLen = Buffer.byteLength(serialized, 'utf8');
-        if (byteLen <= 8192) {
-          env['TASKSAIL_TASK_BRANCHES'] = serialized;
-        } else {
-          // Spill to a file; Ron's prompt reads TASKSAIL_TASK_BRANCHES_FILE.
-          const taskRuntimeDir = path.join(
-            repoRoot, '.platform-state', 'runtime', 'tasks', taskId,
-          );
-          mkdirSync(taskRuntimeDir, { recursive: true });
-          const spillPath = path.join(taskRuntimeDir, 'task-branches.json');
-          writeFileSync(spillPath, serialized, 'utf-8');
-          env['TASKSAIL_TASK_BRANCHES_FILE'] = spillPath;
-        }
+        const worktrees = taskSidecar.contextPackBinding.repoBindings.map((rb) => ({
+          originalRoot: rb.originalRoot,
+          worktreeRoot: rb.worktreeRoot,
+        }));
+        emitTaskListEnv({
+          env,
+          repoRoot,
+          taskId,
+          envVarName: 'TASKSAIL_TASK_BRANCHES',
+          spillFileName: 'task-branches.json',
+          payload: branches,
+        });
+        emitTaskListEnv({
+          env,
+          repoRoot,
+          taskId,
+          envVarName: 'TASKSAIL_TASK_WORKTREES',
+          spillFileName: 'task-worktrees.json',
+          payload: worktrees,
+        });
       }
     }
   }
@@ -100,6 +109,35 @@ export function buildAgentEnvironment(
   }
 
   return env;
+}
+
+/**
+ * Serialize a per-task list payload into either an env var (≤8192 bytes) or a
+ * spill file referenced by `<envVarName>_FILE`. The 8192-byte ceiling defends
+ * against the Windows env-block size limit when many bindings or long paths
+ * push the JSON past what `CreateProcess` will accept.
+ */
+function emitTaskListEnv(args: {
+  env: Record<string, string>;
+  repoRoot: string;
+  taskId: string;
+  envVarName: string;
+  spillFileName: string;
+  payload: unknown;
+}): void {
+  const serialized = JSON.stringify(args.payload);
+  const byteLen = Buffer.byteLength(serialized, 'utf8');
+  if (byteLen <= 8192) {
+    args.env[args.envVarName] = serialized;
+    return;
+  }
+  const taskRuntimeDir = path.join(
+    args.repoRoot, '.platform-state', 'runtime', 'tasks', args.taskId,
+  );
+  mkdirSync(taskRuntimeDir, { recursive: true });
+  const spillPath = path.join(taskRuntimeDir, args.spillFileName);
+  writeFileSync(spillPath, serialized, 'utf-8');
+  args.env[`${args.envVarName}_FILE`] = spillPath;
 }
 
 function autonomyLabel(profileId: AgentProfile['autonomyProfile']): string {

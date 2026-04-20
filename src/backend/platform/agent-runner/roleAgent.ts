@@ -28,6 +28,11 @@ import {
   handleDaltonConfinementValidation,
 } from './daltonLaunchPrep.js';
 import {
+  buildWorktreeBindingMap,
+  applyWorktreeInjectionToFocused,
+  applyWorktreeInjectionToAllowedDirs,
+} from './worktreeInjection.js';
+import {
   agentErrorWithTails,
   extractPolicyFailureDetails,
   hasConcreteArtifactRemediation,
@@ -208,6 +213,10 @@ export async function runRoleAgent(
   let agentCwd = paths.repoRoot;
   let focused;
   let preRunBoundarySnapshot: ChangedPathsSnapshot | undefined;
+  // §B1: when a per-task worktree exists, every downstream consumer of `focused`
+  // and `autonomyArgs.allowedDirs` must see worktreeRoot paths instead of
+  // originalRoot. Build the substitution map once before resolving focused.
+  const worktreeBindingMap = await buildWorktreeBindingMap(options.taskId, paths.repoRoot);
   if (options.contextPackDir) {
     const agentWorkspaceDir = path.join(paths.repoRoot, 'AgentWorkSpace');
     const allowsGenericTaskSailDirs = !enforcesSelectedPrimaryBoundary;
@@ -218,7 +227,7 @@ export async function runRoleAgent(
       autonomyArgs.allowedDirs.push(agentWorkspaceDir);
     }
 
-    focused = enforcesSelectedPrimaryBoundary
+    const resolvedFocused = enforcesSelectedPrimaryBoundary
       ? await resolveSelectedPrimaryRepoRoot(
           options.contextPackDir,
           paths.repoRoot,
@@ -228,6 +237,12 @@ export async function runRoleAgent(
             options.contextPackDir,
             paths.repoRoot,
           )
+        : undefined;
+
+      // §B1: rewrite focused once, upstream of every consumer. Returns input
+      // unchanged when the binding map is empty (legacy/recovery path).
+      focused = resolvedFocused
+        ? applyWorktreeInjectionToFocused(resolvedFocused, worktreeBindingMap)
         : undefined;
 
       if (focused) {
@@ -270,7 +285,14 @@ export async function runRoleAgent(
           'Continuing with planning workspace dirs only.',
         );
       }
-    }
+
+    // §B1 defense-in-depth: rewrite any originalRoot path that may have leaked
+    // into allowedDirs (no-op when bindingMap is empty or no allowedDir matches).
+    autonomyArgs.allowedDirs = applyWorktreeInjectionToAllowedDirs(
+      autonomyArgs.allowedDirs,
+      worktreeBindingMap,
+    );
+  }
 
   // 4. Build copilot CLI args and resolve launch prompt.
   const skipAgentFlag = usesFocusedRepoLaunch && focused != null;
