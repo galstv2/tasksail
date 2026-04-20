@@ -11,6 +11,7 @@ import { buildAdvisoryFindingSection, ADVISORY_FINDING_HEADING } from '../agent-
 import { commitTaskSnapshot } from './errorItems.js';
 import { transitionTask } from './taskRegistry.js';
 import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
+import { verifyTaskBranches } from './branchVerification.js';
 
 export interface CompletePendingItemOptions {
   /** Required: the task ID to complete. */
@@ -64,6 +65,22 @@ export async function completePendingItem(
     // 'nothing to commit' from git exits non-zero and is treated as success
     // (commitTaskSnapshot swallows it). Best-effort: non-fatal on failure.
     await commitTaskSnapshot(repoRoot, taskId, 'completed');
+
+    // --- Step 0a (B5): verify task branches received commits ---
+    // Safety net for B1 worktree-injection regressions: if any task/<id> branch
+    // is missing or has zero commits beyond its baseCommitSha, this throws and
+    // the caller routes the task into moveFailedItemToErrorItems → branch is
+    // retained for operator post-mortem. NO try/catch — let it propagate.
+    const verification = await verifyTaskBranches(repoRoot, taskId);
+    if (!verification.ok) {
+      const summary = verification.failures
+        .map((f) => `${f.branch} @ ${f.originalRoot}: ${f.reason} (${f.detail})`)
+        .join('; ');
+      throw new Error(
+        `Completion blocked: task branches contain no commits. ${summary}. ` +
+        `This usually indicates a worktree CWD injection regression.`,
+      );
+    }
 
     const activeItemsDir = queuePaths.activeItemsDir;
     const sentinelPath = path.join(activeItemsDir, `${taskId}.completing`);
