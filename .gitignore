@@ -107,3 +107,4 @@ AgentWorkSpace/tasks/*
 # Port-allocator shared table + lock (re-created on first allocate; §6.2)
 .platform-state/runtime/port-allocations.json
 .platform-state/runtime/port-allocations.json.lock
+.claude/
