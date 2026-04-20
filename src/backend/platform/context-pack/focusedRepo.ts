@@ -406,7 +406,78 @@ async function resolveAuthoritativeSelection(
   if (sidecarSelection) {
     return sidecarSelection;
   }
-  return readWorkspaceSyncSelection(resolvedPackDir, repoRoot);
+  const workspaceSelection = await readWorkspaceSyncSelection(resolvedPackDir, repoRoot);
+  if (!workspaceSelection) {
+    return undefined;
+  }
+  const overlay = await readDeepFocusOverlay(resolvedPackDir, repoRoot);
+  if (!overlay) {
+    return workspaceSelection;
+  }
+  return {
+    ...workspaceSelection,
+    deepFocusEnabled: overlay.deepFocusEnabled,
+    deepFocusPrimaryRepoId: overlay.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: overlay.deepFocusPrimaryFocusId,
+    selectedFocusPath: overlay.selectedFocusPath ?? undefined,
+    selectedFocusTargetKind: overlay.selectedFocusTargetKind ?? undefined,
+    selectedTestTarget: overlay.selectedTestTarget,
+    selectedSupportTargets: overlay.selectedSupportTargets,
+  };
+}
+
+export interface DeepFocusOverlayPayload {
+  deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: FocusTargetKind | null;
+  selectedTestTarget: FocusTarget | null | undefined;
+  selectedSupportTargets: FocusTarget[] | undefined;
+}
+
+/**
+ * Read the user's draft Deep Focus selection for a given context pack from
+ * `.platform-state/deep-focus-selections.json`. Returns undefined when the file
+ * is absent, the entry is missing, or `deepFocusEnabled` is not true. Used to
+ * overlay UI-side selections onto the last-applied workspace sync state so a
+ * user does not need to click "Apply" before submitting a new dropbox task.
+ */
+export async function readDeepFocusOverlay(
+  resolvedPackDir: string,
+  repoRoot: string,
+): Promise<DeepFocusOverlayPayload | undefined> {
+  const filePath = path.join(repoRoot, '.platform-state', 'deep-focus-selections.json');
+  const content = await readTextFile(filePath);
+  if (content === undefined) {
+    return undefined;
+  }
+  const parsed = safeJsonParse<Record<string, unknown>>(content, filePath);
+  if (!parsed || typeof parsed !== 'object') {
+    return undefined;
+  }
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!value || typeof value !== 'object') continue;
+    const canonicalKey = resolvePath(repoRoot, key);
+    if (canonicalKey !== resolvedPackDir) continue;
+
+    const overlay = value as Record<string, unknown>;
+    if (overlay.deepFocusEnabled !== true) {
+      return undefined;
+    }
+    return {
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: toOptionalString(overlay.deepFocusPrimaryRepoId) ?? null,
+      deepFocusPrimaryFocusId: toOptionalString(overlay.deepFocusPrimaryFocusId) ?? null,
+      selectedFocusPath: toOptionalString(overlay.selectedFocusPath) ?? null,
+      selectedFocusTargetKind: toFocusTargetKind(overlay.selectedFocusTargetKind) ?? null,
+      selectedTestTarget: overlay.selectedTestTarget === null
+        ? null
+        : toFocusTarget(overlay.selectedTestTarget),
+      selectedSupportTargets: toFocusTargetArray(overlay.selectedSupportTargets),
+    };
+  }
+  return undefined;
 }
 
 interface SelectionFileDescriptor {

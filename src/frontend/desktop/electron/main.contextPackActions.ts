@@ -57,7 +57,7 @@ import {
   titleizeValue,
   readDeepFocusPath,
 } from './main.contextPackShared';
-import { listAvailableContextPacks, WORKSPACE_SYNC_STATE_PATH } from './main.contextPackCatalog';
+import { listAvailableContextPacks } from './main.contextPackCatalog';
 
 const execFileAsync = promisify(execFile);
 
@@ -480,31 +480,11 @@ function normalizeContextPackReseedResult(payload: unknown, contextPackDir: stri
 async function updateSyncStateAfterReseed(
   reseedResult: ContextPackReseedExecutionResult,
 ): Promise<void> {
-  try {
-    let state: Record<string, unknown> = {};
-    try {
-      state = JSON.parse(await fsReadFile(WORKSPACE_SYNC_STATE_PATH, 'utf-8')) as Record<string, unknown>;
-    } catch (readErr: unknown) {
-      console.warn('updateSyncStateAfterReseed: could not read existing sync state, starting fresh:',
-        readErr instanceof Error ? readErr.message : readErr);
-    }
-    state.last_synced_at = new Date().toISOString();
-    state.workspace_folder_count = reseedResult.workspaceFolderCount;
-    state.workspace_file_count = reseedResult.workspaceFileCount;
-    // Ensure the state tracks this pack so folder/file counts survive catalog reads.
-    // Without this, stateTracksEntry is false and counts are discarded.
-    if (!state.active_context_pack_dir) {
-      state.active_context_pack_dir = reseedResult.contextPackDir;
-    }
-    await fsMkdir(dirname(WORKSPACE_SYNC_STATE_PATH), { recursive: true });
-    await fsWriteFile(WORKSPACE_SYNC_STATE_PATH, JSON.stringify(state, null, 2) + '\n', 'utf-8');
-  } catch (err: unknown) {
-    console.warn('updateSyncStateAfterReseed: failed to persist sync state:',
-      err instanceof Error ? err.message : err);
-  }
-
-  // Also persist counts inside the context pack directory so they survive
-  // pack switching, app restarts, and dev/build cycles.
+  // Counts live in the per-pack workspace-counts.json (written below). The
+  // sync state file is owned by the Python apply/clear path and has a strict
+  // shape (managed_folders, scope_mode, etc.); writing partial fields here
+  // produces a state that fails load_sync_state validation and breaks every
+  // subsequent Apply.
   try {
     const countsPath = join(reseedResult.contextPackDir, 'workspace-counts.json');
     await fsWriteFile(

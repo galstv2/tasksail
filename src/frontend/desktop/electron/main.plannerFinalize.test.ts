@@ -536,7 +536,7 @@ None
       createDropboxTask,
     }));
     const { handleDesktopAction } = await import('./main');
-    const endPlannerSession = vi.fn(async () => undefined);
+    const endPlannerSession = vi.fn(async () => ({ ended: true }));
 
     await expect(
       handleDesktopAction(
@@ -590,7 +590,7 @@ None
   it('finalizes a staged draft even if planner session later reports failed', async () => {
     vi.resetModules();
     const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040001Z_backend-apps-api.md');
-    const endPlannerSession = vi.fn(async () => undefined);
+    const endPlannerSession = vi.fn(async () => ({ ended: true }));
     vi.doMock('./main.staging', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./main.staging')>();
       return {
@@ -762,7 +762,7 @@ Do not widen the selected boundary.
             usage: null,
             error: null,
           })),
-          endPlannerSession: vi.fn(async () => undefined),
+          endPlannerSession: vi.fn(async () => ({ ended: true })),
         },
       ),
     ).resolves.toEqual({

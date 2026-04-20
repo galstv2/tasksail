@@ -9,6 +9,7 @@ vi.mock('../main.contextPackCatalog', () => ({
 }));
 
 vi.mock('../../../../backend/platform/context-pack/focusedRepo.js', () => ({
+  readDeepFocusOverlay: vi.fn(async () => undefined),
   resolveFocusedRepoRoot: vi.fn(),
   resolveSelectedPrimaryRepoRoot: vi.fn(),
 }));

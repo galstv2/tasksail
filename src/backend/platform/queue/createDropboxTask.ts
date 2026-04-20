@@ -11,6 +11,7 @@ import {
   formatContextPackBindingSection,
   type TaskContextPackTarget,
 } from './markdown.js';
+import { registerTask } from './taskRegistry.js';
 
 export interface CreateDropboxTaskOptions {
   title: string;
@@ -220,5 +221,37 @@ ${carryForwardSummary}
 `;
 
   await writeTextFile(outputFile, content);
+
+  // Register the new dropbox task in the centralized registry so the task
+  // board's registry-first read path surfaces it without waiting for a
+  // restart-time `repairTaskRegistry` rebuild. Best-effort: file write is the
+  // authoritative operation; a failed registry write is corrected on next
+  // startup repair.
+  try {
+    const registryRoot = path.resolve(queuePaths.dropboxDir, '..', '..');
+    const fileName = path.basename(outputFile);
+    await registerTask(registryRoot, {
+      taskId: fileName.replace(/\.md$/, ''),
+      fileName,
+      title,
+      state: 'open',
+      contextPackId: (options.contextPackId ?? '').trim() || null,
+      contextPackDir: (options.contextPackDir ?? '').trim() || null,
+      scopeMode: (options.scopeMode ?? '').trim() || null,
+      selectedRepoIds: options.selectedRepoIds ?? [],
+      selectedFocusIds: options.selectedFocusIds ?? [],
+      deepFocusEnabled: options.deepFocusEnabled,
+      selectedFocusPath: options.selectedFocusPath ?? undefined,
+      selectedFocusTargetKind: options.selectedFocusTargetKind ?? undefined,
+      selectedTestTarget: options.selectedTestTarget ?? undefined,
+      selectedSupportTargets: options.selectedSupportTargets,
+      createdAt,
+      completedAt: null,
+      archivePath: null,
+    });
+  } catch {
+    // Best-effort — see comment above.
+  }
+
   return outputFile;
 }

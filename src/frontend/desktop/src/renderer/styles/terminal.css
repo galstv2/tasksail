@@ -249,11 +249,6 @@
   min-height: 0;
 }
 
-.terminal-feed__empty {
-  margin: 0;
-  color: var(--terminal-text-muted);
-}
-
 .terminal-line {
   display: flex;
   gap: 0.5em;

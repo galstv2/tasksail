@@ -130,13 +130,9 @@ function TerminalFeed({
         ref={scrollRef}
         onScroll={handleScroll}
       >
-        {visibleEvents.length === 0 ? (
-          <p className="terminal-feed__empty">No events to display.</p>
-        ) : (
-          visibleEvents.map((event) => (
-            <TerminalLine key={event.id} event={event} />
-          ))
-        )}
+        {visibleEvents.map((event) => (
+          <TerminalLine key={event.id} event={event} />
+        ))}
         <span className="terminal-cursor" aria-hidden="true" />
       </div>
 

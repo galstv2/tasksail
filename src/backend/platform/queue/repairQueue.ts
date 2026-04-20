@@ -61,17 +61,24 @@ export async function repairQueue(
     } catch { /* skip */ }
   }
 
-  // Check 1: each marker references a valid pending file
+  // Check 1: a marker is stranded iff BOTH the pending file AND the per-task
+  // .task.json sidecar are missing. Under the per-task parallel model
+  // (§4.1B), the pending file is deleted immediately after activation
+  // (operations.ts:704) while the marker persists for the active lifetime,
+  // so "no pending file" alone is the legitimate steady state — not a
+  // corruption signal. The .task.json sidecar (operations.ts:671) is the
+  // authoritative proof that a marker corresponds to a materialized task.
   for (const markerName of activeMarkers) {
     const taskId = markerName.replace(/\.md$/, '');
     const pendingFile = path.join(queuePaths.pendingDir, `${markerName.endsWith('.md') ? markerName : `${markerName}.md`}`);
-    // Also try with exactly the marker basename as the pending filename
     const pendingFileExact = path.join(queuePaths.pendingDir, markerName);
     const pendingExists = existsSync(pendingFile) || existsSync(pendingFileExact);
+    const taskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
+    const taskSidecarExists = existsSync(taskSidecarPath);
 
-    if (!pendingExists) {
+    if (!pendingExists && !taskSidecarExists) {
       issues.push(
-        `.active-items/${markerName} references a pending file that does not exist in pendingitems/`,
+        `.active-items/${markerName} references a pending file that does not exist in pendingitems/ and has no .task.json sidecar`,
       );
       structuredIssues.push({
         kind: 'marker-without-pending' as QueueRepairIssueKind,

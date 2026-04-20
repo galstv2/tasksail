@@ -303,7 +303,7 @@ type DesktopActionHandlers = {
   submitFollowUp: (draft: FollowUpDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
   startPlannerSession: (payload?: { contextPackDir?: string }) => Promise<{ sessionId: string; created: boolean }>;
   sendPlannerMessage: (text: string) => Promise<'sent' | 'no-session' | 'busy'>;
-  endPlannerSession: () => Promise<void>;
+  endPlannerSession: () => Promise<{ ended: boolean }>;
   savePlannerDraft: () => Promise<'sent' | 'no-session' | 'busy'>;
   getPlannerSessionState: () => ReturnType<typeof plannerSession.getSessionState>;
   readQueueStatus: () => Promise<QueueStatusResponse>;
@@ -894,18 +894,21 @@ export async function handleDesktopAction(
         },
       };
     }
-    case 'planner.endSession':
-      await resolvedHandlers.endPlannerSession();
-      emitStreamEvent({ message: 'Planner session ended.', source: 'planner.endSession', role: 'planner' });
+    case 'planner.endSession': {
+      const endResult = await resolvedHandlers.endPlannerSession();
+      if (endResult.ended) {
+        emitStreamEvent({ message: 'Planner session ended.', source: 'planner.endSession', role: 'planner' });
+      }
       return {
         ok: true,
         response: {
           action: 'planner.endSession',
           mode: 'ended',
           accepted: true,
-          message: 'Planner session ended.',
+          message: endResult.ended ? 'Planner session ended.' : 'No active planner session to end.',
         },
       };
+    }
     case 'planner.saveDraft': {
       const saveResult = await resolvedHandlers.savePlannerDraft();
       const brokerState = resolvedHandlers.getPlannerSessionState();

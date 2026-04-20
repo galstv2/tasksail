@@ -10,6 +10,7 @@ import { emitStreamEvent } from './main.stream';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
 import {
+  readDeepFocusOverlay,
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
 } from '../../../backend/platform/context-pack/focusedRepo.js';
@@ -120,6 +121,11 @@ async function resolveDirectSubmissionContext(
     throw new Error('Direct queue submission blocked: canonical title derivation returned an empty value.');
   }
 
+  const overlay = await readDeepFocusOverlay(contextPackDir, REPO_ROOT);
+  const deepFocusEnabled = overlay?.deepFocusEnabled === true
+    ? true
+    : syncState.deepFocusEnabled;
+  const overlaySupportTargets = overlay?.selectedSupportTargets;
   return {
     title,
     contextPackDir,
@@ -131,18 +137,20 @@ async function resolveDirectSubmissionContext(
     selectedFocusIds: syncState.selectedFocusIds.length > 0
       ? syncState.selectedFocusIds
       : focused.selectedFocusIds,
-    deepFocusEnabled: syncState.deepFocusEnabled,
-    selectedFocusPath: syncState.deepFocusEnabled
-      ? syncState.selectedFocusPath
+    deepFocusEnabled,
+    selectedFocusPath: deepFocusEnabled
+      ? overlay?.selectedFocusPath ?? syncState.selectedFocusPath
       : null,
-    selectedFocusTargetKind: syncState.deepFocusEnabled
-      ? syncState.selectedFocusTargetKind
+    selectedFocusTargetKind: deepFocusEnabled
+      ? overlay?.selectedFocusTargetKind ?? syncState.selectedFocusTargetKind
       : null,
-    selectedTestTarget: syncState.deepFocusEnabled
-      ? syncState.selectedTestTarget
+    selectedTestTarget: deepFocusEnabled
+      ? overlay?.selectedTestTarget !== undefined
+        ? overlay.selectedTestTarget
+        : syncState.selectedTestTarget
       : null,
-    selectedSupportTargets: syncState.deepFocusEnabled
-      ? syncState.selectedSupportTargets
+    selectedSupportTargets: deepFocusEnabled
+      ? overlaySupportTargets ?? syncState.selectedSupportTargets
       : [],
     contextPackName: basename(contextPackDir),
   };

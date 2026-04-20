@@ -254,6 +254,39 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
     expect(existsSync(path.join(pendingDir, 'task-valid.md'))).toBe(true);
   });
 
+  it('active-task steady state (marker + .task.json + no pending file) is NOT flagged as stranded', async () => {
+    // Regression: under the per-task parallel model (§4.1B), the pending file
+    // is deleted immediately after activation (operations.ts:704) and the
+    // marker persists for the active lifetime. This is the LEGITIMATE steady
+    // state of every active task. Check 1 must use .task.json — not pending
+    // file presence — as the authoritative signal that the marker is live.
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    const taskSidecarDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', 'task-active-steady');
+    mkdirSync(taskSidecarDir, { recursive: true });
+    writeFileSync(path.join(activeItemsDir, 'task-active-steady'), 'task-active-steady.md');
+    writeFileSync(path.join(taskSidecarDir, '.task.json'), '{"taskId":"task-active-steady","state":"active"}');
+    // Note: NO pending file — this is the steady state after activation.
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    // Must NOT flag as marker-without-pending and must NOT unlink the marker.
+    expect(result.structuredIssues.filter((i) => i.kind === 'marker-without-pending')).toHaveLength(0);
+    expect(existsSync(path.join(activeItemsDir, 'task-active-steady'))).toBe(true);
+  });
+
+  it('truly stranded marker (no pending AND no .task.json) is still flagged and removed under autoFix', async () => {
+    // Companion to the steady-state test above: the original "marker-without-pending"
+    // detection still works for genuinely stranded markers.
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-truly-stranded'), '');
+    // No pending file AND no .task.json sidecar.
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(result.structuredIssues.some((i) => i.kind === 'marker-without-pending' && i.taskId === 'task-truly-stranded')).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, 'task-truly-stranded'))).toBe(false);
+  });
+
   it('.completing sentinels are excluded from marker enumeration (not treated as stale)', async () => {
     const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
     writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');

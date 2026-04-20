@@ -170,11 +170,6 @@ describe('TerminalFeed', () => {
     expect(within(drawer).getByText('Environment')).toBeInTheDocument();
   });
 
-  it('shows empty state when no events', () => {
-    renderFeed();
-    expect(screen.getByText('No events to display.')).toBeInTheDocument();
-  });
-
   it('renders blinking cursor', () => {
     renderFeed();
     const cursor = document.querySelector('.terminal-cursor');

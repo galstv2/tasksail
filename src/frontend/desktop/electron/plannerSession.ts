@@ -70,11 +70,11 @@ export async function sendMessage(text: string): Promise<PlannerSendResult> {
   return broker.sendMessage(message);
 }
 
-export async function endSession(): Promise<void> {
+export async function endSession(): Promise<{ ended: boolean }> {
   const sessionId = broker.getObservability().sessionId;
   broker.endSession();
   if (!sessionId) {
-    return;
+    return { ended: false };
   }
 
   try {
@@ -86,6 +86,7 @@ export async function endSession(): Promise<void> {
         : 'Planner staging cleanup failed during session end.',
     );
   }
+  return { ended: true };
 }
 
 export async function saveDraft(): Promise<PlannerSendResult> {
