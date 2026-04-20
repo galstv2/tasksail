@@ -22,6 +22,7 @@ import { getPlatformConfig } from '../platform-config/get.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
 import { allocate as allocatePort, release as releasePort } from '../container/portAllocator.js';
 import { composeProjectName } from '../container/containerNaming.js';
+import { runMergeDetectionSweep } from './mergeDetectionSweep.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -390,6 +391,23 @@ export async function activateNextPendingItemIfReady(
 ): Promise<ActivateNextPendingItemResult> {
   const { paths, repoRoot, contextPackDir } = options;
   const { pendingDir, templatesDir } = paths;
+
+  // §B7-sweep: detect merged task branches before scheduling new work.
+  // Cheap (≤2 git plumbing calls per binding), bounded by # completed-not-yet-
+  // merged tasks. Always best-effort — sweep failures must NEVER block queue
+  // activation.
+  try {
+    const sweep = await runMergeDetectionSweep(repoRoot);
+    if (sweep.tasksCleanedUp > 0) {
+      process.stderr.write(
+        `[mergeDetectionSweep] cleaned ${sweep.tasksCleanedUp} merged task(s); ` +
+        `${sweep.bindingsMarked} bindings newly stamped\n`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[mergeDetectionSweep] sweep failed (non-fatal): ${msg}\n`);
+  }
 
   // §4.2 cap check: compare active task count against platform config limit.
   let cap = 1;

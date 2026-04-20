@@ -5,7 +5,7 @@
  * against the .task.json path. All other modules MUST import readTaskJson or
  * readTaskJsonSafe from here.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { findRepoRoot } from '../core/index.js';
 
@@ -262,4 +262,22 @@ export function readTaskJsonSafe(taskId: string, repoRoot?: string): TaskJson | 
  */
 export function isTaskSidecarError(err: unknown): err is TaskSidecarErrorImpl {
   return err instanceof TaskSidecarErrorImpl;
+}
+
+/**
+ * §B7-sweep: persist a fully-formed sidecar back to disk.
+ *
+ * Always stamps `schema_version` to the current version — callers that mutate
+ * v1-shaped sidecars in-place (e.g. via the read-side normalization shim) get
+ * an automatic on-disk upgrade on the first write. Sync write to keep the call
+ * site simple; the sweep loop is bounded by the number of completed tasks.
+ *
+ * Refuses to write if the parent task dir is missing — that would indicate
+ * the dir was just deleted by a sibling sweep and we must not recreate it.
+ */
+export function writeTaskJson(taskId: string, repoRoot: string, sidecar: TaskJson): void {
+  const sidecarPath = resolveTaskJsonPath(taskId, repoRoot);
+  if (!existsSync(path.dirname(sidecarPath))) return;
+  const out: TaskJson = { ...sidecar, schema_version: CURRENT_TASK_JSON_SCHEMA_VERSION };
+  writeFileSync(sidecarPath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
 }
