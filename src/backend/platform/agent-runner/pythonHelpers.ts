@@ -76,15 +76,16 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
 }
 
 /**
- * Generate AgentWorkSpace/handoffs/code-changes.diff for QA review.
+ * Generate the per-task handoffs/code-changes.diff for QA review.
  */
 export async function captureCodeDiff(options: {
   outputPath: string;
   contextPackDir?: string;
   repoRoot?: string;
+  taskId: string;
   abortSignal?: AbortSignal;
 }): Promise<PythonResult> {
-  const paths = resolvePaths({ repoRoot: options.repoRoot });
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const helperPath = helperPathForRepo(paths.repoRoot);
   const args = [
     'capture-code-diff',
@@ -113,10 +114,11 @@ export async function captureCodeDiff(options: {
 export async function prepareExternalMcpLaunchContext(options: {
   agentId: AgentId;
   repoRoot?: string;
+  taskId: string;
   env?: Record<string, string>;
   abortSignal?: AbortSignal;
 }): Promise<ExternalMcpLaunchContext> {
-  const paths = resolvePaths({ repoRoot: options.repoRoot });
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const helperPath = helperPathForRepo(paths.repoRoot);
   const result = await runPython(
     helperPath,

@@ -22,9 +22,6 @@ import { REPO_ROOT } from './paths';
 import { readTaskRecoveryState } from './main.recoveryState';
 import { pathExists, stringOrNull, repoFs, type ReadOnlyRepoFs } from './utils';
 
-// §5.5: All module-scope path constants that referenced singleton runtime paths
-// have been deleted. Paths are now derived per-task via resolvePaths({ repoRoot, taskId }).
-// Static directories that do NOT need per-task scoping remain as constants.
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
@@ -86,11 +83,7 @@ function extractHeading(content: string | null): string | null {
 }
 
 
-/**
- * §5.5: Read active taskIds from the multi-task ACTIVE_ITEMS_DIR.
- * Each non-.completing file in .active-items/ is a marker named by taskId.
- * Returns an empty array when the directory is absent or unreadable.
- */
+/** Read active taskIds from the ACTIVE_ITEMS_DIR markers directory. */
 async function readActiveTaskIds(fsAdapter: ReadOnlyRepoFs): Promise<string[]> {
   if (!(await pathExists(ACTIVE_ITEMS_DIR, fsAdapter))) {
     return [];
@@ -119,7 +112,6 @@ async function readPendingQueueItems(
   for (const queueName of entries) {
     const content = await readMarkdownFileIfPresent(join(PENDING_DIR, queueName), fsAdapter);
     const taskId = extractMetadataValue(content, 'Task ID');
-    // §5.5: a pending item is 'active' if its taskId appears in the ACTIVE_ITEMS_DIR set.
     const isActive = taskId ? activeTaskIds.has(taskId) : false;
     const state: PendingQueueItem['state'] = isActive ? 'active' : 'pending';
     items.push({
@@ -1103,22 +1095,25 @@ export async function readObservabilitySnapshot(
   const activeTaskIdSet = new Set(activeTaskIds);
   const pendingQueueItems = await readPendingQueueItems(fsAdapter, activeTaskIdSet);
 
-  // §5.5: derive backward-compat scalar from first active marker (F39).
   const activeTaskId = activeTaskIds[0] ?? null;
+  const tasksDir = join(REPO_ROOT, 'AgentWorkSpace', 'tasks');
 
-  // §5.5: for the legacy aggregate view, read professional-task from the legacy handoffs dir.
-  // Per-task handoffs are passed to buildTaskLifecycleFeed via handoffsDir param.
-  const legacyHandoffsDir = join(REPO_ROOT, 'AgentWorkSpace', 'handoffs');
-  const professionalTask = await readMarkdownFileIfPresent(
-    join(legacyHandoffsDir, 'professional-task.md'),
-    fsAdapter,
-  );
-
-  const activeTaskTitle = extractMetadataValue(professionalTask, 'Task Title');
   const operatorStatus = inferOperatorStatus({
     activeTaskIds,
     agentTerminalSessions,
   });
+
+  let professionalTask: string | null = null;
+  let activeTaskTitle: string | null = null;
+  if (activeTaskId) {
+    const firstTaskHandoffsDir = join(tasksDir, activeTaskId, 'handoffs');
+    professionalTask = await readMarkdownFileIfPresent(
+      join(firstTaskHandoffsDir, 'professional-task.md'),
+      fsAdapter,
+    );
+    activeTaskTitle = extractMetadataValue(professionalTask, 'Task Title');
+  }
+
   const currentState = inferLifecycleState({
     dropboxCount,
     pendingCount,
@@ -1142,23 +1137,46 @@ export async function readObservabilitySnapshot(
     },
   ];
 
-  const artifactReferences = await Promise.all([
-    buildArtifactReference('Professional task handoff', join(legacyHandoffsDir, 'professional-task.md'), 'file', fsAdapter),
-    buildArtifactReference('Retrospective handoff', join(legacyHandoffsDir, 'retrospective-input.md'), 'file', fsAdapter),
-    buildArtifactReference('Implementation steps', join(REPO_ROOT, 'AgentWorkSpace', 'ImplementationSteps'), 'directory', fsAdapter),
-  ]);
-  const activeTask = await buildTaskLifecycleFeed({
-    fsAdapter,
-    activeTaskId,
-    activeTaskTitle,
-    professionalTask,
-    currentState,
-    agentTerminalSessions,
-    guardrailSummary,
-    recoveryState,
-    // §5.5: pass the legacy handoffs dir; per-task dir used when taskId lookup is wired.
-    handoffsDir: legacyHandoffsDir,
-  });
+  const artifactReferences: Array<Awaited<ReturnType<typeof buildArtifactReference>> & { taskId: string | null }> = [];
+  const activeTasks: TaskLifecycleFeed[] = [];
+
+  for (const tid of activeTaskIds) {
+    const taskHandoffsDir = join(tasksDir, tid, 'handoffs');
+    const taskImplStepsDir = join(tasksDir, tid, 'ImplementationSteps');
+
+    const taskProfessionalTask = tid === activeTaskId
+      ? professionalTask
+      : await readMarkdownFileIfPresent(join(taskHandoffsDir, 'professional-task.md'), fsAdapter);
+    const taskTitle = extractMetadataValue(taskProfessionalTask, 'Task Title');
+
+    const [ptRef, retroRef, implRef] = await Promise.all([
+      buildArtifactReference('Professional task handoff', join(taskHandoffsDir, 'professional-task.md'), 'file', fsAdapter),
+      buildArtifactReference('Retrospective handoff', join(taskHandoffsDir, 'retrospective-input.md'), 'file', fsAdapter),
+      buildArtifactReference('Implementation steps', taskImplStepsDir, 'directory', fsAdapter),
+    ]);
+    artifactReferences.push(
+      { ...ptRef, taskId: tid },
+      { ...retroRef, taskId: tid },
+      { ...implRef, taskId: tid },
+    );
+
+    const feed = await buildTaskLifecycleFeed({
+      fsAdapter,
+      activeTaskId: tid,
+      activeTaskTitle: taskTitle,
+      professionalTask: taskProfessionalTask,
+      currentState,
+      agentTerminalSessions,
+      guardrailSummary,
+      recoveryState,
+      handoffsDir: taskHandoffsDir,
+    });
+    if (feed) {
+      activeTasks.push(feed);
+    }
+  }
+
+  const activeTask = activeTasks[0] ?? null;
 
   return {
     action: 'observability.readSnapshot',
@@ -1173,6 +1191,7 @@ export async function readObservabilitySnapshot(
     operatorStatus,
     pendingQueueItems,
     errorItemsCount: errorItemsCount > 0 ? errorItemsCount : undefined,
+    activeTasks,
     activeTask,
     agentTerminalSessions,
     guardrailSummary,

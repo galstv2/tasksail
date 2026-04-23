@@ -34,7 +34,7 @@ async function listGlob(pattern: string): Promise<string[]> {
 
 async function computeRuntimePolicyStateKey(options: {
   repoRoot: string;
-  taskId?: string;
+  taskId: string;
   handoffsDir: string;
   implStepsDir: string;
   agentId: AgentId;
@@ -43,6 +43,7 @@ async function computeRuntimePolicyStateKey(options: {
   const taskRuntime = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId }).taskRuntime;
   const runtimeFactsSignature = await computeRuntimeFactsSourceSignature({
     repoRoot: options.repoRoot,
+    taskId: options.taskId,
     taskRuntime,
     handoffsDir: options.handoffsDir,
     implStepsDir: options.implStepsDir,
@@ -74,7 +75,7 @@ async function computeRuntimePolicyStateKey(options: {
 export function guardrailReceiptPath(
   repoRoot: string,
   agentId: AgentId,
-  taskId?: string,
+  taskId: string,
 ): string {
   const taskRuntime = resolvePaths({ repoRoot, taskId }).taskRuntime;
   return path.join(taskRuntime, 'guardrails', `${agentId}.json`);
@@ -103,11 +104,12 @@ export async function runRuntimePolicyCheck(
   repoRoot: string,
   agentId: AgentId,
   mode: PolicyValidationMode = 'runtime',
-  taskId?: string,
+  taskId: string,
 ): Promise<PythonResult> {
   const paths = resolvePaths({ repoRoot, taskId });
   await writeRuntimeWorkflowFacts({
     repoRoot,
+    taskId,
     taskRuntime: paths.taskRuntime,
     handoffsDir: paths.handoffs,
     implStepsDir: paths.implementationSteps,
@@ -120,7 +122,7 @@ export async function runRuntimePolicyCheck(
     agentId,
     mode,
   });
-  const cacheKey = `${repoRoot}::${taskId ?? '__singleton__'}`;
+  const cacheKey = `${repoRoot}::${taskId}`;
   const cached = policyResultCache.get(cacheKey);
   if (cached?.key === stateKey) {
     return cached.result;

@@ -81,7 +81,7 @@ class ParentArchiveRetrievalTests(unittest.TestCase):
                     "constraints": ["Do not bypass pendingitems sequencing"],
                     "known_limitations": ["Terminal follow-up trigger not implemented yet"],
                     "followup_refs": ["CAP-1001"],
-                    "provenance_sources": ["AgentWorkSpace/handoffs/final-summary.md"],
+                    "provenance_sources": ["AgentWorkSpace/tasks/CAP-1000/handoffs/final-summary.md"],
                 },
             )
 

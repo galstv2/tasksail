@@ -16,7 +16,7 @@ describe('getQueueStatus', () => {
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems'), {
       recursive: true,
     });
-    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'handoffs'), {
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'tasks'), {
       recursive: true,
     });
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), {
@@ -91,12 +91,14 @@ describe('getQueueStatus', () => {
   });
 
   it('reports activeItemWithBlankWorkspace false when workspace has task content', async () => {
+    const TEST_TASK_ID = 'active-task';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
-    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(activeItemsDir, { recursive: true });
+    mkdirSync(handoffsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'active-task.md'), '# Active');
-    writeFileSync(path.join(activeItemsDir, 'active-task'), '');
+    writeFileSync(path.join(activeItemsDir, TEST_TASK_ID), '');
     // Write task content so workspace is NOT in ready/reset state
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
@@ -110,13 +112,18 @@ describe('getQueueStatus', () => {
     expect(status.activeItemWithBlankWorkspace).toBe(false);
   });
 
-  it('detects partial publish marker', async () => {
-    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+  it('partialPublish is always false (per-task partial publishes handled by repairQueue)', async () => {
+    // Under the per-task workbench, queueStatus no longer checks the singleton
+    // handoffs directory for .publish-in-progress markers. repairQueue check-5
+    // iterates each active task's handoffs dir instead. partialPublish is always false.
+    const TEST_TASK_ID = 'task-test-001';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
 
     const status = await getQueueStatus(tmpRoot);
 
-    expect(status.partialPublish).toBe(true);
+    expect(status.partialPublish).toBe(false);
   });
 
   it('reports partialPublish false when no marker exists', async () => {
@@ -163,7 +170,7 @@ describe('getQueueStatus §4.1B — activeTasks array from .active-items/', () =
     tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-status-mg10-'));
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'dropbox'), { recursive: true });
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items'), { recursive: true });
-    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'tasks'), { recursive: true });
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
   });
 

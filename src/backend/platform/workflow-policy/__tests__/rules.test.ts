@@ -23,6 +23,8 @@ import {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+const TEST_TASK_ID = 'task-test-001';
+
 function makeRepoRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'ts-rules-'));
   return root;
@@ -81,7 +83,7 @@ function writeRegistry(repoRoot: string): void {
 }
 
 function writeHandoffsReset(repoRoot: string): void {
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
   for (const fileName of [
     'professional-task.md',
@@ -97,7 +99,7 @@ function writeHandoffsReset(repoRoot: string): void {
 function writeActiveTask(repoRoot: string): void {
   writeHandoffsReset(repoRoot);
   writeFileSync(
-    path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'),
+    path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'professional-task.md'),
     [
       '## Task Metadata',
       '- Task ID: task-42',
@@ -148,6 +150,7 @@ describe('createDefaultRuleEvaluators()', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: trackingEvaluators,
     });
 
@@ -170,6 +173,7 @@ describe('createDefaultRuleEvaluators()', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: trackingEvaluators,
     });
 
@@ -194,6 +198,7 @@ describe('createDefaultRuleEvaluators()', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: allTracking,
     });
 
@@ -218,6 +223,7 @@ describe('createDefaultRuleEvaluators()', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'queue-advance',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: allTracking,
     });
 
@@ -260,6 +266,7 @@ describe('boundary rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -277,12 +284,12 @@ describe('boundary rules — parity', () => {
     writeHandoffsReset(repoRoot);
 
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'professional-task.md'),
       '## Task Metadata\n- Task ID: task-A\n## Problem Statement\nABC\n',
       'utf-8',
     );
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'final-summary.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'final-summary.md'),
       '## Task Metadata\n- Task ID: task-B\n## Completed Work\nDone\n',
       'utf-8',
     );
@@ -290,6 +297,7 @@ describe('boundary rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -311,7 +319,7 @@ describe('required task artifact rules — parity', () => {
     writeHandoffsReset(repoRoot);
 
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'professional-task.md'),
       '## Task Metadata\n- Task Title: My Task\n## Problem Statement\nABC\n',
       'utf-8',
     );
@@ -319,6 +327,7 @@ describe('required task artifact rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -339,7 +348,7 @@ describe('closeout rules — parity', () => {
     writeRegistry(repoRoot);
 
     // Manually create workspace WITHOUT issues.md
-    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
@@ -354,6 +363,7 @@ describe('closeout rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -370,7 +380,7 @@ describe('closeout rules — parity', () => {
 
     // Write issues.md with passing review
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'),
       '## Review Outcome\npass\n',
       'utf-8',
     );
@@ -379,6 +389,7 @@ describe('closeout rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -404,7 +415,7 @@ describe('queue rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'queue-advance',
-      taskId: 'test-task-42',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -430,6 +441,7 @@ describe('workflow path rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
 
@@ -455,6 +467,7 @@ describe('planning agent rules — parity', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       requestedAgentId: 'planning-agent',
       ruleEvaluators: createDefaultRuleEvaluators(),
     });
@@ -486,6 +499,7 @@ describe('retrospectiveContributionSections() ordering', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
     });
     await validator.initialize();
 
@@ -512,7 +526,7 @@ describe('isFullRetrospectiveRequired()', () => {
     writeRegistry(repoRoot);
     writeHandoffsReset(repoRoot);
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
 
     expect(validator.isFullRetrospectiveRequired()).toBe(true);
@@ -525,12 +539,12 @@ describe('isFullRetrospectiveRequired()', () => {
     writeHandoffsReset(repoRoot);
 
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'retrospective-input.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'retrospective-input.md'),
       '## Task Metadata\n- Retrospective Required: false\n',
       'utf-8',
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
 
     expect(validator.isFullRetrospectiveRequired()).toBe(false);
@@ -549,14 +563,14 @@ describe('retrospectiveCompletionGaps()', () => {
     writeRegistry(repoRoot);
 
     // Create workspace WITHOUT retrospective-input.md
-    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     for (const f of ['professional-task.md', 'implementation-spec.md', 'final-summary.md', 'issues.md']) {
       writeFileSync(path.join(handoffsDir, f), '', 'utf-8');
     }
     // retrospective-input.md is deliberately absent
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
 
     const gaps = validator.retrospectiveCompletionGaps(true);
@@ -570,7 +584,7 @@ describe('retrospectiveCompletionGaps()', () => {
     writeHandoffsReset(repoRoot);
 
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'retrospective-input.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'retrospective-input.md'),
       [
         '## Task Metadata',
         '- Retrospective Required: true',
@@ -591,7 +605,7 @@ describe('retrospectiveCompletionGaps()', () => {
       'utf-8',
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
 
     const gaps = validator.retrospectiveCompletionGaps(true);

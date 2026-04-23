@@ -50,10 +50,11 @@ describe('resolveQueuePaths — back-compat existing fields', () => {
     expect(qp.pendingDir.endsWith(path.join('AgentWorkSpace', 'pendingitems'))).toBe(true);
   });
 
-  it('handoffsDir is present and ends with AgentWorkSpace/handoffs', () => {
+  it('taskHandoffs("task-test-001") ends with AgentWorkSpace/tasks/task-test-001/handoffs', () => {
     const qp = resolveQueuePaths(FAKE_ROOT);
-    expect(qp.handoffsDir).toBeDefined();
-    expect(qp.handoffsDir.endsWith(path.join('AgentWorkSpace', 'handoffs'))).toBe(true);
+    expect(qp.taskHandoffs('task-test-001').endsWith(
+      path.join('AgentWorkSpace', 'tasks', 'task-test-001', 'handoffs'),
+    )).toBe(true);
   });
 
   it('activeContextPackPath is present and ends with active-context-pack.json', () => {

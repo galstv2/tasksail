@@ -7,16 +7,8 @@
 !.env.example
 .platform-state/
 
-# Handoffs (working copies — all runtime; canonical sources in templates/)
-AgentWorkSpace/handoffs/*
-!AgentWorkSpace/handoffs/.gitkeep
-
 # Canonical templates (all tracked; read-only by convention)
 !AgentWorkSpace/templates/
-
-# Task implementation steps (runtime slices — all ignored)
-AgentWorkSpace/ImplementationSteps/*
-!AgentWorkSpace/ImplementationSteps/.gitkeep
 
 # QMD long-term memory archive (runtime — all ignored)
 AgentWorkSpace/qmd/*

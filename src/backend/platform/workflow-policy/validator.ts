@@ -141,19 +141,24 @@ export class PolicyValidator {
   }
 
   /**
-   * The resolved handoffs directory. When taskId is set, routes to
-   * AgentWorkSpace/tasks/<taskId>/handoffs; otherwise to AgentWorkSpace/handoffs.
+   * The per-task handoffs directory: AgentWorkSpace/tasks/<taskId>/handoffs.
+   * Throws in lint mode (no taskId) because task context is required.
    */
   get handoffsDir(): string {
+    if (!this._taskId) {
+      throw new Error('task context required; activate a pending item before validation');
+    }
     return resolvePaths({ repoRoot: this.rootDir, taskId: this._taskId }).handoffs;
   }
 
   /**
-   * The resolved ImplementationSteps directory. When taskId is set, routes to
-   * AgentWorkSpace/tasks/<taskId>/ImplementationSteps; otherwise to
-   * AgentWorkSpace/ImplementationSteps.
+   * The per-task ImplementationSteps directory: AgentWorkSpace/tasks/<taskId>/ImplementationSteps.
+   * Throws in lint mode (no taskId) because task context is required.
    */
   get implementationStepsDir(): string {
+    if (!this._taskId) {
+      throw new Error('task context required; activate a pending item before validation');
+    }
     return resolvePaths({ repoRoot: this.rootDir, taskId: this._taskId }).implementationSteps;
   }
 
@@ -192,7 +197,7 @@ export class PolicyValidator {
     const loadedArtifacts = await Promise.all(
       HANDOFF_RELATIVE_PATHS.map(async (fullRelativePath) => {
         const bareKey = toHandoffKey(fullRelativePath);
-        const loaded = await this.loadHandoffArtifactWithSingletonFallback(
+        const loaded = await this.loadHandoffArtifact(
           handoffsDir, bareKey,
         );
         // Override relativePath to the stable bare-filename key so that rule code
@@ -228,31 +233,20 @@ export class PolicyValidator {
       return cached;
     }
 
-    const artifact = await this.loadHandoffArtifactWithSingletonFallback(
+    const artifact = await this.loadHandoffArtifact(
       this.handoffsDir, bareKey,
     );
     this.artifacts.set(bareKey, artifact);
     return artifact;
   }
 
-  // Transitional: queue lifecycle ops still write handoffs to the singleton
-  // AgentWorkSpace/handoffs/ until §4.*. When taskId is threaded, per-task
-  // handoffs may not yet exist — fall back to singleton so policy checks see
-  // what was actually written. Once §4.* migrates writers, per-task exists
-  // and this fallback becomes a no-op (preserving cross-task isolation).
-  private async loadHandoffArtifactWithSingletonFallback(
+  private async loadHandoffArtifact(
     handoffsDir: string, bareKey: string,
   ): Promise<WorkspaceArtifact> {
     const primaryRelative = path.relative(
       this.rootDir, path.join(handoffsDir, bareKey),
     );
-    const primary = await loadWorkspaceArtifact(this.rootDir, primaryRelative);
-    if (primary.exists || !this._taskId) {
-      return primary;
-    }
-    const singletonRelative = path.join('AgentWorkSpace', 'handoffs', bareKey);
-    const singleton = await loadWorkspaceArtifact(this.rootDir, singletonRelative);
-    return singleton.exists ? singleton : primary;
+    return loadWorkspaceArtifact(this.rootDir, primaryRelative);
   }
 
   recordRule(ruleId: string): void {
@@ -316,7 +310,7 @@ export class PolicyValidator {
       if (!this.hasActiveTask()) {
         return [
           'No active task was detected; task-workspace rules were skipped.',
-          'If you are about to start work, initialize AgentWorkSpace/handoffs/ or activate the next pending item first.',
+          'If you are about to start work, activate the next pending item first to create the per-task handoffs directory.',
         ];
       }
       return ['No workflow-policy violations were detected for the current mode.'];

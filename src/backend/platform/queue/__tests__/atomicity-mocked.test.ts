@@ -90,9 +90,11 @@ describe('activateNextPendingItemIfReady claim rollback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Use canonical AgentWorkSpace structure so resolveQueuePaths works correctly.
+    // Per-task handoffs live under AgentWorkSpace/tasks/<taskId>/handoffs/ (created by activation).
+    const TEST_TASK_ID = 'task-test-001';
     repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-activate-'));
     pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     mkdirSync(pendingDir, { recursive: true });
     mkdirSync(handoffsDir, { recursive: true });

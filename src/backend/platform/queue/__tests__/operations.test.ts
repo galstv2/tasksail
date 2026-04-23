@@ -140,9 +140,11 @@ describe('activateNextPendingItemIfReady', () => {
 
   beforeEach(() => {
     // Use canonical AgentWorkSpace structure so resolveQueuePaths works correctly.
+    // Per-task handoffs live under AgentWorkSpace/tasks/<taskId>/handoffs/ (created by activation).
+    const TEST_TASK_ID = 'task-test-001';
     repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-activate-lock-'));
     pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     mkdirSync(pendingDir, { recursive: true });
     mkdirSync(handoffsDir, { recursive: true });
@@ -299,10 +301,11 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
   });
 
   it('preserves runtime receipts until a new task activates', async () => {
-    const handoffsDir = path.join(tmpDir, 'AgentWorkSpace', 'handoffs');
+    const TEST_TASK_ID = 'task-test-001';
+    const handoffsDir = path.join(tmpDir, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     const runtimeDir = path.join(tmpDir, '.platform-state', 'runtime');
     const roleSessionsDir = path.join(runtimeDir, 'role-sessions');
-    const implStepsDir = path.join(tmpDir, 'AgentWorkSpace', 'ImplementationSteps');
+    const implStepsDir = path.join(tmpDir, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(roleSessionsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });

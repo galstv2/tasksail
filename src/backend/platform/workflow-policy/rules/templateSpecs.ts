@@ -179,7 +179,7 @@ export const SLICE_TEMPLATE_SPEC: HandoffSpec = {
 };
 
 export const SLICE_TEMPLATE_RELATIVE_PATH =
-  'AgentWorkSpace/ImplementationSteps/slice-template.md';
+  'AgentWorkSpace/templates/slice-template.md';
 
 export const TEMPLATE_SOURCE_DIR = 'AgentWorkSpace/templates';
 

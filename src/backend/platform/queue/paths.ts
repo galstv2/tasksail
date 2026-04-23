@@ -3,7 +3,7 @@ import { readdirSync } from 'node:fs';
 import { findRepoRoot } from '../core/index.js';
 
 /**
- * Standard handoff artifact filenames that live in AgentWorkSpace/handoffs/.
+ * Standard handoff artifact filenames that live in per-task handoffs directories.
  */
 export const HANDOFF_FILES: readonly string[] = [
   'professional-task.md',
@@ -38,7 +38,6 @@ export interface QueuePaths {
   dropboxDir: string;
   pendingDir: string;
   errorItemsDir: string;
-  handoffsDir: string;
   templatesDir: string;
   /**
    * Compatibility fallback: returns the single non-sentinel active-marker path
@@ -81,7 +80,6 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
     dropboxDir: path.join(agentWorkSpace, 'dropbox'),
     pendingDir,
     errorItemsDir: path.join(agentWorkSpace, 'error-items'),
-    handoffsDir: path.join(agentWorkSpace, 'handoffs'),
     templatesDir: path.join(agentWorkSpace, 'templates'),
     activeItemLink: (): string | undefined => {
       const activeItemsPath = path.join(pendingDir, '.active-items');
@@ -107,11 +105,37 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
 }
 
 /**
- * Resolve the ImplementationSteps directory for a repo root.
+ * Render an absolute artifact path under the per-task handoffs directory.
+ * Use for prompt strings and user-facing remediation messages so the path
+ * always reflects the active task context.
  */
-export function implementationStepsDirFor(repoRoot?: string): string {
-  const root = repoRoot ?? findRepoRoot();
-  return path.join(root, 'AgentWorkSpace', IMPLEMENTATION_STEPS_DIRNAME);
+export function renderHandoffArtifactPath(
+  repoRoot: string,
+  taskId: string,
+  filename: string,
+): string {
+  return path.join(
+    resolveQueuePaths(repoRoot).taskHandoffs(taskId),
+    filename,
+  );
+}
+
+/**
+ * Render a relative `AgentWorkSpace/tasks/<taskId>/handoffs/<filename>`
+ * label suitable for prompt text and documentation.
+ */
+export function renderHandoffArtifactLabel(
+  taskId: string,
+  filename: string,
+): string {
+  return `AgentWorkSpace/tasks/${taskId}/handoffs/${filename}`;
+}
+
+export function renderImplementationStepsLabel(
+  taskId: string,
+  filename: string,
+): string {
+  return `AgentWorkSpace/tasks/${taskId}/ImplementationSteps/${filename}`;
 }
 
 /**

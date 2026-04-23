@@ -141,7 +141,6 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
   const queueDirs = [
     path.join(root, 'AgentWorkSpace', 'dropbox'),
     path.join(root, 'AgentWorkSpace', 'pendingitems'),
-    path.join(root, 'AgentWorkSpace', 'handoffs'),
     path.join(root, 'AgentWorkSpace', 'tasks'),
   ];
   try {

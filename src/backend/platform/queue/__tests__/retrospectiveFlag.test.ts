@@ -14,8 +14,9 @@ describe('retrospectiveFlag', () => {
   let handoffsDir: string;
 
   beforeEach(() => {
+    const TEST_TASK_ID = 'task-test-001';
     repoRoot = mkdtempSync(path.join(tmpdir(), 'retro-flag-'));
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
   });
 

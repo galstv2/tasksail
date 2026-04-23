@@ -19,6 +19,7 @@
       "tests.domains.context_pack.test_activate_context_pack",
       "tests.domains.qmd.test_live_qmd_seeding",
       "tests.domains.queue.test_queue_runtime_integration",
+      "tests.domains.queue.test_queue_runtime_closeout",
       "tests.domains.workflow.test_run_role_agent",
       "tests.domains.context_pack.test_switch_context_pack_workspace",
       "tests.domains.e2e.test_mvp_green_light"
@@ -43,6 +44,7 @@
       "tests.domains.queue.test_create_followup_task",
       "tests.domains.queue.test_queue_policy_transitions",
       "tests.domains.queue.test_queue_runtime_integration",
+      "tests.domains.queue.test_queue_runtime_closeout",
       "tests.domains.queue.test_task_completion_counter"
     ],
     "context_pack": [
@@ -68,6 +70,8 @@
       "tests.domains.archive.test_parent_archive_retrieval",
       "tests.domains.archive.test_report_renderer",
       "tests.domains.archive.test_task_archive_filing",
+      "tests.domains.archive.test_task_archive_retrospective",
+      "tests.domains.archive.test_task_archive_atomicity",
       "tests.domains.archive.test_task_archive_lineage",
       "tests.domains.archive.test_task_archive_service"
     ],
@@ -108,8 +112,7 @@
     ".github/copilot/": ["docs_contracts"],
     "docker/repo-context-mcp/": ["repo_context"],
     "docs/": ["docs_contracts"],
-    "AgentWorkSpace/handoffs/": ["workflow", "docs_contracts"],
-    "AgentWorkSpace/ImplementationSteps/": ["workflow"],
+    "AgentWorkSpace/tasks/": ["workflow", "docs_contracts"],
     "qmd/": ["context_pack", "context_estate", "qmd"],
     "src/backend/scripts/python/approve-context-estate-manifest.py": ["context_estate"],
     "src/backend/scripts/python/discover-context-estate.py": ["context_estate"],

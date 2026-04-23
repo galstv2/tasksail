@@ -19,6 +19,7 @@ const {
 } = await import('../runtimeFacts.js');
 
 describe('runtimeFacts', () => {
+  const TEST_TASK_ID = 'task-test-001';
   let repoRoot: string;
   let taskRuntime: string;
   let handoffsDir: string;
@@ -29,8 +30,8 @@ describe('runtimeFacts', () => {
     detectParallelOk.mockResolvedValue(false);
     repoRoot = mkdtempSync(path.join(tmpdir(), 'runtime-facts-'));
     taskRuntime = path.join(repoRoot, '.platform-state', 'runtime');
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
     mkdirSync(taskRuntime, { recursive: true });
@@ -48,7 +49,7 @@ describe('runtimeFacts', () => {
       return false;
     });
 
-    const facts = await computeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
+    const facts = await computeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(facts.completion['product-manager'].completed).toBe(true);
     expect(facts.completion['software-engineer'].completed).toBe(false);
@@ -64,7 +65,7 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    const facts = await computeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
+    const facts = await computeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(facts.next_agent_id).toBe('software-engineer');
     expect(facts.next_agent_source).toBe('qa issues remediation owner');
@@ -79,7 +80,7 @@ describe('runtimeFacts', () => {
     );
     detectParallelOk.mockResolvedValue(true);
 
-    const facts = await computeRuntimeWorkflowFacts({ repoRoot, handoffsDir, implStepsDir });
+    const facts = await computeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(facts.parallel.active_approval).toBe(true);
   });
@@ -93,8 +94,8 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
-    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, taskRuntime, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, taskRuntime, handoffsDir, implStepsDir });
 
     expect(checkAgentArtifactCompletion).toHaveBeenCalledTimes(2);
     expect(detectParallelOk).toHaveBeenCalledTimes(1);
@@ -105,7 +106,7 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    await writeRuntimeWorkflowFacts({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
+    await writeRuntimeWorkflowFacts({ repoRoot, taskId: TEST_TASK_ID, taskRuntime, handoffsDir, implStepsDir });
 
     expect(checkAgentArtifactCompletion).toHaveBeenCalledTimes(4);
     expect(detectParallelOk).toHaveBeenCalledTimes(2);
@@ -118,7 +119,7 @@ describe('runtimeFacts', () => {
     mkdirSync(conventionsDir, { recursive: true });
     mkdirSync(guardrailsDir, { recursive: true });
 
-    const initialSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
+    const initialSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskId: TEST_TASK_ID, taskRuntime, handoffsDir, implStepsDir });
 
     writeFileSync(
       path.join(conventionsDir, 'testing-infrastructure.json'),
@@ -131,7 +132,7 @@ describe('runtimeFacts', () => {
       'utf-8',
     );
 
-    const updatedSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskRuntime, handoffsDir, implStepsDir });
+    const updatedSignature = await computeRuntimeFactsSourceSignature({ repoRoot, taskId: TEST_TASK_ID, taskRuntime, handoffsDir, implStepsDir });
 
     expect(updatedSignature).toBe(initialSignature);
   });
@@ -168,12 +169,14 @@ describe('runtimeFacts', () => {
 
     await writeRuntimeWorkflowFacts({
       repoRoot,
+      taskId: 'task-aaa',
       taskRuntime: taskRuntimeA,
       handoffsDir: handoffsDirA,
       implStepsDir: implStepsDirA,
     });
     await writeRuntimeWorkflowFacts({
       repoRoot,
+      taskId: 'task-bbb',
       taskRuntime: taskRuntimeB,
       handoffsDir: handoffsDirB,
       implStepsDir: implStepsDirB,
@@ -198,6 +201,7 @@ describe('runtimeFacts', () => {
     const callCountBefore = checkAgentArtifactCompletion.mock.calls.length;
     await writeRuntimeWorkflowFacts({
       repoRoot,
+      taskId: 'task-aaa',
       taskRuntime: taskRuntimeA,
       handoffsDir: handoffsDirA,
       implStepsDir: implStepsDirA,

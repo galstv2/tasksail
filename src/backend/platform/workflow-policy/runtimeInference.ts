@@ -108,7 +108,7 @@ async function closeoutNextAgent(handoffsDir: string): Promise<{ agentId: string
   return { agentId: owner, source: 'final-summary closeout owner' };
 }
 
-async function softwareEngineerCompleted(repoRoot: string, taskId?: string): Promise<boolean> {
+async function softwareEngineerCompleted(repoRoot: string, taskId: string): Promise<boolean> {
   const taskRuntime = resolvePaths({ repoRoot, taskId }).taskRuntime;
   const roleSessionPath = path.join(taskRuntime, 'role-sessions', 'software-engineer.json');
   const roleSessionRaw = await readTextFile(roleSessionPath);
@@ -144,7 +144,7 @@ async function softwareEngineerCompleted(repoRoot: string, taskId?: string): Pro
 
 export async function computeRuntimeCompletionFacts(options: {
   repoRoot: string;
-  taskId?: string;
+  taskId: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<Record<string, RuntimeAgentFacts>> {
@@ -179,7 +179,7 @@ export function inferNextAgentFromCompletion(
 
 export async function evaluateRuntimeInference(options: {
   repoRoot: string;
-  taskId?: string;
+  taskId: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<RuntimeInferenceResult> {

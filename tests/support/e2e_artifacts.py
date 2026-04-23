@@ -1,10 +1,18 @@
 """Artifact writers for synthetic E2E pipeline tests."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from textwrap import dedent
 
+_SCRIPT_DIR = Path(__file__).resolve().parents[2] / "src" / "backend" / "scripts" / "python"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from lib.workspace_paths import render_handoff_artifact_label, render_implementation_steps_label  # noqa: E402
 from tests.support.handoff_factory import write_text
+
+TEST_TASK_ID = "task-test-001"
 
 
 def _task_metadata(task_id: str, title: str) -> str:
@@ -37,7 +45,7 @@ def write_product_manager_artifacts(
 ) -> None:
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/implementation-spec.md",
+        render_handoff_artifact_label(task_id, "implementation-spec.md"),
         dedent(f"""\
         # Implementation Spec
 
@@ -133,7 +141,7 @@ def write_product_manager_artifacts(
     )
     write_text(
         workspace,
-        "AgentWorkSpace/ImplementationSteps/slice-01-green-light-validation.md",
+        render_implementation_steps_label(task_id, "slice-01-green-light-validation.md"),
         """# Slice 01 - Green-Light Validation
 
 ## Objective
@@ -199,7 +207,7 @@ def write_software_engineer_outputs(
 ) -> None:
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/tests.md",
+        render_handoff_artifact_label(task_id, "tests.md"),
         f"""# Tests
 
 ## Task Metadata
@@ -237,7 +245,7 @@ def write_qa_closeout(
 ) -> None:
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/issues.md",
+        render_handoff_artifact_label(task_id, "issues.md"),
         f"""# QA Issues
 
 {_task_metadata(task_id, title)}
@@ -267,7 +275,7 @@ pass
     )
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/final-summary.md",
+        render_handoff_artifact_label(task_id, "final-summary.md"),
         f"""# Final Summary
 
 {_task_metadata(task_id, title)}

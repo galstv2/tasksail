@@ -17,6 +17,7 @@ vi.mock('../../core/index.js', async () => {
 const { checkAgentArtifactCompletion, buildAgentArtifactRemediationPrompt, detectParallelOk } = await import('../artifactCompletion.js');
 
 describe('artifactCompletion', () => {
+  const TEST_TASK_ID = 'task-test-001';
   let repoRoot: string;
   let handoffsDir: string;
   let implStepsDir: string;
@@ -24,8 +25,8 @@ describe('artifactCompletion', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'artifact-completion-'));
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {
@@ -472,7 +473,7 @@ describe('artifactCompletion', () => {
     expect(prompt).toContain("'Easy', 'Medium', or 'Hard'");
   });
 
-  it('reads qa artifacts from handoffsDir under per-task tasks/<taskId>/handoffs, not singleton AgentWorkSpace/handoffs (§4.11)', async () => {
+  it('confirms per-task isolation: reads qa artifacts from per-task handoffsDir', async () => {
     const perTaskHandoffs = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 't1', 'handoffs');
     const perTaskImplSteps = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 't1', 'ImplementationSteps');
     mkdirSync(perTaskHandoffs, { recursive: true });
@@ -494,9 +495,6 @@ describe('artifactCompletion', () => {
       '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
-
-    // Singleton handoffs (under AgentWorkSpace/handoffs) are EMPTY — must NOT be read
-    // The singleton dir already exists from beforeEach; leave it without artifacts
 
     await expect(checkAgentArtifactCompletion({
       agentId: 'qa',

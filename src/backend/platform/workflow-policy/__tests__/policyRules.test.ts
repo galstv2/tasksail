@@ -24,6 +24,8 @@ import {
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
+const TEST_TASK_ID = 'task-test-001';
+
 function createRegistry(repoRoot: string): void {
   mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
   writeFileSync(
@@ -77,7 +79,7 @@ function createRegistry(repoRoot: string): void {
 }
 
 function createActiveWorkspace(repoRoot: string): void {
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
 
   writeFileSync(
@@ -100,7 +102,7 @@ function createActiveWorkspace(repoRoot: string): void {
 }
 
 function createResetWorkspace(repoRoot: string): void {
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
   for (const f of [
     'professional-task.md',
@@ -188,6 +190,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: Object.fromEntries(
         [...FULL_EVALUATION_SEQUENCE, ...LIGHTWEIGHT_EVALUATION_SEQUENCE].map(
           (name) => [name, () => void seen.push(name)],
@@ -209,6 +212,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'queue-advance',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: Object.fromEntries(
         [...FULL_EVALUATION_SEQUENCE, ...LIGHTWEIGHT_EVALUATION_SEQUENCE].map(
           (name) => [name, () => void seen.push(name)],
@@ -230,6 +234,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: Object.fromEntries(
         FULL_EVALUATION_SEQUENCE.map((name) => [name, () => void seen.push(name)]),
       ),
@@ -248,7 +253,7 @@ describe('workflow-policy rule parity', () => {
     createdRoots.push(root);
     createRegistry(root);
 
-    const handoffsDir = path.join(root, 'AgentWorkSpace', 'handoffs');
+    const handoffsDir = path.join(root, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     // No task-id in metadata but substantive content in implementation-spec
     writeFileSync(path.join(handoffsDir, 'professional-task.md'), '', 'utf-8');
@@ -265,6 +270,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: {
         boundaryRules: DEFAULT_RULE_EVALUATORS.boundaryRules,
       },
@@ -289,6 +295,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: { closeoutRules: DEFAULT_RULE_EVALUATORS.closeoutRules },
     });
     await validator.evaluate();
@@ -307,7 +314,7 @@ describe('workflow-policy rule parity', () => {
 
     // issues.md must exist with review outcome pass to pass qa-review-approved check
     writeFileSync(
-      path.join(root, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+      path.join(root, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'),
       ['## Review Outcome', 'pass'].join('\n'),
       'utf-8',
     );
@@ -315,6 +322,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: {
         namedAgentRules: async () => {},
         closeoutRules: DEFAULT_RULE_EVALUATORS.closeoutRules,
@@ -340,6 +348,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: { queueRules: DEFAULT_RULE_EVALUATORS.queueRules },
     });
     await validator.evaluate();
@@ -362,6 +371,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       requestedAgentId: 'planning-agent',
       ruleEvaluators: { planningAgentRules: DEFAULT_RULE_EVALUATORS.planningAgentRules },
     });
@@ -383,6 +393,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       requestedAgentId: 'planning-agent',
       ruleEvaluators: { planningAgentRules: DEFAULT_RULE_EVALUATORS.planningAgentRules },
     });
@@ -403,7 +414,7 @@ describe('workflow-policy rule parity', () => {
     createdRoots.push(root);
     createRegistry(root);
 
-    const handoffsDir = path.join(root, 'AgentWorkSpace', 'handoffs');
+    const handoffsDir = path.join(root, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
@@ -417,6 +428,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: { requiredTaskArtifacts: DEFAULT_RULE_EVALUATORS.requiredTaskArtifacts },
     });
     await validator.evaluate();
@@ -438,6 +450,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'lint',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: { workflowPathRules: DEFAULT_RULE_EVALUATORS.workflowPathRules },
     });
     await validator.evaluate();
@@ -455,6 +468,7 @@ describe('workflow-policy rule parity', () => {
     const validator = new PolicyValidator({
       rootDir: root,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: { workflowPathRules: DEFAULT_RULE_EVALUATORS.workflowPathRules },
     });
     await validator.evaluate();
@@ -474,7 +488,7 @@ describe('workflow-policy rule parity', () => {
     createResetWorkspace(root);
 
     // No ruleEvaluators override — defaults must run
-    const validator = new PolicyValidator({ rootDir: root, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: root, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.evaluate();
 
     // Boundary rule should have run and recorded itself

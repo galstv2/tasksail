@@ -10,6 +10,7 @@ describe('createDropboxTask', () => {
   beforeEach(() => {
     tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-create-'));
     // Create minimal repo structure with .git dir for findRepoRoot
+    const TEST_TASK_ID = 'task-test-001';
     mkdirSync(path.join(tmpRoot, '.git'));
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'dropbox'), {
       recursive: true,
@@ -17,7 +18,7 @@ describe('createDropboxTask', () => {
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems'), {
       recursive: true,
     });
-    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'handoffs'), {
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs'), {
       recursive: true,
     });
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), {

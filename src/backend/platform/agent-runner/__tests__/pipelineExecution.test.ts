@@ -95,15 +95,15 @@ describe('runPipelineSequence', () => {
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id'), { recursive: true });
     resolvePaths.mockReturnValue({
       repoRoot,
-      handoffs: path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
-      implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      handoffs: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs'),
+      implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps'),
       platformState: path.join(repoRoot, '.platform-state'),
       taskRuntime: path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id'),
       templates: path.join(repoRoot, 'AgentWorkSpace', 'templates'),
     });
     mkdirSync(path.join(repoRoot, '.git'));
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
     // Seed a full platform.json so failure-path callers (finalizeTaskWorktrees
     // → getPlatformConfig) don't throw. Without this, moveFailedItemToErrorItems
@@ -151,7 +151,7 @@ describe('runPipelineSequence', () => {
       exitCode: 0,
     });
     buildAgentArtifactRemediationPrompt.mockResolvedValue(
-      'Address the blocking qa findings in AgentWorkSpace/handoffs/issues.md.',
+      'Address the blocking qa findings in AgentWorkSpace/tasks/test-task-id/handoffs/issues.md.',
     );
     remediationHasBlockingFindings.mockResolvedValue(false);
     remediationRunQaLoop.mockResolvedValue(undefined);
@@ -420,8 +420,8 @@ describe('runPipelineSequence', () => {
       skipWorkflowValidation: true,
     }));
     expect(resolveVerificationDaltonPrompt).toHaveBeenCalledWith(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps'),
       undefined,
       undefined,
       path.join(
@@ -505,7 +505,7 @@ describe('runPipelineSequence', () => {
 
   it('removes slice-template.md before starting Dalton', async () => {
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-template.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-template.md'),
       '# Slice Template\n',
     );
     readTextFile.mockImplementation(async (filePath: string) => {
@@ -518,7 +518,7 @@ describe('runPipelineSequence', () => {
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
     await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
 
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-template.md'))).toBe(false);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-template.md'))).toBe(false);
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'dalton',
       'ron',
@@ -527,11 +527,11 @@ describe('runPipelineSequence', () => {
 
   it('uses fleet mode with promptOverride when Complex is approved and slices exist', async () => {
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-1.md'),
       '# Slice 1\n\n## Purpose\n\nFirst slice.\n',
     );
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-2.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-2.md'),
       '# Slice 2\n\n## Purpose\n\nSecond slice.\n',
     );
 
@@ -548,11 +548,11 @@ describe('runPipelineSequence', () => {
 
   it('runs a single Dalton cleanup pass when fleet mode leaves QA blocked', async () => {
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-1.md'),
       '# Slice 1\n\n## Purpose\n\nFirst slice.\n',
     );
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'issues.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs', 'issues.md'),
       '# QA Issues\n\n## Review Outcome\n\nblocking\n\n## Required Fix\n\nTighten validation.\n',
     );
     runRuntimePolicyCheck
@@ -566,7 +566,7 @@ describe('runPipelineSequence', () => {
             {
               severity: 'error',
               rule_id: 'closeout.qa-review-approved',
-              artifact: 'AgentWorkSpace/handoffs/issues.md',
+              artifact: 'AgentWorkSpace/tasks/test-task-id/handoffs/issues.md',
               message: 'Review Outcome is blocking.',
               remediation: 'Resolve the blocking findings before QA handoff.',
             },
@@ -601,7 +601,7 @@ describe('runPipelineSequence', () => {
 
   it('skips Ron entry validation immediately after a successful fleet Dalton handoff', async () => {
     writeFileSync(
-      path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-1.md'),
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-1.md'),
       '# Slice 1\n\n## Purpose\n\nFirst slice.\n',
     );
 
@@ -625,9 +625,8 @@ describe('runPipelineSequence', () => {
   });
 
   it('moves failed item to error-items onagent failure', async () => {
-    // §4.1B: taskId is now the canonical task identity; pending file is <taskId>.md
-    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'), 'task content');
-    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps', 'slice-01.md'), '# Slice');
+    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs', 'professional-task.md'), 'task content');
+    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-01.md'), '# Slice');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'test-task-id.md'), '# Pending task');
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items'), { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {
@@ -646,18 +645,12 @@ describe('runPipelineSequence', () => {
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'test-task-id' })).rejects.toThrow('product manager failed');
-    // §4.14A parallel model: moveFailedItemToErrorItems no longer touches the
-    // shared singleton handoffs/ or ImplementationSteps/ dirs (that would be a
-    // blast-radius violation against peer tasks). Per-task clones live under
-    // AgentWorkSpace/tasks/<taskId>/ and are reaped via finalizeTaskWorktrees.
-    // Only the pending→error-items rename is asserted here.
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items', 'test-task-id.md'))).toBe(true);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'test-task-id.md'))).toBe(false);
   });
 
   it('moves failed item to error-items onkill-switch request', async () => {
-    // §4.1B: taskId is now the canonical task identity; pending file is <taskId>.md
-    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs', 'professional-task.md'), 'task content');
+    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs', 'professional-task.md'), 'task content');
     writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'test-task-id.md'), '# Pending task');
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'error-items'), { recursive: true });
     readTextFile.mockImplementation(async (filePath: string) => {

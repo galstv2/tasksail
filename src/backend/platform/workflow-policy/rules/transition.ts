@@ -84,7 +84,11 @@ async function checkRemediationLoopExecutionRequired(
   }
 
   // Check for evidence that software-engineer ran (guardrail receipt).
-  const taskRuntime = resolvePaths({ repoRoot: validator.rootDir, taskId: validator.taskId }).taskRuntime;
+  const taskId = validator.taskId;
+  if (!taskId) {
+    throw new Error('task context required; activate a pending item before validation');
+  }
+  const taskRuntime = resolvePaths({ repoRoot: validator.rootDir, taskId }).taskRuntime;
   const engineerReceiptPath = path.join(taskRuntime, 'guardrails', 'software-engineer.json');
   let engineerRan = false;
 

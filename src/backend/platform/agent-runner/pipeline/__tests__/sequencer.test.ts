@@ -82,15 +82,15 @@ describe('runPipelineSequence — bypass gate via inherited env (§5.1 MG-7)', (
     vi.clearAllMocks();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'seq-bypass-test-'));
     mkdirSync(path.join(repoRoot, '.git'));
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'bypass-task', 'handoffs'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'bypass-task', 'ImplementationSteps'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'bypass-task'), { recursive: true });
 
     resolvePaths.mockReturnValue({
       repoRoot,
-      handoffs: path.join(repoRoot, 'AgentWorkSpace', 'handoffs'),
-      implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'),
+      handoffs: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'bypass-task', 'handoffs'),
+      implementationSteps: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'bypass-task', 'ImplementationSteps'),
       platformState: path.join(repoRoot, '.platform-state'),
       taskRuntime: path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'bypass-task'),
       templates: path.join(repoRoot, 'AgentWorkSpace', 'templates'),

@@ -349,12 +349,17 @@ export type ObservabilitySnapshotResponse = {
   message: string;
   queueDepth: number;
   pendingReviewCount: number;
+  /** @deprecated back-compat scalar — use activeTasks[0]?.taskId ?? null */
   activeTaskId: string | null;
+  /** @deprecated back-compat scalar — use activeTasks[0]?.taskTitle ?? null */
   activeTaskTitle: string | null;
   currentState: LifecycleState;
   operatorStatus?: OperatorStatus;
   pendingQueueItems?: PendingQueueItem[];
   errorItemsCount?: number;
+  /** Array of currently active task lifecycle feeds. Empty when no tasks are active. */
+  activeTasks?: TaskLifecycleFeed[];
+  /** @deprecated back-compat alias — use activeTasks[0] ?? null */
   activeTask?: TaskLifecycleFeed | null;
   agentTerminalSessions?: AgentTerminalSession[];
   guardrailSummary?: GuardrailSummary;
@@ -362,7 +367,7 @@ export type ObservabilitySnapshotResponse = {
   recoveryState?: TaskRecoveryState | null;
   plannerBroker?: PlannerBrokerObservation | null;
   lifecycle: WorkflowLifecycleEntry[];
-  artifactReferences: ArtifactReference[];
+  artifactReferences: Array<ArtifactReference & { taskId?: string | null }>;
   policyBoundary: string;
 };
 

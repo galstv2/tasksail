@@ -10,6 +10,8 @@ import { evaluateSliceQualityRules } from '../rules/slice.js';
 import { evaluateSpecQualityRules } from '../rules/spec.js';
 import { evaluateTaskQualityRules } from '../rules/taskQuality.js';
 
+const TEST_TASK_ID = 'task-test-001';
+
 function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
   const absolutePath = path.join(repoRoot, relativePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -68,7 +70,7 @@ function createRegistryFixture(repoRoot: string): void {
 }
 
 function createBlankHandoffs(repoRoot: string): void {
-  const handoffsDir = resolvePaths({ repoRoot }).handoffs;
+  const handoffsDir = resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs;
   for (const fileName of [
     'professional-task.md',
     'implementation-spec.md',
@@ -82,7 +84,7 @@ function createBlankHandoffs(repoRoot: string): void {
 
 function createActiveTask(repoRoot: string, extraLineage: string[] = []): void {
   createBlankHandoffs(repoRoot);
-  const handoffsDir = resolvePaths({ repoRoot }).handoffs;
+  const handoffsDir = resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs;
   writeRepoFile(
     repoRoot,
     path.relative(repoRoot, path.join(handoffsDir, 'professional-task.md')),
@@ -153,7 +155,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateIntakeQualityRules(validator);
 
@@ -201,7 +203,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -246,7 +248,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateSpecQualityRules(validator);
 
@@ -277,7 +279,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -361,7 +363,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateSpecQualityRules(validator);
 
@@ -376,7 +378,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -442,7 +444,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateSpecQualityRules(validator);
 
@@ -457,7 +459,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -519,7 +521,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateSpecQualityRules(validator);
 
@@ -549,7 +551,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -566,7 +568,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateTaskQualityRules(validator);
 
@@ -598,7 +600,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/ImplementationSteps/content-slice.md',
+      `AgentWorkSpace/tasks/${TEST_TASK_ID}/ImplementationSteps/content-slice.md`,
       [
         '# Content Slice',
         '',
@@ -628,7 +630,7 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice' });
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice', taskId: TEST_TASK_ID });
     await validator.initialize();
     await evaluateSliceQualityRules(validator);
 
@@ -636,7 +638,7 @@ describe('workflow-policy content rule families', () => {
       expect.arrayContaining([
         expect.objectContaining({
           rule_id: 'slice.required-section-present',
-          artifact: 'AgentWorkSpace/ImplementationSteps/content-slice.md',
+          artifact: `AgentWorkSpace/tasks/${TEST_TASK_ID}/ImplementationSteps/content-slice.md`,
           message: "Required section 'Files' is missing or empty.",
         }),
         expect.objectContaining({
@@ -660,7 +662,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      path.relative(repoRoot, path.join(resolvePaths({ repoRoot }).handoffs, 'implementation-spec.md')),
+      path.relative(repoRoot, path.join(resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs, 'implementation-spec.md')),
       [
         '# Implementation Spec',
         '',
@@ -702,7 +704,7 @@ describe('workflow-policy content rule families', () => {
 
     writeRepoFile(
       repoRoot,
-      'AgentWorkSpace/ImplementationSteps/content-slice.md',
+      `AgentWorkSpace/tasks/${TEST_TASK_ID}/ImplementationSteps/content-slice.md`,
       [
         '# Content Slice',
         '',
@@ -736,12 +738,12 @@ describe('workflow-policy content rule families', () => {
       ].join('\n'),
     );
 
-    const specValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint' });
+    const specValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await specValidator.initialize();
     await evaluateSpecQualityRules(specValidator);
     expect(specValidator.violations).toEqual([]);
 
-    const sliceValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice' });
+    const sliceValidator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice', taskId: TEST_TASK_ID });
     await sliceValidator.initialize();
     await evaluateSliceQualityRules(sliceValidator);
     expect(sliceValidator.violations).toEqual([]);

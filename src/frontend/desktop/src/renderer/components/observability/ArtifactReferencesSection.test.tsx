@@ -8,10 +8,12 @@ afterEach(() => {
   cleanup();
 });
 
+const TEST_TASK_ID = 'task-test-001';
+
 function makeArtifact(overrides: Partial<ArtifactReference> = {}): ArtifactReference {
   return {
     label: 'professional-task.md',
-    path: 'AgentWorkSpace/handoffs/professional-task.md',
+    path: `AgentWorkSpace/tasks/${TEST_TASK_ID}/handoffs/professional-task.md`,
     kind: 'file',
     status: 'present',
     detail: 'Main task workspace',

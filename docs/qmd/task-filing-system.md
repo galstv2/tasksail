@@ -21,23 +21,23 @@ The filing system should let the platform answer questions like:
 
 Create a QMD task archive record when:
 
-- the Documentation role completes `AgentWorkSpace/handoffs/final-summary.md`
-- the workflow team completes `AgentWorkSpace/handoffs/retrospective-input.md`
-- SDET results are recorded in `AgentWorkSpace/handoffs/tests.md`
-- any open `AgentWorkSpace/handoffs/issues.md` entries for the task are either resolved or explicitly carried forward
+- the Documentation role completes `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`
+- the workflow team completes `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`
+- SDET results are recorded in `AgentWorkSpace/tasks/<taskId>/handoffs/tests.md`
+- any open `AgentWorkSpace/tasks/<taskId>/handoffs/issues.md` entries for the task are either resolved or explicitly carried forward
 
 ## Source Artifacts
 
 Each filed task record should be derived from these artifacts when available:
 
-- `AgentWorkSpace/handoffs/professional-task.md`
-- `AgentWorkSpace/handoffs/implementation-spec.md` for the standard path
-- `AgentWorkSpace/ImplementationSteps/sliceN.md`
-- `AgentWorkSpace/handoffs/parallel-ok.md`
-- `AgentWorkSpace/handoffs/tests.md`
-- `AgentWorkSpace/handoffs/issues.md`
-- `AgentWorkSpace/handoffs/final-summary.md`
-- `AgentWorkSpace/handoffs/retrospective-input.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md` for the standard path
+- `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/parallel-ok.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/tests.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/issues.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`
 
 Archive records should preserve which upstream path was used so future retrieval can distinguish Architect-reviewed tasks from intentionally fast-pathed tasks.
 
@@ -322,7 +322,7 @@ At closeout time, child-task artifacts should preserve lineage explicitly enough
 
 That means:
 
-- `AgentWorkSpace/handoffs/final-summary.md` should restate the child task's lineage fields
+- `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md` should restate the child task's lineage fields
 - the final summary should separate inherited parent context from newly completed child-task work
 - the archived child task should keep any remaining `followup_refs`
 - the child archive should be a complete standalone `task-archive`, not just a patch against the parent archive

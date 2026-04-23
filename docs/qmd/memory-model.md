@@ -38,7 +38,7 @@ sources of truth.
 When these sources disagree, resolve conflicts in this order:
 
 1. current checked-out repository state
-2. required workflow artifacts under `AgentWorkSpace/handoffs/` and `AgentWorkSpace/ImplementationSteps/`
+2. required workflow artifacts under `AgentWorkSpace/tasks/<taskId>/handoffs/` and `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`
 3. validated QMD memory entries
 4. older summaries or stale derived notes
 
@@ -129,7 +129,7 @@ target for ordinary context-pack task archives.
 
 Avoid using QMD as the sole home for:
 
-- current workflow state that belongs in `AgentWorkSpace/handoffs/`
+- current workflow state that belongs in `AgentWorkSpace/tasks/<taskId>/handoffs/`
 - unverified guesses or speculative explanations
 - secrets or credentials
 - final truth that conflicts with current repo state
@@ -209,7 +209,7 @@ Minimum fields:
 - affected service or bounded context
 - slice list
 - summary of implementation
-- links to `AgentWorkSpace/handoffs/final-summary.md`, `AgentWorkSpace/handoffs/tests.md`, and any relevant issue artifacts
+- links to `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`, `AgentWorkSpace/tasks/<taskId>/handoffs/tests.md`, and any relevant issue artifacts
 - tags for topic, subsystem, and task type
 - outcome status
 - follow-up backlog references
@@ -397,12 +397,12 @@ Recommended secondary tags:
 
 Recommended archive sources:
 
-- `AgentWorkSpace/handoffs/professional-task.md`
-- `AgentWorkSpace/handoffs/implementation-spec.md` for the standard path
-- `AgentWorkSpace/ImplementationSteps/sliceN.md`
-- `AgentWorkSpace/handoffs/tests.md`
-- `AgentWorkSpace/handoffs/issues.md`
-- `AgentWorkSpace/handoffs/final-summary.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md` for the standard path
+- `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/tests.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/issues.md`
+- `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`
 
 The archive record should summarize those artifacts, link back to them, and preserve enough metadata for future retrieval without replacing the original files.
 

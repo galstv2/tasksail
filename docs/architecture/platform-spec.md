@@ -6,7 +6,7 @@ The platform is a repo-local workflow control plane with six main layers:
 
 1. repo instructions and prompts in `.github/copilot/`
 2. workflow agent registry and profiles in `.github/agents/`
-3. workflow state in `AgentWorkSpace/handoffs/` and `AgentWorkSpace/ImplementationSteps/`
+3. workflow state in `AgentWorkSpace/tasks/<taskId>/handoffs/` and `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`
 4. support services in `docker/`
 5. queue-based intake in `AgentWorkSpace/dropbox/` and `AgentWorkSpace/pendingitems/`
 
@@ -39,7 +39,7 @@ long-lived shared session, the platform does not add an end-of-task
 - The poller moves those files into `AgentWorkSpace/pendingitems/`.
 - Non-markdown files are ignored in place and logged as warnings once per poll loop.
 - `AgentWorkSpace/pendingitems/` is processed sequentially.
-- The active pending item initializes the `AgentWorkSpace/handoffs/` workspace and seeds `AgentWorkSpace/handoffs/professional-task.md`.
+- The active pending item initializes the `AgentWorkSpace/tasks/<taskId>/handoffs/` workspace and seeds `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`.
 - Finished items are deleted from `AgentWorkSpace/pendingitems/` only after closeout is complete.
 - `pnpm run plan-dropbox-task` can create queue-ready markdown intake without bypassing the queue.
 - `pnpm run plan-followup-task` creates new child-task intake after closeout
@@ -49,8 +49,8 @@ long-lived shared session, the platform does not add an end-of-task
 
 - `AgentWorkSpace/dropbox/` is a trigger only.
 - `AgentWorkSpace/pendingitems/` is the active queue.
-- `AgentWorkSpace/handoffs/` is the active task workspace.
-- `AgentWorkSpace/handoffs/retrospective-input.md` is a required closeout artifact before
+- `AgentWorkSpace/tasks/<taskId>/handoffs/` is the active task workspace.
+- `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` is a required closeout artifact before
   archival, queue advancement, and follow-up creation.
 - QMD is the long-term agent memory archive.
 - Per-task retrospective archives live in the active context-pack QMD scope,
@@ -101,9 +101,9 @@ long-lived shared session, the platform does not add an end-of-task
 
 ## Workflow path selection
 
-- `AgentWorkSpace/handoffs/implementation-spec.md` records Alice's planning,
+- `AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md` records Alice's planning,
   architecture, and execution split decisions.
-- `AgentWorkSpace/ImplementationSteps/sliceN.md` is the authoritative execution
+- `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md` is the authoritative execution
   handoff for Dalton.
 - `parallel-ok.md` signals task complexity — "Complex" triggers fleet Dalton
   mode, "Simple" triggers singleton mode.
@@ -124,7 +124,7 @@ long-lived shared session, the platform does not add an end-of-task
 ## Retrospective memory model
 
 - Every completed task must produce a concise retrospective in
-  `AgentWorkSpace/handoffs/retrospective-input.md`.
+  `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`.
 - The meeting should be quick and concise: target 1 minute and hard cap 2
   minutes.
 - The active context pack stores the full meeting record and structured sidecar

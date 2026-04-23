@@ -12,10 +12,11 @@ const acquireDirLockOrThrow = vi.fn();
 const activateNextPendingItemIfReady = vi.fn();
 const moveFailedItemToErrorItems = vi.fn();
 const repairQueue = vi.fn();
+const TEST_TASK_ID = 'TASK-1';
 const resolveQueuePaths = vi.fn(() => ({
   queueLockDir: '/repo/.locks/queue.lock',
   pendingDir: '/repo/AgentWorkSpace/pendingitems',
-  handoffsDir: '/repo/AgentWorkSpace/handoffs',
+  handoffsDir: `/repo/AgentWorkSpace/tasks/${TEST_TASK_ID}/handoffs`,
   templatesDir: '/repo/AgentWorkSpace/templates',
 }));
 const readFile = vi.fn();
@@ -93,7 +94,7 @@ describe('startTaskRecoveryController', () => {
         parallelizationEnabled: false,
         startedAt: '2026-03-28T23:00:00Z',
         lastUpdatedAt: '2026-03-28T23:00:00Z',
-        sourceArtifact: 'AgentWorkSpace/handoffs/professional-task.md',
+        sourceArtifact: `AgentWorkSpace/tasks/${TEST_TASK_ID}/handoffs/professional-task.md`,
         taskHealth: {
           status: 'idle',
           summary: 'No runtime sessions observed yet.',

@@ -32,11 +32,12 @@ describe('§3.1 per-task .task.json sidecar', () => {
     // The function derives repoRoot as path.resolve(pendingDir, '..', '..')
     // so we must replicate the canonical AgentWorkSpace structure:
     //   <repoRoot>/AgentWorkSpace/pendingitems/
-    //   <repoRoot>/AgentWorkSpace/handoffs/
+    //   <repoRoot>/AgentWorkSpace/tasks/<taskId>/handoffs/
     //   <repoRoot>/AgentWorkSpace/templates/
+    const TEST_TASK_ID = 'task-test-001';
     repoRoot = mkdtempSync(path.join(tmpdir(), 'ts-taskjson-'));
     pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     mkdirSync(pendingDir, { recursive: true });
     mkdirSync(handoffsDir, { recursive: true });

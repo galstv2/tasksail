@@ -56,7 +56,7 @@ export function buildAgentEnvironment(
   }
 
   if (repoRoot) {
-    const paths = resolvePaths({ repoRoot, taskId });
+    const paths = resolvePaths({ repoRoot, taskId: taskId ?? '' });
     if (!options?.skipHandoffEnvVars) {
       env['COPILOT_HANDOFFS_DIR'] = paths.handoffs;
       env['COPILOT_IMPL_STEPS_DIR'] = paths.implementationSteps;

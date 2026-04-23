@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 import subprocess
 import unittest
@@ -9,6 +10,14 @@ from tests.support.handoff_factory import write_text, write_valid_retrospective
 from tests.support.repo_file_sets import QUEUE_POLICY_WORKSPACE_FILES
 from tests.support.script_runner import run_script
 from tests.support.workspace_builder import prepare_workspace, seed_handoffs_from_templates
+
+_SCRIPT_DIR = Path(__file__).resolve().parents[3] / "src" / "backend" / "scripts" / "python"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from lib.workspace_paths import render_handoff_artifact_label  # noqa: E402
+
+TEST_TASK_ID = "task-test-001"
 
 
 class QueuePolicyTransitionTests(unittest.TestCase):
@@ -21,15 +30,12 @@ class QueuePolicyTransitionTests(unittest.TestCase):
             self,
             relative_dirs=[
                 "scripts",
-                "AgentWorkSpace/handoffs",
                 "AgentWorkSpace/dropbox",
                 "AgentWorkSpace/pendingitems",
-                "AgentWorkSpace/ImplementationSteps",
             ],
             relative_files=QUEUE_POLICY_WORKSPACE_FILES,
             tree_paths=["src/backend/scripts/python/lib", "AgentWorkSpace/templates"],
         )
-        seed_handoffs_from_templates(workspace)
         platform_state = workspace / ".platform-state"
         platform_state.mkdir(parents=True, exist_ok=True)
         (platform_state / "platform.json").write_text(
@@ -121,7 +127,7 @@ class QueuePolicyTransitionTests(unittest.TestCase):
             )
         self.write_text(
             workspace,
-            "AgentWorkSpace/handoffs/professional-task.md",
+            render_handoff_artifact_label(task_id, "professional-task.md"),
             f"""# Professional Task
 
 ## Task Metadata
@@ -176,7 +182,7 @@ Workflow policy transition enforcement.
         )
         self.write_text(
             workspace,
-            "AgentWorkSpace/handoffs/implementation-spec.md",
+            render_handoff_artifact_label(task_id, "implementation-spec.md"),
             f"""# Implementation Spec
 
 ## Task Metadata
@@ -270,7 +276,7 @@ Low.
         )
         self.write_text(
             workspace,
-            "AgentWorkSpace/handoffs/tests.md",
+            render_handoff_artifact_label(task_id, "tests.md"),
             f"""# Tests
 
 ## Task Metadata
@@ -296,7 +302,7 @@ Closeout evidence is recorded.
         )
         self.write_text(
             workspace,
-            "AgentWorkSpace/handoffs/issues.md",
+            render_handoff_artifact_label(task_id, "issues.md"),
             f"""# QA Issues
 
 ## Task Metadata
@@ -358,7 +364,7 @@ Run local checks.
 """
         self.write_text(
             workspace,
-            "AgentWorkSpace/handoffs/final-summary.md",
+            render_handoff_artifact_label(task_id, "final-summary.md"),
             f"""# Final Summary
 
 ## Task Metadata
@@ -615,18 +621,23 @@ Run local checks.
             task_id="CAP-777",
             final_summary_complete=True,
         )
+        self.seed_active_queue_item(
+            workspace,
+            file_name="20260307-cap-777.md",
+            task_id="CAP-777",
+        )
 
         completed = self.run_script(
             workspace,
             "src/backend/platform/queue/cli.ts",
-            "init",
-            "--reset",
-            "--force",
+            "complete",
+            "--skip-archive",
+            "--task-id", "CAP-777",
             "--repo-root", str(workspace),
         )
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
 
-        handoffs = workspace / "AgentWorkSpace" / "handoffs"
+        handoffs = workspace / "AgentWorkSpace" / "tasks" / "CAP-777" / "handoffs"
         for name in (
             "professional-task.md",
             "implementation-spec.md",

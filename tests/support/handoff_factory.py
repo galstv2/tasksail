@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+_SCRIPT_DIR = Path(__file__).resolve().parents[2] / "src" / "backend" / "scripts" / "python"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from lib.workspace_paths import render_handoff_artifact_label  # noqa: E402
+
+TEST_TASK_ID = "task-test-001"
+
 
 def write_text(workspace: Path, relative_path: str, content: str) -> None:
     target = workspace / relative_path
@@ -29,7 +39,7 @@ def write_valid_retrospective(
     resolved_engineer_note = engineer_note
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/retrospective-input.md",
+        render_handoff_artifact_label(task_id, "retrospective-input.md"),
         f"""# Retrospective Input
 
 ## Task Metadata
@@ -106,7 +116,7 @@ def write_brief_retrospective(
     """Write a retrospective with only Retrospective Summary populated."""
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/retrospective-input.md",
+        render_handoff_artifact_label(task_id, "retrospective-input.md"),
         f"""# Retrospective Input
 
 ## Task Metadata
@@ -153,10 +163,10 @@ def write_brief_retrospective(
     )
 
 
-def write_parallel_workflow_handoffs(workspace: Path) -> None:
+def write_parallel_workflow_handoffs(workspace: Path, task_id: str = "CAP-123") -> None:
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/professional-task.md",
+        render_handoff_artifact_label(task_id, "professional-task.md"),
         "# Professional Task\n\n"
         "## Task Metadata\n\n"
         "- Task ID: CAP-123\n"
@@ -190,7 +200,7 @@ def write_parallel_workflow_handoffs(workspace: Path) -> None:
     )
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/implementation-spec.md",
+        render_handoff_artifact_label(task_id, "implementation-spec.md"),
         "# Implementation Spec\n\n"
         "## Task Metadata\n\n"
         "- Task ID: CAP-123\n"
@@ -250,7 +260,7 @@ def write_parallel_workflow_handoffs(workspace: Path) -> None:
     )
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/issues.md",
+        render_handoff_artifact_label(task_id, "issues.md"),
         "# QA Issues\n\n"
         "## Task Metadata\n\n"
         "- Task ID: CAP-123\n"
@@ -273,7 +283,7 @@ def write_parallel_workflow_handoffs(workspace: Path) -> None:
     )
     write_text(
         workspace,
-        "AgentWorkSpace/handoffs/parallel-ok.md",
+        render_handoff_artifact_label(task_id, "parallel-ok.md"),
         "# Parallel OK\n\n"
         "Use this file only when slice independence is real.\n\n"
         "## Task Metadata\n\n"

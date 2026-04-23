@@ -8,7 +8,7 @@ import {
   resetHandoffArtifacts,
   handoffWorkspaceIsReady,
 } from './lifecycle.js';
-import type { QueueRepairIssue, QueueRepairIssueKind } from './repairQueueIssues.js';
+import type { QueueRepairIssue } from './repairQueueIssues.js';
 
 export type { QueueRepairIssue, QueueRepairIssueKind } from './repairQueueIssues.js';
 
@@ -28,12 +28,16 @@ export interface RepairQueueOptions {
  * Detect and optionally fix inconsistent queue state.
  *
  * Detectable conditions:
- *   1. A marker in .active-items/ references a missing pending file
- *   2. No markers in .active-items/ but handoffs/ has active task content
- *   3. Queue lock directory present (advisory only — never auto-removed)
- *   4. A marker in .active-items/ exists for a valid pending file, but
- *      handoffs/ is blank (crash during completion)
- *   5. Partial handoff publish interrupted mid-flight (.publish-in-progress marker)
+ *   1. A marker in .active-items/ references a task with neither a pending file
+ *      nor a .task.json sidecar (stranded marker).
+ *   2. A tasks/<taskId>/handoffs/ dir has non-reset content but no active marker
+ *      and no .task.json sidecar (orphan-task-handoffs-dir).
+ *   3. Queue lock directory present (advisory only — never auto-removed).
+ *   4. A marker in .active-items/ has a .task.json sidecar but its per-task
+ *      handoffs dir is in reset/blank state (crash during completion).
+ *   5. Per active marker, the per-task handoffs dir has a .publish-in-progress
+ *      marker (partial-publish-in-progress). Resets only that task's handoffs
+ *      and removes only that task's marker.
  *
  * When autoFix is true, the caller MUST hold the queue lock. This ensures
  * repair cannot race with live queue operations.
@@ -44,9 +48,6 @@ export async function repairQueue(
   const { dryRun = false, autoFix = false, repoRoot: rawRepoRoot } = options;
   const repoRoot = rawRepoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(repoRoot);
-  // Inline singleton handoffs path — MUST NOT use singletonHandoffsDir accessor
-  // to satisfy the done-when assertion.
-  const singletonHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
 
   const issues: string[] = [];
   const fixed: string[] = [];
@@ -81,7 +82,7 @@ export async function repairQueue(
         `.active-items/${markerName} references a pending file that does not exist in pendingitems/ and has no .task.json sidecar`,
       );
       structuredIssues.push({
-        kind: 'marker-without-pending' as QueueRepairIssueKind,
+        kind: 'marker-without-pending',
         taskId,
         detail: `marker: ${markerName}`,
       });
@@ -93,79 +94,73 @@ export async function repairQueue(
     }
   }
 
-  // Check 4: marker exists for a valid pending file, but handoffs/ is blank
+  // Check 4: for each active marker with a .task.json sidecar, verify the
+  // per-task handoffs dir is not in reset state (crash during completion).
   for (const markerName of activeMarkers) {
     const taskId = markerName.replace(/\.md$/, '');
-    const pendingFileCandidates = [
-      path.join(queuePaths.pendingDir, markerName),
-      path.join(queuePaths.pendingDir, `${markerName}.md`),
-    ];
-    const pendingExists = pendingFileCandidates.some(existsSync);
+    const taskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
+    const hasSidecar = existsSync(taskSidecarPath);
 
-    if (pendingExists) {
+    if (hasSidecar) {
       const wsReady = await handoffWorkspaceIsReady(
-        singletonHandoffsDir,
+        queuePaths.taskHandoffs(taskId),
         queuePaths.templatesDir,
       );
       if (wsReady) {
         issues.push(
-          `.active-items/${markerName} references '${taskId}' but handoffs/ is in reset state — likely a crash during completion`,
+          `.active-items/${markerName} references '${taskId}' but its handoffs dir is in reset state — likely a crash during completion`,
         );
         structuredIssues.push({
-          kind: 'marker-without-worktree' as QueueRepairIssueKind,
+          kind: 'marker-without-worktree',
           taskId,
-          detail: 'handoffs workspace is in reset/blank state',
+          detail: `per-task handoffs workspace (tasks/${taskId}/handoffs) is in reset/blank state`,
         });
 
         if (!dryRun && autoFix) {
           await unlink(path.join(queuePaths.activeItemsDir, markerName));
           fixed.push(
-            `Removed .active-items/${markerName} with blank workspace (pending item preserved for re-activation)`,
+            `Removed .active-items/${markerName} with blank per-task workspace (task sidecar preserved for investigation)`,
           );
         }
       }
     }
   }
 
-  // Check 2: No markers in .active-items/ but workspace has active task data
-  if (activeMarkers.length === 0) {
-    const professionalTask = path.join(
-      singletonHandoffsDir,
-      'professional-task.md',
-    );
-    let hasTaskData = false;
+  // Check 2: detect orphaned task handoffs dirs — non-reset content but no
+  // active marker and no .task.json sidecar.
+  const tasksDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks');
+  let taskDirEntries: string[] = [];
+  try {
+    taskDirEntries = await readdir(tasksDir);
+  } catch { /* tasksDir absent or unreadable — skip */ }
 
-    if (existsSync(professionalTask)) {
-      // Import lazily to avoid circular deps
-      const { handoffFileIsResetState } = await import('./lifecycle.js');
-      const isReset = await handoffFileIsResetState(professionalTask);
-      hasTaskData = !isReset;
-    }
+  const activeMarkerSet = new Set(
+    activeMarkers.map((m) => m.replace(/\.md$/, '')),
+  );
+  const { handoffFileIsResetState } = await import('./lifecycle.js');
 
-    if (hasTaskData) {
-      let pendingCount = 0;
-      if (existsSync(queuePaths.pendingDir)) {
-        const entries = await readdir(queuePaths.pendingDir);
-        pendingCount = entries.filter(
-          (e) => !e.startsWith('.') && e.endsWith('.md'),
-        ).length;
-      }
+  for (const entry of taskDirEntries) {
+    const taskHandoffsPath = path.join(tasksDir, entry, 'handoffs');
+    const taskSidecarPath = path.join(tasksDir, entry, '.task.json');
+    if (!existsSync(taskHandoffsPath)) continue;
 
-      if (pendingCount > 0) {
-        issues.push(
-          `No .active-item but handoffs/ has task data and ${pendingCount} pending item(s) exist`,
-        );
-      } else {
-        issues.push(
-          'No .active-item, handoffs/ has task data, but no pending items in queue',
-        );
-      }
+    const hasMarker = activeMarkerSet.has(entry);
+    const hasSidecar = existsSync(taskSidecarPath);
+    if (hasMarker || hasSidecar) continue;
+
+    const professionalTaskPath = path.join(taskHandoffsPath, 'professional-task.md');
+    if (!existsSync(professionalTaskPath)) continue;
+
+    const isReset = await handoffFileIsResetState(professionalTaskPath);
+    if (!isReset) {
+      issues.push(
+        `tasks/${entry}/handoffs/ has task content but no active marker and no .task.json sidecar`,
+      );
       structuredIssues.push({
-        kind: 'orphan-handoffs-dir' as QueueRepairIssueKind,
-        taskId: '_unknown',
-        detail: 'handoffs/ has task data but no active marker exists',
+        kind: 'orphan-task-handoffs-dir',
+        taskId: entry,
+        detail: `tasks/${entry}/handoffs has task data but no active marker or .task.json sidecar`,
       });
-      // Auto-fix not applied for check 2 since it requires user choice
     }
   }
 
@@ -176,24 +171,30 @@ export async function repairQueue(
     );
   }
 
-  // Check 5: Partial handoff publish (.publish-in-progress marker).
-  if (handoffPublishInProgress(singletonHandoffsDir)) {
-    issues.push(
-      'Partial handoff publish detected (.publish-in-progress marker present)',
-    );
-
-    if (!dryRun && autoFix) {
-      await resetHandoffArtifacts(singletonHandoffsDir, HANDOFF_FILES, {
+  // Check 5: detect partial handoff publish per active task.
+  // When found, reset only that task's handoffs and remove only that task's marker.
+  for (const markerName of activeMarkers) {
+    const taskId = markerName.replace(/\.md$/, '');
+    const taskHandoffsPath = queuePaths.taskHandoffs(taskId);
+    if (handoffPublishInProgress(taskHandoffsPath)) {
+      issues.push(
+        `Partial handoff publish detected for task '${taskId}' (.publish-in-progress marker present in tasks/${taskId}/handoffs/)`,
+      );
+      structuredIssues.push({
+        kind: 'partial-publish-in-progress',
+        taskId,
+        detail: `.publish-in-progress marker found in tasks/${taskId}/handoffs/`,
       });
-      // Remove all active markers (none should exist during partial publish, but clean up if any)
-      for (const markerName of activeMarkers) {
+
+      if (!dryRun && autoFix) {
+        await resetHandoffArtifacts(taskHandoffsPath, HANDOFF_FILES, {});
         try {
           await unlink(path.join(queuePaths.activeItemsDir, markerName));
         } catch { /* already removed */ }
+        fixed.push(
+          `Reset partially published handoffs for task '${taskId}' and removed its active marker`,
+        );
       }
-      fixed.push(
-        'Reset partially published handoffs and removed stale claim',
-      );
     }
   }
 

@@ -28,8 +28,9 @@ import { _clearPlatformConfigCache } from '../../platform-config/get.js';
  * Seed the canonical AgentWorkSpace structure and write N pending .md files.
  */
 function seedPendingItems(repoRoot: string, count: number): void {
+  const TEST_TASK_ID = 'task-test-001';
   const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
   const dropboxDir = path.join(repoRoot, 'AgentWorkSpace', 'dropbox');
 

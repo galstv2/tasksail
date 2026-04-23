@@ -89,7 +89,7 @@ export function resolveAutonomyProfile(
   // repo-executor (Dalton) receives all context via prompt and writes no platform artifacts.
   // When taskId is present the handoffs path is scoped per-task; otherwise the legacy singleton
   // path is used for backward compatibility with single-task callers.
-  if (profile.autonomyProfile === 'qa-executor' && repoRoot) {
+  if (profile.autonomyProfile === 'qa-executor' && repoRoot && taskId) {
     allowedDirs.push(resolvePaths({ repoRoot, taskId }).handoffs);
   }
 

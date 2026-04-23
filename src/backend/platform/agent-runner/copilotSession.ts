@@ -16,6 +16,7 @@ export async function refreshQaCodeDiff(options: {
   contextPackDir?: string;
   handoffsDir: string;
   repoRoot: string;
+  taskId: string;
   abortSignal?: AbortSignal;
 }): Promise<void> {
   if (options.agentId !== 'ron' || !options.contextPackDir) {
@@ -27,6 +28,7 @@ export async function refreshQaCodeDiff(options: {
     contextPackDir: options.contextPackDir,
     outputPath,
     repoRoot: options.repoRoot,
+    taskId: options.taskId,
     abortSignal: options.abortSignal,
   });
 
@@ -42,6 +44,7 @@ export async function refreshQaCodeDiff(options: {
 export async function mergeExternalMcpLaunchEnvironment(options: {
   agentId: RunRoleAgentOptions['agentId'];
   repoRoot: string;
+  taskId: string;
   agentEnv: Record<string, string>;
   abortSignal?: AbortSignal;
 }): Promise<ExternalMcpLaunchContext | undefined> {
@@ -49,6 +52,7 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
     const launchContext = await prepareExternalMcpLaunchContext({
       agentId: options.agentId,
       repoRoot: options.repoRoot,
+      taskId: options.taskId,
       env: options.agentEnv,
       abortSignal: options.abortSignal,
     });

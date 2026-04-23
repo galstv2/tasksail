@@ -18,6 +18,7 @@ import {
   normalizeText,
 } from '../matching.js';
 import { listSliceFiles } from '../artifacts.js';
+import { renderHandoffArtifactLabel } from '../../queue/paths.js';
 import type { WorkspaceArtifact } from '../types.js';
 import type { PolicyValidator } from '../validator.js';
 
@@ -84,23 +85,27 @@ export async function evaluateQaExecutionRules(validator: PolicyValidator): Prom
     return;
   }
 
+  const issuesLabel = validator.taskId
+    ? renderHandoffArtifactLabel(validator.taskId, 'issues.md')
+    : 'issues.md';
+
   const issuesArtifact = await validator.getArtifact(ISSUES_MD_RELATIVE_PATH);
 
-  checkIssuesMdExists(validator, issuesArtifact);
+  checkIssuesMdExists(validator, issuesArtifact, issuesLabel);
 
   if (issuesArtifact.exists) {
     const hasFindings = issuesSectionsHaveFindings(issuesArtifact.sections);
-    checkReviewDecision(validator, issuesArtifact, hasFindings);
-    checkFindingQuality(validator, issuesArtifact, hasFindings);
+    checkReviewDecision(validator, issuesArtifact, hasFindings, issuesLabel);
+    checkFindingQuality(validator, issuesArtifact, hasFindings, issuesLabel);
 
     if (hasFindings) {
       const severity = readSectionValue(issuesArtifact, 'Severity');
       checkFindingNotSelfReview(validator, issuesArtifact);
-      checkRemediationBlockingLocation(validator, issuesArtifact, severity);
-      checkSeverityValue(validator, severity);
-      checkFindingTypeValue(validator, issuesArtifact);
-      checkRoutingAgentIds(validator, issuesArtifact, severity);
-      checkRetestInstructions(validator, issuesArtifact, severity);
+      checkRemediationBlockingLocation(validator, issuesArtifact, severity, issuesLabel);
+      checkSeverityValue(validator, severity, issuesLabel);
+      checkFindingTypeValue(validator, issuesArtifact, issuesLabel);
+      checkRoutingAgentIds(validator, issuesArtifact, severity, issuesLabel);
+      checkRetestInstructions(validator, issuesArtifact, severity, issuesLabel);
     }
   }
 }
@@ -108,6 +113,7 @@ export async function evaluateQaExecutionRules(validator: PolicyValidator): Prom
 function checkIssuesMdExists(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
+  issuesLabel: string,
 ): void {
   if (!issuesArtifact.exists) {
     validator.addViolation({
@@ -115,7 +121,7 @@ function checkIssuesMdExists(
       artifact: ISSUES_MD_RELATIVE_PATH,
       message: 'issues.md must exist after QA review, even for a clean pass.',
       remediation:
-        'Create AgentWorkSpace/handoffs/issues.md from the canonical template. The artifact must exist even when no issues are found.',
+        `Create ${issuesLabel} from the canonical template. The artifact must exist even when no issues are found.`,
     });
   }
 }
@@ -124,6 +130,7 @@ function checkReviewDecision(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
   hasFindings: boolean,
+  issuesLabel: string,
 ): void {
   if (!hasFindings) {
     return;
@@ -137,7 +144,7 @@ function checkReviewDecision(
       message:
         'issues.md has substantive content but the "Finding" section is empty or missing. Findings must be structured.',
       remediation:
-        'Populate the "Finding" section in AgentWorkSpace/handoffs/issues.md with a description of each QA finding.',
+        `Populate the "Finding" section in ${issuesLabel} with a description of each QA finding.`,
     });
   }
 }
@@ -146,6 +153,7 @@ function checkFindingQuality(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
   hasFindings: boolean,
+  issuesLabel: string,
 ): void {
   if (!hasFindings) {
     return;
@@ -159,7 +167,7 @@ function checkFindingQuality(
         rule_id: ruleId,
         artifact: ISSUES_MD_RELATIVE_PATH,
         message: `issues.md has findings but the "${sectionName}" section is empty or missing.`,
-        remediation: `Populate the "${sectionName}" section in AgentWorkSpace/handoffs/issues.md with details about the QA finding.`,
+        remediation: `Populate the "${sectionName}" section in ${issuesLabel} with details about the QA finding.`,
       });
     }
   }
@@ -169,6 +177,7 @@ function checkRemediationBlockingLocation(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
   severity: string,
+  issuesLabel: string,
 ): void {
   if (process.env.REMEDIATION_LOOP_TRIGGERED?.toLowerCase() !== 'true') {
     return;
@@ -191,12 +200,12 @@ function checkRemediationBlockingLocation(
       message:
         'Blocking finding on remediation return (iteration >= 2) must reference a specific code location (file path or function name). Vague blocking findings delay convergence.',
       remediation:
-        'Add a specific file path or function name to the Finding section in AgentWorkSpace/handoffs/issues.md so the SDET can address the issue precisely.',
+        `Add a specific file path or function name to the Finding section in ${issuesLabel} so the SDET can address the issue precisely.`,
     });
   }
 }
 
-function checkSeverityValue(validator: PolicyValidator, severity: string): void {
+function checkSeverityValue(validator: PolicyValidator, severity: string, issuesLabel: string): void {
   if (!severity) {
     return;
   }
@@ -206,7 +215,7 @@ function checkSeverityValue(validator: PolicyValidator, severity: string): void 
       artifact: ISSUES_MD_RELATIVE_PATH,
       message: `Severity value '${severity}' is not recognized. Expected one of: ${[...ALLOWED_ISSUE_SEVERITIES].sort().join(', ')}.`,
       remediation:
-        "Set the Severity section in AgentWorkSpace/handoffs/issues.md to 'blocking' or 'advisory'.",
+        `Set the Severity section in ${issuesLabel} to 'blocking' or 'advisory'.`,
     });
   }
 }
@@ -214,6 +223,7 @@ function checkSeverityValue(validator: PolicyValidator, severity: string): void 
 function checkFindingTypeValue(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
+  issuesLabel: string,
 ): void {
   const findingType = readSectionValue(issuesArtifact, 'Finding Type');
   if (!findingType) {
@@ -224,7 +234,7 @@ function checkFindingTypeValue(
       rule_id: 'qa.finding-type-value-valid',
       artifact: ISSUES_MD_RELATIVE_PATH,
       message: `Finding Type value '${findingType}' is not recognized. Expected one of: ${[...ALLOWED_FINDING_TYPES].sort().join(', ')}.`,
-      remediation: `Set the Finding Type section in AgentWorkSpace/handoffs/issues.md to one of: ${[...ALLOWED_FINDING_TYPES].sort().join(', ')}.`,
+      remediation: `Set the Finding Type section in ${issuesLabel} to one of: ${[...ALLOWED_FINDING_TYPES].sort().join(', ')}.`,
     });
   }
 }
@@ -233,6 +243,7 @@ function checkRoutingAgentIds(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
   severity: string,
+  issuesLabel: string,
 ): void {
   if (severity !== 'blocking') {
     return;
@@ -248,7 +259,7 @@ function checkRoutingAgentIds(
         rule_id: 'qa.routing-agent-ids-valid',
         artifact: ISSUES_MD_RELATIVE_PATH,
         message: `${sectionName} value '${agentId}' is not a recognized agent in the registry.`,
-        remediation: `Set ${sectionName} in AgentWorkSpace/handoffs/issues.md to a valid agent ID from registry.json.`,
+        remediation: `Set ${sectionName} in ${issuesLabel} to a valid agent ID from registry.json.`,
       });
     }
   }
@@ -258,6 +269,7 @@ function checkRetestInstructions(
   validator: PolicyValidator,
   issuesArtifact: WorkspaceArtifact,
   severity: string,
+  issuesLabel: string,
 ): void {
   if (severity !== 'blocking') {
     return;
@@ -271,7 +283,7 @@ function checkRetestInstructions(
       severity: 'warning',
       message: 'Retest Instructions is empty for a blocking finding. The SDET needs verification steps.',
       remediation:
-        'Add commands or steps to the Retest Instructions section in AgentWorkSpace/handoffs/issues.md.',
+        `Add commands or steps to the Retest Instructions section in ${issuesLabel}.`,
     });
   }
 }

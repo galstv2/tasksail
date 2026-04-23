@@ -53,7 +53,7 @@ describe('setupRepo', () => {
     expect(queueStep?.status).toBe('ok');
     expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'dropbox'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'pendingitems'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'handoffs'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'AgentWorkSpace', 'handoffs'))).toBe(false);
   });
 
   it('seeds platform config before MCP registry seeding', async () => {

@@ -1,8 +1,9 @@
 import type { ArtifactReference } from '../../../shared/desktopContract';
 import { classNames } from '../../utils/classNames';
 
+/** Accept both the plain ArtifactReference and the taskId-tagged variant emitted by the IPC snapshot. */
 type ArtifactReferencesSectionProps = {
-  artifactReferences: ArtifactReference[];
+  artifactReferences: Array<ArtifactReference & { taskId?: string | null }>;
 };
 
 function statusLabel(status: string): string {

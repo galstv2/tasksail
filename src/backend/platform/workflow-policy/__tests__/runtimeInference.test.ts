@@ -18,6 +18,8 @@ const {
   inferNextAgentFromCompletion,
 } = await import('../runtimeInference.js');
 
+const TEST_TASK_ID = 'task-test-001';
+
 describe('workflow-policy runtimeInference', () => {
   let repoRoot: string;
   let handoffsDir: string;
@@ -26,12 +28,12 @@ describe('workflow-policy runtimeInference', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'runtime-inference-'));
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
-    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'role-sessions'), { recursive: true });
-    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'guardrails'), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'role-sessions'), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'guardrails'), { recursive: true });
     detectParallelOk.mockResolvedValue(false);
   });
 
@@ -42,7 +44,7 @@ describe('workflow-policy runtimeInference', () => {
   it('computes completion facts through artifactCompletion for every pipeline agent', async () => {
     checkAgentArtifactCompletion.mockResolvedValue(true);
 
-    const completion = await computeRuntimeCompletionFacts({ repoRoot, handoffsDir, implStepsDir });
+    const completion = await computeRuntimeCompletionFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(completion).toEqual({
       'product-manager': { completed: true },
@@ -55,14 +57,14 @@ describe('workflow-policy runtimeInference', () => {
   it('marks software-engineer complete when a runtime role-session receipt shows completed', async () => {
     checkAgentArtifactCompletion.mockResolvedValue(true);
     writeFileSync(
-      path.join(repoRoot, '.platform-state', 'runtime', 'role-sessions', 'software-engineer.json'),
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'role-sessions', 'software-engineer.json'),
       JSON.stringify({
         terminal: { status: 'completed', exit_code: 0 },
       }),
       'utf-8',
     );
 
-    const completion = await computeRuntimeCompletionFacts({ repoRoot, handoffsDir, implStepsDir });
+    const completion = await computeRuntimeCompletionFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(completion['software-engineer']).toEqual({ completed: true });
   });
@@ -70,12 +72,12 @@ describe('workflow-policy runtimeInference', () => {
   it('falls back to the SWE guardrail receipt when no role-session receipt exists', async () => {
     checkAgentArtifactCompletion.mockResolvedValue(true);
     writeFileSync(
-      path.join(repoRoot, '.platform-state', 'runtime', 'guardrails', 'software-engineer.json'),
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'guardrails', 'software-engineer.json'),
       JSON.stringify({ status: 'passed' }),
       'utf-8',
     );
 
-    const completion = await computeRuntimeCompletionFacts({ repoRoot, handoffsDir, implStepsDir });
+    const completion = await computeRuntimeCompletionFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(completion['software-engineer']).toEqual({ completed: true });
   });
@@ -83,12 +85,12 @@ describe('workflow-policy runtimeInference', () => {
   it('ignores legacy guardrail_status-only receipts when inferring SWE completion', async () => {
     checkAgentArtifactCompletion.mockResolvedValue(true);
     writeFileSync(
-      path.join(repoRoot, '.platform-state', 'runtime', 'guardrails', 'software-engineer.json'),
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'guardrails', 'software-engineer.json'),
       JSON.stringify({ guardrail_status: 'internal-bypass' }),
       'utf-8',
     );
 
-    const completion = await computeRuntimeCompletionFacts({ repoRoot, handoffsDir, implStepsDir });
+    const completion = await computeRuntimeCompletionFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(completion['software-engineer']).toEqual({ completed: false });
   });
@@ -106,7 +108,7 @@ describe('workflow-policy runtimeInference', () => {
       'utf-8',
     );
 
-    const inference = await evaluateRuntimeInference({ repoRoot, handoffsDir, implStepsDir });
+    const inference = await evaluateRuntimeInference({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(inference.nextAgent).toEqual({
       agentId: 'software-engineer',
@@ -124,7 +126,7 @@ describe('workflow-policy runtimeInference', () => {
       'utf-8',
     );
 
-    const inference = await evaluateRuntimeInference({ repoRoot, handoffsDir, implStepsDir });
+    const inference = await evaluateRuntimeInference({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(inference.nextAgent).toEqual({
       agentId: 'qa',
@@ -138,7 +140,7 @@ describe('workflow-policy runtimeInference', () => {
     ));
     detectParallelOk.mockResolvedValue(true);
 
-    const inference = await evaluateRuntimeInference({ repoRoot, handoffsDir, implStepsDir });
+    const inference = await evaluateRuntimeInference({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
 
     expect(inference.nextAgent).toEqual({
       agentId: 'software-engineer',

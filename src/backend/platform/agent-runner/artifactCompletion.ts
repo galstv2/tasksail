@@ -2,6 +2,10 @@ import path from 'node:path';
 import { readTextFile } from '../core/index.js';
 import { remediationHasBlockingFindings } from './pipeline/remediation.js';
 import {
+  renderHandoffArtifactLabel,
+  renderImplementationStepsLabel,
+} from '../queue/paths.js';
+import {
   listSliceFiles as listWorkflowPolicySliceFiles,
   parseArtifactMetadata,
   parseSections,
@@ -35,26 +39,30 @@ const PLACEHOLDER_ONLY_RE = /^(?:[-*]\s*)?(?:tbd|todo|tba|placeholder)\.?$/i;
  */
 function toPromptPath(relativePath: string): string {
   return relativePath
-    .replace(/^AgentWorkSpace\/handoffs\//, '$COPILOT_HANDOFFS_DIR/')
-    .replace(/^AgentWorkSpace\/ImplementationSteps\//, '$COPILOT_IMPL_STEPS_DIR/');
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/handoffs\//, '$COPILOT_HANDOFFS_DIR/')
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/ImplementationSteps\//, '$COPILOT_IMPL_STEPS_DIR/');
 }
 const ISSUES_NON_FINDING_SECTIONS = new Set(['Task Metadata', 'Review Outcome']);
 
-const AGENT_REQUIRED_ARTIFACTS: Record<string, string[]> = {
-  qa: [
-    'AgentWorkSpace/handoffs/issues.md',
-    'AgentWorkSpace/handoffs/final-summary.md',
-    'AgentWorkSpace/handoffs/retrospective-input.md',
-  ],
-};
+function AGENT_REQUIRED_ARTIFACTS_FOR(taskId: string): Record<string, string[]> {
+  return {
+    qa: [
+      renderHandoffArtifactLabel(taskId, 'issues.md'),
+      renderHandoffArtifactLabel(taskId, 'final-summary.md'),
+      renderHandoffArtifactLabel(taskId, 'retrospective-input.md'),
+    ],
+  };
+}
 
-const ARTIFACT_REMEDIATION_INSTRUCTIONS: Record<string, string> = {
-  'AgentWorkSpace/handoffs/issues.md': 'Set Review Outcome in issues.md. If the code diff has no issues, set Review Outcome to pass and leave all finding sections empty. Do NOT review or create findings about AgentWorkSpace files — only review code in the diff.',
-  'AgentWorkSpace/handoffs/implementation-spec.md': 'Fill in implementation-spec.md: Goals must have numbered/bulleted items, Validation Strategy must have a code-fenced command block, and Files or Areas Likely to Change must list file paths.',
-  'AgentWorkSpace/handoffs/professional-task.md': 'Fill in professional-task.md: Acceptance Criteria must have bulleted items, Non-Goals must have bulleted items, and Problem Statement, Business Goal, and Scope must have content.',
-  'AgentWorkSpace/handoffs/final-summary.md': 'Fill in final-summary.md: set Closeout Owner Agent ID to \'qa\', set Difficulty Level to Easy/Medium/Hard, and populate Completed Work, Key Design Decisions, and Known Limitations.',
-  'AgentWorkSpace/handoffs/retrospective-input.md': 'Fill in retrospective-input.md: check the Retrospective Required field in Task Metadata. If \'true\', populate all sections including per-role contributions and Action Items. If \'false\', populate ONLY the Retrospective Summary with a brief note.',
-};
+function remediationInstructionsFor(taskId: string): Record<string, string> {
+  return {
+    [renderHandoffArtifactLabel(taskId, 'issues.md')]: 'Set Review Outcome in issues.md. If the code diff has no issues, set Review Outcome to pass and leave all finding sections empty. Do NOT review or create findings about AgentWorkSpace files — only review code in the diff.',
+    [renderHandoffArtifactLabel(taskId, 'implementation-spec.md')]: 'Fill in implementation-spec.md: Goals must have numbered/bulleted items, Validation Strategy must have a code-fenced command block, and Files or Areas Likely to Change must list file paths.',
+    [renderHandoffArtifactLabel(taskId, 'professional-task.md')]: 'Fill in professional-task.md: Acceptance Criteria must have bulleted items, Non-Goals must have bulleted items, and Problem Statement, Business Goal, and Scope must have content.',
+    [renderHandoffArtifactLabel(taskId, 'final-summary.md')]: 'Fill in final-summary.md: set Closeout Owner Agent ID to \'qa\', set Difficulty Level to Easy/Medium/Hard, and populate Completed Work, Key Design Decisions, and Known Limitations.',
+    [renderHandoffArtifactLabel(taskId, 'retrospective-input.md')]: 'Fill in retrospective-input.md: check the Retrospective Required field in Task Metadata. If \'true\', populate all sections including per-role contributions and Action Items. If \'false\', populate ONLY the Retrospective Summary with a brief note.',
+  };
+}
 
 interface WorkspaceArtifact {
   exists: boolean;
@@ -270,7 +278,7 @@ export async function checkAgentArtifactCompletion(options: {
     return true;
   }
 
-  const required = AGENT_REQUIRED_ARTIFACTS[agentId];
+  const required = AGENT_REQUIRED_ARTIFACTS_FOR(options.taskId ?? '')[agentId];
   if (!required) {
     return true;
   }
@@ -339,24 +347,25 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   const agentId = normalizeAgentId(options.agentId);
 
   if (agentId === 'product-manager') {
+    const taskId = options.taskId ?? '';
     const missingParts: string[] = [];
     if (!await implementationSpecReady(options.handoffsDir)) {
-      missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/implementation-spec.md')}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
+      missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
     }
     const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
     if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
-      missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/parallel-ok.md')}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`);
+      missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`);
     }
     const slices = await listSliceFiles(options.implStepsDir);
     if (slices.length === 0) {
-      missingParts.push(`- ${toPromptPath('AgentWorkSpace/ImplementationSteps/')}: create at least one substantive sliceN.md handoff file.`);
+      missingParts.push(`- ${toPromptPath(renderImplementationStepsLabel(taskId, ''))}: create at least one substantive sliceN.md handoff file.`);
     } else {
       const finalSlice = slices.at(-1)!;
       const missingSections = await sliceMissingRequiredSections(finalSlice);
       if (missingSections.length > 0) {
         const semanticSections = missingSections.map((sectionKey) => describeSemanticSectionSpec(sectionKey));
         const sliceBasename = path.basename(finalSlice);
-        missingParts.push(`- ${toPromptPath(`AgentWorkSpace/ImplementationSteps/${sliceBasename}`)}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
+        missingParts.push(`- ${toPromptPath(renderImplementationStepsLabel(taskId, sliceBasename))}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
       }
     }
     if (missingParts.length === 0) {
@@ -369,32 +378,34 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     ].join('\n');
   }
 
-  const required = AGENT_REQUIRED_ARTIFACTS[agentId];
+  const taskId = options.taskId ?? '';
+  const required = AGENT_REQUIRED_ARTIFACTS_FOR(taskId)[agentId];
   if (!required) {
     return '';
   }
 
+  const remediationInstructions = remediationInstructionsFor(taskId);
   const missingParts: string[] = [];
   for (const relativePath of required) {
     const basename = path.basename(relativePath);
     const artifact = await readHandoffArtifact(options.handoffsDir, basename);
     if (!artifact.exists || !hasRealContent(artifact)) {
-      missingParts.push(`- ${toPromptPath(relativePath)}: ${ARTIFACT_REMEDIATION_INSTRUCTIONS[relativePath] ?? `Fill in ${toPromptPath(relativePath)} with substantive content.`}`);
+      missingParts.push(`- ${toPromptPath(relativePath)}: ${remediationInstructions[relativePath] ?? `Fill in ${toPromptPath(relativePath)} with substantive content.`}`);
     }
   }
   if (agentId === 'qa' && !await qaIssuesStructured(options.handoffsDir)) {
-    missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/issues.md')}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
+    missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'issues.md'))}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
   }
   if (agentId === 'qa') {
     const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (finalSummary.exists) {
       const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
       if (owner !== 'qa') {
-        missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/final-summary.md')}: set Closeout Owner Agent ID to exactly 'qa'.`);
+        missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set Closeout Owner Agent ID to exactly 'qa'.`);
       }
       const difficultyLevel = finalSummaryDifficultyLevel(finalSummary);
       if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
-        missingParts.push(`- ${toPromptPath('AgentWorkSpace/handoffs/final-summary.md')}: set '- Difficulty Level:' in the Difficulty Assessment section to exactly 'Easy', 'Medium', or 'Hard'.`);
+        missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set '- Difficulty Level:' in the Difficulty Assessment section to exactly 'Easy', 'Medium', or 'Hard'.`);
       }
       // §4.15 Branch-name surfacing: instruct Ron to copy branch names into
       // ## Task branches in final-summary.md. Ron MUST NOT introspect git —
@@ -402,7 +413,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       // or TASKSAIL_TASK_BRANCHES_FILE (path to a JSON file when payload > 8KB).
       if (!finalSummary.sections['Task branches'] || finalSummary.sections['Task branches']!.join('').trim().length === 0) {
         missingParts.push(
-          `- ${toPromptPath('AgentWorkSpace/handoffs/final-summary.md')}: add a '## Task branches' section. ` +
+          `- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: add a '## Task branches' section. ` +
           `Copy the value of the TASKSAIL_TASK_BRANCHES environment variable (a JSON array of { originalRoot, branch } objects) ` +
           `into this section. If TASKSAIL_TASK_BRANCHES is absent or empty, read the file path from TASKSAIL_TASK_BRANCHES_FILE instead and copy its contents. ` +
           `Do NOT run any git commands to discover branch names — use only the env var or file.`,

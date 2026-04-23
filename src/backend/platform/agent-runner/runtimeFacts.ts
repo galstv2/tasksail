@@ -47,11 +47,12 @@ async function fileStamp(filePath: string): Promise<string> {
 
 export async function computeRuntimeFactsSourceSignature(options: {
   repoRoot: string;
+  taskId: string;
   taskRuntime: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<string> {
-  const derivedPaths = resolvePaths({ repoRoot: options.repoRoot });
+  const derivedPaths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const handoffsDir = options.handoffsDir ?? derivedPaths.handoffs;
   const implStepsDir = options.implStepsDir ?? derivedPaths.implementationSteps;
   const tracked = [
@@ -69,6 +70,7 @@ export async function computeRuntimeFactsSourceSignature(options: {
 
 export async function computeRuntimeWorkflowFacts(options: {
   repoRoot: string;
+  taskId: string;
   handoffsDir?: string;
   implStepsDir?: string;
 }): Promise<RuntimeWorkflowFacts> {
@@ -89,6 +91,7 @@ export async function computeRuntimeWorkflowFacts(options: {
 
 export async function writeRuntimeWorkflowFacts(options: {
   repoRoot: string;
+  taskId: string;
   taskRuntime: string;
   handoffsDir?: string;
   implStepsDir?: string;

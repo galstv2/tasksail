@@ -57,3 +57,11 @@ def platform_runtime_root(repo_root: Path) -> Path:
     if task_id:
         return base / "tasks" / task_id
     return base
+
+
+def render_handoff_artifact_label(task_id: str, filename: str) -> str:
+    return f"AgentWorkSpace/tasks/{task_id}/handoffs/{filename}"
+
+
+def render_implementation_steps_label(task_id: str, filename: str) -> str:
+    return f"AgentWorkSpace/tasks/{task_id}/ImplementationSteps/{filename}"

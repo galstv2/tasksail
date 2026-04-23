@@ -70,7 +70,7 @@ class DocsOperatingModelTests(unittest.TestCase):
             "  autonomous execution is denied",
         ),
         # README retrospective guardrails
-        ("readme", "AgentWorkSpace/handoffs/retrospective-input.md"),
+        ("readme", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
         ("readme", "target 1 minute and hard cap 2 minutes"),
         (
             "readme",
@@ -113,9 +113,9 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("onboarding", "desktop shell"),
         ("onboarding", "Python suite"),
         # Operating model role flow
-        ("operating_model", "Product Manager completes `AgentWorkSpace/handoffs/professional-task.md`"),
-        ("operating_model", "AgentWorkSpace/handoffs/implementation-spec.md"),
-        ("operating_model", "AgentWorkSpace/ImplementationSteps/sliceN.md"),
+        ("operating_model", "Product Manager completes `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`"),
+        ("operating_model", "AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md"),
+        ("operating_model", "AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md"),
         ("operating_model", "QA → Software Engineer → QA"),
         ("operating_model", ".github/agents/"),
         ("operating_model", "pnpm run agent -- --agent-id <agent-id>"),
@@ -144,7 +144,7 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("operating_model", "high-autonomy execution fails closed"),
         (
             "operating_model",
-            "workflow team completes `AgentWorkSpace/handoffs/retrospective-input.md`",
+            "workflow team completes `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`",
         ),
         ("operating_model", "target 1 minute"),
         ("operating_model", "hard cap 2 minutes"),
@@ -165,7 +165,7 @@ class DocsOperatingModelTests(unittest.TestCase):
         # Platform spec source-of-truth
         ("platform_spec", "`AgentWorkSpace/dropbox/` is a trigger only."),
         ("platform_spec", "`AgentWorkSpace/pendingitems/` is the active queue."),
-        ("platform_spec", "`AgentWorkSpace/handoffs/` is the active task workspace."),
+        ("platform_spec", "`AgentWorkSpace/tasks/<taskId>/handoffs/` is the active task workspace."),
         ("platform_spec", "QMD is the long-term agent memory archive."),
         ("platform_spec", "Parent-task QMD memory is scoped reference context"),
         ("platform_spec", "Follow-up work enters as a new child task"),
@@ -176,7 +176,7 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("platform_spec", ".github/agents/registry.json"),
         ("platform_spec", "pnpm run agent -- --agent-id <agent-id>"),
         # Platform spec retrospective
-        ("platform_spec", "AgentWorkSpace/handoffs/retrospective-input.md` is a required closeout artifact"),
+        ("platform_spec", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` is a required closeout artifact"),
         ("platform_spec", "qmd/global/retrospectives"),
         ("platform_spec", "shared-retrospective-memory.md"),
         ("platform_spec", "/retrospective"),

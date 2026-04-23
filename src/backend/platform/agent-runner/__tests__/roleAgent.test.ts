@@ -135,9 +135,9 @@ function setupCommonMocks(): void {
     agentWorkSpace: '/repo/AgentWorkSpace',
     dropbox: '/repo/AgentWorkSpace/dropbox',
     pendingItems: '/repo/AgentWorkSpace/pendingitems',
-    handoffs: '/repo/AgentWorkSpace/handoffs',
+    handoffs: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
     templates: '/repo/AgentWorkSpace/templates',
-    implementationSteps: '/repo/AgentWorkSpace/ImplementationSteps',
+    implementationSteps: '/repo/AgentWorkSpace/tasks/task-test-001/ImplementationSteps',
     qmd: '/repo/AgentWorkSpace/qmd',
     errorItems: '/repo/AgentWorkSpace/error-items',
     platformState: '/repo/.platform-state',
@@ -610,7 +610,7 @@ describe('runRoleAgent autonomy env var export', () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
-      'Fill in AgentWorkSpace/handoffs/parallel-ok.md with a Simple or Complex decision.',
+      'Fill in AgentWorkSpace/tasks/t1/handoffs/parallel-ok.md with a Simple or Complex decision.',
     );
 
     await expect(
@@ -677,7 +677,7 @@ describe('runRoleAgent autonomy env var export', () => {
         exitCode: 0,
       });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
-      'Fill in AgentWorkSpace/handoffs/parallel-ok.md with a Simple or Complex decision.',
+      'Fill in AgentWorkSpace/tasks/t1/handoffs/parallel-ok.md with a Simple or Complex decision.',
     );
 
     await expect(
@@ -736,7 +736,7 @@ describe('runRoleAgent autonomy env var export', () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
-      'Fill in AgentWorkSpace/handoffs/final-summary.md and AgentWorkSpace/handoffs/retrospective-input.md.',
+      'Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md and AgentWorkSpace/tasks/t1/handoffs/retrospective-input.md.',
     );
 
     await expect(
@@ -752,16 +752,16 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
-    expect(mockedCaptureCodeDiff).toHaveBeenCalledWith({
+    expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
       contextPackDir: '/repo/context-pack',
-      outputPath: '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+      outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
       abortSignal: undefined,
-    });
+    }));
     expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
-        expect.stringContaining('Fill in AgentWorkSpace/handoffs/final-summary.md'),
+        expect.stringContaining('Fill in'),
       ]),
     );
   });
@@ -805,12 +805,12 @@ describe('runRoleAgent autonomy env var export', () => {
     expect(mockedCaptureCodeDiff.mock.invocationCallOrder[0]).toBeLessThan(
       mockedLaunchCopilot.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
-    expect(mockedCaptureCodeDiff).toHaveBeenCalledWith({
+    expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
       contextPackDir: '/repo/context-pack',
-      outputPath: '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+      outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
       abortSignal: undefined,
-    });
+    }));
   });
 
   it('warns and still launches Ron when code diff refresh fails', async () => {
@@ -857,7 +857,7 @@ describe('runRoleAgent autonomy env var export', () => {
 
     expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/handoffs/code-changes.diff; continuing without refreshed diff:',
+      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
       'git diff failed',
     );
   });
@@ -903,7 +903,7 @@ describe('runRoleAgent autonomy env var export', () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
-      'Fill in AgentWorkSpace/handoffs/final-summary.md and AgentWorkSpace/handoffs/retrospective-input.md.',
+      'Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md and AgentWorkSpace/tasks/t1/handoffs/retrospective-input.md.',
     );
 
     await expect(
@@ -920,13 +920,13 @@ describe('runRoleAgent autonomy env var export', () => {
 
     expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/handoffs/code-changes.diff; continuing without refreshed diff:',
+      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
       'warning output',
     );
     expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
-        expect.stringContaining('Fill in AgentWorkSpace/handoffs/final-summary.md'),
+        expect.stringContaining('Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md'),
       ]),
     );
   });

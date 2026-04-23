@@ -380,7 +380,7 @@ QMD partitions, tags, and summaries may create many retrieval paths, but they mu
   "title": "Add request-id propagation middleware",
   "repo_name": "sample-api",
   "repo_owner": "sample-org",
-  "source_path": "AgentWorkSpace/handoffs/final-summary.md",
+  "source_path": "AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md",
   "system_layer": "backend",
   "artifact_type": "task-archive",
   "language": "markdown",
@@ -397,10 +397,10 @@ QMD partitions, tags, and summaries may create many retrieval paths, but they mu
   "provenance_type": "derived",
   "review_status": "reviewed",
   "provenance_sources": [
-    "AgentWorkSpace/handoffs/professional-task.md",
-    "AgentWorkSpace/handoffs/implementation-spec.md",
-    "AgentWorkSpace/handoffs/tests.md",
-    "AgentWorkSpace/handoffs/final-summary.md"
+    "AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md",
+    "AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md",
+    "AgentWorkSpace/tasks/<taskId>/handoffs/tests.md",
+    "AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md"
   ],
   "task_id": "CAP-1234",
   "root_task_id": "CAP-1234",
@@ -420,7 +420,7 @@ QMD partitions, tags, and summaries may create many retrieval paths, but they mu
 }
 ```
 
-Use `AgentWorkSpace/handoffs/implementation-spec.md` in `provenance_sources` for Alice's planning record, alongside slice files and any parallel artifacts that describe the chosen execution split.
+Use `AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md` in `provenance_sources` for Alice's planning record, alongside slice files and any parallel artifacts that describe the chosen execution split.
 
 For child tasks, populate `parent_task_id`, `root_task_id`, `parent_qmd_record_id`, `parent_qmd_scope`, `followup_reason`, and `child_depth` rather than leaving lineage implicit in prose.
 

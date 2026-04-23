@@ -18,6 +18,8 @@ import {
 } from '../models.js';
 import { resolvePaths } from '../../core/index.js';
 
+const TEST_TASK_ID = 'task-test-001';
+
 describe('workflow-policy artifacts and formatting', () => {
   const createdRoots: string[] = [];
 
@@ -29,7 +31,7 @@ describe('workflow-policy artifacts and formatting', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-artifact-'));
     createdRoots.push(repoRoot);
 
-    const { handoffs: handoffsDir, taskRuntime } = resolvePaths({ repoRoot });
+    const { handoffs: handoffsDir, taskRuntime } = resolvePaths({ repoRoot, taskId: TEST_TASK_ID });
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(taskRuntime, { recursive: true });
 
@@ -68,7 +70,7 @@ describe('workflow-policy artifacts and formatting', () => {
     expect(artifact.metadata).toEqual({ 'Task ID': 'task-42' });
     expect(artifact.taskLineage).toEqual({ 'Parent Task ID': 'parent-1' });
     expect(artifact.hasSubstantiveContent).toBe(true);
-    expect(await parallelOkHasActiveApproval(repoRoot, artifact)).toBe(true);
+    expect(await parallelOkHasActiveApproval(repoRoot, artifact, TEST_TASK_ID)).toBe(true);
   });
 
   it('renders stable text and json output contracts', () => {
@@ -84,7 +86,7 @@ describe('workflow-policy artifacts and formatting', () => {
           rule_id: 'slice.missing-purpose',
           severity: 'warning',
           transition: 'lint',
-          artifact: 'AgentWorkSpace/ImplementationSteps/slice-1.md',
+          artifact: 'AgentWorkSpace/tasks/task-test-001/ImplementationSteps/slice-1.md',
           message: 'Purpose section is empty.',
           remediation: 'Populate the Purpose section.',
         },
@@ -114,7 +116,7 @@ describe('workflow-policy artifacts and formatting', () => {
         'Warnings: 1',
         'Violations:',
         '- [warning] slice.missing-purpose',
-        '  Artifact: AgentWorkSpace/ImplementationSteps/slice-1.md',
+        '  Artifact: AgentWorkSpace/tasks/task-test-001/ImplementationSteps/slice-1.md',
         '  Message: Purpose section is empty.',
         '  Remediation: Populate the Purpose section.',
         'Guardrail:',
@@ -140,7 +142,7 @@ describe('workflow-policy artifacts and formatting', () => {
           rule_id: 'slice.missing-purpose',
           severity: 'warning',
           transition: 'lint',
-          artifact: 'AgentWorkSpace/ImplementationSteps/slice-1.md',
+          artifact: 'AgentWorkSpace/tasks/task-test-001/ImplementationSteps/slice-1.md',
           message: 'Purpose section is empty.',
           remediation: 'Populate the Purpose section.',
         },
@@ -295,7 +297,7 @@ describe('workflow-policy artifacts and formatting', () => {
   it('excludes the canonical slice template file from discovered slices', async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-slices-'));
     createdRoots.push(repoRoot);
-    const stepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+    const stepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(stepsDir, { recursive: true });
 
     writeFileSync(path.join(stepsDir, 'slice-template.md'), '# Slice Template', 'utf-8');

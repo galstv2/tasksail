@@ -26,7 +26,7 @@ describe('findRepoRoot', () => {
 
 describe('resolvePaths', () => {
   it('returns all expected path keys', () => {
-    const paths = resolvePaths();
+    const paths = resolvePaths({ taskId: 'smoke-task' });
     expect(paths.repoRoot).toBeTruthy();
     expect(paths.agentWorkSpace).toContain('AgentWorkSpace');
     expect(paths.dropbox).toContain('dropbox');
@@ -40,34 +40,34 @@ describe('resolvePaths', () => {
   });
 
   it('uses provided repo root', () => {
-    const paths = resolvePaths({ repoRoot: '/tmp/test-repo' });
+    const paths = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 't1' });
     expect(paths.repoRoot).toBe('/tmp/test-repo');
     expect(paths.agentWorkSpace).toBe(
       path.join('/tmp/test-repo', 'AgentWorkSpace'),
     );
   });
 
-  it('returns singleton paths when taskId is omitted', () => {
-    const paths = resolvePaths({ repoRoot: '/tmp/test-repo' });
-    expect(paths.handoffs).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'handoffs'));
-    expect(paths.implementationSteps).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'ImplementationSteps'));
-    expect(paths.taskRuntime).toBe(path.join('/tmp/test-repo', '.platform-state', 'runtime'));
-  });
-
-  it('routes handoffs, implementationSteps, and taskRuntime under per-task paths when taskId is set', () => {
+  it('routes handoffs, implementationSteps, and taskRuntime under per-task paths', () => {
     const paths = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 't1' });
     expect(paths.handoffs).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'tasks', 't1', 'handoffs'));
     expect(paths.implementationSteps).toBe(path.join('/tmp/test-repo', 'AgentWorkSpace', 'tasks', 't1', 'ImplementationSteps'));
     expect(paths.taskRuntime).toBe(path.join('/tmp/test-repo', '.platform-state', 'runtime', 'tasks', 't1'));
   });
 
-  it('does not affect dropbox, templates, qmd, or guardrails when taskId is set', () => {
-    const base = resolvePaths({ repoRoot: '/tmp/test-repo' });
+  it('does not affect dropbox, templates, qmd, or guardrails', () => {
+    const base = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 'base-task' });
     const task = resolvePaths({ repoRoot: '/tmp/test-repo', taskId: 't1' });
     expect(task.dropbox).toBe(base.dropbox);
     expect(task.templates).toBe(base.templates);
     expect(task.qmd).toBe(base.qmd);
     expect(task.guardrails).toBe(base.guardrails);
+  });
+
+  it('requires taskId: omitting it is a runtime error (TypeScript enforces at compile time)', () => {
+    // taskId is required — calling without it is a TypeScript compile-time error.
+    // At runtime, the missing taskId causes path.join to throw a TypeError.
+    // @ts-expect-error taskId is required
+    expect(() => resolvePaths({ repoRoot: '/tmp/test-repo' })).toThrow(TypeError);
   });
 });
 

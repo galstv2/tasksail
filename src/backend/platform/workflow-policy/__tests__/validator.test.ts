@@ -10,6 +10,8 @@ import {
   PolicyValidator,
 } from '../index.js';
 
+const TEST_TASK_ID = 'task-test-001';
+
 function createRegistryFixture(repoRoot: string): void {
   mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
   writeFileSync(
@@ -53,7 +55,7 @@ function createRegistryFixture(repoRoot: string): void {
 }
 
 function createWorkspaceFixture(repoRoot: string): void {
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
 
   writeFileSync(
@@ -96,6 +98,7 @@ describe('PolicyValidator', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: Object.fromEntries(
         FULL_EVALUATION_SEQUENCE.map((ruleName) => [ruleName, () => void seen.push(ruleName)]),
       ),
@@ -120,6 +123,7 @@ describe('PolicyValidator', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
       ruleEvaluators: Object.fromEntries(
         LIGHTWEIGHT_EVALUATION_SEQUENCE.map((ruleName) => [ruleName, () => void seen.push(ruleName)]),
       ),
@@ -139,6 +143,7 @@ describe('PolicyValidator', () => {
     const validator = new PolicyValidator({
       rootDir: repoRoot,
       mode: 'runtime',
+      taskId: TEST_TASK_ID,
       requestedAgentId: 'mystery-agent',
     });
 

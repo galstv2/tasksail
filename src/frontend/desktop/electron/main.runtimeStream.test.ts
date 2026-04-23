@@ -40,7 +40,7 @@ function makeSession(
     stuckState: 'none',
     stuckReason: null,
     sliceId: 'slice-01',
-    slicePath: 'AgentWorkSpace/ImplementationSteps/slice-01.md',
+    slicePath: 'AgentWorkSpace/tasks/task-test-001/ImplementationSteps/slice-01.md',
     launchState: 'started',
     terminalState: 'running',
     lastUpdatedAt: '2026-03-28T22:00:00.000Z',

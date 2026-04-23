@@ -70,6 +70,7 @@ export function createObservabilitySnapshot(
     activeTaskId: null,
     activeTaskTitle: null,
     currentState: 'idle',
+    activeTasks: [],
     plannerBroker: {
       sessionId: null,
       brokerStatus: 'idle',

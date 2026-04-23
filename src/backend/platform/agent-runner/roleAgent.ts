@@ -398,6 +398,7 @@ export async function runRoleAgent(
   const externalMcpLaunchContext = await mergeExternalMcpLaunchEnvironment({
     agentId: options.agentId,
     repoRoot: paths.repoRoot,
+    taskId: options.taskId ?? '',
     agentEnv,
     abortSignal: options.abortSignal,
   });
@@ -449,6 +450,7 @@ export async function runRoleAgent(
     contextPackDir: options.contextPackDir,
     handoffsDir: paths.handoffs,
     repoRoot: paths.repoRoot,
+    taskId: options.taskId ?? '',
     abortSignal: options.abortSignal,
   });
 
@@ -488,6 +490,7 @@ export async function runRoleAgent(
     }
     const signature = await computeRuntimeFactsSourceSignature({
       repoRoot: paths.repoRoot,
+      taskId: options.taskId ?? '',
       taskRuntime: paths.taskRuntime,
       handoffsDir: paths.handoffs,
       implStepsDir: paths.implementationSteps,

@@ -12,6 +12,8 @@ import { captureCodeDiff } from '../pythonHelpers.js';
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedRunPython = vi.mocked(runPython);
 
+const TEST_TASK_ID = 'task-test-001';
+
 describe('captureCodeDiff', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,7 +30,7 @@ describe('captureCodeDiff', () => {
   it('passes context pack dir as a named flag', async () => {
     await captureCodeDiff({
       contextPackDir: '/packs/pack-a',
-      outputPath: '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+      outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
     });
 
@@ -36,7 +38,7 @@ describe('captureCodeDiff', () => {
       '/repo/src/backend/scripts/python/run-role-agent-helper.py',
       [
         'capture-code-diff',
-        '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+        '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
         '--repo-root',
         '/repo',
         '--context-pack-dir',
@@ -51,7 +53,7 @@ describe('captureCodeDiff', () => {
 
   it('omits the context pack flag when none is provided', async () => {
     await captureCodeDiff({
-      outputPath: '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+      outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
     });
 
@@ -59,7 +61,7 @@ describe('captureCodeDiff', () => {
       '/repo/src/backend/scripts/python/run-role-agent-helper.py',
       [
         'capture-code-diff',
-        '/repo/AgentWorkSpace/handoffs/code-changes.diff',
+        '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
         '--repo-root',
         '/repo',
       ],

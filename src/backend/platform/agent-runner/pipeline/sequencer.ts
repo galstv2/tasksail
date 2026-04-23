@@ -106,6 +106,7 @@ function joinVerificationWarnings(...warnings: Array<string | undefined>): strin
 
 async function refreshVerificationQaDiffArtifact(options: {
   repoRoot: string;
+  taskId: string;
   handoffsDir: string;
   contextPackDir?: string;
   abortSignal?: AbortSignal;
@@ -117,6 +118,7 @@ async function refreshVerificationQaDiffArtifact(options: {
       outputPath,
       contextPackDir: options.contextPackDir,
       repoRoot: options.repoRoot,
+      taskId: options.taskId,
       abortSignal: options.abortSignal,
     });
     const diagnostics: string[] = [];
@@ -245,8 +247,8 @@ export function buildFleetDaltonCleanupPrompt(
 
 function cleanupArtifactLabel(artifactPath: string): string {
   return artifactPath
-    .replace(/^AgentWorkSpace\/handoffs\//, '')
-    .replace(/^AgentWorkSpace\/ImplementationSteps\//, '');
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/handoffs\//, '')
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/ImplementationSteps\//, '');
 }
 
 function resolveCleanupArtifactAbsolutePath(
@@ -758,6 +760,7 @@ export async function runPipelineSequence(
         const verificationDiffStage = resolveVerificationDiffStage(paths.taskRuntime);
         const diffGenerationWarning = await refreshVerificationQaDiffArtifact({
           repoRoot: paths.repoRoot,
+          taskId: pipelineTaskId,
           handoffsDir: paths.handoffs,
           contextPackDir: effectiveContextPackDir,
           abortSignal: abortController.signal,
@@ -807,6 +810,7 @@ export async function runPipelineSequence(
         if (verificationRan) {
           await refreshVerificationQaDiffArtifact({
             repoRoot: paths.repoRoot,
+            taskId: pipelineTaskId,
             handoffsDir: paths.handoffs,
             contextPackDir: effectiveContextPackDir,
             abortSignal: abortController.signal,
@@ -862,7 +866,7 @@ export async function runPipelineSequence(
           agentMcpStatuses['dalton'] = daltonResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
           agentTimings['dalton'] = Math.round((Date.now() - agentStart) / 1000);
 
-          const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron');
+          const qaPolicy = await runRuntimePolicyCheck(paths.repoRoot, 'ron', 'runtime', pipelineTaskId);
           if (qaPolicy.exitCode !== 0) {
             const cleanupContext = await buildFleetDaltonCleanupContext({
               repoRoot: paths.repoRoot,

@@ -4,12 +4,10 @@ import { slugify, findRepoRoot, ensureDir, copyFileSafe } from '../core/index.js
 import { existsSync } from 'node:fs';
 import {
   resolveQueuePaths,
-  HANDOFF_FILES,
   SLICE_TEMPLATE_FILENAME,
-  implementationStepsDirFor,
   templateSourceFor,
 } from './paths.js';
-import { initializeTaskArtifacts, resetHandoffArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
+import { initializeTaskArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 
 /**
@@ -107,19 +105,24 @@ export interface InitializeTaskOptions {
   source?: string;
   rawRequest?: string;
   withStarterSlice?: boolean;
+  /**
+   * @deprecated The --reset mode is retired. Per-task dirs are always fresh at
+   * creation time; this flag is accepted but ignored.
+   */
   reset?: boolean;
   force?: boolean;
   repoRoot?: string;
   /**
    * Explicit context pack path for the new task.
-   * Required for new-task invocations. When absent and reset=true, treated as non-fatal.
+   * Required for new-task invocations.
    */
   contextPackPath?: string;
 }
 
 /**
- * Initialize or reset the handoff workspace for a new task.
+ * Initialize the handoff workspace for a new task.
  * Writes artifacts under AgentWorkSpace/tasks/<taskId>/handoffs/ (per-task path).
+ * The --reset mode has been retired: per-task dirs are always fresh at creation.
  */
 export async function initializeTask(
   options: InitializeTaskOptions = {},
@@ -130,7 +133,6 @@ export async function initializeTask(
     source = 'manual',
     rawRequest = '',
     withStarterSlice = false,
-    reset = false,
     force = false,
     repoRoot: rawRepoRoot,
     contextPackPath,
@@ -141,29 +143,6 @@ export async function initializeTask(
 
   await ensureDir(queuePaths.dropboxDir);
   await ensureDir(queuePaths.pendingDir);
-
-  if (reset) {
-    // Reset mode: use the singleton handoffs workspace for backward compatibility.
-    // Path constructed inline to avoid the singleton accessor.
-    const singletonHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    await ensureDir(singletonHandoffsDir);
-    if (!force) {
-      const ready = await handoffWorkspaceIsReady(
-        singletonHandoffsDir,
-        queuePaths.templatesDir,
-      );
-      if (!ready) {
-        throw new Error(
-          'handoffs/ contains task content. Rerun with --force to bypass.',
-        );
-      }
-    }
-
-    await resetHandoffArtifacts(singletonHandoffsDir, HANDOFF_FILES, {
-      implementationStepsDir: implementationStepsDirFor(repoRoot),
-    });
-    return;
-  }
 
   // Determine taskId — validate if explicit, generate if absent
   const taskTitle = rawTitle || 'New Task';

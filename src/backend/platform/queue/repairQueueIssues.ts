@@ -9,7 +9,8 @@ export type QueueRepairIssueKind =
   | 'marker-without-worktree'
   | 'pending-without-marker'
   | 'sentinel-without-completed-marker'
-  | 'orphan-handoffs-dir'
+  | 'orphan-task-handoffs-dir'
+  | 'partial-publish-in-progress'
   | 'orphan-task-json'
   | 'corrupt-task-json';
 

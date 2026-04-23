@@ -36,18 +36,20 @@ describe('guardrails runtime policy cache', () => {
       : path.join(root, '.platform-state', 'runtime');
   }
 
+  const TEST_TASK_ID = 'task-test-001';
+
   function setupResolvePaths(root: string, taskId?: string): void {
     const taskRuntime = makeTaskRuntime(root, taskId);
     resolvePaths.mockImplementation((opts: { repoRoot?: string; taskId?: string } = {}) => {
       const r = opts.repoRoot ?? root;
-      const t = opts.taskId;
-      const rt = t
-        ? path.join(r, '.platform-state', 'runtime', 'tasks', t)
+      const t = opts.taskId ?? TEST_TASK_ID;
+      const rt = opts.taskId
+        ? path.join(r, '.platform-state', 'runtime', 'tasks', opts.taskId)
         : path.join(r, '.platform-state', 'runtime');
       return {
         repoRoot: r,
-        handoffs: path.join(r, 'AgentWorkSpace', 'handoffs'),
-        implementationSteps: path.join(r, 'AgentWorkSpace', 'ImplementationSteps'),
+        handoffs: path.join(r, 'AgentWorkSpace', 'tasks', t, 'handoffs'),
+        implementationSteps: path.join(r, 'AgentWorkSpace', 'tasks', t, 'ImplementationSteps'),
         taskRuntime: rt,
       };
     });
@@ -58,8 +60,8 @@ describe('guardrails runtime policy cache', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'guardrails-cache-'));
-    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
-    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps');
+    handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
     mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });

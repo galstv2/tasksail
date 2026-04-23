@@ -133,9 +133,9 @@ function setupCommonMocks(): void {
     agentWorkSpace: '/repo/AgentWorkSpace',
     dropbox: '/repo/AgentWorkSpace/dropbox',
     pendingItems: '/repo/AgentWorkSpace/pendingitems',
-    handoffs: '/repo/AgentWorkSpace/handoffs',
+    handoffs: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
     templates: '/repo/AgentWorkSpace/templates',
-    implementationSteps: '/repo/AgentWorkSpace/ImplementationSteps',
+    implementationSteps: '/repo/AgentWorkSpace/tasks/task-test-001/ImplementationSteps',
     qmd: '/repo/AgentWorkSpace/qmd',
     errorItems: '/repo/AgentWorkSpace/error-items',
     platformState: '/repo/.platform-state',
@@ -254,14 +254,14 @@ describe('runRoleAgent external MCP launch integration', () => {
       skipWorkflowValidation: true,
     });
 
-    expect(mockedPrepareExternalMcpLaunchContext).toHaveBeenCalledWith({
+    expect(mockedPrepareExternalMcpLaunchContext).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'dalton',
       repoRoot: '/repo',
       env: expect.objectContaining({
         RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"repo-executor"}',
       }),
       abortSignal: undefined,
-    });
+    }));
     const launchCall = mockedLaunchCopilot.mock.calls[0];
     const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;

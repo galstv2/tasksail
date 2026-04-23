@@ -103,10 +103,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
+        if (path.includes('/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n';
         }
-        if (path.endsWith('AgentWorkSpace/handoffs/retrospective-input.md')) {
+        if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
         return '# Placeholder\n';
@@ -135,10 +135,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
+        if (path.includes('/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: TASK-1\n- Task Title: Recover task\n';
         }
-        if (path.endsWith('AgentWorkSpace/handoffs/retrospective-input.md')) {
+        if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
         if (path.endsWith('.platform-state/runtime/desktop-recovery-state.json')) {
@@ -160,7 +160,13 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         }
         return '# Placeholder\n';
       }),
-      readdir: vi.fn(async () => []),
+      readdir: vi.fn(async (path: string) => {
+        // Active marker: taskId as filename in .active-items/.
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-1'];
+        }
+        return [];
+      }),
     };
 
     await expect(readObservabilitySnapshot(receiptFs)).resolves.toEqual(
@@ -203,10 +209,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
+        if (path.includes('/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
-        if (path.endsWith('AgentWorkSpace/handoffs/retrospective-input.md')) {
+        if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
         if (path.endsWith('.platform-state/runtime/role-sessions/qa.json')) {
@@ -274,10 +280,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
+        if (path.includes('/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
-        if (path.endsWith('AgentWorkSpace/handoffs/retrospective-input.md')) {
+        if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
         if (path.endsWith('.platform-state/runtime/role-sessions/software-engineer.json')) {
@@ -294,6 +300,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         return '# Placeholder\n';
       }),
       readdir: vi.fn(async (path: string) => {
+        // Active marker: taskId as filename in .active-items/.
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['CAP-CUSTOM-TERMINAL-04'];
+        }
         if (path.endsWith('.platform-state/runtime/role-sessions')) {
           return ['software-engineer.json'];
         }
@@ -374,10 +384,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('AgentWorkSpace/handoffs/professional-task.md')) {
+        if (path.includes('/handoffs/professional-task.md')) {
           return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
         }
-        if (path.endsWith('AgentWorkSpace/handoffs/retrospective-input.md')) {
+        if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
         if (path.endsWith('.platform-state/runtime/role-sessions/software-engineer.json')) {
@@ -394,6 +404,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         return '# Placeholder\n';
       }),
       readdir: vi.fn(async (path: string) => {
+        // Active marker: taskId as filename in .active-items/.
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['CAP-CUSTOM-TERMINAL-04'];
+        }
         if (path.endsWith('.platform-state/runtime/role-sessions')) {
           return ['software-engineer.json'];
         }
@@ -474,13 +488,8 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       expect.objectContaining({
         currentState: 'queued',
         activeTaskTitle: null,
-        artifactReferences: expect.arrayContaining([
-          expect.objectContaining({
-            path: 'AgentWorkSpace/handoffs/professional-task.md',
-            status: 'empty',
-            detail: 'Artifact template is present but does not yet contain task details.',
-          }),
-        ]),
+        // No active tasks — per-task artifact references are empty.
+        artifactReferences: [],
       }),
     );
   });

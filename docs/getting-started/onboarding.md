@@ -112,11 +112,11 @@ Use a tiny starter task for the first validation pass.
    `pnpm run plan-dropbox-task -- --title "Starter Task" --summary "Validate queue intake and handoff seeding."`
 4. Confirm the markdown request appears briefly in `AgentWorkSpace/dropbox/`.
 5. Confirm the poller moves it into `AgentWorkSpace/pendingitems/`.
-6. Confirm the oldest queued item seeds `AgentWorkSpace/handoffs/professional-task.md`.
+6. Confirm the oldest queued item seeds `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`.
 7. Work the task through the required role flow.
 8. After Documentation closeout, confirm:
-   - `AgentWorkSpace/handoffs/final-summary.md` has been completed
-   - `AgentWorkSpace/handoffs/retrospective-input.md` has been completed with a concise
+   - `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md` has been completed
+   - `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` has been completed with a concise
      retrospective meeting record that targets 1 minute and hard caps at 2
      minutes
    - long-term memory has been filed into QMD when an active context pack is
@@ -138,19 +138,19 @@ Use a tiny starter task for the first validation pass.
   loop.
 - `AgentWorkSpace/pendingitems/` is the ordered queue.
 - The queue is sequential and oldest-ready wins.
-- `AgentWorkSpace/handoffs/` is the active working area.
+- `AgentWorkSpace/tasks/<taskId>/handoffs/` is the active working area.
 - Finished items are deleted from `AgentWorkSpace/pendingitems/` only after closeout.
 
 ## Artifact lifecycle and cleanup
 
-- `AgentWorkSpace/handoffs/` contains the active task's working files.
+- `AgentWorkSpace/tasks/<taskId>/handoffs/` contains the active task's working files.
 - QMD is the long-term archive for completed task memory and repo filings.
-- After closeout, clear or reset `AgentWorkSpace/handoffs/` before the next queued task starts.
+- After closeout, clear or reset `AgentWorkSpace/tasks/<taskId>/handoffs/` before the next queued task starts.
 
 ## Workflow-policy expectations
 
 - Treat repo artifacts as the only durable input to workflow-policy checks.
-- Keep `AgentWorkSpace/handoffs/`, `AgentWorkSpace/ImplementationSteps/`, queue files, and when relevant
+- Keep `AgentWorkSpace/tasks/<taskId>/handoffs/`, `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`, queue files, and when relevant
   context-pack bootstrap artifacts up to date so future policy validation can
   reason from observable state.
 - Expect the TypeScript workflow-policy validator at
@@ -160,7 +160,7 @@ Use a tiny starter task for the first validation pass.
 - Treat `lint` mode as advisory visibility and expect guarded transition modes
   plus CI validation to fail closed when required workflow artifacts are
   incomplete or inconsistent.
-- Treat `AgentWorkSpace/handoffs/retrospective-input.md` as a required closeout artifact, not
+- Treat `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` as a required closeout artifact, not
   an optional note, because closeout, archival, queue advancement, and
   follow-up creation now block when the retrospective is missing or incomplete.
 - Use `pnpm run local-checks` as the normal operator entrypoint for the
@@ -243,11 +243,11 @@ Follow-up work after closeout becomes a new child task.
 
 - If a file stays in `AgentWorkSpace/dropbox/`, confirm the poller is running.
 - If a file reaches `AgentWorkSpace/pendingitems/` but does not seed
-  `AgentWorkSpace/handoffs/professional-task.md`, confirm the current `AgentWorkSpace/handoffs/` workspace has
+  `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`, confirm the current `AgentWorkSpace/tasks/<taskId>/handoffs/` workspace has
   been cleared or reset.
 - If closeout is done but the queue does not advance, first verify
-  `AgentWorkSpace/handoffs/final-summary.md` has content, then run
-  `pnpm run complete-pending-item`, then reset `AgentWorkSpace/handoffs/` with
+  `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md` has content, then run
+  `pnpm run complete-pending-item`, then reset `AgentWorkSpace/tasks/<taskId>/handoffs/` with
   `pnpm run new-task -- --reset`.
 - If child-task carry-forward context looks wrong, confirm the selected
   `parent_qmd_scope` and active context-pack overlay are correct.

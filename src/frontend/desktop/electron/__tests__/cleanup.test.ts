@@ -141,8 +141,6 @@ function writeTaskRegistry(repoRoot: string, activeTaskIds: string[]): void {
 function setupWorkspaceScaffold(repoRoot: string): void {
   mkdirSync(join(repoRoot, 'AgentWorkSpace', 'dropbox'), { recursive: true });
   mkdirSync(join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
-  mkdirSync(join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
-  mkdirSync(join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
   mkdirSync(join(repoRoot, 'AgentWorkSpace', 'tasks'), { recursive: true });
   mkdirSync(join(repoRoot, '.platform-state', 'queue'), { recursive: true });
   mkdirSync(join(repoRoot, '.platform-state', 'runtime', 'role-sessions'), { recursive: true });

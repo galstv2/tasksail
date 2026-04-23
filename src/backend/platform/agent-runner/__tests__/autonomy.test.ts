@@ -181,15 +181,15 @@ describe('resolveAutonomyProfile', () => {
     expect(args.denyTools).toContain('shell(sudo)');
   });
 
-  it('qa-executor with repoRoot gets handoff dir but not ImplementationSteps', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo');
-    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/handoffs');
+  it('qa-executor with repoRoot and taskId gets per-task handoff dir but not ImplementationSteps', () => {
+    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', 'task-test-001');
+    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-test-001/handoffs');
     expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
   });
 
-  it('qa-executor without taskId uses singleton handoffs path (legacy back-compat)', () => {
+  it('qa-executor without taskId does not include singleton handoffs path', () => {
     const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', undefined);
-    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/handoffs');
+    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
   });
 
   it('qa-executor with taskId uses per-task handoffs path', () => {
@@ -281,12 +281,11 @@ describe('buildCopilotArgs', () => {
     expect(args).toContain('/repo/src');
   });
 
-  it('qa-executor --add-dir uses singleton handoffs path when taskId absent', () => {
+  it('qa-executor --add-dir does not use singleton handoffs path when taskId absent', () => {
     const profile = makeQaExecutor();
     const autonomy = resolveAutonomyProfile(profile, undefined, '/repo', undefined);
     const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--add-dir');
-    expect(args).toContain('/repo/AgentWorkSpace/handoffs');
+    expect(args).not.toContain('/repo/AgentWorkSpace/handoffs');
   });
 
   it('qa-executor --add-dir uses per-task handoffs path when taskId present', () => {

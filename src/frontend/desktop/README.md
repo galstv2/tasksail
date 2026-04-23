@@ -38,8 +38,8 @@ into the bundle.
 ## Host-native runtime expectations
 
 - Launch from a machine that has the full repo checkout available
-- Keep `AgentWorkSpace/dropbox/`, `AgentWorkSpace/pendingitems/`, `AgentWorkSpace/handoffs/`, and `AgentWorkSpace/ImplementationSteps/` under the repo root
-- Treat `AgentWorkSpace/handoffs/retrospective-input.md` as a required closeout artifact before
+- Keep `AgentWorkSpace/dropbox/`, `AgentWorkSpace/pendingitems/`, `AgentWorkSpace/tasks/<taskId>/handoffs/`, and `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/` under the repo root
+- Treat `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` as a required closeout artifact before
   queue advancement or follow-up creation; the desktop shell observes that repo
   workflow, but does not create or complete the retrospective directly
 - Keep helper seams available:

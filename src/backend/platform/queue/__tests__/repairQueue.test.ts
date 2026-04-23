@@ -22,7 +22,7 @@ describe('repairQueue', () => {
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems'), {
       recursive: true,
     });
-    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'handoffs'), {
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'tasks'), {
       recursive: true,
     });
     mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), {
@@ -108,50 +108,64 @@ describe('repairQueue', () => {
   });
 
   it('detects marker in .active-items/ with valid pending file but blank workspace (crash-recovery)', async () => {
-    // §4.1B: use .active-items/<taskId> marker, not singleton .active-item
+    // §4.1B check-4: marker + .task.json sidecar but per-task handoffs dir is blank → crash-recovery
+    const TEST_TASK_ID = 'task-123';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
+    const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID);
+    const handoffsDir = path.join(taskDir, 'handoffs');
     mkdirSync(activeItemsDir, { recursive: true });
-    writeFileSync(path.join(pendingDir, 'task-123.md'), '# Task 123');
-    writeFileSync(path.join(activeItemsDir, 'task-123'), '');
+    mkdirSync(handoffsDir, { recursive: true });
+    // Seed the .task.json sidecar so check-4 fires
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId: TEST_TASK_ID, state: 'active' }));
+    writeFileSync(path.join(activeItemsDir, TEST_TASK_ID), '');
+    // handoffsDir is empty (blank/ready state) — crash-recovery scenario
 
     const result = await repairQueue({ repoRoot: tmpRoot, dryRun: true });
 
     expect(result.issues.length).toBeGreaterThan(0);
     expect(
-      result.issues.some((i) => i.includes('handoffs/ is in reset state')),
+      result.issues.some((i) => i.includes('handoffs dir is in reset state')),
     ).toBe(true);
     // Dry-run should not fix
     expect(result.fixed).toEqual([]);
-    expect(existsSync(path.join(activeItemsDir, 'task-123'))).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, TEST_TASK_ID))).toBe(true);
   });
 
   it('auto-fixes marker in .active-items/ with blank workspace by removing marker', async () => {
+    // §4.1B check-4: marker + .task.json sidecar but per-task handoffs dir is blank → remove marker
+    const TEST_TASK_ID = 'task-456';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
+    const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID);
+    const handoffsDir = path.join(taskDir, 'handoffs');
     mkdirSync(activeItemsDir, { recursive: true });
-    writeFileSync(path.join(pendingDir, 'task-456.md'), '# Task 456');
-    writeFileSync(path.join(activeItemsDir, 'task-456'), '');
+    mkdirSync(handoffsDir, { recursive: true });
+    // Seed the .task.json sidecar so check-4 fires
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId: TEST_TASK_ID, state: 'active' }));
+    writeFileSync(path.join(activeItemsDir, TEST_TASK_ID), '');
+    // handoffsDir is empty (blank/ready state) — crash-recovery scenario
 
     const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
 
     expect(result.issues.length).toBeGreaterThan(0);
-    expect(result.fixed.some((f) => f.includes('blank workspace'))).toBe(true);
-    // Marker removed, pending file preserved
-    expect(existsSync(path.join(activeItemsDir, 'task-456'))).toBe(false);
-    expect(existsSync(path.join(pendingDir, 'task-456.md'))).toBe(true);
+    expect(result.fixed.some((f) => f.includes('blank per-task workspace'))).toBe(true);
+    // Marker removed
+    expect(existsSync(path.join(activeItemsDir, TEST_TASK_ID))).toBe(false);
   });
 
   it('detects partial publish marker', async () => {
-    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+    const TEST_TASK_ID = 'task-789';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
     // §4.1B: use .active-items/<taskId> marker, not singleton .active-item
+    mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
     writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Task\n\nContent here');
-    writeFileSync(path.join(pendingDir, 'task-789.md'), '# Task 789');
-    writeFileSync(path.join(activeItemsDir, 'task-789'), '');
+    writeFileSync(path.join(pendingDir, `${TEST_TASK_ID}.md`), '# Task 789');
+    writeFileSync(path.join(activeItemsDir, TEST_TASK_ID), '');
 
     const result = await repairQueue({ repoRoot: tmpRoot, dryRun: true });
 
@@ -162,14 +176,16 @@ describe('repairQueue', () => {
   });
 
   it('auto-fixes partial publish by resetting handoffs and removing active markers', async () => {
-    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+    const TEST_TASK_ID = 'task-789';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
+    mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
     writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Task\n\nContent here');
-    writeFileSync(path.join(pendingDir, 'task-789.md'), '# Task 789');
-    writeFileSync(path.join(activeItemsDir, 'task-789'), '');
+    writeFileSync(path.join(pendingDir, `${TEST_TASK_ID}.md`), '# Task 789');
+    writeFileSync(path.join(activeItemsDir, TEST_TASK_ID), '');
 
     const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
 
@@ -177,16 +193,19 @@ describe('repairQueue', () => {
     // Publish-in-progress marker removed
     expect(existsSync(path.join(handoffsDir, '.publish-in-progress'))).toBe(false);
     // Active marker removed
-    expect(existsSync(path.join(activeItemsDir, 'task-789'))).toBe(false);
+    expect(existsSync(path.join(activeItemsDir, TEST_TASK_ID))).toBe(false);
     // Pending file preserved for re-activation
-    expect(existsSync(path.join(pendingDir, 'task-789.md'))).toBe(true);
+    expect(existsSync(path.join(pendingDir, `${TEST_TASK_ID}.md`))).toBe(true);
     // Handoff file cleaned up
     expect(existsSync(path.join(handoffsDir, 'professional-task.md'))).toBe(false);
   });
 
-  it('detects workspace with task data but no .active-item', async () => {
-    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'handoffs');
+  it('detects workspace with task data but no .active-item (orphan-task-handoffs-dir)', async () => {
+    const TEST_TASK_ID = 'task-test-001';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
     // Write a professional-task.md with actual content (not reset state)
+    // No active marker and no .task.json sidecar → orphan-task-handoffs-dir
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
       '# My Active Task\n\n## Task Metadata\n\n- Task ID: test-123\n\nActual task content here.\n',
@@ -195,7 +214,7 @@ describe('repairQueue', () => {
     const result = await repairQueue({ repoRoot: tmpRoot, dryRun: true });
 
     expect(result.issues.length).toBeGreaterThan(0);
-    expect(result.issues.some((i) => i.includes('handoffs/ has task data'))).toBe(true);
+    expect(result.issues.some((i) => i.includes('handoffs/ has task content but no active marker and no .task.json sidecar'))).toBe(true);
   });
 });
 
@@ -254,7 +273,7 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
     expect(existsSync(path.join(pendingDir, 'task-valid.md'))).toBe(true);
   });
 
-  it('active-task steady state (marker + .task.json + no pending file) is NOT flagged as stranded', async () => {
+  it('active-task steady state (marker + .task.json + non-blank handoffs + no pending file) is NOT flagged as stranded', async () => {
     // Regression: under the per-task parallel model (§4.1B), the pending file
     // is deleted immediately after activation (operations.ts:704) and the
     // marker persists for the active lifetime. This is the LEGITIMATE steady
@@ -262,9 +281,15 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
     // file presence — as the authoritative signal that the marker is live.
     const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
     const taskSidecarDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', 'task-active-steady');
-    mkdirSync(taskSidecarDir, { recursive: true });
+    const taskHandoffsDir = path.join(taskSidecarDir, 'handoffs');
+    mkdirSync(taskHandoffsDir, { recursive: true });
     writeFileSync(path.join(activeItemsDir, 'task-active-steady'), 'task-active-steady.md');
     writeFileSync(path.join(taskSidecarDir, '.task.json'), '{"taskId":"task-active-steady","state":"active"}');
+    // Seed professional-task.md with substantive content so check-4 does NOT flag as blank
+    writeFileSync(
+      path.join(taskHandoffsDir, 'professional-task.md'),
+      '# Professional Task\n\n## Task Metadata\n\n- Task ID: task-active-steady\n\nActual task content here.\n',
+    );
     // Note: NO pending file — this is the steady state after activation.
 
     const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });

@@ -108,8 +108,10 @@ function createRegistryFixture(repoRoot: string): void {
   );
 }
 
+const TEST_TASK_ID = 'task-test-001';
+
 function createWorkspaceFixture(repoRoot: string): void {
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
   mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
 
@@ -188,6 +190,7 @@ describe('workflow-policy runtime rule parity', () => {
       rootDir: repoRoot,
       contextPackDir,
       mode: 'activation-bootstrap',
+      taskId: TEST_TASK_ID,
     });
 
     const result = await validator.evaluate();

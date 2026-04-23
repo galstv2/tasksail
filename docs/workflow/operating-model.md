@@ -39,7 +39,7 @@
   artifact-author profile falls back to repo-root.
 - `AgentWorkSpace/dropbox/` is an intake trigger, not a task archive.
 - `AgentWorkSpace/pendingitems/` is the sequential queue.
-- `AgentWorkSpace/handoffs/` is the active task workspace.
+- `AgentWorkSpace/tasks/<taskId>/handoffs/` is the active task workspace.
 - QMD is long-term retrieval memory, not the active source of truth.
 
 The `product-manager`, `software-engineer`, and `qa` custom agent profiles are pinned to `gpt-5.4`;
@@ -59,18 +59,18 @@ Lily is operator-facing pre-task planning only. Automated task execution starts 
 2. `pnpm run watch-dropbox` moves the file into `AgentWorkSpace/pendingitems/`.
 3. Non-markdown files in `AgentWorkSpace/dropbox/` are ignored and generate a warning once per
    poll loop.
-4. The queue activates the oldest pending item when `AgentWorkSpace/handoffs/` is in a reset
+4. The queue activates the oldest pending item when `AgentWorkSpace/tasks/<taskId>/handoffs/` is in a reset
    state.
 5. The active pending item initializes the handoff files and seeds
-   `AgentWorkSpace/handoffs/professional-task.md`.
+   `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`.
 6. Lily may create the intake markdown with
    `pnpm run plan-dropbox-task` without changing queue behavior.
 
 ## Required workflow
 
-1. Product Manager completes `AgentWorkSpace/handoffs/professional-task.md`,
-   `AgentWorkSpace/handoffs/implementation-spec.md`, and the authoritative
-   `AgentWorkSpace/ImplementationSteps/sliceN.md` handoff set. Alice owns this
+1. Product Manager completes `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`,
+   `AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md`, and the authoritative
+   `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md` handoff set. Alice owns this
    step.
    - each slice must introduce one coherent implementation seam
    - slices must be sequenced toward the target architecture
@@ -80,24 +80,24 @@ Lily is operator-facing pre-task planning only. Automated task execution starts 
      the slice explicitly authorizes a change
    - each slice must name expected files, done criteria, test requirements, and
      validation commands
-   - `AgentWorkSpace/handoffs/parallel-ok.md` signals task complexity — PM
+   - `AgentWorkSpace/tasks/<taskId>/handoffs/parallel-ok.md` signals task complexity — PM
      writes "Complex" to trigger fleet Dalton mode or "Simple" for singleton
      mode, only when slice independence is real rather than assumed
 2. Dalton, the Software Engineer, implements the assigned slice or slices.
 3. Ron, QA and Closeout, reviews the task, records issues in
-   `AgentWorkSpace/handoffs/issues.md` if needed, and owns closeout on `pass`
+   `AgentWorkSpace/tasks/<taskId>/handoffs/issues.md` if needed, and owns closeout on `pass`
    or `advisory`.
-4. The workflow team completes `AgentWorkSpace/handoffs/retrospective-input.md` as a concise
+4. The workflow team completes `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` as a concise
    retrospective before archival and queue advancement.
    - target 1 minute
    - hard cap 2 minutes
    - cover the summary, action items, and one contribution section per named
      workflow role
-5. Ron closes the task in `AgentWorkSpace/handoffs/final-summary.md`.
+5. Ron closes the task in `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`.
 
 ## Slice-authoring rules
 
-- `AgentWorkSpace/ImplementationSteps/` slices are execution-ready instructions, not rough
+- `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/` slices are execution-ready instructions, not rough
   brainstorming notes.
 - A single slice should be implementable on its own while keeping the repo
   lintable, buildable, and testable.
@@ -118,11 +118,11 @@ Named loop: Ron → Dalton → Ron
 
 ## Artifact state and authority
 
-- `AgentWorkSpace/handoffs/` contains the current task's working truth.
-- `AgentWorkSpace/ImplementationSteps/` contains the approved execution slices.
+- `AgentWorkSpace/tasks/<taskId>/handoffs/` contains the current task's working truth.
+- `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/` contains the approved execution slices.
 - QMD contains archived completed-task memory and repo knowledge.
 - Parent-task QMD memory may inform child-task shaping, but it must not
-  override current repo state or fresh `AgentWorkSpace/handoffs/` artifacts.
+  override current repo state or fresh `AgentWorkSpace/tasks/<taskId>/handoffs/` artifacts.
 
 ## Child-task follow-up model
 
@@ -147,8 +147,8 @@ Child-task rules:
 
 ## Closeout and archival
 
-- QA closes the task in `AgentWorkSpace/handoffs/final-summary.md`.
-- The workflow team must complete `AgentWorkSpace/handoffs/retrospective-input.md` before
+- QA closes the task in `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md`.
+- The workflow team must complete `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` before
   closeout can archive or advance the queue.
 - When a context pack is active, the completed task is archived into the
   scoped QMD task archive.
@@ -160,7 +160,7 @@ Child-task rules:
   synthesis, and retrospective indexes.
 - After closeout, remove the active queue item with
   `pnpm run complete-pending-item`.
-- Reset `AgentWorkSpace/handoffs/` with `pnpm run new-task -- --reset` before the next pending
+- Reset `AgentWorkSpace/tasks/<taskId>/handoffs/` with `pnpm run new-task -- --reset` before the next pending
   item activates.
 
 ## Context-pack operating rules
@@ -192,8 +192,8 @@ Child-task rules:
 - Guardrail launch receipts should live under
   `.platform-state/runtime/guardrails/`, and desktop observability should
   consume them as read-only evidence rather than as a writable policy surface.
-- Policy decisions must be derived from repo artifacts such as `AgentWorkSpace/handoffs/`,
-  `AgentWorkSpace/ImplementationSteps/`, `AgentWorkSpace/pendingitems/`,
+- Policy decisions must be derived from repo artifacts such as `AgentWorkSpace/tasks/<taskId>/handoffs/`,
+  `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`, `AgentWorkSpace/pendingitems/`,
   `AgentWorkSpace/qmd/repo-sources.json`, and when bootstrap created the pack,
   `AgentWorkSpace/qmd/bootstrap/bootstrap-answers.json`.
 - Policy checks should guard the transitions that mutate durable workflow state:
@@ -247,7 +247,7 @@ Child-task rules:
 5. Review artifact progress role by role.
 6. Enforce the QA remediation loop when required.
 7. Close the task with Documentation.
-8. Remove the finished queue item and reset `AgentWorkSpace/handoffs/`.
+8. Remove the finished queue item and reset `AgentWorkSpace/tasks/<taskId>/handoffs/`.
 9. Run `pnpm run local-checks` before shipping changes.
 
 ## Desktop shell operating rules

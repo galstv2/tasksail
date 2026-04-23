@@ -93,7 +93,7 @@ describe('electron main bootstrap — environment and observability', () => {
           return ['CAP-CUSTOM-TERMINAL-06'];
         }
 
-        if (path.endsWith('/AgentWorkSpace/ImplementationSteps')) {
+        if (path.endsWith('/tasks/CAP-CUSTOM-TERMINAL-06/ImplementationSteps')) {
           return ['slice-11-pilot-request-id-propagation.md'];
         }
 
@@ -129,9 +129,9 @@ describe('electron main bootstrap — environment and observability', () => {
         }),
         agentTerminalSessions: [],
         artifactReferences: expect.arrayContaining([
-          expect.objectContaining({ path: 'AgentWorkSpace/handoffs/professional-task.md', status: 'present' }),
-          expect.objectContaining({ path: 'AgentWorkSpace/handoffs/retrospective-input.md', status: 'present' }),
-          expect.objectContaining({ path: 'AgentWorkSpace/ImplementationSteps', kind: 'directory' }),
+          expect.objectContaining({ path: 'AgentWorkSpace/tasks/CAP-CUSTOM-TERMINAL-06/handoffs/professional-task.md', status: 'present' }),
+          expect.objectContaining({ path: 'AgentWorkSpace/tasks/CAP-CUSTOM-TERMINAL-06/handoffs/retrospective-input.md', status: 'present' }),
+          expect.objectContaining({ path: 'AgentWorkSpace/tasks/CAP-CUSTOM-TERMINAL-06/ImplementationSteps', kind: 'directory' }),
         ]),
       }),
     );
@@ -173,9 +173,7 @@ describe('electron main bootstrap — environment and observability', () => {
           return [];
         }
 
-        if (path.endsWith('/AgentWorkSpace/ImplementationSteps')) {
-          return ['slice-11-pilot-request-id-propagation.md'];
-        }
+        // No active task — per-task ImplementationSteps won't be read.
 
         return [];
       }),
@@ -244,9 +242,8 @@ describe('electron main bootstrap — environment and observability', () => {
     await expect(readObservabilitySnapshot(idleFs)).resolves.toEqual(
       expect.objectContaining({
         currentState: 'idle',
-        artifactReferences: expect.arrayContaining([
-          expect.objectContaining({ status: 'missing' }),
-        ]),
+        // No active tasks — per-task artifact references are empty.
+        artifactReferences: [],
       }),
     );
   });

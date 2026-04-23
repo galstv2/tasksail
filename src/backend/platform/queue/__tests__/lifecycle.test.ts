@@ -107,8 +107,9 @@ function seedQueueFixture(
   repoRoot: string,
   count: number,
 ): ReturnType<typeof resolveQueuePaths> {
+  const TEST_TASK_ID = 'task-test-001';
   const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
-  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'handoffs');
+  const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
   mkdirSync(pendingDir, { recursive: true });
   mkdirSync(handoffsDir, { recursive: true });

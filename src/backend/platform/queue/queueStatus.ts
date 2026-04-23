@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
-import { handoffWorkspaceIsReady, handoffPublishInProgress } from './lifecycle.js';
+import { handoffWorkspaceIsReady } from './lifecycle.js';
 
 export interface ActiveTaskEntry {
   taskId: string;
@@ -14,7 +14,7 @@ export interface ActiveTaskEntry {
 export interface QueueStatusResult {
   dropboxItems: string[];
   pendingItems: string[];
-  /** Per-task active entries (§4.1B). Replaces the singleton activeTask field. */
+  /** Per-task active entries. */
   activeTasks: ActiveTaskEntry[];
   /**
    * @deprecated Use activeTasks[0] ?? null. Kept for CLI back-compat.
@@ -81,17 +81,22 @@ export async function getQueueStatus(
     ? (path.basename(queuePaths.taskHandoffs(activeTasks[0]!.taskId).replace('/handoffs', '')) + '.md')
     : null;
 
-  // Workspace readiness
-  const workspaceReady = await handoffWorkspaceIsReady(
-    queuePaths.handoffsDir,
-    queuePaths.templatesDir,
-  );
+  // Workspace readiness: under per-task workbench there is no singleton
+  // handoffs directory. Report ready=true when no active tasks exist (fresh
+  // idle state), or when the first active task's handoffs dir is in reset state.
+  let workspaceReady = true;
+  if (activeTasks.length > 0) {
+    workspaceReady = await handoffWorkspaceIsReady(
+      queuePaths.taskHandoffs(activeTasks[0]!.taskId),
+      queuePaths.templatesDir,
+    );
+  }
 
   // Detect crash-recovery state: active markers present but workspace is blank
   const activeItemWithBlankWorkspace = activeTasks.length > 0 && workspaceReady;
 
-  // Detect partial publish
-  const partialPublish = handoffPublishInProgress(queuePaths.handoffsDir);
+  // Per-task handoff publish is checked by repairQueue (check 5), not here.
+  const partialPublish = false;
 
   // Count error items
   let errorItemsCount = 0;

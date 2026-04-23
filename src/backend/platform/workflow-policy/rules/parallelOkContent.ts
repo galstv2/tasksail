@@ -41,7 +41,7 @@ export async function evaluateParallelOkContentRules(
     return;
   }
 
-  if (!(await parallelOkHasActiveApproval(validator.rootDir, artifact))) {
+  if (!(await parallelOkHasActiveApproval(validator.rootDir, artifact, validator.taskId))) {
     return;
   }
 

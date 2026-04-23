@@ -3,7 +3,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { readTextFile, resolvePaths } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
-import { type QueuePaths } from '../queue/paths.js';
+import { resolveQueuePaths, type QueuePaths } from '../queue/paths.js';
 import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
 import {
   CONTENT_SECTION_EXCLUSIONS,
@@ -222,8 +222,11 @@ export async function listSliceFiles(stepsDir: string): Promise<string[]> {
 export async function parallelOkHasActiveApproval(
   rootDir: string,
   artifact: WorkspaceArtifact,
+  taskId?: string,
 ): Promise<boolean> {
-  const taskRuntime = resolvePaths({ repoRoot: rootDir }).taskRuntime;
+  const taskRuntime = taskId
+    ? resolvePaths({ repoRoot: rootDir, taskId }).taskRuntime
+    : path.join(rootDir, '.platform-state', 'runtime');
   const runtimeFacts = await readRuntimeWorkflowFacts(taskRuntime);
   const authoritative = runtimeFacts?.parallel?.active_approval;
   if (typeof authoritative === 'boolean') {
@@ -235,7 +238,7 @@ export async function parallelOkHasActiveApproval(
 }
 
 export async function hasPendingMarkdownFiles(rootDir: string): Promise<boolean> {
-  const pendingDir = resolvePaths({ repoRoot: rootDir }).pendingItems;
+  const pendingDir = resolveQueuePaths(rootDir).pendingDir;
   try {
     const entries = await readdir(pendingDir, { withFileTypes: true });
     return entries.some((entry) => entry.isFile() && entry.name.endsWith('.md'));

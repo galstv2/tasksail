@@ -57,7 +57,7 @@ describe('validateDaltonBoundaryChanges', () => {
       },
       after: {
         byRepoRoot: {
-          '/platform': ['AgentWorkSpace/handoffs/issues.md'],
+          '/platform': ['AgentWorkSpace/tasks/task-test-001/handoffs/issues.md'],
           '/repos/crud-app': ['src/app.ts'],
           '/repos/shared-lib': [],
         },

@@ -27,8 +27,7 @@ describe('§2.9 parallel isolation — per-task runtime state', () => {
 
   beforeEach(() => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'parallel-isolation-'));
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'handoffs'), { recursive: true });
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -88,12 +87,14 @@ describe('§2.9 parallel isolation — per-task runtime state', () => {
     // 5. Runtime workflow facts — §2.3 keyed on taskRuntime
     await writeRuntimeWorkflowFacts({
       repoRoot,
+      taskId: taskAlpha,
       taskRuntime: alphaPaths.taskRuntime,
       handoffsDir: alphaPaths.handoffs,
       implStepsDir: alphaPaths.implementationSteps,
     });
     await writeRuntimeWorkflowFacts({
       repoRoot,
+      taskId: taskBravo,
       taskRuntime: bravoPaths.taskRuntime,
       handoffsDir: bravoPaths.handoffs,
       implStepsDir: bravoPaths.implementationSteps,

@@ -288,8 +288,9 @@ describe('buildFleetDaltonCleanupPrompt', () => {
 describe('buildFleetDaltonCleanupContext', () => {
   it('inlines policy violations and blocking artifact content without handoff env vars', async () => {
     const dir = makeTmpDir();
-    const handoffsDir = path.join(dir, 'AgentWorkSpace', 'handoffs');
-    const implStepsDir = path.join(dir, 'AgentWorkSpace', 'ImplementationSteps');
+    const TEST_TASK_ID = 'task-test-001';
+    const handoffsDir = path.join(dir, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    const implStepsDir = path.join(dir, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(implStepsDir, { recursive: true });
     writeFileSync(
@@ -311,7 +312,7 @@ describe('buildFleetDaltonCleanupContext', () => {
             {
               severity: 'error',
               rule_id: 'closeout.qa-review-approved',
-              artifact: 'AgentWorkSpace/handoffs/issues.md',
+              artifact: 'AgentWorkSpace/tasks/task-test-001/handoffs/issues.md',
               message: 'Review Outcome is blocking.',
               remediation: 'Resolve the blocking findings before QA handoff.',
             },

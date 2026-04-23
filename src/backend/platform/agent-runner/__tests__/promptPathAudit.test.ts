@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 // This regex is a stand-in for the Copilot CLI's POSIX-style variable expander,
 // which performs $NAME and ${NAME} substitution at agent launch time using the
@@ -68,5 +69,77 @@ describe('promptPathAudit — §1.7 migration', () => {
     // No unresolved bare literals survive expansion
     expect(corpus).not.toContain('AgentWorkSpace/handoffs');
     expect(corpus).not.toContain('AgentWorkSpace/ImplementationSteps');
+  });
+});
+
+/**
+ * Phase 6 — Codebase-wide regression guard.
+ *
+ * Asserts that no tracked file in the repo contains bare legacy singleton
+ * paths (`AgentWorkSpace/handoffs` or `AgentWorkSpace/ImplementationSteps`)
+ * outside of explicitly allowed locations.
+ */
+describe('codebase-wide legacy path regression guard', () => {
+  const FORBIDDEN_LITERALS = [
+    'AgentWorkSpace/handoffs',
+    'AgentWorkSpace/ImplementationSteps',
+  ] as const;
+
+  // Files that are allowed to mention the forbidden literals:
+  // - this test file itself (it defines the literals)
+  // - scratchspace artefacts (planning docs, decision logs)
+  const ALLOW_LIST_PATTERNS = [
+    'src/backend/platform/agent-runner/__tests__/promptPathAudit.test.ts',
+    'scratchspace/',
+  ];
+
+  function isAllowListed(filePath: string): boolean {
+    return ALLOW_LIST_PATTERNS.some((p) => filePath.includes(p));
+  }
+
+  it('no tracked file references legacy AgentWorkSpace/handoffs or AgentWorkSpace/ImplementationSteps', () => {
+    // Single git grep invocation searching both forbidden literals at once.
+    let output: string;
+    try {
+      output = execFileSync(
+        'git',
+        [
+          'grep', '-n', '--fixed-strings',
+          '-e', FORBIDDEN_LITERALS[0],
+          '-e', FORBIDDEN_LITERALS[1],
+          '--', ':(exclude)scratchspace/',
+        ],
+        { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
+      );
+    } catch {
+      // git grep exits 1 when there are no matches — that's the success case.
+      return;
+    }
+
+    const violations: string[] = [];
+    for (const line of output.trim().split('\n')) {
+      if (!line) continue;
+      const filePart = line.split(':')[0];
+      if (filePart && isAllowListed(filePart)) continue;
+
+      // Skip negative assertions and test-description strings.
+      if (
+        line.includes('.not.toContain') ||
+        line.includes('assertNotIn') ||
+        line.includes('NEGATIVE_ASSERTIONS') ||
+        line.includes('_NEGATIVE_ASSERTIONS') ||
+        /\bit\(\s*['"`]/.test(line) ||
+        /\bdescribe\(\s*['"`]/.test(line)
+      ) {
+        continue;
+      }
+
+      violations.push(line);
+    }
+
+    expect(
+      violations,
+      `Found ${violations.length} file(s) still referencing legacy singleton paths:\n${violations.join('\n')}`,
+    ).toHaveLength(0);
   });
 });
