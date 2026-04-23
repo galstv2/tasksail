@@ -132,7 +132,6 @@ class WorkspaceContextSyncService:
         selected_focus_ids: list[str] | None = None,
         scope_mode: str = "focused",
         deep_focus: dict[str, Any] | None = None,
-        include_context_pack_root: bool = True,
     ) -> dict[str, Any]:
         if scope_mode not in ALLOWED_SCOPE_MODES:
             raise ValueError(
@@ -199,8 +198,6 @@ class WorkspaceContextSyncService:
             )
 
         target_paths: list[Path] = []
-        if include_context_pack_root:
-            target_paths.append(resolved_context_pack_dir)
 
         monolith_focus_scoped = False
         if (
@@ -395,6 +392,23 @@ class WorkspaceContextSyncService:
             workspace_payload, self.workspace_file
         )
         state = self.load_sync_state()
+
+        # When managed_folders tracking is empty but the workspace has entries
+        # beyond the repo root, the state was lost (reset, manual delete, etc.).
+        # Fall back to treating all non-root entries as managed so clear actually
+        # removes them instead of silently preserving orphaned folders.
+        managed_folders = list(state.get("managed_folders", []))
+        if not managed_folders and len(workspace_entries) > 1:
+            workspace_root_posix = normalize_any_path(
+                self.workspace_root
+            ).as_posix()
+            managed_folders = [
+                entry.normalized_path
+                for entry in workspace_entries
+                if entry.normalized_path != workspace_root_posix
+            ]
+            state = {**state, "managed_folders": managed_folders}
+
         preview_model = build_sync_preview(
             workspace_entries=workspace_entries,
             state=state,

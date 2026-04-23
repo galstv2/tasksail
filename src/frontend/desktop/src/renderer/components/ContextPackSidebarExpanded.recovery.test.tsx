@@ -74,7 +74,7 @@ describe('ContextPackSidebarExpanded recovery hints', () => {
     renderSidebar([pack]);
 
     const hint = screen.getByTestId('context-pack-recovery-hint');
-    expect(hint.textContent).toContain('clearing the active pack');
+    expect(hint.textContent).toContain('ejecting the active pack');
     expect(hint.textContent).toContain('re-applying');
   });
 

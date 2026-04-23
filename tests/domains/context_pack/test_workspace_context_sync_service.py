@@ -145,7 +145,6 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             self.assertEqual(
                 preview["folders_to_add"],
                 [
-                    str(context_pack_dir.resolve()),
                     str(repo_one.resolve()),
                 ],
             )
@@ -187,7 +186,6 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
                 [
                     {"path": "."},
                     {"path": str(operator_folder)},
-                    {"path": str(context_pack_dir.resolve())},
                     {"path": str(repo_one.resolve())},
                 ],
             )
@@ -232,7 +230,7 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             )
             self.assertEqual(
                 clear_result["folders_to_remove"],
-                [str(context_pack_dir.resolve()), str(repo_one.resolve())],
+                [str(repo_one.resolve())],
             )
 
     def test_duplicate_real_path_is_deduplicated_safely(self) -> None:
@@ -288,7 +286,7 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
 
             self.assertEqual(
                 preview["folders_to_add"],
-                [str(context_pack_dir.resolve()), str(repo_one.resolve())],
+                [str(repo_one.resolve())],
             )
 
     def test_relative_manifest_path_outside_context_pack_is_rejected(
@@ -373,7 +371,7 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             )
             self.assertEqual(
                 state["managed_folders"],
-                [str(context_pack_dir.resolve()), str(repo_one.resolve())],
+                [str(repo_one.resolve())],
             )
 
     def test_sync_state_persists_deep_focus_metadata(self) -> None:
@@ -462,7 +460,7 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
 
             self.assertEqual(
                 state["managed_folders"],
-                [str(context_pack_dir.resolve())],
+                [],
             )
 
 

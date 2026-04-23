@@ -53,7 +53,7 @@ describe('ContextPackSidebarCompact', () => {
     expect(screen.getByLabelText('Apply pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Preview pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Reseed pack')).toBeInTheDocument();
-    expect(screen.getByLabelText('Clear pack')).toBeInTheDocument();
+    expect(screen.getByLabelText('Eject pack')).toBeInTheDocument();
   });
 
   it('shows an exclamation status when no context pack is active', () => {
@@ -114,7 +114,7 @@ describe('ContextPackSidebarCompact', () => {
     fireEvent.click(screen.getByLabelText('Apply pack'));
     fireEvent.click(screen.getByLabelText('Preview pack'));
     fireEvent.click(screen.getByLabelText('Reseed pack'));
-    fireEvent.click(screen.getByLabelText('Clear pack'));
+    fireEvent.click(screen.getByLabelText('Eject pack'));
 
     expect(onApplySwitch).toHaveBeenCalledOnce();
     expect(onPreviewSwitch).toHaveBeenCalledOnce();
@@ -133,6 +133,6 @@ describe('ContextPackSidebarCompact', () => {
 
     expect(screen.getByLabelText('Apply pack')).toBeDisabled();
     expect(screen.getByLabelText('Preview pack')).toBeDisabled();
-    expect(screen.getByLabelText('Clear pack')).toBeDisabled();
+    expect(screen.getByLabelText('Eject pack')).toBeDisabled();
   });
 });

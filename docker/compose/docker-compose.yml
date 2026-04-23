@@ -16,7 +16,6 @@ services:
       - ../../:/workspace:ro
       - ${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}:${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}:rw
       - ../../AgentWorkSpace/dropbox:/data/dropbox:rw
-      - ../../AgentWorkSpace/tasks/${TASKSAIL_TASK_ID:-_singleton}/handoffs:/workspace/handoffs:ro
     working_dir: /workspace
     ports:
       - "127.0.0.1:${REPO_CONTEXT_MCP_PORT:-8811}:8811"

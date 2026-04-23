@@ -59,7 +59,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             self.assertEqual(
                 preview["folders_to_add"],
                 [
-                    str(context_pack_dir.resolve()),
                     str(repo_two.resolve()),
                 ],
             )
@@ -100,7 +99,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             self.assertEqual(
                 preview["folders_to_add"],
                 [
-                    str(context_pack_dir.resolve()),
                     str(repo_one.resolve()),
                     str(repo_two.resolve()),
                 ],
@@ -137,7 +135,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             self.assertEqual(
                 preview["folders_to_add"],
                 [
-                    str(context_pack_dir.resolve()),
                     str((monolith_root / "services" / "billing").resolve()),
                 ],
             )
@@ -178,7 +175,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
                 workspace_payload["folders"],
                 [
                     {"path": "."},
-                    {"path": str(context_pack_dir.resolve())},
                     {"path": str(
                         (monolith_root / "services" / "identity").resolve()
                     )},
@@ -226,7 +222,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             self.assertEqual(
                 preview["folders_to_add"],
                 [
-                    str(context_pack_dir.resolve()),
                     str((monolith_root / "services" / "billing").resolve()),
                     str((monolith_root / "services" / "identity").resolve()),
                 ],
@@ -298,7 +293,6 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             self.assertEqual(
                 health["missing_managed_folders"],
                 [
-                    str(context_pack_dir.resolve()),
                     str(repo_one.resolve()),
                 ],
             )

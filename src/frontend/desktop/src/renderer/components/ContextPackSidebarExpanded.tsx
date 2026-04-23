@@ -179,7 +179,7 @@ function ContextPackSidebarExpanded({
       {activePack?.status === 'activation-failed' && !activePack.restoreAvailable ? (
         <div className="sidebar-section sidebar-status-banner">
           <p className="sidebar-meta sidebar-meta--hint" data-testid="context-pack-recovery-hint">
-            Try clearing the active pack and re-applying, or check pack configuration.
+            Try ejecting the active pack and re-applying, or check pack configuration.
           </p>
         </div>
       ) : null}
@@ -267,11 +267,11 @@ function ContextPackSidebarExpanded({
               className="sidebar-toolbar-btn"
               disabled={!hasActiveContextPack || isBusy}
               onClick={() => void onClearActive()}
-              aria-label="Clear pack"
-              title="Remove active context pack"
+              aria-label="Eject pack"
+              title="Eject active context pack"
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-              <span>Clear</span>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3L3 9h10L8 3z" fill="currentColor"/><rect x="3" y="11" width="10" height="1.5" rx="0.5" fill="currentColor"/></svg>
+              <span>Eject</span>
             </button>
             {selectedPack?.restoreAvailable ? (
               <button

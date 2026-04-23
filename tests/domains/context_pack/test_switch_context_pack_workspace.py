@@ -200,7 +200,6 @@ class SwitchContextPackWorkspaceTests(unittest.TestCase):
                 workspace_payload["folders"],
                 [
                     {"path": "."},
-                    {"path": str(context_pack_dir.resolve())},
                     {"path": str(
                         (monolith_root / "services" / "billing").resolve()
                     )},
