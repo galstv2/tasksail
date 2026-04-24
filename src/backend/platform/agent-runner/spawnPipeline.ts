@@ -1,10 +1,14 @@
 import { fork } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { sep, join, dirname } from 'node:path';
 import type { Readable } from 'node:stream';
+import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const require = createRequire(import.meta.url);
 
 /**
  * F14: Resolves the pipeline child entrypoint path for the current runtime environment.
@@ -25,7 +29,15 @@ export function resolveChildEntryPath(dir: string, name: string): string {
     // __dirname inside ASAR: replace the .asar segment with .asar.unpacked and use .js
     return dir.replace(/app\.asar([/\\])/, 'app.asar.unpacked$1') + sep + name + '.js';
   }
-  return join(dir, name + '.ts');
+  const tsEntry = join(dir, name + '.ts');
+  if (existsSync(tsEntry)) {
+    return tsEntry;
+  }
+  const jsEntry = join(dir, name + '.js');
+  if (existsSync(jsEntry)) {
+    return jsEntry;
+  }
+  return tsEntry;
 }
 
 /**
@@ -48,16 +60,21 @@ export async function spawnPipelineForTask(options: {
   // files do not exist; use the transpiled .js path under resources/app.asar.unpacked/.
   // In dev/test (tsx), __dirname resolves the .ts file directly.
   const entryFile = resolveChildEntryPath(__dirname, 'pipelineChildEntry');
+  const execArgv = entryFile.endsWith('.ts')
+    ? ['--import', pathToFileURL(require.resolve('tsx')).href]
+    : [];
   const child = fork(
     entryFile,
     ['--task-id', options.taskId, '--repo-root', options.repoRoot],
     {
+      cwd: options.repoRoot,
       env: {
         ...process.env,
         TASKSAIL_TASK_ID: options.taskId,
         RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS: 'true',
         RUN_ROLE_AGENT_ORCHESTRATOR_ID: 'pipeline-sequencer',
       },
+      execArgv,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     },
   );

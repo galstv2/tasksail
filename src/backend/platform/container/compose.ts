@@ -66,9 +66,10 @@ export async function detectComposeCommand(
 export async function validateComposeConfig(
   composeFile: string,
   backend: ContainerBackend,
+  env?: NodeJS.ProcessEnv,
 ): Promise<void> {
   const cmd = buildComposeCommand(backend, 'config', { composeFile });
-  await execCommand(cmd[0], cmd.slice(1));
+  await execCommand(cmd[0], cmd.slice(1), undefined, env);
 }
 
 /**
@@ -79,10 +80,12 @@ export function execCommand(
   command: string,
   args: string[],
   cwd?: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
+      env: env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

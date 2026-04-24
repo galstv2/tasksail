@@ -6,7 +6,7 @@ import {
   writeTextFile,
   ensurePathWithinDropbox,
 } from '../core/index.js';
-import { resolveQueuePaths } from './paths.js';
+import { assertValidTaskId, resolveQueuePaths } from './paths.js';
 import {
   formatContextPackBindingSection,
   type TaskContextPackTarget,
@@ -63,11 +63,14 @@ export interface CreateDropboxTaskOptions {
 export const CANONICAL_TASK_FILENAME_SEPARATOR = '_';
 
 function formatCanonicalTaskTimestamp(date: Date): string {
-  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  return date.toISOString()
+    .replace(/[-:]/g, '')
+    .replace('T', 't')
+    .replace(/\.\d+Z$/, 'z');
 }
 
 function canonicalTaskSlug(title: string): string {
-  return slugify(title) || 'task';
+  return slugify(title).slice(0, 47).replace(/[-_]+$/g, '') || 'task';
 }
 
 /**
@@ -156,6 +159,11 @@ export async function createDropboxTask(
   }
 
   ensurePathWithinDropbox(queuePaths.dropboxDir, outputFile);
+  const outputBase = path.basename(outputFile);
+  if (!outputBase.endsWith('.md') || outputBase.startsWith('.')) {
+    throw new Error('Dropbox task output path must be a visible .md file.');
+  }
+  assertValidTaskId(path.basename(outputFile, '.md'));
 
   if (existsSync(outputFile) && !force) {
     throw new Error(`${outputFile} already exists. Use --force to overwrite.`);

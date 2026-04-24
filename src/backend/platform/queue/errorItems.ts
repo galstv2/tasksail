@@ -1,8 +1,8 @@
 import { spawn, execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { rename, unlink, rm, mkdir } from 'node:fs/promises';
+import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { resolveQueuePaths } from './paths.js';
+import { activeItemPath, resolveQueuePaths } from './paths.js';
 import { findRepoRoot } from '../core/index.js';
 import {
   activateNextPendingItemIfReady,
@@ -197,7 +197,31 @@ export async function moveFailedItemToErrorItems(options: {
   // worktrees. releasePort is idempotent — a no-op when the row is absent.
   try { await releasePort(taskId, root); } catch { /* best-effort */ }
 
-  await rename(sourcePath, destPath);
+  try {
+    await rename(sourcePath, destPath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      throw err;
+    }
+    // Backward-compatible recovery for tasks activated by the broken interim
+    // implementation that removed pendingitems/<taskId>.md at activation time.
+    // Preserve an operator-visible error item instead of letting failure
+    // handling abort and leave stale active markers behind.
+    let recoveredBody = '';
+    try {
+      recoveredBody = await readFile(
+        path.join(queuePaths.taskHandoffs(taskId), 'professional-task.md'),
+        'utf-8',
+      );
+    } catch {
+      recoveredBody = `# ${taskId}\n\nOriginal pending item was missing during failure recovery.\n`;
+    }
+    await writeFile(
+      destPath,
+      `${recoveredBody.trimEnd()}\n\n---\n\nFailure recovery note: pendingitems/${activeItem} was already absent.\n`,
+      'utf-8',
+    );
+  }
 
   // Transition active → failed in the task registry using .filter semantics.
   // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
@@ -209,11 +233,14 @@ export async function moveFailedItemToErrorItems(options: {
   } catch {
     // Already cleared or missing — safe to continue
   }
-
-  // Clean up task-bound context pack sidecar (mirrors completeActiveItem)
   try {
-    await unlink(queuePaths.activeContextPackPath);
-  } catch { /* absent for legacy tasks */ }
+    const legacyActive = await readFile(activeItemPath(queuePaths.pendingDir), 'utf-8');
+    if (legacyActive.trim() === activeItem) {
+      await unlink(activeItemPath(queuePaths.pendingDir));
+    }
+  } catch {
+    // Legacy singleton absent or owned by another active task.
+  }
 
   // Remove the moved item from the queue-order manifest; delete the file when empty
   try {

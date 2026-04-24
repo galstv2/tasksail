@@ -254,6 +254,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'dalton',
+        repoRoot: paths.repoRoot,
         taskId: options.taskId,
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
@@ -292,6 +293,7 @@ export async function remediationRunQaLoop(options: {
     try {
       await runRoleAgent({
         agentId: 'ron',
+        repoRoot: paths.repoRoot,
         taskId: options.taskId,
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,

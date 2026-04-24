@@ -23,6 +23,27 @@ export const SLICE_TEMPLATE_FILENAME = 'slice-template.md';
 /** Directory name that stores execution slices for the active task. */
 export const IMPLEMENTATION_STEPS_DIRNAME = 'ImplementationSteps';
 
+/**
+ * Task IDs are used as filesystem basenames, git branch suffixes, and container
+ * project-name inputs. Keep the ingress shape deliberately conservative.
+ */
+export const TASK_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-_]{0,62}[a-z0-9])?$/;
+
+export function assertValidTaskId(taskId: string): void {
+  if (!TASK_ID_PATTERN.test(taskId)) {
+    throw Object.assign(
+      new Error(
+        `invalid-task-id-shape: "${taskId}" does not match ${TASK_ID_PATTERN}`,
+      ),
+      {
+        code: 'invalid-task-id-shape' as const,
+        taskId,
+        pattern: String(TASK_ID_PATTERN),
+      },
+    );
+  }
+}
+
 /** Labels that appear in the Task Lineage section of handoff artifacts. */
 export const LINEAGE_LABELS: readonly string[] = [
   'Task Kind',

@@ -8,6 +8,7 @@ export interface ComposeOptions {
   services?: string[];
   build?: boolean;
   detach?: boolean;
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Health check specification for a single service endpoint. */
@@ -31,6 +32,7 @@ export interface BootstrapOptions {
   repoRoot: string;
   composeFile?: string;
   build?: boolean;
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Options for QMD index seeding. */

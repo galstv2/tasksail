@@ -786,6 +786,7 @@ export async function runPipelineSequence(
             const verifyStart = Date.now();
             const verificationResult = await runRoleAgent({
               agentId: 'dalton-verify',
+              repoRoot: paths.repoRoot,
               taskId: pipelineTaskId ?? '',
               skipWorkflowValidation: true,
               contextPackDir: effectiveContextPackDir,
@@ -857,6 +858,7 @@ export async function runPipelineSequence(
           );
           const daltonResult = await runRoleAgent({
             agentId: 'dalton',
+            repoRoot: paths.repoRoot,
             taskId: pipelineTaskId ?? '',
             skipWorkflowValidation: false,
             contextPackDir: effectiveContextPackDir,
@@ -881,6 +883,7 @@ export async function runPipelineSequence(
             );
             const cleanupResult = await runRoleAgent({
               agentId: 'dalton',
+              repoRoot: paths.repoRoot,
               taskId: pipelineTaskId ?? '',
               skipWorkflowValidation: true,
               contextPackDir: effectiveContextPackDir,
@@ -923,6 +926,7 @@ export async function runPipelineSequence(
 
       const agentResult = await runRoleAgent({
         agentId,
+        repoRoot: paths.repoRoot,
         taskId: pipelineTaskId ?? '',
         skipWorkflowValidation,
         contextPackDir: effectiveContextPackDir,
@@ -987,6 +991,7 @@ export async function runPipelineSequence(
       try {
         await runRoleAgent({
           agentId: 'ron',
+          repoRoot: paths.repoRoot,
           taskId: pipelineTaskId ?? '',
           skipWorkflowValidation: true,
           contextPackDir: effectiveContextPackDir,

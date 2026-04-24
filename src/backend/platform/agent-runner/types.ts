@@ -23,6 +23,7 @@ export interface AgentProfile {
 export interface RunRoleAgentOptions {
   agentId: AgentId;
   taskId: string;
+  repoRoot?: string;
   contextPackDir?: string;
   dryRun?: boolean;
   promptOverride?: string;

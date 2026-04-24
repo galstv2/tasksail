@@ -16,6 +16,8 @@ export { buildComposeCommand, detectComposeCommand, validateComposeConfig } from
 export { checkServiceHealth, checkAllServices } from './healthcheck.js';
 
 export { bootstrapServices } from './bootstrap.js';
+export { bootstrapTaskMcp } from './bootstrapTaskMcp.js';
+export type { BootstrapTaskMcpOptions, BootstrapTaskMcpResult } from './bootstrapTaskMcp.js';
 
 export { seedIndex } from './seedIndex.js';
 

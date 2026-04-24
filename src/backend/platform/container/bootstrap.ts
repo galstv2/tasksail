@@ -6,6 +6,7 @@ import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
 import type { ContainerRuntime, BootstrapOptions } from './types.js';
+import type { ServiceHealthSpec } from './types.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { buildComposeCommand, validateComposeConfig, execCommand } from './compose.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
@@ -59,7 +60,10 @@ export async function bootstrapServices(
   }
 
   // Use registry directly from seed result — no redundant disk read
-  const healthSpecs = toServiceHealthSpecs(seedResult.registry);
+  const healthSpecs = withPerTaskHealthPort(
+    toServiceHealthSpecs(seedResult.registry),
+    options.env?.['REPO_CONTEXT_MCP_PORT'],
+  );
   assertHealthSpecsConfigured(healthSpecs, 'bootstrap');
 
   // Verify enabled registry services have matching compose services.
@@ -69,16 +73,18 @@ export async function bootstrapServices(
     seedResult.registry,
     composeFile,
     runtime.backend,
+    options.env,
   );
 
   // Validate compose configuration
-  await validateComposeConfig(composeFile, runtime.backend);
+  await validateComposeConfig(composeFile, runtime.backend, options.env);
 
   // Start services
   await runtime.composeUp({
     composeFile,
     detach: true,
     build: options.build,
+    env: options.env,
   });
 
   // Run health checks
@@ -87,9 +93,32 @@ export async function bootstrapServices(
 
   if (failed.length > 0) {
     const names = failed.map((f) => f.service).join(', ');
-    await runtime.composeDown({ composeFile });
+    await runtime.composeDown({ composeFile, env: options.env });
     throw new Error(`Health check failed for: ${names}`);
   }
+}
+
+function withPerTaskHealthPort(
+  specs: ServiceHealthSpec[],
+  rawPort: string | undefined,
+): ServiceHealthSpec[] {
+  if (!rawPort) return specs;
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return specs;
+
+  return specs.map((spec) => {
+    let url: URL;
+    try {
+      url = new URL(spec.url);
+    } catch {
+      return spec;
+    }
+    if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+      return spec;
+    }
+    url.port = String(port);
+    return { ...spec, url: url.toString() };
+  });
 }
 
 /**
@@ -105,6 +134,7 @@ async function verifyRegistryComposeConsistency(
   registry: import('../mcp-registry/types.js').McpRegistry,
   composeFile: string,
   backend: import('../core/types.js').ContainerBackend,
+  env?: NodeJS.ProcessEnv,
 ): Promise<void> {
   // Build compose config command using the same path as all other compose calls
   const cmd = buildComposeCommand(backend, 'config', { composeFile });
@@ -113,7 +143,7 @@ async function verifyRegistryComposeConsistency(
 
   let composeServiceNames: string[];
   try {
-    const { stdout } = await execCommand(cmd[0], cmd.slice(1));
+    const { stdout } = await execCommand(cmd[0], cmd.slice(1), undefined, env);
     composeServiceNames = stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   } catch {
     // If compose config --services fails, skip consistency check

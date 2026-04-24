@@ -33,14 +33,31 @@ const SLUG_SAFE_RE = /^[a-z0-9][-a-z0-9]{0,45}$/;
 /**
  * Derive a Docker-safe slug from a task id per F34.
  */
-export function taskContainerSlug(taskId: string): string {
+export function taskContainerSlug(taskId: string, peers?: Iterable<string>): string {
   const sanitized = taskId
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+  let collides = false;
+  if (peers && typeof (peers as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function') {
+    for (const peer of peers) {
+      if (peer === taskId) continue;
+      const peerSlug = peer
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (peerSlug === sanitized) {
+        collides = true;
+        break;
+      }
+    }
+  }
+
   if (
+    !collides &&
     sanitized.length > 0 &&
     sanitized.length <= TASK_SLUG_MAX_LEN &&
     SLUG_SAFE_RE.test(sanitized)
@@ -51,10 +68,10 @@ export function taskContainerSlug(taskId: string): string {
   return createHash('sha256').update(taskId).digest('hex').slice(0, 16);
 }
 
-export function composeProjectName(taskId: string): string {
-  return `${COMPOSE_PROJECT_NAME_PREFIX}${taskContainerSlug(taskId)}`;
+export function composeProjectName(taskId: string, peers?: Iterable<string>): string {
+  return `${COMPOSE_PROJECT_NAME_PREFIX}${taskContainerSlug(taskId, peers)}`;
 }
 
-export function repoContextMcpContainerName(taskId: string): string {
-  return `${REPO_CONTEXT_MCP_CONTAINER_NAME_PREFIX}${taskContainerSlug(taskId)}`;
+export function repoContextMcpContainerName(taskId: string, peers?: Iterable<string>): string {
+  return `${REPO_CONTEXT_MCP_CONTAINER_NAME_PREFIX}${taskContainerSlug(taskId, peers)}`;
 }

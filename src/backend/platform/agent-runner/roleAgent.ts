@@ -32,6 +32,7 @@ import {
   applyWorktreeInjectionToFocused,
   applyWorktreeInjectionToAllowedDirs,
 } from './worktreeInjection.js';
+import { listAllocations } from '../container/portAllocator.js';
 import {
   agentErrorWithTails,
   extractPolicyFailureDetails,
@@ -122,7 +123,7 @@ const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunR
 export async function runRoleAgent(
   options: RunRoleAgentOptions,
 ): Promise<AgentRunResult> {
-  const paths = resolvePaths({ taskId: options.taskId });
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const startTime = Date.now();
 
   // 1. Load registry and resolve agent profile.
@@ -362,11 +363,22 @@ export async function runRoleAgent(
   );
 
   // 5. Build environment for the copilot launch.
+  let taskMcpPort: number | undefined;
+  try {
+    const allocation = (await listAllocations(paths.repoRoot)).get(options.taskId);
+    taskMcpPort = allocation?.port;
+  } catch {
+    taskMcpPort = undefined;
+  }
+
   const agentEnv = buildAgentEnvironment(
     profile,
     options.contextPackDir,
     paths.repoRoot,
-    { skipHandoffEnvVars: enforcesSelectedPrimaryBoundary },
+    {
+      skipHandoffEnvVars: enforcesSelectedPrimaryBoundary,
+      ...(taskMcpPort !== undefined ? { mcp: { port: taskMcpPort } } : {}),
+    },
     options.taskId,
   );
 

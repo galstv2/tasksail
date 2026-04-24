@@ -172,7 +172,7 @@ describe('bootstrapServices', () => {
     await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
 
     const expectedFile = path.resolve('/repo', resolveDefaultComposeFile('docker'));
-    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker');
+    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', undefined);
   });
 
   it('starts services with composeUp', async () => {
@@ -186,6 +186,24 @@ describe('bootstrapServices', () => {
         build: true,
       }),
     );
+  });
+
+  it('passes per-task compose env through validation, compose up, and health checks', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    const env = {
+      ...process.env,
+      COMPOSE_PROJECT_NAME: 'tasksail-task-a',
+      REPO_CONTEXT_MCP_PORT: '8817',
+    };
+
+    await bootstrapServices(mockRuntime, { repoRoot: '/repo', env });
+
+    const expectedFile = path.resolve('/repo', resolveDefaultComposeFile('docker'));
+    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', env);
+    expect(mockRuntime.composeUp).toHaveBeenCalledWith(expect.objectContaining({ env }));
+    expect(mockRuntime.healthcheck).toHaveBeenCalledWith([
+      { name: 'repo-context-mcp', url: 'http://localhost:8817/health', maxRetries: 10, retryIntervalMs: 2000 },
+    ]);
   });
 
   it('throws if any health check fails', async () => {
@@ -211,7 +229,7 @@ describe('bootstrapServices', () => {
     });
 
     const expectedFile = path.resolve('/repo', 'custom/compose.yml');
-    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker');
+    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', undefined);
   });
 
   it('throws with validation errors if seed fails', async () => {
@@ -238,6 +256,7 @@ describe('bootstrapServices', () => {
     expect(validateComposeConfig).toHaveBeenCalledWith(
       path.resolve('/repo', resolveDefaultComposeFile('podman')),
       'podman',
+      undefined,
     );
     expect(podmanRuntime.composeUp).toHaveBeenCalledWith({
       composeFile: path.resolve('/repo', resolveDefaultComposeFile('podman')),

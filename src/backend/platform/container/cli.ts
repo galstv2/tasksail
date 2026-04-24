@@ -64,6 +64,7 @@ async function main(): Promise<void> {
       const buildFlag = args.includes('--build');
       const composeFileArg = extractArg(args, '--compose-file');
       const taskIdArg = extractArg(args, '--task-id');
+      let bootstrapEnv: NodeJS.ProcessEnv | undefined;
 
       // §6.3 per-task bootstrap: scope the compose project + container name +
       // host port to this task so F4 project-name isolation auto-scopes
@@ -80,17 +81,21 @@ async function main(): Promise<void> {
           );
           process.exit(1);
         }
-        process.env['COMPOSE_PROJECT_NAME'] = composeProjectName(taskIdArg);
-        process.env['REPO_CONTEXT_MCP_CONTAINER_NAME'] =
-          repoContextMcpContainerName(taskIdArg);
-        process.env['REPO_CONTEXT_MCP_PORT'] = String(rec.port);
-        process.env['TASKSAIL_TASK_ID'] = taskIdArg;
+        bootstrapEnv = {
+          ...process.env,
+          COMPOSE_PROJECT_NAME: rec.composeProjectName || composeProjectName(taskIdArg),
+          REPO_CONTEXT_MCP_CONTAINER_NAME: repoContextMcpContainerName(taskIdArg, allocations.keys()),
+          REPO_CONTEXT_MCP_PORT: String(rec.port),
+          TASKSAIL_TASK_ID: taskIdArg,
+          REPO_CONTEXT_MCP_CONTAINER_PORT: '8811',
+        };
       }
 
       await runtime.bootstrap({
         repoRoot,
         composeFile: composeFileArg,
         build: buildFlag,
+        env: bootstrapEnv,
       });
       console.log('Bootstrap complete.');
       break;

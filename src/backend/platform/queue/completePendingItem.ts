@@ -96,7 +96,7 @@ export async function completePendingItem(
     let resolvedArchiveMdPath: string | undefined;
     if (!options.skipArchive) {
       const contextPackDir = options.contextPackDir
-        ?? await requireAuthorizedActiveContextPack({ repoRoot });
+        ?? await requireAuthorizedActiveContextPack({ repoRoot, taskId });
 
       // Write advisory findings section to final-summary.md atomically.
       const handoffsDir = queuePaths.taskHandoffs(taskId);

@@ -28,12 +28,12 @@ class BaseContainerRuntime implements ContainerRuntime {
       ...options,
       detach: options.detach !== false,
     });
-    await execCommand(cmd[0], cmd.slice(1));
+    await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
 
   async composeDown(options: ComposeOptions): Promise<void> {
     const cmd = buildComposeCommand(this.backend, 'down', options);
-    await execCommand(cmd[0], cmd.slice(1));
+    await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
 
   async healthcheck(services: ServiceHealthSpec[]): Promise<HealthResult[]> {

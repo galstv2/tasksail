@@ -112,14 +112,23 @@ describe('createDropboxTask', () => {
     });
 
     const filename = path.basename(outputPath);
-    // Should match pattern: YYYYMMDDTHHMMSSz_slugified-title.md
-    expect(filename).toMatch(/^\d{8}T\d{6}Z_timestamped\.md$/);
+    expect(filename).toMatch(/^\d{8}t\d{6}z_timestamped\.md$/);
   });
 
   it('throws when title is missing', async () => {
     await expect(
       createDropboxTask({ title: '', repoRoot: tmpRoot }),
     ).rejects.toThrow('--title is required');
+  });
+
+  it('rejects explicit output paths with invalid task-id shape', async () => {
+    await expect(
+      createDropboxTask({
+        title: 'Invalid explicit name',
+        outputPath: 'Bad.Name.md',
+        repoRoot: tmpRoot,
+      }),
+    ).rejects.toThrow('invalid-task-id-shape');
   });
 
   it('rejects whitespace-only required fields for child-task kind', async () => {

@@ -18,6 +18,8 @@ import path from 'node:path';
 import { resolveContainerRuntime } from '../platform-config/resolve.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { composeProjectName } from './containerNaming.js';
+import { listAllocations } from './portAllocator.js';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
 
 export async function composeDownTask(
   repoRoot: string,
@@ -25,7 +27,7 @@ export async function composeDownTask(
 ): Promise<void> {
   const backend = await resolveContainerRuntime(repoRoot);
   const composeFile = path.resolve(repoRoot, resolveDefaultComposeFile(backend));
-  const projectName = composeProjectName(taskId);
+  const projectName = await resolveComposeProjectName(repoRoot, taskId);
 
   await new Promise<void>((resolve) => {
     const child = spawn(
@@ -56,4 +58,22 @@ export async function composeDownTask(
       resolve();
     });
   });
+}
+
+async function resolveComposeProjectName(
+  repoRoot: string,
+  taskId: string,
+): Promise<string> {
+  try {
+    const allocation = (await listAllocations(repoRoot)).get(taskId);
+    if (allocation?.composeProjectName) return allocation.composeProjectName;
+  } catch {
+    // Fall through to sidecar/derived fallback.
+  }
+
+  const sidecar = readTaskJsonSafe(taskId, repoRoot);
+  const persisted = sidecar?.materialization.composeProjectName;
+  if (persisted) return persisted;
+
+  return composeProjectName(taskId);
 }

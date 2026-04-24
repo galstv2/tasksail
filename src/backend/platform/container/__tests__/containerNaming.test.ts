@@ -75,6 +75,11 @@ describe('§6.3 taskContainerSlug — sha256 fallback', () => {
     const b = taskContainerSlug('!!!');
     expect(a).toBe(b);
   });
+
+  it('falls back when a peer task would sanitize to the same visible slug', () => {
+    expect(taskContainerSlug('foo_bar', ['foo-bar'])).toMatch(/^[a-f0-9]{16}$/);
+    expect(taskContainerSlug('foo-bar', ['foo_bar'])).toMatch(/^[a-f0-9]{16}$/);
+  });
 });
 
 describe('§6.3 F34 boundary — 46-char input passes, 47-char triggers fallback', () => {

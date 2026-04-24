@@ -112,8 +112,7 @@ describe('moveDropboxItemsOnce', () => {
 describe('queueNameForSource', () => {
   it('generates a timestamped name with the original filename', () => {
     const name = queueNameForSource('/some/path/my-task.md');
-    // Should match: YYYYMMDDTHHMMSSz_my-task.md
-    expect(name).toMatch(/^\d{8}T\d{6}Z_my-task\.md$/);
+    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
   });
 
   it('preserves the basename of the source file', () => {
@@ -123,12 +122,17 @@ describe('queueNameForSource', () => {
 
   it('strips a legacy hyphenated canonical prefix before re-queueing', () => {
     const name = queueNameForSource('/some/path/20260307T183000Z-my-task.md');
-    expect(name).toMatch(/^\d{8}T\d{6}Z_my-task\.md$/);
+    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
   });
 
   it('strips an underscore canonical prefix before re-queueing', () => {
     const name = queueNameForSource('/some/path/20260307T183000Z_my-task.md');
-    expect(name).toMatch(/^\d{8}T\d{6}Z_my-task\.md$/);
+    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
+  });
+
+  it('normalizes unsafe ingress names into valid task-id shape', () => {
+    const name = queueNameForSource('/some/path/CAP.Parent Task!.md');
+    expect(name).toMatch(/^\d{8}t\d{6}z_cap-parent-task\.md$/);
   });
 });
 
