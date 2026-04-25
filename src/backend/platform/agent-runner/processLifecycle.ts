@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { isWindowsPlatform } from '../core/platform.js';
 
 /** Options for launching a copilot agent process. */
 export interface LaunchOptions {
@@ -8,10 +9,6 @@ export interface LaunchOptions {
   idleTimeoutS?: number;
   /** Wall clock timeout in seconds. */
   wallClockTimeoutS?: number;
-}
-
-function isWindowsPlatform(): boolean {
-  return process.platform === 'win32';
 }
 
 export function resolveCopilotCommand(): string {

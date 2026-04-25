@@ -2,6 +2,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { readTextFile, getErrorMessage } from '../../core/index.js';
+import { isWindowsPlatform } from '../../core/platform.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
 import {
@@ -68,10 +69,6 @@ type TestCaptureShellInvocation = {
   args: string[];
   detached: boolean;
 };
-
-function isWindowsPlatform(): boolean {
-  return process.platform === 'win32';
-}
 
 export function resolveTestCaptureShell(command: string): TestCaptureShellInvocation {
   if (isWindowsPlatform()) {

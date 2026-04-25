@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 from tests.support.workspace_builder import copy_repo_tree
 

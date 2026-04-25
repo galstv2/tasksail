@@ -8,25 +8,25 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import tempfile
-import unittest
-from pathlib import Path
-from unittest import mock
-from typing import Any
 
 # Ensure the project source is on the path.
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+from typing import Any
+from unittest import mock
+
 SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src" / "backend" / "scripts" / "python"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from lib.role_agent.external_mcp.renderer import (
     cleanup_stale_launches,
-    resolve_headers,
-    render_mcp_config,
-    render_capability_summary,
     prepare_launch_context,
-    LaunchContext,
+    render_capability_summary,
+    render_mcp_config,
+    resolve_headers,
 )
 from lib.workspace_paths import copilot_home_root  # noqa: E402
 

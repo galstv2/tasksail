@@ -1,15 +1,12 @@
 """Shared cross-task retrospective memory synthesis."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
-import re
-
 from ..text import compact_text
 from ..time import current_utc_timestamp
-
-_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 from ._backend import get_global_retrospective_root
 from .global_history import collect_global_history_records
 from .retrospective import (
@@ -22,6 +19,8 @@ from .storage import (
     shared_memory_storage_path,
     sidecar_record_path,
 )
+
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def build_shared_retrospective_memory(

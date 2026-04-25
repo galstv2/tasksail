@@ -1,6 +1,6 @@
-"""§4.3 idempotency item 3: QMD writes use temp-file + os.rename.
+"""§4.3 idempotency item 3: QMD writes use temp-file + os.replace.
 
-Asserts that simulating an exception between the temp-file write and os.rename
+Asserts that simulating an exception between the temp-file write and os.replace
 leaves the final QMD destination path untouched, so a crash mid-write cannot
 produce a torn or zero-byte QMD record.
 """
@@ -25,7 +25,7 @@ def _write_text_atomic(path: Path, content: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
-        os.rename(tmp_path, str(path))
+        os.replace(tmp_path, str(path))
     except BaseException:
         try:
             os.unlink(tmp_path)
@@ -38,34 +38,34 @@ class TestAtomicWriteCrashSafety:
     """Crash-safety contract: exception between temp-write and rename must leave dest untouched."""
 
     def test_exception_before_rename_leaves_dest_untouched(self, tmp_path: Path) -> None:
-        """If os.rename raises, the final path must remain at its original state."""
+        """If os.replace raises, the final path must remain at its original state."""
         dest = tmp_path / "qmd" / "record.json"
         dest.parent.mkdir(parents=True, exist_ok=True)
         # Dest does not exist before the write.
         assert not dest.exists()
 
-        # Simulate a crash between the temp-write and os.rename.
-        with patch("os.rename", side_effect=OSError("Simulated crash during rename")):
-            with pytest.raises(OSError, match="Simulated crash during rename"):
+        # Simulate a crash between the temp-write and os.replace.
+        with patch("os.replace", side_effect=OSError("Simulated crash during replace")):
+            with pytest.raises(OSError, match="Simulated crash during replace"):
                 _write_text_atomic(dest, '{"status": "filed"}')
 
         # Destination must still not exist — temp file was cleaned up, no torn record.
         assert not dest.exists(), (
-            "Final QMD path must remain untouched when os.rename raises; "
+            "Final QMD path must remain untouched when os.replace raises; "
             "a torn/zero-byte record would corrupt the archive index."
         )
 
     def test_exception_before_rename_cleans_up_temp_file(self, tmp_path: Path) -> None:
-        """Temp file must be removed when os.rename raises to avoid leaking disk space."""
+        """Temp file must be removed when os.replace raises to avoid leaking disk space."""
         dest = tmp_path / "qmd" / "record.json"
         dest.parent.mkdir(parents=True, exist_ok=True)
         captured_tmp: list[str] = []
 
-        def capturing_rename(*args: object) -> None:
+        def capturing_replace(*args: object) -> None:
             captured_tmp.append(str(args[0]))
-            raise OSError("Simulated crash during rename")
+            raise OSError("Simulated crash during replace")
 
-        with patch("os.rename", side_effect=capturing_rename):
+        with patch("os.replace", side_effect=capturing_replace):
             with pytest.raises(OSError):
                 _write_text_atomic(dest, '{"status": "filed"}')
 
@@ -99,7 +99,7 @@ class TestAtomicWriteCrashSafety:
         dest.parent.mkdir(parents=True, exist_ok=True)
         assert not dest.exists()
 
-        with patch("os.rename", side_effect=OSError("Simulated crash during rename")):
+        with patch("os.replace", side_effect=OSError("Simulated crash during replace")):
             with pytest.raises(OSError):
                 write_text_atomic(dest, '{"status": "filed"}')
 

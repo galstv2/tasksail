@@ -18,7 +18,6 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from lib.text import normalize_string_list  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Subcommand: infer-git-remote-owner
 # ---------------------------------------------------------------------------

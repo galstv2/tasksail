@@ -1,60 +1,28 @@
 from __future__ import annotations
 
-import copy
-import threading
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from ..file_analysis import read_preview
-from ..models import RepoSeedResult, SeedRuntimeSnapshot
-from .qmd_index_service import QmdIndexService
-from src.backend.mcp.repo_type_probe import classify_repository_type
 from src.backend.mcp.context_estate.workspace_analysis import analyze_workspace_counts
-import logging
 
+from ..file_analysis import read_preview
+from ..models import RepoSeedResult
 from ..utils import (
     ensure_non_empty_string,
     load_json,
-    resolve_context_pack_dir as _resolve_context_pack_dir,
     resolve_path_within,
     utc_now,
 )
+from ..utils import (
+    resolve_context_pack_dir as _resolve_context_pack_dir,
+)
+from .manifest_updater import update_manifest_repository_types
+from .qmd_index_service import QmdIndexService
+from .runtime_state import SeedRuntimeState  # re-exported for existing callers
 
 logger = logging.getLogger(__name__)
-
-
-class SeedRuntimeState:
-    def __init__(self, lock: threading.Lock | None = None) -> None:
-        self._run_lock = lock or threading.Lock()
-        self._state_lock = threading.Lock()
-        self._latest_run: dict[str, Any] | None = None
-
-    def acquire_seed_run(self) -> bool:
-        return self._run_lock.acquire(blocking=False)
-
-    def release_seed_run(self) -> None:
-        self._run_lock.release()
-
-    def force_release_if_held(self) -> bool:
-        """Release the seed lock if currently held. Returns True if released."""
-        if not self._run_lock.locked():
-            return False
-        try:
-            self._run_lock.release()
-        except RuntimeError:
-            return False
-        return True
-
-    def set_latest_run(self, report: dict[str, Any]) -> None:
-        frozen = copy.deepcopy(report)
-        with self._state_lock:
-            self._latest_run = frozen
-
-    def snapshot(self) -> SeedRuntimeSnapshot:
-        with self._state_lock:
-            ref = self._latest_run
-        return SeedRuntimeSnapshot(latest_run=ref)
 
 
 class SeedingService:
@@ -119,7 +87,9 @@ class SeedingService:
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
         return _resolve_context_pack_dir(
-            self.workspace_root, context_pack_dir,
+            self.workspace_root,
+            context_pack_dir,
+            allow_host_paths=True,
         )
 
     def _normalize_qmd_scope_root(
@@ -686,7 +656,11 @@ class SeedingService:
             total_files_skipped += result.files_skipped
 
         # Re-probe repository types and update manifest if classifications changed.
-        self._update_manifest_repository_types(manifest_path, plan["repositories"])
+        update_manifest_repository_types(
+            manifest_path,
+            plan["repositories"],
+            write_json=self.write_json,
+        )
 
         if error_count > 0:
             overall_status = "partial-failure" if seeded_count > 0 else "failed"
@@ -752,48 +726,3 @@ class SeedingService:
             report["report_path"] = str(output_path)
 
         return report
-
-    def _update_manifest_repository_types(
-        self,
-        manifest_path: Path,
-        plan_repos: list[dict[str, Any]],
-    ) -> None:
-        """Re-probe repos and update manifest repository_type values.
-
-        Only writes the manifest if at least one classification changed.
-        """
-        try:
-            manifest = load_json(manifest_path)
-            repositories = manifest.get("repositories")
-            if not isinstance(repositories, list):
-                return
-
-            repo_roots_by_id: dict[str, str] = {}
-            for plan_repo in plan_repos:
-                roots = plan_repo.get("existing_roots", [])
-                if roots:
-                    repo_roots_by_id[plan_repo["repo_id"]] = roots[0]
-
-            changed = False
-            for repo in repositories:
-                repo_id = repo.get("repo_id", "")
-                root_path = repo_roots_by_id.get(repo_id)
-                if not root_path:
-                    continue
-                probe = classify_repository_type(
-                    Path(root_path),
-                    languages=repo.get("languages"),
-                    repo_name=repo.get("repo_name", repo_id),
-                )
-                new_type = probe["repository_type"]
-                if repo.get("repository_type") != new_type:
-                    repo["repository_type"] = new_type
-                    changed = True
-
-            if changed:
-                self.write_json(manifest_path, manifest)
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "Failed to update manifest repository types during reseed",
-                exc_info=True,
-            )

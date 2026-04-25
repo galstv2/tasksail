@@ -1,10 +1,29 @@
 """File-locking helpers shared across platform scripts."""
 from __future__ import annotations
 
-import fcntl
 import os
+import sys
 import time
 from pathlib import Path
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
+
+def _lock_file(fd: int) -> None:
+    if sys.platform == "win32":
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_file(fd: int) -> None:
+    if sys.platform == "win32":
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def acquire_file_lock(
@@ -13,7 +32,7 @@ def acquire_file_lock(
 ) -> int:
     """Create (or open) *lock_path* and acquire an exclusive lock.
 
-    Uses non-blocking attempts with exponential pmckoff.  Raises
+    Uses non-blocking attempts with exponential backoff.  Raises
     ``TimeoutError`` if the lock cannot be acquired within
     *timeout_seconds*.
 
@@ -24,11 +43,11 @@ def acquire_file_lock(
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
 
     deadline = time.monotonic() + timeout_seconds
-    pmckoff = 0.05  # initial pmckoff in seconds
+    backoff = 0.05  # initial backoff in seconds
 
     while True:
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_file(fd)
             return fd
         except (OSError, BlockingIOError):
             if time.monotonic() >= deadline:
@@ -37,11 +56,11 @@ def acquire_file_lock(
                     f"Failed to acquire lock on {lock_path} "
                     f"within {timeout_seconds}s"
                 )
-            time.sleep(max(0, min(pmckoff, deadline - time.monotonic())))
-            pmckoff = min(pmckoff * 2, 2.0)
+            time.sleep(max(0, min(backoff, deadline - time.monotonic())))
+            backoff = min(backoff * 2, 2.0)
 
 
 def release_file_lock(fd: int) -> None:
     """Release the exclusive lock and close *fd*."""
-    fcntl.flock(fd, fcntl.LOCK_UN)
+    _unlock_file(fd)
     os.close(fd)

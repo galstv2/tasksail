@@ -141,4 +141,5 @@ describe('getPlatformConfig', () => {
   it('CONTAINER_RUNTIME env var is included in the env snapshot', () => {
     expect(_ENV_SNAPSHOT_KEYS).toContain('CONTAINER_RUNTIME');
   });
+
 });

@@ -9,39 +9,40 @@ through the call chain.
 
 from __future__ import annotations
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import logging
-from pathlib import Path
 import signal
+import subprocess  # noqa: F401 — re-exported for test patching
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 from .config import (
-    RepoContextConfig,
     REQUEST_ID_HEADER,
+    RepoContextConfig,
     ServerConfig,
 )
 from .file_analysis import (
     detect_artifact_type,
-    detect_path_kind,
+    detect_path_kind,  # noqa: F401 - re-exported for helper tests and callers
     detect_source_ref,
-    iter_scan_files as _iter_scan_files,
-    looks_like_entrypoint,
-    normalize_language,
+    looks_like_entrypoint,  # noqa: F401 - re-exported for helper tests and callers
+    normalize_language,  # noqa: F401 - re-exported for helper tests and callers
     normalize_repo_entry,
-    read_preview,
+    read_preview,  # noqa: F401 - re-exported for helper tests and callers
     relative_source_path,
-    run_git_command,
-    unique_paths,
+    run_git_command,  # noqa: F401 - re-exported for helper tests and callers
+    unique_paths,  # noqa: F401 - re-exported for helper tests and callers
 )
-import subprocess  # noqa: F401 — re-exported for test patching
+from .file_analysis import (
+    iter_scan_files as _iter_scan_files,
+)
 from .record_factory import (
     build_bootstrap_note_markdown,
     build_repo_summary_markdown,
     create_artifact_record,
     create_bootstrap_note_record,
     create_summary_record,
-    invalidate_record as _invalidate_record,
     record_storage_path,
     report_file_path,
     sidecar_record_path,
@@ -49,12 +50,11 @@ from .record_factory import (
     write_json,
     write_text,
 )
+from .record_factory import (
+    invalidate_record as _invalidate_record,
+)
 from .services.archive_service import TaskArchiveService
 from .services.carry_forward_service import CarryForwardService
-from .services.lineage_service import LineageService
-from .services.qmd_index_service import QmdIndexService
-from .services.record_cache import ScopedRecordCache
-from .services.report_service import ReportRenderer
 from .services.conventions_service import (
     build_context_pack_conventions_markdown,
     create_context_pack_conventions_record,
@@ -66,10 +66,14 @@ from .services.correction_memo_service import (
     render_behavior_correction_memo,
 )
 from .services.discovery_service import (
-    discover_backend_platform_signals,
-    discover_frontend_surfaces,
+    discover_backend_platform_signals,  # noqa: F401 - re-exported for helper tests and callers
+    discover_frontend_surfaces,  # noqa: F401 - re-exported for helper tests and callers
 )
-from .services.seeding_service import SeedRuntimeState, SeedingService
+from .services.lineage_service import LineageService
+from .services.qmd_index_service import QmdIndexService
+from .services.record_cache import ScopedRecordCache
+from .services.report_service import ReportRenderer
+from .services.seeding_service import SeedingService, SeedRuntimeState
 from .transport.cli import RepoContextCli
 from .transport.http import (
     RepoContextHttpHandler,

@@ -19,11 +19,10 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-
 
 _SKIP_REASON = "Requires RUN_SLOW_TESTS=1 and copilot on PATH"
 _SHOULD_SKIP = not os.environ.get("RUN_SLOW_TESTS") or not shutil.which("copilot")

@@ -1,14 +1,11 @@
 """Cycle record aggregation for behavior correction memos."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from ..io import load_json_safe
-from ..text import extract_list
 from .retrospective import (
-    extract_contribution_sections,
     is_actionable,
     rank_frequency_map,
 )

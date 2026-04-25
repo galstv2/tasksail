@@ -75,6 +75,9 @@ export const FAST_PATH_AGENT_ORDER: AgentId[] = [
 /** Container runtime backend selection. */
 export type ContainerBackend = 'docker' | 'podman';
 
+/** Container engine host topology selection. */
+export type ContainerEngineHost = 'auto' | 'native' | 'desktop-linux' | 'wsl';
+
 /** Typed error for Python script failures, replacing Object.assign on Error. */
 export class PythonRunError extends Error {
   readonly stdout: string;

@@ -5,13 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from src.backend.mcp.workspace_context_sync_service import (
-    WorkspaceContextSyncService,
-)
 from src.backend.mcp.workspace_context_sync_deep_focus import (
     normalize_deep_focus_selection,
 )
-
+from src.backend.mcp.workspace_context_sync_service import (
+    WorkspaceContextSyncService,
+)
 
 ACTIONS = ("preview", "apply", "clear")
 

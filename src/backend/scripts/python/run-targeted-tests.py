@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import unittest
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 from typing import Iterable, Sequence
-import unittest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "tests" / "test_manifest.json"

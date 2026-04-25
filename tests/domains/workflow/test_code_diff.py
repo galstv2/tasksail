@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_DIR = REPO_ROOT / "src" / "backend" / "scripts" / "python"
 if str(SCRIPT_DIR) not in sys.path:

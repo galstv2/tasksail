@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import threading
+import unittest
 from pathlib import Path
 from unittest.mock import patch
-import sys
-import unittest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.backend.mcp.repo_context_mcp.services.seeding_service import SeedRuntimeState, SeedingService  # noqa: E402
+from src.backend.mcp.repo_context_mcp.services.seeding_service import SeedingService, SeedRuntimeState  # noqa: E402
 
 
 class SeedRuntimeStateTests(unittest.TestCase):

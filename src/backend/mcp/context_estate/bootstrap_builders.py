@@ -9,14 +9,14 @@ from src.backend.mcp.context_estate.bootstrap_detection import (
     _detect_languages,
     _detect_system_layer,
 )
-from src.backend.mcp.context_estate.discovery import (
-    classify_focus_area_repository_type,
-)
 from src.backend.mcp.context_estate.bootstrap_normalization import (
     _normalize_focus_area_overrides,
     _repo_role_for_layer,
 )
 from src.backend.mcp.context_estate.constants import DEFAULT_SCOPE_MODE
+from src.backend.mcp.context_estate.discovery import (
+    classify_focus_area_repository_type,
+)
 from src.backend.mcp.context_estate.helpers import (
     FOCUS_KEY_FIELDS,
     build_candidate_map,

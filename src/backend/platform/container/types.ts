@@ -1,6 +1,6 @@
-import type { ContainerBackend } from '../core/index.js';
+import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 
-export type { ContainerBackend };
+export type { ContainerBackend, ContainerEngineHost };
 
 /** Options for docker/podman compose up/down. */
 export interface ComposeOptions {
@@ -9,6 +9,8 @@ export interface ComposeOptions {
   build?: boolean;
   detach?: boolean;
   env?: NodeJS.ProcessEnv;
+  engineHost?: ContainerEngineHost;
+  wslDistro?: string | null;
 }
 
 /** Health check specification for a single service endpoint. */
@@ -33,6 +35,8 @@ export interface BootstrapOptions {
   composeFile?: string;
   build?: boolean;
   env?: NodeJS.ProcessEnv;
+  engineHost?: ContainerEngineHost;
+  wslDistro?: string | null;
 }
 
 /** Options for QMD index seeding. */
@@ -48,6 +52,8 @@ export interface SeedOptions {
 /** Abstraction over a container runtime (Docker or Podman). */
 export interface ContainerRuntime {
   readonly backend: ContainerBackend;
+  readonly engineHost: ContainerEngineHost;
+  readonly wslDistro: string | null;
   composeUp(options: ComposeOptions): Promise<void>;
   composeDown(options: ComposeOptions): Promise<void>;
   healthcheck(services: ServiceHealthSpec[]): Promise<HealthResult[]>;

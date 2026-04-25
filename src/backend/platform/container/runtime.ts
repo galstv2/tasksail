@@ -1,5 +1,5 @@
-import type { ContainerBackend } from '../core/index.js';
-import { resolveContainerRuntime } from '../platform-config/resolve.js';
+import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
+import { resolveContainerEngineHost, resolveContainerRuntime } from '../platform-config/resolve.js';
 import type { ContainerRuntime } from './types.js';
 import { DockerRuntime } from './docker.js';
 import { PodmanRuntime } from './podman.js';
@@ -10,14 +10,18 @@ import { PodmanRuntime } from './podman.js';
  * If no backend is specified, reads the CONTAINER_RUNTIME environment variable.
  * Defaults to 'docker' if unset.
  */
-export function createRuntime(backend?: ContainerBackend): ContainerRuntime {
+export function createRuntime(
+  backend?: ContainerBackend,
+  engineHost: ContainerEngineHost = 'auto',
+  wslDistro: string | null = null,
+): ContainerRuntime {
   const resolved = backend ?? (process.env['CONTAINER_RUNTIME'] as ContainerBackend) ?? 'docker';
 
   switch (resolved) {
     case 'docker':
-      return new DockerRuntime();
+      return new DockerRuntime(engineHost, wslDistro);
     case 'podman':
-      return new PodmanRuntime();
+      return new PodmanRuntime(engineHost, wslDistro);
     default:
       throw new Error(`Unsupported container backend: ${resolved as string}`);
   }
@@ -30,6 +34,7 @@ export async function createRuntimeFromConfig(
   repoRoot: string,
   backendOverride?: ContainerBackend,
 ): Promise<ContainerRuntime> {
+  const engineHost = await resolveContainerEngineHost(repoRoot);
   const backend = backendOverride ?? await resolveContainerRuntime(repoRoot);
-  return createRuntime(backend);
+  return createRuntime(backend, engineHost.host, engineHost.wslDistro);
 }

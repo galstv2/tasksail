@@ -160,7 +160,7 @@ describe('ContextPackSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview pack' }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply pack' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Eject pack' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear pack' }));
     fireEvent.click(screen.getByRole('button', { name: 'Refresh packs' }));
     fireEvent.click(screen.getByRole('button', { name: 'Reseed pack' }));
 

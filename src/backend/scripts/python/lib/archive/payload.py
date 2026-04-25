@@ -9,15 +9,13 @@ from typing import Any
 
 from ..io import load_text
 from ..markdown import parse_metadata, parse_sections
-from ..text import compact_text, extract_list, normalize_text, slugify, strip_html_comments
+from ..text import compact_text, extract_list, normalize_text, strip_html_comments
 from ..time import current_utc_timestamp
 from ..workspace_paths import handoffs_dir
 from .parent import find_parent_archive
 from .storage import (
     archive_storage_path,
     detect_source_ref,
-    read_existing_created_at,
-    resolve_scope_path,
 )
 
 SLICE_PATTERN = re.compile(r"\b(slice-[A-Za-z0-9-]+\.md)\b")

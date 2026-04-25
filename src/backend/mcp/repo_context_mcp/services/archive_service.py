@@ -5,16 +5,18 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..models import ParentArchiveResolution, TaskArchiveResolution
-from .record_cache import ScopedRecordCache
 from ..utils import (
     compact_text,
     load_json,
     normalize_optional_string,
     normalize_string_list,
     parse_int,
-    resolve_context_pack_dir as _resolve_context_pack_dir,
     resolve_path_within,
 )
+from ..utils import (
+    resolve_context_pack_dir as _resolve_context_pack_dir,
+)
+from .record_cache import ScopedRecordCache
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,11 @@ class TaskArchiveService:
         self._record_cache = record_cache or ScopedRecordCache()
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return _resolve_context_pack_dir(self.workspace_root, context_pack_dir)
+        return _resolve_context_pack_dir(
+            self.workspace_root,
+            context_pack_dir,
+            allow_host_paths=True,
+        )
 
     def _resolve_scope_dir(self, context_pack_path: Path, qmd_scope: str) -> Path:
         return resolve_path_within(context_pack_path, qmd_scope, "qmd_scope")

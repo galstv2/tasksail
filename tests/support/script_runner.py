@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Sequence
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,6 +14,7 @@ def build_env(
     python_path_entries: Sequence[str] = (),
 ) -> dict[str, str]:
     merged_env = dict(os.environ)
+    merged_env.setdefault("TASKSAIL_DISABLE_PIPELINE_AUTOSTART", "true")
     if env:
         merged_env.update(env)
 

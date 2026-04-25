@@ -7,3 +7,5 @@ ignore = ["E501"]
 
 [lint.per-file-ignores]
 "tests/*" = ["F841"]
+"tests/**/*.py" = ["E402", "F841"]
+"src/backend/scripts/python/*.py" = ["E402"]

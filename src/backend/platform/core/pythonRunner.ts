@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { isWindowsPlatform } from './platform.js';
 import { PythonRunError } from './types.js';
 import type { PythonResult, PythonRunOptions } from './types.js';
 
@@ -17,7 +18,7 @@ export function detectPythonBin(repoRoot?: string): string {
 
   if (repoRoot) {
     const venvBin =
-      process.platform === 'win32'
+      isWindowsPlatform()
         ? path.join(repoRoot, '.venv', 'Scripts', 'python.exe')
         : path.join(repoRoot, '.venv', 'bin', 'python');
 
@@ -26,7 +27,7 @@ export function detectPythonBin(repoRoot?: string): string {
     }
   }
 
-  return process.platform === 'win32' ? 'python' : 'python3';
+  return isWindowsPlatform() ? 'python' : 'python3';
 }
 
 /**

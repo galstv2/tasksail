@@ -9,6 +9,18 @@ export {
 export type { ResolvePathsOptions } from './paths.js';
 
 export {
+  isWindowsPlatform,
+  isMacOSPlatform,
+  isLinuxPlatform,
+  isWSL,
+  isWSLWindowsPath,
+  isDockerDesktopBackend,
+  toEngineHostPath,
+  toContainerPath,
+  type EngineHostPathOptions,
+} from './platform.js';
+
+export {
   parseEnv,
   loadEnv,
   readEnvAssignment,
@@ -53,6 +65,7 @@ export type {
   AutonomyProfile,
   AgentId,
   ContainerBackend,
+  ContainerEngineHost,
 } from './types.js';
 
 export { ALL_AGENT_IDS, STANDARD_AGENT_ORDER, PythonRunError } from './types.js';

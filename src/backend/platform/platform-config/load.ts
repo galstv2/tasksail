@@ -1,5 +1,5 @@
 import { isRecord, readTextFile, safeJsonParse } from '../core/index.js';
-import type { ContainerBackend } from '../core/index.js';
+import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 import type {
   PlatformConfig,
   PlatformConfigLoadResult,
@@ -10,6 +10,13 @@ import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from './types.js';
 const VALID_RUNTIMES: ReadonlySet<ContainerBackend> = new Set([
   'docker',
   'podman',
+]);
+
+const VALID_ENGINE_HOSTS: ReadonlySet<ContainerEngineHost> = new Set([
+  'auto',
+  'native',
+  'desktop-linux',
+  'wsl',
 ]);
 
 function err(
@@ -103,6 +110,60 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
         'container_runtime',
         `Must be "docker" or "podman", got ${JSON.stringify(containerRuntime)}.`,
         'Set container_runtime to "docker" or "podman".',
+      ),
+    );
+  }
+
+  const rawContainerEngineHost = data['container_engine_host'];
+  let containerEngineHost: ContainerEngineHost = 'auto';
+  if (
+    rawContainerEngineHost !== undefined
+    && (
+      typeof rawContainerEngineHost !== 'string'
+      || !VALID_ENGINE_HOSTS.has(rawContainerEngineHost as ContainerEngineHost)
+    )
+  ) {
+    errors.push(
+      err(
+        'container_engine_host',
+        `Must be "auto", "native", "desktop-linux", or "wsl", got ${JSON.stringify(rawContainerEngineHost)}.`,
+        'Set container_engine_host to "auto", "native", "desktop-linux", or "wsl".',
+      ),
+    );
+  } else if (rawContainerEngineHost !== undefined) {
+    containerEngineHost = rawContainerEngineHost as ContainerEngineHost;
+  }
+
+  const rawContainerEngineWslDistro = data['container_engine_wsl_distro'];
+  let containerEngineWslDistro: string | null = null;
+  if (typeof rawContainerEngineWslDistro === 'string') {
+    containerEngineWslDistro = rawContainerEngineWslDistro;
+  } else if (
+    rawContainerEngineWslDistro !== undefined
+    && rawContainerEngineWslDistro !== null
+  ) {
+    errors.push(
+      err(
+        'container_engine_wsl_distro',
+        `Must be null or a string, got ${JSON.stringify(rawContainerEngineWslDistro)}.`,
+        'Set container_engine_wsl_distro to null or a WSL distro name string.',
+      ),
+    );
+  }
+
+  if (
+    containerEngineHost === 'wsl'
+    && (
+      containerEngineWslDistro === null
+      || containerEngineWslDistro.trim() === ''
+      || /[\\/]/.test(containerEngineWslDistro)
+    )
+  ) {
+    errors.push(
+      err(
+        'container_engine_wsl_distro',
+        `Must be a non-empty WSL distro name without path separators when container_engine_host is "wsl", got ${JSON.stringify(rawContainerEngineWslDistro)}.`,
+        'Set container_engine_wsl_distro to a WSL distro name such as "Ubuntu".',
       ),
     );
   }
@@ -243,6 +304,8 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     config: {
       schema_version: version as number,
       container_runtime: containerRuntime as ContainerBackend,
+      container_engine_host: containerEngineHost,
+      container_engine_wsl_distro: containerEngineWslDistro,
       max_parallel_tasks: maxParallelTasks,
       retain_failed_task_worktrees: retainFailedTaskWorktrees,
       max_retained_failed_task_worktrees: maxRetainedFailedTaskWorktrees,

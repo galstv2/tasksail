@@ -8,9 +8,8 @@ from unittest.mock import patch
 
 from src.backend.mcp.repo_context_mcp.file_analysis import read_preview
 from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiveService
-from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 from src.backend.mcp.repo_context_mcp.services.qmd_index_service import QmdIndexService
-
+from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 
 # ---------------------------------------------------------------------------
 # merge_scope — unit tests on ScopedRecordCache

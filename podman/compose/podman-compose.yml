@@ -18,6 +18,7 @@ services:
       - REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR=${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}
     volumes:
       - ../../:/workspace:ro
+      - ${ACTIVE_CONTEXT_PACK_HOST_DIR:-../../AgentWorkSpace/.empty-context-pack}:/mnt/context-pack:ro
       - ${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}:${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}:rw
       - ../../AgentWorkSpace/dropbox:/data/dropbox:rw
     working_dir: /workspace

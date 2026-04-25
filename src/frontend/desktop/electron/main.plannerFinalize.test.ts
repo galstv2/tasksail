@@ -131,6 +131,18 @@ describe('electron main — planner finalization', () => {
       canceled: false,
       filePaths: ['/tmp/selected-directory'],
     });
+    vi.doMock('../../../backend/platform/queue', () => ({
+      acquireDirLockOrThrow: vi.fn(async () => vi.fn(async () => undefined)),
+      deletePendingItem: vi.fn(),
+      getQueueStatus: vi.fn(),
+      resolveQueuePaths: vi.fn(() => ({
+        queueLockDir: '/repo/AgentWorkSpace/.queue-lock',
+      })),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => []),
+      stopPipeline: vi.fn(async () => undefined),
+    }));
   });
 
   it('blocks finalize while the broker is still running a planner turn', async () => {

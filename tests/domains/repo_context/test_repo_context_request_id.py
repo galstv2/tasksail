@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from tests.support.http_handler_harness import Response, call
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:

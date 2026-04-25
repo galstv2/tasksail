@@ -175,7 +175,11 @@ class LineageService:
         return summary
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return resolve_context_pack_dir(self._workspace_root, context_pack_dir)
+        return resolve_context_pack_dir(
+            self._workspace_root,
+            context_pack_dir,
+            allow_host_paths=True,
+        )
 
     @staticmethod
     def _require_single_descriptor(

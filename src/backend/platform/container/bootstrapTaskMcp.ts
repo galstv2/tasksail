@@ -8,6 +8,8 @@ import {
   REPO_CONTEXT_MCP_CONTAINER_NAME_PREFIX,
   composeProjectName,
 } from './containerNaming.js';
+import { toEngineHostPath } from '../core/platform.js';
+import type { ContainerEngineHost } from '../core/index.js';
 import type { TaskContextPackBinding } from '../queue/taskJson.js';
 
 export interface BootstrapTaskMcpOptions {
@@ -76,7 +78,10 @@ export async function bootstrapTaskMcp(
     // The server listens on the container's fixed internal port; the allocated
     // value above is the host binding consumed by agents and health checks.
     REPO_CONTEXT_MCP_CONTAINER_PORT: '8811',
-    ...contextPackEnv(options.repoRoot, options.contextPackBinding),
+    ...contextPackEnv(options.repoRoot, options.contextPackBinding, {
+      engineHost: runtime.engineHost,
+      wslDistro: runtime.wslDistro,
+    }),
   };
 
   await runtime.bootstrap({
@@ -93,32 +98,66 @@ export async function bootstrapTaskMcp(
   };
 }
 
-function contextPackEnv(
+export interface ResolvedContextPackMount {
+  hostMountSource?: string;
+  containerPath: string;
+}
+
+export interface EngineHostTranslationOptions {
+  engineHost: ContainerEngineHost;
+  wslDistro: string | null;
+}
+
+export function resolveContextPackMount(
+  repoRoot: string,
+  binding: TaskContextPackBinding,
+  engineOptions: EngineHostTranslationOptions,
+): ResolvedContextPackMount {
+  if (!binding.contextPackPath) {
+    return { containerPath: '/mnt/context-pack' };
+  }
+  const packDirHost = path.resolve(path.dirname(binding.contextPackPath));
+  const repoRootAbs = path.resolve(repoRoot);
+  const rel = path.relative(repoRootAbs, packDirHost);
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return {
+      containerPath: path.posix.join(
+        '/workspace',
+        rel.split(path.sep).join('/'),
+      ),
+    };
+  }
+  return {
+    hostMountSource: toEngineHostPath(packDirHost, engineOptions),
+    containerPath: '/mnt/context-pack',
+  };
+}
+
+export function contextPackEnv(
   repoRoot: string,
   binding: TaskContextPackBinding | undefined,
+  engineOptions: EngineHostTranslationOptions,
 ): NodeJS.ProcessEnv {
   if (!binding) return {};
-
   const env: NodeJS.ProcessEnv = {};
-  if (binding.contextPackPath) {
-    env['ACTIVE_CONTEXT_PACK_DIR'] = toContainerWorkspacePath(
-      repoRoot,
-      path.dirname(binding.contextPackPath),
-    );
+  const mount = resolveContextPackMount(repoRoot, binding, engineOptions);
+  env['ACTIVE_CONTEXT_PACK_DIR'] = mount.containerPath;
+  if (mount.hostMountSource) {
+    env['ACTIVE_CONTEXT_PACK_HOST_DIR'] = mount.hostMountSource;
   }
   if (binding.dataHostDir) {
-    env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] = binding.dataHostDir;
+    env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] = toEngineHostPath(
+      path.resolve(binding.dataHostDir),
+      engineOptions,
+    );
   }
   if (binding.dataContainerDir) {
+    if (!binding.dataContainerDir.startsWith('/')) {
+      throw new Error(
+        `dataContainerDir must be an absolute POSIX path: ${binding.dataContainerDir}`,
+      );
+    }
     env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] = binding.dataContainerDir;
   }
   return env;
-}
-
-function toContainerWorkspacePath(repoRoot: string, hostPath: string): string {
-  const rel = path.relative(repoRoot, hostPath);
-  if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
-    return path.posix.join('/workspace', rel.split(path.sep).join(path.posix.sep));
-  }
-  return hostPath;
 }

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
-import signal
 import shutil
+import signal
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from tests.support.crud_scaffold import create_context_pack_with_crud
 

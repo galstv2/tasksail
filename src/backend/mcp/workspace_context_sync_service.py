@@ -14,17 +14,16 @@ from src.backend.mcp.repo_context_mcp.utils import (
     utc_now,
     write_json_atomic,
 )
-from src.backend.mcp.workspace_context_sync_resolution import (
-    resolve_distributed_repo_selection,
-    resolve_monolith_focus_selection,
-)
 from src.backend.mcp.workspace_context_sync_deep_focus import (
     extract_deep_focus_fields,
     load_deep_focus_selection_from_state,
     normalize_deep_focus_selection,
 )
+from src.backend.mcp.workspace_context_sync_resolution import (
+    resolve_distributed_repo_selection,
+    resolve_monolith_focus_selection,
+)
 from src.backend.mcp.workspace_context_sync_workspace import (
-    WorkspaceFolderEntry,
     build_sync_preview,
     dedupe_paths,
     load_workspace_entries,

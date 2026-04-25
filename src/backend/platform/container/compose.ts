@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ContainerBackend } from '../core/index.js';
+import * as core from '../core/index.js';
 import type { ComposeOptions } from './types.js';
 
 /**
@@ -11,10 +12,16 @@ export function buildComposeCommand(
   action: 'up' | 'down' | 'config',
   options: ComposeOptions,
 ): string[] {
-  const cmd: string[] = [backend, 'compose'];
+  const cmd = buildComposeBaseCommand(backend, options);
 
   if (options.composeFile) {
-    cmd.push('-f', options.composeFile);
+    cmd.push(
+      '-f',
+      core.toEngineHostPath(options.composeFile, {
+        engineHost: options.engineHost,
+        wslDistro: options.wslDistro,
+      }),
+    );
   }
 
   cmd.push(action);
@@ -33,6 +40,20 @@ export function buildComposeCommand(
   }
 
   return cmd;
+}
+
+export function buildComposeBaseCommand(
+  backend: ContainerBackend,
+  options: ComposeOptions,
+): string[] {
+  if (options.engineHost === 'wsl') {
+    if (!options.wslDistro) {
+      throw new Error('container_engine_host=wsl requires container_engine_wsl_distro');
+    }
+    return ['wsl.exe', '-d', options.wslDistro, '--', backend, 'compose'];
+  }
+
+  return [backend, 'compose'];
 }
 
 /**
@@ -67,8 +88,14 @@ export async function validateComposeConfig(
   composeFile: string,
   backend: ContainerBackend,
   env?: NodeJS.ProcessEnv,
+  engineHost?: ComposeOptions['engineHost'],
+  wslDistro?: ComposeOptions['wslDistro'],
 ): Promise<void> {
-  const cmd = buildComposeCommand(backend, 'config', { composeFile });
+  const cmd = buildComposeCommand(backend, 'config', {
+    composeFile,
+    engineHost,
+    wslDistro,
+  });
   await execCommand(cmd[0], cmd.slice(1), undefined, env);
 }
 

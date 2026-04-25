@@ -9,6 +9,8 @@ function makeConfig(containerRuntime: ContainerBackend): PlatformConfig {
   return {
     schema_version: 1,
     container_runtime: containerRuntime,
+    container_engine_host: 'auto',
+    container_engine_wsl_distro: null,
     max_parallel_tasks: 10,
     retain_failed_task_worktrees: true,
     max_retained_failed_task_worktrees: 10,
@@ -64,24 +66,37 @@ describe('createRuntimeFromConfig', () => {
   });
 
   it('creates the runtime resolved from platform config', async () => {
-    const { createRuntimeFromConfig, resolveContainerRuntime } =
+    const { createRuntimeFromConfig, resolveContainerEngineHost, resolveContainerRuntime } =
       await importRuntimeWithResolveMock();
     resolveContainerRuntime.mockResolvedValue('podman');
+    resolveContainerEngineHost.mockResolvedValue({
+      host: 'desktop-linux',
+      wslDistro: null,
+    });
 
     const runtime = await createRuntimeFromConfig('/repo');
 
+    expect(resolveContainerEngineHost).toHaveBeenCalledWith('/repo');
     expect(resolveContainerRuntime).toHaveBeenCalledWith('/repo');
     expect(runtime.backend).toBe('podman');
+    expect(runtime.engineHost).toBe('desktop-linux');
   });
 
-  it('uses the backend override without resolving config', async () => {
-    const { createRuntimeFromConfig, resolveContainerRuntime } =
+  it('uses the backend override without overriding engine-host topology', async () => {
+    const { createRuntimeFromConfig, resolveContainerEngineHost, resolveContainerRuntime } =
       await importRuntimeWithResolveMock();
+    resolveContainerEngineHost.mockResolvedValue({
+      host: 'wsl',
+      wslDistro: 'Ubuntu',
+    });
 
     const runtime = await createRuntimeFromConfig('/repo', 'docker');
 
+    expect(resolveContainerEngineHost).toHaveBeenCalledWith('/repo');
     expect(resolveContainerRuntime).not.toHaveBeenCalled();
     expect(runtime.backend).toBe('docker');
+    expect(runtime.engineHost).toBe('wsl');
+    expect(runtime.wslDistro).toBe('Ubuntu');
   });
 
   it('propagates invalid config errors', async () => {
@@ -207,6 +222,10 @@ async function importRuntimeWithResolveMock() {
   vi.resetModules();
   vi.doUnmock('../../platform-config/load.js');
   vi.doMock('../../platform-config/resolve.js', () => ({
+    resolveContainerEngineHost: vi.fn().mockResolvedValue({
+      host: 'auto',
+      wslDistro: null,
+    }),
     resolveContainerRuntime: vi.fn(),
   }));
 
@@ -215,6 +234,7 @@ async function importRuntimeWithResolveMock() {
 
   return {
     createRuntimeFromConfig: runtimeModule.createRuntimeFromConfig,
+    resolveContainerEngineHost: vi.mocked(resolveModule.resolveContainerEngineHost),
     resolveContainerRuntime: vi.mocked(resolveModule.resolveContainerRuntime),
   };
 }

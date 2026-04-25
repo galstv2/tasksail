@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from importlib import import_module
 import os
-from pathlib import Path
 import subprocess
 import sys
 import textwrap
 import unittest
+from importlib import import_module
+from pathlib import Path
 
 
 class TaskArchiveFilingTestBase(unittest.TestCase):

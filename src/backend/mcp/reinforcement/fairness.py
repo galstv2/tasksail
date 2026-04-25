@@ -8,6 +8,7 @@ from src.backend.scripts.python.lib.time import current_utc_timestamp
 from .models import GlobalRealignmentDocument, RealignmentSession
 from .persistence import ReinforcementStore
 
+
 class VersionConflictError(Exception):
     """Raised when expected_version does not match the current document version."""
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from http.server import BaseHTTPRequestHandler
-from pathlib import Path
 import sys
 import unittest
+from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -28,14 +28,14 @@ class RepoContextPackagingTests(unittest.TestCase):
 
         # Validate real Dockerfile directives, not substrings.
         copy_src_lines = [
-            l for l in lines if l.startswith("COPY") and "src" in l
+            line for line in lines if line.startswith("COPY") and "src" in line
         ]
         self.assertTrue(
             copy_src_lines,
             "Dockerfile must COPY src/ into the image",
         )
 
-        user_lines = [l for l in lines if l.startswith("USER")]
+        user_lines = [line for line in lines if line.startswith("USER")]
         self.assertTrue(user_lines, "Dockerfile must switch to non-root USER")
         # Must not run as root.
         self.assertNotEqual(
@@ -46,10 +46,10 @@ class RepoContextPackagingTests(unittest.TestCase):
 
         # Entrypoint must reference the app module.
         entrypoint_or_cmd = [
-            l
-            for l in lines
-            if l.startswith(("CMD", "ENTRYPOINT"))
-            and "src.backend.mcp.repo_context_mcp" in l
+            line
+            for line in lines
+            if line.startswith(("CMD", "ENTRYPOINT"))
+            and "src.backend.mcp.repo_context_mcp" in line
         ]
         self.assertTrue(
             entrypoint_or_cmd,

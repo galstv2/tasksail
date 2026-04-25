@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import unittest
+from pathlib import Path
 
 from tests.domains.e2e._pipeline_base import (
     HANDOFFS,

@@ -19,6 +19,8 @@ export async function bootstrapServices(
   runtime: ContainerRuntime,
   options: BootstrapOptions,
 ): Promise<void> {
+  const engineHost = options.engineHost ?? runtime.engineHost;
+  const wslDistro = 'wslDistro' in options ? options.wslDistro : runtime.wslDistro;
   const composeFile = options.composeFile
     ? path.resolve(options.repoRoot, options.composeFile)
     : path.resolve(
@@ -74,10 +76,18 @@ export async function bootstrapServices(
     composeFile,
     runtime.backend,
     options.env,
+    engineHost,
+    wslDistro,
   );
 
   // Validate compose configuration
-  await validateComposeConfig(composeFile, runtime.backend, options.env);
+  await validateComposeConfig(
+    composeFile,
+    runtime.backend,
+    options.env,
+    engineHost,
+    wslDistro,
+  );
 
   // Start services
   await runtime.composeUp({
@@ -85,6 +95,8 @@ export async function bootstrapServices(
     detach: true,
     build: options.build,
     env: options.env,
+    engineHost,
+    wslDistro,
   });
 
   // Run health checks
@@ -93,7 +105,12 @@ export async function bootstrapServices(
 
   if (failed.length > 0) {
     const names = failed.map((f) => f.service).join(', ');
-    await runtime.composeDown({ composeFile, env: options.env });
+    await runtime.composeDown({
+      composeFile,
+      env: options.env,
+      engineHost,
+      wslDistro,
+    });
     throw new Error(`Health check failed for: ${names}`);
   }
 }
@@ -135,9 +152,15 @@ async function verifyRegistryComposeConsistency(
   composeFile: string,
   backend: import('../core/types.js').ContainerBackend,
   env?: NodeJS.ProcessEnv,
+  engineHost?: import('../core/types.js').ContainerEngineHost,
+  wslDistro?: string | null,
 ): Promise<void> {
   // Build compose config command using the same path as all other compose calls
-  const cmd = buildComposeCommand(backend, 'config', { composeFile });
+  const cmd = buildComposeCommand(backend, 'config', {
+    composeFile,
+    engineHost,
+    wslDistro,
+  });
   // Append --services to list service names
   cmd.push('--services');
 

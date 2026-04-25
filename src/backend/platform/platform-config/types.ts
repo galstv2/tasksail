@@ -1,10 +1,12 @@
-import type { ContainerBackend } from '../core/index.js';
+import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 
 export const CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION = 1;
 
 export interface PlatformConfig {
   schema_version: number;
   container_runtime: ContainerBackend;
+  container_engine_host: ContainerEngineHost;
+  container_engine_wsl_distro: string | null;
   max_parallel_tasks: number;
   retain_failed_task_worktrees: boolean;
   max_retained_failed_task_worktrees: number;

@@ -14,7 +14,11 @@ permissions:
 jobs:
   repository-structure:
     name: Repository Structure
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -74,6 +78,22 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff lint
+        run: ruff check .
+
+  node-test-lane:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -84,14 +104,11 @@ jobs:
         with:
           version: 10
 
-      - name: Install pnpm dependencies
+      - name: Install dependencies
         run: pnpm install
 
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Run ruff lint
-        run: ruff check .
+      - name: Run tests
+        run: pnpm run test
 
       - name: Run smoke lane and workflow policy validation
         run: pnpm run test:smoke
@@ -182,3 +199,38 @@ jobs:
         run: |
           coverage run -m unittest discover -s tests -v
           coverage report --fail-under=60
+
+  container-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run setup
+      - run: npx tsx src/backend/platform/container/cli.ts bootstrap
+      - run: npx tsx src/backend/platform/container/cli.ts healthcheck
+
+  frontend-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            script: package:mac
+          - os: windows-latest
+            script: package:win
+          - os: ubuntu-latest
+            script: package:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: cd src/frontend/desktop && npm ci
+      - run: cd src/frontend/desktop && npm run ${{ matrix.script }} -- --dir

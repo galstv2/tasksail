@@ -353,13 +353,18 @@ describe('electron main bootstrap', () => {
     vi.doMock('../../../backend/platform/agent-runner/pipeline/sequencer.js', () => ({
       runPipelineSequence,
     }));
-    vi.doMock('../../../backend/platform/queue', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../../../backend/platform/queue')>();
-      return {
-        ...actual,
-        getQueueStatus,
-      };
-    });
+    vi.doMock('../../../backend/platform/queue', () => ({
+      acquireDirLockOrThrow: vi.fn(async () => vi.fn(async () => undefined)),
+      deletePendingItem: vi.fn(),
+      getQueueStatus,
+      resolveQueuePaths: vi.fn(() => ({
+        queueLockDir: '/repo/AgentWorkSpace/.queue-lock',
+      })),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => []),
+      stopPipeline: vi.fn(async () => undefined),
+    }));
 
     const { handleDesktopAction } = await import('./main');
 
@@ -420,6 +425,18 @@ describe('electron main bootstrap', () => {
     });
     vi.doMock('../../../backend/platform/agent-runner/pipeline/sequencer.js', () => ({
       runPipelineSequence,
+    }));
+    vi.doMock('../../../backend/platform/queue', () => ({
+      acquireDirLockOrThrow: vi.fn(async () => vi.fn(async () => undefined)),
+      deletePendingItem: vi.fn(),
+      getQueueStatus: vi.fn(),
+      resolveQueuePaths: vi.fn(() => ({
+        queueLockDir: '/repo/AgentWorkSpace/.queue-lock',
+      })),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => []),
+      stopPipeline: vi.fn(async () => undefined),
     }));
 
     const { handleDesktopAction } = await import('./main');

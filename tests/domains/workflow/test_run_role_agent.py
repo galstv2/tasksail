@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from tests.support.repo_file_sets import ROLE_AGENT_WORKSPACE_FILES
 from tests.support.script_runner import run_script

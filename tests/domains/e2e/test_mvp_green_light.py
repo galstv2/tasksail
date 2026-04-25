@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import unittest
+from pathlib import Path
 
 from tests.support.e2e_artifacts import (
     write_product_manager_artifacts,
@@ -27,7 +26,6 @@ from tests.support.handoff_factory import write_text, write_valid_retrospective
 from tests.support.repo_file_sets import QUEUE_RUNTIME_WORKSPACE_FILES
 from tests.support.script_runner import run_script
 from tests.support.workspace_builder import prepare_workspace, seed_handoffs_from_templates
-
 
 TASK_TITLE = "MVP E2E Task"
 REPO_ROOT = Path(__file__).resolve().parents[3]

@@ -147,7 +147,7 @@ class ParseSectionsTests(unittest.TestCase):
         sections = parse_sections(md)
         self.assertIn("Alpha", sections)
         self.assertIn("Beta", sections)
-        self.assertTrue(any("line1" in l for l in sections["Alpha"]))
+        self.assertTrue(any("line1" in line for line in sections["Alpha"]))
 
     def test_empty_input(self) -> None:
         self.assertEqual(parse_sections(""), {})

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from hmac import compare_digest
 import json
 import logging
 import os
+from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable

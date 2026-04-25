@@ -16,8 +16,6 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-import pytest
-
 # Ensure lib is importable from this test module.
 _SCRIPTS_PYTHON = Path(__file__).resolve().parents[3] / "src" / "backend" / "scripts" / "python"
 

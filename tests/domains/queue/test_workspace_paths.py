@@ -6,13 +6,12 @@ Covers both singleton (TASKSAIL_TASK_ID unset) and per-task
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from unittest import mock
-
-import pytest
 
 # Ensure the lib package is importable from this test.
 import sys
+from pathlib import Path
+from unittest import mock
+
 _SCRIPTS_PYTHON = Path(__file__).resolve().parents[3] / "src" / "backend" / "scripts" / "python"
 if str(_SCRIPTS_PYTHON) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_PYTHON))

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """File the current task closeout into a QMD task archive.
 
 This is the CLI entrypoint.  All domain logic lives in lib/archive/.
@@ -297,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             ) from exc
 
         # --- Promotion: the atomic commit ---
-        os.rename(str(staging_dir / "archive.json"), str(record_path))
+        os.replace(str(staging_dir / "archive.json"), str(record_path))
         record_md_path = record_path.with_suffix(".md")
         staged_md = staging_dir / "archive.md"
         if staged_md.exists():

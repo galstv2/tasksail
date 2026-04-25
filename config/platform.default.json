@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "container_runtime": "podman",
+  "container_engine_host": "auto",
+  "container_engine_wsl_distro": null,
   "max_parallel_tasks": 10,
   "retain_failed_task_worktrees": true,
   "max_retained_failed_task_worktrees": 10,

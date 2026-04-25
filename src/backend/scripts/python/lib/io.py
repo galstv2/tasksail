@@ -65,7 +65,7 @@ def atomic_write_json(
     path: Path,
     payload: Mapping[str, object],
 ) -> None:
-    """Write *payload* as JSON via a temp file + ``os.rename`` for
+    """Write *payload* as JSON via a temp file + ``os.replace`` for
     atomicity.  Does **not** depend on the backend utilities package.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,7 @@ def atomic_write_json(
         with os.fdopen(fd, "w", encoding="utf-8") as fp:
             json.dump(payload, fp, indent=2)
             fp.write("\n")
-        os.rename(tmp_path_str, str(path))
+        os.replace(tmp_path_str, str(path))
     except BaseException:
         try:
             os.unlink(tmp_path_str)

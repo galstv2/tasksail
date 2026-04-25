@@ -15,7 +15,8 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { resolveContainerRuntime } from '../platform-config/resolve.js';
+import { resolveContainerEngineHost, resolveContainerRuntime } from '../platform-config/resolve.js';
+import { buildComposeCommand } from './compose.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { composeProjectName } from './containerNaming.js';
 import { listAllocations } from './portAllocator.js';
@@ -26,13 +27,19 @@ export async function composeDownTask(
   taskId: string,
 ): Promise<void> {
   const backend = await resolveContainerRuntime(repoRoot);
+  const engineHost = await resolveContainerEngineHost(repoRoot);
   const composeFile = path.resolve(repoRoot, resolveDefaultComposeFile(backend));
   const projectName = await resolveComposeProjectName(repoRoot, taskId);
+  const cmd = buildComposeCommand(backend, 'down', {
+    composeFile,
+    engineHost: engineHost.host,
+    wslDistro: engineHost.wslDistro,
+  });
 
   await new Promise<void>((resolve) => {
     const child = spawn(
-      backend,
-      ['compose', '-f', composeFile, 'down'],
+      cmd[0],
+      cmd.slice(1),
       {
         env: { ...process.env, COMPOSE_PROJECT_NAME: projectName },
         stdio: ['pipe', 'pipe', 'pipe'],

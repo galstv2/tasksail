@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 from tests.support.handoff_factory import write_text, write_valid_retrospective
 from tests.support.repo_file_sets import QUEUE_RUNTIME_WORKSPACE_FILES
@@ -33,14 +33,16 @@ TEST_TASK_ID = "task-test-001"
 # and HTTP transport tests while still allowing full integration coverage
 # via: RUN_SLOW_TESTS=1 python -m pytest tests/ -q
 # --------------------------------------------------------------------------
-@unittest.skipUnless(
-    os.environ.get("RUN_SLOW_TESTS"),
-    "slow subprocess-based integration test — set RUN_SLOW_TESTS=1 to include",
-)
 class QueueRuntimeIntegrationTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = Path(__file__).resolve().parents[3]
+
+    def setUp(self) -> None:
+        if not os.environ.get("RUN_SLOW_TESTS"):
+            self.skipTest(
+                "slow subprocess-based integration test — set RUN_SLOW_TESTS=1 to include"
+            )
 
     def create_workspace(self) -> Path:
         temp_dir = prepare_workspace(

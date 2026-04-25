@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import sys
-import threading
 import tempfile
-from pathlib import Path
+import threading
 import unittest
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT / "src" / "backend" / "scripts" / "python") not in sys.path:

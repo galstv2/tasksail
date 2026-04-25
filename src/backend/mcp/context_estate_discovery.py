@@ -1,6 +1,20 @@
 """Backward-compatible shim — re-exports from context_estate subpackage."""
 from __future__ import annotations
 
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from src.backend.mcp.context_estate.constants import (  # noqa: F401
+    DEFAULT_DISTRIBUTED_SCAN_DEPTH,
+    DIRECT_FOCUS_TYPES,
+    ESTATE_TYPES,
+    GROUP_CHILD_TYPES,
+    HIGH_SIGNAL_TYPE_ALIASES,
+    SKIP_DIR_NAMES,
+)
+
 # Re-export all public discovery symbols
 from src.backend.mcp.context_estate.discovery import (  # noqa: F401
     build_focus_area,
@@ -18,28 +32,14 @@ from src.backend.mcp.context_estate.discovery import (  # noqa: F401
     safe_iterdir,
 )
 from src.backend.mcp.context_estate.rendering import render_markdown  # noqa: F401
-from src.backend.mcp.context_estate.constants import (  # noqa: F401
-    DEFAULT_DISTRIBUTED_SCAN_DEPTH,
-    DIRECT_FOCUS_TYPES,
-    ESTATE_TYPES,
-    GROUP_CHILD_TYPES,
-    HIGH_SIGNAL_TYPE_ALIASES,
-    SKIP_DIR_NAMES,
+from src.backend.mcp.context_estate_draft_index import (
+    DEFAULT_DRAFT_FILE,
+    write_draft_artifact,
 )
 from src.backend.mcp.repo_context_mcp.utils import utc_now  # noqa: F401
 
 # Keep CLI entry point here since it's the script entrypoint
 OUTPUT_FORMATS = ("json", "markdown")
-
-import argparse
-import json
-import sys
-from pathlib import Path
-
-from src.backend.mcp.context_estate_draft_index import (
-    DEFAULT_DRAFT_FILE,
-    write_draft_artifact,
-)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

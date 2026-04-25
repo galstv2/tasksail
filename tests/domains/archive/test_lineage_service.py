@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiveService
 from src.backend.mcp.repo_context_mcp.services.lineage_service import LineageService
 from src.backend.mcp.repo_context_mcp.services.qmd_index_service import QmdIndexService

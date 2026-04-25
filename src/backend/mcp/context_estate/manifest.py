@@ -19,9 +19,7 @@ from src.backend.mcp.context_estate.constants import (
     ALLOWED_ESTATE_TYPES,
     DEFAULT_REPOSITORY_TYPE,
     DISTRIBUTED_ESTATE_TYPES,
-    MONOLITH_ESTATE_TYPES,
 )
-from src.backend.mcp.context_estate_draft_index import DEFAULT_DRAFT_FILE
 from src.backend.mcp.context_estate.helpers import (
     _normalize_focus_area_id_list,
     _normalize_repo_id_list,
@@ -31,6 +29,7 @@ from src.backend.mcp.context_estate.manifest_normalization import (
     _normalize_focusable_areas,
     _normalize_monolith_repository,
 )
+from src.backend.mcp.context_estate_draft_index import DEFAULT_DRAFT_FILE
 from src.backend.mcp.repo_context_mcp.utils import (
     ensure_non_empty_string,
     load_json,

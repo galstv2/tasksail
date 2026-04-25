@@ -779,6 +779,17 @@ export async function activateNextPendingItemIfReady(
     );
   }
 
+  const disablePipelineAutostart = (
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] ?? ''
+  ).trim().toLowerCase() === 'true';
+  if (disablePipelineAutostart) {
+    process.stderr.write(
+      `[operations] pipeline autostart disabled for ${taskId}\n`,
+    );
+    try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+    return { activated: true };
+  }
+
   // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.
   // On failure, roll back the active markers so the queue can re-activate.
   let pipelineResult: Awaited<ReturnType<typeof startPipeline>>;

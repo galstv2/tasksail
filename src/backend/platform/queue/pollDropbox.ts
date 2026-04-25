@@ -1,5 +1,6 @@
 import { watch } from 'node:fs';
 import { findRepoRoot, ensureDir } from '../core/index.js';
+import { isWSLWindowsPath } from '../core/platform.js';
 import { resolveQueuePaths } from './paths.js';
 import {
   acquireDirLock,
@@ -36,6 +37,10 @@ export async function pollDropbox(
 
   const repoRoot = rawRepoRoot ?? findRepoRoot();
   const queuePaths = resolveQueuePaths(repoRoot);
+  const effectiveWatchMode =
+    watchMode === 'poll' || isWSLWindowsPath(queuePaths.pendingDir)
+      ? 'poll'
+      : watchMode;
 
   await ensureDir(queuePaths.dropboxDir);
   await ensureDir(queuePaths.pendingDir);
@@ -59,7 +64,7 @@ export async function pollDropbox(
     }
   };
 
-  if (watchMode === 'poll' || watchMode !== 'auto') {
+  if (effectiveWatchMode === 'poll' || effectiveWatchMode !== 'auto') {
     while (maxIterations === 0 || iterations < maxIterations) {
       await runCycle();
       iterations++;

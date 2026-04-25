@@ -6,6 +6,7 @@ export type {
   SeedOptions,
   ContainerRuntime,
   ContainerBackend,
+  ContainerEngineHost,
 } from './types.js';
 
 export { DEFAULT_COMPOSE_FILE } from './types.js';

@@ -4,12 +4,11 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any
-
-logger = logging.getLogger(__name__)
 
 from ..text import slugify
 from ._backend import get_global_retrospective_root, get_resolve_path_within
+
+logger = logging.getLogger(__name__)
 
 
 def sidecar_record_path(markdown_path: Path) -> Path:

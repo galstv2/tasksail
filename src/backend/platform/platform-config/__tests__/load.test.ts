@@ -26,6 +26,8 @@ function writeConfig(content: string): string {
 const FULL_DEFAULT = {
   schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
   container_runtime: 'podman',
+  container_engine_host: 'auto',
+  container_engine_wsl_distro: null,
   max_parallel_tasks: 10,
   retain_failed_task_worktrees: true,
   max_retained_failed_task_worktrees: 10,
@@ -122,6 +124,8 @@ describe('loadPlatformConfig', () => {
       expect(result.config).toEqual({
         schema_version: 1,
         container_runtime: 'podman',
+        container_engine_host: 'auto',
+        container_engine_wsl_distro: null,
         max_parallel_tasks: 10,
         retain_failed_task_worktrees: true,
         max_retained_failed_task_worktrees: 10,
@@ -142,6 +146,8 @@ describe('loadPlatformConfig', () => {
     if (result.valid) {
       // Defensive defaults MUST match JSON defaults verbatim
       expect(result.config.max_parallel_tasks).toBe(10);
+      expect(result.config.container_engine_host).toBe('auto');
+      expect(result.config.container_engine_wsl_distro).toBeNull();
       expect(result.config.retain_failed_task_worktrees).toBe(true);
       expect(result.config.max_retained_failed_task_worktrees).toBe(10);
       expect(result.config.max_retry_generations_per_slug).toBe(5);
@@ -159,6 +165,49 @@ describe('loadPlatformConfig', () => {
     expect(result.valid).toBe(false);
     if (!result.valid) {
       expect(result.errors.some((e) => e.field === 'max_retry_generations_per_slug')).toBe(true);
+    }
+  });
+
+  it('accepts valid container_engine_host values and normalizes distro', async () => {
+    for (const host of ['auto', 'native', 'desktop-linux', 'wsl'] as const) {
+      const distro = host === 'wsl' ? 'Ubuntu' : 'Ubuntu/Latest';
+      const result = await loadPlatformConfig(writeConfig(JSON.stringify({
+        ...FULL_DEFAULT,
+        container_engine_host: host,
+        container_engine_wsl_distro: distro,
+      })));
+
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.config).toMatchObject({
+          container_engine_host: host,
+          container_engine_wsl_distro: distro,
+        });
+      }
+    }
+  });
+
+  it('rejects invalid engine host topology config', async () => {
+    for (const [field, patch] of [
+      ['container_engine_host', { container_engine_host: 'desktop-windows' }],
+      ['container_engine_wsl_distro', { container_engine_host: 'wsl' }],
+      [
+        'container_engine_wsl_distro',
+        {
+          container_engine_host: 'wsl',
+          container_engine_wsl_distro: 'Ubuntu/Latest',
+        },
+      ],
+    ] as const) {
+      const result = await loadPlatformConfig(writeConfig(JSON.stringify({
+        ...FULL_DEFAULT,
+        ...patch,
+      })));
+
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.errors.some((e) => e.field === field)).toBe(true);
+      }
     }
   });
 

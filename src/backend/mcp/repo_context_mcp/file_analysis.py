@@ -4,8 +4,8 @@ entry normalization extracted from app.py (slice 02)."""
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_detection import _detect_system_layer

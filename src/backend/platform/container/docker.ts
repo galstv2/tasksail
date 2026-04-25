@@ -6,7 +6,7 @@ import type {
   BootstrapOptions,
   SeedOptions,
 } from './types.js';
-import type { ContainerBackend } from '../core/index.js';
+import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 import { buildComposeCommand, execCommand } from './compose.js';
 import { checkAllServices } from './healthcheck.js';
 import { bootstrapServices } from './bootstrap.js';
@@ -18,21 +18,35 @@ import { seedIndex } from './seedIndex.js';
  */
 class BaseContainerRuntime implements ContainerRuntime {
   readonly backend: ContainerBackend;
+  readonly engineHost: ContainerEngineHost;
+  readonly wslDistro: string | null;
 
-  constructor(backend: ContainerBackend) {
+  constructor(
+    backend: ContainerBackend,
+    engineHost: ContainerEngineHost = 'auto',
+    wslDistro: string | null = null,
+  ) {
     this.backend = backend;
+    this.engineHost = engineHost;
+    this.wslDistro = wslDistro;
   }
 
   async composeUp(options: ComposeOptions): Promise<void> {
     const cmd = buildComposeCommand(this.backend, 'up', {
       ...options,
       detach: options.detach !== false,
+      engineHost: options.engineHost ?? this.engineHost,
+      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
     });
     await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
 
   async composeDown(options: ComposeOptions): Promise<void> {
-    const cmd = buildComposeCommand(this.backend, 'down', options);
+    const cmd = buildComposeCommand(this.backend, 'down', {
+      ...options,
+      engineHost: options.engineHost ?? this.engineHost,
+      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
+    });
     await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
 
@@ -41,7 +55,11 @@ class BaseContainerRuntime implements ContainerRuntime {
   }
 
   async bootstrap(options: BootstrapOptions): Promise<void> {
-    await bootstrapServices(this, options);
+    await bootstrapServices(this, {
+      ...options,
+      engineHost: options.engineHost ?? this.engineHost,
+      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
+    });
   }
 
   async seedIndex(options: SeedOptions): Promise<void> {
@@ -53,8 +71,11 @@ class BaseContainerRuntime implements ContainerRuntime {
  * Docker-backed container runtime implementation.
  */
 export class DockerRuntime extends BaseContainerRuntime {
-  constructor() {
-    super('docker');
+  constructor(
+    engineHost: ContainerEngineHost = 'auto',
+    wslDistro: string | null = null,
+  ) {
+    super('docker', engineHost, wslDistro);
   }
 }
 
@@ -62,7 +83,10 @@ export class DockerRuntime extends BaseContainerRuntime {
  * Podman-backed container runtime implementation (experimental).
  */
 export class PodmanRuntime extends BaseContainerRuntime {
-  constructor() {
-    super('podman');
+  constructor(
+    engineHost: ContainerEngineHost = 'auto',
+    wslDistro: string | null = null,
+  ) {
+    super('podman', engineHost, wslDistro);
   }
 }

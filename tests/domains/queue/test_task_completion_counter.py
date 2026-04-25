@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-import pytest
-
-import sys
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -15,9 +13,8 @@ if str(SCRIPTS_PYTHON) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_PYTHON))
 
 from lib.counters.task_completion_counter import (
-    TaskCompletionCounter,
-    DEFAULT_CONTEXT_PACK_ID,
     RETROSPECTIVE_CYCLE_LENGTH,
+    TaskCompletionCounter,
 )
 
 

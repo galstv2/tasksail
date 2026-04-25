@@ -4,14 +4,14 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-from collections.abc import Iterator
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 

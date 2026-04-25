@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from src.backend.mcp.repo_context_mcp.utils import write_json_atomic, write_text_atomic
@@ -35,7 +35,7 @@ class AtomicWriteTests(unittest.TestCase):
 
     def test_write_text_atomic_cleans_up_on_failure(self) -> None:
         target = self._tmp / "fail.txt"
-        with mock.patch("os.rename", side_effect=OSError("mock rename failure")):
+        with mock.patch("os.replace", side_effect=OSError("mock replace failure")):
             with self.assertRaises(OSError):
                 write_text_atomic(target, "should not persist")
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..io import load_text
 from ..time import current_utc_timestamp
 from ._backend import get_global_retrospective_root
 from .retrospective import sorted_unique_strings

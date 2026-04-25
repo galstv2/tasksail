@@ -68,6 +68,38 @@ describe('buildComposeCommand', () => {
     ]);
   });
 
+  it('wraps docker compose commands for WSL engine hosts', () => {
+    const wslExe = ['wsl', 'exe'].join('.');
+    const cmd = buildComposeCommand('docker', 'up', {
+      engineHost: 'wsl',
+      wslDistro: 'Ubuntu',
+    });
+
+    expect(cmd.slice(0, 6)).toEqual([
+      wslExe,
+      '-d',
+      'Ubuntu',
+      '--',
+      'docker',
+      'compose',
+    ]);
+  });
+
+  it('keeps docker and podman compose direct for desktop-linux engine hosts', () => {
+    expect(buildComposeCommand('docker', 'down', {
+      engineHost: 'desktop-linux',
+    })).toEqual(['docker', 'compose', 'down']);
+    expect(buildComposeCommand('podman', 'down', {
+      engineHost: 'desktop-linux',
+    })).toEqual(['podman', 'compose', 'down']);
+  });
+
+  it('throws when WSL engine host has no distro', () => {
+    expect(() => buildComposeCommand('docker', 'up', {
+      engineHost: 'wsl',
+    })).toThrow('container_engine_host=wsl requires container_engine_wsl_distro');
+  });
+
   it('resolves the default compose file for docker', () => {
     expect(resolveDefaultComposeFile('docker')).toBe(
       'docker/compose/docker-compose.yml',

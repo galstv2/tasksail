@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_PATH = REPO_ROOT / "src" / "backend" / "scripts" / "python" / "run-targeted-tests.py"
@@ -243,6 +242,30 @@ class RunTargetedTestsTests(unittest.TestCase):
         self.assertTrue((workspace / "selected.marker").exists())
         self.assertFalse((workspace / "excluded.marker").exists())
         self.assertIn("Selected 1 test module", result.stdout)
+
+    def test_smoke_lane_excludes_agent_launch_modules(self) -> None:
+        manifest = self.runner.load_manifest(
+            MANIFEST_PATH,
+            workspace_root=REPO_ROOT,
+        )
+
+        forbidden_prefixes = (
+            "tests.domains.e2e.",
+            "tests.domains.queue.test_queue_runtime_",
+        )
+        forbidden_modules = {
+            "tests.domains.workflow.test_run_role_agent",
+        }
+        smoke_modules = manifest.lanes["smoke"]
+
+        self.assertFalse(
+            any(
+                module.startswith(forbidden_prefixes)
+                or module in forbidden_modules
+                for module in smoke_modules
+            ),
+            "Smoke lane must not include tests that can launch real role agents.",
+        )
 
     def test_domain_invocation_executes_only_declared_domain_modules(
         self,

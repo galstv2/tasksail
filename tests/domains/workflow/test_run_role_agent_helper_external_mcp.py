@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELPER_SCRIPT = REPO_ROOT / "src" / "backend" / "scripts" / "python" / "run-role-agent-helper.py"
 

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -15,6 +14,18 @@ from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiv
 
 
 class TaskArchiveServiceTests(unittest.TestCase):
+    def create_service_for_temp_context_pack(
+        self,
+        workspace_root: Path,
+    ) -> TaskArchiveService:
+        service = TaskArchiveService(workspace_root=workspace_root)
+
+        def resolve_temp_context_pack(value: str) -> Path:
+            return Path(value).resolve()
+
+        service._resolve_context_pack_dir = resolve_temp_context_pack
+        return service
+
     def create_archive(
         self,
         context_pack_dir: Path,
@@ -173,7 +184,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
                 },
             )
 
-            service = TaskArchiveService(workspace_root=workspace_root)
+            service = self.create_service_for_temp_context_pack(workspace_root)
             summary = service.build_task_retrospective_summary(
                 context_pack_dir=str(context_pack_dir),
                 qmd_scope=scope,
@@ -272,7 +283,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
                 target_is_directory=True,
             )
 
-            service = TaskArchiveService(workspace_root=workspace_root)
+            service = self.create_service_for_temp_context_pack(workspace_root)
 
             with self.assertRaisesRegex(ValueError, "qmd_scope"):
                 service.build_task_lineage_summary(

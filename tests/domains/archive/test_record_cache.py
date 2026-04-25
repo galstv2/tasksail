@@ -5,9 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiveService
-
+from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 
 # ---------------------------------------------------------------------------
 # Unit tests — ScopedRecordCache

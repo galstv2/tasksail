@@ -132,6 +132,7 @@ class TestArchiveIndexLocking(unittest.TestCase):
         """(b) Concurrent write_archive_indexes + patch_task_archive_md —
         both writers' distinct sentinel content must appear in the final file."""
         from lib.archive.indexes import write_archive_indexes
+
         from src.backend.mcp.reinforcement.models import SettlementRecord  # noqa: I001
         from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
 

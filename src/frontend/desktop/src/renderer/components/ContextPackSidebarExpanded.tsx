@@ -267,8 +267,8 @@ function ContextPackSidebarExpanded({
               className="sidebar-toolbar-btn"
               disabled={!hasActiveContextPack || isBusy}
               onClick={() => void onClearActive()}
-              aria-label="Eject pack"
-              title="Eject active context pack"
+              aria-label="Clear pack"
+              title="Clear active context pack"
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3L3 9h10L8 3z" fill="currentColor"/><rect x="3" y="11" width="10" height="1.5" rx="0.5" fill="currentColor"/></svg>
               <span>Eject</span>

@@ -55,12 +55,20 @@ async function readMarkdownFileIfPresent(
   return fsAdapter.readFile(path, 'utf-8');
 }
 
-async function countMarkdownFiles(path: string, fsAdapter: ReadOnlyRepoFs): Promise<number> {
+async function readDirIfPresent(path: string, fsAdapter: ReadOnlyRepoFs): Promise<string[]> {
   if (!(await pathExists(path, fsAdapter))) {
-    return 0;
+    return [];
   }
 
-  const entries = await fsAdapter.readdir(path);
+  try {
+    return await fsAdapter.readdir(path);
+  } catch {
+    return [];
+  }
+}
+
+async function countMarkdownFiles(path: string, fsAdapter: ReadOnlyRepoFs): Promise<number> {
+  const entries = await readDirIfPresent(path, fsAdapter);
   return entries.filter((entry) => entry.endsWith('.md') && entry !== '.gitkeep').length;
 }
 
@@ -100,11 +108,7 @@ async function readPendingQueueItems(
   fsAdapter: ReadOnlyRepoFs,
   activeTaskIds: Set<string>,
 ): Promise<PendingQueueItem[]> {
-  if (!(await pathExists(PENDING_DIR, fsAdapter))) {
-    return [];
-  }
-
-  const entries = (await fsAdapter.readdir(PENDING_DIR))
+  const entries = (await readDirIfPresent(PENDING_DIR, fsAdapter))
     .filter((entry) => entry.endsWith('.md') && !entry.startsWith('.'))
     .sort();
 
@@ -502,11 +506,7 @@ async function readGuardrailObservations(
   fsAdapter: ReadOnlyRepoFs,
   guardrailReceiptsDir: string,
 ): Promise<GuardrailObservation[]> {
-  if (!(await pathExists(guardrailReceiptsDir, fsAdapter))) {
-    return [];
-  }
-
-  const receiptFiles = (await fsAdapter.readdir(guardrailReceiptsDir))
+  const receiptFiles = (await readDirIfPresent(guardrailReceiptsDir, fsAdapter))
     .filter((name) => name.endsWith('.json'))
     .sort();
   const observations: GuardrailObservation[] = [];
@@ -781,11 +781,8 @@ async function readRoleAgentTerminalSessions(
   fsAdapter: ReadOnlyRepoFs,
   roleRuntimeSessionsDir: string,
 ): Promise<AgentTerminalSession[]> {
-  if (!(await pathExists(roleRuntimeSessionsDir, fsAdapter))) {
-    return [];
-  }
-
-  const receiptFiles = (await fsAdapter.readdir(roleRuntimeSessionsDir)).filter((name) => name.endsWith('.json'));
+  const receiptFiles = (await readDirIfPresent(roleRuntimeSessionsDir, fsAdapter))
+    .filter((name) => name.endsWith('.json'));
   const sessions: AgentTerminalSession[] = [];
 
   for (const receiptFile of receiptFiles) {

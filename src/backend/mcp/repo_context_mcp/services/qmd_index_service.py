@@ -4,7 +4,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from .archive_service import TaskArchiveService
 from ..utils import (
     normalize_optional_string,
     normalize_string_list,
@@ -12,6 +11,7 @@ from ..utils import (
     resolve_path_within,
     utc_now,
 )
+from .archive_service import TaskArchiveService
 
 if TYPE_CHECKING:
     from .lineage_service import LineageService
@@ -618,7 +618,7 @@ class QmdIndexService:
         except ValueError:
             return scope_dir.as_posix()
 
-    def task_descriptors(self, scope_dir: Path) -> list[dict[str, Any]]:  # noqa: DOC
+    def task_descriptors(self, scope_dir: Path) -> list[dict[str, Any]]:
         """Return cached task descriptors. Callers MUST NOT mutate the list."""
         key = str(scope_dir)
         cached = self._descriptor_cache.get(key)

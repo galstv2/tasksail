@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .archive_service import TaskArchiveService
 from ..utils import (
     compact_list,
     compact_text,
     normalize_string_list,
     unique_preserving_order,
 )
+from .archive_service import TaskArchiveService
 
 
 class CarryForwardService:

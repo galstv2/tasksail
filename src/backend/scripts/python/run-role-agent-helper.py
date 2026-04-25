@@ -12,15 +12,8 @@ REPO_ROOT = SCRIPT_DIR.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lib.role_agent.corrections_cmds import cmd_render_corrections_context  # noqa: E402
-from lib.role_agent.tests_md_append import (  # noqa: E402
-    cmd_check_parallel_tests_md_section,
-    cmd_write_parallel_tests_md_stub,
-)
-from lib.role_agent.reinforcement_cmds import cmd_render_reinforcement_context  # noqa: E402
 from lib.role_agent.code_diff import capture_code_diff  # noqa: E402
-from lib.role_agent.json_cmds import cmd_print_json_array_lines  # noqa: E402
-from lib.role_agent.metadata import cmd_resolve_agent_metadata  # noqa: E402
+from lib.role_agent.corrections_cmds import cmd_render_corrections_context  # noqa: E402
 from lib.role_agent.external_mcp import (  # noqa: E402
     LaunchContext,
     load_validated_external_mcp,
@@ -28,6 +21,13 @@ from lib.role_agent.external_mcp import (  # noqa: E402
     select_servers_for_agent,
 )
 from lib.role_agent.external_mcp.loader import ExternalMcpLoadError  # noqa: E402
+from lib.role_agent.json_cmds import cmd_print_json_array_lines  # noqa: E402
+from lib.role_agent.metadata import cmd_resolve_agent_metadata  # noqa: E402
+from lib.role_agent.reinforcement_cmds import cmd_render_reinforcement_context  # noqa: E402
+from lib.role_agent.tests_md_append import (  # noqa: E402
+    cmd_check_parallel_tests_md_section,
+    cmd_write_parallel_tests_md_stub,
+)
 
 
 def _cmd_capture_code_diff(args: argparse.Namespace) -> int:

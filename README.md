@@ -2,6 +2,10 @@
 
 TaskSail is a local desktop application that manages a team of AI agents to do software engineering work for you. You describe what you want built or fixed, and TaskSail's agents plan, code, test, and review the work automatically.
 
+## What this repo is
+
+This repository is the local control plane for approved workflow roles, queue state, handoff artifacts, MCP services, and QMD memory.
+
 ## How it works
 
 TaskSail runs entirely on your computer. When you give it a task:
@@ -13,7 +17,7 @@ TaskSail runs entirely on your computer. When you give it a task:
 
 You watch the progress in a desktop app that shows what each agent is doing in real time.
 
-## What you need before starting
+## Prerequisites
 
 - **A Mac, Windows, or Linux computer**
 - **Git** installed ([download here](https://git-scm.com/downloads))
@@ -22,6 +26,12 @@ You watch the progress in a desktop app that shows what each agent is doing in r
 - **Python 3.11+** installed ([download here](https://www.python.org/downloads/))
 - **Docker Desktop** or **Podman** (≥ 4.0) with `podman-compose` (≥ 1.0.6) installed and running
 - **GitHub Copilot CLI** access for your GitHub account
+
+See [docs/cross-os-setup.md](docs/cross-os-setup.md) for macOS / Linux / Windows setup details.
+
+## Installation
+
+Use `pnpm run setup` for the default installation path, or follow the manual install commands below when debugging local dependencies.
 
 ## Quick start
 
@@ -93,6 +103,43 @@ In the desktop app:
 1. Connect a **context pack** (this tells TaskSail which codebase to work on)
 2. Create a new task describing what you want done
 3. Watch the agents plan, code, test, and deliver
+
+## Local auth expectations
+
+Agents run through the compliant repository-managed entrypoint: `pnpm run agent -- --agent-id <agent-id>`. raw named-agent invocation such as `copilot --agent <agent-id>` is reserved for controlled internal orchestrators; the wrapper writes guardrail receipts under `.platform-state/runtime/guardrails/`.
+
+## How to start services
+
+Run `npx tsx src/backend/platform/container/cli.ts bootstrap`, then `npx tsx src/backend/platform/container/cli.ts healthcheck`.
+
+## How to validate local setup
+
+Use `make test-smoke`, `make test-domain DOMAIN=...`, `make test-contracts`, and `make local-checks`. CI mirrors this with a changed-path domain lane for pull requests, the full Python suite, and Docs Check.
+
+## How to start the queue and seed a starter task
+
+Run `pnpm run watch-dropbox`, then create an intake item with `pnpm run plan-dropbox-task -- --title "Starter" --summary "..."`. Context packs can be activated with `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --bootstrap-answers-file /path/to/answers.json`.
+
+## Workflow and handoff rules
+
+Workflow agents are declared in `.github/agents/` and `.github/agents/registry.json`. Each launch gets a fresh task-scoped `copilot --agent` subprocess and does not add a task-end `/compact` hook. The registry-backed autonomy profile controls tool access: `repo-executor` and `artifact-author` are the key profiles, with dangerous commands such as `git add`, `git commit`, `git push`, `rm` denied for executor profiles. If no active context pack is present, broad
+  autonomous execution is denied.
+
+## QA routing rule
+
+QA findings route back to Software Engineer, then return to QA. Closeout requires `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`; the retrospective target is target 1 minute and hard cap 2 minutes. Retrospectives are archived under `qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md`, global history under `qmd/global/retrospectives/history/{year}/{task-id}.md`, and synthesis under `qmd/global/retrospectives/shared-retrospective-memory.md`.
+
+## Security expectations
+
+Use the repository-managed entrypoint for approved workflow roles. The canonical workflow policy CLI is `src/backend/platform/workflow-policy/cli.ts`; guarded checks fail closed. Direct shell, git, and filesystem access is constrained by role autonomy policy and workflow guardrails.
+
+## MCP endpoint config
+
+Internal MCP services are configured through `.env`, `.platform-state/platform.json`, and container compose files. External MCP visibility is configured separately from internal platform MCPs.
+
+## External context packs
+
+For out-of-tree context packs, bind the host directory through the bootstrap layer; see `docs/cross-os-setup.md` for host/container path rules.
 
 ## Tech stack
 

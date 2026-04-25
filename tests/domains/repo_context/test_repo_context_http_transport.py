@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import logging
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from src.backend.mcp.repo_context_mcp.transport.http import RepoContextHttpHandler
@@ -76,7 +75,7 @@ class _MutableCallbacks:
         self.load_shared_retrospective_memory_summary = lambda: {
             "summary": "shared-retrospective-memory"
         }
-        self.active_context_pack_dir = lambda: "context-pack"
+        self.active_context_pack_dir = lambda: "/workspace/context-pack"
 
 
 class RepoContextHttpTransportTests(unittest.TestCase):
@@ -252,14 +251,12 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             }
 
         self._callbacks.execute_seed_run = execute_seed_run
-        workspace_root = self._workspace_root
-
         resp = self._request(
             "POST",
             "/seed",
             body=json.dumps(
                 {
-                    "context_pack_dir": "context-pack",
+                    "context_pack_dir": "/workspace/context-pack",
                     "manifest": "qmd/custom-manifest.json",
                     "plan_file": "qmd/custom-plan.json",
                     "plan_mode": "write-plan",
@@ -274,7 +271,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
         self.assertEqual(payload["request_id"], "req-seed")
         self.assertEqual(
             observed["context_pack_dir"],
-            str((workspace_root / "context-pack").resolve()),
+            "/workspace/context-pack",
         )
         self.assertEqual(observed["manifest"], "qmd/custom-manifest.json")
         self.assertEqual(observed["plan_file"], "qmd/custom-plan.json")
@@ -285,9 +282,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             {
                 "service": "repo-context-mcp",
                 "status": "seeded",
-                "context_pack_dir": str(
-                    (workspace_root / "context-pack").resolve()
-                ),
+                "context_pack_dir": "/workspace/context-pack",
             },
         )
         self.assertEqual(self._runtime.released, 1)
@@ -313,7 +308,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "POST",
             "/seed",
             body=json.dumps(
-                {"context_pack_dir": "context-pack"}
+                {"context_pack_dir": "/workspace/context-pack"}
             ).encode("utf-8"),
             headers=self.post_headers(),
         )
@@ -339,7 +334,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "/lineage",
             body=json.dumps(
                 {
-                    "context_pack_dir": "context-pack",
+                    "context_pack_dir": "/workspace/context-pack",
                     "qmd_scope": "qmd/context-packs/sample-org",
                     "task_id": "CAP-1001",
                 }
@@ -357,7 +352,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "/carry-forward",
             body=json.dumps(
                 {
-                    "context_pack_dir": "context-pack",
+                    "context_pack_dir": "/workspace/context-pack",
                     "parent_qmd_scope": "qmd/context-packs/sample-org",
                     "parent_task_id": "CAP-1001",
                     "parent_qmd_record_id": "task:platform:CAP-1001",
@@ -378,7 +373,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "POST",
             "/lineage",
             body=json.dumps(
-                {"context_pack_dir": "context-pack"}
+                {"context_pack_dir": "/workspace/context-pack"}
             ).encode("utf-8"),
             headers=self.post_headers(),
         )
@@ -394,7 +389,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "/carry-forward",
             body=json.dumps(
                 {
-                    "context_pack_dir": "context-pack",
+                    "context_pack_dir": "/workspace/context-pack",
                     "parent_qmd_scope": "qmd/context-packs/sample-org",
                     "parent_task_id": "CAP-1001",
                 }
@@ -462,7 +457,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "/retrospective",
             body=json.dumps(
                 {
-                    "context_pack_dir": "context-pack",
+                    "context_pack_dir": "/workspace/context-pack",
                     "qmd_scope": "qmd/context-packs/sample-org",
                     "task_id": "CAP-1001",
                 }
@@ -498,13 +493,13 @@ class RepoContextHttpTransportTests(unittest.TestCase):
 
         resp = self._request(
             "GET",
-            "/context-pack-conventions?context_pack_dir=context-pack",
+            "/context-pack-conventions?context_pack_dir=/workspace/context-pack",
         )
         payload = resp.json()
         self.assertEqual(payload["conventions_summary_status"], "available")
         self.assertEqual(
             convention_calls[0]["context_pack_dir"],
-            str((self._workspace_root / "context-pack").resolve()),
+            "/workspace/context-pack",
         )
 
     def test_context_pack_conventions_route_rejects_missing_context_pack(
@@ -545,7 +540,9 @@ class RepoContextHttpTransportTests(unittest.TestCase):
                     self._request(
                         "POST",
                         "/seed",
-                        body=json.dumps({"context_pack_dir": "context-pack"}).encode(),
+                        body=json.dumps(
+                            {"context_pack_dir": "/workspace/context-pack"}
+                        ).encode(),
                         headers=self.post_headers(),
                     )
         self.assertTrue(

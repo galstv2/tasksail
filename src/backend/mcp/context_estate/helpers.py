@@ -8,6 +8,8 @@ from src.backend.mcp.repo_context_mcp.utils import (
     normalize_string_list,
     unique_preserving_order,
 )
+
+
 def _normalize_repo_id_list(
     value: Any, known_repo_ids: set[str]
 ) -> list[str]:

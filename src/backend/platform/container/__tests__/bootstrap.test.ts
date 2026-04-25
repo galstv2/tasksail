@@ -43,6 +43,8 @@ vi.mock('../../platform-config/seed.js', () => ({
     config: {
       schema_version: 1,
       container_runtime: 'docker',
+      container_engine_host: 'auto',
+      container_engine_wsl_distro: null,
       max_parallel_tasks: 10,
       retain_failed_task_worktrees: true,
       max_retained_failed_task_worktrees: 10,
@@ -76,6 +78,8 @@ const { getEnabledComposeServices } = await import('../../mcp-registry/composeMe
 describe('bootstrapServices', () => {
   const mockRuntime = {
     backend: 'docker' as const,
+    engineHost: 'auto' as const,
+    wslDistro: null,
     composeUp: vi.fn().mockResolvedValue(undefined),
     composeDown: vi.fn().mockResolvedValue(undefined),
     healthcheck: vi.fn().mockResolvedValue([
@@ -122,6 +126,8 @@ describe('bootstrapServices', () => {
       config: {
         schema_version: 1,
         container_runtime: 'docker',
+        container_engine_host: 'auto',
+        container_engine_wsl_distro: null,
         max_parallel_tasks: 10,
         retain_failed_task_worktrees: true,
         max_retained_failed_task_worktrees: 10,
@@ -172,7 +178,13 @@ describe('bootstrapServices', () => {
     await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
 
     const expectedFile = path.resolve('/repo', resolveDefaultComposeFile('docker'));
-    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', undefined);
+    expect(validateComposeConfig).toHaveBeenCalledWith(
+      expectedFile,
+      'docker',
+      undefined,
+      'auto',
+      null,
+    );
   });
 
   it('starts services with composeUp', async () => {
@@ -199,7 +211,13 @@ describe('bootstrapServices', () => {
     await bootstrapServices(mockRuntime, { repoRoot: '/repo', env });
 
     const expectedFile = path.resolve('/repo', resolveDefaultComposeFile('docker'));
-    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', env);
+    expect(validateComposeConfig).toHaveBeenCalledWith(
+      expectedFile,
+      'docker',
+      env,
+      'auto',
+      null,
+    );
     expect(mockRuntime.composeUp).toHaveBeenCalledWith(expect.objectContaining({ env }));
     expect(mockRuntime.healthcheck).toHaveBeenCalledWith([
       { name: 'repo-context-mcp', url: 'http://localhost:8817/health', maxRetries: 10, retryIntervalMs: 2000 },
@@ -217,6 +235,9 @@ describe('bootstrapServices', () => {
     ).rejects.toThrow('Health check failed for: repo-context-mcp');
     expect(mockRuntime.composeDown).toHaveBeenCalledWith({
       composeFile: path.resolve('/repo', resolveDefaultComposeFile('docker')),
+      env: undefined,
+      engineHost: 'auto',
+      wslDistro: null,
     });
   });
 
@@ -229,7 +250,13 @@ describe('bootstrapServices', () => {
     });
 
     const expectedFile = path.resolve('/repo', 'custom/compose.yml');
-    expect(validateComposeConfig).toHaveBeenCalledWith(expectedFile, 'docker', undefined);
+    expect(validateComposeConfig).toHaveBeenCalledWith(
+      expectedFile,
+      'docker',
+      undefined,
+      'auto',
+      null,
+    );
   });
 
   it('throws with validation errors if seed fails', async () => {
@@ -257,11 +284,16 @@ describe('bootstrapServices', () => {
       path.resolve('/repo', resolveDefaultComposeFile('podman')),
       'podman',
       undefined,
+      'auto',
+      null,
     );
     expect(podmanRuntime.composeUp).toHaveBeenCalledWith({
       composeFile: path.resolve('/repo', resolveDefaultComposeFile('podman')),
       detach: true,
       build: undefined,
+      env: undefined,
+      engineHost: 'auto',
+      wslDistro: null,
     });
   });
 

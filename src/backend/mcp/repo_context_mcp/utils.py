@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import tempfile
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-
 from .config import ALLOWED_LAYERS, REQUEST_ID_HEADER
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_SCOPE_MODES = {"focused"}
 
@@ -57,11 +57,48 @@ def resolve_path_within(base_dir: Path, value: str, field_name: str) -> Path:
     )
 
 
-def resolve_context_pack_dir(workspace_root: Path, context_pack_dir: str) -> Path:
-    """Resolve a context pack directory, allowing absolute paths."""
-    if Path(context_pack_dir).is_absolute():
-        return resolve_path(workspace_root, context_pack_dir)
-    return resolve_path_within(workspace_root, context_pack_dir, "context_pack_dir")
+ALLOWED_CONTAINER_ROOTS: tuple[PurePosixPath, ...] = (
+    PurePosixPath("/workspace"),
+    PurePosixPath("/mnt/context-pack"),
+)
+
+
+def resolve_context_pack_dir(
+    workspace_root: Path,
+    context_pack_dir: str,
+    *,
+    allow_host_paths: bool = False,
+) -> Path:
+    """Resolve the active context pack directory.
+
+    Contract: the value must be an absolute POSIX path under one of the
+    allowed mount roots. Anything else is a misconfiguration; fail closed.
+    """
+    candidate = PurePosixPath(context_pack_dir)
+    if not candidate.is_absolute():
+        raise ValueError(
+            f"context_pack_dir must be an absolute POSIX path; got {context_pack_dir!r}"
+        )
+    if not any(_is_under(candidate, root) for root in ALLOWED_CONTAINER_ROOTS):
+        if allow_host_paths:
+            host_candidate = Path(context_pack_dir)
+            if host_candidate.is_absolute():
+                return host_candidate.resolve()
+        roots = "/workspace, /mnt/context-pack"
+        raise ValueError(
+            f"context_pack_dir {context_pack_dir!r} is not under any allowed "
+            f"mount root ({roots})"
+        )
+    del workspace_root  # contract is independent of workspace root
+    return Path(str(candidate)).resolve()
+
+
+def _is_under(candidate: PurePosixPath, root: PurePosixPath) -> bool:
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -74,7 +111,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def write_text_atomic(path: Path, content: str) -> None:
-    """Write *content* to *path* atomically via temp-file + rename."""
+    """Write *content* to *path* atomically via temp-file + replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
         dir=path.parent,
@@ -86,7 +123,7 @@ def write_text_atomic(path: Path, content: str) -> None:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
-        os.rename(tmp_path, str(path))
+        os.replace(tmp_path, str(path))
     except BaseException:
         try:
             os.unlink(tmp_path)

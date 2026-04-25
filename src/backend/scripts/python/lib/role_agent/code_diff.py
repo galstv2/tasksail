@@ -12,9 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from src.backend.mcp.workspace_context_sync_service import DEFAULT_WORKSPACE_FILE
+
+logger = logging.getLogger(__name__)
 
 _EMPTY_SENTINEL = (
     "# No git diff available. Skip this file and scope "

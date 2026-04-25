@@ -18,6 +18,13 @@ describe('REQUIRED_DIRS contents', () => {
   });
 });
 
+describe('REQUIRED_FILES contents', () => {
+  it('requires GitHub Copilot instructions instead of legacy Claude instructions', () => {
+    expect(REQUIRED_FILES).toContain('.github/copilot-instructions.md');
+    expect(REQUIRED_FILES).not.toContain('CLAUDE.md');
+  });
+});
+
 describe('validateStructure', () => {
   let tmpDir: string;
 

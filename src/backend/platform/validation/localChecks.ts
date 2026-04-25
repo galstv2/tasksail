@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
-import { findRepoRoot, runPython } from '../core/index.js';
+import { findRepoRoot, isWindowsPlatform, runPython } from '../core/index.js';
 import { validateStructure } from './structure.js';
 import { checkFileSizes } from './fileSizes.js';
 import { checkExternalMcpRegistry } from './externalMcpCheck.js';
@@ -34,7 +34,7 @@ function runDesktopNpmCommand(
   args: string[],
   cwd: string,
 ): Promise<void> {
-  if (process.platform === 'win32') {
+  if (isWindowsPlatform()) {
     const command = process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe';
     return execFileAsync(command, ['/d', '/s', '/c', 'npm', ...args], {
       cwd,
@@ -73,6 +73,20 @@ async function runPytest(
   repoRoot: string,
   options: LocalChecksOptions,
 ): Promise<void> {
+  if (options.profile === 'smoke') {
+    await runPython(
+      path.join(repoRoot, 'src', 'backend', 'scripts', 'python', 'run-targeted-tests.py'),
+      [
+        '--manifest',
+        path.join(repoRoot, 'tests', 'test_manifest.json'),
+        '--lane',
+        'smoke',
+      ],
+      { cwd: repoRoot, timeout: 300_000 },
+    );
+    return;
+  }
+
   const testPath = options.domain
     ? `tests/domains/${options.domain}/`
     : 'tests/';

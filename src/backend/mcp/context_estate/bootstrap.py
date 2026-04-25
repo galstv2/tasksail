@@ -8,8 +8,8 @@ from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_builders import (
     _build_distributed_review_payload,
-    _merge_candidate_focus_areas,
     _build_monolith_review_payload,
+    _merge_candidate_focus_areas,
     _merge_candidate_repos,
 )
 from src.backend.mcp.context_estate.bootstrap_normalization import normalize_bootstrap_answers

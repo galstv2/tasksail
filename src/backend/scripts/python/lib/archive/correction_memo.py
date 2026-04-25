@@ -1,17 +1,12 @@
 """Behavior correction memo builder for retrospective cycles."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from ..io import load_text
 from ..markdown import parse_sections
+from ..registry import workflow_roles as _load_workflow_roles
 from ..time import current_utc_timestamp
 from .retrospective import format_ranked_markdown_lines
-from .storage import read_existing_created_at, sidecar_record_path
-
-
-from ..registry import workflow_roles as _load_workflow_roles
 
 _PLACEHOLDER_ITEMS = frozenset({
     "None identified.",

@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.constants import (
-    DEFAULT_REPOSITORY_TYPE,
     DEFAULT_DISTRIBUTED_SCAN_DEPTH,
+    DEFAULT_REPOSITORY_TYPE,
     DIRECT_FOCUS_TYPES,
     ESTATE_TYPES,
     GROUP_CHILD_TYPES,
@@ -21,7 +21,6 @@ from src.backend.mcp.repo_context_mcp.utils import (
     utc_now,
 )
 from src.backend.mcp.repo_type_probe import classify_repository_type
-
 
 _FOCUS_TYPE_TO_REPOSITORY_TYPE: dict[str, str] = {
     "service": "primary",

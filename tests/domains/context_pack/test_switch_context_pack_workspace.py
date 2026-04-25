@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+from typing import Any
 
 
 class SwitchContextPackWorkspaceTests(unittest.TestCase):

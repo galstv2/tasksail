@@ -10,6 +10,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from lib.workspace_paths import render_handoff_artifact_label, render_implementation_steps_label  # noqa: E402
+
 from tests.support.handoff_factory import write_text
 
 TEST_TASK_ID = "task-test-001"

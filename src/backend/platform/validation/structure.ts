@@ -20,7 +20,7 @@ export const REQUIRED_DIRS: string[] = [
 export const REQUIRED_FILES: string[] = [
   '.env.example',
   'Makefile',
-  'CLAUDE.md',
+  '.github/copilot-instructions.md',
 ];
 
 export interface StructureResult {

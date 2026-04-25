@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from src.backend.mcp.workspace_context_sync_service import (
     WorkspaceContextSyncService,

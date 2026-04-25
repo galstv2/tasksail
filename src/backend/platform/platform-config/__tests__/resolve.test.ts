@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { resolveContainerRuntime } from '../resolve.js';
+import { resolveContainerEngineHost, resolveContainerRuntime } from '../resolve.js';
 import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from '../types.js';
 
 let tmpDir: string;
@@ -11,28 +11,36 @@ let tmpDir: string;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-config-resolve-'));
   delete process.env['CONTAINER_RUNTIME'];
+  delete process.env['CONTAINER_ENGINE_HOST'];
+  delete process.env['CONTAINER_ENGINE_WSL_DISTRO'];
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env['CONTAINER_RUNTIME'];
+  delete process.env['CONTAINER_ENGINE_HOST'];
+  delete process.env['CONTAINER_ENGINE_WSL_DISTRO'];
 });
 
-function writeRuntimeConfig(containerRuntime: string): void {
+function writeRuntimeConfig(containerRuntime: string, containerEngineHost = 'auto', containerEngineWslDistro: string | null = null): void {
   const configPath = path.join(tmpDir, '.platform-state', 'platform.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({
     schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
     container_runtime: containerRuntime,
+    container_engine_host: containerEngineHost,
+    container_engine_wsl_distro: containerEngineWslDistro,
   }), 'utf-8');
 }
 
-function writeDefaultConfig(containerRuntime: string): void {
+function writeDefaultConfig(containerRuntime: string, containerEngineHost = 'auto', containerEngineWslDistro: string | null = null): void {
   const configPath = path.join(tmpDir, 'config', 'platform.default.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({
     schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
     container_runtime: containerRuntime,
+    container_engine_host: containerEngineHost,
+    container_engine_wsl_distro: containerEngineWslDistro,
   }), 'utf-8');
 }
 
@@ -78,5 +86,86 @@ describe('resolveContainerRuntime', () => {
     }), 'utf-8');
 
     await expect(resolveContainerRuntime(tmpDir)).rejects.toThrow('Invalid platform config');
+  });
+});
+
+describe('resolveContainerEngineHost', () => {
+  it('uses default config, defaulted runtime fields, then runtime config by priority', async () => {
+    writeDefaultConfig('podman', 'desktop-linux');
+    expect(await resolveContainerEngineHost(tmpDir)).toEqual({
+      host: 'desktop-linux',
+      wslDistro: null,
+    });
+
+    const configPath = path.join(tmpDir, '.platform-state', 'platform.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+      container_runtime: 'docker',
+    }), 'utf-8');
+    expect(await resolveContainerEngineHost(tmpDir)).toMatchObject({ host: 'auto' });
+
+    writeRuntimeConfig('docker', 'native');
+    expect(await resolveContainerEngineHost(tmpDir)).toEqual({
+      host: 'native',
+      wslDistro: null,
+    });
+  });
+
+  it('resolves wsl with distro from config', async () => {
+    writeRuntimeConfig('docker', 'wsl', 'Ubuntu');
+    expect(await resolveContainerEngineHost(tmpDir)).toEqual({
+      host: 'wsl',
+      wslDistro: 'Ubuntu',
+    });
+  });
+
+  it('throws for invalid config host, missing distro, and distro separators', async () => {
+    for (const args of [
+      ['invalid-host'],
+      ['wsl', null],
+      ['wsl', 'Ubuntu\\Latest'],
+    ] as const) {
+      writeRuntimeConfig('docker', args[0], args[1]);
+
+      await expect(resolveContainerEngineHost(tmpDir)).rejects.toThrow('Invalid platform config');
+    }
+  });
+
+  it('env overrides host and distro consistently', async () => {
+    writeRuntimeConfig('podman', 'native');
+    process.env['CONTAINER_ENGINE_HOST'] = 'wsl';
+    process.env['CONTAINER_ENGINE_WSL_DISTRO'] = 'Ubuntu';
+    expect(await resolveContainerEngineHost(tmpDir)).toEqual({
+      host: 'wsl',
+      wslDistro: 'Ubuntu',
+    });
+
+    delete process.env['CONTAINER_ENGINE_HOST'];
+    writeRuntimeConfig('podman', 'wsl', 'Debian');
+    process.env['CONTAINER_ENGINE_WSL_DISTRO'] = 'Ubuntu';
+    expect(await resolveContainerEngineHost(tmpDir)).toEqual({
+      host: 'wsl',
+      wslDistro: 'Ubuntu',
+    });
+  });
+
+  it('throws for invalid env overrides', async () => {
+    for (const [host, distro, message] of [
+      ['desktop-windows', undefined, 'CONTAINER_ENGINE_HOST'],
+      ['wsl', undefined, 'CONTAINER_ENGINE_WSL_DISTRO'],
+      ['wsl', 'Ubuntu/Latest', 'CONTAINER_ENGINE_WSL_DISTRO'],
+    ] as const) {
+      writeRuntimeConfig('podman', 'native');
+      process.env['CONTAINER_ENGINE_HOST'] = host;
+
+      if (distro === undefined) {
+        delete process.env['CONTAINER_ENGINE_WSL_DISTRO'];
+      } else {
+        process.env['CONTAINER_ENGINE_WSL_DISTRO'] = distro;
+      }
+
+      await expect(resolveContainerEngineHost(tmpDir)).rejects.toThrow(message);
+    }
   });
 });

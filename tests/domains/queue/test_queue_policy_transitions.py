@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 import subprocess
+import sys
 import unittest
+from pathlib import Path
 
 from tests.support.handoff_factory import write_text, write_valid_retrospective
 from tests.support.repo_file_sets import QUEUE_POLICY_WORKSPACE_FILES
 from tests.support.script_runner import run_script
-from tests.support.workspace_builder import prepare_workspace, seed_handoffs_from_templates
+from tests.support.workspace_builder import prepare_workspace
 
 _SCRIPT_DIR = Path(__file__).resolve().parents[3] / "src" / "backend" / "scripts" / "python"
 if str(_SCRIPT_DIR) not in sys.path:

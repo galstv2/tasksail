@@ -281,12 +281,13 @@ export async function pickContextPackDirectoryAction(
       properties: ['openDirectory', 'createDirectory', 'dontAddToRecent'],
     });
 
+    const selectedPath = result.canceled ? null : result.filePaths[0] ? resolve(result.filePaths[0]) : null;
     const response: ContextPackPickDirectoryResponse = {
       action: 'contextPack.pickDirectory',
       mode: result.canceled ? 'cancelled' : 'selected',
       message: result.canceled ? 'Directory selection was cancelled.' : 'Directory selected for context-pack creation.',
       purpose: payload.purpose,
-      selectedPath: result.canceled ? null : result.filePaths[0] ?? null,
+      selectedPath,
     };
 
     return { ok: true, response };
@@ -684,7 +685,7 @@ export async function pickMarkdownFileAction(): Promise<DesktopInvokeResult> {
       return { ok: true, response };
     }
 
-    const filePath = result.filePaths[0];
+    const filePath = resolve(result.filePaths[0]);
     const ext = extname(filePath).toLowerCase();
     if (ext !== '.md') {
       return {

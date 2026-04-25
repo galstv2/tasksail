@@ -134,20 +134,20 @@ describe('ContextPackSidebarExpanded', () => {
     expect(screen.getByLabelText('Refresh packs')).toBeDisabled();
   });
 
-  it('renders Reseed and Eject toolbar buttons', () => {
+  it('renders Reseed and Clear toolbar buttons', () => {
     render(<ContextPackSidebarExpanded {...defaultProps} />);
     expect(screen.getByLabelText('Reseed pack')).toBeInTheDocument();
-    expect(screen.getByLabelText('Eject pack')).toBeInTheDocument();
+    expect(screen.getByLabelText('Clear pack')).toBeInTheDocument();
   });
 
-  it('disables Eject when no active context pack is applied', () => {
+  it('disables Clear when no active context pack is applied', () => {
     render(<ContextPackSidebarExpanded {...defaultProps} activeContextPackDir={null} />);
-    expect(screen.getByLabelText('Eject pack')).toBeDisabled();
+    expect(screen.getByLabelText('Clear pack')).toBeDisabled();
   });
 
-  it('enables Eject when an active context pack exists', () => {
+  it('enables Clear when an active context pack exists', () => {
     render(<ContextPackSidebarExpanded {...defaultProps} activeContextPackDir="/packs/my-pack" />);
-    expect(screen.getByLabelText('Eject pack')).not.toBeDisabled();
+    expect(screen.getByLabelText('Clear pack')).not.toBeDisabled();
   });
 
   it('renders generic primary selection warning copy', () => {
