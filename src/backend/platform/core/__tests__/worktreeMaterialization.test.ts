@@ -112,6 +112,23 @@ function makeStatfsMockDispatch(
     (p.includes(matchSubstr) ? whenMatch : otherwise) as unknown as ReturnType<StatfsSyncFn>;
 }
 
+type WorktreeMaterializationModule = typeof import('../worktreeMaterialization.js');
+
+async function importWindowsWorktreeMaterialization(options: {
+  volumesShareReFS?: boolean;
+  reflinkMock?: () => unknown;
+} = {}): Promise<WorktreeMaterializationModule> {
+  vi.resetModules();
+  vi.doMock('../platform.js', () => ({
+    isWindowsPlatform: () => true,
+    windowsVolumesShareReFS: () => options.volumesShareReFS ?? true,
+  }));
+  if (options.reflinkMock) {
+    vi.doMock('@reflink/reflink', options.reflinkMock);
+  }
+  return import('../worktreeMaterialization.js');
+}
+
 // ---------------------------------------------------------------------------
 // §4.14 Done-when #1 — happy path: worktree dir created, git list shows entry
 // ---------------------------------------------------------------------------
@@ -652,5 +669,165 @@ describe('§4.14 preconditionsPass — worktree-already-bound', () => {
     const result = await preconditionsPass(originalRoot, 'clean-task-id', worktreePath);
     expect(result.ok).toBe(true);
     expect(result.reason).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4.14 Windows ReFS CoW branch — mocked
+// ---------------------------------------------------------------------------
+
+describe('§4.14 Windows ReFS CoW branch — mocked', () => {
+  let platformDescriptor: PropertyDescriptor;
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'wt-win-refs-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+    Object.defineProperty(process, 'platform', platformDescriptor);
+    vi.doUnmock('../platform.js');
+    vi.doUnmock('@reflink/reflink');
+    vi.resetModules();
+  });
+
+  it("Windows: detectCloneStrategy returns 'win-refs' when both volumes are ReFS and share the same drive letter", async () => {
+    const { detectCloneStrategy: detectWindowsCloneStrategy } =
+      await importWindowsWorktreeMaterialization({ volumesShareReFS: true });
+
+    expect(
+      detectWindowsCloneStrategy('Z:\\repo', 'Z:\\repo\\AgentWorkSpace\\tasks\\t1'),
+    ).toBe('win-refs');
+  });
+
+  it("Windows: detectCloneStrategy returns 'copy' when volumes differ", async () => {
+    const { detectCloneStrategy: detectWindowsCloneStrategy } =
+      await importWindowsWorktreeMaterialization({ volumesShareReFS: false });
+
+    expect(
+      detectWindowsCloneStrategy('Z:\\repo', 'Y:\\repo\\AgentWorkSpace\\tasks\\t1'),
+    ).toBe('copy');
+  });
+
+  it("Windows: detectCloneStrategy returns 'copy' when volume is NTFS", async () => {
+    const { detectCloneStrategy: detectWindowsCloneStrategy } =
+      await importWindowsWorktreeMaterialization({ volumesShareReFS: false });
+
+    expect(
+      detectWindowsCloneStrategy('Z:\\repo', 'Z:\\repo\\AgentWorkSpace\\tasks\\t1'),
+    ).toBe('copy');
+  });
+
+  it("Windows: cloneTree with 'win-refs' falls back to copy when @reflink/reflink is absent with MODULE_NOT_FOUND", async () => {
+    const { materializeWorktreeDeps: materializeWindowsDeps } =
+      await importWindowsWorktreeMaterialization({
+        reflinkMock: () => ({
+          get default() {
+            throw Object.assign(new Error('Cannot find module @reflink/reflink'), {
+              code: 'MODULE_NOT_FOUND',
+            });
+          },
+        }),
+      });
+    const originalRoot = path.join(tmpRoot, 'origin');
+    const worktreeRoot = path.join(tmpRoot, 'worktree');
+    const dependencyRoot = path.join(originalRoot, 'node_modules');
+    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
+    mkdirSync(worktreeRoot);
+    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
+
+    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
+
+    expect(result.strategy).toBe('win-refs');
+    expect(result.cloned).toContain('node_modules');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
+      .toBe('module.exports = 1;\n');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
+      .toBe('module.exports = 2;\n');
+  });
+
+  it("Windows: cloneTree with 'win-refs' falls back to copy on EXDEV from reflinkFileSync", async () => {
+    const { materializeWorktreeDeps: materializeWindowsDeps } =
+      await importWindowsWorktreeMaterialization({
+        reflinkMock: () => ({
+          default: {
+            reflinkFileSync: () => {
+              throw Object.assign(new Error('cross-device reflink'), { code: 'EXDEV' });
+            },
+          },
+        }),
+      });
+    const originalRoot = path.join(tmpRoot, 'origin');
+    const worktreeRoot = path.join(tmpRoot, 'worktree');
+    const dependencyRoot = path.join(originalRoot, 'node_modules');
+    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
+    mkdirSync(worktreeRoot);
+    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
+
+    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
+
+    expect(result.strategy).toBe('win-refs');
+    expect(result.cloned).toContain('node_modules');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
+      .toBe('module.exports = 1;\n');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
+      .toBe('module.exports = 2;\n');
+  });
+
+  it("Windows: cloneTree with 'win-refs' falls back to copy on ERROR_BLOCK_TOO_MANY_REFERENCES message", async () => {
+    const { materializeWorktreeDeps: materializeWindowsDeps } =
+      await importWindowsWorktreeMaterialization({
+        reflinkMock: () => ({
+          default: {
+            reflinkFileSync: () => {
+              throw new Error('ERROR_BLOCK_TOO_MANY_REFERENCES');
+            },
+          },
+        }),
+      });
+    const originalRoot = path.join(tmpRoot, 'origin');
+    const worktreeRoot = path.join(tmpRoot, 'worktree');
+    const dependencyRoot = path.join(originalRoot, 'node_modules');
+    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
+    mkdirSync(worktreeRoot);
+    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
+
+    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
+
+    expect(result.strategy).toBe('win-refs');
+    expect(result.cloned).toContain('node_modules');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
+      .toBe('module.exports = 1;\n');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
+      .toBe('module.exports = 2;\n');
+  });
+
+  it("Windows: cloneTree with 'win-refs' propagates non-recoverable EACCES", async () => {
+    const { materializeWorktreeDeps: materializeWindowsDeps } =
+      await importWindowsWorktreeMaterialization({
+        reflinkMock: () => ({
+          default: {
+            reflinkFileSync: () => {
+              throw Object.assign(new Error('access denied'), { code: 'EACCES' });
+            },
+          },
+        }),
+      });
+    const originalRoot = path.join(tmpRoot, 'origin');
+    const worktreeRoot = path.join(tmpRoot, 'worktree');
+    const dependencyRoot = path.join(originalRoot, 'node_modules');
+    mkdirSync(dependencyRoot, { recursive: true });
+    mkdirSync(worktreeRoot);
+    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+
+    await expect(
+      materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']),
+    ).rejects.toMatchObject({ code: 'EACCES' });
   });
 });

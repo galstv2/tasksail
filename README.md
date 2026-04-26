@@ -28,6 +28,7 @@ You watch the progress in a desktop app that shows what each agent is doing in r
 - **GitHub Copilot CLI** access for your GitHub account
 
 See [docs/cross-os-setup.md](docs/cross-os-setup.md) for macOS / Linux / Windows setup details.
+Windows operators: see the [Dev Drive / ReFS section](docs/cross-os-setup.md#windows-copy-on-write-refs--dev-drive) to enable Copy-on-Write task activation.
 
 ## Installation
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { ContainerEngineHost } from './types.js';
 
+/** Keep direct process.platform reads centralized in this module. */
 /** True when running on native Windows (not WSL). */
 export function isWindowsPlatform(): boolean {
   return process.platform === 'win32';
@@ -46,6 +47,67 @@ export function isWSLWindowsPath(filePath: string): boolean {
   return isWSL() && /^\/mnt\/[a-zA-Z]\//.test(filePath);
 }
 
+/**
+ * Return the volume root for a Windows path: the drive letter form ("C:\")
+ * or the volume GUID prefix ("\\?\Volume{...}\"). Used to compare two
+ * paths' volume identity without parsing UNC paths or symlinks.
+ *
+ * Returns null on non-Windows platforms or when the input cannot be parsed.
+ * Does not touch the filesystem.
+ */
+export function windowsVolumeRoot(p: string): string | null {
+  if (!isWindowsPlatform()) return null;
+  const driveMatch = /^([A-Za-z]:)[\\/]/.exec(p);
+  if (driveMatch) return `${driveMatch[1].toUpperCase()}\\`;
+  const guidMatch = /^(\\\\\?\\Volume\{[0-9a-fA-F-]+\})\\/.exec(p);
+  if (guidMatch) return `${guidMatch[1]}\\`;
+  return null;
+}
+
+const _winFsTypeCache = new Map<string, string | null>();
+
+/**
+ * Probe the filesystem type of a Windows volume root via `fsutil fsinfo
+ * volumeinfo`. Returns the lowercased filesystem name ("ntfs", "refs", "exfat")
+ * or null on non-Windows platforms or when fsutil fails.
+ *
+ * Memoized per volume root for the process lifetime. fsutil output is stable
+ * for the lifetime of a Windows volume mount.
+ */
+export function windowsVolumeFilesystemType(
+  volumeRoot: string,
+): string | null {
+  if (!isWindowsPlatform()) return null;
+  if (_winFsTypeCache.has(volumeRoot)) return _winFsTypeCache.get(volumeRoot)!;
+  let fsName: string | null = null;
+  try {
+    const out = execFileSync('fsutil', ['fsinfo', 'volumeinfo', volumeRoot], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    const match = /File System Name\s*:\s*(\w+)/i.exec(out);
+    fsName = match ? match[1].toLowerCase() : null;
+  } catch {
+    fsName = null;
+  }
+  _winFsTypeCache.set(volumeRoot, fsName);
+  return fsName;
+}
+
+/**
+ * True when both paths resolve to the same Windows volume root and that volume
+ * is formatted as ReFS. Returns false on non-Windows hosts.
+ */
+export function windowsVolumesShareReFS(
+  srcPath: string,
+  dstPath: string,
+): boolean {
+  const srcRoot = windowsVolumeRoot(srcPath);
+  const dstRoot = windowsVolumeRoot(dstPath);
+  if (!srcRoot || !dstRoot || srcRoot !== dstRoot) return false;
+  return windowsVolumeFilesystemType(srcRoot) === 'refs';
+}
+
 let _isDockerDesktop: boolean | undefined;
 
 /**
@@ -77,6 +139,7 @@ export function _resetPlatformDetectionForTests(): void {
   }
   _isWSL = undefined;
   _isDockerDesktop = undefined;
+  _winFsTypeCache.clear();
 }
 
 export interface EngineHostPathOptions {

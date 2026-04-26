@@ -16,11 +16,11 @@ from ..utils import (
     utc_now,
 )
 from ..utils import (
-    resolve_context_pack_dir as _resolve_context_pack_dir,
+    resolve_context_data_dir as _resolve_context_data_dir,
 )
 from .manifest_updater import update_manifest_repository_types
 from .qmd_index_service import QmdIndexService
-from .runtime_state import SeedRuntimeState  # re-exported for existing callers
+from .runtime_state import SeedRuntimeState  # noqa: F401 - re-exported for existing callers
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +86,9 @@ class SeedingService:
         )
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return _resolve_context_pack_dir(
+        return _resolve_context_data_dir(
             self.workspace_root,
             context_pack_dir,
-            allow_host_paths=True,
         )
 
     def _normalize_qmd_scope_root(

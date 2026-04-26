@@ -14,7 +14,7 @@ from ..utils import (
     resolve_path_within,
 )
 from ..utils import (
-    resolve_context_pack_dir as _resolve_context_pack_dir,
+    resolve_context_data_dir as _resolve_context_data_dir,
 )
 from .record_cache import ScopedRecordCache
 
@@ -41,10 +41,9 @@ class TaskArchiveService:
         self._record_cache = record_cache or ScopedRecordCache()
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return _resolve_context_pack_dir(
+        return _resolve_context_data_dir(
             self.workspace_root,
             context_pack_dir,
-            allow_host_paths=True,
         )
 
     def _resolve_scope_dir(self, context_pack_path: Path, qmd_scope: str) -> Path:

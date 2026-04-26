@@ -66,13 +66,16 @@ ALLOWED_CONTAINER_ROOTS: tuple[PurePosixPath, ...] = (
 def resolve_context_pack_dir(
     workspace_root: Path,
     context_pack_dir: str,
-    *,
-    allow_host_paths: bool = False,
 ) -> Path:
     """Resolve the active context pack directory.
 
     Contract: the value must be an absolute POSIX path under one of the
     allowed mount roots. Anything else is a misconfiguration; fail closed.
+
+    Service code paths that operate on host-mounted data roots rather than
+    container-internal mount points should use :func:`resolve_context_data_dir`
+    instead — keeping that escape hatch out of this function preserves the
+    strict invariant for every call site.
     """
     candidate = PurePosixPath(context_pack_dir)
     if not candidate.is_absolute():
@@ -80,17 +83,42 @@ def resolve_context_pack_dir(
             f"context_pack_dir must be an absolute POSIX path; got {context_pack_dir!r}"
         )
     if not any(_is_under(candidate, root) for root in ALLOWED_CONTAINER_ROOTS):
-        if allow_host_paths:
-            host_candidate = Path(context_pack_dir)
-            if host_candidate.is_absolute():
-                return host_candidate.resolve()
-        roots = "/workspace, /mnt/context-pack"
+        roots = ", ".join(str(r) for r in ALLOWED_CONTAINER_ROOTS)
         raise ValueError(
             f"context_pack_dir {context_pack_dir!r} is not under any allowed "
             f"mount root ({roots})"
         )
     del workspace_root  # contract is independent of workspace root
     return Path(str(candidate)).resolve()
+
+
+def resolve_context_data_dir(
+    workspace_root: Path,
+    context_pack_dir: str,
+) -> Path:
+    """Resolve a context-pack-derived data root that may live on the host.
+
+    Used by service-side flows (archive, seeding, lineage) that operate on
+    host-mounted data directories rather than container-internal mount
+    points. When the value points under an allowed container root the
+    behavior is identical to :func:`resolve_context_pack_dir`. Otherwise
+    the value must still be an absolute path — relative input is rejected.
+    """
+    posix_candidate = PurePosixPath(context_pack_dir)
+    if posix_candidate.is_absolute() and any(
+        _is_under(posix_candidate, root) for root in ALLOWED_CONTAINER_ROOTS
+    ):
+        del workspace_root
+        return Path(str(posix_candidate)).resolve()
+    host_candidate = Path(context_pack_dir)
+    if not host_candidate.is_absolute():
+        roots = ", ".join(str(r) for r in ALLOWED_CONTAINER_ROOTS)
+        raise ValueError(
+            f"context_pack_dir {context_pack_dir!r} must be an absolute path "
+            f"(either a host path or under one of: {roots})"
+        )
+    del workspace_root
+    return host_candidate.resolve()
 
 
 def _is_under(candidate: PurePosixPath, root: PurePosixPath) -> bool:

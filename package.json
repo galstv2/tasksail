@@ -22,7 +22,7 @@
     "test:integration": "tsx src/backend/platform/validation/cli.ts local-checks --profile integration",
     "test:contracts": "tsx src/backend/platform/validation/cli.ts local-checks --profile contracts",
     "check-sizes": "tsx src/backend/platform/validation/cli.ts check-sizes",
-    "lint:python": "ruff check .",
+    "lint:python": "python3 -m ruff check .",
     "new-task": "tsx src/backend/platform/queue/cli.ts init",
     "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",
     "watch-dropbox": "tsx src/backend/platform/queue/cli.ts poll",
@@ -38,5 +38,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.8.2",
     "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "@reflink/reflink": "0.1.19"
   }
 }

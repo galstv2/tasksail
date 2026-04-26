@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..utils import (
     normalize_optional_string,
-    resolve_context_pack_dir,
+    resolve_context_data_dir,
     resolve_path_within,
 )
 
@@ -175,10 +175,9 @@ class LineageService:
         return summary
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return resolve_context_pack_dir(
+        return resolve_context_data_dir(
             self._workspace_root,
             context_pack_dir,
-            allow_host_paths=True,
         )
 
     @staticmethod

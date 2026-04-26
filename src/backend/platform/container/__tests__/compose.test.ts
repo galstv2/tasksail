@@ -1,4 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Default-passthrough mock for `core.toEngineHostPath`. The compose builder
+// pipes `composeFile` through this helper before emitting `-f`, so without a
+// stub the real implementation would shell out to `wsl.exe` / `wslpath` in
+// the WSL test case below. The default identity behavior preserves the
+// existing tests' expectations (paths flow through unchanged) while the new
+// WSL test overrides per-call to assert on the translation wiring.
+//
+// `vi.hoisted` is required because `vi.mock` is hoisted to the top of the
+// file by Vitest; without hoisting the mock variable in tandem, the factory
+// would dereference `toEngineHostPathMock` before its `const` initializer ran.
+const { toEngineHostPathMock } = vi.hoisted(() => ({
+  toEngineHostPathMock: vi.fn((p: string) => p),
+}));
+
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return {
+    ...actual,
+    toEngineHostPath: toEngineHostPathMock,
+  };
+});
+
 import { buildComposeCommand } from '../compose.js';
 import { DEFAULT_COMPOSE_FILE, resolveDefaultComposeFile } from '../types.js';
 
@@ -83,6 +106,30 @@ describe('buildComposeCommand', () => {
       'docker',
       'compose',
     ]);
+  });
+
+  it('translates composeFile through toEngineHostPath for WSL engine hosts', () => {
+    // Stand in for the wsl.exe + wslpath shell-out so the test runs on any host.
+    // The fixed input/output is a representative C: drive translation; we only
+    // assert the wiring (composeFile → toEngineHostPath → -f arg), not the
+    // translation logic itself (covered by platform.test.ts).
+    toEngineHostPathMock.mockImplementationOnce(
+      () => '/mnt/c/repo/docker-compose.yml',
+    );
+
+    const cmd = buildComposeCommand('docker', 'up', {
+      engineHost: 'wsl',
+      wslDistro: 'Ubuntu',
+      composeFile: 'C:\\repo\\docker-compose.yml',
+    });
+
+    expect(toEngineHostPathMock).toHaveBeenCalledWith(
+      'C:\\repo\\docker-compose.yml',
+      { engineHost: 'wsl', wslDistro: 'Ubuntu' },
+    );
+    const fIdx = cmd.indexOf('-f');
+    expect(fIdx).toBeGreaterThanOrEqual(0);
+    expect(cmd[fIdx + 1]).toBe('/mnt/c/repo/docker-compose.yml');
   });
 
   it('keeps docker and podman compose direct for desktop-linux engine hosts', () => {

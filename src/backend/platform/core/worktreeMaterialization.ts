@@ -23,13 +23,18 @@ import { statfsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 
+import {
+  isWindowsPlatform,
+  windowsVolumesShareReFS,
+} from './platform.js';
+
 const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type CloneStrategy = 'apfs-clonefile' | 'reflink' | 'copy';
+export type CloneStrategy = 'apfs-clonefile' | 'reflink' | 'win-refs' | 'copy';
 
 export interface PreconditionResult {
   ok: boolean;
@@ -176,6 +181,10 @@ export function detectCloneStrategy(
     return 'copy';
   }
 
+  if (isWindowsPlatform() && windowsVolumesShareReFS(repoRoot, worktreeParent)) {
+    return 'win-refs';
+  }
+
   if (process.platform === 'linux' && filesystemSupportsReflink(repoRoot, worktreeParent, statfsFn)) {
     return 'reflink';
   }
@@ -187,6 +196,62 @@ export function detectCloneStrategy(
 // Tree clone
 // ---------------------------------------------------------------------------
 
+/**
+ * Walks `src` recursively and reflinks every file into `dst` using the
+ * dynamically-imported `@reflink/reflink` package.
+ */
+async function reflinkTreeWindows(src: string, dst: string): Promise<void> {
+  const mod = await import('@reflink/reflink');
+  // Defensive ESM/CJS interop. The package publishes CommonJS
+  // (`module.exports = { reflinkFile, reflinkFileSync }`). Modern Node
+  // surfaces those at the top level via static analysis, but the
+  // version-independent form is `(mod.default ?? mod)`. Do NOT collapse
+  // this to `mod.reflinkFileSync` — it ties us to a Node-version
+  // assumption that can silently break under different module-resolution
+  // modes (notably `verbatimModuleSyntax`/`module: nodenext`).
+  const reflinkExports = (mod as { default?: unknown }).default ?? mod;
+  const { reflinkFileSync } = reflinkExports as {
+    reflinkFileSync: (s: string, d: string) => number;
+  };
+  await walkAndReflink(src, dst, reflinkFileSync);
+}
+
+async function walkAndReflink(
+  src: string,
+  dst: string,
+  reflinkFileSync: (s: string, d: string) => number,
+): Promise<void> {
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  await fs.promises.mkdir(dst, { recursive: true });
+  for (const entry of entries) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      await walkAndReflink(s, d, reflinkFileSync);
+    } else if (entry.isFile()) {
+      reflinkFileSync(s, d);
+    } else if (entry.isSymbolicLink()) {
+      const target = await fs.promises.readlink(s);
+      await fs.promises.symlink(target, d);
+    }
+  }
+}
+
+function isReflinkRecoverable(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  const message = (err as Error).message ?? '';
+  return (
+    code === 'MODULE_NOT_FOUND' ||
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'EXDEV' ||
+    code === 'ENOTSUP' ||
+    code === 'EOPNOTSUPP' ||
+    /ERROR_BLOCK_TOO_MANY_REFERENCES/i.test(message) ||
+    /cloning is not supported/i.test(message)
+  );
+}
+
 async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Promise<void> {
   switch (strategy) {
     case 'apfs-clonefile':
@@ -195,6 +260,17 @@ async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Pro
     case 'reflink':
       await execFile('cp', ['-r', '--reflink=auto', src, dst]);
       return;
+    case 'win-refs':
+      try {
+        await reflinkTreeWindows(src, dst);
+        return;
+      } catch (err) {
+        if (isReflinkRecoverable(err)) {
+          await fs.promises.cp(src, dst, { recursive: true, force: true });
+          return;
+        }
+        throw err;
+      }
     case 'copy':
       // Node fs.promises.cp is cross-platform (Windows-safe).
       // Never shell out to `cp` on Windows.

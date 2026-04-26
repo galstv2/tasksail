@@ -56,3 +56,38 @@
 
 - Windows directory junctions that resolve unexpectedly via `realpathSync` are unsupported for context-pack internals
 - Docker Desktop 4.x+ with WSL2 backend is the supported floor on Windows
+
+## Windows Copy-on-Write (ReFS / Dev Drive)
+
+Full repo copies on Windows are slow and disk-heavy because NTFS lacks Copy-on-Write. The platform's task activation calls `materializeWorktreeDeps`, which clones the repo into `AgentWorkSpace/tasks/<id>/`. On Windows ReFS volumes, including Microsoft Dev Drive on Windows 11 22H2+, the platform performs an O(metadata) block clone instead. On NTFS, the platform falls back to the cross-platform Node `fs.promises.cp` current behavior.
+
+### When the speedup applies
+
+- Windows host
+- Source repo and `AgentWorkSpace/tasks/` are on the same volume (which is the default — `AgentWorkSpace` lives inside the repo)
+- The volume is formatted as ReFS
+- The optional `@reflink/reflink` npm package installed successfully (it is a native add-on and may be blocked in some enterprise environments)
+
+### Recommended setup: Dev Drive (Windows 11 22H2+)
+
+- Settings → System → Storage → Advanced storage settings → Disks & volumes → Create dev drive
+- Choose "Create new VHD" or use unallocated space; minimum 50 GB
+- Format as ReFS (Dev Drive presets this); the Dev Drive flag is what unlocks performance optimizations and security defaults
+- Move (or freshly clone) the TaskSail repo onto the Dev Drive
+- Run `pnpm install` from the Dev Drive location
+
+### Verifying CoW is active
+
+- Run `fsutil fsinfo volumeinfo Z:` (replace Z: with your drive letter); confirm "File System Name : ReFS"
+- After activating a task, compare wall-clock activation time before and after; CoW activations complete in well under one second regardless of repo size
+- Optional operator note: `Get-FileIntegrity <path>` in PowerShell can inspect block-clone metadata on Windows hosts that provide that cmdlet
+
+### If you cannot install @reflink/reflink
+
+- The package is listed under `optionalDependencies`; `pnpm install` does not fail when the native add-on cannot build
+- Without the package, task activation behaves exactly as it does today (full Node `fs.cp`). No errors, no degraded behavior beyond the speed cost.
+- Enterprise operators can pin the absence by ensuring `pnpm install --ignore-scripts` is the install path used by their provisioning tooling
+
+### Cross-volume note
+
+- ReFS block cloning is intra-volume only. If you place `AgentWorkSpace/` on a different volume than the repo (via a symlink, junction, or environment override), the kernel returns `EXDEV` and the platform falls back to the copy path. Keep `AgentWorkSpace/` on the same volume as the repo to retain the speedup.
