@@ -27,8 +27,15 @@ export async function preCommitHook(repoRoot?: string): Promise<PreCommitResult>
   const stagedFiles = await getGitStagedFiles(root);
   const failures: string[] = [];
 
-  const defaultBaseline = path.join(root, 'packages', 'validation', 'data', 'file-size-pmseline.txt');
-  const pmseline = await loadBaseline(defaultBaseline);
+  // Canonical baseline location — must match the path used by
+  // `checkFileSizes` in `fileSizes.ts`. Diverging here would silently make
+  // the hook ignore per-file baselines and fall back to the raw default
+  // limits, which is what every file gets compared against when this path
+  // doesn't resolve.
+  const defaultBaseline = path.join(
+    root, 'src', 'backend', 'platform', 'validation', 'data', 'file-size-baseline.txt',
+  );
+  const baseline = await loadBaseline(defaultBaseline);
 
   const relevantExtensions = new Set(Object.keys(FILE_SIZE_LIMITS));
 
@@ -44,13 +51,13 @@ export async function preCommitHook(repoRoot?: string): Promise<PreCommitResult>
     const limit = FILE_SIZE_LIMITS[ext] ?? 0;
     if (limit === 0) continue;
 
-    const pmselineMax = pmseline.get(file);
-    const effectiveMax = pmselineMax ?? limit;
+    const baselineMax = baseline.get(file);
+    const effectiveMax = baselineMax ?? limit;
     const refactorLimit = Math.floor(effectiveMax * REFACTOR_THRESHOLD);
 
     if (lines > refactorLimit) {
       failures.push(
-        `${file}: ${lines} lines (>= 50% over ${pmselineMax !== undefined ? 'pmseline' : 'limit'} ${effectiveMax}, threshold ${refactorLimit})`,
+        `${file}: ${lines} lines (>= 50% over ${baselineMax !== undefined ? 'baseline' : 'limit'} ${effectiveMax}, threshold ${refactorLimit})`,
       );
     }
   }
