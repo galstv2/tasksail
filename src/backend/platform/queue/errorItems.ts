@@ -6,6 +6,7 @@ import { activeItemPath, resolveQueuePaths } from './paths.js';
 import { findRepoRoot } from '../core/index.js';
 import {
   activateNextPendingItemIfReady,
+  acquireDirLockOrThrow,
   getActiveTaskIds,
   insertIntoQueueManifest,
   readQueueOrderManifest,
@@ -22,6 +23,18 @@ const execFileAsync = promisify(execFileCb);
 // ---------------------------------------------------------------------------
 // Git helpers (retained for commitTaskSnapshot worktree commits)
 // ---------------------------------------------------------------------------
+
+class GitCommandError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode: number | null,
+    readonly stdout: string,
+    readonly stderr: string,
+  ) {
+    super(message);
+    this.name = 'GitCommandError';
+  }
+}
 
 function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -40,7 +53,12 @@ function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; std
     child.on('close', (code: number | null) => {
       if (code !== 0) {
         const details = stderr.trim() || stdout.trim() || '<no output>';
-        reject(new Error(`git ${args.join(' ')} failed in ${repoRoot} with exit ${code ?? 1}: ${details}`));
+        reject(new GitCommandError(
+          `git ${args.join(' ')} failed in ${repoRoot} with exit ${code ?? 1}: ${details}`,
+          code,
+          stdout,
+          stderr,
+        ));
         return;
       }
       resolve({ stdout, stderr });
@@ -85,17 +103,23 @@ export async function commitTaskSnapshot(
     try {
       await runGit(binding.worktreeRoot, ['add', '-A']);
 
-      const label = outcome === 'completed' ? 'completed' : 'pipeline failed';
       try {
-        await runGit(binding.worktreeRoot, [
-          'commit',
-          '-m', `[tasksail] ${taskId}: ${label}`,
-          '--no-verify',
-        ]);
-      } catch {
-        // Nothing staged — git commit exits non-zero on empty tree. Skip.
+        await runGit(binding.worktreeRoot, ['diff', '--cached', '--quiet']);
+        // Empty staged tree: git diff --cached --quiet exits 0, so there is nothing to commit.
         continue;
+      } catch (err) {
+        if (!(err instanceof GitCommandError) || err.exitCode !== 1) {
+          throw err;
+        }
       }
+
+      const label = outcome === 'completed' ? 'completed' : 'pipeline failed';
+      await runGit(binding.worktreeRoot, [
+        '-c', 'commit.gpgsign=false', // Platform-internal snapshots must ignore operator/global signing policy.
+        'commit',
+        '-m', `[tasksail] ${taskId}: ${label}`,
+        '--no-verify',
+      ]);
       // NOTE: resetHead behavior deleted — worktree will be finalized/torn down.
     } catch (err) {
       process.stderr.write(
@@ -121,6 +145,7 @@ export async function commitTaskSnapshot(
  * picking the same retry<N>.
  */
 async function pickNextRetryN(taskId: string, root: string): Promise<number> {
+  await assertQueueLockHeld(root);
   const sidecar = readTaskJsonSafe(taskId, root);
   if (!sidecar) return 1;
   const originalSlug = taskId.replace(/-retry\d+$/, '');
@@ -145,6 +170,28 @@ async function pickNextRetryN(taskId: string, root: string): Promise<number> {
   let n = 1;
   while (taken.has(n)) n++;
   return n;
+}
+
+export async function assertQueueLockHeld(repoRoot: string): Promise<void> {
+  const ownerPath = path.join(resolveQueuePaths(repoRoot).queueLockDir, 'owner.json');
+  const message = 'queue lock assertion failed: pickNextRetryN requires the queue lock';
+
+  let owner: unknown;
+  try {
+    owner = JSON.parse(await readFile(ownerPath, 'utf-8'));
+  } catch (err) {
+    throw new Error(message, { cause: err });
+  }
+
+  if (
+    typeof owner !== 'object'
+    || owner === null
+    || !('pid' in owner)
+    || typeof owner.pid !== 'number'
+    || owner.pid !== process.pid
+  ) {
+    throw new Error(message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +334,7 @@ export async function moveFailedItemToErrorItems(options: {
  * when retain_failed_task_worktrees=true. The pending item file is renamed to
  * `<original-slug>-retry<N>.md` so that activation picks up the correct taskId
  * without needing an override parameter. Enforces max_retry_generations_per_slug.
- * MUST be called under the queue lock (the caller's activation critical section).
+ * Owns its queue mutation critical section internally.
  */
 export async function requeueErrorItem(options: {
   fileName: string;
@@ -301,63 +348,69 @@ export async function requeueErrorItem(options: {
   const requeuedTaskId = options.fileName.replace(/\.md$/, '');
   const originalSlug = requeuedTaskId.replace(/-retry\d+$/, '');
 
-  // Determine the retry-suffix for the new activation.
-  // Scan MUST run under the queue lock (enforced by caller's critical section).
-  const cfg = await getPlatformConfig(root);
-  const n = await pickNextRetryN(requeuedTaskId, root);
-  const cap = cfg.max_retry_generations_per_slug;
+  await mkdir(queuePaths.pendingDir, { recursive: true });
+  const release = await acquireDirLockOrThrow(queuePaths.queueLockDir, 'Requeue');
+  let requeuedItem: string;
+  try {
+    const cfg = await getPlatformConfig(root);
+    const n = await pickNextRetryN(requeuedTaskId, root);
+    const cap = cfg.max_retry_generations_per_slug;
 
-  if (n > cap) {
-    // Collect the taken set for the error payload (pickNextRetryN computed it
-    // internally; re-scan here to provide the structured payload).
-    const sidecar = readTaskJsonSafe(requeuedTaskId, root);
-    const takenSet = new Set<number>();
-    if (sidecar) {
-      for (const binding of sidecar.contextPackBinding.repoBindings) {
-        try {
-          const result = await execFileAsync('git', [
-            '-C', binding.originalRoot, 'for-each-ref',
-            '--format=%(refname:short)',
-            `refs/heads/task/${originalSlug}-retry*`,
-          ]);
-          for (const line of result.stdout.split('\n')) {
-            const m = line.match(/-retry(\d+)$/);
-            if (m) takenSet.add(parseInt(m[1]!, 10));
-          }
-        } catch { /* swallow */ }
+    if (n > cap) {
+      // Collect the taken set for the error payload (pickNextRetryN computed it
+      // internally; re-scan here to provide the structured payload).
+      const sidecar = readTaskJsonSafe(requeuedTaskId, root);
+      const takenSet = new Set<number>();
+      if (sidecar) {
+        for (const binding of sidecar.contextPackBinding.repoBindings) {
+          try {
+            const result = await execFileAsync('git', [
+              '-C', binding.originalRoot, 'for-each-ref',
+              '--format=%(refname:short)',
+              `refs/heads/task/${originalSlug}-retry*`,
+            ]);
+            for (const line of result.stdout.split('\n')) {
+              const m = line.match(/-retry(\d+)$/);
+              if (m) takenSet.add(parseInt(m[1]!, 10));
+            }
+          } catch { /* swallow */ }
+        }
       }
+      throw Object.assign(
+        new Error(
+          `retry-generations-exhausted: slug="${originalSlug}" cap=${cap} foundGenerations=[${[...takenSet].sort((a, b) => a - b).join(',')}]`,
+        ),
+        {
+          code: 'retry-generations-exhausted' as const,
+          slug: originalSlug,
+          cap,
+          foundGenerations: [...takenSet].sort((a, b) => a - b),
+        },
+      );
     }
-    throw Object.assign(
-      new Error(
-        `retry-generations-exhausted: slug="${originalSlug}" cap=${cap} foundGenerations=[${[...takenSet].sort((a, b) => a - b).join(',')}]`,
-      ),
-      {
-        code: 'retry-generations-exhausted' as const,
-        slug: originalSlug,
-        cap,
-        foundGenerations: [...takenSet].sort((a, b) => a - b),
-      },
-    );
+
+    // Derive the retry-suffixed filename so activation picks up the new taskId.
+    const retryTaskId = `${originalSlug}-retry${n}`;
+    const retryFileName = `${retryTaskId}.md`;
+
+    const sourcePath = path.join(queuePaths.errorItemsDir, options.fileName);
+    const destPath = path.join(queuePaths.pendingDir, retryFileName);
+
+    await rename(sourcePath, destPath);
+
+    // Transition failed → pending in the task registry under the new taskId.
+    // The original failed entry lives under requeuedTaskId; the new pending entry
+    // uses retryTaskId. Transition the original failed entry to pending first, then
+    // update its taskId in the registry via a remove+re-register is unnecessary —
+    // the existing transitionTask call suffices for the old entry; the new activation
+    // will register the retryTaskId entry when it runs.
+    try { await transitionTask(root, requeuedTaskId, 'failed', 'pending'); } catch { /* best-effort */ }
+
+    await insertIntoQueueManifest(queuePaths.pendingDir, retryFileName, options.insertAtIndex);
+    requeuedItem = retryFileName;
+  } finally {
+    await release();
   }
-
-  // Derive the retry-suffixed filename so activation picks up the new taskId.
-  const retryTaskId = `${originalSlug}-retry${n}`;
-  const retryFileName = `${retryTaskId}.md`;
-
-  const sourcePath = path.join(queuePaths.errorItemsDir, options.fileName);
-  const destPath = path.join(queuePaths.pendingDir, retryFileName);
-
-  await rename(sourcePath, destPath);
-
-  // Transition failed → pending in the task registry under the new taskId.
-  // The original failed entry lives under requeuedTaskId; the new pending entry
-  // uses retryTaskId. Transition the original failed entry to pending first, then
-  // update its taskId in the registry via a remove+re-register is unnecessary —
-  // the existing transitionTask call suffices for the old entry; the new activation
-  // will register the retryTaskId entry when it runs.
-  try { await transitionTask(root, requeuedTaskId, 'failed', 'pending'); } catch { /* best-effort */ }
-
-  await insertIntoQueueManifest(queuePaths.pendingDir, retryFileName, options.insertAtIndex);
 
   // Singleton-handoffs reset block DELETED (lines 309-310 in pre-§4.14A code).
   // Touching the shared handoffs dir here is a blast-radius violation.
@@ -372,7 +425,7 @@ export async function requeueErrorItem(options: {
     activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
   }
 
-  return { requeuedItem: retryFileName, activatedItem };
+  return { requeuedItem, activatedItem };
 }
 
 /**

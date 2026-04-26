@@ -15,10 +15,12 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  chmodSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { execFileSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Mock modules before importing the module under test.
@@ -47,12 +49,13 @@ vi.mock('../../platform-config/get.js', () => ({
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   const mockExecFile = vi.fn();
+  const mockSpawn = vi.fn(actual.spawn);
   // Default: fail (simulates non-git directory). Per-test overrides control for-each-ref.
   const defaultCustom = vi.fn().mockRejectedValue(new Error('not a git repository'));
   (mockExecFile as unknown as Record<symbol, unknown>)[promisify.custom] = defaultCustom;
   return {
     ...actual,
-    spawn: actual.spawn, // keep real spawn for runGit (best-effort, errors are swallowed)
+    spawn: mockSpawn, // keep real spawn for runGit while allowing behavioral assertions
     execFile: mockExecFile,
   };
 });
@@ -60,14 +63,20 @@ vi.mock('node:child_process', async (importOriginal) => {
 // Import mocked modules
 import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../../platform-config/get.js';
-import { execFile as execFileMocked } from 'node:child_process';
+import { execFile as execFileMocked, spawn as spawnMocked } from 'node:child_process';
 
 // Import module under test AFTER mocks are in place
-import { moveFailedItemToErrorItems, requeueErrorItem } from '../errorItems.js';
+import {
+  assertQueueLockHeld,
+  commitTaskSnapshot,
+  moveFailedItemToErrorItems,
+  requeueErrorItem,
+} from '../errorItems.js';
 import { resolveQueuePaths } from '../paths.js';
 
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
 const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
+const mockSpawn = vi.mocked(spawnMocked);
 // The custom promisify symbol on the mock — used to control git for-each-ref output
 function getMockExecFilePromisified(): ReturnType<typeof vi.fn> {
   return (execFileMocked as unknown as Record<symbol, ReturnType<typeof vi.fn>>)[promisify.custom] as ReturnType<typeof vi.fn>;
@@ -168,6 +177,22 @@ function readPortAllocations(root: string): Record<string, unknown> {
   }
 }
 
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
+}
+
+function initGitRepo(repoPath: string): string {
+  mkdirSync(repoPath, { recursive: true });
+  git(repoPath, ['init', '-q', '-b', 'main']);
+  git(repoPath, ['config', 'user.email', 'test@example.com']);
+  git(repoPath, ['config', 'user.name', 'Test User']);
+  git(repoPath, ['config', 'commit.gpgsign', 'false']);
+  writeFileSync(path.join(repoPath, 'README.md'), '# baseline\n', 'utf-8');
+  git(repoPath, ['add', 'README.md']);
+  git(repoPath, ['commit', '-q', '-m', 'baseline']);
+  return git(repoPath, ['rev-parse', 'HEAD']);
+}
+
 function seedTemplates(repoRoot: string): void {
   const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
   mkdirSync(templatesDir, { recursive: true });
@@ -195,6 +220,98 @@ const DEFAULT_PLATFORM_CONFIG = {
   completed_task_runtime_retention_ms: 3600000,
   mcp_port_range: { min: 8811, max: 8820 },
 };
+
+// ---------------------------------------------------------------------------
+// Suite 0: B2 task snapshot commit failure handling
+// ---------------------------------------------------------------------------
+
+describe('B2 commitTaskSnapshot empty-tree and commit-failure handling', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'ts-B2-commit-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('B2 skips an empty staged tree after the explicit cached diff pre-check', async () => {
+    const worktreeRoot = path.join(repoRoot, 'repo');
+    const baseSha = initGitRepo(worktreeRoot);
+    makeTaskJson('task-empty-tree', repoRoot, [{
+      originalRoot: worktreeRoot,
+      worktreeRoot,
+      worktreeBranch: 'task/task-empty-tree',
+      baseCommitSha: baseSha,
+    }]);
+
+    const ok = await commitTaskSnapshot(repoRoot, 'task-empty-tree', 'completed');
+
+    expect(ok).toBe(true);
+    expect(git(worktreeRoot, ['rev-parse', 'HEAD'])).toBe(baseSha);
+    expect(mockSpawn.mock.calls.some(([, args]) => (
+      Array.isArray(args) && args.join(' ') === 'diff --cached --quiet'
+    ))).toBe(true);
+    expect(mockSpawn.mock.calls.some(([, args]) => (
+      Array.isArray(args) && args.includes('commit')
+    ))).toBe(false);
+  });
+
+  it('B2 treats real git commit failure as a warning and returns false', async () => {
+    const worktreeRoot = path.join(repoRoot, 'repo');
+    const baseSha = initGitRepo(worktreeRoot);
+    writeFileSync(path.join(worktreeRoot, 'feature.ts'), 'export const x = 1;\n', 'utf-8');
+    git(worktreeRoot, ['add', 'feature.ts']);
+    const objectsDir = path.join(worktreeRoot, '.git', 'objects');
+    chmodSync(objectsDir, 0o555);
+    makeTaskJson('task-real-failure', repoRoot, [{
+      originalRoot: worktreeRoot,
+      worktreeRoot,
+      worktreeBranch: 'task/task-real-failure',
+      baseCommitSha: baseSha,
+    }]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      const ok = await commitTaskSnapshot(repoRoot, 'task-real-failure', 'completed');
+
+      expect(ok).toBe(false);
+      expect(git(worktreeRoot, ['rev-parse', 'HEAD'])).toBe(baseSha);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining(
+        `Warning: task snapshot commit failed in ${worktreeRoot}:`,
+      ));
+    } finally {
+      chmodSync(objectsDir, 0o755);
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('B2 passes the gpgsign override args before snapshot commit', async () => {
+    const worktreeRoot = path.join(repoRoot, 'repo');
+    const baseSha = initGitRepo(worktreeRoot);
+    git(worktreeRoot, ['config', 'commit.gpgsign', 'true']);
+    writeFileSync(path.join(worktreeRoot, 'feature.ts'), 'export const x = 1;\n', 'utf-8');
+    makeTaskJson('task-gpgsign-override', repoRoot, [{
+      originalRoot: worktreeRoot,
+      worktreeRoot,
+      worktreeBranch: 'task/task-gpgsign-override',
+      baseCommitSha: baseSha,
+    }]);
+
+    const ok = await commitTaskSnapshot(repoRoot, 'task-gpgsign-override', 'completed');
+
+    expect(ok).toBe(true);
+    expect(git(worktreeRoot, ['rev-parse', 'HEAD'])).not.toBe(baseSha);
+    expect(mockSpawn.mock.calls.some(([, args]) => (
+      Array.isArray(args) &&
+      args[0] === '-c' &&
+      args[1] === 'commit.gpgsign=false' &&
+      args[2] === 'commit'
+    ))).toBe(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Suite 1: blast-radius three-task isolation (A/B/C)
@@ -513,6 +630,27 @@ describe('§4.14A retry-generations-exhausted', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
+  it('B6 assertQueueLockHeld rejects missing, malformed, and stale owner markers', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+
+    await expect(assertQueueLockHeld(repoRoot)).rejects.toThrow(
+      'queue lock assertion failed: pickNextRetryN requires the queue lock',
+    );
+
+    mkdirSync(queuePaths.queueLockDir, { recursive: true });
+    writeFileSync(path.join(queuePaths.queueLockDir, 'owner.json'), '{bad json', 'utf-8');
+    await expect(assertQueueLockHeld(repoRoot)).rejects.toThrow(
+      'queue lock assertion failed: pickNextRetryN requires the queue lock',
+    );
+
+    writeFileSync(path.join(queuePaths.queueLockDir, 'owner.json'), '{"pid":0}\n', 'utf-8');
+    await expect(assertQueueLockHeld(repoRoot)).rejects.toThrow(
+      'queue lock assertion failed: pickNextRetryN requires the queue lock',
+    );
+
+    rmSync(queuePaths.queueLockDir, { recursive: true, force: true });
+  });
+
   it('rejects requeueErrorItem when 5 retry branches exist in origin; no new branch or activation', async () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     const originX = path.join(repoRoot, 'repos', 'X');
@@ -584,10 +722,11 @@ describe('§4.14A retry-generations-exhausted', () => {
     expect(activeMarkers.length).toBe(0);
   });
 
-  it('assigns retry1 suffix when no retry branches exist', async () => {
+  it('B6 assigns retry1 while requeueErrorItem owns and releases the queue lock internally', async () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     const originX = path.join(repoRoot, 'repos', 'X');
     const originalTaskId = 'task-fresh';
+    let observedOwnerMarker = false;
 
     // Ensure pendingDir exists so rename can succeed
     mkdirSync(queuePaths.pendingDir, { recursive: true });
@@ -607,6 +746,11 @@ describe('§4.14A retry-generations-exhausted', () => {
       async (_cmd: unknown, args: unknown): Promise<{ stdout: string; stderr: string }> => {
         const argsArr = args as string[];
         if (argsArr.includes('for-each-ref')) {
+          const owner = JSON.parse(
+            readFileSync(path.join(queuePaths.queueLockDir, 'owner.json'), 'utf-8'),
+          ) as { pid?: unknown };
+          expect(owner.pid).toBe(process.pid);
+          observedOwnerMarker = true;
           return { stdout: '', stderr: '' };
         }
         throw new Error('not a git repository');
@@ -621,6 +765,8 @@ describe('§4.14A retry-generations-exhausted', () => {
 
     // Returned filename uses retry1 suffix
     expect(result.requeuedItem).toBe('task-fresh-retry1.md');
+    expect(observedOwnerMarker).toBe(true);
+    expect(existsSync(queuePaths.queueLockDir)).toBe(false);
 
     // Original error item moved out of error-items
     expect(existsSync(path.join(queuePaths.errorItemsDir, `${originalTaskId}.md`))).toBe(false);

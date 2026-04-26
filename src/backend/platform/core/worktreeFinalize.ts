@@ -38,6 +38,10 @@ function retentionEvictionLockPath(repoRoot: string): string {
   return path.join(repoRoot, '.platform-state', 'runtime', 'retention-eviction.lock');
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Write the updated `.task.json` back to disk with `finalizedAt` stamped and
  * `state` set. Uses a synchronous write to keep things simple (this runs on
@@ -115,7 +119,13 @@ export async function finalizeWorktree(
       // Worktree dir may have been removed out-of-band (e.g. by §4.10 quit-time
       // cleanup); ignore the error and fall through to prune unconditionally.
     }
-    await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
+    try {
+      await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
+    } catch (err) {
+      process.stderr.write(
+        `[worktreeFinalize] prune-failed: originalRoot=${binding.originalRoot} err=${errorMessage(err)}\n`,
+      );
+    }
     return;
   }
 
@@ -136,11 +146,23 @@ export async function finalizeWorktree(
   } catch {
     // Out-of-band removal already happened; proceed to prune.
   }
-  await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
-  await execFile('git', [
-    '-C', binding.originalRoot,
-    'branch', '-D', binding.worktreeBranch,
-  ]);
+  try {
+    await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
+  } catch (err) {
+    process.stderr.write(
+      `[worktreeFinalize] prune-failed: originalRoot=${binding.originalRoot} err=${errorMessage(err)}\n`,
+    );
+  }
+  try {
+    await execFile('git', [
+      '-C', binding.originalRoot,
+      'branch', '-D', binding.worktreeBranch,
+    ]);
+  } catch (err) {
+    process.stderr.write(
+      `[worktreeFinalize] branch-delete-failed: branch=${binding.worktreeBranch} err=${errorMessage(err)}\n`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +237,7 @@ async function runRetentionEviction(
           '-C', binding.originalRoot,
           'branch', '-D', binding.worktreeBranch,
         ]).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = errorMessage(err);
           process.stderr.write(
             `[worktreeFinalize] retention-eviction-failed: taskId=${victim.taskId} branch=${binding.worktreeBranch} err=${msg}\n`,
           );
@@ -299,7 +321,7 @@ export async function finalizeTaskWorktrees(
     try {
       await runRetentionEviction(repoRoot, cfg.max_retained_failed_task_worktrees);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       process.stderr.write(
         `[worktreeFinalize] retention-eviction-error: taskId=${taskId} err=${msg}\n`,
       );
@@ -318,7 +340,7 @@ export async function finalizeTaskWorktrees(
   try {
     await composeDownTask(repoRoot, taskId);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     process.stderr.write(
       `[worktreeFinalize] compose-down-task-error: taskId=${taskId} err=${msg}\n`,
     );
@@ -327,7 +349,7 @@ export async function finalizeTaskWorktrees(
   try {
     await releasePort(taskId, repoRoot);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     process.stderr.write(
       `[worktreeFinalize] port-release-error: taskId=${taskId} err=${msg}\n`,
     );
@@ -336,7 +358,7 @@ export async function finalizeTaskWorktrees(
   try {
     await gcTaskRuntime(taskId, outcome, repoRoot);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     process.stderr.write(
       `[worktreeFinalize] gc-task-runtime-error: taskId=${taskId} err=${msg}\n`,
     );
@@ -406,7 +428,7 @@ export async function gcTaskRuntime(
     mkdirSync(path.dirname(sentinel), { recursive: true });
     writeFileSync(sentinel, String(deleteAfter), 'utf-8');
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     process.stderr.write(
       `[worktreeFinalize] gc-sentinel-write-failed: taskId=${taskId} err=${msg}\n`,
     );

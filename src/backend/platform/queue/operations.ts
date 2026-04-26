@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
-import { mkdir, rmdir, readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
+import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify } from '../core/index.js';
@@ -31,54 +31,8 @@ import type { TaskRepoBinding } from './taskJson.js';
 
 const execFileAsync = promisify(execFile);
 
-/**
- * Acquire a directory-based lock using mkdir atomicity.
- * Returns a release function on success, or null if the lock could not be acquired.
- */
-export async function acquireDirLock(
-  lockDir: string,
-  maxRetries = 30,
-  backoffMs = 50,
-): Promise<(() => Promise<void>) | null> {
-  let waitMs = backoffMs;
+export { acquireDirLock, acquireDirLockOrThrow } from './dirLock.js';
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await mkdir(lockDir);
-      return async () => {
-        try {
-          await rmdir(lockDir);
-        } catch {
-          // Lock dir may already be removed
-        }
-      };
-    } catch {
-      // Expected: lock held by another process
-    }
-
-    await sleep(waitMs);
-    waitMs = Math.min(waitMs * 2, 2000);
-  }
-
-  return null;
-}
-
-/**
- * Acquire the queue lock or throw. Convenience wrapper for callers that
- * must hold the lock and should fail loudly if it is unavailable.
- */
-export async function acquireDirLockOrThrow(
-  lockDir: string,
-  operationName: string,
-): Promise<() => Promise<void>> {
-  const release = await acquireDirLock(lockDir);
-  if (!release) {
-    throw new Error(
-      `${operationName} blocked: could not acquire queue lock. Another operation may be in progress.`,
-    );
-  }
-  return release;
-}
 
 /**
  * Return the task IDs of all currently active tasks.
@@ -975,8 +929,4 @@ async function rollbackActivationClaim(options: {
 function hasContainerComposeFile(repoRoot: string): boolean {
   return existsSync(path.join(repoRoot, resolveDefaultComposeFile('docker')))
     || existsSync(path.join(repoRoot, resolveDefaultComposeFile('podman')));
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

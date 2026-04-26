@@ -5,7 +5,7 @@
  * regression that left task branches identical to base would cause sweep
  * to silently delete every completed task on the next queue advance.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runMergeDetectionSweep } from '../mergeDetectionSweep.js';
 import type { TaskJson, TaskRepoBinding } from '../taskJson.js';
+import { acquireDirLock } from '../dirLock.js';
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -396,5 +397,222 @@ describe('runMergeDetectionSweep', () => {
     const binding = sidecar.contextPackBinding.repoBindings[0]!;
     expect(binding.mergedAt).toBeUndefined();
     expect(binding.mergedVia).toBeUndefined();
+  });
+
+  it('persists state=merged before branch deletion when task cleanup is held', async () => {
+    const taskId = 'sweep-persist-before-delete';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const worktreeRoot = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const baseSha = initRepo(originalRoot);
+    addWorktreeWithCommit(originalRoot, worktreeRoot, `task/${taskId}`, baseSha, 'feature.ts');
+    mergeBranchIntoMain(originalRoot, `task/${taskId}`);
+    simulateFinalize(originalRoot, worktreeRoot);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      bindings: [{
+        originalRoot,
+        worktreeRoot,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: baseSha,
+      }],
+    });
+
+    vi.resetModules();
+    vi.doMock('node:fs', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs')>();
+      return {
+        ...actual,
+        rmSync: vi.fn(() => {
+          throw new Error('filesystem hold');
+        }),
+      };
+    });
+
+    try {
+      const { runMergeDetectionSweep: runSweepWithHeldCleanup } = await import('../mergeDetectionSweep.js');
+      const first = await runSweepWithHeldCleanup(platformRoot);
+      expect(first.bindingsMarked).toBe(1);
+      expect(first.tasksFullyMerged).toBe(1);
+      expect(first.tasksCleanedUp).toBe(0);
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
+
+    const sidecar = readSidecar(platformRoot, taskId);
+    expect(sidecar.state).toBe('merged');
+    const binding = sidecar.contextPackBinding.repoBindings[0]!;
+    expect(binding.mergedAt).toBeDefined();
+    expect(binding.mergedVia).toBe('merged-into-head');
+    expect(() => git(originalRoot, ['rev-parse', '--verify', `refs/heads/task/${taskId}`])).toThrow();
+
+    const second = await runMergeDetectionSweep(platformRoot);
+    expect(second.scanned).toBe(1);
+    expect(second.bindingsMarked).toBe(0);
+    expect(second.tasksCleanedUp).toBe(1);
+    expect(existsSync(path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId))).toBe(false);
+  });
+
+  it('re-enters state=merged sidecars without re-probing bindings', async () => {
+    const taskId = 'sweep-reenter-merged';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const branch = `task/${taskId}`;
+    const baseSha = initRepo(originalRoot);
+    git(originalRoot, ['branch', branch]);
+    git(originalRoot, ['branch', '-D', branch]);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      state: 'merged',
+      bindings: [{
+        originalRoot,
+        worktreeRoot: path.join(platformRoot, 'missing-worktree'),
+        worktreeBranch: branch,
+        baseCommitSha: baseSha,
+        mergedAt: new Date().toISOString(),
+        mergedVia: 'merged-into-head',
+      }],
+    });
+
+    const result = await runMergeDetectionSweep(platformRoot);
+
+    expect(result.scanned).toBe(1);
+    expect(result.bindingsMarked).toBe(0);
+    expect(result.tasksCleanedUp).toBe(1);
+    expect(existsSync(path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId))).toBe(false);
+  });
+
+  it('refuses force-delete after merge ancestry no longer holds', async () => {
+    const taskId = 'sweep-reverted-merge';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const worktreeRoot = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const branch = `task/${taskId}`;
+    const baseSha = initRepo(originalRoot);
+    addWorktreeWithCommit(originalRoot, worktreeRoot, branch, baseSha, 'feature.ts');
+    mergeBranchIntoMain(originalRoot, branch);
+    simulateFinalize(originalRoot, worktreeRoot);
+    git(originalRoot, ['reset', '--hard', baseSha]);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      state: 'merged',
+      bindings: [{
+        originalRoot,
+        worktreeRoot,
+        worktreeBranch: branch,
+        baseCommitSha: baseSha,
+        mergedAt: new Date().toISOString(),
+        mergedVia: 'merged-into-head',
+      }],
+    });
+
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let stderrText = '';
+    try {
+      const result = await runMergeDetectionSweep(platformRoot);
+      expect(result.tasksCleanedUp).toBe(1);
+      stderrText = stderr.mock.calls.map((call) => String(call[0])).join('');
+    } finally {
+      stderr.mockRestore();
+    }
+
+    expect(stderrText).toContain('ancestry-revert-detected');
+    expect(() => git(originalRoot, ['rev-parse', '--verify', `refs/heads/${branch}`])).not.toThrow();
+  });
+
+  it('still deletes state=merged branch when ancestry holds', async () => {
+    const taskId = 'sweep-merged-reentry-delete';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const worktreeRoot = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const branch = `task/${taskId}`;
+    const baseSha = initRepo(originalRoot);
+    addWorktreeWithCommit(originalRoot, worktreeRoot, branch, baseSha, 'feature.ts');
+    mergeBranchIntoMain(originalRoot, branch);
+    simulateFinalize(originalRoot, worktreeRoot);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      state: 'merged',
+      bindings: [{
+        originalRoot,
+        worktreeRoot,
+        worktreeBranch: branch,
+        baseCommitSha: baseSha,
+        mergedAt: new Date().toISOString(),
+        mergedVia: 'merged-into-head',
+      }],
+    });
+
+    const result = await runMergeDetectionSweep(platformRoot);
+
+    expect(result.tasksCleanedUp).toBe(1);
+    expect(() => git(originalRoot, ['rev-parse', '--verify', `refs/heads/${branch}`])).toThrow();
+  });
+
+  it('does not delete a branch recreated after a branch-deleted stamp', async () => {
+    const taskId = 'sweep-recreated-branch';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const branch = `task/${taskId}`;
+    const baseSha = initRepo(originalRoot);
+    git(originalRoot, ['branch', branch]);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      state: 'merged',
+      bindings: [{
+        originalRoot,
+        worktreeRoot: path.join(platformRoot, 'missing-worktree'),
+        worktreeBranch: branch,
+        baseCommitSha: baseSha,
+        mergedAt: new Date().toISOString(),
+        mergedVia: 'branch-deleted',
+      }],
+    });
+
+    const result = await runMergeDetectionSweep(platformRoot);
+
+    expect(result.tasksCleanedUp).toBe(1);
+    expect(() => git(originalRoot, ['rev-parse', '--verify', `refs/heads/${branch}`])).not.toThrow();
+  });
+
+  it('returns a no-op result when the sweep lock is already held', async () => {
+    const taskId = 'sweep-lock-held';
+    const originalRoot = path.join(platformRoot, 'origin', 'repo');
+    const worktreeRoot = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const baseSha = initRepo(originalRoot);
+    addWorktreeWithCommit(originalRoot, worktreeRoot, `task/${taskId}`, baseSha, 'feature.ts');
+    mergeBranchIntoMain(originalRoot, `task/${taskId}`);
+    simulateFinalize(originalRoot, worktreeRoot);
+
+    writeTaskSidecar(platformRoot, {
+      taskId,
+      bindings: [{
+        originalRoot,
+        worktreeRoot,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: baseSha,
+      }],
+    });
+
+    const lockParent = path.join(platformRoot, '.platform-state', 'runtime');
+    mkdirSync(lockParent, { recursive: true });
+    const release = await acquireDirLock(path.join(lockParent, 'merge-detection-sweep.lock'), 1, 0);
+    expect(release).not.toBeNull();
+
+    try {
+      const result = await runMergeDetectionSweep(platformRoot);
+      expect(result).toEqual({
+        scanned: 0,
+        bindingsMarked: 0,
+        tasksFullyMerged: 0,
+        tasksCleanedUp: 0,
+      });
+      const binding = readSidecar(platformRoot, taskId).contextPackBinding.repoBindings[0]!;
+      expect(binding.mergedAt).toBeUndefined();
+      expect(binding.mergedVia).toBeUndefined();
+    } finally {
+      await release!();
+    }
   });
 });

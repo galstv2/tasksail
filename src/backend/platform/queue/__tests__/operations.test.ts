@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   acquireDirLock,
+  acquireDirLockOrThrow,
   moveDropboxItemsOnce,
   queueNameForSource,
   activateNextPendingItemIfReady,
@@ -36,12 +37,15 @@ describe('acquireDirLock', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('acquires a lock and returns a release function', async () => {
+  it('B6 writes an owner marker when acquiring a lock and removes it on release', async () => {
     const lockDir = path.join(tmpDir, '.test-lock.d');
     const release = await acquireDirLock(lockDir, 3, 10);
 
     expect(release).not.toBeNull();
     expect(existsSync(lockDir)).toBe(true);
+    expect(JSON.parse(readFileSync(path.join(lockDir, 'owner.json'), 'utf-8'))).toEqual({
+      pid: process.pid,
+    });
 
     await release!();
     expect(existsSync(lockDir)).toBe(false);
@@ -56,6 +60,16 @@ describe('acquireDirLock', () => {
 
     // Clean up
     rmSync(lockDir, { recursive: true });
+  });
+
+  it('re-exports the throwing lock helper from operations', async () => {
+    const lockDir = path.join(tmpDir, '.test-lock.d');
+    const release = await acquireDirLockOrThrow(lockDir, 'test operation');
+
+    expect(existsSync(lockDir)).toBe(true);
+
+    await release();
+    expect(existsSync(lockDir)).toBe(false);
   });
 });
 

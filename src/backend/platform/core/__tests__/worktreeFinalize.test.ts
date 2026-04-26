@@ -1081,3 +1081,130 @@ describe('§4.15 eviction serialization — concurrent finalize', () => {
     expect(survivors).toContain(bId);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §4.15 B4 — per-binding git error isolation
+// ---------------------------------------------------------------------------
+
+describe('§4.15 B4 per-binding git error isolation', () => {
+  let tmpRoot: string;
+  let repoRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'wt-b4-isolation-'));
+    repoRoot = tmpRoot;
+    writePlatformJson(repoRoot, { retain_failed_task_worktrees: false });
+    _clearPlatformConfigCache();
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    vi.doUnmock('node:child_process');
+    vi.resetModules();
+    _clearPlatformConfigCache();
+  });
+
+  it('B4: failed git prune does not block branch delete, next binding, or downstream teardown', async () => {
+    const execCalls: Array<{ file: string; args: string[] }> = [];
+    const spawnCalls: Array<{ command: string; args: string[] }> = [];
+    const stderrLines: string[] = [];
+    const taskId = 'b4-prune-isolation';
+    const firstBranch = `task/${taskId}-one`;
+    const secondBranch = `task/${taskId}-two`;
+
+    vi.spyOn(process.stderr, 'write').mockImplementation((msg: string | Uint8Array) => {
+      stderrLines.push(String(msg));
+      return true;
+    });
+
+    vi.resetModules();
+    vi.doMock('node:child_process', () => ({
+      execFile: (
+        file: string,
+        args: string[],
+        callback: (error: Error | null, stdout?: string, stderr?: string) => void,
+      ) => {
+        execCalls.push({ file, args: [...args] });
+        if (args.includes('prune')) {
+          callback(new Error(`simulated prune failure for ${args[1]}`));
+          return;
+        }
+        if (args.includes('-D') && args.includes(firstBranch)) {
+          callback(new Error(`simulated branch delete failure for ${firstBranch}`));
+          return;
+        }
+        callback(null, '', '');
+      },
+      spawn: (command: string, args: string[]) => {
+        spawnCalls.push({ command, args: [...args] });
+        const child = {
+          stdin: { end: () => {} },
+          stderr: { on: () => child },
+          on: (event: string, callback: (code?: number) => void) => {
+            if (event === 'close') {
+              setImmediate(() => callback(0));
+            }
+            return child;
+          },
+        };
+        return child;
+      },
+    }));
+
+    const { finalizeTaskWorktrees: finalizeWithMockedGit } = await import('../worktreeFinalize.js');
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    mkdirSync(path.join(taskDir, 'handoffs'), { recursive: true });
+    mkdirSync(path.join(taskDir, 'ImplementationSteps'), { recursive: true });
+    mkdirSync(runtimeDir, { recursive: true });
+
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            {
+              originalRoot: path.join(tmpRoot, 'repo-one'),
+              worktreeRoot: path.join(taskDir, 'worktrees', 'repo-one'),
+              worktreeBranch: firstBranch,
+              baseCommitSha: 'aaaa1111',
+            },
+            {
+              originalRoot: path.join(tmpRoot, 'repo-two'),
+              worktreeRoot: path.join(taskDir, 'worktrees', 'repo-two'),
+              worktreeBranch: secondBranch,
+              baseCommitSha: 'bbbb2222',
+            },
+          ],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+          composeProjectName: 'repo-context-mcp',
+        },
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        state: 'active',
+      }, null, 2) + '\n',
+    );
+
+    await expect(finalizeWithMockedGit(taskId, 'failed', repoRoot)).resolves.toBeUndefined();
+
+    const branchDeleteCalls = execCalls.filter(({ args }) => args.includes('branch') && args.includes('-D'));
+    expect(branchDeleteCalls.map(({ args }) => args.at(-1))).toEqual([firstBranch, secondBranch]);
+    expect(execCalls.some(({ args }) => args.includes(secondBranch))).toBe(true);
+    expect(spawnCalls.length).toBe(1);
+    expect(existsSync(path.join(runtimeDir, '.gc-after-ts'))).toBe(true);
+    expect(existsSync(taskDir)).toBe(false);
+    expect(stderrLines.join('')).toContain('[worktreeFinalize] prune-failed:');
+    expect(stderrLines.join('')).toContain('[worktreeFinalize] branch-delete-failed:');
+  });
+});
