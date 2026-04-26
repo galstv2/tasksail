@@ -32,7 +32,9 @@ from lib.role_agent.tests_md_append import (  # noqa: E402
 
 def _cmd_capture_code_diff(args: argparse.Namespace) -> int:
     exit_code, repo_names = capture_code_diff(
-        args.context_pack_dir, args.output_path, args.repo_root,
+        repo_root=args.repo_root,
+        task_id=args.task_id,
+        output_path=args.output_path,
     )
     # Print repo names so the shell script can export them without
     # a second subprocess invocation.
@@ -142,8 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     diff_parser = subparsers.add_parser("capture-code-diff")
     diff_parser.add_argument("output_path")
-    diff_parser.add_argument("--context-pack-dir", default=None)
-    diff_parser.add_argument("--repo-root", default=None)
+    diff_parser.add_argument("--repo-root", required=True)
+    diff_parser.add_argument("--task-id", required=True)
     diff_parser.set_defaults(func=_cmd_capture_code_diff)
 
     external_mcp_parser = subparsers.add_parser("prepare-external-mcp-launch-context")

@@ -1,6 +1,10 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
 
 const existsSync = vi.fn();
 const resolveSelectedPrimaryRepoRoot = vi.fn();
@@ -47,6 +51,65 @@ const externalRegistry: ExternalMcpRegistry = {
     },
   ],
 };
+
+const tempDirs: string[] = [];
+
+function makeFocused(overrides: Partial<FocusedRepoResult> & { primaryRepoRoot: string }): FocusedRepoResult {
+  const primaryRepoRoot = overrides.primaryRepoRoot;
+  return {
+    primaryRepoRoot,
+    visibleRepoRoots: [primaryRepoRoot],
+    declaredRepoRoots: [primaryRepoRoot],
+    estateType: 'monolith',
+    primaryRepoId: 'primary',
+    selectedRepoIds: ['primary'],
+    selectedFocusIds: [],
+    authoritySource: 'active-task-sidecar',
+    ...overrides,
+  };
+}
+
+async function createTempDir(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'tasksail-test-capture-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+async function writeTaskSidecar(options: {
+  repoRoot: string;
+  taskId: string;
+  originalRoot: string;
+  worktreeRoot: string;
+}): Promise<string> {
+  const taskDir = path.join(options.repoRoot, 'AgentWorkSpace', 'tasks', options.taskId);
+  await mkdir(taskDir, { recursive: true });
+  const sidecarPath = path.join(taskDir, '.task.json');
+  await writeFile(sidecarPath, JSON.stringify({
+    schema_version: 2,
+    taskId: options.taskId,
+    contextPackBinding: {
+      contextPackPath: null,
+      dataHostDir: null,
+      dataContainerDir: null,
+      repoBindings: [{
+        originalRoot: options.originalRoot,
+        worktreeRoot: options.worktreeRoot,
+        worktreeBranch: `task/${options.taskId}`,
+        baseCommitSha: 'abc123',
+      }],
+    },
+    materialization: {
+      strategy: 'copy',
+      cloned: [],
+      skipped: [],
+      composeProjectName: 'tasksail-test',
+    },
+    frozenAt: '2025-01-01T00:00:00.000Z',
+    finalizedAt: null,
+    state: 'active',
+  }), 'utf-8');
+  return sidecarPath;
+}
 
 function setPlatform(platform: NodeJS.Platform): () => void {
   const original = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -110,64 +173,70 @@ describe('resolveTestCaptureCwd', () => {
     spawn.mockReset();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env['ComSpec'];
     delete process.env['COMSPEC'];
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
-  it('uses the platform repo root when no context pack is active', async () => {
+  it('returns repoRoot when contextPackDir is absent', async () => {
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
     })).resolves.toBe('/platform');
   });
 
   it('uses the selected primary repo root when context-pack targeting is active without a monolith focus path', async () => {
-    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
-    });
+    }));
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
       contextPackDir: '/context-pack',
     })).resolves.toBe('/target-repo');
   });
 
   it('uses the selected monolith focus subfolder when it exists on disk', async () => {
-    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/sink',
-    });
+    }));
     existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/sink');
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
       contextPackDir: '/context-pack',
     })).resolves.toBe('/target-repo/services/sink');
   });
 
   it('uses the parent directory when the selected focus target is a file', async () => {
-    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/sink/index.ts',
       primaryFocusTargetKind: 'file',
-    });
+    }));
     existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/sink');
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
       contextPackDir: '/context-pack',
     })).resolves.toBe('/target-repo/services/sink');
   });
 
   it('returns undefined when the selected monolith focus subfolder is missing on disk', async () => {
-    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/sink',
-    });
+    }));
     existsSync.mockReturnValue(false);
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
       contextPackDir: '/context-pack',
     })).resolves.toBeUndefined();
   });
@@ -177,8 +246,101 @@ describe('resolveTestCaptureCwd', () => {
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
+      taskId: 'task-1',
       contextPackDir: '/context-pack',
     })).resolves.toBeUndefined();
+  });
+
+  it('returns worktreeRoot when sidecar declares a binding', async () => {
+    const repoRoot = await createTempDir();
+    const taskId = 'task-worktree-root';
+    const originalRoot = path.join(repoRoot, 'original');
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    await mkdir(originalRoot, { recursive: true });
+    await mkdir(worktreeRoot, { recursive: true });
+    const originalRootReal = await realpath(originalRoot);
+    const worktreeRootReal = await realpath(worktreeRoot);
+    const sidecarPath = await writeTaskSidecar({
+      repoRoot,
+      taskId,
+      originalRoot,
+      worktreeRoot,
+    });
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: originalRootReal,
+      visibleRepoRoots: [originalRootReal],
+      declaredRepoRoots: [originalRootReal],
+    }));
+    existsSync.mockImplementation((candidate: string) => candidate === sidecarPath);
+
+    const cwd = await resolveTestCaptureCwd({
+      repoRoot,
+      taskId,
+      contextPackDir: path.join(repoRoot, 'context-pack'),
+    });
+
+    expect(cwd).toBe(worktreeRootReal);
+    expect(cwd).toContain(worktreeRootReal);
+    expect(cwd).not.toContain(originalRootReal);
+  });
+
+  it('appends primaryFocusRelativePath against worktreeRoot', async () => {
+    const repoRoot = await createTempDir();
+    const taskId = 'task-worktree-focus';
+    const originalRoot = path.join(repoRoot, 'original');
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const worktreeFocus = path.join(worktreeRoot, 'src', 'feature');
+    await mkdir(originalRoot, { recursive: true });
+    await mkdir(worktreeFocus, { recursive: true });
+    const originalRootReal = await realpath(originalRoot);
+    const worktreeRootReal = await realpath(worktreeRoot);
+    const worktreeFocusReal = await realpath(worktreeFocus);
+    const sidecarPath = await writeTaskSidecar({
+      repoRoot,
+      taskId,
+      originalRoot,
+      worktreeRoot,
+    });
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: originalRootReal,
+      visibleRepoRoots: [originalRootReal],
+      declaredRepoRoots: [originalRootReal],
+      primaryFocusRelativePath: 'src/feature',
+      primaryFocusTargetKind: 'directory',
+    }));
+    existsSync.mockImplementation((candidate: string) => (
+      candidate === sidecarPath || candidate === worktreeFocusReal
+    ));
+
+    const cwd = await resolveTestCaptureCwd({
+      repoRoot,
+      taskId,
+      contextPackDir: path.join(repoRoot, 'context-pack'),
+    });
+
+    expect(cwd).toBe(worktreeFocusReal);
+    expect(cwd).toContain(worktreeRootReal);
+    expect(cwd).not.toContain(originalRootReal);
+  });
+
+  it('preserves originalRoot when no sidecar exists', async () => {
+    const repoRoot = await createTempDir();
+    const taskId = 'task-no-sidecar';
+    const originalRoot = path.join(repoRoot, 'original');
+    const originalFocus = path.join(originalRoot, 'src', 'feature');
+    await mkdir(originalFocus, { recursive: true });
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: originalRoot,
+      primaryFocusRelativePath: 'src/feature',
+      primaryFocusTargetKind: 'directory',
+    }));
+    existsSync.mockImplementation((candidate: string) => candidate === originalFocus);
+
+    await expect(resolveTestCaptureCwd({
+      repoRoot,
+      taskId,
+      contextPackDir: path.join(repoRoot, 'context-pack'),
+    })).resolves.toBe(originalFocus);
   });
 });
 

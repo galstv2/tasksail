@@ -27,11 +27,11 @@ describe('captureCodeDiff', () => {
     });
   });
 
-  it('passes context pack dir as a named flag', async () => {
+  it('passes task id as a named flag', async () => {
     await captureCodeDiff({
-      contextPackDir: '/packs/pack-a',
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
+      taskId: TEST_TASK_ID,
     });
 
     expect(mockedRunPython).toHaveBeenCalledWith(
@@ -41,8 +41,8 @@ describe('captureCodeDiff', () => {
         '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
         '--repo-root',
         '/repo',
-        '--context-pack-dir',
-        '/packs/pack-a',
+        '--task-id',
+        TEST_TASK_ID,
       ],
       {
         cwd: '/repo',
@@ -51,10 +51,11 @@ describe('captureCodeDiff', () => {
     );
   });
 
-  it('omits the context pack flag when none is provided', async () => {
+  it('uses the resolved repo root', async () => {
     await captureCodeDiff({
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
+      taskId: TEST_TASK_ID,
     });
 
     expect(mockedRunPython).toHaveBeenCalledWith(
@@ -64,6 +65,8 @@ describe('captureCodeDiff', () => {
         '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
         '--repo-root',
         '/repo',
+        '--task-id',
+        TEST_TASK_ID,
       ],
       {
         cwd: '/repo',

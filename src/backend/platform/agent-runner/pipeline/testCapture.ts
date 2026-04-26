@@ -6,6 +6,10 @@ import { isWindowsPlatform } from '../../core/platform.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
 import {
+  applyWorktreeInjectionToFocused,
+  buildWorktreeBindingMap,
+} from '../worktreeInjection.js';
+import {
   appendFocusBlock,
   type FocusScopePromptOptions,
 } from './focusScopePrompt.js';
@@ -45,6 +49,7 @@ export function resolveTestCaptureCwdFromFocused(
 
 export async function resolveTestCaptureCwd(options: {
   repoRoot: string;
+  taskId: string;
   contextPackDir?: string;
 }): Promise<string | undefined> {
   if (!options.contextPackDir) {
@@ -55,7 +60,13 @@ export async function resolveTestCaptureCwd(options: {
     options.contextPackDir,
     options.repoRoot,
   );
-  return resolveTestCaptureCwdFromFocused(focused);
+  if (!focused) {
+    return undefined;
+  }
+
+  const bindingMap = await buildWorktreeBindingMap(options.taskId, options.repoRoot);
+  const injected = applyWorktreeInjectionToFocused(focused, bindingMap);
+  return resolveTestCaptureCwdFromFocused(injected);
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 90_000; // 90 seconds per command

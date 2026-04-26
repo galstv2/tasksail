@@ -24,7 +24,7 @@ import { resolveVerificationDaltonPrompt } from './verificationPass.js';
 import {
   captureSliceValidation,
   buildTestCapturePrompt,
-  resolveTestCaptureCwdFromFocused,
+  resolveTestCaptureCwd,
   type TestCaptureResult,
 } from './testCapture.js';
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
@@ -116,7 +116,6 @@ async function refreshVerificationQaDiffArtifact(options: {
   try {
     const result = await captureCodeDiff({
       outputPath,
-      contextPackDir: options.contextPackDir,
       repoRoot: options.repoRoot,
       taskId: options.taskId,
       abortSignal: options.abortSignal,
@@ -749,7 +748,11 @@ export async function runPipelineSequence(
       : undefined;
     const focusScope = toFocusScopePromptOptions(selectedPrimary);
     const testCaptureCwd = effectiveContextPackDir
-      ? resolveTestCaptureCwdFromFocused(selectedPrimary)
+      ? await resolveTestCaptureCwd({
+        repoRoot: paths.repoRoot,
+        taskId: options.taskId,
+        contextPackDir: effectiveContextPackDir,
+      })
       : paths.repoRoot;
 
     // Shared post-Dalton logic: optional verification pass then test capture.

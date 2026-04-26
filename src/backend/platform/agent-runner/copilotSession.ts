@@ -25,7 +25,6 @@ export async function refreshQaCodeDiff(options: {
 
   const outputPath = path.join(options.handoffsDir, 'code-changes.diff');
   const result = await captureCodeDiff({
-    contextPackDir: options.contextPackDir,
     outputPath,
     repoRoot: options.repoRoot,
     taskId: options.taskId,

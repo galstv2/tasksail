@@ -77,10 +77,13 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
 
 /**
  * Generate the per-task handoffs/code-changes.diff for QA review.
+ *
+ * Diff scope is the set of per-task worktrees recorded in
+ * AgentWorkSpace/tasks/<taskId>/.task.json — never the platform
+ * workspace file or the operator's source repo working tree.
  */
 export async function captureCodeDiff(options: {
   outputPath: string;
-  contextPackDir?: string;
   repoRoot?: string;
   taskId: string;
   abortSignal?: AbortSignal;
@@ -92,11 +95,9 @@ export async function captureCodeDiff(options: {
     options.outputPath,
     '--repo-root',
     paths.repoRoot,
+    '--task-id',
+    options.taskId,
   ];
-
-  if (options.contextPackDir) {
-    args.push('--context-pack-dir', options.contextPackDir);
-  }
 
   return runPython(
     helperPath,

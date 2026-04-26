@@ -753,9 +753,9 @@ describe('runRoleAgent autonomy env var export', () => {
 
     expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
     expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
-      contextPackDir: '/repo/context-pack',
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
+      taskId: 't1',
       abortSignal: undefined,
     }));
     expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
@@ -806,9 +806,9 @@ describe('runRoleAgent autonomy env var export', () => {
       mockedLaunchCopilot.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
     expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
-      contextPackDir: '/repo/context-pack',
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
+      taskId: 't1',
       abortSignal: undefined,
     }));
   });

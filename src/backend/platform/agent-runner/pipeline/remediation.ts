@@ -272,6 +272,7 @@ export async function remediationRunQaLoop(options: {
 
     const captureCwd = await resolveTestCaptureCwd({
       repoRoot: paths.repoRoot,
+      taskId: options.taskId,
       contextPackDir: effectiveContextPackDir,
     });
     const { runTestCaptureWithPhaseTracking } = await sequencer();
