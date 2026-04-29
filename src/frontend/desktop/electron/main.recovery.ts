@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { TaskHealthRollup, TaskRecoveryKind, TaskRecoveryState } from '../src/shared/desktopContract';
@@ -103,66 +103,34 @@ function recoveryStatesMatch(
     && left.errorItemPath === right.errorItemPath;
 }
 
-/**
- * §5.3B: Enumerate .active-items/ for multi-task support.
- * Returns the taskId of the first active marker (alphabetical), or null if none.
- * F26 legacy shim: falls back to reading singleton .active-item when .active-items/ is absent.
- */
-async function readActiveQueueName(): Promise<string | null> {
-  if (await pathExists(ACTIVE_ITEMS_DIR, repoFs)) {
-    try {
-      const entries = (await readdir(ACTIVE_ITEMS_DIR)).filter(
-        (f) => !f.endsWith('.completing') && !f.startsWith('.'),
-      ).sort();
-      if (entries.length > 0) {
-        // Return first active marker as the "active queue name" (queueName = taskId + '.md').
-        return entries[0]! + '.md';
-      }
-    } catch {
-      // Fall through to legacy shim.
-    }
-  }
-
-  // F26 legacy shim: read the singleton .active-item if .active-items/ is absent.
-  const legacyActiveItemPath = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-item');
-  if (!(await pathExists(legacyActiveItemPath, repoFs))) {
-    return null;
+/** Returns sorted active marker taskIds (excluding `.completing` sentinels and dotfiles). */
+async function readSortedActiveMarkers(): Promise<string[]> {
+  if (!(await pathExists(ACTIVE_ITEMS_DIR, repoFs))) {
+    return [];
   }
   try {
-    const content = (await readFile(legacyActiveItemPath, 'utf-8')).trim();
-    return content && content.endsWith('.md') ? content : null;
+    return (await readdir(ACTIVE_ITEMS_DIR))
+      .filter((f) => !f.endsWith('.completing') && !f.startsWith('.'))
+      .sort();
   } catch {
-    return null;
+    return [];
   }
 }
 
-/**
- * §5.3B: Return mtime of the first active marker file in ACTIVE_ITEMS_DIR.
- * F26 legacy shim: falls back to singleton .active-item when .active-items/ is absent.
- */
-async function readActiveItemMtimeIso(): Promise<string | null> {
-  if (await pathExists(ACTIVE_ITEMS_DIR, repoFs)) {
-    try {
-      const entries = (await readdir(ACTIVE_ITEMS_DIR)).filter(
-        (f) => !f.endsWith('.completing') && !f.startsWith('.'),
-      ).sort();
-      if (entries.length > 0) {
-        const markerPath = join(ACTIVE_ITEMS_DIR, entries[0]!);
-        const details = await stat(markerPath);
-        return details.mtime.toISOString();
-      }
-    } catch {
-      // Fall through to legacy shim.
-    }
-  }
+/** §5.3B: queueName of the first active marker, or null. */
+async function readActiveQueueName(): Promise<string | null> {
+  const entries = await readSortedActiveMarkers();
+  return entries.length > 0 ? entries[0]! + '.md' : null;
+}
 
-  // F26 legacy shim.
-  const legacyActiveItemPath = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-item');
-  if (!(await pathExists(legacyActiveItemPath, repoFs))) {
+/** §5.3B: mtime of the first active marker file, or null. */
+async function readActiveItemMtimeIso(): Promise<string | null> {
+  const entries = await readSortedActiveMarkers();
+  if (entries.length === 0) {
     return null;
   }
   try {
-    const details = await stat(legacyActiveItemPath);
+    const details = await stat(join(ACTIVE_ITEMS_DIR, entries[0]!));
     return details.mtime.toISOString();
   } catch {
     return null;
@@ -451,7 +419,7 @@ export function startTaskRecoveryController(options: {
       // §5.3B: hasPipelineStartEvidence is now per-task.
       const activeTaskId = queueNameToTaskId(activeQueueName);
       const hasRuntimeEvidence = await hasPipelineStartEvidence(activeTaskId, activationStartedAt);
-      const runtimeHealth = observability.activeTask?.taskHealth;
+      const runtimeHealth = observability.activeTasks?.[0]?.taskHealth;
 
       if (hasRuntimeEvidence) {
         if (recoveryState?.status === 'pending-start' || recoveryState?.status === 'repaired') {

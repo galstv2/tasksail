@@ -347,8 +347,8 @@ export function buildTestCapturePrompt(
   ];
   appendFocusBlock(parts, {
     ...focusScope,
-    launchContextLine: 'Use this focus path as the primary implementation scope while reviewing the changes below.',
-    scopeLine: 'This prompt does not change your launch CWD or broader QA authority.',
+    launchContextLine: 'Use the primary focus as the review starting point while reviewing the changes below.',
+    scopeLine: 'Writable roots describe Dalton implementation authority; this prompt does not change your launch CWD or broader QA authority.',
   });
   appendMcpContextBlock(parts, externalMcpRegistry, 'ron');
   parts.push(evidence);

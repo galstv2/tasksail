@@ -14,10 +14,15 @@ export function buildComposeCommand(
 ): string[] {
   const cmd = buildComposeBaseCommand(backend, options);
 
-  if (options.composeFile) {
+  if (options.projectName) {
+    cmd.push('-p', options.projectName);
+  }
+
+  const composeFiles = options.composeFiles ?? (options.composeFile ? [options.composeFile] : []);
+  for (const composeFile of composeFiles) {
     cmd.push(
       '-f',
-      core.toEngineHostPath(options.composeFile, {
+      core.toEngineHostPath(composeFile, {
         engineHost: options.engineHost,
         wslDistro: options.wslDistro,
       }),
@@ -85,18 +90,11 @@ export async function detectComposeCommand(
  * Validate a compose configuration file by running `compose config`.
  */
 export async function validateComposeConfig(
-  composeFile: string,
   backend: ContainerBackend,
-  env?: NodeJS.ProcessEnv,
-  engineHost?: ComposeOptions['engineHost'],
-  wslDistro?: ComposeOptions['wslDistro'],
+  options: ComposeOptions,
 ): Promise<void> {
-  const cmd = buildComposeCommand(backend, 'config', {
-    composeFile,
-    engineHost,
-    wslDistro,
-  });
-  await execCommand(cmd[0], cmd.slice(1), undefined, env);
+  const cmd = buildComposeCommand(backend, 'config', options);
+  await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
 }
 
 /**

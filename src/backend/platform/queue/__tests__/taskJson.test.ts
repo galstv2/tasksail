@@ -18,9 +18,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { activateNextPendingItemIfReady } from '../operations.js';
 import { HANDOFF_FILES, SLICE_TEMPLATE_FILENAME, resolveQueuePaths } from '../paths.js';
-import { readTaskJson, readTaskJsonSafe, isTaskSidecarError } from '../taskJson.js';
+import { readTaskJson, readTaskJsonSafe, isTaskSidecarError, writeTaskJson } from '../taskJson.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
-import { composeProjectName } from '../../container/containerNaming.js';
+import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+
+async function stopPipelinesStartedByTest(): Promise<void> {
+  await Promise.all(
+    listActivePipelines().map(({ taskId }) => stopPipeline(taskId, 1000)),
+  );
+}
 
 describe('§3.1 per-task .task.json sidecar', () => {
   let repoRoot: string;
@@ -44,8 +50,9 @@ describe('§3.1 per-task .task.json sidecar', () => {
     mkdirSync(templatesDir, { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('writes .task.json with state "active" at AgentWorkSpace/tasks/<taskId>/ upon activation', async () => {
@@ -111,7 +118,7 @@ describe('§3.1 per-task .task.json sidecar', () => {
     const mat = sidecar['materialization'] as Record<string, unknown>;
     expect(mat).toBeDefined();
     expect(mat['strategy']).toBe('copy');
-    expect(mat['composeProjectName']).toBe(composeProjectName(taskId));
+    expect(mat).not.toHaveProperty('composeProjectName');
     expect(Array.isArray(mat['cloned'])).toBe(true);
     expect(Array.isArray(mat['skipped'])).toBe(true);
   });
@@ -132,7 +139,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
   });
 
   afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     if (savedTaskId !== undefined) {
       process.env['TASKSAIL_TASK_ID'] = savedTaskId;
     } else {
@@ -357,6 +364,43 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
       readFileSync(path.join(taskDir, '.task.json'), 'utf-8'),
     ) as Record<string, unknown>;
     expect(onDisk['schema_version']).toBe(1);
+  });
+
+  it('P7: reads legacy composeProjectName sidecars but omits it on new writes', () => {
+    const taskId = 'p5-legacy-compose-project';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+          composeProjectName: 'tasksail-' + taskId,
+        },
+      }, null, 2) + '\n',
+    );
+
+    const sidecar = readTaskJson(taskId, repoRoot);
+    expect(sidecar.materialization.composeProjectName).toBe(`tasksail-${taskId}`);
+
+    writeTaskJson(taskId, repoRoot, sidecar);
+    const onDisk = JSON.parse(
+      readFileSync(path.join(taskDir, '.task.json'), 'utf-8'),
+    ) as { materialization: Record<string, unknown> };
+    expect(onDisk.materialization).not.toHaveProperty('composeProjectName');
   });
 
   it('B7-data: reads a v2 sidecar with per-binding mergedAt/mergedVia and surfaces them verbatim', () => {

@@ -5,6 +5,7 @@ import type {
   InstructionFileEntry,
   AgentInstructionsListFilesResponse,
   AgentInstructionsReadFileResponse,
+  ProviderFrontendDescriptor,
 } from '../../shared/desktopContract';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
@@ -29,12 +30,30 @@ const TAB_LABELS: Record<InstructionsTab, string> = {
   templates: 'Templates',
 };
 
-const DIRECTORY_LABELS: Record<InstructionsTab, string> = {
-  profiles: '.github/agents/',
-  instructions: '.github/copilot/instructions/',
-  prompts: '.github/copilot/prompts/',
+const DEFAULT_DIRECTORY_LABELS: Record<InstructionsTab, string> = {
+  profiles: 'agent profiles/',
+  instructions: 'agent instructions/',
+  prompts: 'agent prompts/',
   templates: 'AgentWorkSpace/templates/',
 };
+
+function withTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
+}
+
+export function createDirectoryLabels(
+  descriptor: ProviderFrontendDescriptor | null,
+): Record<InstructionsTab, string> {
+  if (!descriptor) {
+    return DEFAULT_DIRECTORY_LABELS;
+  }
+  return {
+    profiles: withTrailingSlash(descriptor.agentConfigPaths.profiles),
+    instructions: withTrailingSlash(descriptor.agentConfigPaths.instructions),
+    prompts: withTrailingSlash(descriptor.agentConfigPaths.prompts),
+    templates: DEFAULT_DIRECTORY_LABELS.templates,
+  };
+}
 
 const EMPTY_FILES: Record<InstructionsTab, InstructionFileEntry[]> = {
   profiles: [],
@@ -43,10 +62,13 @@ const EMPTY_FILES: Record<InstructionsTab, InstructionFileEntry[]> = {
   templates: [],
 };
 
-function resolveDirectoryForPath(relativePath: string | null): InstructionsTab | null {
+function resolveDirectoryForPath(
+  relativePath: string | null,
+  directoryLabels: Record<InstructionsTab, string>,
+): InstructionsTab | null {
   if (!relativePath) return null;
   for (const tab of TAB_ORDER) {
-    if (relativePath.startsWith(DIRECTORY_LABELS[tab])) return tab;
+    if (relativePath.startsWith(directoryLabels[tab])) return tab;
   }
   return null;
 }
@@ -56,7 +78,7 @@ export function isDraftDirty(draft: FileState | undefined): boolean {
   return draft.editorContent !== draft.savedContent;
 }
 
-export { TAB_LABELS, DIRECTORY_LABELS };
+export { TAB_LABELS, DEFAULT_DIRECTORY_LABELS as DIRECTORY_LABELS };
 
 // ── Browser props ───────────────────────────────────────��────────────
 
@@ -112,6 +134,8 @@ export function useAgentInstructionsModal(
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [directoryLabels, setDirectoryLabels] =
+    useState<Record<InstructionsTab, string>>(DEFAULT_DIRECTORY_LABELS);
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
   const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
 
@@ -161,9 +185,10 @@ export function useAgentInstructionsModal(
     setError(null);
 
     try {
-      const results = await Promise.all(
-        TAB_ORDER.map((dir) => client.listInstructionFiles(dir)),
-      );
+      const descriptorPromise = client.describeActiveProvider();
+      const fileListPromise = Promise.all(TAB_ORDER.map((dir) => client.listInstructionFiles(dir)));
+      const [descriptor, results] = await Promise.all([descriptorPromise, fileListPromise]);
+      setDirectoryLabels(createDirectoryLabels(descriptor));
 
       const newFiles: Record<InstructionsTab, InstructionFileEntry[]> = {
         profiles: [],
@@ -355,7 +380,7 @@ export function useAgentInstructionsModal(
   }), [isOpen, isLoading, files, draftsByPath, error, loadingPath, onBrowserClose, onSelectFile]);
 
   const editorIsOpen = editingRelativePath !== null && editingDraft?.loaded === true;
-  const activeDirectory = resolveDirectoryForPath(editingRelativePath);
+  const activeDirectory = resolveDirectoryForPath(editingRelativePath, directoryLabels);
 
   const editorProps = useMemo<AgentInstructionsEditorProps>(() => ({
     isOpen: editorIsOpen,

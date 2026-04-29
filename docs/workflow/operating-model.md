@@ -5,24 +5,26 @@
 - The platform is human-supervised.
 - Repo artifacts are the durable workflow state.
 - `.github/agents/` is a first-class platform layer for repository-scoped
-  Copilot workflow roles, and `.github/agents/registry.json` is the canonical
+  CLI-backed workflow roles, and `.github/agents/registry.json` is the canonical
   roster for approved agent IDs, profile paths, and declared model pins.
-- Repository-scoped Copilot workflow roles live in `.github/agents/` and
+- Repository-scoped workflow roles live in `.github/agents/` and
   should be invoked through
   `pnpm run agent -- --agent-id <agent-id>` when the operator
   wants the platform's named role profiles.
 - For approved named workflow roles, the wrapper is the compliant launch seam;
-  direct raw named-agent invocation is non-compliant unless a repository-
+  direct raw provider CLI invocation is non-compliant unless a repository-
   controlled internal orchestrator explicitly authorizes it.
-- Each approved wrapper launch starts a fresh task-scoped `copilot --agent`
-  subprocess, waits for it to exit, and then returns control to the operator.
+- Each approved wrapper launch resolves the active CLI provider and starts a
+  fresh task-scoped provider subprocess, currently `copilot --agent`, waits for
+  it to exit, and then returns control to the operator.
 - The production wrapper seam is the TypeScript runtime under
   `src/backend/platform/agent-runner/`. The files in
-  `.github/copilot/prompts/` are intentionally short phase-entry prompts; the
-  durable workflow policy lives in `.github/copilot/instructions/` and runtime
-  guardrails.
+  the active provider's prompt paths (`.github/copilot/prompts/` for the
+  shipped `copilot` provider) are intentionally short phase-entry prompts; the
+  durable workflow policy lives in provider-owned instructions
+  (`.github/copilot/instructions/` for `copilot`) and runtime guardrails.
 - Because the current runtime is task-scoped rather than a long-lived shared
-  Copilot session, the platform does not add an end-of-task `/compact` step.
+  CLI session, the platform does not add an end-of-task `/compact` step.
 - Each approved wrapper launch also applies a registry-backed autonomy profile:
   `repo-executor` for `software-engineer`, and `artifact-author` for the
   remaining named workflow roles.
@@ -42,12 +44,18 @@
 - `AgentWorkSpace/tasks/<taskId>/handoffs/` is the active task workspace.
 - QMD is long-term retrieval memory, not the active source of truth.
 
-The `product-manager`, `software-engineer`, and `qa` custom agent profiles are pinned to `gpt-5.4`;
-the `planning-agent` profile is pinned to `gpt-4.1`.
+The `product-manager` and `qa` profiles are pinned to `gpt-5.4`; `planning-agent`,
+`software-engineer`, and `software-engineer-verify` are pinned to
+`claude-sonnet-4.6`.
 
-Pinned wrapper launches should provide active model evidence through
-`RUN_ROLE_AGENT_ACTIVE_MODEL` or `COPILOT_MODEL` so launch-time model legality
-can be enforced before process spawn.
+Pinned wrapper launches provide active model evidence through
+`RUN_ROLE_AGENT_ACTIVE_MODEL`; the active provider maps the selected model into
+provider-specific env such as `COPILOT_MODEL` for the shipped `copilot`
+provider before process spawn.
+
+Provider selection resolves from an explicit runtime request, then
+`TASKSAIL_CLI_PROVIDER`, then `.platform-state/platform.json` `cli_provider`,
+then the default `copilot` provider. `copilot` is the only shipped provider.
 
 ## Intake and queue flow
 
@@ -220,10 +228,10 @@ Child-task rules:
 - External MCP servers are operator-configured in
   `config/mcp-registry-external.default.json` (tracked seed) and
   `.platform-state/mcp-registry-external.json` (runtime, operator-mutable).
-- The platform injects approved external MCP servers into agent launches via
-  `COPILOT_HOME` materialization. Each launch gets an isolated directory under
-  `.platform-state/runtime/copilot-home/` to prevent races between concurrent
-  launches.
+- The platform injects approved external MCP servers into agent launches via the
+  active provider's MCP config arguments. Each shipped `copilot` provider launch
+  gets an isolated directory under `.platform-state/runtime/copilot-home/` to
+  prevent races between concurrent launches.
 - Header values referencing environment variables (`${ENV_VAR}`) are resolved
   at materialization time. Missing variables exclude the affected server with
   an actionable warning — the launch continues without that server.
@@ -234,8 +242,9 @@ Child-task rules:
   modify the internal `config/mcp-registry.default.json` for third-party
   servers.
 - `.github/copilot/` is not used for MCP registration. External MCP
-  configuration is handled entirely through the registry files and
-  `COPILOT_HOME` injection.
+  configuration is handled entirely through the registry files and active
+  provider MCP config injection; provider-specific home variables such as
+  `COPILOT_HOME` are not exported by the helper.
 
 ## Day-to-day operator sequence
 

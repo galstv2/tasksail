@@ -42,6 +42,22 @@ describe('buildComposeCommand', () => {
     ]);
   });
 
+  it('includes multiple compose file flags in order', () => {
+    const cmd = buildComposeCommand('docker', 'up', {
+      composeFile: '/path/to/ignored.yml',
+      composeFiles: [
+        '/path/to/docker-compose.yml',
+        '/path/to/shared-mcp-compose.override.yml',
+      ],
+    });
+    expect(cmd).toEqual([
+      'docker', 'compose',
+      '-f', '/path/to/docker-compose.yml',
+      '-f', '/path/to/shared-mcp-compose.override.yml',
+      'up', '-d',
+    ]);
+  });
+
   it('includes build flag for up', () => {
     const cmd = buildComposeCommand('docker', 'up', { build: true });
     expect(cmd).toEqual(['docker', 'compose', 'up', '-d', '--build']);
@@ -62,6 +78,19 @@ describe('buildComposeCommand', () => {
   it('builds docker compose down', () => {
     const cmd = buildComposeCommand('docker', 'down', {});
     expect(cmd).toEqual(['docker', 'compose', 'down']);
+  });
+
+  it('scopes compose down to a project name', () => {
+    const cmd = buildComposeCommand('docker', 'down', {
+      composeFile: '/path/to/docker-compose.yml',
+      projectName: 'tasksail-legacy-task',
+    });
+    expect(cmd).toEqual([
+      'docker', 'compose',
+      '-p', 'tasksail-legacy-task',
+      '-f', '/path/to/docker-compose.yml',
+      'down',
+    ]);
   });
 
   it('builds docker compose config', () => {

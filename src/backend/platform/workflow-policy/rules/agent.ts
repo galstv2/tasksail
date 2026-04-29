@@ -5,16 +5,16 @@
  */
 
 import path from 'node:path';
+import { getActiveProvider } from '../../cli-provider/index.js';
 import { readTextFile, safeJsonParse } from '../../core/index.js';
 import {
   canonicalAgentLabel,
   expectedInstructionHeading,
-  parseChatagentProfile,
 } from '../agents.js';
 import {
   AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
-  AGENT_REGISTRY_RELATIVE_PATH,
+  getAgentRegistryRelativePath,
 } from '../models.js';
 import type { PolicyValidator } from '../validator.js';
 
@@ -52,15 +52,18 @@ export async function evaluateNamedAgentRules(
   validator.recordRule('artifact.named-agent-instruction-headings');
   validator.recordRule('artifact.named-agent-profiles');
   validator.recordRule('artifact.named-agent-model-catalog-gate');
+  const provider = getActiveProvider(validator.rootDir);
+  const agentConfigPaths = provider.agentConfigPaths();
+  const registryRelativePath = getAgentRegistryRelativePath(validator.rootDir);
 
   if (validator.namedAgentRegistryErrors.length > 0) {
     for (const error of validator.namedAgentRegistryErrors) {
       validator.addViolation({
         rule_id: 'artifact.named-agent-registry',
-        artifact: AGENT_REGISTRY_RELATIVE_PATH,
+        artifact: registryRelativePath,
         message: error,
         remediation:
-          'Fix .github/agents/registry.json so the workflow validator can derive the canonical repository agent roster.',
+          `Fix ${registryRelativePath} so the workflow validator can derive the canonical repository agent roster.`,
       });
     }
     return;
@@ -77,7 +80,7 @@ export async function evaluateNamedAgentRules(
         rule_id: 'artifact.named-agent-instruction-headings',
         artifact: relativePath,
         message: `Named-agent validation requires the instruction file for ${agentLabel} to exist.`,
-        remediation: 'Restore the named-agent instruction files under .github/copilot/instructions/.',
+        remediation: `Restore the named-agent instruction files under ${agentConfigPaths.instructions}.`,
       });
       continue;
     }
@@ -106,14 +109,14 @@ export async function evaluateNamedAgentRules(
       validator.addViolation({
         rule_id: 'artifact.named-agent-profiles',
         artifact: profileRelativePath,
-        message: `Named-agent validation requires the custom agent profile for ${agentLabel} to exist under .github/agents/.`,
+        message: `Named-agent validation requires the custom agent profile for ${agentLabel} to exist under ${agentConfigPaths.profiles}.`,
         remediation:
-          'Restore the custom agent profiles under .github/agents/ so the workflow can route through repository-scoped agent definitions.',
+          `Restore the custom agent profiles under ${agentConfigPaths.profiles} so the workflow can route through repository-scoped agent definitions.`,
       });
       continue;
     }
 
-    const { frontmatter, body, errors: parseErrors } = parseChatagentProfile(profileText);
+    const { frontmatter, body, errors: parseErrors } = provider.parseAgentProfile(profileText);
     if (parseErrors.length > 0) {
       for (const error of parseErrors) {
         validator.addViolation({
@@ -121,7 +124,7 @@ export async function evaluateNamedAgentRules(
           artifact: profileRelativePath,
           message: `${profileRelativePath} is not a valid custom agent profile: ${error}`,
           remediation:
-            'Use the GitHub custom agent markdown format with YAML frontmatter and a non-empty body. A ```chatagent fence is optional.',
+            'Use the active provider custom agent profile format with YAML frontmatter and a non-empty body.',
         });
       }
       continue;
@@ -153,7 +156,7 @@ export async function evaluateNamedAgentRules(
         artifact: profileRelativePath,
         message: `${profileRelativePath} has an invalid model value '${model}'.`,
         remediation:
-          'Use a valid GitHub Copilot model identifier such as gpt-4.1 or gpt-5.4.',
+          'Use a valid agent CLI model identifier such as gpt-4.1 or gpt-5.4.',
       });
     }
 
@@ -196,7 +199,7 @@ export async function evaluateNamedAgentRules(
         const agentLabel = canonicalAgentLabel(validator.namedAgentTeam, agentKey);
         validator.addViolation({
           rule_id: 'artifact.named-agent-model-catalog-gate',
-          artifact: AGENT_REGISTRY_RELATIVE_PATH,
+          artifact: registryRelativePath,
           message: `${agentLabel} requires model "${model}" which is not in ${AGENT_MODEL_CATALOG_RELATIVE_PATH}.`,
           remediation: `Add "${model}" to ${AGENT_MODEL_CATALOG_RELATIVE_PATH} or change the agent's required_model to one that exists in the catalog.`,
         });

@@ -13,7 +13,8 @@
     "container",
     "validation",
     "setup",
-    "external-mcp-registry"
+    "external-mcp-registry",
+    "cli-provider"
   ],
   "exclude": ["**/__tests__", "dist"]
 }

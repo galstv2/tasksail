@@ -1,9 +1,21 @@
 // @vitest-environment node
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+async function getReapedPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  const pid = child.pid;
+  if (typeof pid !== 'number') {
+    throw new Error('Failed to spawn child process for stale-pid test');
+  }
+  await new Promise<void>((resolve) => child.on('exit', () => resolve()));
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  return pid;
+}
 
 const TEST_REPO_ROOT = join(process.cwd(), 'scratchspace', 'vitest-planner-staging');
 
@@ -65,7 +77,7 @@ describe('planner staging helpers', () => {
     });
 
     expect(metadata.draftFilename).toBe('20260102T030405Z_backend-services-orders.md');
-    expect(metadata.title).toBe('20260102T030405Z_backend-services-orders');
+    expect(metadata.title).toBe('backend / services/orders');
 
     const readResult = await readOwnedStagedDraft('planner-101');
     expect(readResult.error).toBeNull();
@@ -73,7 +85,7 @@ describe('planner staging helpers', () => {
     expect(readResult.draft).toEqual(expect.objectContaining({
       filename: '20260102T030405Z_backend-services-orders.md',
     }));
-    expect(readResult.draft?.content).toContain('# 20260102T030405Z_backend-services-orders');
+    expect(readResult.draft?.content).toContain('# backend / services/orders');
     expect(readResult.draft?.content).toContain('- Context Pack Dir: /contextpacks/orders');
     expect(readResult.draft?.content).toContain('- Selected Focus IDs: orders');
     expect(readResult.draft?.content).toContain('- Recommended Execution:');
@@ -81,7 +93,7 @@ describe('planner staging helpers', () => {
 
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
-      title: '20260102T030405Z_backend-services-orders',
+      title: 'backend / services/orders',
     }));
     await expect(readPlannerStagingLockOwnership()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
@@ -364,6 +376,51 @@ describe('planner staging helpers', () => {
     await expect(releasePlannerStagingLock()).resolves.toBe(false);
     await expect(releasePlannerStagingLock('planner-202')).resolves.toBe(false);
     await expect(releasePlannerStagingLock('planner-201')).resolves.toBe(true);
+  });
+
+  it('reclaims an orphaned planner staging lock when the holder process is dead', async () => {
+    const {
+      acquirePlannerStagingLock,
+      readPlannerStagingLockOwnership,
+    } = await import('../main.staging');
+
+    const stagingDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'dropbox', '.staging');
+    const lockDir = join(stagingDir, '.planner-lock.d');
+    await mkdir(lockDir, { recursive: true });
+
+    const deadPid = await getReapedPid();
+    await writeFile(
+      join(lockDir, 'owner.json'),
+      JSON.stringify({ version: 1, sessionId: 'planner-orphan', acquiredAt: '2026-01-01T00:00:00Z', pid: deadPid }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    const ownership = await acquirePlannerStagingLock('planner-301', { maxRetries: 2, backoffMs: 10 });
+    expect(ownership.sessionId).toBe('planner-301');
+    expect(ownership.pid).toBe(process.pid);
+
+    await expect(readPlannerStagingLockOwnership()).resolves.toEqual(expect.objectContaining({
+      sessionId: 'planner-301',
+      pid: process.pid,
+    }));
+  });
+
+  it('does not reclaim the planner staging lock when the holder process is alive', async () => {
+    const { acquirePlannerStagingLock } = await import('../main.staging');
+
+    const stagingDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'dropbox', '.staging');
+    const lockDir = join(stagingDir, '.planner-lock.d');
+    await mkdir(lockDir, { recursive: true });
+
+    await writeFile(
+      join(lockDir, 'owner.json'),
+      JSON.stringify({ version: 1, sessionId: 'planner-alive', acquiredAt: '2026-01-01T00:00:00Z', pid: process.pid }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    await expect(
+      acquirePlannerStagingLock('planner-302', { maxRetries: 1, backoffMs: 1 }),
+    ).rejects.toThrow('planner-alive');
   });
 
   it('falls back to legacy newest-file reads when no sidecar exists', async () => {

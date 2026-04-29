@@ -2,7 +2,6 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import { Readable } from 'node:stream';
@@ -14,6 +13,7 @@ import { Readable } from 'node:stream';
 const spawnPipelineForTaskMock = vi.fn();
 const moveFailedItemToErrorItemsMock = vi.fn();
 const finalizeTaskWorktreesMock = vi.fn();
+const sweepRuntimeGCMock = vi.fn();
 
 vi.mock('../spawnPipeline.js', () => ({
   spawnPipelineForTask: spawnPipelineForTaskMock,
@@ -25,6 +25,7 @@ vi.mock('../../queue/errorItems.js', () => ({
 
 vi.mock('../../core/worktreeFinalize.js', () => ({
   finalizeTaskWorktrees: finalizeTaskWorktreesMock,
+  sweepRuntimeGC: sweepRuntimeGCMock,
 }));
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,7 @@ describe('pipelineSupervisor', () => {
     vi.clearAllMocks();
     moveFailedItemToErrorItemsMock.mockResolvedValue({ movedItem: 'test.md', errorItemPath: '/error/test.md', nextActiveItem: null });
     finalizeTaskWorktreesMock.mockResolvedValue(undefined);
+    sweepRuntimeGCMock.mockReturnValue(undefined);
     repoRoot = await mkdtemp(path.join(os.tmpdir(), 'supervisor-test-'));
   });
 
@@ -312,31 +314,5 @@ describe('pipelineSupervisor', () => {
     expect(remaining.some((e) => e.taskId === 'task-ok')).toBe(true);
 
     childB.triggerExit(0);
-  });
-
-  it('recoverOnStartup singleton migration: legacy .active-item file is migrated', async () => {
-    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'singleton-test-'));
-    const pendingDir = path.join(tmpDir, 'AgentWorkSpace', 'pendingitems');
-    await mkdir(pendingDir, { recursive: true });
-
-    // Write legacy .active-item file
-    await writeFile(path.join(pendingDir, '.active-item'), 'legacy-task.md', 'utf-8');
-
-    // Also create .task.json for the task so crash recovery doesn't fail
-    const taskDir = path.join(tmpDir, 'AgentWorkSpace', 'tasks', 'legacy-task');
-    await mkdir(taskDir, { recursive: true });
-    await writeFile(path.join(taskDir, '.task.json'), JSON.stringify({ taskId: 'legacy-task' }), 'utf-8');
-
-    const { recoverOnStartup } = await import('../pipelineSupervisor.js');
-    await recoverOnStartup(tmpDir);
-
-    // Legacy file should be gone
-    expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(false);
-
-    // Per-task marker should exist (or have been processed by crash recovery)
-    // Either the marker was migrated and then crashed (cleaned up) or it persists
-    // In crash recovery, marker gets removed after processing, so either state is valid.
-
-    await rm(tmpDir, { recursive: true, force: true });
   });
 });

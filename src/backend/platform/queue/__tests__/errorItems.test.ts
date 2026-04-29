@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 
 vi.mock('../../core/worktreeFinalize.js', () => ({
   finalizeTaskWorktrees: vi.fn().mockResolvedValue(undefined),
+  discardRetainedTaskWorktrees: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../platform-config/get.js', () => ({
@@ -61,7 +62,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // Import mocked modules
-import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
+import { discardRetainedTaskWorktrees, finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../../platform-config/get.js';
 import { execFile as execFileMocked, spawn as spawnMocked } from 'node:child_process';
 
@@ -69,17 +70,27 @@ import { execFile as execFileMocked, spawn as spawnMocked } from 'node:child_pro
 import {
   assertQueueLockHeld,
   commitTaskSnapshot,
+  moveErrorItemToDropbox,
   moveFailedItemToErrorItems,
   requeueErrorItem,
 } from '../errorItems.js';
 import { resolveQueuePaths } from '../paths.js';
+import { getAllTasks, loadTaskRegistry } from '../taskRegistry.js';
+import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
 
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
+const mockDiscardRetainedTaskWorktrees = vi.mocked(discardRetainedTaskWorktrees);
 const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
 const mockSpawn = vi.mocked(spawnMocked);
 // The custom promisify symbol on the mock — used to control git for-each-ref output
 function getMockExecFilePromisified(): ReturnType<typeof vi.fn> {
   return (execFileMocked as unknown as Record<symbol, ReturnType<typeof vi.fn>>)[promisify.custom] as ReturnType<typeof vi.fn>;
+}
+
+async function stopPipelinesStartedByTest(): Promise<void> {
+  await Promise.all(
+    listActivePipelines().map(({ taskId }) => stopPipeline(taskId, 1000)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +123,6 @@ function makeTaskJson(
         strategy: 'copy',
         cloned: [],
         skipped: [],
-        composeProjectName: 'repo-context-mcp',
       },
     }, null, 2) + '\n',
     'utf-8',
@@ -149,31 +159,64 @@ function makeTaskRuntime(root: string, taskId: string): string {
   return runtimePath;
 }
 
+/**
+ * Seed `.platform-state/task-registry.json` with one entry in `failed[]`
+ * under the unbound context-pack key, mimicking what
+ * `moveFailedItemToErrorItems` would have written on the failure transition.
+ *
+ * Used by the requeue/dropbox disposal tests to verify that the failed entry
+ * is FULLY REMOVED on a successful retry-or-return-to-dropbox, not merely
+ * transitioned to a different state where it would orphan.
+ */
+function seedFailedRegistryEntry(repoRoot: string, taskId: string): void {
+  const registryDir = path.join(repoRoot, '.platform-state');
+  mkdirSync(registryDir, { recursive: true });
+  const registry = {
+    schema_version: 2,
+    tasks: {
+      _unbound: {
+        open: [],
+        pending: [],
+        active: [],
+        failed: [{
+          taskId,
+          fileName: `${taskId}.md`,
+          title: null,
+          state: 'failed' as const,
+          contextPackId: null,
+          contextPackDir: null,
+          scopeMode: null,
+          selectedRepoIds: [],
+          selectedFocusIds: [],
+          createdAt: null,
+          completedAt: null,
+          archivePath: null,
+        }],
+        completed: [],
+      },
+    },
+  };
+  writeFileSync(
+    path.join(registryDir, 'task-registry.json'),
+    JSON.stringify(registry, null, 2) + '\n',
+    'utf-8',
+  );
+}
+
+async function findRegistryEntry(repoRoot: string, taskId: string): Promise<{ state: string } | null> {
+  const registry = await loadTaskRegistry(repoRoot);
+  const all = getAllTasks(registry);
+  for (const state of ['open', 'pending', 'active', 'failed', 'completed'] as const) {
+    if (all[state].some((e) => e.taskId === taskId)) return { state };
+  }
+  return null;
+}
+
 function getMtime(p: string): number {
   try {
     return statSync(p).mtimeMs;
   } catch {
     return -1;
-  }
-}
-
-function seedPortAllocation(root: string, taskId: string): void {
-  const tablePath = path.join(root, '.platform-state', 'runtime', 'port-allocations.json');
-  mkdirSync(path.dirname(tablePath), { recursive: true });
-  let table: Record<string, unknown> = {};
-  try {
-    table = JSON.parse(readFileSync(tablePath, 'utf-8')) as Record<string, unknown>;
-  } catch { /* absent — start fresh */ }
-  table[taskId] = { port: 9000 };
-  writeFileSync(tablePath, JSON.stringify(table, null, 2) + '\n', 'utf-8');
-}
-
-function readPortAllocations(root: string): Record<string, unknown> {
-  const tablePath = path.join(root, '.platform-state', 'runtime', 'port-allocations.json');
-  try {
-    return JSON.parse(readFileSync(tablePath, 'utf-8')) as Record<string, unknown>;
-  } catch {
-    return {};
   }
 }
 
@@ -218,7 +261,8 @@ const DEFAULT_PLATFORM_CONFIG = {
   max_retained_failed_task_worktrees: 10,
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
-  mcp_port_range: { min: 8811, max: 8820 },
+  mcp_port: 8811,
+  repo_context_mcp_external_mount_roots: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -233,8 +277,9 @@ describe('B2 commitTaskSnapshot empty-tree and commit-failure handling', () => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'ts-B2-commit-'));
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('B2 skips an empty staged tree after the explicit cached diff pre-check', async () => {
@@ -330,8 +375,9 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('failing Task B leaves A and C markers, task.json state, and runtime subtrees intact', async () => {
@@ -343,7 +389,6 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
       makeActiveMarker(queuePaths, taskId);
       makeTaskJson(taskId, repoRoot, []);
       makeTaskRuntime(repoRoot, taskId);
-      seedPortAllocation(repoRoot, taskId);
     }
 
     // Snapshot runtime mtimes for A and C BEFORE failing B
@@ -380,12 +425,8 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     expect(getMtime(runtimeA)).toBe(mtimeA_before);
     expect(getMtime(runtimeC)).toBe(mtimeC_before);
 
-    // (e) A and C port allocations still in table
-    const table = readPortAllocations(repoRoot);
-    expect('task-A' in table).toBe(true);
-    expect('task-C' in table).toBe(true);
-    // B's port allocation removed
-    expect('task-B' in table).toBe(false);
+    // (e) Shared MCP is not torn down or reallocated by the error path; only
+    // task B finalization runs, while peer runtime subtrees stay intact.
 
     // (f) finalizeTaskWorktrees called ONLY for B
     expect(mockFinalizeTaskWorktrees).toHaveBeenCalledTimes(1);
@@ -398,6 +439,51 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
 
     // (i) B moved to error-items
     expect(existsSync(path.join(queuePaths.errorItemsDir, 'task-B.md'))).toBe(true);
+  });
+
+  it('restores active context-pack binding when recovering a failed task whose pending item is missing', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-recovered-binding';
+    const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
+
+    makeActiveMarker(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, []);
+    makeTaskRuntime(repoRoot, taskId);
+    mkdirSync(taskHandoffsDir, { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'queue'), { recursive: true });
+    writeFileSync(
+      path.join(taskHandoffsDir, 'professional-task.md'),
+      '# Professional Task\n\n## Task Lineage\n\n- Task Kind: standard\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
+      JSON.stringify({
+        contextPackDir: '/contextpacks/orders',
+        contextPackId: 'orders',
+        scopeMode: 'focused',
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'services/Orders.Api/Routes.cs',
+        selectedFocusTargetKind: 'file',
+        selectedSupportTargets: [],
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    await moveFailedItemToErrorItems({ repoRoot, taskId });
+
+    const recovered = readFileSync(
+      path.join(queuePaths.errorItemsDir, `${taskId}.md`),
+      'utf-8',
+    );
+    expect(recovered).toContain('## Context Pack Binding');
+    expect(recovered).toContain('- Context Pack Dir: /contextpacks/orders');
+    expect(recovered).toContain('- Selected Repo IDs: backend');
+    expect(recovered).toContain('- Deep Focus Enabled: true');
+    expect(recovered).toContain('- Selected Focus Path: services/Orders.Api/Routes.cs');
+    expect(recovered).toContain(`Failure recovery note: pendingitems/${taskId}.md was already absent.`);
   });
 });
 
@@ -418,8 +504,9 @@ describe('§4.14A cross-origin single-task fail: A binds X+Y, B binds X+Z', () =
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('finalizeTaskWorktrees called only for A; B runtime untouched', async () => {
@@ -483,8 +570,9 @@ describe('§4.14A peer worktree isolation: A and B share origin X', () => {
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('failing A does not touch B worktree; finalizeTaskWorktrees not called for B', async () => {
@@ -553,8 +641,9 @@ describe('§4.14A activation after failure (cap=2, B active, A fails, D pending)
     mkdirSync(path.join(repoRoot, '.platform-state', 'queue'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('activates pending D after A fails, B remains active; activateNextPendingItemIfReady runs', async () => {
@@ -626,8 +715,9 @@ describe('§4.14A retry-generations-exhausted', () => {
     mkdirSync(path.join(repoRoot, '.platform-state', 'queue'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('B6 assertQueueLockHeld rejects missing, malformed, and stale owner markers', async () => {
@@ -648,7 +738,7 @@ describe('§4.14A retry-generations-exhausted', () => {
       'queue lock assertion failed: pickNextRetryN requires the queue lock',
     );
 
-    rmSync(queuePaths.queueLockDir, { recursive: true, force: true });
+    rmSync(queuePaths.queueLockDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('rejects requeueErrorItem when 5 retry branches exist in origin; no new branch or activation', async () => {
@@ -834,8 +924,9 @@ describe('§4.14A F7: pipeline.lock removed unconditionally before finalizeTaskW
     mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks'), { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('pipeline.lock dir is absent when finalizeTaskWorktrees is called', async () => {
@@ -864,5 +955,190 @@ describe('§4.14A F7: pipeline.lock removed unconditionally before finalizeTaskW
     expect(lockExistedAtFinalize).toBe(false);
     // And still gone after
     expect(existsSync(lockDir)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 7: requeue-time disposal of retained worktrees
+//
+// Failure-time retention (retain_failed_task_worktrees=true) preserves the
+// failed worktree for forensic inspection. The operator's choice to retry —
+// either via requeueErrorItem (error-items → pendingitems with -retry<N>
+// suffix) or moveErrorItemToDropbox (error-items → dropbox round-trip) —
+// is the signal that the forensic affordance is no longer needed for this
+// task. Both call sites must invoke discardRetainedTaskWorktrees AFTER the
+// rename succeeds, so a failed rename does not destroy the retained state.
+// ---------------------------------------------------------------------------
+
+describe('requeue-time disposal of retained worktrees', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetPlatformConfig.mockResolvedValue(DEFAULT_PLATFORM_CONFIG);
+    mockFinalizeTaskWorktrees.mockResolvedValue(undefined);
+    mockDiscardRetainedTaskWorktrees.mockResolvedValue(undefined);
+
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'ts-requeue-discard-'));
+    seedTemplates(repoRoot);
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  it('requeueErrorItem discards the retained failed task after rename', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const originX = path.join(repoRoot, 'repos', 'X');
+    const originalTaskId = 'task-discard-on-requeue';
+
+    mkdirSync(queuePaths.pendingDir, { recursive: true });
+    makeErrorItem(queuePaths, originalTaskId);
+    makeTaskJson(originalTaskId, repoRoot, [
+      {
+        originalRoot: originX,
+        worktreeRoot: path.join(repoRoot, 'wt', 'discard'),
+        worktreeBranch: `task/${originalTaskId}`,
+        baseCommitSha: 'abc',
+      },
+    ], 'failed');
+    // Registry has the failed entry that moveFailedItemToErrorItems would have written.
+    seedFailedRegistryEntry(repoRoot, originalTaskId);
+
+    // for-each-ref → empty (no existing retries); other commands → reject (L0 fallback)
+    getMockExecFilePromisified().mockImplementation(
+      async (_cmd: unknown, args: unknown): Promise<{ stdout: string; stderr: string }> => {
+        const argsArr = args as string[];
+        if (argsArr.includes('for-each-ref')) return { stdout: '', stderr: '' };
+        throw new Error('not a git repository');
+      },
+    );
+
+    const before = mockDiscardRetainedTaskWorktrees.mock.calls.length;
+    await requeueErrorItem({
+      fileName: `${originalTaskId}.md`,
+      insertAtIndex: 0,
+      repoRoot,
+    });
+
+    // Discard called exactly once with the FAILED task ID (not the new retry ID)
+    expect(mockDiscardRetainedTaskWorktrees.mock.calls.length).toBe(before + 1);
+    const lastCall = mockDiscardRetainedTaskWorktrees.mock.calls.at(-1)!;
+    expect(lastCall[0]).toBe(originalTaskId);
+    expect(lastCall[1]).toBe(repoRoot);
+
+    // Registry entry for the failed task is FULLY removed (not transitioned).
+    // The new retry task is registered fresh by activation under retryTaskId.
+    expect(await findRegistryEntry(repoRoot, originalTaskId)).toBeNull();
+  });
+
+  it('requeueErrorItem does NOT discard if rename fails (retry-generations-exhausted)', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const originX = path.join(repoRoot, 'repos', 'X');
+    const originalTaskId = 'task-cap-exceeded';
+
+    // Set the retry cap to 1 — and pre-stuff for-each-ref to report that retry1
+    // already exists, so pickNextRetryN returns 2 which exceeds the cap and
+    // requeue throws before the rename.
+    mockGetPlatformConfig.mockResolvedValue({
+      ...DEFAULT_PLATFORM_CONFIG,
+      max_retry_generations_per_slug: 1,
+    });
+
+    mkdirSync(queuePaths.pendingDir, { recursive: true });
+    makeErrorItem(queuePaths, originalTaskId);
+    makeTaskJson(originalTaskId, repoRoot, [
+      {
+        originalRoot: originX,
+        worktreeRoot: path.join(repoRoot, 'wt', 'cap'),
+        worktreeBranch: `task/${originalTaskId}`,
+        baseCommitSha: 'def',
+      },
+    ], 'failed');
+    seedFailedRegistryEntry(repoRoot, originalTaskId);
+
+    getMockExecFilePromisified().mockImplementation(
+      async (_cmd: unknown, args: unknown): Promise<{ stdout: string; stderr: string }> => {
+        const argsArr = args as string[];
+        if (argsArr.includes('for-each-ref')) {
+          return { stdout: `task/${originalTaskId}-retry1\n`, stderr: '' };
+        }
+        throw new Error('not a git repository');
+      },
+    );
+
+    await expect(
+      requeueErrorItem({
+        fileName: `${originalTaskId}.md`,
+        insertAtIndex: 0,
+        repoRoot,
+      }),
+    ).rejects.toThrow(/retry-generations-exhausted/);
+
+    // Discard MUST NOT run — the failed worktree stays retained for the
+    // operator to either inspect, raise the cap, or move to dropbox.
+    expect(mockDiscardRetainedTaskWorktrees).not.toHaveBeenCalled();
+    // Error item still in error-items (rename never happened)
+    expect(existsSync(path.join(queuePaths.errorItemsDir, `${originalTaskId}.md`))).toBe(true);
+    // Registry entry for the failed task is also preserved — same forensic
+    // affordance: the operator can still see this in failed[] and act on it.
+    expect(await findRegistryEntry(repoRoot, originalTaskId)).toEqual({ state: 'failed' });
+  });
+
+  it('moveErrorItemToDropbox discards the retained failed task after rename', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-discard-on-dropbox';
+
+    mkdirSync(queuePaths.dropboxDir, { recursive: true });
+    makeErrorItem(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, [
+      {
+        originalRoot: path.join(repoRoot, 'repos', 'X'),
+        worktreeRoot: path.join(repoRoot, 'wt', 'dropbox'),
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: 'ghi',
+      },
+    ], 'failed');
+    seedFailedRegistryEntry(repoRoot, taskId);
+
+    const before = mockDiscardRetainedTaskWorktrees.mock.calls.length;
+    await moveErrorItemToDropbox({ fileName: `${taskId}.md`, repoRoot });
+
+    // Discard called exactly once with the failed task ID
+    expect(mockDiscardRetainedTaskWorktrees.mock.calls.length).toBe(before + 1);
+    const lastCall = mockDiscardRetainedTaskWorktrees.mock.calls.at(-1)!;
+    expect(lastCall[0]).toBe(taskId);
+    expect(lastCall[1]).toBe(repoRoot);
+
+    // Error item moved to dropbox
+    expect(existsSync(path.join(queuePaths.errorItemsDir, `${taskId}.md`))).toBe(false);
+    expect(existsSync(path.join(queuePaths.dropboxDir, `${taskId}.md`))).toBe(true);
+
+    // Registry entry transitioned failed → open under the same taskId so the
+    // Task Board's registry-first reader surfaces the dropbox file immediately.
+    // Downstream consumers (moveDropboxItemToPending, deleteDropboxItem) clean
+    // up the old-taskId entry before registering anything new, so there is no
+    // orphan risk from leaving this entry under the same id.
+    expect(await findRegistryEntry(repoRoot, taskId)).toEqual({ state: 'open' });
+  });
+
+  it('moveErrorItemToDropbox does NOT discard if rename fails (source missing)', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-no-source';
+
+    // Do NOT seed the error item — rename will throw ENOENT
+    mkdirSync(queuePaths.errorItemsDir, { recursive: true });
+    mkdirSync(queuePaths.dropboxDir, { recursive: true });
+    seedFailedRegistryEntry(repoRoot, taskId);
+
+    await expect(
+      moveErrorItemToDropbox({ fileName: `${taskId}.md`, repoRoot }),
+    ).rejects.toThrow();
+
+    expect(mockDiscardRetainedTaskWorktrees).not.toHaveBeenCalled();
+    // Registry entry preserved — rename failed, so nothing should be retired.
+    expect(await findRegistryEntry(repoRoot, taskId)).toEqual({ state: 'failed' });
   });
 });

@@ -3,7 +3,7 @@ export type {
   AgentProfile,
   RunRoleAgentOptions,
   PipelineOptions,
-  CopilotArgs,
+  AutonomyIntent,
   RegistryJson,
   RegistryAgentEntry,
   AgentRunResult,
@@ -25,8 +25,8 @@ export {
 // Autonomy
 export {
   resolveAutonomyProfile,
-  buildCopilotArgs,
-  formatCopilotCommand,
+  buildAgentArgs,
+  formatAgentCommand,
 } from './autonomy.js';
 
 // Conventions
@@ -56,8 +56,8 @@ export {
 
 // Process lifecycle
 export {
-  launchCopilot,
-  waitForCopilot,
+  launchAgent,
+  waitForAgent,
   gracefulKill,
   cleanupProcesses,
 } from './processLifecycle.js';

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
 
 const existsSync = vi.fn();
 
@@ -18,8 +19,8 @@ vi.mock('../metadata.js', () => ({
 
 vi.mock('../autonomy.js', () => ({
   resolveAutonomyProfile: vi.fn(),
-  buildCopilotArgs: vi.fn(),
-  formatCopilotCommand: vi.fn(),
+  buildAgentArgs: vi.fn(),
+  formatAgentCommand: vi.fn(),
 }));
 
 vi.mock('../environment.js', () => ({
@@ -47,8 +48,8 @@ vi.mock('../confinement.js', () => ({
 }));
 
 vi.mock('../processLifecycle.js', () => ({
-  launchCopilot: vi.fn(),
-  waitForCopilotDetailed: vi.fn(),
+  launchAgent: vi.fn(),
+  waitForAgentDetailed: vi.fn(),
 }));
 
 vi.mock('../pythonHelpers.js', () => ({
@@ -59,6 +60,7 @@ vi.mock('../pythonHelpers.js', () => ({
 vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveFocusedRepoRoot: vi.fn(),
   resolveSelectedPrimaryRepoRoot: vi.fn(),
+  explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
 }));
 
 vi.mock('../../core/index.js', async () => {
@@ -84,36 +86,47 @@ vi.mock('../sessionReceipts.js', () => ({
   writeSessionTerminalReceipt: vi.fn(),
 }));
 
+vi.mock('../../container/sharedMcp.js', () => ({
+  getSharedMcpUrl: vi.fn(),
+  resolveContextPackContainerPath: vi.fn(),
+}));
+
+vi.mock('../../platform-config/get.js', () => ({
+  getPlatformConfig: vi.fn(),
+}));
+
 const { runRoleAgent } = await import('../roleAgent.js');
 const { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } = await import('../metadata.js');
-const { resolveAutonomyProfile, buildCopilotArgs } = await import('../autonomy.js');
+const { resolveAutonomyProfile, buildAgentArgs } = await import('../autonomy.js');
 const { buildAgentEnvironment, buildAutonomyEnvironment } = await import('../environment.js');
 const { resolvePaths } = await import('../../core/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
-const { launchCopilot, waitForCopilotDetailed } = await import('../processLifecycle.js');
+const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges } = await import('../confinement.js');
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
+const { getSharedMcpUrl, resolveContextPackContainerPath } = await import('../../container/sharedMcp.js');
+const { getPlatformConfig } = await import('../../platform-config/get.js');
 
 // Shared typed references to mocked functions.
 const mockedLoadAgentRegistry = vi.mocked(loadAgentRegistry);
 const mockedResolveAgentProfile = vi.mocked(resolveAgentProfile);
 const mockedResolveActiveModel = vi.mocked(resolveActiveModel);
 const mockedResolveAutonomyProfile = vi.mocked(resolveAutonomyProfile);
-const mockedBuildCopilotArgs = vi.mocked(buildCopilotArgs);
+const mockedBuildAgentArgs = vi.mocked(buildAgentArgs);
 const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
-const mockedLaunchCopilot = vi.mocked(launchCopilot);
-const mockedWaitForCopilotDetailed = vi.mocked(waitForCopilotDetailed);
+const mockedLaunchAgent = vi.mocked(launchAgent);
+const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
 const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunchContext);
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
@@ -125,6 +138,9 @@ const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
 const mockedWriteSessionTerminalReceipt = vi.mocked(writeSessionTerminalReceipt);
 const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot);
 const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChanges);
+const mockedGetSharedMcpUrl = vi.mocked(getSharedMcpUrl);
+const mockedResolveContextPackContainerPath = vi.mocked(resolveContextPackContainerPath);
+const mockedGetPlatformConfig = vi.mocked(getPlatformConfig);
 
 /** Shared mock setup used by all describe blocks. */
 function setupCommonMocks(): void {
@@ -156,12 +172,21 @@ function setupCommonMocks(): void {
   mockedResolveActiveModel.mockReturnValue('gpt-4.1');
   mockedResolveAutonomyProfile.mockReturnValue({
     model: 'gpt-4.1',
-    allowTools: [],
-    denyTools: [],
+    autonomyProfile: 'repo-executor',
     allowedDirs: [],
-    additionalFlags: [],
+    disallowTempDir: false,
   });
-  mockedBuildCopilotArgs.mockReturnValue(['--agent', 'software-engineer']);
+  mockedBuildAgentArgs.mockReturnValue({
+    args: ['--agent', 'software-engineer'],
+    launchCwd: '/repo',
+    inlineAgentContext: false,
+    resolvedToolPolicy: {
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+      denyTools: [],
+    },
+  });
   mockedBuildAgentEnvironment.mockReturnValue({});
   mockedBuildAutonomyEnvironment.mockReturnValue({
     RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"repo-executor"}',
@@ -175,7 +200,7 @@ function setupCommonMocks(): void {
     exitCode: 0,
   });
   mockedCaptureChangedPathsSnapshot.mockResolvedValue({ byRepoRoot: {} });
-  mockedValidateDaltonBoundaryChanges.mockReturnValue(undefined);
+  mockedValidateDaltonBoundaryChanges.mockResolvedValue(undefined);
   mockedCaptureCodeDiff.mockResolvedValue({
     stdout: 'crud-app',
     stderr: '',
@@ -188,6 +213,7 @@ function setupCommonMocks(): void {
     envExports: {
       EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable',
     },
+    resolvedServers: [],
     selectedServerIds: [],
     excludedServerIds: [],
   });
@@ -199,6 +225,17 @@ function setupCommonMocks(): void {
   mockedWriteGuardrailReceipt.mockResolvedValue(undefined);
   mockedWriteSessionStartReceipt.mockResolvedValue('/repo/.platform-state/runtime/role-sessions/dalton.json');
   mockedWriteSessionTerminalReceipt.mockResolvedValue(undefined);
+  mockedGetSharedMcpUrl.mockResolvedValue('http://localhost:8811/sse');
+  mockedGetPlatformConfig.mockResolvedValue({
+    schema_version: 1,
+    cli_provider: 'copilot',
+    container_runtime: 'docker',
+    container_engine_host: null,
+    container_engine_wsl_distro: null,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
+  } as never);
+  mockedResolveContextPackContainerPath.mockReturnValue('/workspace/context-pack');
   mockedReadTextFile.mockImplementation(async (filePath: string) => {
     if (filePath.endsWith('/.github/copilot/prompts/execute-task.prompt.md')) {
       return 'Execute the assigned implementation slice now.';
@@ -226,9 +263,11 @@ describe('runRoleAgent external MCP launch integration', () => {
   });
 
   it('merges external MCP env exports when launch context injection is enabled', async () => {
+    const launchDir = path.join(process.cwd(), '.platform-state', 'runtime', 'copilot-home', 'dalton-launch-test');
+    const configPath = path.join(launchDir, 'mcp-config.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -239,9 +278,15 @@ describe('runRoleAgent external MCP launch integration', () => {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
-      configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
+      launchDir,
+      contextFile: path.join(launchDir, 'mcp-capability-summary.md'),
+      resolvedServers: [{
+        id: 'github',
+        transport: 'http',
+        url: 'https://example.test/mcp',
+        headers: {},
+      }],
       envExports: {
-        COPILOT_HOME: '/repo/.platform-state/runtime/copilot-home/dalton-launch',
         EXTERNAL_MCP_CONTEXT_STATUS: 'available',
       },
       selectedServerIds: ['github'],
@@ -262,16 +307,17 @@ describe('runRoleAgent external MCP launch integration', () => {
       }),
       abortSignal: undefined,
     }));
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
     expect(argsArg).toEqual(expect.arrayContaining([
       '--additional-mcp-config',
-      '@/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
+      `@${configPath}`,
     ]));
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBe('available');
     expect(mockedBuildAutonomyEnvironment).toHaveBeenLastCalledWith(
+      expect.anything(),
       expect.anything(),
       expect.anything(),
       '/repo',
@@ -287,10 +333,123 @@ describe('runRoleAgent external MCP launch integration', () => {
     );
   });
 
+  it('renders one provider MCP config with builtin repo-context headers and external servers', async () => {
+    const launchDir = path.join(process.cwd(), '.platform-state', 'runtime', 'copilot-home', 'dalton-merged-mcp-test');
+    const configPath = path.join(launchDir, 'mcp-config.json');
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repo',
+      visibleRepoRoots: ['/repo'],
+      declaredRepoRoots: ['/repo'],
+      estateType: 'monolith',
+      primaryRepoId: 'repo',
+      selectedRepoIds: ['repo'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedPrepareExternalMcpLaunchContext.mockResolvedValue({
+      status: 'available',
+      reason: '1 external MCP server(s) injected',
+      injectionEnabled: true,
+      launchDir,
+      contextFile: path.join(launchDir, 'mcp-capability-summary.md'),
+      resolvedServers: [{
+        id: 'github',
+        transport: 'http',
+        url: 'https://example.test/mcp',
+        headers: { Authorization: 'Bearer test' },
+      }],
+      envExports: {
+        EXTERNAL_MCP_CONTEXT_STATUS: 'available',
+      },
+      selectedServerIds: ['github'],
+      excludedServerIds: [],
+    });
+
+    await runRoleAgent({
+      agentId: 'dalton',
+      taskId: 't1',
+      contextPackDir: '/repo/context-pack',
+      skipWorkflowValidation: true,
+    });
+
+    expect(mockedResolveContextPackContainerPath).toHaveBeenCalledWith(
+      '/repo',
+      '/repo/context-pack',
+      [],
+    );
+    expect(mockedBuildAgentEnvironment).toHaveBeenCalledWith(
+      expect.anything(),
+      '/workspace/context-pack',
+      '/repo',
+      expect.objectContaining({
+        mcp: {
+          url: 'http://localhost:8811/sse',
+          port: 8811,
+        },
+      }),
+      't1',
+    );
+    const argsArg = mockedLaunchAgent.mock.calls[0]?.[0] as string[];
+    expect(argsArg).toEqual(expect.arrayContaining([
+      '--additional-mcp-config',
+      `@${configPath}`,
+    ]));
+    expect(JSON.parse(await import('node:fs').then((fs) => fs.readFileSync(configPath, 'utf-8')))).toEqual({
+      mcpServers: {
+        'repo-context-mcp': {
+          type: 'sse',
+          url: 'http://localhost:8811/sse',
+          headers: {
+            'X-TaskSail-Task-Id': 't1',
+            'X-TaskSail-Context-Pack-Dir': '/workspace/context-pack',
+          },
+        },
+        github: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Authorization: 'Bearer test' },
+        },
+      },
+    });
+  });
+
+  it('fails before launching when context pack cannot be mapped into the shared MCP container', async () => {
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repo',
+      visibleRepoRoots: ['/repo'],
+      declaredRepoRoots: ['/repo'],
+      estateType: 'monolith',
+      primaryRepoId: 'repo',
+      selectedRepoIds: ['repo'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedResolveContextPackContainerPath.mockImplementation(() => {
+      throw new Error('context-pack-not-mounted: /external/context-pack');
+    });
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      taskId: 't1',
+      contextPackDir: '/external/context-pack',
+      skipWorkflowValidation: true,
+    })).rejects.toThrow(/context-pack-not-mounted/);
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
+  });
+
   it('launches without external MCP env when launch context is not applicable', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -302,9 +461,9 @@ describe('runRoleAgent external MCP launch integration', () => {
       reason: 'no external MCP servers apply to this agent',
       injectionEnabled: false,
       envExports: {
-        COPILOT_HOME: '/repo/.platform-state/runtime/copilot-home/unused',
         EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable',
       },
+      resolvedServers: [],
       selectedServerIds: [],
       excludedServerIds: [],
     });
@@ -320,7 +479,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       agentId: 'dalton',
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
     expect(argsArg).not.toContain('--additional-mcp-config');
@@ -330,8 +489,8 @@ describe('runRoleAgent external MCP launch integration', () => {
 
   it('warns and launches without external MCP env when helper preparation fails', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -352,7 +511,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       agentId: 'dalton',
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
     expect(argsArg).not.toContain('--additional-mcp-config');
@@ -366,8 +525,8 @@ describe('runRoleAgent external MCP launch integration', () => {
 
   it('warns when helper returns a non-applicable MCP failure status without injection', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -381,6 +540,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       envExports: {
         EXTERNAL_MCP_CONTEXT_STATUS: 'malformed',
       },
+      resolvedServers: [],
       selectedServerIds: [],
       excludedServerIds: [],
     });
@@ -397,7 +557,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       agentId: 'dalton',
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const argsArg = launchCall?.[0] as string[];
     const envArg = (launchCall?.[1] as { env: Record<string, string> }).env;
     expect(argsArg).not.toContain('--additional-mcp-config');
@@ -410,9 +570,10 @@ describe('runRoleAgent external MCP launch integration', () => {
   });
 
   it('returns and logs per-agent MCP launch status', async () => {
+    const launchDir = path.join(process.cwd(), '.platform-state', 'runtime', 'copilot-home', 'dalton-launch');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -423,9 +584,15 @@ describe('runRoleAgent external MCP launch integration', () => {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
-      configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
+      launchDir,
+      contextFile: path.join(launchDir, 'mcp-capability-summary.md'),
+      resolvedServers: [{
+        id: 'github',
+        transport: 'http',
+        url: 'https://example.test/mcp',
+        headers: {},
+      }],
       envExports: {
-        COPILOT_HOME: '/repo/.platform-state/runtime/copilot-home/dalton-launch',
         EXTERNAL_MCP_CONTEXT_STATUS: 'available',
       },
       selectedServerIds: ['github'],

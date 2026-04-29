@@ -74,8 +74,11 @@ export interface NamedAgentRecord {
 
 export type NamedAgentTeam = Record<string, NamedAgentRecord>;
 
-export interface ChatAgentProfileParseResult {
+export interface AgentProfileParseResult {
   frontmatter: Record<string, string>;
+  name?: string;
+  description?: string;
+  model?: string;
   body: string;
   errors: string[];
 }

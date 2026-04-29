@@ -3,6 +3,22 @@
 Provides constants, Docker helpers, context-pack activation, workspace
 management, and a base test class for production-mirroring live E2E
 pipeline tests.
+
+Isolation contract: live E2E tests never touch the real repo's mutable
+workspace. Each test class scaffolds an isolated temp directory shaped
+like a TaskSail repo root (read-only source/config symlinked in, fresh
+empty mutable dirs, and a `.git/` marker so platform code's `findRepoRoot()`
+halts inside the temp tree). All platform CLI invocations either pass
+`--repo-root <test_repo_root>` or run with `cwd=test_repo_root` so writes
+land in the temp tree, not the real repo.
+
+Caveat: the docker-compose service definition uses path-relative volume
+mounts that resolve from the compose file's directory and therefore still
+bind the real repo's `AgentWorkSpace/dropbox` and (by default)
+`AgentWorkSpace/qmd`. The qmd mount is redirected here via the
+`REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR` env override; the dropbox mount
+is hardcoded in compose and is left as a follow-up. In practice the MCP
+service does not write to dropbox, so this is observational only.
 """
 from __future__ import annotations
 
@@ -24,22 +40,63 @@ HEALTHCHECK_CLI = REPO_ROOT / "src" / "backend" / "platform" / "container" / "cl
 CONTEXT_PACK_CLI = REPO_ROOT / "src" / "backend" / "platform" / "context-pack" / "cli.ts"
 AGENT_RUNNER_CLI = REPO_ROOT / "src" / "backend" / "platform" / "agent-runner" / "cli.ts"
 WORKFLOW_POLICY_CLI = REPO_ROOT / "src" / "backend" / "platform" / "workflow-policy" / "cli.ts"
-HANDOFFS = REPO_ROOT / "AgentWorkSpace" / "handoffs"
-PENDING = REPO_ROOT / "AgentWorkSpace" / "pendingitems"
-DROPBOX = REPO_ROOT / "AgentWorkSpace" / "dropbox"
-IMPL_STEPS = REPO_ROOT / "AgentWorkSpace" / "ImplementationSteps"
-ERROR_ITEMS = REPO_ROOT / "AgentWorkSpace" / "erroritems"
-QMD = REPO_ROOT / "AgentWorkSpace" / "qmd"
-GUARDRAIL_RECEIPTS = REPO_ROOT / ".platform-state" / "runtime" / "guardrails"
-CONVENTIONS_STATE = REPO_ROOT / ".platform-state" / "runtime" / "conventions"
-PARALLEL_RUNTIME = REPO_ROOT / ".platform-state" / "runtime" / "parallel"
+QUEUE_CLI = REPO_ROOT / "src" / "backend" / "platform" / "queue" / "cli.ts"
 
 _AGENT_TIMEOUT_BUFFER_S = 60  # extra headroom beyond the wrapper's wall-clock limit
+
+# Top-level entries to expose into the test repo root via symlinks. Anything
+# platform code reads from disk but never writes goes here. Missing entries
+# are skipped silently — the live test gate is the authority on completeness.
+_REPO_ROOT_SYMLINKS = (
+    "src",
+    "node_modules",
+    "package.json",
+    "pnpm-lock.yaml",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "docker",
+    "config",
+    ".github",
+)
 
 
 def tsx_cmd(script: Path, *args: str) -> list[str]:
     """Run TypeScript entrypoints through the repo-local tsx binary."""
     return ["npx", "tsx", str(script), *args]
+
+
+def _scaffold_isolated_repo_root(prefix: str = "tasksail-e2e-repo-") -> tempfile.TemporaryDirectory[str]:
+    """Create a temp directory shaped like a TaskSail repo root for live E2E tests.
+
+    Symlinks read-only repo content into the temp root, creates fresh mutable
+    workspace directories, and drops an empty `.git/` marker so platform code
+    that walks up looking for the repo root halts inside the temp tree.
+
+    Returns the TemporaryDirectory object so the caller can hold it for
+    automatic cleanup. The absolute path is available via `.name`.
+    """
+    tmp = tempfile.TemporaryDirectory(prefix=prefix)
+    root = Path(tmp.name)
+
+    for name in _REPO_ROOT_SYMLINKS:
+        source = REPO_ROOT / name
+        if source.exists() or source.is_symlink():
+            os.symlink(source, root / name)
+
+    # findRepoRoot() halts on a `.git` directory; an empty marker is sufficient.
+    (root / ".git").mkdir()
+
+    agent_ws = root / "AgentWorkSpace"
+    agent_ws.mkdir()
+    for sub in ("dropbox", "pendingitems", "tasks", "error-items", "qmd"):
+        (agent_ws / sub).mkdir()
+    # Templates are canonical read-only fixtures — symlink, do not copy.
+    os.symlink(REPO_ROOT / "AgentWorkSpace" / "templates", agent_ws / "templates")
+
+    (root / ".platform-state").mkdir()
+
+    return tmp
+
 
 def _load_agent_timeouts() -> tuple[int, int, dict[str, int]]:
     """Load default, parallel, and per-agent test-harness timeouts from registry."""
@@ -76,6 +133,7 @@ def pipeline_timeout_s() -> int:
 def docker_compose(
     *args: str,
     timeout: int = 60,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
@@ -83,6 +141,7 @@ def docker_compose(
         text=True,
         capture_output=True,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -131,9 +190,23 @@ class BasePipelineTests(unittest.TestCase):
     _docker_started: bool = False
     _chosen_path: str = "standard"
     _tmp_dir: tempfile.TemporaryDirectory[str] | None = None
+    _test_repo_root_obj: tempfile.TemporaryDirectory[str] | None = None
     _first_failure: str | None = None
     context_pack_dir: str
     crud_app_dir: str
+
+    # Per-class isolated repo root + path constants. Populated in setUpClass via
+    # _setup_test_repo_root() before any helper that reads or writes them runs.
+    test_repo_root: Path
+    HANDOFFS: Path
+    PENDING: Path
+    DROPBOX: Path
+    IMPL_STEPS: Path
+    ERROR_ITEMS: Path
+    QMD: Path
+    GUARDRAIL_RECEIPTS: Path
+    CONVENTIONS_STATE: Path
+    PARALLEL_RUNTIME: Path
 
     def setUp(self) -> None:
         if self.__class__._first_failure is not None:
@@ -154,6 +227,24 @@ class BasePipelineTests(unittest.TestCase):
         return test_result
 
     @classmethod
+    def _setup_test_repo_root(cls) -> None:
+        """Scaffold an isolated repo root and bind path constants to it."""
+        cls._test_repo_root_obj = _scaffold_isolated_repo_root()
+        root = Path(cls._test_repo_root_obj.name)
+        cls.test_repo_root = root
+        agent_ws = root / "AgentWorkSpace"
+        runtime = root / ".platform-state" / "runtime"
+        cls.HANDOFFS = agent_ws / "handoffs"
+        cls.PENDING = agent_ws / "pendingitems"
+        cls.DROPBOX = agent_ws / "dropbox"
+        cls.IMPL_STEPS = agent_ws / "ImplementationSteps"
+        cls.ERROR_ITEMS = agent_ws / "error-items"
+        cls.QMD = agent_ws / "qmd"
+        cls.GUARDRAIL_RECEIPTS = runtime / "guardrails"
+        cls.CONVENTIONS_STATE = runtime / "conventions"
+        cls.PARALLEL_RUNTIME = runtime / "parallel"
+
+    @classmethod
     def setUpClass(cls) -> None:
         if not shutil.which("docker"):
             raise unittest.SkipTest("docker not found in PATH")
@@ -164,11 +255,12 @@ class BasePipelineTests(unittest.TestCase):
                 "timeout/gtimeout not found — brew install coreutils",
             )
 
-        # Live E2E runs own the mutable workspace contract. If the workspace is
-        # dirty from a prior run or manual activity, clear it before creating
-        # the temp context pack so the test starts from a known-clean state.
-        cls._reset_workspace(clear_qmd=True)
         cls._cleanup_stale_temp_workdirs()
+        cls._setup_test_repo_root()
+
+        # Seed the queue inside the isolated repo root so platform code finds
+        # a valid queue layout for the rest of the test.
+        cls._reset_workspace(clear_qmd=True)
 
         cls._tmp_dir = tempfile.TemporaryDirectory(prefix="live-e2e-")
         pack, crud = create_context_pack_with_crud(
@@ -179,8 +271,16 @@ class BasePipelineTests(unittest.TestCase):
         cls._reset_crud_repo()
         cls._assert_clean_crud_repo()
 
+        # Redirect the qmd mount at the temp repo root. The dropbox mount is
+        # hardcoded in compose and not redirectable here — see module docstring.
+        compose_env = {
+            **os.environ,
+            "REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR": str(cls.QMD),
+        }
         result = docker_compose(
-            "up", "-d", "--build", timeout=DOCKER_BUILD_TIMEOUT_S,
+            "up", "-d", "--build",
+            timeout=DOCKER_BUILD_TIMEOUT_S,
+            env=compose_env,
         )
         if result.returncode != 0:
             raise unittest.SkipTest(
@@ -193,8 +293,8 @@ class BasePipelineTests(unittest.TestCase):
 
     @classmethod
     def _clear_qmd(cls) -> None:
-        if QMD.is_dir():
-            for entry in QMD.iterdir():
+        if cls.QMD.is_dir():
+            for entry in cls.QMD.iterdir():
                 if entry.name == ".gitkeep":
                     continue
                 if entry.is_dir():
@@ -208,7 +308,7 @@ class BasePipelineTests(unittest.TestCase):
         while time.monotonic() < deadline:
             result = subprocess.run(
                 tsx_cmd(HEALTHCHECK_CLI, "healthcheck"),
-                cwd=REPO_ROOT,
+                cwd=cls.test_repo_root,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -224,9 +324,10 @@ class BasePipelineTests(unittest.TestCase):
     @classmethod
     def _cleanup_stale_temp_workdirs(cls) -> None:
         temp_root = Path(tempfile.gettempdir())
-        for path in temp_root.glob("live-e2e-*"):
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
+        for pattern in ("live-e2e-*", "tasksail-e2e-repo-*"):
+            for path in temp_root.glob(pattern):
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
 
     @classmethod
     def _reset_crud_repo(cls) -> None:
@@ -280,14 +381,14 @@ class BasePipelineTests(unittest.TestCase):
 
     @classmethod
     def _reset_workspace(cls, *, clear_qmd: bool = False) -> None:
-        """Fully reset the AgentWorkSpace to a clean pre-task state."""
+        """Fully reset the isolated AgentWorkSpace to a clean pre-task state."""
         kill_orphan_agents()
 
         # Remove stale queue, dropbox, and slices. QMD is only cleared at
         # test startup so operators can inspect archive output after completion.
-        workspace_dirs = [PENDING, DROPBOX, IMPL_STEPS, ERROR_ITEMS]
+        workspace_dirs = [cls.PENDING, cls.DROPBOX, cls.IMPL_STEPS, cls.ERROR_ITEMS]
         if clear_qmd:
-            workspace_dirs.append(QMD)
+            workspace_dirs.append(cls.QMD)
         for workspace_dir in workspace_dirs:
             if not workspace_dir.is_dir():
                 continue
@@ -300,7 +401,7 @@ class BasePipelineTests(unittest.TestCase):
                     entry.unlink()
 
         # Clean runtime state directories and receipts from prior runs.
-        runtime_dir = REPO_ROOT / ".platform-state" / "runtime"
+        runtime_dir = cls.test_repo_root / ".platform-state" / "runtime"
         if runtime_dir.is_dir():
             for entry in runtime_dir.iterdir():
                 if entry.is_dir():
@@ -310,12 +411,13 @@ class BasePipelineTests(unittest.TestCase):
 
         subprocess.run(
             tsx_cmd(
-                REPO_ROOT / "src" / "backend" / "platform" / "queue" / "cli.ts",
+                QUEUE_CLI,
                 "init",
                 "--reset",
                 "--force",
+                "--repo-root", str(cls.test_repo_root),
             ),
-            cwd=REPO_ROOT,
+            cwd=cls.test_repo_root,
             capture_output=True,
             text=True,
             timeout=30,
@@ -328,13 +430,16 @@ class BasePipelineTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         try:
             kill_orphan_agents()
-            cls._reset_workspace()
-            cls._clear_context_pack_workspace()
+            if getattr(cls, "test_repo_root", None) is not None:
+                cls._reset_workspace()
+                cls._clear_context_pack_workspace()
         finally:
             if cls._docker_started:
                 docker_compose("down", timeout=60)
             if cls._tmp_dir is not None:
                 cls._tmp_dir.cleanup()
+            if cls._test_repo_root_obj is not None:
+                cls._test_repo_root_obj.cleanup()
 
     def tearDown(self) -> None:
         kill_orphan_agents()
@@ -345,7 +450,7 @@ class BasePipelineTests(unittest.TestCase):
     def _activate_context_pack(cls) -> None:
         activate = subprocess.run(
             tsx_cmd(CONTEXT_PACK_CLI, "activate", "--context-pack-dir", cls.context_pack_dir),
-            cwd=REPO_ROOT,
+            cwd=cls.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
@@ -358,7 +463,7 @@ class BasePipelineTests(unittest.TestCase):
 
         switch = subprocess.run(
             tsx_cmd(CONTEXT_PACK_CLI, "switch", "--apply", "--context-pack-dir", cls.context_pack_dir),
-            cwd=REPO_ROOT,
+            cwd=cls.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
@@ -373,7 +478,7 @@ class BasePipelineTests(unittest.TestCase):
     def _clear_context_pack_workspace(cls) -> None:
         subprocess.run(
             tsx_cmd(CONTEXT_PACK_CLI, "switch", "--clear"),
-            cwd=REPO_ROOT,
+            cwd=cls.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
@@ -384,7 +489,7 @@ class BasePipelineTests(unittest.TestCase):
         """Run the production pipeline CLI from the requested agent onward."""
         proc = subprocess.Popen(
             tsx_cmd(AGENT_RUNNER_CLI, "pipeline", "--start-at", start_at),
-            cwd=REPO_ROOT,
+            cwd=self.test_repo_root,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -419,8 +524,8 @@ class BasePipelineTests(unittest.TestCase):
         self, *args: str,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            tsx_cmd(WORKFLOW_POLICY_CLI, "--root", str(REPO_ROOT), *args),
-            cwd=REPO_ROOT,
+            tsx_cmd(WORKFLOW_POLICY_CLI, "--root", str(self.test_repo_root), *args),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
         )

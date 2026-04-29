@@ -10,6 +10,7 @@ import {
   type ActivateOptions,
   type ValidationResult,
 } from './types.js';
+import { rebuildAgentMirror } from './rebuildAgentMirror.js';
 
 /** Env var key for the active context pack directory. */
 export const ACTIVE_CONTEXT_PACK_DIR_KEY = 'ACTIVE_CONTEXT_PACK_DIR';
@@ -94,6 +95,20 @@ export async function activateContextPack(
 
   if (!options.dryRun) {
     await setActiveContextPackEnv(repoRoot, contextPackDir);
+
+    // Activation is the moment when agents start reading from this pack, so
+    // ensure the agent-facing mirror under AgentWorkSpace/qmd/context-packs/
+    // matches the canonical archive. Best-effort: a copy failure must not
+    // block activation — the mirror is forensic data, not on the critical
+    // path. Failures are surfaced via stderr for operator visibility.
+    try {
+      await rebuildAgentMirror(repoRoot, contextPackDir);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `Warning: agent mirror rebuild failed during activation: ${message}\n`,
+      );
+    }
   }
 
   return { validation, contextPackDir };

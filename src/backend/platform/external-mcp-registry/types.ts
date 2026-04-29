@@ -2,7 +2,8 @@
  * External MCP registry types.
  *
  * These types describe the schema for operator-configured third-party MCP
- * servers that are injected into agent launches via COPILOT_HOME.
+ * servers that are injected into agent launches via the active CLI provider's
+ * MCP config injection mechanism.
  *
  * This module is intentionally separate from the internal MCP registry
  * (src/backend/platform/mcp-registry/) which handles platform-owned

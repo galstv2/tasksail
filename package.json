@@ -27,8 +27,9 @@
     "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",
     "watch-dropbox": "tsx src/backend/platform/queue/cli.ts poll",
     "queue-status": "tsx src/backend/platform/queue/cli.ts status",
+    "repair": "tsx src/backend/platform/queue/cli.ts repair",
     "complete-pending-item": "tsx src/backend/platform/queue/cli.ts complete",
-    "qmd:seed-dry-run": "tsx src/backend/platform/context-pack/cli.ts qmd-seed",
+    "qmd:seed-dry-run": "tsx src/backend/platform/context-pack/qmdSeedDryRun.ts",
     "agent": "tsx src/backend/platform/agent-runner/cli.ts run",
     "agent:pipeline": "tsx src/backend/platform/agent-runner/cli.ts pipeline"
   },

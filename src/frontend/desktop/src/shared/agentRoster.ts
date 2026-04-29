@@ -1,9 +1,10 @@
-import registryPayload from '../../../../../.github/agents/registry.json';
+import type { ProviderFrontendDescriptor } from './desktopContractProvider';
 
 export type NamedWorkflowAgentKey =
   | 'planning-agent'
   | 'product-manager'
   | 'software-engineer'
+  | 'software-engineer-verify'
   | 'qa';
 
 export type NamedWorkflowAgentProfile = {
@@ -12,15 +13,7 @@ export type NamedWorkflowAgentProfile = {
   displayName: string;
 };
 
-type RegistryAgentEntry = {
-  agent_id: string;
-  role_name?: string;
-  human_name?: string;
-};
-
-type AgentRegistryPayload = {
-  agents?: RegistryAgentEntry[];
-};
+export type NamedWorkflowAgentRoster = Record<string, NamedWorkflowAgentProfile>;
 
 function createProfile(role: string, humanName: string): NamedWorkflowAgentProfile {
   return {
@@ -30,26 +23,27 @@ function createProfile(role: string, humanName: string): NamedWorkflowAgentProfi
   };
 }
 
-function createProfileFromRegistry(agentId: NamedWorkflowAgentKey): NamedWorkflowAgentProfile {
-  const payload = registryPayload as AgentRegistryPayload;
-  const entry = payload.agents?.find((agent) => agent.agent_id === agentId);
-  if (!entry?.role_name || !entry.human_name) {
-    throw new Error(`Missing role_name or human_name for ${agentId} in .github/agents/registry.json`);
-  }
-  return createProfile(entry.role_name, entry.human_name);
+export function createNamedWorkflowAgentRoster(
+  descriptor: ProviderFrontendDescriptor,
+): NamedWorkflowAgentRoster {
+  return Object.fromEntries(
+    descriptor.roster.map((entry) => [
+      entry.agentId,
+      createProfile(entry.roleName, entry.humanName),
+    ]),
+  );
 }
 
-export const namedWorkflowAgentRoster: Record<NamedWorkflowAgentKey, NamedWorkflowAgentProfile> = {
-  'planning-agent': createProfileFromRegistry('planning-agent'),
-  'product-manager': createProfileFromRegistry('product-manager'),
-  'software-engineer': createProfileFromRegistry('software-engineer'),
-  qa: createProfileFromRegistry('qa'),
-};
+export function getPlanningAgentDisplayName(descriptor: ProviderFrontendDescriptor): string {
+  return createNamedWorkflowAgentRoster(descriptor)['planning-agent']?.displayName ?? 'Planning Agent';
+}
 
-export const planningAgentDisplayName = namedWorkflowAgentRoster['planning-agent'].displayName;
-
-export function getPlannerConversationLabel(role: 'planner' | 'operator'): string {
-  return role === 'planner'
-    ? namedWorkflowAgentRoster['planning-agent'].humanName
-    : 'Operator';
+export function getPlannerConversationLabel(
+  descriptor: ProviderFrontendDescriptor,
+  role: 'planner' | 'operator',
+): string {
+  if (role === 'operator') {
+    return 'Operator';
+  }
+  return createNamedWorkflowAgentRoster(descriptor)['planning-agent']?.humanName ?? 'Planner';
 }

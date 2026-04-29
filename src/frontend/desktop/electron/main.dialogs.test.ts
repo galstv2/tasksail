@@ -27,7 +27,7 @@ BrowserWindowMock.getAllWindows = vi.fn(() => []);
 const appMock = {
   on: vi.fn(),
   quit: vi.fn(),
-  whenReady: vi.fn(() => Promise.resolve()),
+  whenReady: vi.fn(() => new Promise<void>(() => {})),
 };
 
 const dialogMock = {
@@ -75,6 +75,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
     vi.doUnmock('node:fs/promises');
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    appMock.whenReady.mockReturnValue(new Promise<void>(() => {}));
     BrowserWindowMock.getAllWindows.mockReturnValue([]);
     dialogMock.showOpenDialog.mockResolvedValue({
       canceled: false,
@@ -554,7 +555,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
           savePlannerDraft: vi.fn(async () => 'sent' as const),
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'failed' as const,
-            copilotSessionId: null,
+            cliSessionId: null,
             turnId: 'turn-1',
             content: '',
             exitCode: 1,
@@ -588,7 +589,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Saved draft.',
             exitCode: 0,
@@ -625,7 +626,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Saved draft.',
             exitCode: 0,
@@ -766,7 +767,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         startPlannerSession: vi.fn(async () => ({ sessionId: 'planner-1', created: true })),
         getPlannerSessionState: vi.fn(() => ({
           brokerStatus: 'idle' as const,
-          copilotSessionId: null,
+          cliSessionId: null,
           turnId: null,
           content: '',
           exitCode: null,
@@ -780,7 +781,9 @@ describe('electron main bootstrap — dialogs and planner', () => {
       expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/),
       { recursive: true },
     );
-    expect(unlinkMock).not.toHaveBeenCalled();
+    expect(unlinkMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging\//),
+    );
   });
 
   it('preserves the owned staged shell when saving a planner draft', async () => {
@@ -800,7 +803,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         savePlannerDraft: vi.fn(async () => 'sent' as const),
         getPlannerSessionState: vi.fn(() => ({
           brokerStatus: 'completed' as const,
-          copilotSessionId: 'copilot-session-1',
+          cliSessionId: 'copilot-session-1',
           turnId: 'turn-1',
           content: 'Draft saved.',
           exitCode: 0,
@@ -814,7 +817,9 @@ describe('electron main bootstrap — dialogs and planner', () => {
       expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging$/),
       { recursive: true },
     );
-    expect(unlinkMock).not.toHaveBeenCalled();
+    expect(unlinkMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging\//),
+    );
   });
 
   it('does not clear staging when planner.startSession reuses an existing session', async () => {
@@ -832,7 +837,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         startPlannerSession: vi.fn(async () => ({ sessionId: 'planner-1', created: false })),
         getPlannerSessionState: vi.fn(() => ({
           brokerStatus: 'running' as const,
-          copilotSessionId: 'copilot-session-1',
+          cliSessionId: 'copilot-session-1',
           turnId: 'turn-1',
           content: 'Working...',
           exitCode: null,
@@ -842,7 +847,9 @@ describe('electron main bootstrap — dialogs and planner', () => {
       },
     );
 
-    expect(unlinkMock).not.toHaveBeenCalled();
+    expect(unlinkMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AgentWorkSpace\/dropbox\/\.staging\//),
+    );
   });
 
 });

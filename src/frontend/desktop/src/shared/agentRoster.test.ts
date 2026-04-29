@@ -1,43 +1,55 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  namedWorkflowAgentRoster,
-  planningAgentDisplayName,
+  createNamedWorkflowAgentRoster,
+  getPlanningAgentDisplayName,
   getPlannerConversationLabel,
 } from './agentRoster';
+import type { ProviderFrontendDescriptor } from './desktopContractProvider';
 
-describe('namedWorkflowAgentRoster', () => {
-  it('contains the active workflow roster', () => {
-    const keys = Object.keys(namedWorkflowAgentRoster);
-    expect(keys).toHaveLength(4);
-    expect(keys).toEqual([
-      'planning-agent',
-      'product-manager',
-      'software-engineer',
-      'qa',
-    ]);
-  });
+const descriptor: ProviderFrontendDescriptor = {
+  providerId: 'test',
+  homeDirName: 'test-home',
+  registryPath: '/repo/.provider/registry.json',
+  agentConfigPaths: {
+    root: '.provider',
+    instructions: '.provider/instructions',
+    prompts: '.provider/prompts',
+    profiles: '.provider/agents',
+    registry: '.provider/registry.json',
+  },
+  promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
+  contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
+  roster: [
+    { agentId: 'planning-agent', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1 },
+    { agentId: 'software-engineer', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 2 },
+  ],
+};
 
-  it('formats displayName as "Name (Role)"', () => {
-    const profile = namedWorkflowAgentRoster['software-engineer'];
-    expect(profile.displayName).toBe('Dalton (Software Engineer)');
-    expect(profile.humanName).toBe('Dalton');
-    expect(profile.role).toBe('Software Engineer');
+describe('createNamedWorkflowAgentRoster', () => {
+  it('derives roster profiles from the provider descriptor', () => {
+    const roster = createNamedWorkflowAgentRoster(descriptor);
+    expect(Object.keys(roster)).toEqual(['planning-agent', 'software-engineer']);
+    expect(roster['software-engineer']).toEqual({
+      displayName: 'Dalton (Software Engineer)',
+      humanName: 'Dalton',
+      role: 'Software Engineer',
+    });
   });
 });
 
-describe('planningAgentDisplayName', () => {
-  it('matches the planning-agent roster entry', () => {
-    expect(planningAgentDisplayName).toBe('Lily (Planning Specialist)');
+describe('getPlanningAgentDisplayName', () => {
+  it('matches the planning-agent descriptor entry', () => {
+    expect(getPlanningAgentDisplayName(descriptor)).toBe('Lily (Planning Specialist)');
   });
 });
 
 describe('getPlannerConversationLabel', () => {
-  it('returns Lily for planner role', () => {
-    expect(getPlannerConversationLabel('planner')).toBe('Lily');
+  it('returns the provider planning agent human name for planner role', () => {
+    expect(getPlannerConversationLabel(descriptor, 'planner')).toBe('Lily');
   });
 
   it('returns "Operator" for operator role', () => {
-    expect(getPlannerConversationLabel('operator')).toBe('Operator');
+    expect(getPlannerConversationLabel(descriptor, 'operator')).toBe('Operator');
   });
 });

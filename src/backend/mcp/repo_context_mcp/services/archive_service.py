@@ -41,10 +41,7 @@ class TaskArchiveService:
         self._record_cache = record_cache or ScopedRecordCache()
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return _resolve_context_data_dir(
-            self.workspace_root,
-            context_pack_dir,
-        )
+        return _resolve_context_data_dir(context_pack_dir)
 
     def _resolve_scope_dir(self, context_pack_path: Path, qmd_scope: str) -> Path:
         return resolve_path_within(context_pack_path, qmd_scope, "qmd_scope")

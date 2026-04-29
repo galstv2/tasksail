@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
@@ -31,7 +32,7 @@ BrowserWindowMock.getAllWindows = vi.fn(() => []);
 const appMock = {
   on: vi.fn(),
   quit: vi.fn(),
-  whenReady: vi.fn(() => Promise.resolve()),
+  whenReady: vi.fn(() => new Promise<void>(() => {})),
 };
 
 const dialogMock = {
@@ -56,6 +57,7 @@ describe('electron main bootstrap — context pack operations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    appMock.whenReady.mockReturnValue(new Promise<void>(() => {}));
     BrowserWindowMock.getAllWindows.mockReturnValue([]);
     dialogMock.showOpenDialog.mockResolvedValue({
       canceled: false,
@@ -188,8 +190,9 @@ describe('electron main bootstrap — context pack operations', () => {
           }),
         );
 
-        vi.stubEnv('COPILOT_CONTEXT_PACK_PATHS', configuredPack);
-        vi.stubEnv('COPILOT_CONTEXT_PACK_SEARCH_ROOTS', searchRoot);
+        const contextPackEnvVars = getActiveProvider(process.cwd()).contextPackEnvVars();
+        vi.stubEnv(contextPackEnvVars.paths, configuredPack);
+        vi.stubEnv(contextPackEnvVars.searchRoots, searchRoot);
         vi.stubEnv('ACTIVE_CONTEXT_PACK_DIR', configuredPack);
 
       const { listAvailableContextPacks } = await import('./main');
@@ -954,6 +957,122 @@ describe('electron main bootstrap — context pack operations', () => {
       expect(manifest.primary_focus_area_ids).toEqual(['core', 'docs']);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('mirrors saved Deep Focus selections into the active workspace sync state', async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), 'tasksail-deep-focus-sync-'));
+    const contextPackDir = join(repoRoot, 'contextpacks', 'orders');
+
+    try {
+      vi.resetModules();
+      vi.doMock('./paths', () => ({
+        REPO_ROOT: repoRoot,
+        DESKTOP_ROOT: join(repoRoot, 'src/frontend/desktop'),
+      }));
+
+      await mkdir(join(repoRoot, '.platform-state'), { recursive: true });
+      await writeFile(
+        join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
+        JSON.stringify({
+          version: 1,
+          workspace_file: join(repoRoot, 'tasksail.code-workspace'),
+          active_context_pack_dir: contextPackDir,
+          active_context_pack_id: 'orders',
+          scope_mode: 'focused',
+          selected_repo_ids: ['backend'],
+          selected_focus_ids: [],
+          deep_focus_enabled: false,
+          deep_focus_primary_repo_id: null,
+          deep_focus_primary_focus_id: null,
+          selected_focus_path: null,
+          selected_focus_target_kind: null,
+          selected_support_targets: [],
+          managed_folders: [],
+          last_synced_at: '2026-04-24T07:21:40Z',
+          status: 'success',
+        }, null, 2) + '\n',
+        'utf-8',
+      );
+
+      const { saveDeepFocusSelections } = await import('./main.contextPackActions');
+      const result = await saveDeepFocusSelections({
+        contextPackDir,
+        selections: {
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'backend',
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: 'services/Orders.Api/Routes.cs',
+          selectedFocusTargetKind: 'file',
+          selectedTestTarget: {
+            path: 'services/Orders.Api.Tests',
+            kind: 'directory',
+          },
+          selectedSupportTargets: [{
+            path: 'libs/Orders.Models',
+            kind: 'directory',
+          }],
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      const persistedSelections = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'deep-focus-selections.json'), 'utf-8'),
+      ) as Record<string, { derivedWritableRoots?: unknown }>;
+      expect(persistedSelections[contextPackDir]).toEqual(expect.objectContaining({
+        derivedWritableRoots: [
+          {
+            path: 'services/Orders.Api',
+            kind: 'directory',
+            reason: 'primary-focus-parent',
+          },
+          {
+            path: 'services/Orders.Api.Tests',
+            kind: 'directory',
+            reason: 'test-target',
+          },
+        ],
+      }));
+      const state = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'workspace-context-sync.json'), 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(state).toEqual(expect.objectContaining({
+        deep_focus_enabled: true,
+        deep_focus_primary_repo_id: 'backend',
+        deep_focus_primary_focus_id: null,
+        selected_focus_path: 'services/Orders.Api/Routes.cs',
+        selected_focus_target_kind: 'file',
+        selected_test_target: {
+          path: 'services/Orders.Api.Tests',
+          kind: 'directory',
+        },
+        selected_support_targets: [{
+          path: 'libs/Orders.Models',
+          kind: 'directory',
+        }],
+        derived_writable_roots: [
+          {
+            path: 'services/Orders.Api',
+            kind: 'directory',
+            reason: 'primary-focus-parent',
+          },
+          {
+            path: 'services/Orders.Api.Tests',
+            kind: 'directory',
+            reason: 'test-target',
+          },
+        ],
+        derived_readonly_context_roots: [{
+          path: 'libs/Orders.Models',
+          kind: 'directory',
+          reason: 'support-target',
+        }],
+      }));
+      expect(state.last_synced_at).toBe('2026-04-24T07:21:40Z');
+    } finally {
+      vi.doUnmock('./paths');
+      vi.resetModules();
+      await rm(repoRoot, { recursive: true, force: true });
     }
   });
 });

@@ -44,7 +44,7 @@ export interface TaskMaterialization {
   strategy: 'copy' | 'apfs-clonefile' | 'reflink';
   cloned: string[];
   skipped: string[];
-  composeProjectName: string;
+  composeProjectName?: string;
 }
 
 export interface TaskJson {
@@ -278,6 +278,12 @@ export function isTaskSidecarError(err: unknown): err is TaskSidecarErrorImpl {
 export function writeTaskJson(taskId: string, repoRoot: string, sidecar: TaskJson): void {
   const sidecarPath = resolveTaskJsonPath(taskId, repoRoot);
   if (!existsSync(path.dirname(sidecarPath))) return;
-  const out: TaskJson = { ...sidecar, schema_version: CURRENT_TASK_JSON_SCHEMA_VERSION };
+  const materialization = { ...sidecar.materialization };
+  delete materialization.composeProjectName;
+  const out: TaskJson = {
+    ...sidecar,
+    schema_version: CURRENT_TASK_JSON_SCHEMA_VERSION,
+    materialization,
+  };
   writeFileSync(sidecarPath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
 }

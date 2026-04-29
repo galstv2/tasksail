@@ -3,11 +3,11 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify } from '../core/index.js';
+import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify, copyFileSafe } from '../core/index.js';
 import { withOriginLock, materializeWorktreeDeps, preconditionsPass } from '../core/worktreeMaterialization.js';
 import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
 import { resolveTaskMaterializationConfig } from '../context-pack/types.js';
-import { activeItemPath, deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
+import { deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
 import type { QueuePaths } from './paths.js';
 import {
   handoffWorkspaceIsReady,
@@ -21,10 +21,7 @@ import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
-import { allocate as allocatePort, release as releasePort, listAllocations } from '../container/portAllocator.js';
-import { composeProjectName } from '../container/containerNaming.js';
-import { bootstrapTaskMcp } from '../container/bootstrapTaskMcp.js';
-import { composeDownTask } from '../container/composeDownTask.js';
+import { ensureSharedMcpRunning } from '../container/sharedMcp.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
 import { runMergeDetectionSweep } from './mergeDetectionSweep.js';
 import type { TaskRepoBinding } from './taskJson.js';
@@ -341,6 +338,33 @@ export interface ActivateNextPendingItemResult {
   reason?: string;
 }
 
+async function readActiveWorkspaceContextPackDir(repoRoot: string): Promise<string | undefined> {
+  const statePath = path.join(repoRoot, '.platform-state', 'workspace-context-sync.json');
+  const content = await readTextFile(statePath);
+  if (content === undefined) {
+    return undefined;
+  }
+
+  let state: Record<string, unknown>;
+  try {
+    state = JSON.parse(content) as Record<string, unknown>;
+  } catch (err: unknown) {
+    throw new Error(
+      `Unable to parse workspace context sync state at ${statePath}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawDir = typeof state.active_context_pack_dir === 'string'
+    ? state.active_context_pack_dir.trim()
+    : '';
+  if (!rawDir) {
+    return undefined;
+  }
+  return path.isAbsolute(rawDir) ? rawDir : path.resolve(repoRoot, rawDir);
+}
+
 /**
  * Activate the next pending item if the workspace is ready and the concurrency
  * cap has not been reached. One-shot per call: activates at most one item.
@@ -448,7 +472,6 @@ export async function activateNextPendingItemIfReady(
   // pending item remains pending and no active marker is leaked.
   await ensureDir(paths.activeItemsDir);
   const activeMarkerPath = path.join(paths.activeItemsDir, taskId);
-  const legacyActiveItemPath = activeItemPath(pendingDir);
 
   // The legacy singleton active-context-pack sidecar is intentionally not
   // written on per-task activation; the task-bound .task.json below is the
@@ -463,29 +486,32 @@ export async function activateNextPendingItemIfReady(
   const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
   await ensureDir(path.dirname(perTaskSidecarPath));
 
-  let taskComposeProjectName = composeProjectName(taskId);
-  try {
-    taskComposeProjectName = composeProjectName(taskId, (await listAllocations(repoRoot)).keys());
-  } catch {
-    // Allocation lookup is an optimization for collision-free readable names.
-    // Fall back to deterministic single-task derivation; allocate() persists
-    // the final project name used for teardown.
-  }
-
   // Resolve the set of repo roots to materialize worktrees for.
   // If a context pack is present, iterate its visibleRepoRoots.
-  // Otherwise fall back to a single-entry list using the platform repo root.
+  // Otherwise fall back to the platform repo root only when there is no active
+  // context-pack workspace selection. This prevents recovered/unbound external
+  // tasks from silently materializing TaskSail itself as the worktree.
   let visibleRepoRoots: string[] = [];
   const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
   if (cpDir) {
-    try {
-      const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
-      visibleRepoRoots = focused?.visibleRepoRoots ?? [];
-    } catch {
-      // Context pack may not have a full manifest (e.g. bootstrap mode) — fall through.
+    const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
+    visibleRepoRoots = focused?.visibleRepoRoots ?? [];
+    if (visibleRepoRoots.length === 0) {
+      throw new Error(
+        `Unable to resolve visible repo roots for context pack "${cpDir}" while activating task "${taskId}". ` +
+        'Refusing to fall back to the platform repo root.',
+      );
     }
   }
   if (visibleRepoRoots.length === 0) {
+    const activeWorkspaceContextPackDir = await readActiveWorkspaceContextPackDir(repoRoot);
+    if (activeWorkspaceContextPackDir) {
+      throw new Error(
+        `Refusing to activate unbound task "${taskId}" against the platform repo root because ` +
+        `the active workspace context pack is "${activeWorkspaceContextPackDir}". ` +
+        'Requeue the task with a Context Pack Binding or clear the active context pack before running a platform-local task.',
+      );
+    }
     visibleRepoRoots = [repoRoot];
   }
 
@@ -580,12 +606,7 @@ export async function activateNextPendingItemIfReady(
         await execFileAsync('git', ['-C', originalRoot, 'branch', '-D', worktreeBranch]).catch(() => {});
         // Step 3: fs.rm AgentWorkSpace/tasks/<taskId>/ (reclaim disk; critical on ENOSPC)
         await rm(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId), { recursive: true, force: true }).catch(() => {});
-        // Step 4: portAllocator.release(taskId). Idempotent silent no-op if no
-        // allocation exists (the rollback fires before allocate() runs, so this
-        // is the expected case). repoRoot (NOT originalRoot) because the
-        // allocation table lives under the platform-state dir.
-        await releasePort(taskId, repoRoot);
-        // Step 5: unlink .active-items/<taskId> — marker may not yet exist; swallow errors.
+        // Step 4: unlink .active-items/<taskId> — marker may not yet exist; swallow errors.
         await unlink(path.join(paths.activeItemsDir, taskId)).catch(() => {});
         throw cloneErr;
       }
@@ -620,7 +641,6 @@ export async function activateNextPendingItemIfReady(
       strategy: combinedMat.strategy,
       cloned: combinedMat.cloned,
       skipped: combinedMat.skipped,
-      composeProjectName: taskComposeProjectName,
     },
     frozenAt: new Date().toISOString(),
     finalizedAt: null,
@@ -642,6 +662,12 @@ export async function activateNextPendingItemIfReady(
       sections,
       implementationStepsDir: taskImplStepsDir,
     });
+    // Stage the intake markdown into the per-task handoffs dir so agents
+    // (notably Alice) can read their own task's intake without being granted
+    // access to the shared pendingitems/ directory, which holds other tasks'
+    // files in parallel mode. The canonical copy stays in pendingitems/ —
+    // queue lifecycle code is the only authorized writer there.
+    await copyFileSafe(nextItem, path.join(taskHandoffsDir, 'intake.md'));
     await syncRetrospectiveRequiredMetadata({
       repoRoot,
       handoffsDir: taskHandoffsDir,
@@ -660,9 +686,6 @@ export async function activateNextPendingItemIfReady(
   // so failed tasks can still be relocated to error-items/ and completed tasks
   // can be removed idempotently.
   await writeFile(activeMarkerPath, queueName, 'utf-8');
-  // Legacy compatibility only. Parallel-aware callers must enumerate
-  // .active-items/; this singleton is not authoritative when N>1 tasks run.
-  await writeFile(legacyActiveItemPath, queueName, 'utf-8').catch(() => {});
   if (contextPackBinding) {
     const legacyContextPackPath = deriveQueueStatePaths(pendingDir).activeContextPackPath;
     await ensureDir(path.dirname(legacyContextPackPath)).catch(() => {});
@@ -679,57 +702,26 @@ export async function activateNextPendingItemIfReady(
   } catch { /* best-effort */ }
 
   if (hasContainerComposeFile(repoRoot)) {
-    // §5.3 + §6.2 + §6.3: allocate port → MCP bootstrap → start pipeline supervisor.
-    // taskComposeProjectName scopes the allocation record to this task's
-    // F4-isolated compose project; §5.2 orphan-container sweep relies on that
-    // record to correlate container → port → task.
     try {
       const seedResult = await seedPlatformConfig(repoRoot);
       if (seedResult.action === 'failed') {
         throw new Error(`platform-config-seed-failed: ${seedResult.errors.map((e) => `${e.field}: ${e.message}`).join('; ')}`);
       }
-      await allocatePort(taskId, taskComposeProjectName, repoRoot);
-    } catch (portErr) {
-      console.error(`[operations] allocatePort failed for ${taskId}:`, portErr);
-      await rollbackActivationClaim({
-        repoRoot,
-        paths,
-        taskId,
-        queueName,
-        activeMarkerPath,
-        legacyActiveItemPath,
-        repoBindings,
-      });
-      return { activated: false, reason: 'port-allocation-failed' };
-    }
-
-    try {
-      const bootstrap = await bootstrapTaskMcp({
-        repoRoot,
-        taskId,
-        contextPackBinding: perTaskSidecar.contextPackBinding,
-      });
-      if (bootstrap.status === 'skipped') {
-        process.stderr.write(
-          `[operations] mcp-bootstrap skipped for ${taskId}: ${bootstrap.reason}\n`,
-        );
-      }
+      await ensureSharedMcpRunning(repoRoot);
     } catch (bootstrapErr) {
-      console.error(`[operations] mcp bootstrap failed for ${taskId}:`, bootstrapErr);
+      console.error(`[operations] shared MCP bootstrap failed for ${taskId}:`, bootstrapErr);
       await rollbackActivationClaim({
         repoRoot,
         paths,
         taskId,
-        queueName,
         activeMarkerPath,
-        legacyActiveItemPath,
         repoBindings,
       });
-      return { activated: false, reason: 'mcp-bootstrap-failed' };
+      return { activated: false, reason: 'shared-mcp-bootstrap-failed' };
     }
   } else {
     process.stderr.write(
-      `[operations] mcp-bootstrap skipped for ${taskId}: compose-file-missing\n`,
+      `[operations] shared MCP bootstrap skipped for ${taskId}: compose-file-missing\n`,
     );
   }
 
@@ -754,9 +746,7 @@ export async function activateNextPendingItemIfReady(
       repoRoot,
       paths,
       taskId,
-      queueName,
       activeMarkerPath,
-      legacyActiveItemPath,
       repoBindings,
     });
     console.error(`[operations] pipeline spawn failed for ${taskId}:`, err);
@@ -769,7 +759,14 @@ export async function activateNextPendingItemIfReady(
     return { activated: true };
   }
 
-  try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+  // Intentionally do NOT unlink the pending markdown here. Per the contract
+  // documented above (search "while active"), the file remains in pendingitems/
+  // for the duration of the run so the terminal paths own its disposition:
+  //   - completion: completePendingItem unlinks it after archival.
+  //   - failure:    moveFailedItemToErrorItems renames it into error-items/.
+  // Unlinking here races the failure path: if the pipeline child crashes after
+  // this point, the rename in errorItems.ts hits ENOENT and falls back to a
+  // blank-template recovery that loses the original task content.
 
   return { activated: true };
 }
@@ -850,12 +847,6 @@ export async function completeActiveItem(
   // to error-items/.
   const activeName = `${taskId}.md`;
   try { await unlink(path.join(pendingDir, activeName)); } catch { /* idempotent */ }
-  try {
-    const legacyActive = await readFile(activeItemPath(pendingDir), 'utf-8');
-    if (legacyActive.trim() === activeName) {
-      await unlink(activeItemPath(pendingDir));
-    }
-  } catch { /* idempotent */ }
 
   // 3. Remove completed item from the queue-order manifest; delete manifest when empty.
   try {
@@ -875,23 +866,16 @@ async function rollbackActivationClaim(options: {
   repoRoot: string;
   paths: QueuePaths;
   taskId: string;
-  queueName: string;
   activeMarkerPath: string;
-  legacyActiveItemPath: string;
   repoBindings: TaskRepoBinding[];
 }): Promise<void> {
   const {
     repoRoot,
     paths,
     taskId,
-    queueName,
     activeMarkerPath,
-    legacyActiveItemPath,
     repoBindings,
   } = options;
-
-  try { await composeDownTask(repoRoot, taskId); } catch { /* best-effort */ }
-  try { await releasePort(taskId, repoRoot); } catch { /* best-effort */ }
 
   for (const binding of repoBindings) {
     if (binding.worktreeRoot && binding.worktreeRoot !== binding.originalRoot) {
@@ -915,12 +899,6 @@ async function rollbackActivationClaim(options: {
   }).catch(() => {});
 
   await unlink(activeMarkerPath).catch(() => {});
-  try {
-    const legacyActive = await readFile(legacyActiveItemPath, 'utf-8');
-    if (legacyActive.trim() === queueName) {
-      await unlink(legacyActiveItemPath);
-    }
-  } catch { /* best-effort */ }
 
   try { await transitionTask(repoRoot, taskId, 'active', 'pending'); } catch { /* best-effort */ }
   await ensureDir(paths.activeItemsDir).catch(() => {});

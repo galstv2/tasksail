@@ -161,6 +161,44 @@ describe('writeSessionStartReceipt', () => {
     const receipt = await readReceipt(receiptPath);
     expect(receipt['launch_id']).toBe(launchId);
   });
+
+  it('does not preserve same-launch continuations as session history', async () => {
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+
+    const taskRuntime = path.join(baseDir, 'runtime', 'tasks', 'task-continuation');
+    const launchId = '1713111111111-55555';
+
+    const receiptPath = await writeSessionStartReceipt({
+      taskRuntime,
+      launchId,
+      agentId: 'dalton',
+      roleName: 'Software Engineer',
+      displayName: 'Dalton',
+      launchPid: 10001,
+    });
+
+    await writeSessionTerminalReceipt({
+      receiptPath,
+      agentId: 'dalton',
+      terminalStatus: 'completed',
+      exitCode: 0,
+    });
+
+    await writeSessionStartReceipt({
+      taskRuntime,
+      launchId,
+      agentId: 'dalton',
+      roleName: 'Software Engineer',
+      displayName: 'Dalton',
+      launchPid: 10002,
+    });
+
+    const receipt = await readReceipt(receiptPath);
+    expect(receipt['session_history']).toBeUndefined();
+    expect((receipt['launch'] as Record<string, unknown>)['pid']).toBe(10002);
+    expect(receipt['terminal']).toBeUndefined();
+  });
 });
 
 describe('writeSessionTerminalReceipt', () => {

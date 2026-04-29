@@ -3,11 +3,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  buildPlannerCopilotInvocation,
+  buildPlannerCliInvocation,
   getPlanningAgentRequiredModel,
-  resolveCopilotCommand,
-  spawnPlannerCopilotProcess,
-} from './plannerCopilotProcess';
+  spawnPlannerCliProcess,
+} from './plannerCliProcess';
 import { REPO_ROOT } from './paths';
 
 function setPlatform(platform: NodeJS.Platform): () => void {
@@ -24,18 +23,18 @@ function setPlatform(platform: NodeJS.Platform): () => void {
   };
 }
 
-describe('buildPlannerCopilotInvocation', () => {
+const expectedProviderCommand = () => (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+
+describe('buildPlannerCliInvocation', () => {
   it('builds the canonical planner JSONL invocation with required flags', () => {
-    const invocation = buildPlannerCopilotInvocation({
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Reply with exactly READY.',
     });
 
-    expect(invocation.command).toBe(resolveCopilotCommand());
+    expect(invocation.command).toBe(expectedProviderCommand());
     expect(invocation.cwd).toBe(REPO_ROOT);
     expect(invocation.agentId).toBe('planning-agent');
     expect(invocation.model).toBe(getPlanningAgentRequiredModel());
-    expect(invocation.outputFormat).toBe('json');
-    expect(invocation.streamMode).toBe('on');
     expect(invocation.promptMode).toBe('one-shot');
     expect(invocation.allowedRoots).toEqual([
       'AgentWorkSpace/dropbox',
@@ -70,7 +69,7 @@ describe('buildPlannerCopilotInvocation', () => {
   });
 
   it('adds resume and boundary overrides without widening defaults silently', () => {
-    const invocation = buildPlannerCopilotInvocation({
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Continue the prior turn.',
       resumeSessionId: 'session-42',
       allowedRoots: ['AgentWorkSpace', 'contextpacks/orders', 'AgentWorkSpace'],
@@ -88,7 +87,7 @@ describe('buildPlannerCopilotInvocation', () => {
   });
 
   it('uses interactive bootstrap flags when requested for the first turn', () => {
-    const invocation = buildPlannerCopilotInvocation({
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Reply with exactly READY.',
       promptMode: 'interactive',
     });
@@ -105,8 +104,8 @@ describe('buildPlannerCopilotInvocation', () => {
     expect(invocation.args).not.toContain('--prompt');
   });
 
-  it('propagates planner session ownership into the Copilot environment', () => {
-    const invocation = buildPlannerCopilotInvocation({
+  it('propagates planner session ownership into the CLI environment', () => {
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Update the staged plan.',
       plannerSessionId: 'planner-42',
     });
@@ -115,21 +114,21 @@ describe('buildPlannerCopilotInvocation', () => {
     expect(invocation.env.PLANNER_SESSION_ID).toBe('planner-42');
   });
 
-  it('always uses REPO_ROOT as cwd so Copilot discovers agent definitions', () => {
-    const invocation = buildPlannerCopilotInvocation({
+  it('uses the provider launch spec cwd', () => {
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Use an explicit cwd.',
       allowedRoots: ['AgentWorkSpace/dropbox'],
       workingDirectory: '/tmp/planner-cwd',
     });
 
-    expect(invocation.cwd).toBe(REPO_ROOT);
+    expect(invocation.cwd).toBe('/tmp/planner-cwd');
   });
 
-  it('resolves the Windows Copilot shim when running on win32', () => {
+  it('resolves the Windows provider shim when running on win32', () => {
     const restorePlatform = setPlatform('win32');
 
     try {
-      const invocation = buildPlannerCopilotInvocation({
+      const invocation = buildPlannerCliInvocation({
         prompt: 'Reply with exactly READY.',
       });
 
@@ -140,11 +139,11 @@ describe('buildPlannerCopilotInvocation', () => {
   });
 });
 
-describe('spawnPlannerCopilotProcess', () => {
+describe('spawnPlannerCliProcess', () => {
   it('spawns copilot with the canonical planner invocation', () => {
     const spawnMock = vi.fn(() => ({ pid: 1234 })) as unknown as typeof import('node:child_process').spawn;
 
-    spawnPlannerCopilotProcess(
+    spawnPlannerCliProcess(
       {
         prompt: 'Say hello.',
       },
@@ -152,7 +151,7 @@ describe('spawnPlannerCopilotProcess', () => {
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
-      resolveCopilotCommand(),
+      expectedProviderCommand(),
       expect.arrayContaining(['--agent', 'planning-agent', '--output-format', 'json']),
       expect.objectContaining({
         cwd: REPO_ROOT,
@@ -164,7 +163,7 @@ describe('spawnPlannerCopilotProcess', () => {
   it('spawns interactive bootstrap invocations with -i when requested', () => {
     const spawnMock = vi.fn(() => ({ pid: 4321 })) as unknown as typeof import('node:child_process').spawn;
 
-    spawnPlannerCopilotProcess(
+    spawnPlannerCliProcess(
       {
         prompt: 'Reply with exactly READY.',
         promptMode: 'interactive',
@@ -173,7 +172,7 @@ describe('spawnPlannerCopilotProcess', () => {
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
-      resolveCopilotCommand(),
+      expectedProviderCommand(),
       expect.arrayContaining(['-i', 'Reply with exactly READY.']),
       expect.objectContaining({
         cwd: REPO_ROOT,
@@ -183,7 +182,7 @@ describe('spawnPlannerCopilotProcess', () => {
   });
 
   it('uses repo root as planner cwd when multiple allowed roots are configured', () => {
-    const invocation = buildPlannerCopilotInvocation({
+    const invocation = buildPlannerCliInvocation({
       prompt: 'Use repo-relative planner paths.',
     });
 

@@ -7,12 +7,14 @@ import { delimiter, join, resolve } from 'node:path';
 import {
   type ContextPackCatalogEntry,
   type ContextPackCatalogSource,
+  type ContextPackDeepFocusDerivedRoot,
   type ContextPackDeepFocusTarget,
   type ContextPackFocusTargetKind,
   type ContextPackFocusTarget,
   type ContextPackListResponse,
   type WorkspaceScopeMode,
 } from '../src/shared/desktopContract';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 import { REPO_ROOT } from './paths';
 import { pathExists, numberOrNull, stringOrNull, repoFs } from './utils';
 import { portablePathBasename, readDeepFocusPath, stringArray } from './main.contextPackShared';
@@ -22,8 +24,9 @@ export const WORKSPACE_SYNC_STATE_PATH = join(
   REPO_ROOT,
   '.platform-state/workspace-context-sync.json',
 );
-const CONTEXT_PACK_PATHS_ENV = 'COPILOT_CONTEXT_PACK_PATHS';
-const CONTEXT_PACK_SEARCH_ROOTS_ENV = 'COPILOT_CONTEXT_PACK_SEARCH_ROOTS';
+const CONTEXT_PACK_ENV_VARS = getActiveProvider(REPO_ROOT).contextPackEnvVars();
+const CONTEXT_PACK_PATHS_ENV = CONTEXT_PACK_ENV_VARS.paths;
+const CONTEXT_PACK_SEARCH_ROOTS_ENV = CONTEXT_PACK_ENV_VARS.searchRoots;
 
 type WorkspaceSyncStateSnapshot = {
   activeContextPackDir: string | null;
@@ -38,6 +41,8 @@ type WorkspaceSyncStateSnapshot = {
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
+  derivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];
+  derivedReadonlyContextRoots?: ContextPackDeepFocusDerivedRoot[];
   managedFolders: string[];
   attachedManagedFolders: string[];
   missingManagedFolders: string[];
@@ -93,6 +98,36 @@ function parseDeepFocusTargetList(
   return value
     .map((target) => parseDeepFocusTarget(target))
     .filter((target): target is ContextPackDeepFocusTarget => target !== null);
+}
+
+function parseDeepFocusDerivedRoot(
+  value: unknown,
+): ContextPackDeepFocusDerivedRoot | null {
+  const target = parseDeepFocusTarget(value);
+  if (!target || typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const reason = (value as { reason?: unknown }).reason;
+  if (
+    reason !== 'selected-primary'
+    && reason !== 'primary-focus-parent'
+    && reason !== 'test-target'
+    && reason !== 'support-target'
+  ) {
+    return null;
+  }
+  return { ...target, reason };
+}
+
+function parseDeepFocusDerivedRootList(
+  value: unknown,
+): ContextPackDeepFocusDerivedRoot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((target) => parseDeepFocusDerivedRoot(target))
+    .filter((target): target is ContextPackDeepFocusDerivedRoot => target !== null);
 }
 
 function parseConfiguredPaths(value: string | undefined): string[] {
@@ -199,13 +234,15 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       scopeMode: null,
       selectedRepoIds: [],
       selectedFocusIds: [],
-        deepFocusEnabled: false,
-        deepFocusPrimaryRepoId: null,
-        deepFocusPrimaryFocusId: null,
-        selectedFocusPath: null,
-        selectedFocusTargetKind: null,
-        selectedTestTarget: undefined,
-        selectedSupportTargets: [],
+      deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: undefined,
+      selectedSupportTargets: [],
+      derivedWritableRoots: [],
+      derivedReadonlyContextRoots: [],
       managedFolders: [],
       attachedManagedFolders: [],
       missingManagedFolders: [],
@@ -230,6 +267,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selected_focus_target_kind?: unknown;
       selected_test_target?: unknown;
       selected_support_targets?: unknown;
+      derived_writable_roots?: unknown;
+      derived_readonly_context_roots?: unknown;
       managed_folders?: unknown;
       status?: unknown;
       last_synced_at?: unknown;
@@ -261,6 +300,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
           ? parseDeepFocusTarget(state.selected_test_target)
           : undefined,
       selectedSupportTargets: parseDeepFocusTargetList(state.selected_support_targets),
+      derivedWritableRoots: parseDeepFocusDerivedRootList(state.derived_writable_roots),
+      derivedReadonlyContextRoots: parseDeepFocusDerivedRootList(state.derived_readonly_context_roots),
       managedFolders,
       attachedManagedFolders,
       missingManagedFolders,
@@ -285,6 +326,8 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       selectedFocusTargetKind: null,
       selectedTestTarget: null,
       selectedSupportTargets: [],
+      derivedWritableRoots: [],
+      derivedReadonlyContextRoots: [],
       managedFolders: [],
       attachedManagedFolders: [],
       missingManagedFolders: [],
@@ -319,6 +362,8 @@ export function deriveContextPackRuntimeState(
   | 'lastAppliedSelectedFocusTargetKind'
   | 'lastAppliedSelectedTestTarget'
   | 'lastAppliedSelectedSupportTargets'
+  | 'lastAppliedDerivedWritableRoots'
+  | 'lastAppliedDerivedReadonlyContextRoots'
   | 'workspaceFolderCount'
   | 'workspaceFileCount'
 > {
@@ -370,6 +415,10 @@ export function deriveContextPackRuntimeState(
       stateTracksEntry ? syncState.selectedTestTarget : undefined,
     lastAppliedSelectedSupportTargets:
       stateTracksEntry ? syncState.selectedSupportTargets : [],
+    lastAppliedDerivedWritableRoots:
+      stateTracksEntry ? syncState.derivedWritableRoots ?? [] : [],
+    lastAppliedDerivedReadonlyContextRoots:
+      stateTracksEntry ? syncState.derivedReadonlyContextRoots ?? [] : [],
     workspaceFolderCount: (stateTracksEntry ? syncState.workspaceFolderCount : null)
       ?? persistedCounts?.folderCount ?? null,
     workspaceFileCount: (stateTracksEntry ? syncState.workspaceFileCount : null)

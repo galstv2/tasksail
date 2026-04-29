@@ -18,7 +18,9 @@ class TestScopedRecordCache:
         cache = ScopedRecordCache(ttl_seconds=60.0)
         records = [(tmp_path / "a.json", {"record_type": "task-archive"})]
         cache.put_scope(tmp_path, {"task-archive": records})
-        assert cache.get(tmp_path, "task-archive") is records
+        cached = cache.get(tmp_path, "task-archive")
+        assert cached == records
+        assert cached is not records
 
     def test_cache_miss_returns_none(self, tmp_path: Path) -> None:
         cache = ScopedRecordCache()
@@ -63,8 +65,12 @@ class TestScopedRecordCache:
             "task-retrospective": retro_records,
         })
 
-        assert cache.get(tmp_path, "task-archive") is archive_records
-        assert cache.get(tmp_path, "task-retrospective") is retro_records
+        cached_archive = cache.get(tmp_path, "task-archive")
+        cached_retro = cache.get(tmp_path, "task-retrospective")
+        assert cached_archive == archive_records
+        assert cached_archive is not archive_records
+        assert cached_retro == retro_records
+        assert cached_retro is not retro_records
 
     def test_extended_ttl_survives_past_old_window(self, tmp_path: Path) -> None:
         """Default 300s TTL should not expire at the old 30s boundary."""
@@ -142,8 +148,10 @@ class TestArchiveServiceCaching:
         first = service.iter_task_archive_records(scope_dir)
         second = service.iter_task_archive_records(scope_dir)
 
-        # Same list object — proves the second call hit cache, not disk.
-        assert first is second
+        # Equal records prove the second call hit cache without exposing the
+        # cache's mutable list object to callers.
+        assert first == second
+        assert first is not second
         assert len(first) == 1
         assert first[0][1]["task_id"] == "T-001"
 
@@ -171,6 +179,11 @@ class TestArchiveServiceCaching:
         assert len(retros) == 1
         assert retros[0][1]["task_id"] == "T-100"
 
-        # Second call for each type should return the same cached object.
-        assert service.iter_task_archive_records(scope_dir) is archives
-        assert service.iter_task_retrospective_records(scope_dir) is retros
+        # Second call for each type should return the same cached records
+        # without exposing the cache's mutable list object.
+        cached_archives = service.iter_task_archive_records(scope_dir)
+        cached_retros = service.iter_task_retrospective_records(scope_dir)
+        assert cached_archives == archives
+        assert cached_archives is not archives
+        assert cached_retros == retros
+        assert cached_retros is not retros

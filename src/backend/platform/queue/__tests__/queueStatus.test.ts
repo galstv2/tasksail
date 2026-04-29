@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getQueueStatus } from '../queueStatus.js';
+import { main } from '../cli.js';
 
 describe('getQueueStatus', () => {
   let tmpRoot: string;
@@ -35,6 +36,7 @@ describe('getQueueStatus', () => {
     expect(status.pendingItems).toEqual([]);
     expect(status.activeItem).toBeNull();
     expect(status.workspaceReady).toBe(true);
+    expect(status.stuckMidCompletion).toEqual([]);
   });
 
   it('reports pending items in sorted order', async () => {
@@ -62,7 +64,7 @@ describe('getQueueStatus', () => {
   });
 
   it('reports activeTasks when active marker exists in .active-items/', async () => {
-    // §4.1B: active state tracked via .active-items/<taskId>, not singleton .active-item
+    // §4.1B: active state tracked via .active-items/<taskId> marker
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
@@ -87,10 +89,10 @@ describe('getQueueStatus', () => {
 
     expect(status.activeTasks).toHaveLength(1);
     expect(status.workspaceReady).toBe(true);
-    expect(status.activeItemWithBlankWorkspace).toBe(true);
+    expect(status.activeTaskWithBlankWorkspace).toBe(true);
   });
 
-  it('reports activeItemWithBlankWorkspace false when workspace has task content', async () => {
+  it('reports activeTaskWithBlankWorkspace false when workspace has task content', async () => {
     const TEST_TASK_ID = 'active-task';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
@@ -109,7 +111,7 @@ describe('getQueueStatus', () => {
 
     expect(status.activeTasks).toHaveLength(1);
     expect(status.workspaceReady).toBe(false);
-    expect(status.activeItemWithBlankWorkspace).toBe(false);
+    expect(status.activeTaskWithBlankWorkspace).toBe(false);
   });
 
   it('partialPublish is always false (per-task partial publishes handled by repairQueue)', async () => {
@@ -202,6 +204,7 @@ describe('getQueueStatus §4.1B — activeTasks array from .active-items/', () =
     expect(status.activeTasks).toHaveLength(2);
     const ids = status.activeTasks.map((t) => t.taskId).sort();
     expect(ids).toEqual(['task-a', 'task-b']);
+    expect(status.stuckMidCompletion).toEqual(['task-a']);
   });
 
   it('only .completing sentinels → activeTasks is empty', async () => {
@@ -211,10 +214,63 @@ describe('getQueueStatus §4.1B — activeTasks array from .active-items/', () =
     const status = await getQueueStatus(tmpRoot);
 
     expect(status.activeTasks).toHaveLength(0);
+    expect(status.stuckMidCompletion).toEqual([]);
+  });
+
+  it('sentinel and active marker coexistence is reported as sorted stuckMidCompletion task ids', async () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-b'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-b.completing'), '{}');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+    writeFileSync(path.join(activeItemsDir, 'task-c.completing'), '{}');
+
+    const status = await getQueueStatus(tmpRoot);
+
+    expect(status.stuckMidCompletion).toEqual(['task-a', 'task-b']);
   });
 
   it('empty .active-items/ → activeTasks is empty', async () => {
     const status = await getQueueStatus(tmpRoot);
     expect(status.activeTasks).toHaveLength(0);
+  });
+});
+
+describe('queue status CLI stuck-mid-completion warning', () => {
+  let tmpRoot: string;
+  let stdout = '';
+  let originalExitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-status-cli-'));
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'dropbox'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'tasks'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
+    stdout = '';
+    originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout += String(chunk);
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = originalExitCode;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('warns with repair command and stale worktree metadata context', async () => {
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a'), '');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+
+    await main(['status', '--repo-root', tmpRoot]);
+
+    expect(stdout).toContain("WARNING: task 'task-a' is stuck mid-completion");
+    expect(stdout).toContain('stale worktree metadata can pin the branch');
+    expect(stdout).toContain('Recover with: pnpm run repair -- --auto-fix');
   });
 });

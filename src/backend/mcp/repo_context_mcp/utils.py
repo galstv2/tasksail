@@ -59,7 +59,7 @@ def resolve_path_within(base_dir: Path, value: str, field_name: str) -> Path:
 
 ALLOWED_CONTAINER_ROOTS: tuple[PurePosixPath, ...] = (
     PurePosixPath("/workspace"),
-    PurePosixPath("/mnt/context-pack"),
+    PurePosixPath("/context-pack-roots"),
 )
 
 
@@ -92,10 +92,7 @@ def resolve_context_pack_dir(
     return Path(str(candidate)).resolve()
 
 
-def resolve_context_data_dir(
-    workspace_root: Path,
-    context_pack_dir: str,
-) -> Path:
+def resolve_context_data_dir(context_pack_dir: str) -> Path:
     """Resolve a context-pack-derived data root that may live on the host.
 
     Used by service-side flows (archive, seeding, lineage) that operate on
@@ -108,7 +105,6 @@ def resolve_context_data_dir(
     if posix_candidate.is_absolute() and any(
         _is_under(posix_candidate, root) for root in ALLOWED_CONTAINER_ROOTS
     ):
-        del workspace_root
         return Path(str(posix_candidate)).resolve()
     host_candidate = Path(context_pack_dir)
     if not host_candidate.is_absolute():
@@ -117,15 +113,17 @@ def resolve_context_data_dir(
             f"context_pack_dir {context_pack_dir!r} must be an absolute path "
             f"(either a host path or under one of: {roots})"
         )
-    del workspace_root
     return host_candidate.resolve()
 
 
 def _is_under(candidate: PurePosixPath, root: PurePosixPath) -> bool:
     try:
-        candidate.relative_to(root)
+        relative = candidate.relative_to(root)
     except ValueError:
         return False
+    if root == PurePosixPath("/context-pack-roots"):
+        parts = relative.parts
+        return bool(parts) and parts[0].isdigit()
     return True
 
 

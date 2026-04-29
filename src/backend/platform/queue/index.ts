@@ -3,7 +3,6 @@ export {
   LINEAGE_LABELS,
   resolveQueuePaths,
   templateSourceFor,
-  activeItemPath,
 } from './paths.js';
 
 export type { QueuePaths } from './paths.js';
@@ -81,6 +80,8 @@ export type { PollDropboxOptions } from './pollDropbox.js';
 
 export { repairQueue } from './repairQueue.js';
 export type { RepairResult, RepairQueueOptions } from './repairQueue.js';
+export { recoverStuckMidCompletion } from './recoverStuckMidCompletion.js';
+export type { RecoverStuckMidCompletionResult } from './recoverStuckMidCompletion.js';
 
 export { runPolicyValidation, assertPolicyPasses } from './policyValidation.js';
 export type { PolicyValidationMode, PolicyValidationResult } from './policyValidation.js';

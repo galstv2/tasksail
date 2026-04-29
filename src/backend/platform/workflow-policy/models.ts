@@ -7,6 +7,7 @@ import type {
   Violation,
   WorkspaceArtifact,
 } from './types.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 export const SECTION_HEADING = /^##\s+(.*\S)\s*$/;
 export const METADATA_LINE = /^-\s+([^:]+):\s*(.*)$/;
@@ -69,7 +70,10 @@ export const CONTENT_SECTION_EXCLUSIONS = new Set([
 ]);
 
 export const AGENT_MODEL_CATALOG_RELATIVE_PATH = 'config/agent-model-catalog.default.json';
-export const AGENT_REGISTRY_RELATIVE_PATH = '.github/agents/registry.json';
+
+export function getAgentRegistryRelativePath(repoRoot: string): string {
+  return getActiveProvider(repoRoot).agentConfigPaths().registry;
+}
 
 export const REQUIRED_AGENT_REGISTRY_FIELDS = new Set([
   'agent_id',

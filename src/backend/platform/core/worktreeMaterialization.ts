@@ -24,6 +24,8 @@ import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 
 import {
+  isLinuxPlatform,
+  isMacOSPlatform,
   isWindowsPlatform,
   windowsVolumesShareReFS,
 } from './platform.js';
@@ -159,7 +161,7 @@ export function detectCloneStrategy(
   worktreeParent: string,
   statfsFn: StatfsSyncFn = defaultStatfsSync,
 ): CloneStrategy {
-  if (process.platform === 'darwin') {
+  if (isMacOSPlatform()) {
     try {
       const srcFs = statfsFn(repoRoot);
       const dstFs = statfsFn(worktreeParent);
@@ -185,7 +187,7 @@ export function detectCloneStrategy(
     return 'win-refs';
   }
 
-  if (process.platform === 'linux' && filesystemSupportsReflink(repoRoot, worktreeParent, statfsFn)) {
+  if (isLinuxPlatform() && filesystemSupportsReflink(repoRoot, worktreeParent, statfsFn)) {
     return 'reflink';
   }
 
@@ -223,7 +225,10 @@ async function walkAndReflink(
 ): Promise<void> {
   const entries = await fs.promises.readdir(src, { withFileTypes: true });
   await fs.promises.mkdir(dst, { recursive: true });
-  for (const entry of entries) {
+  // Sibling entries are independent — fan out per directory level. reflinkFileSync
+  // is synchronous so its CPU/IO is unchanged; the win is overlapping readdir,
+  // readlink, symlink, and recursive descent across siblings.
+  await Promise.all(entries.map(async (entry) => {
     const s = path.join(src, entry.name);
     const d = path.join(dst, entry.name);
     if (entry.isDirectory()) {
@@ -234,7 +239,7 @@ async function walkAndReflink(
       const target = await fs.promises.readlink(s);
       await fs.promises.symlink(target, d);
     }
-  }
+  }));
 }
 
 function isReflinkRecoverable(err: unknown): boolean {

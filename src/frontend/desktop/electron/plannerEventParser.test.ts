@@ -2,19 +2,20 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { PlannerEventParser, parsePlannerEventLine } from './plannerEventParser';
+import { PlannerEventParser } from './plannerEventParser';
 
-describe('parsePlannerEventLine', () => {
+describe('PlannerEventParser provider parser', () => {
   it('parses assistant.message into a normalized planner message event', () => {
-    const result = parsePlannerEventLine(
+    const parser = new PlannerEventParser();
+    parser.parseChunk('{"type":"assistant.turn_start","data":{"turnId":"turn-7"}}\n');
+    const [result] = parser.parseChunk(
       JSON.stringify({
         type: 'assistant.message',
         timestamp: '2026-03-19T16:19:14.246Z',
         data: {
           content: 'READY',
         },
-      }),
-      { currentTurnId: 'turn-7' },
+      }) + '\n',
     );
 
     expect(result.kind).toBe('event');
@@ -33,7 +34,9 @@ describe('parsePlannerEventLine', () => {
   });
 
   it('parses result and extracts session continuity data', () => {
-    const result = parsePlannerEventLine(
+    const parser = new PlannerEventParser();
+    parser.parseChunk('{"type":"assistant.turn_start","data":{"turnId":"turn-7"}}\n');
+    const [result] = parser.parseChunk(
       JSON.stringify({
         type: 'result',
         timestamp: '2026-03-19T16:19:14.248Z',
@@ -49,8 +52,7 @@ describe('parsePlannerEventLine', () => {
             filesModified: [],
           },
         },
-      }),
-      { currentTurnId: 'turn-7' },
+      }) + '\n',
     );
 
     expect(result.kind).toBe('event');
@@ -62,7 +64,7 @@ describe('parsePlannerEventLine', () => {
         turnId: 'turn-7',
         rawType: 'result',
         timestamp: '2026-03-19T16:19:14.248Z',
-        copilotSessionId: '0773f9ef-0pm5-4pmd-8fe4-728fa5fa74be',
+        cliSessionId: '0773f9ef-0pm5-4pmd-8fe4-728fa5fa74be',
       },
       {
         type: 'planner.turn.completed',
@@ -86,14 +88,14 @@ describe('parsePlannerEventLine', () => {
   });
 
   it('ignores non-renderable reasoning events', () => {
-    const result = parsePlannerEventLine(
+    const parser = new PlannerEventParser();
+    const [result] = parser.parseChunk(
       JSON.stringify({
         type: 'assistant.reasoning',
         data: {
           content: 'internal',
         },
-      }),
-      { currentTurnId: 'turn-7' },
+      }) + '\n',
     );
 
     expect(result.kind).toBe('event');
@@ -102,14 +104,14 @@ describe('parsePlannerEventLine', () => {
   });
 
   it('preserves additive compatibility for unknown event types', () => {
-    const result = parsePlannerEventLine(
+    const parser = new PlannerEventParser();
+    const [result] = parser.parseChunk(
       JSON.stringify({
         type: 'session.future_event',
         data: {
           featureFlag: true,
         },
-      }),
-      { currentTurnId: 'turn-7' },
+      }) + '\n',
     );
 
     expect(result.kind).toBe('event');
@@ -119,7 +121,9 @@ describe('parsePlannerEventLine', () => {
   });
 
   it('surfaces malformed JSONL lines as explicit parser failures', () => {
-    const result = parsePlannerEventLine('{"type":"assistant.message"', { currentTurnId: 'turn-7' });
+    const parser = new PlannerEventParser();
+    parser.parseChunk('{"type":"assistant.turn_start","data":{"turnId":"turn-7"}}\n');
+    const [result] = parser.parseChunk('{"type":"assistant.message"\n');
 
     expect(result.kind).toBe('parse-error');
     if (result.kind !== 'parse-error') {
@@ -193,7 +197,7 @@ describe('PlannerEventParser', () => {
         brokerStatus: 'completed',
         turnId: 'turn-9',
         rawType: 'result',
-        copilotSessionId: 'session-9',
+        cliSessionId: 'session-9',
       },
       {
         type: 'planner.turn.completed',

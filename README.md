@@ -25,7 +25,7 @@ You watch the progress in a desktop app that shows what each agent is doing in r
 - **pnpm** installed (run `npm install -g pnpm` after installing Node.js)
 - **Python 3.11+** installed ([download here](https://www.python.org/downloads/))
 - **Docker Desktop** or **Podman** (≥ 4.0) with `podman-compose` (≥ 1.0.6) installed and running
-- **GitHub Copilot CLI** access for your GitHub account
+- **GitHub Copilot CLI** access for your GitHub account (the shipped TaskSail CLI provider is `copilot`)
 
 See [docs/cross-os-setup.md](docs/cross-os-setup.md) for macOS / Linux / Windows setup details.
 Windows operators: see the [Dev Drive / ReFS section](docs/cross-os-setup.md#windows-copy-on-write-refs--dev-drive) to enable Copy-on-Write task activation.
@@ -89,6 +89,11 @@ The active container runtime is controlled by `.platform-state/platform.json`
 (`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
 override.
 
+The active CLI provider defaults to `copilot`, which is the only provider shipped
+in this repository. Advanced operators may set `cli_provider` in
+`.platform-state/platform.json` or use `TASKSAIL_CLI_PROVIDER` as a temporary
+session override; both must resolve to a registered provider.
+
 ### 4. Launch the desktop app
 
 ```bash
@@ -107,7 +112,7 @@ In the desktop app:
 
 ## Local auth expectations
 
-Agents run through the compliant repository-managed entrypoint: `pnpm run agent -- --agent-id <agent-id>`. raw named-agent invocation such as `copilot --agent <agent-id>` is reserved for controlled internal orchestrators; the wrapper writes guardrail receipts under `.platform-state/runtime/guardrails/`.
+Agents run through the compliant repository-managed entrypoint: `pnpm run agent -- --agent-id <agent-id>`. Raw provider CLI invocation, currently `copilot --agent <agent-id>`, is reserved for controlled internal orchestrators; the wrapper writes guardrail receipts under `.platform-state/runtime/guardrails/`.
 
 ## How to start services
 
@@ -123,7 +128,7 @@ Run `pnpm run watch-dropbox`, then create an intake item with `pnpm run plan-dro
 
 ## Workflow and handoff rules
 
-Workflow agents are declared in `.github/agents/` and `.github/agents/registry.json`. Each launch gets a fresh task-scoped `copilot --agent` subprocess and does not add a task-end `/compact` hook. The registry-backed autonomy profile controls tool access: `repo-executor` and `artifact-author` are the key profiles, with dangerous commands such as `git add`, `git commit`, `git push`, `rm` denied for executor profiles. If no active context pack is present, broad
+Workflow agents are declared in `.github/agents/` and `.github/agents/registry.json`. Each launch resolves the active CLI provider and starts a fresh task-scoped provider subprocess, currently `copilot --agent`, and does not add a task-end `/compact` hook. The registry-backed autonomy profile controls tool access: `repo-executor` and `artifact-author` are the key profiles, with dangerous commands such as `git add`, `git commit`, `git push`, `rm` denied for executor profiles. If no active context pack is present, broad
   autonomous execution is denied.
 
 ## QA routing rule
@@ -169,7 +174,7 @@ tasksail/
         src/renderer/    #   React UI
   .github/
     agents/              # Agent profiles and roster
-    copilot/             # Agent instructions and prompts
+    copilot/             # Copilot provider instructions and prompts
   AgentWorkSpace/        # Task artifacts (handoffs, slices, queue)
   docker/                # Docker Compose services
   docs/                  # Documentation
@@ -189,6 +194,7 @@ tasksail/
 | `pnpm run validate` | Check repo structure is correct |
 | `pnpm run local-checks` | Full validation gate (run before committing) |
 | `pnpm run queue-status` | Show current task queue state |
+| `pnpm run repair -- --auto-fix` | Recover safe queue inconsistencies after inspection |
 | `pnpm run watch-dropbox` | Start the task intake watcher |
 | `pnpm run complete-pending-item` | Archive a completed task and advance the queue |
 

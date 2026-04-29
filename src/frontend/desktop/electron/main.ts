@@ -8,6 +8,7 @@ import {
   DESKTOP_SHELL_INVOKE_CHANNEL,
   ERROR_CODE_ACTIVE_WORK_BLOCKED,
   ERROR_CODE_VERSION_CONFLICT,
+  PROVIDER_DESCRIBE_ACTIVE_CHANNEL,
   type DesktopActionRequest,
   type DesktopInvokeResult,
   type EnvironmentStatusResponse,
@@ -16,6 +17,7 @@ import {
   type PlannerDirectSubmissionDraft,
   type QueueStatusResponse,
 } from '../src/shared/desktopContract';
+import { getProviderFrontendDescriptor } from '../../../backend/platform/cli-provider/index.js';
 import { isValidDesktopActionRequest, validateDesktopActionRequest } from '../src/shared/desktopContractValidators';
 import { DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL } from '../src/shared/desktopContractPlanner';
 import {
@@ -24,6 +26,10 @@ import {
 } from './repoObservability';
 import * as plannerSession from './plannerSession';
 import { repairTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
+import {
+  listActivePipelines,
+  stopPipeline,
+} from '../../../backend/platform/agent-runner/pipelineSupervisor.js';
 import { REPO_ROOT, DESKTOP_ROOT } from './paths';
 import { toRepoRelativePath, parseStderrErrorCode } from './main.textUtils';
 import {
@@ -196,30 +202,51 @@ export { validateDesktopInvokeSender, validateDevServerUrl } from './main.sender
 
 /**
  * §5.3: cleanupStalePipelineState is superseded by pipelineSupervisor.recoverOnStartup.
- * This legacy helper is retained for the orphaned-copilot-process kill path only.
+ * This legacy helper is retained for the orphaned agent CLI process kill path only.
  * Singleton PIPELINE_LOCK_DIR and ROLE_SESSIONS_DIR deleted.
  * Clean up stale pipeline state from a crashed previous run.
  * - Removes pipeline lock if the owning process is dead.
- * - Kills orphaned copilot processes whose session receipts lack terminal status.
+ * - Kills orphaned agent CLI processes whose session receipts lack terminal status.
  */
 async function cleanupStalePipelineState(): Promise<void> {
   // §5.3: Singleton PIPELINE_LOCK_DIR deleted. Per-task locks are checked by
   // pipelineSupervisor.recoverOnStartup. This function is a lightweight shim
-  // that only kills legacy orphaned copilot processes from stale session receipts.
+  // that only kills orphaned agent CLI processes from per-task session receipts.
 
-  // Kill orphaned copilot processes from stale session receipts (legacy singleton path).
-  const legacyRoleSessionsDir = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
-  let receiptFiles: string[];
+  const runtimeTasksDir = join(REPO_ROOT, '.platform-state', 'runtime', 'tasks');
+  let taskIds: string[];
   try {
-    receiptFiles = await fsReaddir(legacyRoleSessionsDir);
-  } catch {
-    return; // Directory doesn't exist — nothing to clean.
+    taskIds = await fsReaddir(runtimeTasksDir);
+  } catch (error) {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+    if (errorCode === 'ENOENT' || errorCode === 'ENOTDIR') {
+      return; // Directory doesn't exist — nothing to clean.
+    }
+    throw error;
   }
 
-  for (const file of receiptFiles) {
-    if (!file.endsWith('.json')) continue;
+  const receiptPaths: string[] = [];
+  for (const taskId of taskIds) {
+    const roleSessionsDir = join(runtimeTasksDir, taskId, 'role-sessions');
+    let receiptFiles: string[];
     try {
-      const content = await fsReadFile(join(legacyRoleSessionsDir, file), 'utf-8');
+      receiptFiles = await fsReaddir(roleSessionsDir);
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode === 'ENOENT' || errorCode === 'ENOTDIR') {
+        continue;
+      }
+      throw error;
+    }
+    for (const file of receiptFiles) {
+      if (!file.endsWith('.json')) continue;
+      receiptPaths.push(join(roleSessionsDir, file));
+    }
+  }
+
+  for (const receiptPath of receiptPaths) {
+    try {
+      const content = await fsReadFile(receiptPath, 'utf-8');
       const receipt = JSON.parse(content) as {
         agent_id?: string;
         launch?: { pid?: number };
@@ -235,7 +262,7 @@ async function cleanupStalePipelineState(): Promise<void> {
         process.kill(pid, 0); // alive check
         process.kill(pid, 'SIGTERM'); // graceful kill
         emitStreamEvent({
-          message: `Killed orphaned agent process (pid: ${pid}, agent: ${receipt.agent_id ?? file}).`,
+          message: `Killed orphaned agent process (pid: ${pid}, agent: ${receipt.agent_id ?? receiptPath}).`,
           source: 'startup.recovery',
           role: 'system',
           severity: 'warning',
@@ -253,7 +280,6 @@ function schedulePipelineAutoStart(): void {
   // §5.3: Guard replaced — check pipelineSupervisor.listActivePipelines() instead of
   // the deleted PIPELINE_LOCK_DIR. If any pipeline is already supervised, skip launch.
   void (async () => {
-    const { listActivePipelines } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
     if (listActivePipelines().length > 0) {
       return;
     }
@@ -789,7 +815,6 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
   uploadSpec: submitUploadedSpecHelper,
   cancelTask: async (taskId: string) => {
-    const { stopPipeline } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
     await stopPipeline(taskId);
     emitStreamEvent({
       message: `Pipeline cancelled for task ${taskId}.`,
@@ -1200,8 +1225,7 @@ export async function handleDesktopAction(
       return resolvedHandlers.previewContextPackSwitch(request.payload);
     case 'contextPack.applySwitch': {
       // §5.3 active-task guard: block context-pack switching while a pipeline is running.
-      const { listActivePipelines: lap } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
-      if (lap().length > 0) {
+      if (listActivePipelines().length > 0) {
         return {
           ok: false,
           action: 'contextPack.applySwitch',
@@ -1213,8 +1237,7 @@ export async function handleDesktopAction(
     }
     case 'contextPack.clearActive': {
       // §5.3 active-task guard: block clearing active context pack while a pipeline is running.
-      const { listActivePipelines: lap2 } = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
-      if (lap2().length > 0) {
+      if (listActivePipelines().length > 0) {
         return {
           ok: false,
           action: 'contextPack.clearActive',
@@ -1378,6 +1401,7 @@ export function registerDesktopContract(): void {
   });
 
   ipcMain.handle(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL, async () => readBypassTemplate());
+  ipcMain.handle(PROVIDER_DESCRIBE_ACTIVE_CHANNEL, async () => getProviderFrontendDescriptor(REPO_ROOT));
 }
 
 export async function createWindow(): Promise<BrowserWindow> {

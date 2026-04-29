@@ -4,10 +4,44 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSyn
 import { tmpdir } from 'node:os';
 import {
   collectFocusedRepoTargetDirectoryRoots,
+  deriveWritableRootsFromFocusedSelection,
+  explainSelectedPrimaryBoundaryFailure,
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
   resolveWorkspaceRepoRoots,
 } from '../focusedRepo.js';
+
+describe('deriveWritableRootsFromFocusedSelection', () => {
+  it('derives parent-directory writable roots and read-only support roots for file focus', () => {
+    expect(deriveWritableRootsFromFocusedSelection({
+      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+      primaryFocusTargetKind: 'file',
+      testTarget: { path: 'services/Acme.Api.Tests', kind: 'directory' },
+      supportTargets: [
+        { path: 'libs/Acme.Events', kind: 'directory', effectiveScope: 'full-directory' },
+        { path: 'libs/Acme.Models', kind: 'directory', effectiveScope: 'full-directory' },
+      ],
+    })).toEqual({
+      writableRoots: [
+        { path: 'services/Acme.Api', kind: 'directory', reason: 'primary-focus-parent' },
+        { path: 'services/Acme.Api.Tests', kind: 'directory', reason: 'test-target' },
+      ],
+      readonlyContextRoots: [
+        { path: 'libs/Acme.Events', kind: 'directory', reason: 'support-target' },
+        { path: 'libs/Acme.Models', kind: 'directory', reason: 'support-target' },
+      ],
+    });
+  });
+
+  it('derives repo-root sentinel writable root for repo-root focus', () => {
+    expect(deriveWritableRootsFromFocusedSelection({})).toEqual({
+      writableRoots: [
+        { path: '', kind: 'directory', reason: 'selected-primary' },
+      ],
+      readonlyContextRoots: [],
+    });
+  });
+});
 
 describe('resolveFocusedRepoRoot', () => {
   let tmpDir: string;
@@ -326,6 +360,64 @@ describe('resolveFocusedRepoRoot', () => {
     );
   });
 
+  it('explains the multi-primary distributed selection failure', async () => {
+    // Reproduces the incident where two manifest repos both have
+    // repository_type=primary and the dropbox file selected both: the resolver
+    // returns undefined and the diagnostic helper must name both repos so the
+    // operator can correct the selection.
+    const platformDir = makeRepo('platform');
+    const toolsDir = makeRepo('tools');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }, { path: toolsDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformDir], repository_type: 'primary' },
+        { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+    expect(result).toBeUndefined();
+
+    const explanation = await explainSelectedPrimaryBoundaryFailure(packDir, repoRoot);
+    expect(explanation).toContain('selectedRepoIds [platform, tools]');
+    expect(explanation).toContain('2 repos with repository_type=primary');
+    expect(explanation).toContain('platform, tools');
+    expect(explanation).toContain('exactly one required');
+  });
+
+  it('explains a missing manifest with the manifest path', async () => {
+    const repoRoot = makePlatformRepo([{ path: '.' }]);
+    const packDir = path.join(tmpDir, 'pack');
+
+    const explanation = await explainSelectedPrimaryBoundaryFailure(packDir, repoRoot);
+    expect(explanation).toContain('manifest is missing');
+    expect(explanation).toContain(path.join(packDir, 'qmd', 'repo-sources.json'));
+  });
+
+  it('explains a missing authoritative selection', async () => {
+    const platformDir = makeRepo('platform');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformDir], repository_type: 'primary' },
+      ],
+    });
+
+    const explanation = await explainSelectedPrimaryBoundaryFailure(packDir, repoRoot);
+    expect(explanation).toContain('no authoritative active selection found');
+    expect(explanation).toContain('active-context-pack.json');
+    expect(explanation).toContain('workspace-context-sync.json');
+  });
+
   it('resolves Deep Focus metadata from the active task sidecar using camelCase keys', async () => {
     const backendDir = makeRepo('backend');
     const primaryFile = makeFile(path.join(backendDir, 'src', 'main.ts'));
@@ -369,6 +461,14 @@ describe('resolveFocusedRepoRoot', () => {
     expect(result!.supportTargets).toEqual([
       { path: 'docs/guide.md', kind: 'file', effectiveScope: 'exact-file' },
       { path: 'src', kind: 'directory', effectiveScope: 'directory-minus-primary' },
+    ]);
+    expect(result!.writableRoots).toEqual([
+      { path: 'src', kind: 'directory', reason: 'primary-focus-parent' },
+      { path: 'tests', kind: 'directory', reason: 'test-target' },
+    ]);
+    expect(result!.readonlyContextRoots).toEqual([
+      { path: 'docs/guide.md', kind: 'file', reason: 'support-target' },
+      { path: 'src', kind: 'directory', reason: 'support-target' },
     ]);
     expect(realpathSync(path.join(result!.primaryRepoRoot, result!.primaryFocusRelativePath!))).toBe(primaryFile);
     expect(realpathSync(path.join(result!.primaryRepoRoot, result!.supportTargets![0].path))).toBe(supportFile);
@@ -689,7 +789,7 @@ describe('resolveFocusedRepoRoot', () => {
     ]);
   });
 
-  it('collects directory roots for primary, test, and support Deep Focus targets', () => {
+  it('collects planner context roots for primary, test, and support Deep Focus targets', () => {
     expect(collectFocusedRepoTargetDirectoryRoots({
       primaryRepoRoot: '/repos/backend',
       primaryFocusRelativePath: 'src/handler.ts',
@@ -703,6 +803,16 @@ describe('resolveFocusedRepoRoot', () => {
       '/repos/backend/src',
       '/repos/backend/tests',
       '/repos/backend/docs',
+    ]);
+  });
+
+  it('collects a file focus parent directory as the primary planner context root', () => {
+    expect(collectFocusedRepoTargetDirectoryRoots({
+      primaryRepoRoot: '/repos/backend',
+      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+      primaryFocusTargetKind: 'file',
+    })).toEqual([
+      '/repos/backend/services/Acme.Api',
     ]);
   });
 });

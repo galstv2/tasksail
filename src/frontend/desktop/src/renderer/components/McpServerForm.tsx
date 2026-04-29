@@ -1,15 +1,12 @@
 import { useCallback, useState } from 'react';
 
-import { namedWorkflowAgentRoster, type NamedWorkflowAgentKey } from '../../shared/agentRoster';
 import type { McpConfigModalProps, ConnectionValidationState } from '../hooks/useMcpConfigModal';
 import { classNames } from '../utils/classNames';
 
 type Props = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
 >;
-
-const AGENT_KEYS = Object.keys(namedWorkflowAgentRoster) as NamedWorkflowAgentKey[];
 
 function isValidAbsoluteUrl(url: string): boolean {
   try {
@@ -44,6 +41,7 @@ function McpServerForm({
   fieldErrors,
   saving,
   saveEnabled,
+  agentRoster = {},
   error,
   onDraftChange,
   onValidateConnection,
@@ -51,6 +49,7 @@ function McpServerForm({
   onCancel,
 }: Props): JSX.Element {
   const [urlBlurError, setUrlBlurError] = useState<string | null>(null);
+  const agentKeys = Object.keys(agentRoster);
 
   const handleUrlBlur = useCallback(() => {
     if (draft.url && !isValidAbsoluteUrl(draft.url)) {
@@ -210,8 +209,8 @@ function McpServerForm({
       <div className="mcp-form__field">
         <label className="mcp-form__label">Agent Scope</label>
         <div className="mcp-form__agent-list">
-          {AGENT_KEYS.map((key) => {
-            const profile = namedWorkflowAgentRoster[key];
+          {agentKeys.map((key) => {
+            const profile = agentRoster[key];
             const checked = draft.agent_ids.includes(key);
             return (
               <label key={key} className="mcp-form__agent-item">

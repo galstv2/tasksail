@@ -55,7 +55,7 @@ export {
 
 export { detectPythonBin, runPython } from './pythonRunner.js';
 
-export { isRecord } from './guards.js';
+export { isRecord, isMissingPathError } from './guards.js';
 
 export type {
   PythonResult,

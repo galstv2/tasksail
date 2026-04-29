@@ -215,14 +215,17 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/role-sessions/qa.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/qa.json')) {
           return roleReceiptPayload;
         }
 
         return '# Placeholder\n';
       }),
       readdir: vi.fn(async (path: string) => {
-        if (path.endsWith('.platform-state/runtime/role-sessions')) {
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['CAP-CUSTOM-TERMINAL-04'];
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
           return ['qa.json'];
         }
         return [];
@@ -234,6 +237,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         agentTerminalSessions: expect.arrayContaining([
           expect.objectContaining({
             sessionId: 'role:qa:2026-03-07T21:07:29Z',
+            taskId: 'CAP-CUSTOM-TERMINAL-04',
             agentId: 'qa',
             instanceId: null,
             sliceId: null,
@@ -286,12 +290,12 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/software-engineer.json')) {
           return receiptPayload;
         }
         if (
           path.endsWith(
-            '.platform-state/runtime/guardrails/software-engineer.json',
+            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           )
         ) {
           return guardrailPayload;
@@ -304,10 +308,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
           return ['CAP-CUSTOM-TERMINAL-04'];
         }
-        if (path.endsWith('.platform-state/runtime/role-sessions')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
           return ['software-engineer.json'];
         }
-        if (path.endsWith('.platform-state/runtime/guardrails')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails')) {
           return ['software-engineer.json'];
         }
         return [];
@@ -332,7 +336,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           expect.objectContaining({
             status: 'internal-bypass',
             receiptPath:
-              '.platform-state/runtime/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           }),
         ]),
         agentTerminalSessions: expect.arrayContaining([
@@ -340,7 +344,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
             sessionId: 'role:software-engineer:2026-03-07T21:07:29Z',
             guardrailStatus: 'internal-bypass',
             guardrailReceiptPath:
-              '.platform-state/runtime/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           }),
         ]),
       }),
@@ -390,12 +394,12 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/software-engineer.json')) {
           return receiptPayload;
         }
         if (
           path.endsWith(
-            '.platform-state/runtime/guardrails/software-engineer.json',
+            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           )
         ) {
           return guardrailPayload;
@@ -408,10 +412,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
           return ['CAP-CUSTOM-TERMINAL-04'];
         }
-        if (path.endsWith('.platform-state/runtime/role-sessions')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
           return ['software-engineer.json'];
         }
-        if (path.endsWith('.platform-state/runtime/guardrails')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails')) {
           return ['software-engineer.json'];
         }
         return [];
@@ -437,7 +441,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           expect.objectContaining({
             status: 'allowed',
             receiptPath:
-              '.platform-state/runtime/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           }),
         ]),
         agentTerminalSessions: expect.arrayContaining([
@@ -445,13 +449,237 @@ describe('electron main bootstrap — sessions and guardrails', () => {
             sessionId: 'role:software-engineer:2026-03-07T21:07:29Z',
             guardrailStatus: 'allowed',
             guardrailReceiptPath:
-              '.platform-state/runtime/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
           }),
         ]),
       }),
     );
 
     killSpy.mockRestore();
+  });
+
+  it('injects taskId from per-task runtime receipt directory when payload omits task_id', async () => {
+    const { readObservabilitySnapshot } = await import('./main');
+
+    const receiptPayload = JSON.stringify({
+      agent_id: 'qa',
+      launch: {
+        status: 'started',
+        started_at: '2026-03-07T21:07:29Z',
+      },
+      terminal: {
+        status: 'completed',
+        completed_at: '2026-03-07T21:09:00Z',
+        exit_code: 0,
+      },
+    });
+
+    const receiptFs = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions/qa-1.json')) {
+          return receiptPayload;
+        }
+        return '# Placeholder\n';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-A'];
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions')) {
+          return ['qa-1.json'];
+        }
+        return [];
+      }),
+    };
+
+    await expect(readObservabilitySnapshot(receiptFs)).resolves.toEqual(
+      expect.objectContaining({
+        agentTerminalSessions: expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: 'role:qa:2026-03-07T21:07:29Z',
+            taskId: 'TASK-A',
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('ignores legacy same-launch session_history entries to avoid duplicate terminal sessions', async () => {
+    const { readObservabilitySnapshot } = await import('./main');
+
+    const receiptPayload = JSON.stringify({
+      agent_id: 'dalton',
+      launch_id: '1777258826099-97600',
+      launch: {
+        status: 'started',
+        started_at: '2026-03-07T21:09:00Z',
+        pid: 1933,
+      },
+      terminal: {
+        status: 'completed',
+        completed_at: '2026-03-07T21:10:00Z',
+        exit_code: 0,
+      },
+      session_history: [
+        {
+          agent_id: 'dalton',
+          launch_id: '1777258826099-97600',
+          launch: {
+            status: 'started',
+            started_at: '2026-03-07T21:07:00Z',
+            pid: 987,
+          },
+          terminal: {
+            status: 'completed',
+            completed_at: '2026-03-07T21:08:00Z',
+            exit_code: 0,
+          },
+        },
+      ],
+    });
+
+    const receiptFs = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions/dalton-1.json')) {
+          return receiptPayload;
+        }
+        return '# Placeholder\n';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-A'];
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions')) {
+          return ['dalton-1.json'];
+        }
+        return [];
+      }),
+    };
+
+    const snapshot = await readObservabilitySnapshot(receiptFs);
+    const daltonSessions = (snapshot.agentTerminalSessions ?? []).filter(
+      (session) => session.agentId === 'dalton',
+    );
+
+    expect(daltonSessions).toHaveLength(1);
+    expect(daltonSessions[0]).toEqual(expect.objectContaining({
+      sessionId: 'role:dalton:2026-03-07T21:09:00Z',
+      launchPid: 1933,
+      taskId: 'TASK-A',
+    }));
+  });
+
+  it('keeps guardrail merges scoped to sessions from the same task runtime directory', async () => {
+    const { readObservabilitySnapshot } = await import('./main');
+
+    const taskAReceiptPayload = JSON.stringify({
+      agent_id: 'software-engineer',
+      launch: {
+        status: 'started',
+        started_at: '2026-03-07T21:07:29Z',
+        pid: 48217,
+      },
+      terminal: {
+        status: 'completed',
+        completed_at: '2026-03-07T21:09:00Z',
+        exit_code: 0,
+      },
+    });
+    const taskBReceiptPayload = JSON.stringify({
+      agent_id: 'software-engineer',
+      launch: {
+        status: 'started',
+        started_at: '2026-03-07T22:07:29Z',
+        pid: 48218,
+      },
+      terminal: {
+        status: 'completed',
+        completed_at: '2026-03-07T22:09:00Z',
+        exit_code: 0,
+      },
+    });
+    const taskAGuardrailPayload = JSON.stringify({
+      schema_version: 1,
+      receipt_kind: 'guardrail',
+      status: 'internal-bypass',
+      requested_agent_id: 'software-engineer',
+      resolved_agent_id: 'software-engineer',
+      expected_agent_id: 'software-engineer',
+      validator_mode: 'runtime',
+      launch_seam: 'task-a-seam',
+      required_model: 'gpt-5.4',
+      active_model: 'gpt-5.4',
+      violations: [],
+    });
+    const taskBGuardrailPayload = JSON.stringify({
+      schema_version: 1,
+      receipt_kind: 'guardrail',
+      status: 'passed',
+      requested_agent_id: 'software-engineer',
+      resolved_agent_id: 'software-engineer',
+      expected_agent_id: 'software-engineer',
+      validator_mode: 'runtime',
+      required_model: 'gpt-5.4',
+      active_model: 'gpt-5.4',
+      violations: [],
+    });
+    const taskAGuardrailPath = '.platform-state/runtime/tasks/TASK-A/guardrails/software-engineer.json';
+    const taskBGuardrailPath = '.platform-state/runtime/tasks/TASK-B/guardrails/software-engineer.json';
+
+    const receiptFs = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions/software-engineer.json')) {
+          return taskAReceiptPayload;
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-B/role-sessions/software-engineer.json')) {
+          return taskBReceiptPayload;
+        }
+        if (path.endsWith(taskAGuardrailPath)) {
+          return taskAGuardrailPayload;
+        }
+        if (path.endsWith(taskBGuardrailPath)) {
+          return taskBGuardrailPayload;
+        }
+        return '# Placeholder\n';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-A', 'TASK-B'];
+        }
+        if (
+          path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions') ||
+          path.endsWith('.platform-state/runtime/tasks/TASK-B/role-sessions')
+        ) {
+          return ['software-engineer.json'];
+        }
+        if (
+          path.endsWith('.platform-state/runtime/tasks/TASK-A/guardrails') ||
+          path.endsWith('.platform-state/runtime/tasks/TASK-B/guardrails')
+        ) {
+          return ['software-engineer.json'];
+        }
+        return [];
+      }),
+    };
+
+    const snapshot = await readObservabilitySnapshot(receiptFs);
+    const sessions = snapshot.agentTerminalSessions ?? [];
+    const taskASession = sessions.find((session) => session.taskId === 'TASK-A');
+    const taskBSession = sessions.find((session) => session.taskId === 'TASK-B');
+
+    expect(taskASession).toEqual(expect.objectContaining({
+      guardrailStatus: 'internal-bypass',
+      guardrailReceiptPath: taskAGuardrailPath,
+    }));
+    expect(taskBSession).toEqual(expect.objectContaining({
+      guardrailStatus: 'allowed',
+      guardrailReceiptPath: taskBGuardrailPath,
+    }));
+    expect(taskASession?.guardrailReceiptPath).not.toBe(taskBGuardrailPath);
+    expect(taskBSession?.guardrailReceiptPath).not.toBe(taskAGuardrailPath);
   });
 
   it('reports queued snapshots and empty artifact templates without inventing task details', async () => {

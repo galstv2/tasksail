@@ -72,7 +72,8 @@ function writePlatformJson(
     max_retained_failed_task_worktrees: 5,
     max_retry_generations_per_slug: 5,
     completed_task_runtime_retention_ms: 3600000,
-    mcp_port_range: { min: 8811, max: 8820 },
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
   };
   writeFileSync(
     path.join(platformStateDir, 'platform.json'),
@@ -152,7 +153,6 @@ function writeTaskJson(
       strategy: 'copy',
       cloned: [],
       skipped: [],
-      composeProjectName: 'repo-context-mcp',
     },
     frozenAt: new Date().toISOString(),
     finalizedAt: null,

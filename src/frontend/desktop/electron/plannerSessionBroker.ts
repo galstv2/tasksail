@@ -2,9 +2,9 @@ import type { ChildProcess } from 'node:child_process';
 
 import { PlannerEventParser } from './plannerEventParser';
 import {
-  spawnPlannerCopilotProcess,
-  type BuildPlannerCopilotInvocationOptions,
-} from './plannerCopilotProcess';
+  spawnPlannerCliProcess,
+  type BuildPlannerCliInvocationOptions,
+} from './plannerCliProcess';
 import type {
   PlannerBrokerObservation,
   PlannerBrokerTurnSource,
@@ -25,8 +25,8 @@ export type PlannerSendResult = 'sent' | 'no-session' | 'busy';
 
 type PlannerEventEmitter = (event: PlannerStreamEvent) => void;
 
-type PlannerCopilotSpawner = (
-  options: BuildPlannerCopilotInvocationOptions,
+type PlannerCliSpawner = (
+  options: BuildPlannerCliInvocationOptions,
 ) => ChildProcess;
 
 type PlannerSessionRecord = {
@@ -48,14 +48,14 @@ type PendingTurn = {
 
 type PlannerSessionBrokerDependencies = {
   emitEvent?: PlannerEventEmitter;
-  spawnCopilotProcess?: PlannerCopilotSpawner;
+  spawnCliProcess?: PlannerCliSpawner;
   now?: () => number;
 };
 
 function createPlannerBrokerState(): PlannerBrokerState {
   return {
     brokerStatus: 'idle',
-    copilotSessionId: null,
+    cliSessionId: null,
     turnId: null,
     content: '',
     exitCode: null,
@@ -70,7 +70,7 @@ function createPlannerBrokerObservation(): PlannerBrokerObservation {
     brokerStatus: 'idle',
     activeTurnId: null,
     queuedTurnCount: 0,
-    copilotSessionId: null,
+    cliSessionId: null,
     lastTurnSource: 'none',
     lastTurnOutcome: 'idle',
     lastTurnAt: null,
@@ -84,7 +84,7 @@ function createPlannerBrokerObservation(): PlannerBrokerObservation {
 export class PlannerSessionBroker {
   private readonly emitEvent: PlannerEventEmitter;
 
-  private readonly spawnCopilotProcess: PlannerCopilotSpawner;
+  private readonly spawnCliProcess: PlannerCliSpawner;
 
   private readonly now: () => number;
 
@@ -94,7 +94,7 @@ export class PlannerSessionBroker {
 
   constructor(dependencies: PlannerSessionBrokerDependencies = {}) {
     this.emitEvent = dependencies.emitEvent ?? (() => undefined);
-    this.spawnCopilotProcess = dependencies.spawnCopilotProcess ?? spawnPlannerCopilotProcess;
+    this.spawnCliProcess = dependencies.spawnCliProcess ?? spawnPlannerCliProcess;
     this.now = dependencies.now ?? Date.now;
   }
 
@@ -107,7 +107,7 @@ export class PlannerSessionBroker {
         brokerStatus: this.session.state.brokerStatus,
         activeTurnId: this.session.state.turnId,
         queuedTurnCount: this.session.pendingTurns.length,
-        copilotSessionId: this.session.state.copilotSessionId,
+        cliSessionId: this.session.state.cliSessionId,
         error: this.session.state.error,
       };
       return { sessionId: this.session.sessionId, created: false };
@@ -169,7 +169,7 @@ export class PlannerSessionBroker {
       brokerStatus: 'idle',
       activeTurnId: null,
       queuedTurnCount: 0,
-      copilotSessionId: null,
+      cliSessionId: null,
     };
 
     if (!child) {
@@ -262,7 +262,7 @@ export class PlannerSessionBroker {
   private async runTurn(session: PlannerSessionRecord, text: string): Promise<boolean> {
     const parser = new PlannerEventParser();
     const turnId = `turn-${this.now()}`;
-    const resumeSessionId = session.state.copilotSessionId;
+    const resumeSessionId = session.state.cliSessionId;
     const promptMode = !resumeSessionId && !session.bootstrapConsumed ? 'interactive' : 'one-shot';
     const turnSource: PlannerBrokerTurnSource = resumeSessionId
       ? 'resumed-session'
@@ -278,7 +278,7 @@ export class PlannerSessionBroker {
     session.state.usage = null;
     session.state.error = null;
 
-    const child = this.spawnCopilotProcess({
+    const child = this.spawnCliProcess({
       prompt: text,
       promptMode,
       resumeSessionId,
@@ -295,7 +295,7 @@ export class PlannerSessionBroker {
       brokerStatus: 'running',
       activeTurnId: turnId,
       queuedTurnCount: session.pendingTurns.length,
-      copilotSessionId: session.state.copilotSessionId,
+      cliSessionId: session.state.cliSessionId,
       lastTurnSource: turnSource,
       lastTurnOutcome: 'running',
       lastTurnAt: null,
@@ -327,7 +327,7 @@ export class PlannerSessionBroker {
         }
         emittedFailure = true;
         if (resumeSessionId) {
-          session.state.copilotSessionId = null;
+          session.state.cliSessionId = null;
         }
         session.state.brokerStatus = 'failed';
         session.state.error = message;
@@ -337,7 +337,7 @@ export class PlannerSessionBroker {
           brokerStatus: 'failed',
           activeTurnId: null,
           queuedTurnCount: session.pendingTurns.length,
-          copilotSessionId: session.state.copilotSessionId,
+          cliSessionId: session.state.cliSessionId,
           lastTurnSource: turnSource,
           lastTurnOutcome: 'failed',
           lastTurnAt: new Date().toISOString(),
@@ -383,10 +383,10 @@ export class PlannerSessionBroker {
             });
             return;
           case 'planner.session.updated':
-            session.state.copilotSessionId = event.copilotSessionId;
+            session.state.cliSessionId = event.cliSessionId;
             this.observation = {
               ...this.observation,
-              copilotSessionId: event.copilotSessionId,
+              cliSessionId: event.cliSessionId,
             };
             this.emitEvent({
               eventType: event.type,
@@ -394,7 +394,7 @@ export class PlannerSessionBroker {
               turnId: session.state.turnId,
               done: false,
               error: null,
-              copilotSessionId: event.copilotSessionId,
+              cliSessionId: event.cliSessionId,
             });
             return;
           case 'planner.turn.completed':
@@ -407,7 +407,7 @@ export class PlannerSessionBroker {
               brokerStatus: 'completed',
               activeTurnId: null,
               queuedTurnCount: session.pendingTurns.length,
-              copilotSessionId: session.state.copilotSessionId,
+              cliSessionId: session.state.cliSessionId,
               lastTurnSource: turnSource,
               lastTurnOutcome: 'completed',
               lastTurnAt: new Date().toISOString(),
@@ -421,7 +421,7 @@ export class PlannerSessionBroker {
               turnId: session.state.turnId,
               done: true,
               error: null,
-              copilotSessionId: session.state.copilotSessionId,
+              cliSessionId: session.state.cliSessionId,
             });
             return;
           case 'planner.turn.failed':
@@ -473,7 +473,7 @@ export class PlannerSessionBroker {
           settle(true);
           return;
         }
-        emitFailure(`Failed to start planner Copilot process: ${error.message}`);
+        emitFailure(`Failed to start planner agent CLI process: ${error.message}`);
         settle(false);
       });
 
@@ -495,8 +495,8 @@ export class PlannerSessionBroker {
         if (!sawResultEvent && session.state.brokerStatus !== 'failed') {
           const stderrDetail = stderrChunks.join('\n');
           const pmseMessage = exitCode === 0
-            ? 'Planner Copilot process ended without a result event.'
-            : `Planner Copilot process exited with code ${exitCode ?? 'unknown'}.`;
+            ? 'Planner agent CLI process ended without a result event.'
+            : `Planner agent CLI process exited with code ${exitCode ?? 'unknown'}.`;
           const failureMessage = stderrDetail ? `${pmseMessage} ${stderrDetail}` : pmseMessage;
           session.state.exitCode = exitCode ?? null;
           emitFailure(failureMessage);

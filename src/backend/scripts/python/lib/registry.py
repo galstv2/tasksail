@@ -7,16 +7,23 @@ instead of hardcoding agent metadata elsewhere.
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_REGISTRY_PATH = _REPO_ROOT / ".github" / "agents" / "registry.json"
+
+
+def _resolve_registry_path() -> Path:
+    configured_path = os.environ.get("TASKSAIL_AGENT_REGISTRY_PATH", "").strip()
+    if configured_path:
+        return Path(configured_path)
+    return _REPO_ROOT / ".github" / "agents" / "registry.json"  # direct-execution/test fallback
 
 
 @lru_cache(maxsize=1)
 def _load_agents() -> tuple[dict[str, str], ...]:
-    data = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
+    data = json.loads(_resolve_registry_path().read_text(encoding="utf-8"))
     return tuple(data.get("agents", []))
 
 

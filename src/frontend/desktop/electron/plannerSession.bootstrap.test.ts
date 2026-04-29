@@ -6,6 +6,10 @@ const initializeStagedPlanningDraft = vi.fn();
 const clearStagingArtifacts = vi.fn();
 const resolveFocusedRepoRoot = vi.fn();
 const resolveSelectedPrimaryRepoRoot = vi.fn();
+const collectFocusedRepoTargetDirectoryRoots = vi.fn();
+
+let actualCollectFocusedRepoTargetDirectoryRoots:
+  typeof import('../../../backend/platform/context-pack/focusedRepo.js')['collectFocusedRepoTargetDirectoryRoots'];
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -20,10 +24,12 @@ vi.mock('./main.staging', () => ({
 
 vi.mock('../../../backend/platform/context-pack/focusedRepo.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../backend/platform/context-pack/focusedRepo.js')>();
+  actualCollectFocusedRepoTargetDirectoryRoots = actual.collectFocusedRepoTargetDirectoryRoots;
   return {
     ...actual,
     resolveSelectedPrimaryRepoRoot,
     resolveFocusedRepoRoot,
+    collectFocusedRepoTargetDirectoryRoots,
   };
 });
 
@@ -31,6 +37,10 @@ describe('plannerSession staging bootstrap', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    // restoreMocks: true wipes mockImplementation between tests; re-apply.
+    collectFocusedRepoTargetDirectoryRoots.mockImplementation(
+      actualCollectFocusedRepoTargetDirectoryRoots,
+    );
     vi.spyOn(Date, 'now').mockReturnValue(101);
   });
 
@@ -96,6 +106,63 @@ describe('plannerSession staging bootstrap', () => {
 
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(1, { force: true });
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(2, { sessionId: 'planner-101' });
+  });
+
+  it('derives the parent directory as the planner context root for a file-focus selection on services/Acme.Api/Routes.cs', async () => {
+    const focusedResult = {
+      primaryRepoRoot: '/repos/backend',
+      visibleRepoRoots: ['/repos/backend'],
+      declaredRepoRoots: ['/repos/backend'],
+      estateType: 'distributed-platform' as const,
+      primaryRepoId: 'backend',
+      primaryFocusId: undefined,
+      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'file' as const,
+      selectedTestTarget: { path: 'services/Acme.Api.Tests', kind: 'directory' as const },
+      testTarget: undefined,
+      supportTargets: [
+        { path: 'libs/Acme.Models', kind: 'directory' as const, effectiveScope: 'full-directory' as const },
+      ],
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      authoritySource: 'workspace-sync-state' as const,
+    };
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(focusedResult);
+    resolveFocusedRepoRoot.mockResolvedValue(undefined);
+    initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    clearStagingArtifacts.mockResolvedValue(undefined);
+
+    const plannerSession = await import('./plannerSession');
+    await plannerSession.startSession('/contextpacks/acme');
+
+    expect(collectFocusedRepoTargetDirectoryRoots).toHaveBeenCalledTimes(1);
+    expect(collectFocusedRepoTargetDirectoryRoots).toHaveBeenCalledWith(
+      expect.objectContaining({
+        primaryRepoRoot: '/repos/backend',
+        primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+        primaryFocusTargetKind: 'file',
+      }),
+    );
+
+    const helperReturn = collectFocusedRepoTargetDirectoryRoots.mock.results[0]!.value as string[];
+    expect(helperReturn).toEqual([
+      '/repos/backend/services/Acme.Api',
+      '/repos/backend/services/Acme.Api.Tests',
+      '/repos/backend/libs/Acme.Models',
+    ]);
+
+    expect(initializeStagedPlanningDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'planner-101',
+        contextPackDir: '/contextpacks/acme',
+        focusedRepo: expect.objectContaining({
+          primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+          primaryFocusTargetKind: 'file',
+          deepFocusEnabled: true,
+        }),
+      }),
+    );
   });
 
   it('uses selected-primary resolution for Deep Focus sessions and carries raw test metadata into staging', async () => {

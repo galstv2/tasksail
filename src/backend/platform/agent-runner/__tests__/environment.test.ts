@@ -1,11 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from '../environment.js';
-import type { AgentProfile, CopilotArgs } from '../types.js';
+import type { AgentProfile } from '../types.js';
+import type { AutonomyIntent, BuildArgsResult } from '../../cli-provider/index.js';
 import type { ExternalMcpLaunchContext } from '../pythonHelpers.js';
-
-type ExternalMcpLaunchContextWithConfig = ExternalMcpLaunchContext & {
-  configFilePath?: string | null;
-};
 
 describe('buildAgentEnvironment', () => {
   const profile: AgentProfile = {
@@ -53,6 +50,86 @@ describe('buildAgentEnvironment', () => {
   it('emits empty TASKSAIL_TASK_ID when taskId omitted', () => {
     const env = buildAgentEnvironment(profile, '/ctx', '/repo');
     expect(env['TASKSAIL_TASK_ID']).toBe('');
+  });
+
+  it('omits shared repo-context MCP env vars when no mcp endpoint is supplied', () => {
+    // Without options.mcp the launch path has not resolved a shared MCP
+    // endpoint, so we must not advertise a stale hardcoded default that could
+    // mismatch a user-customized mcp_port. Authoritative scoping is the
+    // per-launch MCP config headers rendered by the active provider.
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo');
+    expect(env).not.toHaveProperty('REPO_CONTEXT_MCP_URL');
+    expect(env).not.toHaveProperty('REPO_CONTEXT_MCP_PORT');
+  });
+
+  it('uses the launch-resolved shared repo-context MCP endpoint when provided', () => {
+    const env = buildAgentEnvironment(profile, '/workspace/context-pack', '/repo', {
+      mcp: {
+        url: 'http://localhost:8899/sse',
+        port: 8899,
+      },
+    });
+    expect(env['ACTIVE_CONTEXT_PACK_DIR']).toBe('/workspace/context-pack');
+    expect(env['REPO_CONTEXT_MCP_URL']).toBe('http://localhost:8899/sse');
+    expect(env['REPO_CONTEXT_MCP_PORT']).toBe('8899');
+  });
+
+  it('emits writable and read-only Deep Focus root env vars when focused roots are present', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'api',
+        primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+        primaryFocusTargetKind: 'file',
+        writableRoots: [
+          { path: 'services/Acme.Api', kind: 'directory', reason: 'primary-focus-parent' },
+          { path: 'services/Acme.Api.Tests', kind: 'directory', reason: 'test-target' },
+        ],
+        readonlyContextRoots: [
+          { path: 'libs/Acme.Models', kind: 'directory', reason: 'support-target' },
+        ],
+        selectedRepoIds: ['api'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(env['COPILOT_WRITABLE_ROOTS_JSON']).toBe(JSON.stringify([
+      { path: 'services/Acme.Api', kind: 'directory', reason: 'primary-focus-parent' },
+      { path: 'services/Acme.Api.Tests', kind: 'directory', reason: 'test-target' },
+    ]));
+    expect(env['COPILOT_READONLY_CONTEXT_ROOTS_JSON']).toBe(JSON.stringify([
+      { path: 'libs/Acme.Models', kind: 'directory', reason: 'support-target' },
+    ]));
+  });
+
+  it('emits repo-root writable sentinel when focused roots include it', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'api',
+        primaryFocusRelativePath: '',
+        deepFocusEnabled: true,
+        writableRoots: [
+          { path: '', kind: 'directory', reason: 'selected-primary' },
+        ],
+        readonlyContextRoots: [],
+        selectedRepoIds: ['api'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(env['COPILOT_WRITABLE_ROOTS_JSON']).toBe(JSON.stringify([
+      { path: '', kind: 'directory', reason: 'selected-primary' },
+    ]));
+    expect(env['COPILOT_READONLY_CONTEXT_ROOTS_JSON']).toBe('[]');
   });
 
   describe('model-pin regression', () => {
@@ -120,37 +197,50 @@ describe('buildAutonomyEnvironment', () => {
     workflowOrder: 3,
   };
 
-  const autonomyArgs: CopilotArgs = {
+  const autonomyIntent: AutonomyIntent = {
     model: 'claude-sonnet-4.5',
-    allowTools: ['editFiles'],
-    denyTools: ['runCommand(rm -rf)'],
+    autonomyProfile: 'repo-executor',
     allowedDirs: ['/workspace/repo'],
-    additionalFlags: ['--allow-all-tools'],
+    disallowTempDir: true,
+  };
+
+  const argsResult: BuildArgsResult = {
+    args: [],
+    launchCwd: '/workspace/repo',
+    inlineAgentContext: false,
+    resolvedToolPolicy: {
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: ['editFiles'],
+      denyTools: ['runCommand(rm -rf)'],
+    },
   };
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('includes COPILOT_PRIMARY_FOCUS_PATH when focused repo declares one', () => {
-    const focusedAutonomyArgs: CopilotArgs = {
-      ...autonomyArgs,
+  it('keeps focused targeting in autonomy metadata without provider env exports', () => {
+    const focusedAutonomyIntent: AutonomyIntent = {
+      ...autonomyIntent,
       allowedDirs: ['/workspace/repo', '/workspace/support'],
     };
-    const externalMcpContext: ExternalMcpLaunchContextWithConfig = {
+    const externalMcpContext: ExternalMcpLaunchContext = {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
       envExports: {
         EXTERNAL_MCP_CONTEXT_FILE: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
       },
-      configFilePath: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-config.json',
+      launchDir: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
+      resolvedServers: [],
       selectedServerIds: ['github'],
       excludedServerIds: ['slack'],
     };
     const env = buildAutonomyEnvironment(
       profile,
-      focusedAutonomyArgs,
+      focusedAutonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       {
@@ -171,6 +261,13 @@ describe('buildAutonomyEnvironment', () => {
         supportTargets: [
           { path: 'shared/types.ts', kind: 'file', effectiveScope: 'exact-file' },
         ],
+        writableRoots: [
+          { path: 'apps/api', kind: 'directory', reason: 'selected-primary' },
+          { path: 'tests/api', kind: 'directory', reason: 'test-target' },
+        ],
+        readonlyContextRoots: [
+          { path: 'shared/types.ts', kind: 'file', reason: 'support-target' },
+        ],
         warnings: ['Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.'],
         selectedRepoIds: ['monolith-app', 'docs-site'],
         selectedFocusIds: ['web', 'api'],
@@ -185,6 +282,8 @@ describe('buildAutonomyEnvironment', () => {
         working_directory?: string;
         working_directory_kind?: string;
         warnings?: string[];
+        writable_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
+        readonly_context_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
         focused_targeting?: {
           primary_repo_root?: string;
           primary_repo_id?: string;
@@ -194,6 +293,8 @@ describe('buildAutonomyEnvironment', () => {
           primary_focus_target_kind?: string | null;
           test_target?: { path?: string; kind?: string } | null;
           support_targets?: Array<{ path?: string; kind?: string; effectiveScope?: string }>;
+          writable_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
+          readonly_context_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
           warnings?: string[];
         } | null;
       };
@@ -204,15 +305,15 @@ describe('buildAutonomyEnvironment', () => {
         selectedServerIds?: string[];
         excludedServerIds?: string[];
         contextFile?: string | null;
-        copilotHome?: string | null;
+        cliHome?: string | null;
       };
     };
 
-    expect(env['COPILOT_PRIMARY_FOCUS_PATH']).toBe('apps/api');
-    expect(env['COPILOT_PRIMARY_FOCUS_TARGET_KIND']).toBe('directory');
-    expect(env['COPILOT_TEST_TARGET_PATH']).toBe('tests/api');
-    expect(env['COPILOT_TEST_TARGET_KIND']).toBe('directory');
-    expect(env['COPILOT_TARGET_REPOS_JSON']).toBe(JSON.stringify(['/workspace/repo', '/workspace/support']));
+    expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_PATH');
+    expect(env).not.toHaveProperty('COPILOT_PRIMARY_FOCUS_TARGET_KIND');
+    expect(env).not.toHaveProperty('COPILOT_TEST_TARGET_PATH');
+    expect(env).not.toHaveProperty('COPILOT_TEST_TARGET_KIND');
+    expect(env).not.toHaveProperty('COPILOT_TARGET_REPOS_JSON');
     expect(env['RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR']).toBe('.');
     expect(env['RUN_ROLE_AGENT_AUTONOMY_BOUNDARY_KIND']).toBe('active-context-pack');
     expect(env['RUN_ROLE_AGENT_AUTONOMY_BOUNDARY_STATUS']).toBe('resolved');
@@ -222,6 +323,13 @@ describe('buildAutonomyEnvironment', () => {
     expect(profileJson.boundary_context?.selected_focus_ids).toEqual(['web', 'api']);
     expect(profileJson.boundary_context?.allowed_roots).toEqual(['/workspace/repo', '/workspace/support']);
     expect(profileJson.boundary_context?.target_folders).toEqual(['/workspace/repo', '/workspace/support']);
+    expect(profileJson.boundary_context?.writable_roots).toEqual([
+      { path: 'apps/api', kind: 'directory', reason: 'selected-primary' },
+      { path: 'tests/api', kind: 'directory', reason: 'test-target' },
+    ]);
+    expect(profileJson.boundary_context?.readonly_context_roots).toEqual([
+      { path: 'shared/types.ts', kind: 'file', reason: 'support-target' },
+    ]);
     expect(profileJson.boundary_context?.warnings).toEqual([
       'Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.',
     ]);
@@ -239,6 +347,13 @@ describe('buildAutonomyEnvironment', () => {
       support_targets: [
         { path: 'shared/types.ts', kind: 'file', effectiveScope: 'exact-file' },
       ],
+      writable_roots: [
+        { path: 'apps/api', kind: 'directory', reason: 'selected-primary' },
+        { path: 'tests/api', kind: 'directory', reason: 'test-target' },
+      ],
+      readonly_context_roots: [
+        { path: 'shared/types.ts', kind: 'file', reason: 'support-target' },
+      ],
       warnings: [
         'Deep Focus test target "tests" is an ancestor of the primary target "tests/unit/handler.test.ts" and broadens the writable scope.',
       ],
@@ -250,12 +365,12 @@ describe('buildAutonomyEnvironment', () => {
       selectedServerIds: ['github'],
       excludedServerIds: ['slack'],
       contextFile: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
-      copilotHome: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
+      cliHome: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
     });
   });
 
-  it('sets external MCP copilotHome to null when configFilePath is unavailable', () => {
-    const externalMcpContext: ExternalMcpLaunchContextWithConfig = {
+  it('sets external MCP cliHome to null when launchDir is unavailable', () => {
+    const externalMcpContext: ExternalMcpLaunchContext = {
       status: 'available',
       reason: '1 external MCP server(s) injected',
       injectionEnabled: true,
@@ -264,10 +379,12 @@ describe('buildAutonomyEnvironment', () => {
       },
       selectedServerIds: ['github'],
       excludedServerIds: [],
+      resolvedServers: [],
     };
     const env = buildAutonomyEnvironment(
       profile,
-      autonomyArgs,
+      autonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       undefined,
@@ -282,7 +399,7 @@ describe('buildAutonomyEnvironment', () => {
         selectedServerIds?: string[];
         excludedServerIds?: string[];
         contextFile?: string | null;
-        copilotHome?: string | null;
+        cliHome?: string | null;
       };
     };
 
@@ -293,14 +410,15 @@ describe('buildAutonomyEnvironment', () => {
       selectedServerIds: ['github'],
       excludedServerIds: [],
       contextFile: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
-      copilotHome: null,
+      cliHome: null,
     });
   });
 
   it('omits COPILOT_PRIMARY_FOCUS_PATH when no monolith focus path is resolved', () => {
     const env = buildAutonomyEnvironment(
       profile,
-      autonomyArgs,
+      autonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       {
@@ -325,7 +443,8 @@ describe('buildAutonomyEnvironment', () => {
   it('preserves repo-root Deep Focus metadata without exporting a fabricated target kind', () => {
     const env = buildAutonomyEnvironment(
       profile,
-      autonomyArgs,
+      autonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       {
@@ -362,7 +481,8 @@ describe('buildAutonomyEnvironment', () => {
   it('omits focused targeting exports but preserves platform-root launch metadata when focused resolution is unavailable', () => {
     const env = buildAutonomyEnvironment(
       profile,
-      autonomyArgs,
+      autonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       undefined,
@@ -399,7 +519,8 @@ describe('buildAutonomyEnvironment', () => {
   it('omits external MCP metadata when launch context is not provided', () => {
     const env = buildAutonomyEnvironment(
       profile,
-      autonomyArgs,
+      autonomyIntent,
+      argsResult,
       '/workspace/repo',
       '/workspace/repo',
       undefined,

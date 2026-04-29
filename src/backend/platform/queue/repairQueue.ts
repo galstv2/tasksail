@@ -7,6 +7,7 @@ import {
   handoffPublishInProgress,
   resetHandoffArtifacts,
   handoffWorkspaceIsReady,
+  handoffFileIsResetState,
 } from './lifecycle.js';
 import type { QueueRepairIssue } from './repairQueueIssues.js';
 
@@ -54,12 +55,33 @@ export async function repairQueue(
   const structuredIssues: QueueRepairIssue[] = [];
 
   // Enumerate active markers from .active-items/ directory
+  let allActiveEntries: string[] = [];
   let activeMarkers: string[] = [];
   if (existsSync(queuePaths.activeItemsDir)) {
     try {
-      const entries = await readdir(queuePaths.activeItemsDir);
-      activeMarkers = entries.filter((f) => !f.endsWith('.completing'));
+      allActiveEntries = (await readdir(queuePaths.activeItemsDir)).sort();
+      activeMarkers = allActiveEntries.filter((f) => !f.endsWith('.completing'));
     } catch { /* skip */ }
+  }
+
+  const activeMarkerTaskIds = new Set(
+    activeMarkers.map((markerName) => markerName.replace(/\.md$/, '')),
+  );
+  const stuckMidCompletionTaskIds = new Set<string>();
+
+  for (const sentinelName of allActiveEntries.filter((f) => f.endsWith('.completing'))) {
+    const taskId = sentinelName.slice(0, -'.completing'.length);
+    if (!activeMarkerTaskIds.has(taskId)) continue;
+
+    issues.push(
+      `Task '${taskId}' is stuck mid-completion: .completing sentinel and active marker both present. Run: pnpm run repair -- --auto-fix`,
+    );
+    structuredIssues.push({
+      kind: 'sentinel-without-completed-marker',
+      taskId,
+      detail: `sentinel: ${taskId}.completing; marker present; recovery must run outside repair lock`,
+    });
+    stuckMidCompletionTaskIds.add(taskId);
   }
 
   // Check 1: a marker is stranded iff BOTH the pending file AND the per-task
@@ -87,7 +109,7 @@ export async function repairQueue(
         detail: `marker: ${markerName}`,
       });
 
-      if (!dryRun && autoFix) {
+      if (!dryRun && autoFix && !stuckMidCompletionTaskIds.has(taskId)) {
         await unlink(path.join(queuePaths.activeItemsDir, markerName));
         fixed.push(`Removed stale .active-items/${markerName}`);
       }
@@ -116,7 +138,7 @@ export async function repairQueue(
           detail: `per-task handoffs workspace (tasks/${taskId}/handoffs) is in reset/blank state`,
         });
 
-        if (!dryRun && autoFix) {
+        if (!dryRun && autoFix && !stuckMidCompletionTaskIds.has(taskId)) {
           await unlink(path.join(queuePaths.activeItemsDir, markerName));
           fixed.push(
             `Removed .active-items/${markerName} with blank per-task workspace (task sidecar preserved for investigation)`,
@@ -137,7 +159,6 @@ export async function repairQueue(
   const activeMarkerSet = new Set(
     activeMarkers.map((m) => m.replace(/\.md$/, '')),
   );
-  const { handoffFileIsResetState } = await import('./lifecycle.js');
 
   for (const entry of taskDirEntries) {
     const taskHandoffsPath = path.join(tasksDir, entry, 'handoffs');
@@ -186,7 +207,7 @@ export async function repairQueue(
         detail: `.publish-in-progress marker found in tasks/${taskId}/handoffs/`,
       });
 
-      if (!dryRun && autoFix) {
+      if (!dryRun && autoFix && !stuckMidCompletionTaskIds.has(taskId)) {
         await resetHandoffArtifacts(taskHandoffsPath, HANDOFF_FILES, {});
         try {
           await unlink(path.join(queuePaths.activeItemsDir, markerName));

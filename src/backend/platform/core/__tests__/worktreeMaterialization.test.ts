@@ -121,6 +121,8 @@ async function importWindowsWorktreeMaterialization(options: {
   vi.resetModules();
   vi.doMock('../platform.js', () => ({
     isWindowsPlatform: () => true,
+    isMacOSPlatform: () => false,
+    isLinuxPlatform: () => false,
     windowsVolumesShareReFS: () => options.volumesShareReFS ?? true,
   }));
   if (options.reflinkMock) {
@@ -677,22 +679,47 @@ describe('§4.14 preconditionsPass — worktree-already-bound', () => {
 // ---------------------------------------------------------------------------
 
 describe('§4.14 Windows ReFS CoW branch — mocked', () => {
-  let platformDescriptor: PropertyDescriptor;
+  // process.platform mutation is unnecessary here: importWindowsWorktreeMaterialization
+  // mocks ../platform.js so isWindowsPlatform/isMacOSPlatform/isLinuxPlatform return
+  // hard-coded values that ignore process.platform.
   let tmpRoot: string;
 
   beforeEach(() => {
-    platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     tmpRoot = mkdtempSync(path.join(tmpdir(), 'wt-win-refs-'));
   });
 
   afterEach(() => {
     rmSync(tmpRoot, { recursive: true, force: true });
-    Object.defineProperty(process, 'platform', platformDescriptor);
     vi.doUnmock('../platform.js');
     vi.doUnmock('@reflink/reflink');
     vi.resetModules();
   });
+
+  // Three fallback cases share an identical fixture and assertions; only the
+  // reflinkMock differs.
+  async function assertWinRefsFallsBackToCopy(
+    reflinkMock: () => unknown,
+    tmp: string,
+  ): Promise<void> {
+    const { materializeWorktreeDeps: materializeWindowsDeps } =
+      await importWindowsWorktreeMaterialization({ reflinkMock });
+    const originalRoot = path.join(tmp, 'origin');
+    const worktreeRoot = path.join(tmp, 'worktree');
+    const dependencyRoot = path.join(originalRoot, 'node_modules');
+    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
+    mkdirSync(worktreeRoot);
+    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
+
+    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
+
+    expect(result.strategy).toBe('win-refs');
+    expect(result.cloned).toContain('node_modules');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
+      .toBe('module.exports = 1;\n');
+    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
+      .toBe('module.exports = 2;\n');
+  }
 
   it("Windows: detectCloneStrategy returns 'win-refs' when both volumes are ReFS and share the same drive letter", async () => {
     const { detectCloneStrategy: detectWindowsCloneStrategy } =
@@ -722,90 +749,33 @@ describe('§4.14 Windows ReFS CoW branch — mocked', () => {
   });
 
   it("Windows: cloneTree with 'win-refs' falls back to copy when @reflink/reflink is absent with MODULE_NOT_FOUND", async () => {
-    const { materializeWorktreeDeps: materializeWindowsDeps } =
-      await importWindowsWorktreeMaterialization({
-        reflinkMock: () => ({
-          get default() {
-            throw Object.assign(new Error('Cannot find module @reflink/reflink'), {
-              code: 'MODULE_NOT_FOUND',
-            });
-          },
-        }),
-      });
-    const originalRoot = path.join(tmpRoot, 'origin');
-    const worktreeRoot = path.join(tmpRoot, 'worktree');
-    const dependencyRoot = path.join(originalRoot, 'node_modules');
-    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
-    mkdirSync(worktreeRoot);
-    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
-    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
-
-    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
-
-    expect(result.strategy).toBe('win-refs');
-    expect(result.cloned).toContain('node_modules');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
-      .toBe('module.exports = 1;\n');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
-      .toBe('module.exports = 2;\n');
+    await assertWinRefsFallsBackToCopy(() => ({
+      get default() {
+        throw Object.assign(new Error('Cannot find module @reflink/reflink'), {
+          code: 'MODULE_NOT_FOUND',
+        });
+      },
+    }), tmpRoot);
   });
 
   it("Windows: cloneTree with 'win-refs' falls back to copy on EXDEV from reflinkFileSync", async () => {
-    const { materializeWorktreeDeps: materializeWindowsDeps } =
-      await importWindowsWorktreeMaterialization({
-        reflinkMock: () => ({
-          default: {
-            reflinkFileSync: () => {
-              throw Object.assign(new Error('cross-device reflink'), { code: 'EXDEV' });
-            },
-          },
-        }),
-      });
-    const originalRoot = path.join(tmpRoot, 'origin');
-    const worktreeRoot = path.join(tmpRoot, 'worktree');
-    const dependencyRoot = path.join(originalRoot, 'node_modules');
-    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
-    mkdirSync(worktreeRoot);
-    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
-    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
-
-    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
-
-    expect(result.strategy).toBe('win-refs');
-    expect(result.cloned).toContain('node_modules');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
-      .toBe('module.exports = 1;\n');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
-      .toBe('module.exports = 2;\n');
+    await assertWinRefsFallsBackToCopy(() => ({
+      default: {
+        reflinkFileSync: () => {
+          throw Object.assign(new Error('cross-device reflink'), { code: 'EXDEV' });
+        },
+      },
+    }), tmpRoot);
   });
 
   it("Windows: cloneTree with 'win-refs' falls back to copy on ERROR_BLOCK_TOO_MANY_REFERENCES message", async () => {
-    const { materializeWorktreeDeps: materializeWindowsDeps } =
-      await importWindowsWorktreeMaterialization({
-        reflinkMock: () => ({
-          default: {
-            reflinkFileSync: () => {
-              throw new Error('ERROR_BLOCK_TOO_MANY_REFERENCES');
-            },
-          },
-        }),
-      });
-    const originalRoot = path.join(tmpRoot, 'origin');
-    const worktreeRoot = path.join(tmpRoot, 'worktree');
-    const dependencyRoot = path.join(originalRoot, 'node_modules');
-    mkdirSync(path.join(dependencyRoot, 'pkg'), { recursive: true });
-    mkdirSync(worktreeRoot);
-    writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
-    writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
-
-    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
-
-    expect(result.strategy).toBe('win-refs');
-    expect(result.cloned).toContain('node_modules');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
-      .toBe('module.exports = 1;\n');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
-      .toBe('module.exports = 2;\n');
+    await assertWinRefsFallsBackToCopy(() => ({
+      default: {
+        reflinkFileSync: () => {
+          throw new Error('ERROR_BLOCK_TOO_MANY_REFERENCES');
+        },
+      },
+    }), tmpRoot);
   });
 
   it("Windows: cloneTree with 'win-refs' propagates non-recoverable EACCES", async () => {

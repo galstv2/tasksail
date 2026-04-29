@@ -47,7 +47,6 @@ import {
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
-// §5.3: Per-task active-items directory replaces singleton .active-item file.
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
 
 const HEAD_BYTES = 1024;
@@ -114,20 +113,6 @@ function registryEntryToPendingItem(
   };
 }
 
-function registryEntryToArchivedItem(entry: TaskRegistryEntry): ArchivedTaskEntry {
-  return {
-    taskId: entry.taskId,
-    title: entry.title ?? entry.fileName,
-    summary: '',
-    rootTaskId: entry.taskId,
-    qmdRecordId: '',
-    followupReason: '',
-    year: entry.completedAt?.slice(0, 4) ?? '',
-    archivePath: entry.archivePath ?? '',
-    contextPackName: entry.contextPackId ?? '',
-  };
-}
-
 export async function readTaskBoard(
   listContextPacks?: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
   fsAdapter: ReadOnlyRepoFs = repoFs,
@@ -135,6 +120,23 @@ export async function readTaskBoard(
   try {
     const registry = await loadTaskRegistry(REPO_ROOT);
     const hasRegistryData = Object.keys(registry.tasks).length > 0;
+
+    // QMD is the system of record for completed tasks. The registry's
+    // `completed[]` is wiped by repairTaskRegistry on Electron startup
+    // (it scans dropbox/pendingitems/error-items but not QMD), so reading
+    // completed entries from the registry causes the UI to flap — archived
+    // .md files appear when the registry is empty (legacy fallback path)
+    // and disappear after repair clears the registry's completed[]. Always
+    // resolve completed from the QMD scan, regardless of which path handles
+    // the other columns.
+    let completedItems: ArchivedTaskEntry[] = [];
+    if (listContextPacks) {
+      const archivedResult = await listArchivedTasksAction(listContextPacks);
+      if (archivedResult.ok && 'tasks' in archivedResult.response) {
+        completedItems = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks
+          .slice(-10);
+      }
+    }
 
     if (hasRegistryData) {
       // Registry-first path: read from the centralized JSON index.
@@ -169,7 +171,6 @@ export async function readTaskBoard(
         ...tasks.pending.map(registryEntryToPendingItem),
       ];
       const errorItems = tasks.failed.map(registryEntryToItem);
-      const completedItems = tasks.completed.slice(-10).map(registryEntryToArchivedItem);
 
       const response: TaskBoardReadBoardResponse = {
         action: 'taskBoard.readBoard',
@@ -188,7 +189,6 @@ export async function readTaskBoard(
     const pendingRaw = await readBoardItems(PENDING_DIR);
 
     // §5.3: Read active task from .active-items/ directory (per-task markers).
-    // F26 legacy fallback: if .active-items/ absent, fall back to singleton .active-item.
     let activeFileName: string | null = null;
     if (await pathExists(ACTIVE_ITEMS_DIR, fsAdapter)) {
       try {
@@ -199,19 +199,6 @@ export async function readTaskBoard(
         }
       } catch {
         // Absent or unreadable — no active item.
-      }
-    } else {
-      // F26 legacy shim: singleton .active-item file.
-      const legacyActiveItemPath = join(PENDING_DIR, '.active-item');
-      if (await pathExists(legacyActiveItemPath, fsAdapter)) {
-        try {
-          const content = (await fsAdapter.readFile(legacyActiveItemPath, 'utf-8')).trim();
-          if (content && content.endsWith('.md') && !content.startsWith('#')) {
-            activeFileName = content;
-          }
-        } catch {
-          // Unreadable — skip.
-        }
       }
     }
 
@@ -231,15 +218,6 @@ export async function readTaskBoard(
     }));
 
     const errorItems = await readBoardItems(ERROR_ITEMS_DIR);
-
-    let completedItems: ArchivedTaskEntry[] = [];
-    if (listContextPacks) {
-      const archivedResult = await listArchivedTasksAction(listContextPacks);
-      if (archivedResult.ok && 'tasks' in archivedResult.response) {
-        completedItems = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks
-          .slice(-10);
-      }
-    }
 
     const response: TaskBoardReadBoardResponse = {
       action: 'taskBoard.readBoard',

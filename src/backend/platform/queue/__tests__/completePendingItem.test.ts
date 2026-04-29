@@ -4,6 +4,7 @@ import {
   rmSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,6 +72,7 @@ import { requireAuthorizedActiveContextPack } from '../../context-pack/index.js'
 import { syncRetrospectiveRequiredMetadata } from '../retrospectiveFlag.js';
 import { commitTaskSnapshot } from '../errorItems.js';
 import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
+import { transitionTask } from '../taskRegistry.js';
 
 // ---------------------------------------------------------------------------
 // Typed mocks
@@ -84,6 +86,7 @@ const mockRequireAuthorizedActiveContextPack = vi.mocked(requireAuthorizedActive
 const mockSyncRetrospectiveRequiredMetadata = vi.mocked(syncRetrospectiveRequiredMetadata);
 const mockCommitTaskSnapshot = vi.mocked(commitTaskSnapshot);
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
+const mockTransitionTask = vi.mocked(transitionTask);
 
 const FAKE_TASK_ID = 'test-task-001';
 
@@ -105,6 +108,10 @@ function seedSentinelFixture(repoRoot: string, taskId: string) {
     markerPath,
     sentinelPath: path.join(activeItemsDir, `${taskId}.completing`),
   };
+}
+
+function readSentinelPayload(sentinelPath: string) {
+  return JSON.parse(readFileSync(sentinelPath, 'utf8'));
 }
 
 // ---------------------------------------------------------------------------
@@ -157,12 +164,138 @@ describe('completePendingItem archive integration', () => {
       expect.objectContaining({
         repoRoot,
         contextPackDir: '/packs/pack-a',
+        taskId: FAKE_TASK_ID,
       }),
     );
     expect(mockCompleteActiveItem).toHaveBeenCalled();
   });
 
-  it('skips archive when skipArchive is true', async () => {
+  it('writes archive and retrospective checkpoints on the normal archive path', async () => {
+    const sentinelPath = path.join(
+      repoRoot,
+      'AgentWorkSpace',
+      'pendingitems',
+      '.active-items',
+      `${FAKE_TASK_ID}.completing`,
+    );
+    const checkpoints: string[] = [];
+    mockFileTaskArchive.mockResolvedValue({
+      passed: true,
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+      data: { record_md_path: '/archives/test-task-001.md' },
+    });
+    mockSyncRetrospectiveRequiredMetadata.mockImplementation(async () => {
+      const payload = readSentinelPayload(sentinelPath);
+      expect(payload).toEqual(expect.objectContaining({
+        archiveSucceeded: true,
+        archivePath: '/archives/test-task-001.md',
+        contextPackDir: '/packs/pack-a',
+      }));
+      expect(payload.retrospectiveSynced).toBeUndefined();
+      checkpoints.push('retrospective-sync');
+    });
+    mockCompleteActiveItem.mockImplementation(async () => {
+      expect(readSentinelPayload(sentinelPath)).toEqual(expect.objectContaining({
+        archiveSucceeded: true,
+        archivePath: '/archives/test-task-001.md',
+        contextPackDir: '/packs/pack-a',
+        retrospectiveSynced: true,
+      }));
+      checkpoints.push('complete-active-item');
+      return { status: 'completed', taskId: FAKE_TASK_ID };
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(checkpoints).toEqual(['retrospective-sync', 'complete-active-item']);
+  });
+
+  it('preserves null archive path when archive succeeds without a record path', async () => {
+    mockFileTaskArchive.mockResolvedValue({
+      passed: true,
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+      data: {},
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(mockTransitionTask).toHaveBeenCalledWith(
+      repoRoot,
+      FAKE_TASK_ID,
+      'active',
+      'completed',
+      expect.objectContaining({ archivePath: null }),
+    );
+  });
+
+  it('skips archive for recovery callers when skipArchive is true', async () => {
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      skipArchive: true,
+      repoRoot,
+      recoveryArchivePath: null,
+      skipRetrospectiveSync: true,
+    });
+
+    expect(mockFileTaskArchive).not.toHaveBeenCalled();
+    expect(mockSyncRetrospectiveRequiredMetadata).not.toHaveBeenCalled();
+    expect(mockCompleteActiveItem).toHaveBeenCalled();
+  });
+
+  it('preserves recoveryArchivePath in the registry transition', async () => {
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      skipArchive: true,
+      repoRoot,
+      recoveryArchivePath: '/archives/recovered.md',
+      skipRetrospectiveSync: true,
+    });
+
+    expect(mockTransitionTask).toHaveBeenCalledWith(
+      repoRoot,
+      FAKE_TASK_ID,
+      'active',
+      'completed',
+      expect.objectContaining({ archivePath: '/archives/recovered.md' }),
+    );
+  });
+
+  it('runs explicit recovery retrospective re-sync with taskId', async () => {
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      skipArchive: true,
+      repoRoot,
+      contextPackDir: '/packs/recovered',
+      recoveryArchivePath: '/archives/recovered.md',
+      skipRetrospectiveSync: false,
+    });
+
+    expect(mockFileTaskArchive).not.toHaveBeenCalled();
+    expect(mockSyncRetrospectiveRequiredMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoRoot,
+        contextPackDir: '/packs/recovered',
+        taskId: FAKE_TASK_ID,
+      }),
+    );
+  });
+
+  it('preserves legacy skipArchive behavior when recovery options are not supplied', async () => {
     await completePendingItem({
       taskId: FAKE_TASK_ID,
       skipValidation: true,
@@ -171,6 +304,7 @@ describe('completePendingItem archive integration', () => {
     });
 
     expect(mockFileTaskArchive).not.toHaveBeenCalled();
+    expect(mockSyncRetrospectiveRequiredMetadata).not.toHaveBeenCalled();
     expect(mockCompleteActiveItem).toHaveBeenCalled();
   });
 
@@ -560,10 +694,9 @@ describe('completePendingItem F38 — idempotent snapshot', () => {
 
 // ---------------------------------------------------------------------------
 // §4.6: queue-lock release ordering (no EEXIST re-entrancy)
-// §4.7: singleton .active-item read is gone (doesn't require that file to exist)
 // ---------------------------------------------------------------------------
 
-describe('completePendingItem §4.6/§4.7 lock-release + singleton-read', () => {
+describe('completePendingItem §4.6 lock-release ordering', () => {
   let repoRoot: string;
   const taskId = 'lockrel-task';
 
@@ -596,18 +729,5 @@ describe('completePendingItem §4.6/§4.7 lock-release + singleton-read', () => 
 
     expect(callOrder.indexOf('release')).toBeLessThan(callOrder.indexOf('activateNext'));
     expect(release).toHaveBeenCalledTimes(1);
-  });
-
-  it('§4.7: succeeds when no singleton AgentWorkSpace/pendingitems/.active-item file exists', async () => {
-    // Explicitly assert the singleton file is absent (we only seeded the .active-items/ dir).
-    const singletonPath = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item');
-    expect(existsSync(singletonPath)).toBe(false);
-
-    mockAcquireDirLockOrThrow.mockResolvedValue(vi.fn().mockResolvedValue(undefined));
-    mockActivateNextPendingItemIfReady.mockResolvedValue({ activated: false, reason: 'no-pending-items' });
-
-    await expect(
-      completePendingItem({ taskId, skipValidation: true, repoRoot }),
-    ).resolves.toBeUndefined();
   });
 });

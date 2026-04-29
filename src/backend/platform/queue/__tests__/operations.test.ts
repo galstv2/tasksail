@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   mkdtempSync,
   rmSync,
@@ -8,8 +8,21 @@ import {
   existsSync,
   readdirSync,
 } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+async function getReapedPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  const pid = child.pid;
+  if (typeof pid !== 'number') {
+    throw new Error('Failed to spawn child process for stale-pid test');
+  }
+  await new Promise<void>((resolve) => child.on('exit', () => resolve()));
+  // Brief delay so the OS reaps the zombie before we probe.
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  return pid;
+}
 import {
   acquireDirLock,
   acquireDirLockOrThrow,
@@ -24,7 +37,44 @@ import {
   implementationStepsTemplatePath,
   resolveQueuePaths,
 } from '../paths.js';
-import { formatContextPackBindingSection } from '../markdown.js';
+import { extractContextPackBinding, formatContextPackBindingSection } from '../markdown.js';
+import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+
+async function stopPipelinesStartedByTest(): Promise<void> {
+  await Promise.all(
+    listActivePipelines().map(({ taskId }) => stopPipeline(taskId, 1000)),
+  );
+}
+
+function seedDistributedContextPack(
+  repoRoot: string,
+  options: { repoId?: string; packName?: string } = {},
+): { contextPackDir: string; repoDir: string; repoId: string } {
+  const repoId = options.repoId ?? 'backend';
+  const contextPackDir = path.join(repoRoot, 'contextpacks', options.packName ?? 'orders');
+  const repoDir = path.join(repoRoot, 'external-repos', repoId);
+  mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+  mkdirSync(repoDir, { recursive: true });
+  writeFileSync(
+    path.join(contextPackDir, 'qmd', 'repo-sources.json'),
+    JSON.stringify({
+      manifest_version: 'qmd-repo-sources/v1',
+      context_pack_id: options.packName ?? 'orders',
+      estate_type: 'distributed-platform',
+      repositories: [{
+        repo_id: repoId,
+        local_paths: [repoDir],
+        repository_type: 'primary',
+        default_focusable: true,
+        activation_priority: 100,
+      }],
+      primary_working_repo_ids: [repoId],
+      primary_focus_area_ids: [],
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+  return { contextPackDir, repoDir, repoId };
+}
 
 describe('acquireDirLock', () => {
   let tmpDir: string;
@@ -34,7 +84,7 @@ describe('acquireDirLock', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('B6 writes an owner marker when acquiring a lock and removes it on release', async () => {
@@ -71,6 +121,52 @@ describe('acquireDirLock', () => {
     await release();
     expect(existsSync(lockDir)).toBe(false);
   });
+
+  it('reclaims an orphaned lock when the recorded holder PID is dead', async () => {
+    const lockDir = path.join(tmpDir, '.test-lock.d');
+    const deadPid = await getReapedPid();
+    mkdirSync(lockDir);
+    writeFileSync(path.join(lockDir, 'owner.json'), `${JSON.stringify({ pid: deadPid })}\n`, 'utf-8');
+
+    const release = await acquireDirLock(lockDir, 2, 10);
+    expect(release).not.toBeNull();
+    expect(JSON.parse(readFileSync(path.join(lockDir, 'owner.json'), 'utf-8'))).toEqual({
+      pid: process.pid,
+    });
+
+    await release!();
+    expect(existsSync(lockDir)).toBe(false);
+  });
+
+  it('does not reclaim a lock whose holder PID is still alive', async () => {
+    const lockDir = path.join(tmpDir, '.test-lock.d');
+    mkdirSync(lockDir);
+    writeFileSync(path.join(lockDir, 'owner.json'), `${JSON.stringify({ pid: process.pid })}\n`, 'utf-8');
+
+    const release = await acquireDirLock(lockDir, 2, 10);
+    expect(release).toBeNull();
+
+    rmSync(lockDir, { recursive: true });
+  });
+
+  it('release does not delete the lock when ownership has been reclaimed by another acquirer', async () => {
+    const lockDir = path.join(tmpDir, '.test-lock.d');
+    const release = await acquireDirLock(lockDir, 3, 10);
+    expect(release).not.toBeNull();
+
+    // Simulate another acquirer reclaiming this lock as stale and writing
+    // their own owner record. The original release must not delete the new
+    // acquirer's lock.
+    writeFileSync(path.join(lockDir, 'owner.json'), `${JSON.stringify({ pid: process.pid + 1 })}\n`, 'utf-8');
+
+    await release!();
+    expect(existsSync(lockDir)).toBe(true);
+    expect(JSON.parse(readFileSync(path.join(lockDir, 'owner.json'), 'utf-8'))).toEqual({
+      pid: process.pid + 1,
+    });
+
+    rmSync(lockDir, { recursive: true });
+  });
 });
 
 describe('moveDropboxItemsOnce', () => {
@@ -87,7 +183,7 @@ describe('moveDropboxItemsOnce', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('moves .md files from dropbox to pending', async () => {
@@ -169,8 +265,9 @@ describe('activateNextPendingItemIfReady', () => {
     mkdirSync(templatesDir, { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('activates a pending item when no failure lock is present (lock system removed)', async () => {
@@ -187,7 +284,7 @@ describe('activateNextPendingItemIfReady', () => {
     });
 
     expect(result.activated).toBe(true);
-    expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
+    expect(existsSync(path.join(pendingDir, '.active-items', 'task-003'))).toBe(true);
   });
 
   it('seeds handoffs and ImplementationSteps templates when activating a pending item', async () => {
@@ -212,7 +309,7 @@ describe('activateNextPendingItemIfReady', () => {
     });
 
     expect(result.activated).toBe(true);
-    expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(true);
+    expect(existsSync(path.join(pendingDir, '.active-items', 'task-004'))).toBe(true);
     // §4.2: activation writes per-task handoffs to AgentWorkSpace/tasks/<taskId>/handoffs/
     const taskHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-004', 'handoffs');
     expect(existsSync(path.join(taskHandoffsDir, 'professional-task.md'))).toBe(true);
@@ -235,6 +332,14 @@ describe('activateNextPendingItemIfReady', () => {
     expect(professionalTask).toContain('- Task Title: Add search');
     expect(professionalTask).toContain('- Intake Source: AgentWorkSpace/pendingitems/task-004.md');
     expect(professionalTask).not.toContain('## Raw Request\n\n# Add search');
+
+    // Activation must stage the pending markdown into the per-task handoffs dir
+    // as `intake.md` so artifact-author agents (Alice) can read intake from
+    // their own task workspace without being granted access to the shared
+    // pendingitems/ directory, which holds other tasks' files in parallel mode.
+    const stagedIntakePath = path.join(taskHandoffsDir, 'intake.md');
+    expect(existsSync(stagedIntakePath)).toBe(true);
+    expect(readFileSync(stagedIntakePath, 'utf-8')).toBe('# Add search\n');
   });
 
   it('clears prior runtime receipts only after the next task activates successfully', async () => {
@@ -267,9 +372,10 @@ describe('activateNextPendingItemIfReady', () => {
 
   it('persists repo-root Deep Focus fields to the active-task sidecar during activation', async () => {
     const activeContextPackPath = path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json');
+    const { contextPackDir } = seedDistributedContextPack(repoRoot);
 
     const binding = formatContextPackBindingSection({
-      contextPackDir: '/packs/orders',
+      contextPackDir,
       contextPackId: 'orders',
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
@@ -283,8 +389,11 @@ ${binding}
 
 ## Request Summary
 
-Body
+    Body
 `);
+    expect(extractContextPackBinding(readFileSync(path.join(pendingDir, 'task-006.md'), 'utf-8'))).toEqual(
+      expect.objectContaining({ contextPackDir }),
+    );
     for (const filename of HANDOFF_FILES) {
       writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
     }
@@ -298,12 +407,106 @@ Body
 
     expect(result.activated).toBe(true);
     expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).toEqual(expect.objectContaining({
-      contextPackDir: '/packs/orders',
+      contextPackDir,
       contextPackId: 'orders',
       deepFocusEnabled: true,
       selectedFocusPath: '',
     }));
     expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).not.toHaveProperty('selectedFocusTargetKind');
+  });
+
+  it('refuses to activate an unbound task as a platform worktree while a context pack is active', async () => {
+    const activePackDir = path.join(repoRoot, 'contextpacks', 'orders');
+    mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
+      JSON.stringify({
+        version: 1,
+        active_context_pack_dir: activePackDir,
+        active_context_pack_id: 'orders',
+        selected_repo_ids: ['backend'],
+        selected_focus_ids: [],
+        managed_folders: [path.join(repoRoot, 'external-repos', 'backend')],
+        status: 'success',
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+    writeFileSync(path.join(pendingDir, 'task-unbound.md'), '# Unbound task\n');
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+    }
+    writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+    const queuePaths = resolveQueuePaths(repoRoot);
+    await expect(activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot,
+    })).rejects.toThrow(/Refusing to activate unbound task "task-unbound"/);
+    expect(existsSync(path.join(queuePaths.activeItemsDir, 'task-unbound'))).toBe(false);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-unbound', '.task.json'))).toBe(false);
+  });
+});
+
+describe('activateNextPendingItemIfReady shared MCP bootstrap', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-shared-mcp-'));
+  });
+
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    vi.doUnmock('../../container/sharedMcp.js');
+    vi.resetModules();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  it('rolls back activation and returns shared-mcp-bootstrap-failed when shared MCP ensure fails', async () => {
+    const ensureSharedMcpRunning = vi.fn().mockRejectedValue(new Error('shared bootstrap failed'));
+    vi.resetModules();
+    vi.doMock('../../container/sharedMcp.js', () => ({ ensureSharedMcpRunning }));
+    const { activateNextPendingItemIfReady: activateWithMock } = await import('../operations.js');
+
+    const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
+    const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(pendingDir, { recursive: true });
+    mkdirSync(templatesDir, { recursive: true });
+    mkdirSync(path.join(repoRoot, 'docker', 'compose'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'config'), { recursive: true });
+    writeFileSync(path.join(repoRoot, 'docker', 'compose', 'docker-compose.yml'), 'services: {}\n');
+    writeFileSync(
+      path.join(repoRoot, 'config', 'platform.default.json'),
+      JSON.stringify({
+        schema_version: 1,
+        cli_provider: 'copilot',
+        container_runtime: 'podman',
+        container_engine_host: 'auto',
+        container_engine_wsl_distro: null,
+        max_parallel_tasks: 10,
+        retain_failed_task_worktrees: true,
+        max_retained_failed_task_worktrees: 10,
+        max_retry_generations_per_slug: 5,
+        completed_task_runtime_retention_ms: 3600000,
+        mcp_port: 8811,
+        repo_context_mcp_external_mount_roots: [],
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+    writeFileSync(path.join(pendingDir, 'task-shared-mcp.md'), '# Shared MCP\n');
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+    }
+    writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const result = await activateWithMock({ paths: queuePaths, repoRoot });
+
+    expect(result).toEqual({ activated: false, reason: 'shared-mcp-bootstrap-failed' });
+    expect(ensureSharedMcpRunning).toHaveBeenCalledTimes(1);
+    expect(ensureSharedMcpRunning).toHaveBeenCalledWith(repoRoot);
+    expect(existsSync(path.join(queuePaths.activeItemsDir, 'task-shared-mcp'))).toBe(false);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-shared-mcp'))).toBe(false);
+    expect(existsSync(path.join(pendingDir, 'task-shared-mcp.md'))).toBe(true);
   });
 });
 
@@ -315,7 +518,7 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('preserves runtime receipts until a new task activates', async () => {
@@ -329,6 +532,7 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
     mkdirSync(implStepsDir, { recursive: true });
 
     writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# task\n');
+    writeFileSync(path.join(handoffsDir, 'intake.md'), '# original intake\n');
     writeFileSync(path.join(implStepsDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
     writeFileSync(path.join(roleSessionsDir, 'dalton.json'), '{"status":"failed"}\n');
 
@@ -337,5 +541,8 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
     });
 
     expect(existsSync(path.join(roleSessionsDir, 'dalton.json'))).toBe(true);
+    // intake.md is the staged copy of the pending markdown (written at activation)
+    // and must be cleared on reset so the next activation gets a clean slate.
+    expect(existsSync(path.join(handoffsDir, 'intake.md'))).toBe(false);
   });
 });

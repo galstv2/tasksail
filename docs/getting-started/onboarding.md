@@ -9,7 +9,7 @@ one intentionally small starter task before attempting broader workflow changes.
 
 - Git
 - GitHub CLI (`gh`)
-- GitHub Copilot CLI access
+- GitHub Copilot CLI access (the shipped TaskSail CLI provider is `copilot`)
 - Docker Desktop, or Podman with `podman-compose` installed
 - Python 3
 
@@ -18,30 +18,31 @@ before starting platform services.
 
 ## Authentication expectations
 
-- Ensure the local user has GitHub Copilot CLI access.
+- Ensure the local user has GitHub Copilot CLI access for the shipped `copilot` provider.
 - Copy `.env.example` to `.env` before first-run startup.
 - Keep secrets out of tracked repo files and out of context-pack overlay files.
 
 ## Custom agent profiles
 
 - `.github/agents/` is a first-class platform layer for repository-scoped
-  Copilot workflow roles.
+  CLI-backed workflow roles.
 - `.github/agents/registry.json` is the canonical roster for approved workflow
   agent IDs and profile metadata.
 - Use `pnpm run agent -- --agent-id <agent-id>` as the
   compliant repository wrapper for invoking a workflow role profile.
-- Treat direct raw named-agent invocation such as `copilot --agent <agent-id>`
+- Treat direct raw provider CLI invocation, currently `copilot --agent <agent-id>`,
   as non-compliant unless a repository-controlled internal orchestrator
   explicitly authorizes it.
 - Expect that wrapper to run the TypeScript workflow-policy validator's runtime
   legality check before invocation; `--skip-workflow-check` is reserved for
   controlled internal orchestrators.
-- `product-manager`, `software-engineer`, and `qa` are pinned to `gpt-5.4`.
-- `planning-agent` is pinned to `gpt-4.1` unless you
-  add a different `model:` field to its agent frontmatter.
-- When launching pinned agents through the wrapper, set
-  `RUN_ROLE_AGENT_ACTIVE_MODEL` or `COPILOT_MODEL` to the required pinned
-  model.
+- `product-manager` and `qa` are pinned to `gpt-5.4`.
+- `planning-agent`, `software-engineer`, and `software-engineer-verify` are
+  pinned to `claude-sonnet-4.6`.
+- When launching pinned agents through the wrapper, expect
+  `RUN_ROLE_AGENT_ACTIVE_MODEL` plus the active provider's model env
+  (`COPILOT_MODEL` for the shipped `copilot` provider) to carry the required
+  pinned model.
 - Expect wrapper launches to leave machine-readable guardrail evidence under
   `.platform-state/runtime/guardrails/`, and treat the desktop shell as a
   read-only consumer of that runtime evidence.
@@ -76,6 +77,11 @@ before starting platform services.
 The active container runtime is controlled by `.platform-state/platform.json`
 (`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
 override.
+
+The active CLI provider defaults to `copilot`, the only provider shipped in this
+repository. Use `.platform-state/platform.json` `cli_provider` for persistent
+selection or `TASKSAIL_CLI_PROVIDER` as a temporary session override; both must
+name a registered provider.
 
 ## Desktop shell startup
 
@@ -249,6 +255,10 @@ Follow-up work after closeout becomes a new child task.
   `AgentWorkSpace/tasks/<taskId>/handoffs/final-summary.md` has content, then run
   `pnpm run complete-pending-item`, then reset `AgentWorkSpace/tasks/<taskId>/handoffs/` with
   `pnpm run new-task -- --reset`.
+- If `pnpm run queue-status` warns that a task is stuck mid-completion, run
+  `pnpm run repair -- --auto-fix`. The repair command detects `.completing`
+  sentinels, releases the queue lock, then re-drives the post-archive closeout
+  path only when archive success is proven.
 - If child-task carry-forward context looks wrong, confirm the selected
   `parent_qmd_scope` and active context-pack overlay are correct.
 - If activation output reports a missing dry-run plan, rerun the activation

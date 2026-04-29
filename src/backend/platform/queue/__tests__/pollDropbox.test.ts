@@ -23,6 +23,13 @@ import { pollDropbox } from '../pollDropbox.js';
 import { resolveQueuePaths, HANDOFF_FILES, SLICE_TEMPLATE_FILENAME } from '../paths.js';
 import { getActiveTaskIds } from '../operations.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
+import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+
+async function stopPipelinesStartedByTest(): Promise<void> {
+  await Promise.all(
+    listActivePipelines().map(({ taskId }) => stopPipeline(taskId, 1000)),
+  );
+}
 
 /**
  * Seed the canonical AgentWorkSpace structure and write N pending .md files.
@@ -76,8 +83,9 @@ describe('pollDropbox caller-side while-loop (§4.2)', () => {
     _clearPlatformConfigCache();
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     _clearPlatformConfigCache();
   });
 
@@ -91,14 +99,17 @@ describe('pollDropbox caller-side while-loop (§4.2)', () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     expect(getActiveTaskIds(queuePaths)).toHaveLength(3);
 
-    // No pending .md files should remain.
+    // All 3 pending markdown files remain in pendingitems/. Per the §4.2
+    // contract documented in operations.ts, activation does not remove the
+    // pending file — terminal paths (completion archive / failure rename to
+    // error-items) own its disposition.
     const remainingPending = readdirSync(queuePaths.pendingDir).filter(
       (f) => f.endsWith('.md') && !f.startsWith('.'),
     );
-    expect(remainingPending).toHaveLength(0);
+    expect(remainingPending).toHaveLength(3);
   });
 
-  it('cap=2, 5 pendings: one runCycle activates exactly 2, 3 remain in pending', async () => {
+  it('cap=2, 5 pendings: one runCycle activates exactly 2 (pending files retained until terminal path)', async () => {
     writePlatformConfig(repoRoot, 2);
     seedPendingItems(repoRoot, 5);
 
@@ -107,10 +118,10 @@ describe('pollDropbox caller-side while-loop (§4.2)', () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     expect(getActiveTaskIds(queuePaths)).toHaveLength(2);
 
-    // 3 pending files must remain.
+    // All 5 pending files remain in pendingitems/ (see comment above on §4.2).
     const remainingPending = readdirSync(queuePaths.pendingDir).filter(
       (f) => f.endsWith('.md') && !f.startsWith('.'),
     );
-    expect(remainingPending).toHaveLength(3);
+    expect(remainingPending).toHaveLength(5);
   });
 });

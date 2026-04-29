@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -40,6 +41,7 @@ class QmdIndexService:
         self.now = now or utc_now
         self._glopml_retro_root = retrospective_root
         self._descriptor_cache: dict[str, list[dict[str, Any]]] = {}
+        self._descriptor_cache_lock = threading.RLock()
         self._lineage_service: LineageService | None = None
 
     def set_lineage_service(self, lineage_service: LineageService) -> None:
@@ -66,11 +68,12 @@ class QmdIndexService:
         Use after operations that do not modify task-archive or
         task-retrospective records (e.g., live seeding).
         """
-        if scope_dir is None:
-            self._descriptor_cache.clear()
-        else:
-            resolved = self._resolve_scope_dir(scope_dir)
-            self._descriptor_cache.pop(str(resolved), None)
+        with self._descriptor_cache_lock:
+            if scope_dir is None:
+                self._descriptor_cache.clear()
+            else:
+                resolved = self._resolve_scope_dir(scope_dir)
+                self._descriptor_cache.pop(str(resolved), None)
         if self._lineage_service is not None:
             self._lineage_service.invalidate_cache(scope_dir)
 
@@ -619,20 +622,21 @@ class QmdIndexService:
             return scope_dir.as_posix()
 
     def task_descriptors(self, scope_dir: Path) -> list[dict[str, Any]]:
-        """Return cached task descriptors. Callers MUST NOT mutate the list."""
+        """Return cached task descriptors as a shallow list copy."""
         key = str(scope_dir)
-        cached = self._descriptor_cache.get(key)
-        if cached is not None:
-            return cached
-        archive_records = self.archive_service.iter_task_archive_records(
-            scope_dir
-        )
-        descriptors = [
-            self.archive_service.task_archive_descriptor(path, record)
-            for path, record in archive_records
-        ]
-        self._descriptor_cache[key] = descriptors
-        return descriptors
+        with self._descriptor_cache_lock:
+            cached = self._descriptor_cache.get(key)
+            if cached is not None:
+                return list(cached)
+            archive_records = self.archive_service.iter_task_archive_records(
+                scope_dir
+            )
+            descriptors = [
+                self.archive_service.task_archive_descriptor(path, record)
+                for path, record in archive_records
+            ]
+            self._descriptor_cache[key] = descriptors
+            return list(descriptors)
 
     @staticmethod
     def _resolve_local_root(repo: dict[str, Any]) -> str:

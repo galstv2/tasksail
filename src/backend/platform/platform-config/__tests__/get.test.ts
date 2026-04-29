@@ -15,13 +15,15 @@ let tmpDir: string;
 
 const FULL_CONFIG = {
   schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+  cli_provider: 'copilot',
   container_runtime: 'podman',
   max_parallel_tasks: 10,
   retain_failed_task_worktrees: true,
   max_retained_failed_task_worktrees: 10,
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
-  mcp_port_range: { min: 8811, max: 8820 },
+  mcp_port: 8811,
+  repo_context_mcp_external_mount_roots: [],
 };
 
 function writeRuntimeConfig(dir: string, content: object): void {
@@ -35,6 +37,7 @@ beforeEach(() => {
   _clearPlatformConfigCache();
   delete process.env['TASKSAIL_MAX_PARALLEL_TASKS'];
   delete process.env['CONTAINER_RUNTIME'];
+  delete process.env['TASKSAIL_CLI_PROVIDER'];
 });
 
 afterEach(() => {
@@ -42,6 +45,7 @@ afterEach(() => {
   _clearPlatformConfigCache();
   delete process.env['TASKSAIL_MAX_PARALLEL_TASKS'];
   delete process.env['CONTAINER_RUNTIME'];
+  delete process.env['TASKSAIL_CLI_PROVIDER'];
 });
 
 describe('getPlatformConfig', () => {
@@ -49,9 +53,11 @@ describe('getPlatformConfig', () => {
     writeRuntimeConfig(tmpDir, FULL_CONFIG);
     const config = await getPlatformConfig(tmpDir);
     expect(config.schema_version).toBe(1);
+    expect(config.cli_provider).toBe('copilot');
     expect(config.container_runtime).toBe('podman');
     expect(config.max_parallel_tasks).toBe(10);
-    expect(config.mcp_port_range).toEqual({ min: 8811, max: 8820 });
+    expect(config.mcp_port).toBe(8811);
+    expect(config.repo_context_mcp_external_mount_roots).toEqual([]);
   });
 
   it('hits cache on second call (file read count = 1)', async () => {
@@ -97,6 +103,18 @@ describe('getPlatformConfig', () => {
     expect(_getReadCount()).toBe(2);
   });
 
+  it('re-reads when TASKSAIL_CLI_PROVIDER changes (read count increments)', async () => {
+    writeRuntimeConfig(tmpDir, FULL_CONFIG);
+
+    await getPlatformConfig(tmpDir);
+    expect(_getReadCount()).toBe(1);
+
+    process.env['TASKSAIL_CLI_PROVIDER'] = 'copilot';
+
+    await getPlatformConfig(tmpDir);
+    expect(_getReadCount()).toBe(2);
+  });
+
   it('TASKSAIL_MAX_PARALLEL_TASKS=3 overrides JSON max_parallel_tasks', async () => {
     writeRuntimeConfig(tmpDir, FULL_CONFIG);
     process.env['TASKSAIL_MAX_PARALLEL_TASKS'] = '3';
@@ -131,15 +149,21 @@ describe('getPlatformConfig', () => {
   });
 
   it('env snapshot keys match the override-layer fields exactly', () => {
-    // The env snapshot set MUST stay in lockstep with the override-layer entries.
+    // The env snapshot set MUST stay in lockstep with override-layer entries
+    // plus provider-selection env because mixed call paths share this cache.
     // TASKSAIL_MAX_PARALLEL_TASKS → max_parallel_tasks
     // CONTAINER_RUNTIME → container_runtime
-    const expected = ['TASKSAIL_MAX_PARALLEL_TASKS', 'CONTAINER_RUNTIME'];
+    // TASKSAIL_CLI_PROVIDER → cli-provider/registry.ts
+    const expected = ['TASKSAIL_MAX_PARALLEL_TASKS', 'CONTAINER_RUNTIME', 'TASKSAIL_CLI_PROVIDER'];
     expect([..._ENV_SNAPSHOT_KEYS]).toEqual(expected);
   });
 
   it('CONTAINER_RUNTIME env var is included in the env snapshot', () => {
     expect(_ENV_SNAPSHOT_KEYS).toContain('CONTAINER_RUNTIME');
+  });
+
+  it('TASKSAIL_CLI_PROVIDER env var is included in the env snapshot', () => {
+    expect(_ENV_SNAPSHOT_KEYS).toContain('TASKSAIL_CLI_PROVIDER');
   });
 
 });

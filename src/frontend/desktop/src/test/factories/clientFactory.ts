@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import type { DesktopShellClient } from '../../renderer/services/desktopShellClient';
 import {
   createBootstrapInfo,
+  createProviderFrontendDescriptor,
   createQueueStatus,
   createEnvironmentStatus,
   createObservabilitySnapshot,
@@ -29,6 +30,7 @@ export function createMockClient(
 ): DesktopShellClient {
   return {
     getBootstrapInfo: vi.fn().mockResolvedValue(createBootstrapInfo()),
+    describeActiveProvider: vi.fn().mockResolvedValue(createProviderFrontendDescriptor()),
     getQueueStatus: vi
       .fn()
       .mockResolvedValue({ ok: true, response: createQueueStatus() }),

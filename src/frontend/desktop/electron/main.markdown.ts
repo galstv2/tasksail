@@ -1,4 +1,3 @@
-import { formatContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
 import type { PlannerEditableDraftModel } from '../src/shared/desktopContract';
 import type { PlannerStagingSidecar } from './main.staging';
 import { stripMarkdownComments } from './main.textUtils';
@@ -60,49 +59,6 @@ function extractSectionField(sectionContent: string, label: string): string {
   return (match?.[1] ?? '').trim();
 }
 
-function extractTitle(content: string): string {
-  const match = content.match(/^#\s+(.+?)\s*$/m);
-  return (match?.[1] ?? '').trim();
-}
-
-function normalizeSectionBody(value: string): string {
-  return stripMarkdownComments(value)
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .join('\n')
-    .trim();
-}
-
-function buildExpectedContextPackBindingBody(metadata: PlannerStagingSidecar): string {
-  return parseMarkdownSections(formatContextPackBindingSection(metadata.contextPackBinding)).get('Context Pack Binding') ?? '';
-}
-
-function buildExpectedSourceBody(metadata: PlannerStagingSidecar): string {
-  return parseMarkdownSections([
-    '## Source',
-    '',
-    '- Created By: Planning Agent',
-    `- Created At (UTC): ${metadata.createdAt}`,
-  ].join('\n')).get('Source') ?? '';
-}
-
-function validateProtectedSection(
-  sections: Map<string, string>,
-  sectionName: string,
-  expectedBody: string,
-  missingMessage: string,
-  mismatchMessage: string,
-): string | null {
-  const actualBody = sections.get(sectionName);
-  if (actualBody === undefined) {
-    return missingMessage;
-  }
-  if (normalizeSectionBody(actualBody) !== normalizeSectionBody(expectedBody)) {
-    return mismatchMessage;
-  }
-  return null;
-}
-
 export function hasBulletedContent(value: string): boolean {
   return value
     .split('\n')
@@ -143,20 +99,20 @@ export function validatePlanningIntakeDraft(
   return null;
 }
 
+// The H1 title, Context Pack Binding section, and Source section are all
+// regenerated programmatically from sidecar metadata when createDropboxTask
+// writes the canonical dropbox markdown. Validating the staged draft's
+// rendered copy of those sections only gates finalize on Lily preserving
+// platform-owned text byte-for-byte — which she frequently won't — without
+// any benefit to the dropbox output. Lineage fields remain validated because
+// they are sidecar-authoritative and we want a clear error if the staged
+// shell drifts from that authority before downstream consumers read it.
 export function validatePlannerProtectedMetadata(
   content: string,
   metadata: PlannerStagingSidecar,
   expectedTaskKind?: 'standard' | 'child-task',
   preParsedSections?: Map<string, string>,
 ): string | null {
-  const draftTitle = extractTitle(content);
-  if (!draftTitle) {
-    return 'Staged draft is missing the platform-owned task title. Ask Lily to restore the staged shell before finalizing.';
-  }
-  if (draftTitle !== metadata.title) {
-    return 'Staged draft title does not match the platform-owned planner title. Ask Lily to preserve the generated title before finalizing.';
-  }
-
   if (expectedTaskKind && metadata.lineage.taskKind !== expectedTaskKind) {
     return `Platform expected ${expectedTaskKind} but staged planner metadata declares ${metadata.lineage.taskKind}. Restart the planner session before finalizing.`;
   }
@@ -189,24 +145,30 @@ export function validatePlannerProtectedMetadata(
     return `Staged draft Task Lineage no longer matches the platform-owned planner metadata for: ${mismatchedLineageFields.join(', ')}. Ask Lily to restore the staged shell before finalizing.`;
   }
 
-  const contextPackError = validateProtectedSection(
-    sections,
-    'Context Pack Binding',
-    buildExpectedContextPackBindingBody(metadata),
-    'Staged draft is missing the platform-owned Context Pack Binding section. Ask Lily to restore the staged shell before finalizing.',
-    'Staged draft Context Pack Binding no longer matches the platform-owned planner metadata. Ask Lily to restore the staged shell before finalizing.',
-  );
-  if (contextPackError) {
-    return contextPackError;
-  }
+  return null;
+}
 
-  return validateProtectedSection(
-    sections,
-    'Source',
-    buildExpectedSourceBody(metadata),
-    'Staged draft is missing the platform-owned Source section. Ask Lily to restore the staged shell before finalizing.',
-    'Staged draft Source metadata no longer matches the platform-owned planner metadata. Ask Lily to restore the staged shell before finalizing.',
-  );
+// Lily's staged template hint suggests "Simple"/"Complex"; the Bypass Lily
+// download template uses "Sequential"/"Parallel". Both vocabularies are
+// accepted. Unrecognized values fall back to "sequential" rather than
+// throwing — sequential is the safer default and finalize should not fail
+// over a routing-vocabulary mismatch.
+const SUGGESTED_PATH_MAP: Record<string, 'sequential' | 'parallel'> = {
+  sequential: 'sequential',
+  parallel: 'parallel',
+  simple: 'sequential',
+  complex: 'parallel',
+};
+
+function resolveSuggestedPath(rawValue: string): 'sequential' | 'parallel' {
+  const normalized = rawValue.toLowerCase().trim();
+  if (SUGGESTED_PATH_MAP[normalized]) {
+    return SUGGESTED_PATH_MAP[normalized];
+  }
+  // Try the leading word, in case Lily wrote something like
+  // "Sequential (one slice)" or "Simple — one coherent ask".
+  const leadingWord = normalized.split(/[\s(–—\-]/)[0] ?? '';
+  return SUGGESTED_PATH_MAP[leadingWord] ?? 'sequential';
 }
 
 export function parsePlannerEditableDraft(
@@ -215,22 +177,7 @@ export function parsePlannerEditableDraft(
 ): PlannerEditableDraft {
   const sections = preParsedSections ?? parseMarkdownSections(content);
   const suggestedRouting = sections.get('Suggested Routing') ?? '';
-  const suggestedPathValue = extractSectionField(suggestedRouting, 'Recommended Execution').toLowerCase();
-  // Accept both vocabularies: Lily's staged template uses "sequential"/"parallel",
-  // the Bypass Lily download template uses "Simple"/"Complex". Normalize to the
-  // internal SuggestedPath type so downstream consumers stay unchanged.
-  const SUGGESTED_PATH_MAP: Record<string, 'sequential' | 'parallel'> = {
-    sequential: 'sequential',
-    parallel: 'parallel',
-    simple: 'sequential',
-    complex: 'parallel',
-  };
-  const suggestedPath = SUGGESTED_PATH_MAP[suggestedPathValue];
-  if (!suggestedPath) {
-    throw new Error(
-      'Staged draft Suggested Routing must declare Recommended Execution as Simple or Complex before finalizing.',
-    );
-  }
+  const suggestedPath = resolveSuggestedPath(extractSectionField(suggestedRouting, 'Recommended Execution'));
 
   return {
     summary: stripMarkdownComments(sections.get('Request Summary') ?? '').trim(),

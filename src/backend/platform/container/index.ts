@@ -15,10 +15,19 @@ export { resolveDefaultComposeFile } from './types.js';
 export { buildComposeCommand, detectComposeCommand, validateComposeConfig } from './compose.js';
 
 export { checkServiceHealth, checkAllServices } from './healthcheck.js';
+export {
+  ContextPackNotMountedError,
+  createSharedMcpBootstrapEnv,
+  ensureSharedMcpRunning,
+  generateSharedMcpComposeOverride,
+  getSharedMcpHealthUrl,
+  getSharedMcpPort,
+  getSharedMcpUrl,
+  resolveContextPackContainerPath,
+  sweepLegacyPortAllocationsOnce,
+} from './sharedMcp.js';
 
 export { bootstrapServices } from './bootstrap.js';
-export { bootstrapTaskMcp } from './bootstrapTaskMcp.js';
-export type { BootstrapTaskMcpOptions, BootstrapTaskMcpResult } from './bootstrapTaskMcp.js';
 
 export { seedIndex } from './seedIndex.js';
 

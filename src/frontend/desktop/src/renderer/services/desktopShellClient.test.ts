@@ -277,6 +277,21 @@ describe('desktopShellClient', () => {
   it('uses the live window desktop shell when the shared client is imported once', async () => {
     window.desktopShell = {
       getBootstrapInfo: vi.fn().mockResolvedValue({ appName: 'TaskSail' }),
+      describeActiveProvider: vi.fn().mockResolvedValue({
+        providerId: 'test-provider',
+        homeDirName: 'test-home',
+        registryPath: '/repo/.provider/registry.json',
+        agentConfigPaths: {
+          root: '.provider',
+          instructions: '.provider/instructions',
+          prompts: '.provider/prompts',
+          profiles: '.provider/agents',
+          registry: '.provider/registry.json',
+        },
+        promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
+        contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
+        roster: [],
+      }),
       getQueueStatus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'queue.readStatus' } }),
       deletePendingItem: vi.fn().mockResolvedValue({ ok: true, response: { action: 'queue.deletePendingItem' } }),
       getEnvironmentStatus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'environment.readStatus' } }),

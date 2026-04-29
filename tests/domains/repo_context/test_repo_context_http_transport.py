@@ -22,19 +22,27 @@ class _RuntimeStateStub:
 
     def reset(self) -> None:
         self.locked = False
+        self.locked_scopes: set[str] = set()
         self.latest_run: dict[str, object] | None = None
         self.set_calls: list[dict[str, object]] = []
         self.released = 0
+        self.released_scopes: list[str] = []
 
-    def acquire_seed_run(self) -> bool:
+    def acquire_seed_run(self, scope_key: str | None = None) -> bool:
         if self.locked:
             return False
-        self.locked = True
+        key = scope_key or "default"
+        if key in self.locked_scopes:
+            return False
+        self.locked_scopes.add(key)
         return True
 
-    def release_seed_run(self) -> None:
+    def release_seed_run(self, scope_key: str | None = None) -> None:
+        key = scope_key or "default"
+        self.locked_scopes.discard(key)
         self.locked = False
         self.released += 1
+        self.released_scopes.append(key)
 
     def set_latest_run(self, report: dict[str, object]) -> None:
         self.latest_run = report
@@ -76,6 +84,7 @@ class _MutableCallbacks:
             "summary": "shared-retrospective-memory"
         }
         self.active_context_pack_dir = lambda: "/workspace/context-pack"
+        self.resolve_seed_scope_key = lambda **kw: kw["context_pack_dir"]
 
 
 class RepoContextHttpTransportTests(unittest.TestCase):
@@ -117,6 +126,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             active_context_pack_dir=lambda: cbs.active_context_pack_dir(),
             runtime_state=cls._runtime,
             execute_seed_run=lambda **kw: cbs.execute_seed_run(**kw),
+            resolve_seed_scope_key=lambda **kw: cbs.resolve_seed_scope_key(**kw),
             load_context_pack_conventions_summary=(
                 lambda **kw: cbs.load_context_pack_conventions_summary(**kw)
             ),
@@ -286,6 +296,144 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             },
         )
         self.assertEqual(self._runtime.released, 1)
+        self.assertEqual(
+            self._runtime.released_scopes,
+            ["/workspace/context-pack"],
+        )
+
+    def test_headers_take_precedence_over_post_body_scope_and_task_id(
+        self,
+    ) -> None:
+        lineage_calls: list[dict[str, object]] = []
+        self._callbacks.build_task_lineage_summary = lambda **kwargs: (
+            lineage_calls.append(kwargs)
+            or {"task_id": kwargs["task_id"]}
+        )
+
+        resp = self._request(
+            "POST",
+            "/lineage",
+            body=json.dumps(
+                {
+                    "context_pack_dir": "/workspace/body-context-pack",
+                    "qmd_scope": "qmd/context-packs/sample-org",
+                    "task_id": "BODY-1001",
+                }
+            ).encode("utf-8"),
+            headers={
+                **self.post_headers(),
+                "X-TaskSail-Task-Id": "HEADER-1001",
+                "X-TaskSail-Context-Pack-Dir": (
+                    "/context-pack-roots/0/header-context-pack"
+                ),
+            },
+        )
+
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.json()["task_id"], "HEADER-1001")
+        self.assertEqual(
+            lineage_calls[0]["context_pack_dir"],
+            "/context-pack-roots/0/header-context-pack",
+        )
+
+    def test_invalid_request_scope_fails_before_service_callback(
+        self,
+    ) -> None:
+        lineage_calls: list[dict[str, object]] = []
+        self._callbacks.build_task_lineage_summary = lambda **kwargs: (
+            lineage_calls.append(kwargs)
+            or {"summary": "lineage"}
+        )
+
+        invalid_task = self._request(
+            "POST",
+            "/lineage",
+            body=json.dumps(
+                {
+                    "context_pack_dir": "/workspace/context-pack",
+                    "qmd_scope": "qmd/context-packs/sample-org",
+                }
+            ).encode("utf-8"),
+            headers={
+                **self.post_headers(),
+                "X-TaskSail-Task-Id": "../bad",
+            },
+        )
+        self.assertEqual(invalid_task.status, 400)
+        self.assertIn("task_id", invalid_task.json()["error"])
+
+        invalid_path = self._request(
+            "POST",
+            "/lineage",
+            body=json.dumps(
+                {
+                    "context_pack_dir": "/workspace/context-pack",
+                    "qmd_scope": "qmd/context-packs/sample-org",
+                    "task_id": "CAP-1001",
+                }
+            ).encode("utf-8"),
+            headers={
+                **self.post_headers(),
+                "X-TaskSail-Context-Pack-Dir": "/etc/context-pack",
+            },
+        )
+        self.assertEqual(invalid_path.status, 400)
+        self.assertIn("context_pack_dir", invalid_path.json()["error"])
+        self.assertEqual(lineage_calls, [])
+
+    def test_seed_conflict_is_scoped_to_canonical_context_pack_dir(
+        self,
+    ) -> None:
+        nested_same_scope: Response | None = None
+        nested_different_scope: Response | None = None
+        call_count = 0
+
+        def execute_seed_run(**kwargs):
+            nonlocal call_count, nested_same_scope, nested_different_scope
+            call_count += 1
+            if call_count == 1:
+                nested_same_scope = self._request(
+                    "POST",
+                    "/seed",
+                    body=json.dumps(
+                        {"context_pack_dir": kwargs["context_pack_dir"]}
+                    ).encode("utf-8"),
+                    headers=self.post_headers(),
+                )
+                nested_different_scope = self._request(
+                    "POST",
+                    "/seed",
+                    body=json.dumps(
+                        {"context_pack_dir": "/workspace/context-pack-b"}
+                    ).encode("utf-8"),
+                    headers=self.post_headers(),
+                )
+            return {
+                "status": "seeded",
+                "context_pack_dir": kwargs["context_pack_dir"],
+            }
+
+        self._callbacks.execute_seed_run = execute_seed_run
+
+        outer = self._request(
+            "POST",
+            "/seed",
+            body=json.dumps(
+                {"context_pack_dir": "/workspace/context-pack-a"}
+            ).encode("utf-8"),
+            headers=self.post_headers(),
+        )
+
+        self.assertEqual(outer.status, 200)
+        self.assertIsNotNone(nested_same_scope)
+        self.assertEqual(nested_same_scope.status, 409)
+        self.assertIsNotNone(nested_different_scope)
+        self.assertEqual(nested_different_scope.status, 200)
+        self.assertEqual(call_count, 2)
+        self.assertEqual(
+            self._runtime.released_scopes,
+            ["/workspace/context-pack-b", "/workspace/context-pack-a"],
+        )
 
     def test_seed_route_reports_runtime_conflict_and_server_error(
         self,
@@ -500,6 +648,37 @@ class RepoContextHttpTransportTests(unittest.TestCase):
         self.assertEqual(
             convention_calls[0]["context_pack_dir"],
             "/workspace/context-pack",
+        )
+
+    def test_get_context_pack_header_takes_precedence_over_query(
+        self,
+    ) -> None:
+        convention_calls: list[dict[str, object]] = []
+        self._callbacks.load_context_pack_conventions_summary = (
+            lambda **kwargs: (
+                convention_calls.append(kwargs)
+                or {"context_pack_dir": kwargs["context_pack_dir"]}
+            )
+        )
+
+        resp = self._request(
+            "GET",
+            "/context-pack-conventions?context_pack_dir=/workspace/query-pack",
+            headers={
+                "X-TaskSail-Context-Pack-Dir": (
+                    "/context-pack-roots/1/header-pack"
+                )
+            },
+        )
+
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(
+            resp.json()["context_pack_dir"],
+            "/context-pack-roots/1/header-pack",
+        )
+        self.assertEqual(
+            convention_calls[0]["context_pack_dir"],
+            "/context-pack-roots/1/header-pack",
         )
 
     def test_context_pack_conventions_route_rejects_missing_context_pack(

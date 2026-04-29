@@ -28,6 +28,13 @@ function emptyDraft(): McpServerFormDraft {
   };
 }
 
+const TEST_AGENT_ROSTER = {
+  'software-engineer': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
+  qa: { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
+  'product-manager': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
+  'planning-agent': { role: 'Planning Specialist', humanName: 'Lily', displayName: 'Lily (Planning Specialist)' },
+};
+
 function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigModalProps {
   return {
     isOpen: true,
@@ -37,6 +44,7 @@ function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigMo
     fieldErrors: {},
     editingServerId: null,
     draft: emptyDraft(),
+    agentRoster: TEST_AGENT_ROSTER,
     connectionValidation: { status: 'idle' },
     removingServerId: null,
     saving: false,

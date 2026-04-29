@@ -103,6 +103,18 @@ describe('taskRegistry §4.5 — array active shape', () => {
     expect(Array.isArray(all.active)).toBe(true);
     expect(all.active.length).toBe(2);
     expect(all.active.map((e) => e.taskId).sort()).toEqual(['task1', 'task2']);
+    expect(all.active.every((entry) => typeof entry.taskGuid === 'string')).toBe(true);
+  });
+
+  it('registerTask persists a full taskGuid on new entries', async () => {
+    await registerTask(repoRoot, makeEntry('task-guided', 'pending'));
+
+    const fresh = await loadTaskRegistry(repoRoot);
+    const entry = getAllTasks(fresh).pending.find((task) => task.taskId === 'task-guided');
+
+    expect(entry?.taskGuid).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+    );
   });
 
   it('concurrent transitionTask calls — both updates persisted, no lost writes', async () => {
@@ -146,6 +158,42 @@ describe('taskRegistry §4.5 — array active shape', () => {
     expect(Array.isArray(set.active)).toBe(true);
     expect(set.active.length).toBe(1);
     expect(set.active[0]!.taskId).toBe('T1');
+    expect(set.active[0]!.taskGuid).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+    );
+  });
+
+  it('repairTaskRegistry preserves existing taskGuid for task IDs it rebuilds', async () => {
+    const registryPath = path.join(repoRoot, '.platform-state', 'task-registry.json');
+    const taskGuid = 'feedbeef-1234-4234-9234-123456789abc';
+    writeFileSync(registryPath, JSON.stringify({
+      schema_version: 2,
+      tasks: {
+        pack1: {
+          open: [],
+          pending: [
+            {
+              ...makeEntry('stable-task', 'pending'),
+              taskGuid,
+            },
+          ],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    }, null, 2), 'utf-8');
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'stable-task.md'),
+      '# Stable Task\n',
+      'utf-8',
+    );
+
+    const repaired = await repairTaskRegistry(repoRoot);
+    const entry = getAllTasks(repaired).pending.find((task) => task.taskId === 'stable-task');
+
+    expect(entry?.taskGuid).toBe(taskGuid);
   });
 
   it('v1 fixture with null active migrates to empty array', async () => {

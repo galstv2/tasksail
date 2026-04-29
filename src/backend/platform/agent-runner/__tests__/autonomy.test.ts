@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } from '../autonomy.js';
+import { describe, expect, it } from 'vitest';
+import { buildAgentArgs, formatAgentCommand, resolveAutonomyProfile } from '../autonomy.js';
 import type { AgentProfile } from '../types.js';
 
 function makeProfile(overrides: Partial<AgentProfile> = {}): AgentProfile {
@@ -52,293 +52,116 @@ function makeQaExecutor(overrides: Partial<AgentProfile> = {}): AgentProfile {
   });
 }
 
+function buildArgs(profile: AgentProfile, contextPackDir?: string) {
+  const intent = resolveAutonomyProfile(profile, contextPackDir, '/repo');
+  return buildAgentArgs('/repo', profile, intent, {
+    launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+  });
+}
+
 describe('resolveAutonomyProfile', () => {
-  afterEach(() => {
-    delete process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'];
-    delete process.env['COPILOT_MODEL'];
-  });
+  it('returns semantic repo-executor intent without CLI flags or deny grammar', () => {
+    const intent = resolveAutonomyProfile(makeProfile({ denyRules: ['shell(custom:foo)'] }), '/ctx/pack', '/repo');
 
-  it('repo-executor includes --allow-all-tools and --no-ask-user', () => {
-    const args = resolveAutonomyProfile(makeProfile());
-    expect(args.additionalFlags).toContain('--allow-all-tools');
-    expect(args.additionalFlags).toContain('--no-ask-user');
-  });
-
-  it('artifact-author includes --no-ask-user but not --allow-all-tools', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor());
-    expect(args.additionalFlags).not.toContain('--allow-all-tools');
-    expect(args.additionalFlags).toContain('--no-ask-user');
-  });
-
-  it('artifact-author includes --allow-tool write', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor());
-    expect(args.allowTools).toContain('write');
-  });
-
-  it('repo-executor does not include --allow-tool write (has --allow-all-tools instead)', () => {
-    const args = resolveAutonomyProfile(makeProfile());
-    expect(args.allowTools).not.toContain('write');
-  });
-
-  it('includes profile allowed dirs resolved to absolute paths', () => {
-    const args = resolveAutonomyProfile(makeProfile(), undefined, '/repo');
-    expect(args.allowedDirs).toContain('/repo/src');
-    expect(args.allowedDirs).toContain('/repo/tests');
-  });
-
-  it('adds context pack dir to allowed dirs', () => {
-    const args = resolveAutonomyProfile(makeProfile(), '/path/to/context-pack');
-    expect(args.allowedDirs).toContain('/path/to/context-pack');
+    expect(intent).toEqual({
+      model: 'gpt-4.1',
+      autonomyProfile: 'repo-executor',
+      allowedDirs: ['/repo/src', '/repo/tests', '/ctx/pack'],
+      disallowTempDir: true,
+    });
+    expect(intent).not.toHaveProperty('additionalFlags');
+    expect(intent).not.toHaveProperty('denyTools');
+    expect(intent).not.toHaveProperty('allowTools');
   });
 
   it('does not add context pack dir to Lily allowed dirs', () => {
-    const args = resolveAutonomyProfile(makePlanningAuthor(), '/path/to/context-pack');
-    expect(args.allowedDirs).not.toContain('/path/to/context-pack');
+    const intent = resolveAutonomyProfile(makePlanningAuthor(), '/path/to/context-pack');
+    expect(intent.allowedDirs).not.toContain('/path/to/context-pack');
+    expect(intent.disallowTempDir).toBe(true);
   });
 
-  it('resolves model from profile', () => {
-    const args = resolveAutonomyProfile(makeProfile());
-    expect(args.model).toBe('gpt-4.1');
-  });
-
-  it('repo-executor with repoRoot does NOT add workflow artifact dirs', () => {
-    const args = resolveAutonomyProfile(makeProfile(), undefined, '/repo');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
-  });
-
-  it('artifact-author with repoRoot does not add workflow artifact dirs', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor(), undefined, '/repo');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
-  });
-
-  it('repo-executor with contextPackDir adds --disallow-temp-dir', () => {
-    const args = resolveAutonomyProfile(makeProfile(), '/ctx/pack');
-    expect(args.additionalFlags).toContain('--disallow-temp-dir');
-  });
-
-  it('repo-executor without contextPackDir does not add --disallow-temp-dir', () => {
-    const args = resolveAutonomyProfile(makeProfile());
-    expect(args.additionalFlags).not.toContain('--disallow-temp-dir');
-  });
-
-  it('artifact-author with contextPackDir adds --disallow-temp-dir', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor(), '/ctx/pack');
-    expect(args.additionalFlags).toContain('--disallow-temp-dir');
-  });
-
-  it('Lily with contextPackDir still adds --disallow-temp-dir', () => {
-    const args = resolveAutonomyProfile(makePlanningAuthor(), '/ctx/pack');
-    expect(args.additionalFlags).toContain('--disallow-temp-dir');
-  });
-
-  it('deny rules populate denyTools', () => {
-    const args = resolveAutonomyProfile(makeProfile());
-    expect(args.denyTools).toContain('git add');
-    expect(args.denyTools).toContain('git commit');
-  });
-
-  it('repo-executor gets hardcoded deny-tool floor even with no registry deny_rules', () => {
-    const args = resolveAutonomyProfile(makeProfile({ denyRules: undefined }));
-    expect(args.denyTools).toContain('shell(git add)');
-    expect(args.denyTools).toContain('shell(git commit)');
-    expect(args.denyTools).toContain('shell(git push)');
-    expect(args.denyTools).toContain('shell(rm:*)');
-    expect(args.denyTools).toContain('shell(sudo)');
-  });
-
-  it('repo-executor merges registry deny_rules with floor without duplicates', () => {
-    const args = resolveAutonomyProfile(makeProfile({ denyRules: ['shell(git add)', 'shell(custom:foo)'] }));
-    const gitAddCount = args.denyTools.filter((r) => r === 'shell(git add)').length;
-    expect(gitAddCount).toBe(1);
-    expect(args.denyTools).toContain('shell(custom:foo)');
-  });
-
-  it('artifact-author does not get repo-executor deny-tool floor', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor());
-    expect(args.denyTools).not.toContain('shell(git add)');
-    expect(args.denyTools).not.toContain('shell(rm:*)');
-  });
-
-  it('artifact-author gets blanket shell deny', () => {
-    const args = resolveAutonomyProfile(makeArtifactAuthor());
-    expect(args.denyTools).toContain('shell');
-  });
-
-  it('qa-executor includes --allow-all-tools and --no-ask-user', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor());
-    expect(args.additionalFlags).toContain('--allow-all-tools');
-    expect(args.additionalFlags).toContain('--no-ask-user');
-  });
-
-  it('qa-executor gets REPO_EXECUTOR_DENY_FLOOR deny rules', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor());
-    expect(args.denyTools).toContain('shell(git add)');
-    expect(args.denyTools).toContain('shell(git commit)');
-    expect(args.denyTools).toContain('shell(git push)');
-    expect(args.denyTools).toContain('shell(rm:*)');
-    expect(args.denyTools).toContain('shell(sudo)');
-  });
-
-  it('qa-executor with repoRoot and taskId gets per-task handoff dir but not ImplementationSteps', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', 'task-test-001');
-    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-test-001/handoffs');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
-  });
-
-  it('qa-executor without taskId does not include singleton handoffs path', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', undefined);
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
-  });
-
-  it('qa-executor with taskId uses per-task handoffs path', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo', 'task-abc-123');
-    expect(args.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-abc-123/handoffs');
-    expect(args.allowedDirs).not.toContain('/repo/AgentWorkSpace/handoffs');
-  });
-
-  it('qa-executor without contextPackDir does not add --disallow-temp-dir', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor());
-    expect(args.additionalFlags).not.toContain('--disallow-temp-dir');
-  });
-
-  it('qa-executor does not get blanket shell deny', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor());
-    expect(args.denyTools).not.toContain('shell');
-  });
-
-  it('qa-executor does not get --allow-tool write (has --allow-all-tools instead)', () => {
-    const args = resolveAutonomyProfile(makeQaExecutor());
-    expect(args.allowTools).not.toContain('write');
+  it('does not bake per-task dirs into the resolver — that responsibility moved to roleAgent.ts', () => {
+    // This resolver is intentionally taskId-unaware: per-task --add-dir scoping
+    // is applied in roleAgent.ts so a single source of truth handles cross-task
+    // filesystem isolation for every agent uniformly (see roleAgent.ts §3b).
+    const intent = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo');
+    expect(intent.allowedDirs).not.toContain('/repo/AgentWorkSpace/tasks/task-test-001/handoffs');
+    expect(intent.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');
   });
 });
 
-describe('buildCopilotArgs', () => {
-  afterEach(() => {
-    delete process.env['RUN_ROLE_AGENT_ACTIVE_MODEL'];
-    delete process.env['COPILOT_MODEL'];
+describe('buildAgentArgs Copilot parity', () => {
+  it('preserves argv order and resolved tool policy for repo-executor', () => {
+    const profile = makeProfile({ denyRules: ['shell(custom:foo)'] });
+    const result = buildArgs(profile, '/ctx/pack');
+
+    expect(result.args).toEqual([
+      '--agent',
+      'software-engineer',
+      '--model',
+      'gpt-4.1',
+      '--allow-all-tools',
+      '--no-ask-user',
+      '--disallow-temp-dir',
+      '--deny-tool',
+      'shell(git add)',
+      '--deny-tool',
+      'shell(git commit)',
+      '--deny-tool',
+      'shell(git push)',
+      '--deny-tool',
+      'shell(gh pr create)',
+      '--deny-tool',
+      'shell(rm:*)',
+      '--deny-tool',
+      'shell(sudo)',
+      '--deny-tool',
+      'shell(su)',
+      '--deny-tool',
+      'shell(doas)',
+      '--deny-tool',
+      'shell(chown:*)',
+      '--deny-tool',
+      'shell(custom:foo)',
+      '--add-dir',
+      '/repo/src',
+      '--add-dir',
+      '/repo/tests',
+      '--add-dir',
+      '/ctx/pack',
+    ]);
+    expect(result.resolvedToolPolicy).toMatchObject({
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+    });
+    expect(result.launchCwd).toBe('/repo');
+    expect(result.inlineAgentContext).toBe(false);
   });
 
-  it('builds args with agent flag and model', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-
-    expect(args).toContain('--agent');
-    expect(args).toContain('software-engineer');
-    expect(args).toContain('--model');
-    expect(args).toContain('gpt-4.1');
+  it('preserves artifact-author tool policy', () => {
+    const result = buildArgs(makeArtifactAuthor());
+    expect(result.args).toEqual(expect.arrayContaining(['--no-ask-user', '--allow-tool', 'write', '--deny-tool', 'shell']));
+    expect(result.resolvedToolPolicy).toEqual({
+      allowAllTools: false,
+      noAskUser: true,
+      allowTools: ['write'],
+      denyTools: ['shell'],
+    });
   });
 
-  it('includes --allow-all-tools for repo-executor', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--allow-all-tools');
+  it('does not inject per-task handoff add-dir at the resolver layer', () => {
+    // Per-task --add-dir scoping is now applied downstream in roleAgent.ts.
+    // The resolver layer must NOT know about taskId, so it cannot leak the
+    // legacy singleton handoffs path either.
+    const result = buildArgs(makeQaExecutor(), undefined);
+    expect(result.args).not.toContain('/repo/AgentWorkSpace/handoffs');
+    expect(result.args).not.toContain('/repo/AgentWorkSpace/tasks/task-xyz-789/handoffs');
   });
 
-  it('includes --no-ask-user for artifact-author', () => {
-    const profile = makeArtifactAuthor();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--no-ask-user');
-  });
-
-  it('includes --allow-tool write for artifact-author', () => {
-    const profile = makeArtifactAuthor();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    const allowToolIdx = args.indexOf('--allow-tool');
-    expect(allowToolIdx).toBeGreaterThan(-1);
-    expect(args[allowToolIdx + 1]).toBe('write');
-  });
-
-  it('includes --deny-tool for deny rules', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    const denyIdx = args.indexOf('--deny-tool');
-    expect(denyIdx).toBeGreaterThan(-1);
-    // Floor rules come first, then registry rules
-    expect(args[denyIdx + 1]).toBe('shell(git add)');
-  });
-
-  it('includes --deny-tool shell for artifact-author in copilot args', () => {
-    const profile = makeArtifactAuthor();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--deny-tool');
-    const denyIdx = args.indexOf('--deny-tool');
-    expect(args[denyIdx + 1]).toBe('shell');
-  });
-
-  it('includes --add-dir for allowed dirs', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile, undefined, '/repo');
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--add-dir');
-    expect(args).toContain('/repo/src');
-  });
-
-  it('qa-executor --add-dir does not use singleton handoffs path when taskId absent', () => {
-    const profile = makeQaExecutor();
-    const autonomy = resolveAutonomyProfile(profile, undefined, '/repo', undefined);
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).not.toContain('/repo/AgentWorkSpace/handoffs');
-  });
-
-  it('qa-executor --add-dir uses per-task handoffs path when taskId present', () => {
-    const profile = makeQaExecutor();
-    const autonomy = resolveAutonomyProfile(profile, undefined, '/repo', 'task-xyz-789');
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--add-dir');
-    expect(args).toContain('/repo/AgentWorkSpace/tasks/task-xyz-789/handoffs');
-    expect(args).not.toContain('/repo/AgentWorkSpace/handoffs');
-  });
-
-  it('§3.5: qa-executor --add-dir yields distinct per-task paths for two taskIds (t1 vs t2)', () => {
-    const profile = makeQaExecutor();
-    const autonomyT1 = resolveAutonomyProfile(profile, undefined, '/repo', 't1');
-    const autonomyT2 = resolveAutonomyProfile(profile, undefined, '/repo', 't2');
-    const argsT1 = buildCopilotArgs(profile, autonomyT1);
-    const argsT2 = buildCopilotArgs(profile, autonomyT2);
-
-    const t1Handoffs = '/repo/AgentWorkSpace/tasks/t1/handoffs';
-    const t2Handoffs = '/repo/AgentWorkSpace/tasks/t2/handoffs';
-
-    expect(argsT1).toContain(t1Handoffs);
-    expect(argsT2).toContain(t2Handoffs);
-
-    expect(argsT1).not.toContain(t2Handoffs);
-    expect(argsT2).not.toContain(t1Handoffs);
-    expect(argsT1).not.toContain('/repo/AgentWorkSpace/handoffs');
-    expect(argsT2).not.toContain('/repo/AgentWorkSpace/handoffs');
-  });
-
-  it('includes --disallow-temp-dir for repo-executor with context pack', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile, '/ctx/pack');
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).toContain('--disallow-temp-dir');
-  });
-
-  it('does not include skip-workflow-check in copilot args', () => {
-    const profile = makeProfile();
-    const autonomy = resolveAutonomyProfile(profile);
-    const args = buildCopilotArgs(profile, autonomy);
-    expect(args).not.toContain('--skip-workflow-check');
-  });
-});
-
-describe('formatCopilotCommand', () => {
-  it('formats args into a readable command string', () => {
-    const result = formatCopilotCommand(['--agent', 'software-engineer', '--model', 'gpt-4.1']);
-    expect(result).toBe('copilot --agent software-engineer --model gpt-4.1');
-  });
-
-  it('quotes args with spaces', () => {
-    const result = formatCopilotCommand(['--agent', 'some agent']);
-    expect(result).toBe('copilot --agent "some agent"');
+  it('formats through the active provider', () => {
+    expect(formatAgentCommand('/repo', ['--agent', 'software-engineer', '--model', 'gpt-4.1']))
+      .toBe('copilot --agent software-engineer --model gpt-4.1');
+    expect(formatAgentCommand('/repo', ['--agent', 'some agent'])).toBe('copilot --agent "some agent"');
   });
 });

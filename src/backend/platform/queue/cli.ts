@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import { createDropboxTask } from './createDropboxTask.js';
 import { createFollowupTask } from './createFollowupTask.js';
 import { initializeTask } from './newTask.js';
@@ -5,6 +6,7 @@ import { getQueueStatus } from './queueStatus.js';
 import { completePendingItem } from './completePendingItem.js';
 import { pollDropbox } from './pollDropbox.js';
 import { repairQueue } from './repairQueue.js';
+import { recoverStuckMidCompletion } from './recoverStuckMidCompletion.js';
 import {
   moveDropboxItemsOnce,
   activateNextPendingItemIfReady,
@@ -13,6 +15,7 @@ import {
 } from './operations.js';
 import { resolveQueuePaths } from './paths.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
+import type { QueueRepairIssue } from './repairQueueIssues.js';
 
 const USAGE = `Usage: task-queue <command> [options]
 
@@ -138,15 +141,22 @@ export async function main(argv: string[]): Promise<void> {
     case 'status': {
       const status = await getQueueStatus(flags['repo-root']);
       process.stdout.write(`Workspace Ready: ${status.workspaceReady ? 'yes' : 'no'}\n`);
-      process.stdout.write(`Active Item: ${status.activeTasks[0] ?? 'none'}\n`);
-      if (status.activeItemWithBlankWorkspace) {
+      process.stdout.write(`Active Item: ${status.activeTasks[0]?.taskId ?? 'none'}\n`);
+      if (status.activeTaskWithBlankWorkspace) {
         process.stdout.write(
-          'WARNING: .active-item present but handoffs/ is blank — run "task-queue repair --auto-fix" to recover\n',
+          'WARNING: active task marker present but handoffs/ is blank — run "task-queue repair --auto-fix" to recover\n',
         );
       }
       if (status.partialPublish) {
         process.stdout.write(
           'WARNING: handoff publish was interrupted — run "task-queue repair --auto-fix" to recover\n',
+        );
+      }
+      for (const taskId of status.stuckMidCompletion) {
+        process.stdout.write(
+          `WARNING: task '${taskId}' is stuck mid-completion (closeout died after archive/checkpoint).\n` +
+          `         Switching to branch 'task/${taskId}' may fail until recovery runs because stale worktree metadata can pin the branch.\n` +
+          `         Recover with: pnpm run repair -- --auto-fix\n`,
         );
       }
       if (status.errorItemsCount > 0) {
@@ -223,40 +233,11 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'repair': {
-      const repairAutoFix = booleans.has('auto-fix');
-      const repairPaths = resolveQueuePaths(flags['repo-root']);
-
-      // When auto-fixing, hold the queue lock to prevent races with live operations
-      let repairRelease: (() => Promise<void>) | null = null;
-      if (repairAutoFix && !booleans.has('dry-run')) {
-        repairRelease = await acquireDirLockOrThrow(
-          repairPaths.queueLockDir,
-          'repair --auto-fix',
-        );
-      }
-
-      try {
-        const result = await repairQueue({
-          dryRun: booleans.has('dry-run'),
-          autoFix: repairAutoFix,
-          repoRoot: flags['repo-root'],
-        });
-
-        if (result.issues.length === 0) {
-          process.stdout.write('Queue state is consistent. No issues detected.\n');
-        } else {
-          for (const issue of result.issues) {
-            process.stdout.write(`ISSUE: ${issue}\n`);
-          }
-          for (const fix of result.fixed) {
-            process.stdout.write(`FIXED: ${fix}\n`);
-          }
-        }
-      } finally {
-        if (repairRelease) {
-          await repairRelease();
-        }
-      }
+      await runRepairCommand({
+        repoRoot: flags['repo-root'],
+        autoFix: booleans.has('auto-fix'),
+        dryRun: booleans.has('dry-run'),
+      });
       break;
     }
 
@@ -335,8 +316,85 @@ export async function main(argv: string[]): Promise<void> {
   }
 }
 
-main(process.argv.slice(2)).catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
-});
+export async function runRepairCommand(options: {
+  repoRoot?: string;
+  autoFix?: boolean;
+  dryRun?: boolean;
+  stdout?: Pick<NodeJS.WriteStream, 'write'>;
+  stderr?: Pick<NodeJS.WriteStream, 'write'>;
+}): Promise<void> {
+  const {
+    repoRoot,
+    autoFix = false,
+    dryRun = false,
+    stdout = process.stdout,
+    stderr = process.stderr,
+  } = options;
+  const repairPaths = resolveQueuePaths(repoRoot);
+  let repairRelease: (() => Promise<void>) | null = null;
+  let stuckIssues: QueueRepairIssue[] = [];
+
+  try {
+    if (autoFix && !dryRun) {
+      repairRelease = await acquireDirLockOrThrow(
+        repairPaths.queueLockDir,
+        'repair --auto-fix',
+      );
+    }
+
+    const result = await repairQueue({ dryRun, autoFix, repoRoot });
+    stuckIssues = result.structuredIssues.filter(
+      (issue) => issue.kind === 'sentinel-without-completed-marker',
+    );
+
+    if (result.issues.length === 0) {
+      stdout.write('Queue state is consistent. No issues detected.\n');
+    } else {
+      for (const issue of result.issues) {
+        stdout.write(`ISSUE: ${issue}\n`);
+      }
+      for (const fix of result.fixed) {
+        stdout.write(`FIXED: ${fix}\n`);
+      }
+    }
+  } finally {
+    if (repairRelease) {
+      await repairRelease();
+    }
+  }
+
+  if (!autoFix || dryRun) return;
+
+  const taskIds = [...new Set(stuckIssues.map((issue) => issue.taskId))].sort();
+  for (const taskId of taskIds) {
+    try {
+      const result = await recoverStuckMidCompletion({ taskId, repoRoot });
+      if (result.recovered) {
+        stdout.write(`FIXED: re-drove closeout for stuck task '${taskId}'\n`);
+      } else {
+        stdout.write(
+          `SKIPPED: stuck task '${taskId}' was not auto-fixed because archive success is not proven by sentinel or archive records.\n` +
+          '         manual recovery requires operator confirmation before using --skip-archive.\n',
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(
+        `FAILED: re-drive closeout for '${taskId}' threw: ${message}\n` +
+        `        manual recovery: inspect .active-items/${taskId}.completing and rerun repair after fixing the failing closeout step\n`,
+      );
+    }
+  }
+}
+
+const isCliEntrypoint = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isCliEntrypoint) {
+  void main(process.argv.slice(2)).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
+  });
+}

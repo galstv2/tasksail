@@ -44,7 +44,7 @@ export type PlannerBrokerObservation = {
   brokerStatus: PlannerBrokerStatus;
   activeTurnId: string | null;
   queuedTurnCount: number;
-  copilotSessionId: string | null;
+  cliSessionId: string | null;
   lastTurnSource: PlannerBrokerTurnSource;
   lastTurnOutcome: PlannerBrokerTurnOutcome;
   lastTurnAt: string | null;
@@ -69,7 +69,7 @@ export type PlannerStreamEvent = {
   content?: string;
   messageKind?: 'delta' | 'final';
   error?: string | null;
-  copilotSessionId?: string | null;
+  cliSessionId?: string | null;
 };
 
 export type PlannerSubmitRequest = {

@@ -13,6 +13,8 @@ export const EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE: ContextPackDeepFocusState = {
   selectedFocusTargetKind: null,
   selectedTestTarget: undefined,
   selectedSupportTargets: [],
+  derivedWritableRoots: [],
+  derivedReadonlyContextRoots: [],
 };
 
 export function selectPreferredScopeMode(): WorkspaceScopeMode {
@@ -50,6 +52,8 @@ export function isDeepFocusStateEqual(
     && left.selectedFocusTargetKind === right.selectedFocusTargetKind
     && isTargetEqual(left.selectedTestTarget, right.selectedTestTarget)
     && areTargetListsEqual(left.selectedSupportTargets, right.selectedSupportTargets)
+    && areTargetListsEqual(left.derivedWritableRoots ?? [], right.derivedWritableRoots ?? [])
+    && areTargetListsEqual(left.derivedReadonlyContextRoots ?? [], right.derivedReadonlyContextRoots ?? [])
   );
 }
 
@@ -73,6 +77,8 @@ function cloneDeepFocusState(
     selectedFocusTargetKind: state.selectedFocusTargetKind,
     selectedTestTarget: cloneDeepFocusTarget(state.selectedTestTarget),
     selectedSupportTargets: state.selectedSupportTargets.map((target) => ({ ...target })),
+    derivedWritableRoots: (state.derivedWritableRoots ?? []).map((target) => ({ ...target })),
+    derivedReadonlyContextRoots: (state.derivedReadonlyContextRoots ?? []).map((target) => ({ ...target })),
   };
 }
 
@@ -109,6 +115,8 @@ export function selectLastAppliedDeepFocusState(
         : undefined,
     ),
     selectedSupportTargets: (contextPack.lastAppliedSelectedSupportTargets ?? []).map((target) => ({ ...target })),
+    derivedWritableRoots: (contextPack.lastAppliedDerivedWritableRoots ?? []).map((target) => ({ ...target })),
+    derivedReadonlyContextRoots: (contextPack.lastAppliedDerivedReadonlyContextRoots ?? []).map((target) => ({ ...target })),
   };
 }
 

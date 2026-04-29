@@ -115,19 +115,31 @@ class RepoContextRequestIdTests(unittest.TestCase):
     def test_seed_returns_conflict_when_runtime_state_is_locked(
         self,
     ) -> None:
-        acquired = self.app.RUNTIME_STATE.acquire_seed_run()
-        self.assertTrue(acquired)
-        self.addCleanup(self.app.RUNTIME_STATE.release_seed_run)
-
-        resp = self._request(
-            "POST",
-            "/seed",
-            body=b"{}",
-            headers={
-                "Content-Type": "application/json",
-                "X-Repo-Context-Token": "test-token",
-            },
+        acquired = self.app.RUNTIME_STATE.acquire_seed_run(
+            "/workspace/context-pack"
         )
+        self.assertTrue(acquired)
+        self.addCleanup(
+            self.app.RUNTIME_STATE.release_seed_run,
+            "/workspace/context-pack",
+        )
+
+        seed_service = mock.Mock()
+        seed_service.resolve_seed_scope_key.return_value = (
+            "/workspace/context-pack"
+        )
+        with mock.patch.object(
+            self.app, "get_seeding_service", return_value=seed_service,
+        ):
+            resp = self._request(
+                "POST",
+                "/seed",
+                body=b'{"context_pack_dir": "/workspace/context-pack"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Repo-Context-Token": "test-token",
+                },
+            )
 
         self.assertEqual(resp.status, 409)
         payload = resp.json()

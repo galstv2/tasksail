@@ -87,11 +87,6 @@ class QueueRuntimeIntegrationTests(QueueRuntimeIntegrationTestBase):
             any(name.endswith("-02-second.md") for name in pending_markdown)
         )
 
-        active_item = (
-            workspace / "AgentWorkSpace" / "pendingitems" / ".active-item"
-        ).read_text(encoding="utf-8").strip()
-        self.assertTrue(active_item.endswith("-01-first.md"))
-
         # Resolve the active task ID from .active-items/ to build the per-task path.
         active_items_dir = workspace / "AgentWorkSpace" / "pendingitems" / ".active-items"
         first_task_ids = [
@@ -100,6 +95,8 @@ class QueueRuntimeIntegrationTests(QueueRuntimeIntegrationTestBase):
         ]
         self.assertEqual(len(first_task_ids), 1)
         first_task_id = first_task_ids[0]
+        active_item = (active_items_dir / first_task_id).read_text(encoding="utf-8").strip()
+        self.assertTrue(active_item.endswith("-01-first.md"))
 
         professional_task = (
             workspace / "AgentWorkSpace" / "tasks" / first_task_id / "handoffs" / "professional-task.md"
@@ -133,11 +130,6 @@ class QueueRuntimeIntegrationTests(QueueRuntimeIntegrationTestBase):
             1,
         )
 
-        next_active_item = (
-            workspace / "AgentWorkSpace" / "pendingitems" / ".active-item"
-        ).read_text(encoding="utf-8").strip()
-        self.assertTrue(next_active_item.endswith("-02-second.md"))
-
         # Resolve the second active task ID from .active-items/.
         second_task_ids = [
             p.name for p in active_items_dir.iterdir()
@@ -145,6 +137,8 @@ class QueueRuntimeIntegrationTests(QueueRuntimeIntegrationTestBase):
         ]
         self.assertEqual(len(second_task_ids), 1)
         second_task_id = second_task_ids[0]
+        next_active_item = (active_items_dir / second_task_id).read_text(encoding="utf-8").strip()
+        self.assertTrue(next_active_item.endswith("-02-second.md"))
 
         updated_professional_task = (
             workspace / "AgentWorkSpace" / "tasks" / second_task_id / "handoffs" / "professional-task.md"
@@ -267,9 +261,13 @@ class QueueRuntimeIntegrationTests(QueueRuntimeIntegrationTestBase):
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
         # C6: After closeout, handoffs are unconditionally reset and the next
         # pending item auto-activates when the workspace is ready.
-        next_active = (
-            workspace / "AgentWorkSpace" / "pendingitems" / ".active-item"
-        ).read_text(encoding="utf-8")
+        active_items_dir = workspace / "AgentWorkSpace" / "pendingitems" / ".active-items"
+        next_task_ids = [
+            p.name for p in active_items_dir.iterdir()
+            if not p.name.endswith(".completing")
+        ]
+        self.assertEqual(len(next_task_ids), 1)
+        next_active = (active_items_dir / next_task_ids[0]).read_text(encoding="utf-8")
         self.assertIn("20260307-next.md", next_active)
 
 

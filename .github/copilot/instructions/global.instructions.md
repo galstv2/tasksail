@@ -57,7 +57,7 @@ If Ron blocks, the remediation loop is `Ron → Dalton → Ron`. On pass or advi
 
 Durable workflow artifacts:
 
-- `AgentWorkSpace/pendingitems/*.md`
+- `$COPILOT_HANDOFFS_DIR/intake.md`
 - `$COPILOT_HANDOFFS_DIR/professional-task.md`
 - `$COPILOT_HANDOFFS_DIR/implementation-spec.md`
 - `$COPILOT_IMPL_STEPS_DIR/slice-N.md`

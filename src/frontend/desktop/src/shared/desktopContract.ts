@@ -5,6 +5,7 @@ export const DESKTOP_SHELL_TASK_BOARD_CHANNEL = 'desktop-shell:task-board';
 export * from './desktopContractPlanner';
 export * from './desktopContractDeepFocus';
 export * from './desktopContractContextPack';
+export * from './desktopContractProvider';
 
 import type {
   ContextPackListRepoTreeRequest,

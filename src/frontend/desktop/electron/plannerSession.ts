@@ -13,7 +13,7 @@ import {
   clearStagingArtifacts,
   initializeStagedPlanningDraft,
 } from './main.staging';
-import { getPlanningAgentAllowedRoots } from './plannerCopilotProcess';
+import { getPlanningAgentAllowedRoots } from './plannerCliProcess';
 import { PlannerSessionBroker, type PlannerSendResult } from './plannerSessionBroker';
 
 const broker = new PlannerSessionBroker({
@@ -37,6 +37,8 @@ export async function startSession(contextPackDir: string): Promise<{ sessionId:
   const allowedRoots = dedupeRoots([
     ...getPlanningAgentAllowedRoots(),
     ...(focused?.visibleRepoRoots ?? []),
+    // Planner context roots include writable and read-only Deep Focus targets;
+    // Dalton write authority is enforced separately from writableRoots.
     ...(focused?.deepFocusEnabled === true ? collectFocusedRepoTargetDirectoryRoots(focused) : []),
   ]);
   const result = broker.startSession({ contextPackDir, allowedRoots });

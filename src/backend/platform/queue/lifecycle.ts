@@ -130,6 +130,13 @@ export async function resetHandoffArtifacts(
     await unlink(codeDiff);
   }
 
+  // Remove the staged intake markdown copy (written at activation by
+  // operations.ts so agents can read intake without pendingitems/ access).
+  const intake = path.join(handoffsDir, 'intake.md');
+  if (existsSync(intake)) {
+    await unlink(intake);
+  }
+
   // Remove any stale publish marker from a crashed initialization
   const publishMarker = path.join(handoffsDir, PUBLISH_MARKER);
   if (existsSync(publishMarker)) {

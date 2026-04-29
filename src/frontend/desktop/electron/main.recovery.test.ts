@@ -123,20 +123,20 @@ describe('startTaskRecoveryController', () => {
       errorItemPath: null,
     });
     pathExists.mockImplementation(async (target: string) => {
-      if (target === '/repo/AgentWorkSpace/pendingitems/.active-item') {
+      if (target === '/repo/AgentWorkSpace/pendingitems/.active-items') {
         return true;
       }
       return false;
     });
-    readFile.mockImplementation(async (target: string) => {
-      if (target === '/repo/AgentWorkSpace/pendingitems/.active-item') {
-        return 'TASK-1.md';
+    readFile.mockRejectedValue(new Error('Unexpected read'));
+    readdir.mockImplementation(async (target: string) => {
+      if (target === '/repo/AgentWorkSpace/pendingitems/.active-items') {
+        return ['TASK-1'];
       }
-      throw new Error(`Unexpected read: ${target}`);
+      throw new Error(`Unexpected readdir: ${target}`);
     });
-    readdir.mockResolvedValue([]);
     stat.mockImplementation(async (target: string) => {
-      if (target === '/repo/AgentWorkSpace/pendingitems/.active-item') {
+      if (target === '/repo/AgentWorkSpace/pendingitems/.active-items/TASK-1') {
         return {
           mtime: new Date('2026-03-28T23:00:00.000Z'),
           mtimeMs: Date.parse('2026-03-28T23:00:00.000Z'),

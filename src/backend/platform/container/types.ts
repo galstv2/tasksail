@@ -5,6 +5,8 @@ export type { ContainerBackend, ContainerEngineHost };
 /** Options for docker/podman compose up/down. */
 export interface ComposeOptions {
   composeFile?: string;
+  composeFiles?: string[];
+  projectName?: string;
   services?: string[];
   build?: boolean;
   detach?: boolean;
@@ -33,6 +35,7 @@ export interface HealthResult {
 export interface BootstrapOptions {
   repoRoot: string;
   composeFile?: string;
+  composeFiles?: string[];
   build?: boolean;
   env?: NodeJS.ProcessEnv;
   engineHost?: ContainerEngineHost;

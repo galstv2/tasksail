@@ -2,9 +2,9 @@
  * §5.2 Pipeline Supervisor — in-process singleton for managing pipeline child processes.
  *
  * Process boundary: loaded by both Electron main process and CLI entrypoint.
- * NOT an IPC server — all subscribe/unsubscribe are direct function calls.
+ * NOT an IPC server — callers interact through direct function calls.
  *
- * Co-ships with §5.4 (subscribeTask/unsubscribeTask exports) and §5.5 (MG-3 + MG-11).
+ * Includes MG-3 and MG-11 runtime safeguards.
  */
 import { createInterface } from 'node:readline';
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
@@ -14,7 +14,6 @@ import path from 'node:path';
 import { spawnPipelineForTask } from './spawnPipeline.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
 import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
-import { release as releasePort } from '../container/portAllocator.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -252,30 +251,7 @@ export async function recoverOnStartup(repoRoot: string): Promise<void> {
 async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
 
-  // ── Step 1: Singleton migration ──────────────────────────────────────────
-  // If legacy `.active-item` file exists, synthesize taskId and write a marker.
-  const legacyActiveItemPath = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-item');
-  if (existsSync(legacyActiveItemPath)) {
-    try {
-      const content = (await readFile(legacyActiveItemPath, 'utf-8')).trim();
-      if (content && content.endsWith('.md')) {
-        const taskId = content.replace(/\.md$/, '');
-        // Write per-task marker
-        try {
-          const { mkdir, writeFile: wf } = await import('node:fs/promises');
-          await mkdir(activeItemsDir, { recursive: true });
-          await wf(path.join(activeItemsDir, taskId), content, 'utf-8');
-        } catch { /* best-effort */ }
-        // Delete legacy file
-        try { unlinkSync(legacyActiveItemPath); } catch { /* best-effort */ }
-        console.log(`[pipelineSupervisor] migrated-singleton-active-item: ${taskId}`);
-      }
-    } catch {
-      // Best-effort migration — don't block recovery.
-    }
-  }
-
-  // ── Step 2: Orphan-branch sweep ──────────────────────────────────────────
+  // ── Orphan-branch sweep ──────────────────────────────────────────────────
   // Read all .task.json files to get taskIds for carveout checks.
   let knownTaskIds = new Set<string>();
   const tasksSidecarDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks');
@@ -409,9 +385,6 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       outcome = 'failed';
       console.log(`[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "missing-task-json", reclassifiedAs: "failed" }`);
 
-      // Release port (best-effort)
-      await releasePort(markerTaskId, repoRoot);
-
       // Skip archival and finalizeTaskWorktrees (no bindings to tear down)
       // Proceed to step 3e+: registry transition handled by moveFailedItemToErrorItems
       try {
@@ -452,8 +425,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   }
 
   // ── Step 4: Orphan sweep ─────────────────────────────────────────────────
-  // Clean up stranded Docker/Podman containers (defense-in-depth).
-  // Also clean up orphan .completing sentinels with no sibling marker.
+  // Clean up orphan .completing sentinels with no sibling marker.
 
   // 4a: Remove orphan .completing sentinels with no sibling marker
   try {
@@ -466,11 +438,6 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       }
     }
   } catch { /* absent */ }
-
-  // 4b: Container sweep (best-effort — skip if runtime unavailable)
-  // This is a stub — full implementation requires §6.3 (containerNaming, composeProjectName in .task.json).
-  // We skip the container enumeration here and log a warning.
-  // TODO(§6.3): implement full orphan-container sweep using containerNaming.ts prefix.
 
   // ── Step 4c: F35 sentinel-driven runtime-GC sweep ────────────────────────
   // §6.2B: reclaim `.platform-state/runtime/tasks/<id>/` subtrees whose

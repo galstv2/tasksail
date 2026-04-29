@@ -104,4 +104,11 @@ describe('extractMarkdownSection', () => {
   it('returns empty string for missing section', () => {
     expect(extractMarkdownSection('## Other\nContent', 'Missing')).toBe('');
   });
+
+  it('does not truncate section bodies at literal Z characters', () => {
+    const content = '## Context Pack Binding\n- Context Pack Dir: /tmp/task-Ze/contextpacks/orders\n- Context Pack ID: orders';
+    expect(extractMarkdownSection(content, 'Context Pack Binding')).toBe(
+      '- Context Pack Dir: /tmp/task-Ze/contextpacks/orders\n- Context Pack ID: orders',
+    );
+  });
 });

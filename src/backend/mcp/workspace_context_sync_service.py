@@ -265,7 +265,25 @@ class WorkspaceContextSyncService:
         # preserve existing deep focus state from the state file so persisted
         # selections survive regular-mode applies.
         if deep_focus is not None:
-            deep_focus_selection = deep_focus
+            deep_focus_selection = normalize_deep_focus_selection(
+                deep_focus_enabled=deep_focus.get("deep_focus_enabled") is True,
+                deep_focus_primary_repo_id=deep_focus.get(
+                    "deep_focus_primary_repo_id"
+                ),
+                deep_focus_primary_focus_id=deep_focus.get(
+                    "deep_focus_primary_focus_id"
+                ),
+                selected_focus_path=deep_focus.get("selected_focus_path"),
+                selected_focus_target_kind=deep_focus.get(
+                    "selected_focus_target_kind"
+                ),
+                selected_test_target=deep_focus.get("selected_test_target"),
+                selected_test_target_provided="selected_test_target"
+                in deep_focus,
+                selected_support_targets=deep_focus.get(
+                    "selected_support_targets"
+                ),
+            )
         else:
             existing_state = self.load_sync_state()
             deep_focus_selection = load_deep_focus_selection_from_state(

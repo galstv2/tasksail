@@ -86,10 +86,7 @@ class SeedingService:
         )
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return _resolve_context_data_dir(
-            self.workspace_root,
-            context_pack_dir,
-        )
+        return _resolve_context_data_dir(context_pack_dir)
 
     def _normalize_qmd_scope_root(
         self,
@@ -725,3 +722,37 @@ class SeedingService:
             report["report_path"] = str(output_path)
 
         return report
+
+    def resolve_seed_scope_key(
+        self,
+        *,
+        context_pack_dir: str,
+        manifest: str | None = None,
+        plan_file: str | None = None,
+        plan_mode: str = "prefer-plan",
+    ) -> str:
+        effective_manifest = manifest or self.default_manifest
+        effective_plan_file = plan_file or self.default_plan_file
+        context_pack_path = self._resolve_context_pack_dir(context_pack_dir)
+        manifest_path = self._resolve_path_in_context_pack(
+            context_pack_dir=context_pack_path,
+            value=effective_manifest,
+            field_name="manifest",
+        )
+        plan_path = self._resolve_path_in_context_pack(
+            context_pack_dir=context_pack_path,
+            value=effective_plan_file,
+            field_name="plan_file",
+        )
+        plan, _ = self.get_live_plan(
+            context_pack_dir=context_pack_path,
+            manifest_path=manifest_path,
+            plan_path=plan_path,
+            plan_mode=plan_mode,
+        )
+        scope_dir = self._resolve_path_in_context_pack(
+            context_pack_dir=context_pack_path,
+            value=plan["qmd_scope_root"],
+            field_name="qmd_scope_root",
+        )
+        return str(scope_dir.resolve())

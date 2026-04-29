@@ -2,8 +2,6 @@ import path from 'node:path';
 import { writeTextFile } from '../core/index.js';
 import { readTextFile } from '../core/io.js';
 
-const MAX_SESSION_HISTORY = 20;
-
 type PromptAuditMetadata = {
   promptPath: string | null;
   promptSource: 'file' | 'override';
@@ -47,21 +45,6 @@ export async function writeSessionStartReceipt(options: {
 }): Promise<string> {
   const receiptPath = sessionReceiptPath(options.taskRuntime, options.agentId, options.launchId);
 
-  // Preserve previous session in history so the frontend watcher can observe
-  // the completed/failed state even after this file is overwritten.
-  let sessionHistory: Record<string, unknown>[] = [];
-  try {
-    const existing = await readTextFile(receiptPath);
-    if (existing) {
-      const prev = JSON.parse(existing) as Record<string, unknown>;
-      const prevHistory = Array.isArray(prev.session_history) ? prev.session_history as Record<string, unknown>[] : [];
-      const { session_history: _, ...prevSession } = prev;
-      sessionHistory = [...prevHistory, prevSession].slice(-MAX_SESSION_HISTORY);
-    }
-  } catch {
-    // No usable previous receipt — start with empty history.
-  }
-
   const receipt = {
     agent_id: options.agentId,
     launch_id: options.launchId,
@@ -83,7 +66,6 @@ export async function writeSessionStartReceipt(options: {
         : undefined,
     },
     latest_output_lines: [`Started ${options.displayName} runtime.`],
-    session_history: sessionHistory,
   };
   await writeTextFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   return receiptPath;

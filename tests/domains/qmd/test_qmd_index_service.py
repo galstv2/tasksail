@@ -417,7 +417,7 @@ class QmdIndexServiceTests(unittest.TestCase):
 
             self.assertEqual(first["tasks"], second["tasks"])
 
-    def test_task_descriptor_cache_returns_same_reference(self) -> None:
+    def test_task_descriptor_cache_returns_same_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             workspace_root = Path(temp_root)
             context_pack_dir = workspace_root / "context-pack"
@@ -456,7 +456,8 @@ class QmdIndexServiceTests(unittest.TestCase):
 
             first = service.task_descriptors(scope_dir)
             second = service.task_descriptors(scope_dir)
-            self.assertIs(first, second)
+            self.assertEqual(first, second)
+            self.assertIsNot(first, second)
 
     def test_build_global_task_index_does_not_mutate_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
@@ -536,8 +537,9 @@ class QmdIndexServiceTests(unittest.TestCase):
             records_after = (
                 service.archive_service.iter_task_archive_records(scope_dir)
             )
-            # Same object identity — proves records were served from cache.
-            self.assertIs(records_before, records_after)
+            # Same records, but not the cache's mutable list object.
+            self.assertEqual(records_before, records_after)
+            self.assertIsNot(records_before, records_after)
 
     def test_invalidate_archive_cache_clears_descriptor_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:

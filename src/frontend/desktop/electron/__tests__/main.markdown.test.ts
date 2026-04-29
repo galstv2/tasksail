@@ -45,15 +45,18 @@ describe('parsePlannerEditableDraft — Recommended Execution vocabulary', () =>
     expect(draft.suggestedPath).toBe('parallel');
   });
 
-  it('rejects unknown vocab with the Simple/Complex error message', () => {
-    expect(() => parsePlannerEditableDraft(buildDraft('medium'))).toThrowError(
-      /Simple or Complex before finalizing/,
-    );
+  it('defaults unrecognized vocab to "sequential" without throwing', () => {
+    const draft = parsePlannerEditableDraft(buildDraft('medium'));
+    expect(draft.suggestedPath).toBe('sequential');
   });
 
-  it('rejects empty Recommended Execution value', () => {
-    expect(() => parsePlannerEditableDraft(buildDraft(''))).toThrowError(
-      /Simple or Complex before finalizing/,
-    );
+  it('defaults empty Recommended Execution value to "sequential" without throwing', () => {
+    const draft = parsePlannerEditableDraft(buildDraft(''));
+    expect(draft.suggestedPath).toBe('sequential');
+  });
+
+  it('falls back to the leading word when Lily appends parenthetical or em-dash detail', () => {
+    expect(parsePlannerEditableDraft(buildDraft('Sequential (one slice)')).suggestedPath).toBe('sequential');
+    expect(parsePlannerEditableDraft(buildDraft('Complex — multi-slice')).suggestedPath).toBe('parallel');
   });
 });

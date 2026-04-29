@@ -5,6 +5,9 @@ export {
   ACTIVE_CONTEXT_PACK_DIR_KEY,
 } from './activate.js';
 
+export { rebuildAgentMirror } from './rebuildAgentMirror.js';
+export type { RebuildAgentMirrorResult } from './rebuildAgentMirror.js';
+
 export {
   requireAuthorizedActiveContextPack,
   requireAuthorizedActiveContextPackBinding,
@@ -29,7 +32,7 @@ export {
   activateContextPackHelper,
 } from './pythonHelpers.js';
 
-export { resolveFocusedRepoRoot, resolveWorkspaceRepoRoots } from './focusedRepo.js';
+export { deriveWritableRootsFromFocusedSelection, resolveFocusedRepoRoot, resolveWorkspaceRepoRoots } from './focusedRepo.js';
 export type { FocusedRepoResult } from './focusedRepo.js';
 export {
   normalizeRelativePath,
@@ -39,7 +42,7 @@ export {
   isStrictAncestor,
   hasTraversal,
 } from './deepFocusNormalization.js';
-export type { NormalizedSupportTarget } from './deepFocusNormalization.js';
+export type { NormalizedSupportTarget, ReadonlyContextRoot, WritableRoot } from './deepFocusNormalization.js';
 
 export { main as cli } from './cli.js';
 

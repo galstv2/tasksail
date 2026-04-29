@@ -44,8 +44,8 @@
 
 ## Out-of-tree context packs
 
-- When a context pack lives outside the repo, the bootstrap layer sets `ACTIVE_CONTEXT_PACK_HOST_DIR` automatically and bind-mounts the pack at `/mnt/context-pack` inside the container
-- Operators do not normally set `ACTIVE_CONTEXT_PACK_DIR` or `ACTIVE_CONTEXT_PACK_HOST_DIR` by hand; both are populated by the queue's task binding
+- When a context pack lives outside the repo, add its absolute parent directory to `repo_context_mcp_external_mount_roots`; the shared MCP container bind-mounts configured roots at `/context-pack-roots/<index>`
+- Operators do not normally set context-pack environment variables by hand; task launches pass the selected container-visible context pack path through the provider-rendered MCP headers
 
 ## Performance notes
 

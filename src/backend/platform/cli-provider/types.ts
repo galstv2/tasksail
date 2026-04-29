@@ -1,0 +1,267 @@
+import type { AgentId, AutonomyProfile } from '../core/index.js';
+
+export interface AutonomyIntent {
+  model: string;
+  autonomyProfile: AutonomyProfile;
+  allowedDirs: string[];
+  disallowTempDir: boolean;
+}
+
+export interface ResolvedMcpServer {
+  id: string;
+  transport: 'http' | 'sse';
+  url: string;
+  headers: Record<string, string>;
+}
+
+export type TerminationReason =
+  | 'exited'
+  | 'wall-clock-timeout'
+  | 'idle-timeout'
+  | 'aborted'
+  | 'spawn-error';
+
+export interface RunSummary {
+  exitCode: number;
+  stdoutTail: string;
+  stderrTail: string;
+  terminationReason: TerminationReason;
+  signalCode: NodeJS.Signals | null;
+}
+
+export interface AgentConfigPaths {
+  root: string;
+  instructions: string;
+  globalInstructions?: string | null;
+  prompts: string;
+  profiles: string;
+  registry: string;
+}
+
+export interface ProviderAgentProfile {
+  id: AgentId;
+  registryId: string;
+  displayName: string;
+  role: string;
+  requiredModel: string;
+  autonomyProfile: AutonomyProfile;
+  workflowOrder: number;
+  allowedDirs?: string[];
+  interactive?: boolean;
+  idleTimeoutS?: number;
+  wallClockTimeoutS?: number;
+  instructionPath?: string;
+  agentProfilePath?: string;
+  denyRules?: string[];
+  promptPath?: string;
+}
+
+export type ProviderPromptKind =
+  | 'plan-task'
+  | 'start-task'
+  | 'execute-task'
+  | 'continue-task'
+  | 'close-task'
+  | 'execute-task-retry';
+
+export interface AgentLaunchContext {
+  repoRoot: string;
+  requestedCwd: string;
+  focusedRepoRoot?: string;
+}
+
+export interface PromptMaterializationOptions {
+  prompt: string;
+  promptPath: string | null;
+  promptSource: 'file' | 'override';
+  profile: ProviderAgentProfile;
+  launchContext: AgentLaunchContext;
+  includeGlobalInstructions: boolean;
+}
+
+export interface PromptMaterializationResult {
+  effectivePrompt: string;
+  inlineAgentContext: boolean;
+}
+
+export interface ResolvedToolPolicy {
+  allowAllTools: boolean;
+  noAskUser: boolean;
+  allowTools: string[];
+  denyTools: string[];
+}
+
+export interface BuildArgsResult {
+  args: string[];
+  launchCwd: string;
+  inlineAgentContext: boolean;
+  resolvedToolPolicy: ResolvedToolPolicy;
+}
+
+export interface BuildArgsOptions {
+  launchContext: AgentLaunchContext;
+}
+
+export interface GenericAgentEnv {
+  model: string;
+  agentId: string;
+  wallClockTimeoutS?: number;
+  idleTimeoutS?: number;
+  disableIdleTimeout?: boolean;
+  handoffsDir?: string;
+  implStepsDir?: string;
+  platformRepoRoot: string;
+  targetReposJson?: string;
+  primaryFocusPath?: string;
+  primaryFocusTargetKind?: 'file' | 'directory';
+  writableRootsJson?: string;
+  readonlyContextRootsJson?: string;
+  testTargetPath?: string;
+  testTargetKind?: 'file' | 'directory';
+  contextPackPaths?: string;
+  contextPackSearchRoots?: string;
+}
+
+export type PreparedMcpLaunchStatus =
+  | 'available'
+  | 'degraded'
+  | 'unavailable'
+  | 'malformed'
+  | 'not-applicable';
+
+export interface PreparedMcpLaunch {
+  status: PreparedMcpLaunchStatus;
+  reason: string;
+  injectionEnabled: boolean;
+  envExports: Record<string, string>;
+  launchDir?: string;
+  contextFile?: string;
+  resolvedServers: ResolvedMcpServer[];
+  selectedServerIds: string[];
+  excludedServerIds: string[];
+}
+
+export interface AgentProfileParseResult {
+  frontmatter: Record<string, string>;
+  name?: string;
+  description?: string;
+  model?: string;
+  body: string;
+  errors: string[];
+}
+
+export interface PlannerParseContext {
+  currentTurnId: string | null;
+  currentSessionId?: string | null;
+}
+
+export interface PlannerUsage {
+  premiumRequests?: number;
+  totalApiDurationMs?: number;
+  sessionDurationMs?: number;
+  codeChanges?: {
+    linesAdded?: number;
+    linesRemoved?: number;
+    filesModified?: string[];
+  };
+}
+
+export type PlannerBrokerStatus = 'idle' | 'running' | 'completed' | 'failed';
+
+export type PlannerNormalizedEvent =
+  | {
+      type: 'planner.turn.started';
+      brokerStatus: PlannerBrokerStatus;
+      turnId: string | null;
+      rawType: string | null;
+      timestamp?: string;
+    }
+  | {
+      type: 'planner.turn.message';
+      brokerStatus: PlannerBrokerStatus;
+      turnId: string | null;
+      rawType: string | null;
+      timestamp?: string;
+      content: string;
+      messageKind: 'delta' | 'final';
+    }
+  | {
+      type: 'planner.turn.completed';
+      brokerStatus: PlannerBrokerStatus;
+      turnId: string | null;
+      rawType: string | null;
+      timestamp?: string;
+      exitCode: number;
+      usage: PlannerUsage | null;
+    }
+  | {
+      type: 'planner.turn.failed';
+      brokerStatus: PlannerBrokerStatus;
+      turnId: string | null;
+      rawType: string | null;
+      timestamp?: string;
+      error: string;
+      exitCode: number | null;
+    }
+  | {
+      type: 'planner.session.updated';
+      brokerStatus: PlannerBrokerStatus;
+      turnId: string | null;
+      rawType: string | null;
+      timestamp?: string;
+      cliSessionId: string;
+    };
+
+export interface PlannerEventParseResult {
+  kind: 'event' | 'parse-error';
+  classification: 'renderable' | 'session-continuity' | 'ignored' | 'unknown';
+  rawType: string | null;
+  rawEvent: Record<string, unknown> | null;
+  events: PlannerNormalizedEvent[];
+  error?: { code: string; message: string; line: string };
+}
+
+export interface PlannerLaunchOptions {
+  model: string;
+  resumeSessionId?: string | null;
+  plannerSessionId?: string | null;
+  prompt?: string;
+  promptMode: 'interactive' | 'one-shot';
+  allowedRoots?: string[];
+  contextPackBoundaryEnforced: boolean;
+  workingDirectory?: string;
+  additionalEnv?: Record<string, string>;
+}
+
+export interface PlannerLaunchSpec {
+  args: string[];
+  launchCwd: string;
+  env?: Record<string, string>;
+}
+
+export interface PlannerChunkParser {
+  parseChunk(chunk: string): PlannerEventParseResult[];
+  flush(): PlannerEventParseResult[];
+}
+
+export interface CliProvider {
+  readonly id: string;
+  resolveCommand(): string;
+  buildArgs(profile: ProviderAgentProfile, intent: AutonomyIntent, options: BuildArgsOptions): BuildArgsResult;
+  buildEnv(generic: GenericAgentEnv): Record<string, string>;
+  formatCommand(args: string[]): string;
+  homeDirName(): string;
+  agentConfigPaths(): AgentConfigPaths;
+  resolvePromptPath(kind: ProviderPromptKind): string;
+  materializePrompt(options: PromptMaterializationOptions): PromptMaterializationResult;
+  parseAgentProfile(text: string): AgentProfileParseResult;
+  requiredDirs(): string[];
+  requiredFiles(): string[];
+  requiredEnvKeys(): string[];
+  promptPathEnvVars(): { handoffsDir: string; implStepsDir: string };
+  contextPackEnvVars(): { paths: string; searchRoots: string };
+  mcpConfigArgs(configFilePath: string): string[];
+  renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string;
+  createPlannerParser?(): PlannerChunkParser | null;
+  buildPlannerLaunchSpec?(options: PlannerLaunchOptions): PlannerLaunchSpec | null;
+}

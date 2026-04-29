@@ -2,17 +2,11 @@ import path from 'node:path';
 
 import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 import type { PlatformConfigLoadResult } from './types.js';
+import { VALID_ENGINE_HOSTS, isValidWslDistroName } from './types.js';
 import { loadPlatformConfig } from './load.js';
 
 const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
 const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
-
-const VALID_ENGINE_HOSTS: ReadonlySet<ContainerEngineHost> = new Set([
-  'auto',
-  'native',
-  'desktop-linux',
-  'wsl',
-]);
 
 export interface ResolvedContainerEngineHost {
   host: ContainerEngineHost;
@@ -96,14 +90,7 @@ function parseContainerEngineHostEnv(value: string): ContainerEngineHost {
 }
 
 function validateResolvedContainerEngineHost(host: ContainerEngineHost, wslDistro: string | null): void {
-  if (
-    host === 'wsl'
-    && (
-      wslDistro === null
-      || wslDistro.trim() === ''
-      || /[\\/]/.test(wslDistro)
-    )
-  ) {
+  if (host === 'wsl' && !isValidWslDistroName(wslDistro)) {
     throw new Error(
       'CONTAINER_ENGINE_WSL_DISTRO must be a non-empty WSL distro name without path separators when container engine host is "wsl".',
     );

@@ -59,7 +59,7 @@ class StatusTaxonomyTests(unittest.TestCase):
         self.assertNotIn("COPILOT_HOME", exports)
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
         # Artifacts must exist.
-        self.assertTrue(Path(ctx.copilot_home).is_dir())
+        self.assertTrue(Path(ctx.launch_dir).is_dir())
         self.assertTrue(Path(exports["EXTERNAL_MCP_CONTEXT_FILE"]).is_file())
 
     def test_not_applicable_status_exports(self) -> None:
@@ -70,7 +70,7 @@ class StatusTaxonomyTests(unittest.TestCase):
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "false")
         self.assertNotIn("COPILOT_HOME", exports)
         self.assertNotIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
-        self.assertIsNone(ctx.config_file_path)
+        self.assertIsNone(ctx.launch_dir)
 
     def test_unavailable_status_exports(self) -> None:
         server = _make_server(headers={"Auth": "${MISSING_VAR_TAXONOMY}"})
@@ -128,16 +128,14 @@ class FailClosedEnvResolutionTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["Auth"], "Bearer abc")
 
-    def test_no_unresolved_placeholders_in_mcp_config(self) -> None:
-        """Rendered mcp-config.json must never contain ${...} placeholders."""
+    def test_no_unresolved_placeholders_in_resolved_servers(self) -> None:
+        """Resolved server data must never contain ${...} placeholders."""
         tmpdir = Path(tempfile.mkdtemp(prefix="ext-mcp-fc-"))
         try:
             server = _make_server(headers={"Auth": "${FC_RESOLVED}"})
             with mock.patch.dict(os.environ, {"FC_RESOLVED": "actual_value"}):
                 ctx = prepare_launch_context(tmpdir, "swe", [server])
-            config_path = Path(ctx.copilot_home) / "mcp-config.json"
-            content = config_path.read_text()
-            self.assertNotIn("${", content)
+            self.assertNotIn("${", str(ctx.resolved_servers))
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -151,24 +149,21 @@ class DeletionLifecycleTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_deleted_server_absent_from_next_launch_config(self) -> None:
+    def test_deleted_server_absent_from_next_resolved_servers(self) -> None:
         server = _make_server(id="will-delete")
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
         self.assertTrue(ctx1.injection_enabled)
-        config1 = json.loads(
-            (Path(ctx1.copilot_home) / "mcp-config.json").read_text()
-        )
-        self.assertIn("will-delete", config1["mcpServers"])
+        self.assertEqual(ctx1.resolved_servers[0]["id"], "will-delete")
 
         # "Delete" the server.
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertEqual(ctx2.status, "not-applicable")
-        self.assertIsNone(ctx2.copilot_home)
+        self.assertIsNone(ctx2.launch_dir)
 
     def test_deleted_server_absent_from_next_launch_summary(self) -> None:
         server = _make_server(id="will-delete", display_name="Deletable MCP")
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
-        summary1 = (Path(ctx1.copilot_home) / "mcp-capability-summary.md").read_text()
+        summary1 = (Path(ctx1.launch_dir) / "mcp-capability-summary.md").read_text()
         self.assertIn("Deletable MCP", summary1)
 
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
@@ -189,7 +184,7 @@ class DeletionLifecycleTests(unittest.TestCase):
         """Past launch directories (historical receipts) are not rewritten."""
         server = _make_server()
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
-        receipt_path = Path(ctx1.copilot_home) / "mcp-receipt.json"
+        receipt_path = Path(ctx1.launch_dir) / "mcp-receipt.json"
         receipt_path.write_text(json.dumps({"status": "available"}))
 
         # Next launch with no servers.

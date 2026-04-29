@@ -18,8 +18,8 @@ vi.mock('../metadata.js', () => ({
 
 vi.mock('../autonomy.js', () => ({
   resolveAutonomyProfile: vi.fn(),
-  buildCopilotArgs: vi.fn(),
-  formatCopilotCommand: vi.fn(),
+  buildAgentArgs: vi.fn(),
+  formatAgentCommand: vi.fn(),
 }));
 
 vi.mock('../environment.js', () => ({
@@ -47,8 +47,8 @@ vi.mock('../confinement.js', () => ({
 }));
 
 vi.mock('../processLifecycle.js', () => ({
-  launchCopilot: vi.fn(),
-  waitForCopilotDetailed: vi.fn(),
+  launchAgent: vi.fn(),
+  waitForAgentDetailed: vi.fn(),
 }));
 
 vi.mock('../pythonHelpers.js', () => ({
@@ -59,6 +59,7 @@ vi.mock('../pythonHelpers.js', () => ({
 vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveFocusedRepoRoot: vi.fn(),
   resolveSelectedPrimaryRepoRoot: vi.fn(),
+  explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
 }));
 
 vi.mock('../../core/index.js', async () => {
@@ -84,15 +85,32 @@ vi.mock('../sessionReceipts.js', () => ({
   writeSessionTerminalReceipt: vi.fn(),
 }));
 
+vi.mock('../../container/sharedMcp.js', () => ({
+  getSharedMcpUrl: vi.fn(async () => 'http://localhost:8811/sse'),
+  resolveContextPackContainerPath: vi.fn(() => '/workspace/context-pack'),
+}));
+
+vi.mock('../../platform-config/get.js', () => ({
+  getPlatformConfig: vi.fn(async () => ({
+    schema_version: 1,
+    cli_provider: 'copilot',
+    container_runtime: 'docker',
+    container_engine_host: null,
+    container_engine_wsl_distro: null,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
+  })),
+}));
+
 const { runRoleAgent } = await import('../roleAgent.js');
 const { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } = await import('../metadata.js');
-const { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } = await import('../autonomy.js');
+const { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } = await import('../autonomy.js');
 const { buildAgentEnvironment, buildAutonomyEnvironment } = await import('../environment.js');
 const { resolvePaths } = await import('../../core/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
-const { launchCopilot, waitForCopilotDetailed } = await import('../processLifecycle.js');
+const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
@@ -104,16 +122,16 @@ const mockedLoadAgentRegistry = vi.mocked(loadAgentRegistry);
 const mockedResolveAgentProfile = vi.mocked(resolveAgentProfile);
 const mockedResolveActiveModel = vi.mocked(resolveActiveModel);
 const mockedResolveAutonomyProfile = vi.mocked(resolveAutonomyProfile);
-const mockedBuildCopilotArgs = vi.mocked(buildCopilotArgs);
-const mockedFormatCopilotCommand = vi.mocked(formatCopilotCommand);
+const mockedBuildAgentArgs = vi.mocked(buildAgentArgs);
+const mockedFormatAgentCommand = vi.mocked(formatAgentCommand);
 const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
-const mockedLaunchCopilot = vi.mocked(launchCopilot);
-const mockedWaitForCopilotDetailed = vi.mocked(waitForCopilotDetailed);
+const mockedLaunchAgent = vi.mocked(launchAgent);
+const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
 const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunchContext);
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
@@ -156,12 +174,21 @@ function setupCommonMocks(): void {
   mockedResolveActiveModel.mockReturnValue('gpt-4.1');
   mockedResolveAutonomyProfile.mockReturnValue({
     model: 'gpt-4.1',
-    allowTools: [],
-    denyTools: [],
+    autonomyProfile: 'repo-executor',
     allowedDirs: [],
-    additionalFlags: [],
+    disallowTempDir: false,
   });
-  mockedBuildCopilotArgs.mockReturnValue(['--agent', 'software-engineer']);
+  mockedBuildAgentArgs.mockImplementation((_repoRoot, _profile, _intent, options) => ({
+    args: ['--agent', 'software-engineer'],
+    launchCwd: options.launchContext.requestedCwd,
+    inlineAgentContext: false,
+    resolvedToolPolicy: {
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+      denyTools: [],
+    },
+  }));
   mockedBuildAgentEnvironment.mockReturnValue({});
   mockedBuildAutonomyEnvironment.mockReturnValue({
     RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"repo-executor"}',
@@ -175,7 +202,7 @@ function setupCommonMocks(): void {
     exitCode: 0,
   });
   mockedCaptureChangedPathsSnapshot.mockResolvedValue({ byRepoRoot: {} });
-  mockedValidateDaltonBoundaryChanges.mockReturnValue(undefined);
+  mockedValidateDaltonBoundaryChanges.mockResolvedValue(undefined);
   mockedCaptureCodeDiff.mockResolvedValue({
     stdout: 'crud-app',
     stderr: '',
@@ -185,9 +212,11 @@ function setupCommonMocks(): void {
     status: 'not-applicable',
     reason: 'no external MCP servers apply to this agent',
     injectionEnabled: false,
+    launchDir: `${process.cwd()}/.platform-state/runtime/copilot-home/test-launch`,
     envExports: {
       EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable',
     },
+    resolvedServers: [],
     selectedServerIds: [],
     excludedServerIds: [],
   });
@@ -266,7 +295,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
   it('accepts skip-workflow-check with valid bypass env vars', async () => {
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
-    mockedFormatCopilotCommand.mockReturnValue('copilot --agent software-engineer');
+    mockedFormatAgentCommand.mockReturnValue('copilot --agent software-engineer');
 
     const result = await runRoleAgent({
       agentId: 'dalton',
@@ -300,8 +329,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -316,13 +345,16 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       skipWorkflowValidation: true,
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
     expect(launchOpts.cwd).toBe('/ctx/crud-app');
-    expect(mockedBuildCopilotArgs).toHaveBeenCalledWith(
+    expect(mockedBuildAgentArgs).toHaveBeenCalledWith(
+      '/repo',
       expect.anything(),
       expect.anything(),
-      expect.objectContaining({ skipAgentFlag: true }),
+      expect.objectContaining({
+        launchContext: expect.objectContaining({ requestedCwd: '/ctx/crud-app' }),
+      }),
     );
     expect(autonomyArgs.allowedDirs).toEqual([
       '/ctx/crud-app',
@@ -343,6 +375,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.anything(),
       autonomyArgs,
+      expect.anything(),
       '/ctx/crud-app',
       '/repo',
       expect.objectContaining({
@@ -351,12 +384,13 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
+      expect.anything(),
     );
     expect(mockedBuildAgentEnvironment).toHaveBeenCalledWith(
       expect.anything(),
-      '/ctx',
+      '/workspace/context-pack',
       '/repo',
-      { skipHandoffEnvVars: true },
+      expect.objectContaining({ skipHandoffEnvVars: true }),
       't1',
     );
   });
@@ -393,8 +427,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -412,20 +446,25 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(autonomyArgs.allowedDirs).toEqual([
       '/repo/AgentWorkSpace/dropbox',
       '/repo/AgentWorkSpace/templates',
-      '/repo/AgentWorkSpace',
+      '/repo/AgentWorkSpace/tasks/t1',
+      '/repo/AgentWorkSpace/qmd',
       '/ctx/crud-app',
       '/ctx/shared-lib',
     ]);
+    // Lily must NOT have pendingitems access — only product-manager (Alice)
+    // gets it via per-profile allowed_dirs in registry.json.
+    expect(autonomyArgs.allowedDirs).not.toContain('/repo/AgentWorkSpace/pendingitems');
     expect(mockedBuildAgentEnvironment).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'lily' }),
-      '/ctx',
+      '/workspace/context-pack',
       '/repo',
-      { skipHandoffEnvVars: false },
+      expect.objectContaining({ skipHandoffEnvVars: false }),
       't1',
     );
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'lily' }),
       autonomyArgs,
+      expect.anything(),
       '/repo',
       '/repo',
       expect.objectContaining({
@@ -434,7 +473,94 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
+      expect.anything(),
     );
+  });
+
+  it('§2.10 fences artifact-author launches to per-task tasks/<taskId> across two parallel taskIds', async () => {
+    // Cross-task isolation regression: Alice on T1 must not see T2's task subtree
+    // and vice versa. The only --add-dir backstop preventing two parallel
+    // artifact-author launches from writing into each other's task workspaces
+    // lives in roleAgent.ts §3b. If that catch-all reverts to bare AgentWorkSpace
+    // both launches would share the same writable surface and this test fails.
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedResolveAgentProfile.mockReturnValue({
+      id: 'alice',
+      registryId: 'product-manager',
+      displayName: 'Alice',
+      role: 'Product Manager',
+      requiredModel: 'gpt-5.4',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 2,
+      wallClockTimeoutS: 600,
+    } as never);
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    // Each runRoleAgent invocation reuses the same autonomyArgs object via the
+    // mock, so use a fresh object per invocation to capture per-launch state.
+    const t1Autonomy = {
+      model: 'gpt-5.4',
+      autonomyProfile: 'artifact-author' as const,
+      allowedDirs: [],
+      disallowTempDir: true,
+    };
+    const t2Autonomy = {
+      model: 'gpt-5.4',
+      autonomyProfile: 'artifact-author' as const,
+      allowedDirs: [],
+      disallowTempDir: true,
+    };
+
+    mockedResolveAutonomyProfile.mockReturnValueOnce(t1Autonomy);
+    await runRoleAgent({
+      agentId: 'alice',
+      taskId: 'task-A',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    });
+
+    mockedResolveAutonomyProfile.mockReturnValueOnce(t2Autonomy);
+    await runRoleAgent({
+      agentId: 'alice',
+      taskId: 'task-B',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    });
+
+    // T1 sees only task-A's subtree.
+    expect(t1Autonomy.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-A');
+    expect(t1Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace/tasks/task-B');
+    expect(t1Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace');
+
+    // T2 sees only task-B's subtree.
+    expect(t2Autonomy.allowedDirs).toContain('/repo/AgentWorkSpace/tasks/task-B');
+    expect(t2Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace/tasks/task-A');
+    expect(t2Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace');
+
+    // Both share the read-mostly roots (templates, qmd).
+    for (const shared of [
+      '/repo/AgentWorkSpace/templates',
+      '/repo/AgentWorkSpace/qmd',
+    ]) {
+      expect(t1Autonomy.allowedDirs).toContain(shared);
+      expect(t2Autonomy.allowedDirs).toContain(shared);
+    }
+
+    // pendingitems is NOT a universal grant — it must come from the per-profile
+    // allowed_dirs in registry.json (currently only product-manager declares it).
+    // The mock here returns Alice's profile without allowed_dirs, so neither
+    // launch should see pendingitems via the universal catch-all.
+    expect(t1Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace/pendingitems');
+    expect(t2Autonomy.allowedDirs).not.toContain('/repo/AgentWorkSpace/pendingitems');
   });
 
   it('launches Dalton from the selected monolith focus subfolder when present', async () => {
@@ -462,8 +588,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     } as never);
     mockedExistsSync.mockImplementation((candidate: string) => candidate === '/ctx/mono/services/sink');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -478,7 +604,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       skipWorkflowValidation: true,
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
     expect(launchOpts.cwd).toBe('/ctx/mono/services/sink');
     expect(autonomyArgs.allowedDirs).toEqual([
@@ -519,8 +645,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     } as never);
     mockedExistsSync.mockImplementation((candidate: string) => candidate === '/ctx/mono/services/sink');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -535,7 +661,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       skipWorkflowValidation: true,
     });
 
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
     expect(launchOpts.cwd).toBe('/ctx/mono/services/sink');
   });
@@ -550,7 +676,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
-    expect(mockedLaunchCopilot).not.toHaveBeenCalled();
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
   it('fails closed when dalton-verify cannot resolve an authoritative selected primary boundary', async () => {
@@ -564,7 +690,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
-    expect(mockedLaunchCopilot).not.toHaveBeenCalled();
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
   it('limits dalton-verify TaskSail visibility to the staged verification temp dir', async () => {
@@ -590,8 +716,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -640,7 +766,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     })).rejects.toThrow(
       'Cannot launch agent "dalton": selected monolith focus subfolder "services/sink" does not exist at "/ctx/mono/services/sink".',
     );
-    expect(mockedLaunchCopilot).not.toHaveBeenCalled();
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
   it('fails closed when the parent directory for a Deep Focus file target is missing on disk', async () => {
@@ -668,7 +794,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     })).rejects.toThrow(
       'Cannot launch agent "dalton": parent directory for selected focus file "services/sink/index.ts" does not exist at "/ctx/mono/services/sink".',
     );
-    expect(mockedLaunchCopilot).not.toHaveBeenCalled();
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
   it('fails when the Dalton confinement retry exits non-zero', async () => {
@@ -699,8 +825,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
     });
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -776,10 +902,10 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       .mockImplementationOnce(() => {
         throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
       })
-      .mockImplementationOnce(() => undefined);
+      .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -805,17 +931,23 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       agentId: 'dalton',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Fix the boundary mistake and finish the assigned slice.'),
       ]),
     );
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('/ctx/shared-lib/src/leak.ts'),
+      ]),
+    );
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
+      expect.arrayContaining([
+        '-p',
+        expect.stringContaining('COPILOT_WRITABLE_ROOTS_JSON writable roots'),
       ]),
     );
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
@@ -856,10 +988,10 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       .mockImplementationOnce(() => {
         throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
       })
-      .mockImplementationOnce(() => undefined);
+      .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -885,8 +1017,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       agentId: 'dalton-verify',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Fix the boundary mistake and finish the assigned slice.'),
@@ -928,8 +1060,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         throw new DaltonConfinementError('retry still out-of-bound', ['/ctx/shared-lib/src/leak.ts']);
       });
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -952,13 +1084,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       skipWorkflowValidation: true,
     })).rejects.toThrow('retry still out-of-bound');
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
       '/repo/.platform-state/runtime/guardrails/dalton.json',
       expect.objectContaining({
         status: 'failed',
         termination_reason: 'confinement-violation',
         violation_paths: ['/ctx/shared-lib/src/leak.ts'],
+        writable_roots: [],
+        readonly_context_roots: [],
       }),
     );
   });

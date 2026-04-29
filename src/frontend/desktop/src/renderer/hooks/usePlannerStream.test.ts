@@ -83,7 +83,7 @@ describe('usePlannerStream', () => {
 
     act(() => {
       subscribedCallback!({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false });
-      subscribedCallback!({ eventType: 'planner.session.updated', brokerStatus: 'completed', turnId: 'turn-1', done: false, copilotSessionId: 'session-1' });
+      subscribedCallback!({ eventType: 'planner.session.updated', brokerStatus: 'completed', turnId: 'turn-1', done: false, cliSessionId: 'session-1' });
       subscribedCallback!({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true });
     });
 

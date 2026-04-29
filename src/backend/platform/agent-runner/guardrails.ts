@@ -1,12 +1,12 @@
-import { ensureDir, writeTextFile, resolvePaths } from '../core/index.js';
+import { ensureDir, writeTextFile, resolvePaths, isMissingPathError } from '../core/index.js';
 import type { AgentId, PythonResult } from '../core/index.js';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { glob } from 'node:fs/promises';
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { computeRuntimeFactsSourceSignature, writeRuntimeWorkflowFacts } from './runtimeFacts.js';
 import { evaluateWorkflowPolicy } from '../workflow-policy/index.js';
 import type { PolicyValidationMode } from '../workflow-policy/index.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 interface PolicyCacheEntry {
   key: string;
@@ -24,12 +24,19 @@ async function stamp(filePath: string): Promise<string> {
   }
 }
 
-async function listGlob(pattern: string): Promise<string[]> {
-  const results: string[] = [];
-  for await (const entry of glob(pattern)) {
-    results.push(entry);
+async function listJsonFiles(dirPath: string): Promise<string[]> {
+  try {
+    const entries = await readdir(dirPath);
+    return entries
+      .filter((entry) => entry.endsWith('.json'))
+      .map((entry) => path.join(dirPath, entry))
+      .sort((a, b) => a.localeCompare(b));
+  } catch (err) {
+    if (isMissingPathError(err)) {
+      return [];
+    }
+    throw err;
   }
-  return results.sort((a, b) => a.localeCompare(b));
 }
 
 async function computeRuntimePolicyStateKey(options: {
@@ -49,12 +56,12 @@ async function computeRuntimePolicyStateKey(options: {
     implStepsDir: options.implStepsDir,
   });
   const [conventionsFiles, guardrailFiles, roleSessionFiles] = await Promise.all([
-    listGlob(path.join(taskRuntime, 'conventions', '*.json')),
-    listGlob(path.join(taskRuntime, 'guardrails', '*.json')),
-    listGlob(path.join(taskRuntime, 'role-sessions', '*.json')),
+    listJsonFiles(path.join(taskRuntime, 'conventions')),
+    listJsonFiles(path.join(taskRuntime, 'guardrails')),
+    listJsonFiles(path.join(taskRuntime, 'role-sessions')),
   ]);
   const tracked = [
-    path.join(options.repoRoot, '.github', 'agents', 'registry.json'),
+    path.join(options.repoRoot, getActiveProvider(options.repoRoot).agentConfigPaths().registry),
     ...roleSessionFiles,
     ...conventionsFiles.filter((f) => !f.endsWith('/testing-infrastructure.json')),
     ...guardrailFiles.filter((f) => !f.endsWith('/testing-skip.json')),

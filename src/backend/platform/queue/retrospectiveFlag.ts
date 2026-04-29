@@ -111,6 +111,7 @@ async function writeCounter(
 function incrementCounter(
   state: CounterPayload,
   contextPackId: string,
+  taskId?: string,
 ): CounterPayload {
   const next = { ...state };
   next.completed_count = (next.completed_count ?? 0) + 1;
@@ -120,7 +121,49 @@ function incrementCounter(
   }
   next.schema_version = SCHEMA_VERSION;
   next.context_pack_id = contextPackId;
+  if (taskId) {
+    const cycleTaskIds = Array.isArray(next.cycle_task_ids)
+      ? [...next.cycle_task_ids, taskId]
+      : [taskId];
+    next.last_archived_task_id = taskId;
+    next.last_archived_at = new Date().toISOString();
+    next.cycle_task_ids = cycleTaskIds.slice(-RETROSPECTIVE_CYCLE_LENGTH);
+  }
   return next;
+}
+
+function shouldIncrementCounterForTask(state: CounterPayload, taskId?: string): boolean {
+  if (!taskId) {
+    return true;
+  }
+  if (state.last_archived_task_id === taskId) {
+    return false;
+  }
+  return !Array.isArray(state.cycle_task_ids) || !state.cycle_task_ids.includes(taskId);
+}
+
+function retrospectiveRequiredForTask(
+  state: CounterPayload,
+  taskId: string | undefined,
+  willIncrement: boolean,
+): boolean {
+  if (!taskId || willIncrement) {
+    return isRetrospectiveRequiredForCompletedCount(state.completed_count);
+  }
+
+  if (state.last_archived_task_id !== taskId) {
+    return false;
+  }
+
+  // Duplicate recovery after the archive writer already counted this task.
+  // Reconstruct the pre-increment position so label sync remains correct
+  // without mutating the counter a second time.
+  if (state.completed_count === 0 && state.cycle_count > 0) {
+    return true;
+  }
+  return isRetrospectiveRequiredForCompletedCount(
+    Math.max(0, state.completed_count - 1),
+  );
 }
 
 // ── Public read-only query (no lock — caller must serialize externally) ────
@@ -167,6 +210,7 @@ export async function syncRetrospectiveRequiredMetadata(options: {
   repoRoot: string;
   handoffsDir: string;
   contextPackDir?: string;
+  taskId?: string;
 }): Promise<void> {
   const retrospectivePath = path.join(options.handoffsDir, 'retrospective-input.md');
   const content = await readTextFile(retrospectivePath);
@@ -195,9 +239,13 @@ export async function syncRetrospectiveRequiredMetadata(options: {
   try {
     // F2 lock scope: read → decide → increment → write held atomically
     const state = await readCounter(counterPath, contextPackId);
-    const required = isRetrospectiveRequiredForCompletedCount(state.completed_count);
-    const nextState = incrementCounter(state, contextPackId);
-    await writeCounter(counterPath, nextState);
+    const taskId = options.taskId;
+    const shouldIncrement = shouldIncrementCounterForTask(state, taskId);
+    const required = retrospectiveRequiredForTask(state, taskId, shouldIncrement);
+    if (shouldIncrement) {
+      const nextState = incrementCounter(state, contextPackId, taskId);
+      await writeCounter(counterPath, nextState);
+    }
 
     const updated = setLabelValue(
       content,

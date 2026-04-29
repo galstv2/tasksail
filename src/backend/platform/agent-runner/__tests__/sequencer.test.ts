@@ -357,7 +357,7 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('Primary focus path: `services/sink/`');
     expect(prompt).toContain('Your launch CWD is already this folder.');
-    expect(prompt).toContain('implementation changes must stay within the selected focus area.');
+    expect(prompt).toContain('Writable roots define where implementation changes may be made.');
     expect(prompt).toContain('## Implementation Spec');
     expect(prompt).toContain('Honor the contract.');
     expect(prompt).toContain('## Implementation Slices (1 total)');

@@ -34,9 +34,8 @@ class BaseContainerRuntime implements ContainerRuntime {
   async composeUp(options: ComposeOptions): Promise<void> {
     const cmd = buildComposeCommand(this.backend, 'up', {
       ...options,
+      ...this.resolveEngineOptions(options),
       detach: options.detach !== false,
-      engineHost: options.engineHost ?? this.engineHost,
-      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
     });
     await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
@@ -44,8 +43,7 @@ class BaseContainerRuntime implements ContainerRuntime {
   async composeDown(options: ComposeOptions): Promise<void> {
     const cmd = buildComposeCommand(this.backend, 'down', {
       ...options,
-      engineHost: options.engineHost ?? this.engineHost,
-      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
+      ...this.resolveEngineOptions(options),
     });
     await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
   }
@@ -57,9 +55,22 @@ class BaseContainerRuntime implements ContainerRuntime {
   async bootstrap(options: BootstrapOptions): Promise<void> {
     await bootstrapServices(this, {
       ...options,
-      engineHost: options.engineHost ?? this.engineHost,
-      wslDistro: 'wslDistro' in options ? options.wslDistro : this.wslDistro,
+      ...this.resolveEngineOptions(options),
     });
+  }
+
+  /**
+   * Merge per-call engine-host/distro overrides with the runtime defaults.
+   * `wslDistro` uses an `in` check because `null` is a meaningful explicit
+   * value (no distro), distinct from `undefined` (caller didn't say).
+   */
+  private resolveEngineOptions(
+    options: ComposeOptions | BootstrapOptions,
+  ): { engineHost: ContainerEngineHost; wslDistro: string | null } {
+    return {
+      engineHost: options.engineHost ?? this.engineHost,
+      wslDistro: 'wslDistro' in options ? options.wslDistro ?? null : this.wslDistro,
+    };
   }
 
   async seedIndex(options: SeedOptions): Promise<void> {

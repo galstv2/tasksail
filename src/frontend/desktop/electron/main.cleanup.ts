@@ -22,6 +22,7 @@ import {
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 import { REPO_ROOT } from './paths';
 
 // ── Path constants ──────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ const TASK_REGISTRY_PATH = join(PLATFORM_STATE, 'task-registry.json');
 
 const QUEUE_ORDER_PATH = join(QUEUE_STATE, 'queue-order.json');
 const ROLE_SESSIONS_DIR = join(RUNTIME_STATE, 'role-sessions');
-const COPILOT_HOME_DIR = join(RUNTIME_STATE, 'copilot-home');
+const CLI_HOME_DIR = join(RUNTIME_STATE, getActiveProvider(REPO_ROOT).homeDirName());
 
 const TASKS_DIR = join(AGENT_WORKSPACE, 'tasks');
 const RUNTIME_TASKS_DIR = join(RUNTIME_STATE, 'tasks');
@@ -54,21 +55,18 @@ const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
  *
  * 1. Kill active agent PIDs (from role-session receipts — legacy singleton + per-task)
  * 2. Tear down every worktree unconditionally
- * 2b. Compose-down every `tasksail-*` project (§6.3B quit-time prefix scan)
  * 3. Move pending task files back to dropbox
  * 4. Update task registry: pending/active → open
  * 5. Reset .active-items/ directory
  * 6. Clear handoff artifacts and ImplementationSteps (legacy singleton defensive no-ops)
  * 7. Reset pipeline state (queue-order.json only — per-task paths wiped in step 8)
- * 8. Clean up ephemeral runtime dirs (copilot-home, role-sessions, runtime/tasks/)
- * 9. Delete port-allocations table and lock
+ * 8. Clean up ephemeral runtime dirs (CLI home, role-sessions, runtime/tasks/)
  */
 export function cleanupWorkspaceOnQuit(): void {
   // Each step is isolated so one failure does not skip subsequent steps.
   const steps = [
     killAgentPids,               // step 1
     tearDownAllWorktrees,        // step 2
-    composeDownTaskScopedProjects, // step 2b (§6.3B)
     movePendingFilesToDropbox,   // step 3
     resetTaskRegistry,           // step 4
     removeActiveItemMarker,      // step 5
@@ -76,7 +74,6 @@ export function cleanupWorkspaceOnQuit(): void {
     () => clearDirKeepGitkeep(IMPL_STEPS_DIR), // step 6b
     resetPipelineState,          // step 7
     clearEphemeralRuntime,       // step 8
-    clearPortAllocations,        // step 9
   ];
   for (const step of steps) {
     try { step(); } catch { /* best-effort */ }
@@ -236,65 +233,6 @@ function tearDownAllWorktrees(): void {
 }
 
 /**
- * §6.3B quit-time compose teardown.
- *
- * Enumerate every compose project whose name starts with `tasksail-` and run
- * `<backend> compose -p <project> down` on each. Runs fully synchronously via
- * execFileSync because Electron's before-quit cannot await async work.
- *
- * Backend is read from `.platform-state/platform.json` (container_runtime);
- * defaults to `docker` if the config is unreadable. If the configured backend
- * is not installed, the whole step is a silent no-op.
- */
-function composeDownTaskScopedProjects(): void {
-  const backend = readContainerBackendSync();
-
-  let projectsRaw: string;
-  try {
-    projectsRaw = execFileSync(
-      backend,
-      ['compose', 'ls', '--all', '--format', 'json'],
-      // timeout: 2s — if the docker daemon socket hangs (stopped daemon, CI
-      // env, test sandbox) execFileSync would otherwise block the entire
-      // before-quit path. 2s is well under Vitest's 5s default timeout and
-      // short enough that operators quitting the app never feel it.
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 2000 },
-    );
-  } catch {
-    return; // Compose CLI missing, hung, or failed — nothing to reap.
-  }
-
-  let projects: unknown;
-  try {
-    projects = JSON.parse(projectsRaw);
-  } catch {
-    return;
-  }
-  if (!Array.isArray(projects)) return;
-
-  for (const raw of projects) {
-    const name =
-      raw && typeof raw === 'object' && 'Name' in raw && typeof (raw as { Name: unknown }).Name === 'string'
-        ? (raw as { Name: string }).Name
-        : undefined;
-    if (!name || !name.startsWith('tasksail-')) continue;
-    try {
-      execFileSync(backend, ['compose', '-p', name, 'down'], { stdio: 'ignore', timeout: 2000 });
-    } catch { /* best-effort per project (includes timeout) */ }
-  }
-}
-
-function readContainerBackendSync(): 'docker' | 'podman' {
-  try {
-    const raw = readFileSync(join(PLATFORM_STATE, 'platform.json'), 'utf-8');
-    const cfg = JSON.parse(raw) as { container_runtime?: unknown };
-    return cfg.container_runtime === 'podman' ? 'podman' : 'docker';
-  } catch {
-    return 'docker';
-  }
-}
-
-/**
  * Move every visible .md file from pendingitems/ back to dropbox/.
  * Strips the queue timestamp prefix so the filename reverts to its original form.
  */
@@ -399,13 +337,13 @@ function resetPipelineState(): void {
 }
 
 /**
- * Clear copilot-home ephemeral directories, legacy role-session receipts,
+ * Clear provider CLI-home ephemeral directories, legacy role-session receipts,
  * and the per-task runtime tree (.platform-state/runtime/tasks/).
  */
 function clearEphemeralRuntime(): void {
-  if (existsSync(COPILOT_HOME_DIR)) {
-    for (const entry of readdirSync(COPILOT_HOME_DIR)) {
-      try { rmSync(join(COPILOT_HOME_DIR, entry), { recursive: true, force: true }); } catch { /* skip */ }
+  if (existsSync(CLI_HOME_DIR)) {
+    for (const entry of readdirSync(CLI_HOME_DIR)) {
+      try { rmSync(join(CLI_HOME_DIR, entry), { recursive: true, force: true }); } catch { /* skip */ }
     }
   }
 
@@ -421,11 +359,6 @@ function clearEphemeralRuntime(): void {
   rmSync(RUNTIME_TASKS_DIR, { recursive: true, force: true });
 }
 
-/** Delete port-allocations table and lock. Next session re-creates on first allocate. */
-function clearPortAllocations(): void {
-  rmSync(join(RUNTIME_STATE, 'port-allocations.json'), { force: true });
-  rmSync(join(RUNTIME_STATE, 'port-allocations.json.lock'), { recursive: true, force: true });
-}
 
 /** Remove all files in a directory except .gitkeep. */
 function clearDirKeepGitkeep(dir: string): void {

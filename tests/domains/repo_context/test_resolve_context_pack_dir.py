@@ -16,17 +16,32 @@ class TestResolveContextPackDir:
         )
         assert str(result) == "/workspace/AgentWorkSpace/context-pack"
 
-    def test_mount_context_pack_accepted(self) -> None:
+    def test_context_pack_roots_mount_accepted(self) -> None:
         result = resolve_context_pack_dir(
-            self.workspace, "/mnt/context-pack"
+            self.workspace, "/context-pack-roots/0"
         )
-        assert str(result) == "/mnt/context-pack"
+        assert str(result) == "/context-pack-roots/0"
 
-    def test_mount_context_pack_subpath_accepted(self) -> None:
+    def test_context_pack_roots_subpath_accepted(self) -> None:
         result = resolve_context_pack_dir(
-            self.workspace, "/mnt/context-pack/sub/dir"
+            self.workspace, "/context-pack-roots/0/sub/dir"
         )
-        assert str(result) == "/mnt/context-pack/sub/dir"
+        assert str(result) == "/context-pack-roots/0/sub/dir"
+
+    def test_context_pack_roots_requires_index_segment(self) -> None:
+        with pytest.raises(ValueError, match="not under any allowed mount root"):
+            resolve_context_pack_dir(self.workspace, "/context-pack-roots")
+
+    def test_context_pack_roots_requires_numeric_index(self) -> None:
+        with pytest.raises(ValueError, match="not under any allowed mount root"):
+            resolve_context_pack_dir(
+                self.workspace,
+                "/context-pack-roots/not-an-index/sub/dir",
+            )
+
+    def test_legacy_mount_context_pack_rejected(self) -> None:
+        with pytest.raises(ValueError, match="not under any allowed mount root"):
+            resolve_context_pack_dir(self.workspace, "/mnt/context-pack")
 
     def test_relative_path_rejected(self) -> None:
         with pytest.raises(ValueError, match="absolute POSIX path"):

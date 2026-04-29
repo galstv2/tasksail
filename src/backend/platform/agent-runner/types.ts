@@ -1,6 +1,7 @@
 import type { AgentId, AutonomyProfile } from '../core/index.js';
+export type { AutonomyIntent } from '../cli-provider/index.js';
 
-/** Registry-backed agent profile resolved from .github/agents/registry.json. */
+/** Registry-backed agent profile resolved from the active provider registry. */
 export interface AgentProfile {
   id: AgentId;
   /** Registry agent_id (e.g. "software-engineer"). */
@@ -49,16 +50,7 @@ export interface PipelineOptions {
   repoRoot?: string;
 }
 
-/** Assembled copilot CLI arguments for agent invocation. */
-export interface CopilotArgs {
-  model: string;
-  allowTools: string[];
-  denyTools: string[];
-  allowedDirs: string[];
-  additionalFlags: string[];
-}
-
-/** Raw registry JSON shape as found in .github/agents/registry.json. */
+/** Raw registry JSON shape as found in the active provider registry. */
 export interface RegistryJson {
   schema_version: number;
   default_wall_clock_timeout_s: number;
@@ -84,7 +76,7 @@ export interface RegistryAgentEntry {
   deny_rules?: string[];
 }
 
-/** Result from launching a copilot agent process. */
+/** Result from launching an agent CLI process. */
 export interface AgentRunResult {
   exitCode: number;
   agentId: AgentId;

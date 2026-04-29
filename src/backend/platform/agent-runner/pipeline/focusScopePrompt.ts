@@ -1,10 +1,17 @@
-import type { FocusTargetKind, NormalizedSupportTarget } from '../../context-pack/deepFocusNormalization.js';
+import type {
+  FocusTargetKind,
+  NormalizedSupportTarget,
+  ReadonlyContextRoot,
+  WritableRoot,
+} from '../../context-pack/deepFocusNormalization.js';
 
 export interface FocusScopePromptOptions {
   primaryFocusRelativePath?: string;
   primaryFocusTargetKind?: FocusTargetKind;
   testTarget?: { path: string; kind: FocusTargetKind };
   supportTargets?: NormalizedSupportTarget[];
+  writableRoots?: WritableRoot[];
+  readonlyContextRoots?: ReadonlyContextRoot[];
   estateType?: string;
   launchContextLine?: string;
   scopeLine?: string;
@@ -12,53 +19,67 @@ export interface FocusScopePromptOptions {
 
 /**
  * Build the shared focus scope block for runtime prompt overrides.
- * Returns undefined when no focus path is active so existing no-focus prompt
- * behavior remains unchanged.
+ * Returns undefined when no focus path or writable/read-only root metadata is
+ * active so existing no-focus prompt behavior remains unchanged.
  */
 export function buildFocusScopeBlock(
   options: FocusScopePromptOptions = {},
 ): string | undefined {
-  const normalizedPath = options.primaryFocusRelativePath?.trim();
-  if (!normalizedPath) {
+  const normalizedPath = options.primaryFocusRelativePath?.trim() ?? '';
+  const hasFocusedBoundary = normalizedPath
+    || (options.writableRoots?.length ?? 0) > 0
+    || (options.readonlyContextRoots?.length ?? 0) > 0;
+  if (!hasFocusedBoundary) {
     return undefined;
   }
 
   const focusKind = options.primaryFocusTargetKind ?? 'directory';
+  const writableRoots = options.writableRoots ?? derivePromptWritableRoots(normalizedPath, focusKind, options.testTarget);
   const distributedEstate = options.estateType?.startsWith('distributed') ?? false;
   const launchContextLine = options.launchContextLine
     ?? 'Your launch CWD is already this folder.';
   const scopeLine = options.scopeLine
-    ?? 'Sibling folders may be read for context, but implementation changes must stay within the selected focus area.';
+    ?? 'Primary focus is where to start. Writable roots define where implementation changes may be made.';
   const parts = [
     distributedEstate ? '## Deep Focus Scope' : '## Monolith Focus Scope',
     '',
     distributedEstate
-      ? 'Deep Focus is active for this distributed repository selection.'
+      ? 'Focused implementation scope is active for this distributed repository selection.'
       : 'You are working inside a monolith repository.',
     `${focusKind === 'file' ? 'Primary focus file' : 'Primary focus path'}: \`${formatTargetPath(normalizedPath, focusKind)}\``,
     launchContextLine,
     scopeLine,
+    'Write only inside the writable implementation roots. Support/read-only roots are reference context and must not be edited.',
   ];
 
-  if (options.testTarget) {
-    parts.push(
-      `Test target: \`${formatTargetPath(options.testTarget.path, options.testTarget.kind)}\` — you may create and modify test files here.`,
-    );
+  if (writableRoots.length > 0) {
+    parts.push('', 'Writable implementation roots:');
+    for (const root of writableRoots) {
+      parts.push(`- \`${formatTargetPath(root.path, root.kind)}\` (${formatRootReason(root.reason)})`);
+    }
+  } else {
+    parts.push('', 'Writable implementation roots:', '- (none)');
   }
 
-  if ((options.supportTargets?.length ?? 0) > 0) {
-    parts.push('', '### Support context');
+  parts.push('', 'Read-only context roots:');
+  if ((options.readonlyContextRoots?.length ?? 0) > 0) {
+    for (const root of options.readonlyContextRoots ?? []) {
+      parts.push(`- \`${formatTargetPath(root.path, root.kind)}\` (${formatRootReason(root.reason)})`);
+    }
+  } else if ((options.supportTargets?.length ?? 0) > 0) {
     for (const target of options.supportTargets ?? []) {
       parts.push(`- ${formatSupportTarget(target, normalizedPath, focusKind, options.testTarget)}`);
     }
+  } else {
+    parts.push('- (none)');
   }
 
   return parts.join('\n');
 }
 
 /**
- * Append the shared focus scope block to a prompt parts array when a focus path
- * is active. No-op when no path is set.
+ * Append the shared focus scope block to a prompt parts array when focus or
+ * writable-root metadata is active.
  */
 export function appendFocusBlock(
   parts: string[],
@@ -99,4 +120,43 @@ function formatTargetPath(targetPath: string, kind: FocusTargetKind): string {
   return kind === 'directory' && !trimmed.endsWith('/')
     ? `${trimmed}/`
     : trimmed;
+}
+
+function formatRootReason(reason: WritableRoot['reason'] | ReadonlyContextRoot['reason']): string {
+  return reason.replace(/-/g, ' ');
+}
+
+function derivePromptWritableRoots(
+  primaryPath: string,
+  primaryKind: FocusTargetKind,
+  testTarget?: { path: string; kind: FocusTargetKind },
+): WritableRoot[] {
+  const roots: WritableRoot[] = [];
+  if (primaryKind === 'file') {
+    roots.push({
+      path: parentRelativePath(primaryPath),
+      kind: 'directory',
+      reason: 'primary-focus-parent',
+    });
+  } else {
+    roots.push({
+      path: primaryPath,
+      kind: 'directory',
+      reason: 'selected-primary',
+    });
+  }
+  if (testTarget) {
+    roots.push({
+      path: testTarget.path,
+      kind: testTarget.kind,
+      reason: 'test-target',
+    });
+  }
+  return roots;
+}
+
+function parentRelativePath(relativePath: string): string {
+  const parts = relativePath.split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
 }

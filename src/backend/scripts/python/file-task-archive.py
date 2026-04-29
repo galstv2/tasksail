@@ -156,6 +156,18 @@ def main(argv: list[str] | None = None) -> int:
 
             _step("task_summary_md", _write_task_summary_md)
 
+            # Agent-facing mirror: agents run with CWD confined to AgentWorkSpace/,
+            # so they cannot read the canonical archive that lives under contextpacks/.
+            # We copy archive.json + archive.md into
+            # AgentWorkSpace/qmd/context-packs/<pack>/archive/tasks/<year>/ at closeout.
+            #
+            # This step (plus the global-history mirror above at lines ~124-133) is the
+            # ONLY writer of AgentWorkSpace/qmd/context-packs/. Live seeding does not
+            # touch it. There is no watcher or repair pass — if the directory is deleted
+            # the mirror stays empty until the next task completes. The mirror's surface
+            # is intentionally narrow: archive/tasks/ and retrospectives/history/ get
+            # mirrored; estate/, canonical/, indexes/, and operational/ stay
+            # canonical-only under contextpacks/<pack>/qmd/context-packs/<pack>/.
             def _write_agent_mirrors() -> None:
                 agent_qmd_root = repo_root / "AgentWorkSpace" / "qmd" / "context-packs" / context_pack_dir.name
                 _agent_task_dir = (

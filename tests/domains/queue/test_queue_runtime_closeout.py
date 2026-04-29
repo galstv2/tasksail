@@ -25,7 +25,11 @@ class QueueRuntimeCloseoutTests(QueueRuntimeIntegrationTestBase):
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("queue.retrospective-required", completed.stdout)
-        self.assertTrue((workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").exists())
+        self.assertTrue(
+            (
+                workspace / "AgentWorkSpace" / "pendingitems" / ".active-items" / "CAP-9000"
+            ).exists()
+        )
 
     def test_real_queue_closeout_succeeds_with_valid_retrospective(
         self,
@@ -43,7 +47,9 @@ class QueueRuntimeCloseoutTests(QueueRuntimeIntegrationTestBase):
 
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
         self.assertFalse(
-            (workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").exists(),
+            (
+                workspace / "AgentWorkSpace" / "pendingitems" / ".active-items" / "CAP-9000"
+            ).exists(),
         )
 
     def test_real_queue_closeout_writes_retrospective_archive(self) -> None:
@@ -194,7 +200,11 @@ class QueueRuntimeCloseoutTests(QueueRuntimeIntegrationTestBase):
             "Failed to file the completed task into QMD.",
             completed.stderr,
         )
-        self.assertTrue((workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").exists())
+        self.assertTrue(
+            (
+                workspace / "AgentWorkSpace" / "pendingitems" / ".active-items" / "CAP-9000"
+            ).exists()
+        )
         self.assertFalse(
             self.retrospective_markdown_path(context_pack_dir)
             .with_name("retrospective.md.record.json")

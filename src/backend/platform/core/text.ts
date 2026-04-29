@@ -74,7 +74,7 @@ export function extractMarkdownSection(
   sectionName: string,
 ): string {
   const regex = new RegExp(
-    `^## ${escapeRegExp(sectionName)}\\s*\\r?\\n([\\s\\S]*?)(?=^## |\\Z)`,
+    `^## ${escapeRegExp(sectionName)}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`,
     'm',
   );
   const match = content.match(regex);

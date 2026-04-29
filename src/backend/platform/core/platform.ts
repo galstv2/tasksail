@@ -4,7 +4,9 @@ import path from 'node:path';
 
 import type { ContainerEngineHost } from './types.js';
 
-/** Keep direct process.platform reads centralized in this module. */
+// Keep direct process.platform reads centralized in this module — callers
+// should use the predicates below rather than touching process.platform.
+
 /** True when running on native Windows (not WSL). */
 export function isWindowsPlatform(): boolean {
   return process.platform === 'win32';
@@ -64,7 +66,12 @@ export function windowsVolumeRoot(p: string): string | null {
   return null;
 }
 
-const _winFsTypeCache = new Map<string, string | null>();
+/** Lowercased filesystem name as reported by `fsutil fsinfo volumeinfo`. */
+export type WindowsFilesystemName = 'ntfs' | 'refs' | 'exfat' | string;
+
+const WINDOWS_REFS_FILESYSTEM: WindowsFilesystemName = 'refs';
+
+const _winFsTypeCache = new Map<string, WindowsFilesystemName | null>();
 
 /**
  * Probe the filesystem type of a Windows volume root via `fsutil fsinfo
@@ -76,10 +83,11 @@ const _winFsTypeCache = new Map<string, string | null>();
  */
 export function windowsVolumeFilesystemType(
   volumeRoot: string,
-): string | null {
+): WindowsFilesystemName | null {
   if (!isWindowsPlatform()) return null;
-  if (_winFsTypeCache.has(volumeRoot)) return _winFsTypeCache.get(volumeRoot)!;
-  let fsName: string | null = null;
+  // Cached value may legitimately be null (fsutil failure) — preserve null.
+  if (_winFsTypeCache.has(volumeRoot)) return _winFsTypeCache.get(volumeRoot) ?? null;
+  let fsName: WindowsFilesystemName | null = null;
   try {
     const out = execFileSync('fsutil', ['fsinfo', 'volumeinfo', volumeRoot], {
       encoding: 'utf-8',
@@ -105,7 +113,7 @@ export function windowsVolumesShareReFS(
   const srcRoot = windowsVolumeRoot(srcPath);
   const dstRoot = windowsVolumeRoot(dstPath);
   if (!srcRoot || !dstRoot || srcRoot !== dstRoot) return false;
-  return windowsVolumeFilesystemType(srcRoot) === 'refs';
+  return windowsVolumeFilesystemType(srcRoot) === WINDOWS_REFS_FILESYSTEM;
 }
 
 let _isDockerDesktop: boolean | undefined;
@@ -140,6 +148,7 @@ export function _resetPlatformDetectionForTests(): void {
   _isWSL = undefined;
   _isDockerDesktop = undefined;
   _winFsTypeCache.clear();
+  _engineHostPathCache.clear();
 }
 
 export interface EngineHostPathOptions {
@@ -147,9 +156,24 @@ export interface EngineHostPathOptions {
   wslDistro?: string | null;
 }
 
+const _engineHostPathCache = new Map<string, string>();
+
 export function toEngineHostPath(
   hostPath: string,
   options: EngineHostPathOptions = {},
+): string {
+  const cacheKey = `${options.engineHost ?? ''}\0${options.wslDistro ?? ''}\0${hostPath}`;
+  const cached = _engineHostPathCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const translated = translateEngineHostPath(hostPath, options);
+  _engineHostPathCache.set(cacheKey, translated);
+  return translated;
+}
+
+function translateEngineHostPath(
+  hostPath: string,
+  options: EngineHostPathOptions,
 ): string {
   if (options.engineHost === 'wsl') {
     if (!options.wslDistro) {

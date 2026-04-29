@@ -149,7 +149,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
             <>
               <p className="agent-config__intro">
                 These are the LLM models available to all agents. Display Name is what you see
-                in dropdowns. Model ID is the exact identifier the pipeline sends to Copilot.
+                in dropdowns. Model ID is the exact identifier the pipeline sends to the active agent CLI.
               </p>
               {models.length === 0 ? (
                 <div className="agent-config__empty">No models available yet.</div>

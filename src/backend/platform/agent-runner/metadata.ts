@@ -6,6 +6,7 @@ import type {
   RegistryJson,
   RegistryAgentEntry,
 } from './types.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 /**
  * Mapping from human-friendly AgentId to registry agent_id.
@@ -35,12 +36,12 @@ export function fromRegistryId(registryId: string): AgentId | undefined {
 }
 
 /**
- * Load and parse .github/agents/registry.json.
+ * Load and parse the active provider agent registry.
  */
 export async function loadAgentRegistry(
   repoRoot: string,
 ): Promise<RegistryJson> {
-  const registryPath = path.join(repoRoot, '.github', 'agents', 'registry.json');
+  const registryPath = path.join(repoRoot, getActiveProvider(repoRoot).agentConfigPaths().registry);
   const content = await readTextFile(registryPath);
   if (content === undefined) {
     throw new Error(`Agent registry not found at ${registryPath}`);
@@ -94,7 +95,7 @@ export function resolveAgentProfile(
 /**
  * Resolve the active model for an agent invocation.
  * Registry-authoritative: derives the model exclusively from profile.requiredModel
- * (which is sourced from .github/agents/registry.json). MUST NOT inherit from
+ * (which is sourced from the active provider registry). MUST NOT inherit from
  * parent process env — env inheritance is a silent-regression vector in parallel
  * task launches.
  * Throws `role-registry-model-missing` if registry entry has no required_model.
@@ -105,7 +106,7 @@ export function resolveActiveModel(
 ): string {
   if (!profile.requiredModel) {
     throw new Error(
-      `role-registry-model-missing: agent "${agentId}" has no required_model in .github/agents/registry.json`,
+      `role-registry-model-missing: agent "${agentId}" has no required_model in active provider registry`,
     );
   }
   return profile.requiredModel;

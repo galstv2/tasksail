@@ -15,12 +15,14 @@ import {
   JSON_HANDOFF_TEMPLATE_SPECS,
   LINEAGE_HANDOFFS,
   LINEAGE_METADATA_LABELS,
+  buildContributionSectionNames,
   SLICE_TEMPLATE_RELATIVE_PATH,
   SLICE_TEMPLATE_SPEC,
   TEMPLATE_SOURCE_PATHS,
   type HandoffSpec,
   type JsonHandoffSpec,
 } from './templateSpecs.js';
+import { RETROSPECTIVE_INPUT_RELATIVE_PATH } from '../models.js';
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.*\S)\s*$/;
 
@@ -37,6 +39,34 @@ function buildLineageTemplateSources(): Set<string> {
 }
 
 const LINEAGE_TEMPLATE_SOURCES = buildLineageTemplateSources();
+
+function withProviderContributionSections(
+  validator: PolicyValidator,
+  relativePath: string,
+  spec: HandoffSpec,
+): HandoffSpec {
+  if (relativePath !== RETROSPECTIVE_INPUT_RELATIVE_PATH) {
+    return spec;
+  }
+
+  const contributionSections = buildContributionSectionNames(Object.values(validator.namedAgentTeam));
+  const actionItemsIndex = spec.sections.indexOf('Action Items');
+  if (actionItemsIndex < 0) {
+    return {
+      ...spec,
+      sections: [...spec.sections, ...contributionSections],
+    };
+  }
+
+  return {
+    ...spec,
+    sections: [
+      ...spec.sections.slice(0, actionItemsIndex + 1),
+      ...contributionSections,
+      ...spec.sections.slice(actionItemsIndex + 1),
+    ],
+  };
+}
 
 function extractHeadings(
   lines: string[],
@@ -149,7 +179,11 @@ export async function evaluateTemplateStructureRules(
   for (const [relativePath, spec] of Object.entries(HANDOFF_TEMPLATE_SPECS)) {
     const sourcePath = TEMPLATE_SOURCE_PATHS[relativePath];
     const validatePath = sourcePath ?? relativePath;
-    await validateMdTemplate(validator, validatePath, spec);
+    await validateMdTemplate(
+      validator,
+      validatePath,
+      withProviderContributionSections(validator, relativePath, spec),
+    );
   }
 
   const sliceTemplateSrc =

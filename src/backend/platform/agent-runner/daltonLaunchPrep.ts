@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
-import type { CopilotArgs, RunRoleAgentOptions } from './types.js';
-import type { CopilotRunSummary } from './processLifecycle.js';
+import type { RunRoleAgentOptions, AutonomyIntent } from './types.js';
+import type { RunSummary } from './processLifecycle.js';
 import { readTextFile } from '../core/io.js';
 import { getErrorMessage } from '../core/index.js';
 import {
@@ -12,6 +12,7 @@ import {
   type ChangedPathsSnapshot,
 } from './confinement.js';
 import { agentErrorWithTails } from './recoveryPasses.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 export function resolveDaltonLaunchCwd(
   focused: FocusedRepoResult,
@@ -52,7 +53,7 @@ export async function prepareDaltonBoundary(
     usesFocusedRepoLaunch: boolean;
     verificationTempAllowedDir?: string;
   },
-  autonomyArgs: CopilotArgs,
+  autonomyArgs: AutonomyIntent,
 ): Promise<{ agentCwd: string; preRunBoundarySnapshot: ChangedPathsSnapshot }> {
   for (const root of focused.visibleRepoRoots) {
     if (!autonomyArgs.allowedDirs.includes(root)) {
@@ -83,16 +84,18 @@ export async function validateDaltonPostRunBoundary(options: {
   platformRepoRoot: string;
   focused: FocusedRepoResult;
   preRunBoundarySnapshot: ChangedPathsSnapshot;
+  agentSpawnedAtMs?: number;
 }): Promise<void> {
   const postRunBoundarySnapshot = await captureChangedPathsSnapshot([
     options.platformRepoRoot,
     ...options.focused.declaredRepoRoots,
   ]);
-  validateDaltonBoundaryChanges({
+  await validateDaltonBoundaryChanges({
     platformRepoRoot: options.platformRepoRoot,
     focused: options.focused,
     before: options.preRunBoundarySnapshot,
     after: postRunBoundarySnapshot,
+    agentSpawnedAtMs: options.agentSpawnedAtMs,
   });
 }
 
@@ -126,14 +129,11 @@ function daltonLaunchAgentLabel(agentId: RunRoleAgentOptions['agentId']): string
     : `Dalton-family agent "${agentId}"`;
 }
 
-function confinementRetryPromptPath(
-  repoRoot: string,
-  agentId: RunRoleAgentOptions['agentId'],
-): string {
+function confinementRetryPromptPath(repoRoot: string, agentId: RunRoleAgentOptions['agentId']): string {
   if (!isDaltonFamilyAgent(agentId)) {
     throw new Error(`Confinement retry prompt is only defined for Dalton-family agents. Got: ${agentId}`);
   }
-  return path.join(repoRoot, '.github', 'copilot', 'prompts', 'execute-task-retry.prompt.md');
+  return path.join(repoRoot, getActiveProvider(repoRoot).resolvePromptPath('execute-task-retry'));
 }
 
 async function resolveConfinementRetryPrompt(
@@ -155,6 +155,7 @@ async function resolveConfinementRetryPrompt(
 function buildDaltonConfinementRetryPrompt(options: {
   basePrompt: string;
   violation: DaltonConfinementError;
+  focused: FocusedRepoResult;
 }): string {
   const sections = [options.basePrompt.trim()];
   if (options.violation.violationPaths.length > 0) {
@@ -167,9 +168,21 @@ function buildDaltonConfinementRetryPrompt(options: {
   sections.push(
     '',
     'Your previous run violated the enforced implementation boundary.',
-    'Remove or repair every out-of-bound change, keep all remaining code edits inside the selected primary repo or primary monolith focus path, then finish the originally assigned slice.',
+    'Remove or repair every out-of-bound change, keep all remaining code edits inside COPILOT_WRITABLE_ROOTS_JSON writable roots, then finish the originally assigned slice.',
+    `Writable roots: ${JSON.stringify(options.focused.writableRoots ?? [])}`,
+    `Read-only context roots: ${JSON.stringify(options.focused.readonlyContextRoots ?? [])}`,
   );
   return sections.join('\n');
+}
+
+function confinementReceiptBoundaryContext(focused: FocusedRepoResult): {
+  writable_roots: FocusedRepoResult['writableRoots'];
+  readonly_context_roots: FocusedRepoResult['readonlyContextRoots'];
+} {
+  return {
+    writable_roots: focused.writableRoots ?? [],
+    readonly_context_roots: focused.readonlyContextRoots ?? [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -182,12 +195,13 @@ export interface ConfinementValidationDeps {
   activeModel: string;
   focused: FocusedRepoResult;
   preRunBoundarySnapshot: ChangedPathsSnapshot;
-  runSummary: CopilotRunSummary;
+  agentSpawnedAtMs?: number;
+  runSummary: RunSummary;
   writeLaunchGuardrailReceipt: (data: Record<string, unknown>) => Promise<void>;
   resetArtifactCompletionCache: () => void;
-  /** Build the retry copilot args from a prompt string. */
+  /** Build the retry agent CLI args from a prompt string. */
   buildRetryArgs: (prompt: string) => {
-    copilotArgs: string[];
+    cliArgs: string[];
     promptAudit: {
       promptPath: string | null;
       promptSource: 'file' | 'override';
@@ -195,9 +209,9 @@ export interface ConfinementValidationDeps {
       effectivePromptSha256: string;
     };
   };
-  /** Run a copilot session and return its summary. */
-  runCopilotSessionForRetry: (args: string[], promptAudit: Record<string, unknown>) => Promise<{
-    runSummary: CopilotRunSummary;
+  /** Run an agent session and return its summary. */
+  runAgentSessionForRetry: (args: string[], promptAudit: Record<string, unknown>) => Promise<{
+    runSummary: RunSummary;
     greedyStopTriggered: boolean;
     sessionReceiptFile: string | null;
   }>;
@@ -217,12 +231,13 @@ export interface ConfinementValidationDeps {
  */
 export async function handleDaltonConfinementValidation(
   deps: ConfinementValidationDeps,
-): Promise<{ runSummary: CopilotRunSummary; exitCode: number } | undefined> {
+): Promise<{ runSummary: RunSummary; exitCode: number } | undefined> {
   try {
     await validateDaltonPostRunBoundary({
       platformRepoRoot: deps.repoRoot,
       focused: deps.focused,
       preRunBoundarySnapshot: deps.preRunBoundarySnapshot,
+      agentSpawnedAtMs: deps.agentSpawnedAtMs,
     });
     return undefined;
   } catch (error: unknown) {
@@ -238,6 +253,7 @@ export async function handleDaltonConfinementValidation(
         stdout_tail: deps.runSummary.stdoutTail,
         stderr_tail: getErrorMessage(error),
         violation_paths: [],
+        ...confinementReceiptBoundaryContext(deps.focused),
       });
       throw error;
     }
@@ -246,10 +262,11 @@ export async function handleDaltonConfinementValidation(
     const retryBuilt = deps.buildRetryArgs(buildDaltonConfinementRetryPrompt({
       basePrompt: retryPrompt.prompt,
       violation: error,
+      focused: deps.focused,
     }));
     deps.setLastPromptAudit(retryBuilt.promptAudit);
-    const retrySession = await deps.runCopilotSessionForRetry(
-      retryBuilt.copilotArgs,
+    const retrySession = await deps.runAgentSessionForRetry(
+      retryBuilt.cliArgs,
       retryBuilt.promptAudit,
     );
     const retryRunSummary = retrySession.runSummary;
@@ -265,6 +282,8 @@ export async function handleDaltonConfinementValidation(
         signal_code: retryRunSummary.signalCode,
         stdout_tail: retryRunSummary.stdoutTail,
         stderr_tail: retryRunSummary.stderrTail,
+        violation_paths: error.violationPaths,
+        ...confinementReceiptBoundaryContext(deps.focused),
       });
       throw agentErrorWithTails(
         `Agent "${deps.agentId}" confinement retry exited with code ${retryRunSummary.exitCode} (${retryRunSummary.terminationReason}).`,
@@ -277,6 +296,7 @@ export async function handleDaltonConfinementValidation(
         platformRepoRoot: deps.repoRoot,
         focused: deps.focused,
         preRunBoundarySnapshot: deps.preRunBoundarySnapshot,
+        agentSpawnedAtMs: deps.agentSpawnedAtMs,
       });
     } catch (retryError: unknown) {
       const violationPaths = retryError instanceof DaltonConfinementError
@@ -293,6 +313,7 @@ export async function handleDaltonConfinementValidation(
         stdout_tail: retryRunSummary.stdoutTail,
         stderr_tail: getErrorMessage(retryError),
         violation_paths: violationPaths,
+        ...confinementReceiptBoundaryContext(deps.focused),
       });
       throw retryError;
     }

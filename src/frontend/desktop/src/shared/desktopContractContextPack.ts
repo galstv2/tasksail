@@ -1,4 +1,5 @@
 import type {
+  ContextPackDeepFocusDerivedRoot,
   ContextPackDeepFocusState,
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
@@ -251,6 +252,8 @@ export type ContextPackCatalogEntry = {
   lastAppliedSelectedFocusTargetKind?: ContextPackFocusTargetKind | null;
   lastAppliedSelectedTestTarget?: ContextPackDeepFocusTarget | null;
   lastAppliedSelectedSupportTargets?: ContextPackDeepFocusTarget[];
+  lastAppliedDerivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];
+  lastAppliedDerivedReadonlyContextRoots?: ContextPackDeepFocusDerivedRoot[];
 };
 
 export type ContextPackListRequest = {

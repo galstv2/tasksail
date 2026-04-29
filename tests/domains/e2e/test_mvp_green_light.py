@@ -96,9 +96,13 @@ def _seed_active_task(workspace: Path, *, task_id: str, title: str) -> None:
 Validate the active standard-only workflow end-to-end.
 """,
     )
+    (workspace / "AgentWorkSpace" / "pendingitems" / ".active-items").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     write_text(
         workspace,
-        "AgentWorkSpace/pendingitems/.active-item",
+        f"AgentWorkSpace/pendingitems/.active-items/{task_id}",
         f"{task_id.lower()}.md\n",
     )
     write_text(
@@ -236,10 +240,10 @@ class MvpGreenLightTests(unittest.TestCase):
     def test_01_seed_active_task(self) -> None:
         MvpGreenLightTests.task_id = "CAP-9000"
         _seed_active_task(self.workspace, task_id=self.task_id, title=TASK_TITLE)
-        active_item_path = (
-            self.workspace / "AgentWorkSpace" / "pendingitems" / ".active-item"
+        active_marker_path = (
+            self.workspace / "AgentWorkSpace" / "pendingitems" / ".active-items" / self.task_id
         )
-        self.assertTrue(active_item_path.exists())
+        self.assertTrue(active_marker_path.exists())
 
         professional_task = (
             self.workspace / "AgentWorkSpace" / "handoffs" / "professional-task.md"
@@ -324,10 +328,10 @@ class MvpGreenLightTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
 
-        active_item_path = (
-            self.workspace / "AgentWorkSpace" / "pendingitems" / ".active-item"
+        active_marker_path = (
+            self.workspace / "AgentWorkSpace" / "pendingitems" / ".active-items" / self.task_id
         )
-        self.assertFalse(active_item_path.exists())
+        self.assertFalse(active_marker_path.exists())
 
         retro_base = (
             self.context_pack_dir

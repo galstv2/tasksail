@@ -1,6 +1,6 @@
 """Tests for external MCP runtime materialization (renderer.py).
 
-Covers: stale cleanup, per-launch isolation, mcp-config.json rendering,
+Covers: stale cleanup, per-launch isolation, resolved server projection,
 env variable resolution, capability summary content, and lifecycle.
 """
 from __future__ import annotations
@@ -25,10 +25,10 @@ from lib.role_agent.external_mcp.renderer import (
     cleanup_stale_launches,
     prepare_launch_context,
     render_capability_summary,
-    render_mcp_config,
     resolve_headers,
+    resolve_mcp_servers,
 )
-from lib.workspace_paths import copilot_home_root  # noqa: E402
+from lib.workspace_paths import cli_home_root  # noqa: E402
 
 
 def _make_server(**overrides: Any) -> dict[str, Any]:
@@ -51,8 +51,8 @@ class CleanupStaleTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmpdir = Path(tempfile.mkdtemp(prefix="ext-mcp-cleanup-"))
-        self.copilot_root = copilot_home_root(self.tmpdir)
-        self.copilot_root.mkdir(parents=True)
+        self.cli_home = cli_home_root(self.tmpdir)
+        self.cli_home.mkdir(parents=True)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -60,9 +60,9 @@ class CleanupStaleTests(unittest.TestCase):
     def test_deletes_stale_directories(self) -> None:
         """Directories whose PID is not running should be deleted."""
         # Use PID 999999999 which is almost certainly not active.
-        stale_dir = self.copilot_root / "swe-1700000000000-999999999"
+        stale_dir = self.cli_home / "swe-1700000000000-999999999"
         stale_dir.mkdir()
-        (stale_dir / "mcp-config.json").write_text("{}")
+        (stale_dir / "receipt.json").write_text("{}")
 
         deleted = cleanup_stale_launches(self.tmpdir, "swe")
         self.assertEqual(deleted, 1)
@@ -71,7 +71,7 @@ class CleanupStaleTests(unittest.TestCase):
     def test_preserves_active_directories(self) -> None:
         """Directories whose PID is still running should be preserved."""
         my_pid = os.getpid()
-        active_dir = self.copilot_root / f"swe-1700000000000-{my_pid}"
+        active_dir = self.cli_home / f"swe-1700000000000-{my_pid}"
         active_dir.mkdir()
 
         deleted = cleanup_stale_launches(self.tmpdir, "swe")
@@ -80,15 +80,15 @@ class CleanupStaleTests(unittest.TestCase):
 
     def test_ignores_other_agent_directories(self) -> None:
         """Directories for a different agent are not touched."""
-        other_dir = self.copilot_root / "qa-1700000000000-999999999"
+        other_dir = self.cli_home / "qa-1700000000000-999999999"
         other_dir.mkdir()
 
         deleted = cleanup_stale_launches(self.tmpdir, "swe")
         self.assertEqual(deleted, 0)
         self.assertTrue(other_dir.exists())
 
-    def test_no_copilot_home_root(self) -> None:
-        """Graceful no-op when copilot-home directory does not exist."""
+    def test_no_cli_home_root(self) -> None:
+        """Graceful no-op when CLI home directory does not exist."""
         empty_root = Path(tempfile.mkdtemp(prefix="ext-mcp-empty-"))
         try:
             deleted = cleanup_stale_launches(empty_root, "swe")
@@ -126,8 +126,8 @@ class ResolveHeadersTests(unittest.TestCase):
         self.assertEqual(result, {})
 
 
-class RenderMcpConfigTests(unittest.TestCase):
-    """Tests for render_mcp_config."""
+class ResolveMcpServersTests(unittest.TestCase):
+    """Tests for resolve_mcp_servers."""
 
     def setUp(self) -> None:
         self.tmpdir = Path(tempfile.mkdtemp(prefix="ext-mcp-render-"))
@@ -135,41 +135,31 @@ class RenderMcpConfigTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_writes_valid_mcp_config(self) -> None:
+    def test_returns_provider_agnostic_server_shape(self) -> None:
         server = _make_server(id="vendor-docs", transport="sse", url="https://mcp.vendor.com/sse")
         headers = {"Authorization": "Bearer tok"}
-        path = render_mcp_config(self.tmpdir, [server], [headers])
+        resolved = resolve_mcp_servers([server], [headers])
 
-        self.assertTrue(path.exists())
-        config = json.loads(path.read_text())
-        self.assertIn("mcpServers", config)
-        self.assertIn("vendor-docs", config["mcpServers"])
-        entry = config["mcpServers"]["vendor-docs"]
-        self.assertEqual(entry["type"], "sse")
-        self.assertEqual(entry["url"], "https://mcp.vendor.com/sse")
-        self.assertEqual(entry["headers"]["Authorization"], "Bearer tok")
-
-    def test_no_headers_key_when_empty(self) -> None:
-        server = _make_server(id="no-headers")
-        path = render_mcp_config(self.tmpdir, [server], [{}])
-        config = json.loads(path.read_text())
-        self.assertNotIn("headers", config["mcpServers"]["no-headers"])
+        self.assertEqual(resolved, [{
+            "id": "vendor-docs",
+            "transport": "sse",
+            "url": "https://mcp.vendor.com/sse",
+            "headers": {"Authorization": "Bearer tok"},
+        }])
 
     def test_output_never_contains_env_placeholders(self) -> None:
         server = _make_server(headers={"Auth": "${RESOLVED}"})
         with mock.patch.dict(os.environ, {"RESOLVED": "actual_value"}):
             headers = resolve_headers(server)
         self.assertIsNotNone(headers)
-        path = render_mcp_config(self.tmpdir, [server], [headers])
-        content = path.read_text()
-        self.assertNotIn("${", content)
+        resolved = resolve_mcp_servers([server], [headers])
+        self.assertNotIn("${", str(resolved))
 
     def test_multiple_servers(self) -> None:
         s1 = _make_server(id="mcp-a", url="https://a.example.com/mcp")
         s2 = _make_server(id="mcp-b", url="https://b.example.com/sse")
-        path = render_mcp_config(self.tmpdir, [s1, s2], [{}, {}])
-        config = json.loads(path.read_text())
-        self.assertEqual(set(config["mcpServers"].keys()), {"mcp-a", "mcp-b"})
+        resolved = resolve_mcp_servers([s1, s2], [{}, {}])
+        self.assertEqual({server["id"] for server in resolved}, {"mcp-a", "mcp-b"})
 
 
 class RenderCapabilitySummaryTests(unittest.TestCase):
@@ -281,11 +271,11 @@ class PrepareLaunchContextTests(unittest.TestCase):
         ctx = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertEqual(ctx.status, "not-applicable")
         self.assertFalse(ctx.injection_enabled)
-        self.assertIsNone(ctx.copilot_home)
+        self.assertIsNone(ctx.launch_dir)
         # No runtime artifacts created.
-        copilot_root = self.tmpdir / ".platform-state" / "runtime" / "copilot-home"
-        if copilot_root.exists():
-            dirs = list(copilot_root.iterdir())
+        cli_home = cli_home_root(self.tmpdir)
+        if cli_home.exists():
+            dirs = list(cli_home.iterdir())
             self.assertEqual(len(dirs), 0)
 
     def test_available_with_valid_server(self) -> None:
@@ -293,15 +283,15 @@ class PrepareLaunchContextTests(unittest.TestCase):
         ctx = prepare_launch_context(self.tmpdir, "swe", [server])
         self.assertEqual(ctx.status, "available")
         self.assertTrue(ctx.injection_enabled)
-        self.assertIsNotNone(ctx.copilot_home)
-        self.assertEqual(
-            Path(ctx.config_file_path),
-            Path(ctx.copilot_home) / "mcp-config.json",
-        )
-        self.assertEqual(ctx.configFilePath, ctx.config_file_path)
+        self.assertIsNotNone(ctx.launch_dir)
+        self.assertEqual(ctx.resolved_servers, [{
+            "id": "test-mcp",
+            "transport": "sse",
+            "url": "https://mcp.example.com/sse",
+            "headers": {},
+        }])
         # Verify files exist.
-        launch_dir = Path(ctx.copilot_home)
-        self.assertTrue((launch_dir / "mcp-config.json").exists())
+        launch_dir = Path(ctx.launch_dir)
         self.assertTrue((launch_dir / "mcp-capability-summary.md").exists())
 
     def test_unavailable_when_all_servers_excluded(self) -> None:
@@ -339,44 +329,44 @@ class PrepareLaunchContextTests(unittest.TestCase):
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "not-applicable")
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "false")
         self.assertNotIn("COPILOT_HOME", exports)
-        self.assertIsNone(ctx.config_file_path)
+        self.assertIsNone(ctx.launch_dir)
 
     def test_concurrent_launches_get_separate_dirs(self) -> None:
         server = _make_server()
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [server])
-        self.assertNotEqual(ctx1.copilot_home, ctx2.copilot_home)
+        self.assertNotEqual(ctx1.launch_dir, ctx2.launch_dir)
 
     def test_lifecycle_add_then_delete(self) -> None:
         """Add server → dir created → delete server → no new artifacts."""
         server = _make_server()
         ctx = prepare_launch_context(self.tmpdir, "swe", [server])
         self.assertTrue(ctx.injection_enabled)
-        launch_dir = Path(ctx.copilot_home)
+        launch_dir = Path(ctx.launch_dir)
         self.assertTrue(launch_dir.exists())
 
         # "Delete" the server (pass empty list). Stale dir should be cleaned
         # because the owning PID (our PID) is still alive — but that's fine,
         # cleanup only removes dirs whose PID is dead. The old dir remains
         # until PID exit. What matters is no NEW dir is created.
-        copilot_root = self.tmpdir / ".platform-state" / "runtime" / "copilot-home"
-        existing_dirs = set(copilot_root.iterdir())
+        cli_home = cli_home_root(self.tmpdir)
+        existing_dirs = set(cli_home.iterdir())
 
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertEqual(ctx2.status, "not-applicable")
         self.assertFalse(ctx2.injection_enabled)
 
         # No new directories created.
-        new_dirs = set(copilot_root.iterdir()) - existing_dirs
+        new_dirs = set(cli_home.iterdir()) - existing_dirs
         self.assertEqual(len(new_dirs), 0)
 
     def test_cleanup_runs_before_render(self) -> None:
         """Stale dirs are cleaned up even when new servers are selected."""
-        copilot_root = self.tmpdir / ".platform-state" / "runtime" / "copilot-home"
-        copilot_root.mkdir(parents=True)
-        stale_dir = copilot_root / "swe-1700000000000-999999999"
+        cli_home = cli_home_root(self.tmpdir)
+        cli_home.mkdir(parents=True)
+        stale_dir = cli_home / "swe-1700000000000-999999999"
         stale_dir.mkdir()
-        (stale_dir / "mcp-config.json").write_text("{}")
+        (stale_dir / "receipt.json").write_text("{}")
 
         server = _make_server()
         ctx = prepare_launch_context(self.tmpdir, "swe", [server])
@@ -390,8 +380,8 @@ class PrepareLaunchContextTests(unittest.TestCase):
     def test_retries_on_launch_dir_collision(self) -> None:
         """If the generated token collides, retry until a unique dir is created."""
         server = _make_server()
-        copilot_root = self.tmpdir / ".platform-state" / "runtime" / "copilot-home"
-        copilot_root.mkdir(parents=True)
+        cli_home = cli_home_root(self.tmpdir)
+        cli_home.mkdir(parents=True)
 
         # Pre-create a directory matching the first token that will be generated.
         # Mock _generate_launch_token to return a colliding token first, then a fresh one.
@@ -408,7 +398,7 @@ class PrepareLaunchContextTests(unittest.TestCase):
             return original_fn(agent_id)
 
         # Pre-create the colliding directory.
-        (copilot_root / "swe-collision-token").mkdir()
+        (cli_home / "swe-collision-token").mkdir()
 
         with mock.patch(
             "lib.role_agent.external_mcp.renderer._generate_launch_token",
@@ -418,9 +408,8 @@ class PrepareLaunchContextTests(unittest.TestCase):
 
         self.assertTrue(ctx.injection_enabled)
         # The launch dir should NOT be the colliding one.
-        self.assertNotEqual(Path(ctx.copilot_home).name, "swe-collision-token")
-        # The new directory should have mcp-config.json.
-        self.assertTrue((Path(ctx.copilot_home) / "mcp-config.json").exists())
+        self.assertNotEqual(Path(ctx.launch_dir).name, "swe-collision-token")
+        self.assertTrue((Path(ctx.launch_dir) / "mcp-capability-summary.md").exists())
 
 
 class PreflightTests(unittest.TestCase):
@@ -491,7 +480,7 @@ class DegradedAndUnavailableTests(unittest.TestCase):
             ctx = prepare_launch_context(self.tmpdir, "swe", [s1, s2])
         self.assertEqual(ctx.status, "unavailable")
         self.assertFalse(ctx.injection_enabled)
-        self.assertIsNone(ctx.copilot_home)
+        self.assertIsNone(ctx.launch_dir)
         self.assertEqual(set(ctx.excluded_servers), {"a", "b"})
 
     def test_deletion_lifecycle_produces_clean_state(self) -> None:
@@ -499,14 +488,14 @@ class DegradedAndUnavailableTests(unittest.TestCase):
         server = _make_server()
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
         self.assertTrue(ctx1.injection_enabled)
-        old_dir = Path(ctx1.copilot_home)
+        old_dir = Path(ctx1.launch_dir)
         self.assertTrue(old_dir.exists())
 
         # "Delete" the server: next launch with empty list.
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertEqual(ctx2.status, "not-applicable")
         self.assertFalse(ctx2.injection_enabled)
-        self.assertIsNone(ctx2.copilot_home)
+        self.assertIsNone(ctx2.launch_dir)
         self.assertIsNone(ctx2.context_file)
         # Old dir from ctx1 still exists (our PID is alive), but no NEW
         # dirs were created for the empty-servers launch.
@@ -516,23 +505,23 @@ class DegradedAndUnavailableTests(unittest.TestCase):
         server = _make_server()
         ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [server])
-        self.assertNotEqual(ctx1.copilot_home, ctx2.copilot_home)
+        self.assertNotEqual(ctx1.launch_dir, ctx2.launch_dir)
 
         # Simulate receipt writing performed by the launch path after spawn.
         for ctx in (ctx1, ctx2):
-            receipt_path = Path(ctx.copilot_home) / "mcp-receipt.json"
+            receipt_path = Path(ctx.launch_dir) / "mcp-receipt.json"
             receipt_path.write_text(json.dumps({
                 "status": ctx.status,
-                "copilot_home": ctx.copilot_home,
+                "launch_dir": ctx.launch_dir,
                 "selected_server_ids": [s["id"] for s in ctx.selected_servers],
             }), encoding="utf-8")
 
         # Both receipts exist independently and point to their own dir.
-        r1 = json.loads((Path(ctx1.copilot_home) / "mcp-receipt.json").read_text())
-        r2 = json.loads((Path(ctx2.copilot_home) / "mcp-receipt.json").read_text())
-        self.assertEqual(r1["copilot_home"], ctx1.copilot_home)
-        self.assertEqual(r2["copilot_home"], ctx2.copilot_home)
-        self.assertNotEqual(r1["copilot_home"], r2["copilot_home"])
+        r1 = json.loads((Path(ctx1.launch_dir) / "mcp-receipt.json").read_text())
+        r2 = json.loads((Path(ctx2.launch_dir) / "mcp-receipt.json").read_text())
+        self.assertEqual(r1["launch_dir"], ctx1.launch_dir)
+        self.assertEqual(r2["launch_dir"], ctx2.launch_dir)
+        self.assertNotEqual(r1["launch_dir"], r2["launch_dir"])
 
 
 if __name__ == "__main__":

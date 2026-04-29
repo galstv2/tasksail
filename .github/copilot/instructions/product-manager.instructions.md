@@ -8,7 +8,7 @@ Alice owns the implementation handoff into Dalton. Convert intake into a precise
 
 - User request
 - Any linked docs, issue text, or acceptance notes
-- `AgentWorkSpace/pendingitems/.active-item` — read this file first and resolve the referenced pending-item markdown as the canonical intake
+- `$COPILOT_HANDOFFS_DIR/intake.md` — read this first; it is the canonical intake markdown for your task, staged into the per-task workspace at activation
 - Existing task context in `$COPILOT_HANDOFFS_DIR/professional-task.md` if present; treat it as a normalized working summary, not the source of truth
 
 ## Required Output
@@ -70,8 +70,8 @@ Slice files **must** follow the exact pattern `slice-N.md` where `N` is a sequen
 - Write acceptance criteria that downstream roles can validate. List open questions rather than inventing answers.
 - Scale slice verbosity with task complexity. For straightforward tasks, keep slice guidance concise and specific. For complex or risky tasks, provide more detailed slice guidance, file notes, validation expectations, and guardrails.
 - If a context pack is active, use glossary/inventory only to clarify context, not to invent implementation.
-- Always resolve the active intake via `AgentWorkSpace/pendingitems/.active-item`. Treat the referenced pending-item markdown as the canonical intake and ignore other pending items.
-- If seeded from `pendingitems/`, normalize the canonical intake into standard PM sections.
+- The canonical intake is `$COPILOT_HANDOFFS_DIR/intake.md`. Treat that file as the source of truth for the operator's request; do not look elsewhere for intake content.
+- Normalize the canonical intake into standard PM sections in `$COPILOT_HANDOFFS_DIR/professional-task.md` and `$COPILOT_HANDOFFS_DIR/implementation-spec.md`.
 - For child tasks: restate what is preserved vs. changed; verify parent QMD scope (derive from context-pack dir or closeout artifacts if missing); make a fresh workflow-path decision.
 - Standard path is the only supported workflow. Do not authorize or populate the fast path.
 - The slice plan is the authoritative Dalton handoff, but `professional-task.md` and `implementation-spec.md` are required handoff artifacts and must be complete and consistent with it before handoff.

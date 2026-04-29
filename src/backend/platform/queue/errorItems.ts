@@ -2,8 +2,12 @@ import { spawn, execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { activeItemPath, resolveQueuePaths } from './paths.js';
+import { resolveQueuePaths } from './paths.js';
 import { findRepoRoot } from '../core/index.js';
+import {
+  extractContextPackBinding,
+  formatContextPackBindingSection,
+} from './markdown.js';
 import {
   activateNextPendingItemIfReady,
   acquireDirLockOrThrow,
@@ -12,13 +16,64 @@ import {
   readQueueOrderManifest,
   writeQueueOrderManifest,
 } from './operations.js';
-import { transitionTask } from './taskRegistry.js';
+import { removeTask, transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
-import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
-import { release as releasePort } from '../container/portAllocator.js';
+import { discardRetainedTaskWorktrees, finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 
 const execFileAsync = promisify(execFileCb);
+
+async function restoreContextPackBindingForRecoveredItem(
+  repoRoot: string,
+  taskId: string,
+  recoveredBody: string,
+): Promise<string> {
+  if (extractContextPackBinding(recoveredBody)) {
+    return recoveredBody;
+  }
+
+  const intakePath = path.join(
+    repoRoot,
+    'AgentWorkSpace',
+    'tasks',
+    taskId,
+    'handoffs',
+    'intake.md',
+  );
+  try {
+    const intakeBinding = extractContextPackBinding(await readFile(intakePath, 'utf-8'));
+    if (intakeBinding) {
+      return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(intakeBinding)}\n`;
+    }
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  const activeContextPackPath = path.join(
+    repoRoot,
+    '.platform-state',
+    'queue',
+    'active-context-pack.json',
+  );
+  let raw: string;
+  try {
+    raw = await readFile(activeContextPackPath, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return recoveredBody;
+    }
+    throw err;
+  }
+
+  const binding = JSON.parse(raw) as Parameters<typeof formatContextPackBindingSection>[0];
+  if (!binding.contextPackDir?.trim()) {
+    return recoveredBody;
+  }
+
+  return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(binding)}\n`;
+}
 
 // ---------------------------------------------------------------------------
 // Git helpers (retained for commitTaskSnapshot worktree commits)
@@ -206,7 +261,7 @@ export interface MoveFailedItemResult {
 
 /**
  * Move the currently active (failed) pending item to `error-items/`,
- * finalize task worktrees via §4.15 finalizeTaskWorktrees, release port lease,
+ * finalize task worktrees via §4.15 finalizeTaskWorktrees,
  * reset handoff artifacts, and auto-advance the queue.
  *
  * `taskId` is REQUIRED — the fallback directory enumeration has been deleted.
@@ -233,16 +288,9 @@ export async function moveFailedItemToErrorItems(options: {
 
   await commitTaskSnapshot(root, taskId, 'failed');
 
-  // §4.15 + §6.3B: finalize all worktrees and run teardown ordering
-  // (worktree → composeDownTask → portRelease → gcTaskRuntime) for this task
-  // only. This also stamps .task.json.state = "failed" and finalizedAt.
+  // §4.15: finalize all worktrees for this task only. This also stamps
+  // .task.json.state = "failed" and finalizedAt.
   await finalizeTaskWorktrees(taskId, 'failed', root);
-
-  // Defense-in-depth: explicit port release. finalizeTaskWorktrees owns the
-  // canonical teardown ordering in production, but this guards test paths that
-  // mock finalize and workflow paths where finalize is a no-op for missing
-  // worktrees. releasePort is idempotent — a no-op when the row is absent.
-  try { await releasePort(taskId, root); } catch { /* best-effort */ }
 
   try {
     await rename(sourcePath, destPath);
@@ -263,6 +311,7 @@ export async function moveFailedItemToErrorItems(options: {
     } catch {
       recoveredBody = `# ${taskId}\n\nOriginal pending item was missing during failure recovery.\n`;
     }
+    recoveredBody = await restoreContextPackBindingForRecoveredItem(root, taskId, recoveredBody);
     await writeFile(
       destPath,
       `${recoveredBody.trimEnd()}\n\n---\n\nFailure recovery note: pendingitems/${activeItem} was already absent.\n`,
@@ -279,14 +328,6 @@ export async function moveFailedItemToErrorItems(options: {
     await unlink(path.join(queuePaths.activeItemsDir, taskId));
   } catch {
     // Already cleared or missing — safe to continue
-  }
-  try {
-    const legacyActive = await readFile(activeItemPath(queuePaths.pendingDir), 'utf-8');
-    if (legacyActive.trim() === activeItem) {
-      await unlink(activeItemPath(queuePaths.pendingDir));
-    }
-  } catch {
-    // Legacy singleton absent or owned by another active task.
   }
 
   // Remove the moved item from the queue-order manifest; delete the file when empty
@@ -335,6 +376,17 @@ export async function moveFailedItemToErrorItems(options: {
  * `<original-slug>-retry<N>.md` so that activation picks up the correct taskId
  * without needing an override parameter. Enforces max_retry_generations_per_slug.
  * Owns its queue mutation critical section internally.
+ *
+ * Retained-worktree disposal: once the rename succeeds and the queue lock is
+ * released, the failed task's retained worktree, branch, parent dir, and
+ * runtime state are discarded via `discardRetainedTaskWorktrees`. The failed
+ * task's registry entry is also retired via `removeTask` — the new pending
+ * file uses `<originalSlug>-retry<N>` (a different taskId), so the failed
+ * entry would otherwise become an orphan. Operator intent to retry is the
+ * signal that the forensic affordance of `retain_failed_task_worktrees=true`
+ * is no longer needed for this task. The new retry task is materialized fresh
+ * from `baseCommitSha` and registered under the new taskId at activation, so
+ * the failed worktree and registry entry are never read after this point.
  */
 export async function requeueErrorItem(options: {
   fileName: string;
@@ -398,19 +450,23 @@ export async function requeueErrorItem(options: {
 
     await rename(sourcePath, destPath);
 
-    // Transition failed → pending in the task registry under the new taskId.
-    // The original failed entry lives under requeuedTaskId; the new pending entry
-    // uses retryTaskId. Transition the original failed entry to pending first, then
-    // update its taskId in the registry via a remove+re-register is unnecessary —
-    // the existing transitionTask call suffices for the old entry; the new activation
-    // will register the retryTaskId entry when it runs.
-    try { await transitionTask(root, requeuedTaskId, 'failed', 'pending'); } catch { /* best-effort */ }
+    // Retire the failed task's registry entry. The new pending file is
+    // <originalSlug>-retry<N>.md (different taskId), and activation will
+    // register the retry entry fresh. Transitioning the old entry to "pending"
+    // would leave it as an orphan with no backing file — remove it instead.
+    try { await removeTask(root, requeuedTaskId); } catch { /* best-effort */ }
 
     await insertIntoQueueManifest(queuePaths.pendingDir, retryFileName, options.insertAtIndex);
     requeuedItem = retryFileName;
   } finally {
     await release();
   }
+
+  // Discard the retained worktree/branch/dirs for the now-superseded failed
+  // task. Done OUTSIDE the queue lock: the lock guards manifest mutation, and
+  // the failed task's IDs are already divorced from anything the queue cares
+  // about. Best-effort — never throws.
+  await discardRetainedTaskWorktrees(requeuedTaskId, root);
 
   // Singleton-handoffs reset block DELETED (lines 309-310 in pre-§4.14A code).
   // Touching the shared handoffs dir here is a blast-radius violation.
@@ -430,6 +486,26 @@ export async function requeueErrorItem(options: {
 
 /**
  * Move a failed task back to the dropbox (open) for operator review.
+ *
+ * Retained-worktree disposal: the dropbox round-trip path produces a brand-new
+ * task ID via `queueNameForSource` (fresh timestamp prefix) when the operator
+ * promotes the dropbox item again, so the failed task's worktree, branch, and
+ * supporting dirs become permanent orphans the moment this rename succeeds.
+ * Discard them now via `discardRetainedTaskWorktrees`, mirroring the requeue
+ * behavior in `requeueErrorItem`.
+ *
+ * Registry transition: the failed entry is transitioned to "open" under the
+ * SAME taskId/filename so the Task Board's registry-first reader surfaces the
+ * dropbox file immediately. There is no auto-promotion path that would
+ * re-register this entry on its own — `pollDropbox` only activates pending
+ * items; dropbox→pending is operator-initiated. Without this transition the
+ * file sits on disk in `dropbox/` with no registry record, invisible to the UI
+ * until a process restart triggers `repairTaskRegistry`.
+ *
+ * Orphan-cleanup is handled by every downstream path that consumes the dropbox
+ * file: `moveDropboxItemToPending` calls `removeTask(oldTaskId)` before
+ * registering the fresh-timestamped entry, `deleteDropboxItem` calls
+ * `removeTask(deletedTaskId)`, and `repairTaskRegistry` rebuilds from disk.
  */
 export async function moveErrorItemToDropbox(options: {
   fileName: string;
@@ -443,7 +519,18 @@ export async function moveErrorItemToDropbox(options: {
   await rename(sourcePath, destPath);
 
   const movedTaskId = options.fileName.replace(/\.md$/, '');
-  try { await transitionTask(root, movedTaskId, 'failed', 'open'); } catch { /* best-effort */ }
+  // Transition failed → open so the Task Board surfaces the file in the open
+  // column without waiting for a process restart. Downstream consumers
+  // (moveDropboxItemToPending, deleteDropboxItem) clean up this entry under
+  // the old taskId before registering anything new.
+  try {
+    await transitionTask(root, movedTaskId, 'failed', 'open');
+  } catch { /* best-effort */ }
+
+  // Discard retained worktree/branch/dirs for the failed task. The dropbox
+  // re-intake will materialize a fresh task ID + worktree, so the failed
+  // task's state is now an orphan. Best-effort — never throws.
+  await discardRetainedTaskWorktrees(movedTaskId, root);
 
   return { movedItem: options.fileName };
 }

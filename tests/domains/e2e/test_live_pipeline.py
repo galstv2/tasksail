@@ -31,10 +31,7 @@ import unittest
 from pathlib import Path
 
 from tests.domains.e2e._pipeline_base import (
-    HANDOFFS,
-    PENDING,
-    QMD,
-    REPO_ROOT,
+    QUEUE_CLI,
     BasePipelineTests,
     tsx_cmd,
 )
@@ -50,8 +47,9 @@ class LivePipelineTests(BasePipelineTests):
     def test_01_create_dropbox_task(self) -> None:
         result = subprocess.run(
             tsx_cmd(
-                REPO_ROOT / "src/backend/platform/queue/cli.ts",
+                QUEUE_CLI,
                 "create-task",
+                "--repo-root", str(self.test_repo_root),
                 "--title", "Add search to CRUD store",
                 "--summary",
                 f"The project at {self.crud_app_dir} contains an in-memory "
@@ -62,7 +60,7 @@ class LivePipelineTests(BasePipelineTests):
                 f"Existing tests must continue to pass. "
                 f"Run tests with: python3 -m pytest {self.crud_app_dir} -v",
             ),
-            cwd=REPO_ROOT,
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
@@ -71,24 +69,26 @@ class LivePipelineTests(BasePipelineTests):
 
     def test_02_activate_through_queue(self) -> None:
         result = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "move-dropbox-items"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "move-dropbox-items", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         result2 = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "activate-next-pending-item"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "activate-next-pending-item", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
         )
         self.assertEqual(result2.returncode, 0, msg=result2.stderr)
+        active_items_dir = self.PENDING / ".active-items"
         self.assertTrue(
-            (PENDING / ".active-item").exists(),
-            msg="Queue activation did not create .active-item",
+            active_items_dir.exists()
+            and any(not path.name.endswith(".completing") for path in active_items_dir.iterdir()),
+            msg="Queue activation did not create an active task marker",
         )
 
     def test_03_run_pipeline_from_product_manager(self) -> None:
@@ -100,15 +100,15 @@ class LivePipelineTests(BasePipelineTests):
         )
 
         for artifact in (
-            HANDOFFS / "implementation-spec.md",
-            HANDOFFS / "tests.md",
-            HANDOFFS / "issues.md",
-            HANDOFFS / "final-summary.md",
-            HANDOFFS / "retrospective-input.md",
+            self.HANDOFFS / "implementation-spec.md",
+            self.HANDOFFS / "tests.md",
+            self.HANDOFFS / "issues.md",
+            self.HANDOFFS / "final-summary.md",
+            self.HANDOFFS / "retrospective-input.md",
         ):
             self.assertTrue(artifact.exists(), msg=f"missing artifact: {artifact.name}")
 
-        final_summary = (HANDOFFS / "final-summary.md").read_text(encoding="utf-8")
+        final_summary = (self.HANDOFFS / "final-summary.md").read_text(encoding="utf-8")
         self.assertIn("## Closeout Owner Agent ID", final_summary)
         self.assertIn("qa", final_summary)
 
@@ -121,8 +121,8 @@ class LivePipelineTests(BasePipelineTests):
 
     def test_05_queue_closeout_and_archive(self) -> None:
         result = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "complete"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "complete", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=60,
@@ -135,17 +135,21 @@ class LivePipelineTests(BasePipelineTests):
             result.returncode, 0,
             msg=f"stdout: {result.stdout[-1000:]}\nstderr: {result.stderr[-1000:]}",
         )
+        active_items_dir = self.PENDING / ".active-items"
         self.assertFalse(
-            (PENDING / ".active-item").exists(),
-            msg=".active-item still present after closeout",
+            active_items_dir.exists() and any(
+                not path.name.endswith(".completing")
+                for path in active_items_dir.iterdir()
+            ),
+            msg="Active task marker still present after closeout",
         )
 
     def test_06_verify_qmd_archive(self) -> None:
         self.assertTrue(
-            QMD.is_dir(),
+            self.QMD.is_dir(),
             msg="AgentWorkSpace/qmd/ directory does not exist",
         )
-        global_history = QMD / "global" / "retrospectives" / "history"
+        global_history = self.QMD / "global" / "retrospectives" / "history"
         history_files = list(global_history.rglob("*.md")) if global_history.is_dir() else []
         pack_qmd = Path(self.context_pack_dir) / "qmd"
         context_pack_archives = list(pack_qmd.rglob("*.json")) if pack_qmd.is_dir() else []
@@ -159,10 +163,7 @@ class LivePipelineTests(BasePipelineTests):
         )
 
     def test_07_verify_reinforcement(self) -> None:
-        ledger = (
-            REPO_ROOT / "AgentWorkSpace" / "qmd" / "reinforcement"
-            / "task-ledger.json"
-        )
+        ledger = self.QMD / "reinforcement" / "task-ledger.json"
         self.assertTrue(
             ledger.exists(),
             msg="task-ledger.json not created under AgentWorkSpace/qmd/reinforcement/",

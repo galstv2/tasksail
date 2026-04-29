@@ -4,7 +4,7 @@
 
 The platform is a repo-local workflow control plane with six main layers:
 
-1. repo instructions and prompts in `.github/copilot/`
+1. provider-owned repo instructions and prompts in `.github/copilot/` for the shipped `copilot` provider
 2. workflow agent registry and profiles in `.github/agents/`
 3. workflow state in `AgentWorkSpace/tasks/<taskId>/handoffs/` and `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`
 4. support services in `docker/`
@@ -26,12 +26,17 @@ workflow-policy validator at `src/backend/platform/workflow-policy/cli.ts`
 before invocation, and `--skip-workflow-check` is reserved for controlled
 internal orchestrators.
 
-Each approved wrapper launch is a fresh task-scoped `copilot --agent`
-subprocess. The wrapper records start and terminal receipts around that
+Each approved wrapper launch resolves the active CLI provider and starts a fresh
+task-scoped provider subprocess, currently `copilot --agent`. The wrapper records start and terminal receipts around that
 subprocess, waits for it to exit, and then returns control to the operator.
 Because the runtime model is currently process-scoped per task rather than a
 long-lived shared session, the platform does not add an end-of-task
 `/compact` step.
+
+The provider boundary lives under `src/backend/platform/cli-provider/`.
+Provider selection resolves from an explicit runtime request, then
+`TASKSAIL_CLI_PROVIDER`, then `.platform-state/platform.json` `cli_provider`,
+then the default `copilot` provider. `copilot` is the only shipped provider.
 
 ## Queue model
 
@@ -156,9 +161,10 @@ long-lived shared session, the platform does not add an end-of-task
 **External third-party MCP:**
 - Operator-configured in `config/mcp-registry-external.default.json` (tracked
   seed) and `.platform-state/mcp-registry-external.json` (runtime copy).
-- Injected into agent launches via per-launch `COPILOT_HOME` directories
-  under `.platform-state/runtime/copilot-home/<agent-id>-<epoch-ms>-<pid>/`.
-- Each launch directory contains `mcp-config.json` (with resolved headers)
+- Injected into agent launches via provider-rendered MCP config arguments. For
+  the shipped `copilot` provider, per-launch directories live under
+  `.platform-state/runtime/copilot-home/<agent-id>-<epoch-ms>-<pid>/`.
+- Each launch directory contains provider-rendered `mcp-config.json` (with resolved headers)
   and `mcp-capability-summary.md` (agent context overlay).
 - Header env variable references (`${ENV_VAR}`) are resolved at
   materialization time. Missing variables exclude the server (fail-closed per

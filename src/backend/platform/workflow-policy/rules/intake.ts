@@ -38,9 +38,6 @@ async function discoverIntakeFiles(
         if (!entry.name.endsWith('.md')) {
           continue;
         }
-        if (entry.name === '.active-item') {
-          continue;
-        }
         results.push({
           relativePath: `${relDir}/${entry.name}`,
           absolutePath: path.join(directory, entry.name),

@@ -76,6 +76,7 @@ export type PlannerStagingLockOwnership = {
   version: 1;
   sessionId: string;
   acquiredAt: string;
+  pid?: number;
 };
 
 export type InitializeStagedPlanningDraftOptions = {
@@ -234,6 +235,35 @@ export async function readPlannerStagingLockOwnership(): Promise<PlannerStagingL
   }
 }
 
+/**
+ * If the planner-staging lock dir exists but its recorded holder PID is dead
+ * (the previous Electron run crashed without releasing), remove the lock dir
+ * so the next acquire attempt can claim it. Returns true if reclamation
+ * occurred. Conservative: any uncertainty (missing PID, alive PID, missing
+ * owner file) leaves the lock alone.
+ */
+async function tryReclaimStalePlannerLock(): Promise<boolean> {
+  const owner = await readPlannerStagingLockOwnership();
+  if (!owner || typeof owner.pid !== 'number' || !Number.isInteger(owner.pid) || owner.pid <= 0) {
+    return false;
+  }
+  if (!isPidDead(owner.pid)) {
+    return false;
+  }
+  await fsUnlink(PLANNER_LOCK_OWNER_PATH).catch(() => undefined);
+  await fsRm(PLANNER_LOCK_DIR, { recursive: true, force: true });
+  return true;
+}
+
+function isPidDead(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err: unknown) {
+    return getNodeErrorCode(err) === 'ESRCH';
+  }
+}
+
 export async function acquirePlannerStagingLock(
   sessionId: string,
   options: { maxRetries?: number; backoffMs?: number } = {},
@@ -250,12 +280,18 @@ export async function acquirePlannerStagingLock(
         version: 1,
         sessionId,
         acquiredAt: normalizeIsoTimestamp(new Date()),
+        pid: process.pid,
       };
       await fsWriteFile(PLANNER_LOCK_OWNER_PATH, JSON.stringify(ownership, null, 2) + '\n', 'utf-8');
       return ownership;
     } catch (error: unknown) {
       if (getNodeErrorCode(error) !== 'EEXIST') {
         throw error;
+      }
+      // If the recorded holder process is dead, the previous Electron run
+      // crashed without releasing. Reclaim the lock dir and retry immediately.
+      if (await tryReclaimStalePlannerLock()) {
+        continue;
       }
     }
 
@@ -310,7 +346,6 @@ export async function initializeStagedPlanningDraft(
   const taskKind = options.lineage?.taskKind ?? 'standard';
   const parentTaskId = trimOrEmpty(options.lineage?.parentTaskId);
   const draftFilename = buildPlannerStagedFilename(title, now);
-  const fileTitle = draftFilename.replace(/\.md$/, '');
   const isDeepFocus = options.focusedRepo?.deepFocusEnabled === true;
   const deepFocusTestTarget = isDeepFocus
     ? (options.focusedRepo!.selectedTestTarget ? { ...options.focusedRepo!.selectedTestTarget } : null)
@@ -326,7 +361,7 @@ export async function initializeStagedPlanningDraft(
     draftFilename,
     draftPath: '',
     createdAt: normalizeIsoTimestamp(now),
-    title: fileTitle,
+    title,
     primaryRepoId: trimOrEmpty(options.focusedRepo?.primaryRepoId),
     primaryRepoRoot: trimOrEmpty(options.focusedRepo?.primaryRepoRoot),
     primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,

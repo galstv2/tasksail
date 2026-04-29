@@ -2,7 +2,7 @@
 External MCP registry bridge and runtime materialization.
 
 - loader: validates registry via TypeScript, filters servers for agent
-- renderer: materializes per-launch COPILOT_HOME with mcp-config.json
+- renderer: materializes per-launch CLI home directories with resolved MCP server data
   and capability summary
 """
 
@@ -13,8 +13,8 @@ from .renderer import (
     preflight_check_servers,
     prepare_launch_context,
     render_capability_summary,
-    render_mcp_config,
     resolve_headers,
+    resolve_mcp_servers,
 )
 
 __all__ = [
@@ -22,7 +22,7 @@ __all__ = [
     "select_servers_for_agent",
     "cleanup_stale_launches",
     "resolve_headers",
-    "render_mcp_config",
+    "resolve_mcp_servers",
     "render_capability_summary",
     "preflight_check_servers",
     "prepare_launch_context",

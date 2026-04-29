@@ -9,19 +9,22 @@ import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from '../types.js';
 
 const VALID_DEFAULT = JSON.stringify({
   schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+  cli_provider: 'copilot',
   container_runtime: 'docker',
 });
 
 // Full default matching config/platform.default.json (with new fields)
 const FULL_DEFAULT_JSON = JSON.stringify({
   schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+  cli_provider: 'copilot',
   container_runtime: 'docker',
   max_parallel_tasks: 10,
   retain_failed_task_worktrees: true,
   max_retained_failed_task_worktrees: 10,
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
-  mcp_port_range: { min: 8811, max: 8820 },
+  mcp_port: 8811,
+  repo_context_mcp_external_mount_roots: [],
 });
 
 let tmpDir: string;
@@ -55,6 +58,7 @@ describe('seedPlatformConfig', () => {
 
     const data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
     expect(data.schema_version).toBe(CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION);
+    expect(data.cli_provider).toBe('copilot');
     expect(data.container_runtime).toBe('docker');
   });
 
@@ -65,6 +69,7 @@ describe('seedPlatformConfig', () => {
     expect(result.action).toBe('up-to-date');
     if (result.action === 'up-to-date') {
       expect(result.config.container_runtime).toBe('docker');
+      expect(result.config.cli_provider).toBe('copilot');
     }
   });
 
@@ -75,6 +80,7 @@ describe('seedPlatformConfig', () => {
     // Change the default to podman
     const podmanConfig = JSON.stringify({
       schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+      cli_provider: 'copilot',
       container_runtime: 'podman',
     });
     writeDefault(podmanConfig);
@@ -87,6 +93,7 @@ describe('seedPlatformConfig', () => {
 
     const data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
     expect(data.container_runtime).toBe('podman');
+    expect(data.cli_provider).toBe('copilot');
   });
 
   it('overwrites corrupt runtime file with valid default', async () => {
@@ -99,6 +106,7 @@ describe('seedPlatformConfig', () => {
 
     const data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
     expect(data.container_runtime).toBe('docker');
+    expect(data.cli_provider).toBe('copilot');
   });
 
   it('returns failed when default file is missing', async () => {
@@ -131,15 +139,19 @@ describe('seedPlatformConfig', () => {
     // Runtime file now contains new fields
     const runtimeData = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
     expect(runtimeData.max_parallel_tasks).toBe(10);
-    expect(runtimeData.mcp_port_range).toEqual({ min: 8811, max: 8820 });
+    expect(runtimeData.cli_provider).toBe('copilot');
+    expect(runtimeData.mcp_port).toBe(8811);
+    expect(runtimeData.repo_context_mcp_external_mount_roots).toEqual([]);
 
     // getPlatformConfig returns seeded values
     const config = await getPlatformConfig(tmpDir);
     expect(config.max_parallel_tasks).toBe(10);
+    expect(config.cli_provider).toBe('copilot');
     expect(config.retain_failed_task_worktrees).toBe(true);
     expect(config.max_retained_failed_task_worktrees).toBe(10);
     expect(config.max_retry_generations_per_slug).toBe(5);
     expect(config.completed_task_runtime_retention_ms).toBe(3600000);
-    expect(config.mcp_port_range).toEqual({ min: 8811, max: 8820 });
+    expect(config.mcp_port).toBe(8811);
+    expect(config.repo_context_mcp_external_mount_roots).toEqual([]);
   });
 });

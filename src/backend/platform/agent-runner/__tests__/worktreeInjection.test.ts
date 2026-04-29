@@ -149,6 +149,41 @@ describe('applyWorktreeInjectionToFocused', () => {
     const out = applyWorktreeInjectionToFocused(focused, empty);
     expect(out).toBe(focused);
   });
+
+  it('preserves writableRoots and readonlyContextRoots as repo-relative entries when primaryRepoRoot is rewritten', () => {
+    // Contract (spec §2): worktree injection retargets the *root* — not the
+    // repo-relative entries beneath it. Downstream consumers join
+    // writableRoots[].path against the rewritten primaryRepoRoot to land
+    // under the worktree, so these entries must stay repo-relative.
+    const focused = makeFocused({
+      writableRoots: [
+        { path: 'src', kind: 'directory', reason: 'selected-primary' },
+        { path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
+      ],
+      readonlyContextRoots: [
+        { path: 'docs', kind: 'directory', reason: 'support-target' },
+      ],
+    });
+    const map = manualBindingMap([['/repos/crud-app', '/wt/crud-app']]);
+
+    const out = applyWorktreeInjectionToFocused(focused, map);
+
+    expect(out.primaryRepoRoot).toBe('/wt/crud-app');
+    expect(out.writableRoots).toEqual([
+      { path: 'src', kind: 'directory', reason: 'selected-primary' },
+      { path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
+    ]);
+    expect(out.readonlyContextRoots).toEqual([
+      { path: 'docs', kind: 'directory', reason: 'support-target' },
+    ]);
+    // No entry should have been absolutized into the worktree.
+    for (const root of out.writableRoots ?? []) {
+      expect(path.isAbsolute(root.path)).toBe(false);
+    }
+    for (const root of out.readonlyContextRoots ?? []) {
+      expect(path.isAbsolute(root.path)).toBe(false);
+    }
+  });
 });
 
 describe('rewritePath', () => {

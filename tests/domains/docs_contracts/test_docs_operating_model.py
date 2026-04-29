@@ -51,10 +51,11 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("readme", "repository-managed entrypoint for approved workflow roles"),
         ("readme", "compliant repository-managed entrypoint"),
         ("readme", "reserved for controlled internal orchestrators"),
-        ("readme", "raw named-agent invocation such as `copilot --agent <agent-id>`"),
+        ("readme", "Raw provider CLI invocation, currently `copilot --agent <agent-id>`"),
         ("readme", ".platform-state/runtime/guardrails/"),
         # README task-scoped wrapper lifecycle
-        ("readme", "fresh task-scoped `copilot --agent` subprocess"),
+        ("readme", "fresh task-scoped provider subprocess, currently `copilot --agent`"),
+        ("readme", "The active CLI provider defaults to `copilot`"),
         ("readme", "does not add a task-end `/compact` hook"),
         # README autonomy profiles
         ("readme", "registry-backed autonomy profile"),
@@ -122,6 +123,9 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("operating_model", "product-manager"),
         ("operating_model", "software-engineer"),
         ("operating_model", "gpt-5.4"),
+        ("operating_model", "claude-sonnet-4.6"),
+        ("operating_model", "TASKSAIL_CLI_PROVIDER"),
+        ("operating_model", "`cli_provider`"),
         ("operating_model", "tsx src/backend/platform/context-pack/cli.ts"),
         ("operating_model", "--bootstrap-repo-root"),
         ("operating_model", "Follow-up work after closeout becomes a new child task"),
@@ -151,7 +155,7 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("operating_model", "archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md"),
         ("operating_model", "qmd/global/retrospectives/"),
         # Operating model wrapper lifecycle
-        ("operating_model", "fresh task-scoped `copilot --agent`"),
+        ("operating_model", "fresh task-scoped provider subprocess, currently `copilot --agent`"),
         ("operating_model", "does not add an end-of-task `/compact` step"),
         # Operating model validation lanes
         ("operating_model", "make test-smoke"),
@@ -182,12 +186,17 @@ class DocsOperatingModelTests(unittest.TestCase):
         ("platform_spec", "/retrospective"),
         ("platform_spec", "/shared-retrospective-memory"),
         # Platform spec wrapper lifecycle
-        ("platform_spec", "fresh task-scoped `copilot --agent`\nsubprocess"),
+        (
+            "platform_spec",
+            "fresh\n"
+            "task-scoped provider subprocess, currently `copilot --agent`",
+        ),
+        ("platform_spec", "Provider selection resolves from an explicit runtime request"),
         ("platform_spec", "does not add an end-of-task\n`/compact` step"),
         # External MCP — operating model
         ("operating_model", "config/mcp-registry-external.default.json"),
         ("operating_model", ".platform-state/mcp-registry-external.json"),
-        ("operating_model", "COPILOT_HOME"),
+        ("operating_model", "provider-specific home variables such as\n  `COPILOT_HOME` are not exported"),
         ("operating_model", "visibility"),
         # External MCP — platform spec
         ("platform_spec", "config/mcp-registry-external.default.json"),

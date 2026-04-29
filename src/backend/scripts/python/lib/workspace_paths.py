@@ -33,18 +33,18 @@ def implementation_steps_dir(repo_root: Path) -> Path:
     return task_worktree_root(repo_root) / "ImplementationSteps"
 
 
-def copilot_home_root(repo_root: Path) -> Path:
-    """Return the Copilot home root for the active task.
+def cli_home_root(repo_root: Path) -> Path:
+    """Return the CLI home root for the active task.
 
-    With ``TASKSAIL_TASK_ID`` unset: ``<repo_root>/.platform-state/runtime/copilot-home``
-    With ``TASKSAIL_TASK_ID=t1``: ``<repo_root>/.platform-state/runtime/tasks/t1/copilot-home``
+    With ``TASKSAIL_TASK_ID`` unset: ``<repo_root>/.platform-state/runtime/<home-dir>``
+    With ``TASKSAIL_TASK_ID=t1``: ``<repo_root>/.platform-state/runtime/tasks/t1/<home-dir>``
     """
     task_id = os.environ.get("TASKSAIL_TASK_ID", "").strip()
+    home_dir_name = os.environ.get("TASKSAIL_CLI_HOME_DIR_NAME", "").strip() or "copilot-home"
     base = repo_root / ".platform-state" / "runtime"
     if task_id:
-        return base / "tasks" / task_id / "copilot-home"
-    return base / "copilot-home"
-
+        return base / "tasks" / task_id / home_dir_name
+    return base / home_dir_name
 
 def platform_runtime_root(repo_root: Path) -> Path:
     """Return the platform runtime root for the active task.

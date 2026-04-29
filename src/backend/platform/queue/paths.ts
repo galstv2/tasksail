@@ -73,7 +73,7 @@ export interface QueuePaths {
   queueOrderPath: string;
   /**
    * Directory that holds per-task active markers in parallel mode.
-   * Each running task writes a file here instead of the singleton .active-item.
+   * Each running task writes a file here.
    */
   activeItemsDir: string;
   /** Per-task worktree root: AgentWorkSpace/tasks/<taskId>. */
@@ -176,13 +176,6 @@ export function implementationStepsTemplatePath(
   implementationStepsDir: string,
 ): string {
   return path.join(implementationStepsDir, SLICE_TEMPLATE_FILENAME);
-}
-
-/**
- * Path to the .active-item file inside the pending directory.
- */
-export function activeItemPath(pendingDir: string): string {
-  return path.join(pendingDir, '.active-item');
 }
 
 /**

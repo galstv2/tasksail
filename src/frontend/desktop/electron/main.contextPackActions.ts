@@ -2,7 +2,12 @@
  * Context pack execution actions: create, reseed, workspace switch, discovery, pick directory.
  */
 import { execFile } from 'node:child_process';
-import { mkdir as fsMkdir, readFile as fsReadFile, stat as fsStat, writeFile as fsWriteFile } from 'node:fs/promises';
+import {
+  mkdir as fsMkdir,
+  readFile as fsReadFile,
+  stat as fsStat,
+  writeFile as fsWriteFile,
+} from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { dialog } from 'electron';
@@ -28,11 +33,17 @@ import {
   type ContextPackReseedResponse,
   type ContextPackSwitchExecutionResult,
   type ContextPackSwitchPayload,
+  type ContextPackDeepFocusDerivedRoot,
+  type ContextPackDeepFocusState,
+  type ContextPackFocusTargetKind,
   type DesktopInvokeResult,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { numberOrNull, stringOrNull } from './utils';
+import { writeTextFileAtomic } from '../../../backend/platform/core/io';
 import { setActiveContextPackEnv } from '../../../backend/platform/context-pack/activate';
+import { rebuildAgentMirror } from '../../../backend/platform/context-pack/rebuildAgentMirror';
+import { deriveWritableRootsFromFocusedSelection } from '../../../backend/platform/context-pack/focusedRepo';
 import {
   normalizeRelativePath,
   normalizeSupportTargets,
@@ -502,6 +513,18 @@ async function updateSyncStateAfterReseed(
     console.warn('updateSyncStateAfterReseed: failed to persist workspace-counts.json:',
       err instanceof Error ? err.message : err);
   }
+
+  // Defensive secondary trigger: rebuild the agent-facing mirror under
+  // AgentWorkSpace/qmd/context-packs/ from the canonical archive. Reseed does
+  // not itself write the mirror (the seeding service is unaware of it), so
+  // this is the operator's chance to repair drift outside of the activation
+  // path. Best-effort — reseed must not fail because of a copy step.
+  try {
+    await rebuildAgentMirror(REPO_ROOT, reseedResult.contextPackDir);
+  } catch (err: unknown) {
+    console.warn('updateSyncStateAfterReseed: agent mirror rebuild failed:',
+      err instanceof Error ? err.message : err);
+  }
 }
 
 async function listApprovedContextPackDirs(): Promise<Set<string>> {
@@ -563,6 +586,36 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
           typeof target === 'object' && target !== null,
       )
     : [];
+  const derivedWritableRoots = Array.isArray(workspace.derived_writable_roots)
+    ? workspace.derived_writable_roots.filter(
+        (target): target is Record<string, unknown> =>
+          typeof target === 'object' && target !== null,
+      )
+    : [];
+  const derivedReadonlyContextRoots = Array.isArray(workspace.derived_readonly_context_roots)
+    ? workspace.derived_readonly_context_roots.filter(
+        (target): target is Record<string, unknown> =>
+          typeof target === 'object' && target !== null,
+      )
+    : [];
+  const normalizeDerivedRoot = (
+    target: Record<string, unknown>,
+  ): ContextPackDeepFocusDerivedRoot => {
+    const kind: ContextPackFocusTargetKind =
+      target.kind === 'directory' || target.kind === 'file' ? target.kind : 'directory';
+    const reason: ContextPackDeepFocusDerivedRoot['reason'] =
+      target.reason === 'selected-primary'
+      || target.reason === 'primary-focus-parent'
+      || target.reason === 'test-target'
+      || target.reason === 'support-target'
+        ? target.reason
+        : 'selected-primary';
+    return {
+      path: stringOrNull(target.path) ?? '',
+      kind,
+      reason,
+    };
+  };
   return {
     ok: payload.ok === true,
     wrapperAction: wrapperAction === 'apply' || wrapperAction === 'clear' ? wrapperAction : 'preview',
@@ -613,6 +666,8 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
       path: stringOrNull(target.path) ?? '',
       kind: target.kind === 'directory' || target.kind === 'file' ? target.kind : 'directory',
     })),
+    derivedWritableRoots: derivedWritableRoots.map(normalizeDerivedRoot),
+    derivedReadonlyContextRoots: derivedReadonlyContextRoots.map(normalizeDerivedRoot),
   };
 }
 
@@ -828,6 +883,10 @@ const DEEP_FOCUS_SELECTIONS_PATH = join(
   REPO_ROOT,
   '.platform-state/deep-focus-selections.json',
 );
+const WORKSPACE_CONTEXT_SYNC_PATH = join(
+  REPO_ROOT,
+  '.platform-state/workspace-context-sync.json',
+);
 
 type PersistedSelections = Record<string, import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState>;
 
@@ -840,17 +899,82 @@ async function readSelectionsFile(): Promise<PersistedSelections> {
 }
 
 async function writeSelectionsFile(selections: PersistedSelections): Promise<void> {
-  await fsMkdir(dirname(DEEP_FOCUS_SELECTIONS_PATH), { recursive: true });
-  await fsWriteFile(DEEP_FOCUS_SELECTIONS_PATH, JSON.stringify(selections, null, 2) + '\n', 'utf-8');
+  await writeJsonAtomic(DEEP_FOCUS_SELECTIONS_PATH, selections);
+}
+
+function withDerivedDeepFocusRoots(
+  selections: ContextPackDeepFocusState,
+): ContextPackDeepFocusState {
+  const derived = deriveWritableRootsFromFocusedSelection({
+    primaryFocusRelativePath: selections.selectedFocusPath ?? '',
+    primaryFocusTargetKind: selections.selectedFocusTargetKind ?? undefined,
+    testTarget: selections.selectedTestTarget ?? undefined,
+    supportTargets: selections.selectedSupportTargets.map((target) => ({
+      ...target,
+      effectiveScope: target.kind === 'directory' ? 'full-directory' as const : 'exact-file' as const,
+    })),
+  });
+  return {
+    ...selections,
+    derivedWritableRoots: derived.writableRoots,
+    derivedReadonlyContextRoots: derived.readonlyContextRoots,
+  };
+}
+
+async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void> {
+  await writeTextFileAtomic(filePath, JSON.stringify(payload, null, 2) + '\n');
+}
+
+async function mirrorDeepFocusSelectionIntoWorkspaceSync(
+  contextPackDir: string,
+  selections: import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState,
+): Promise<void> {
+  let raw: string;
+  try {
+    raw = await fsReadFile(WORKSPACE_CONTEXT_SYNC_PATH, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return;
+    }
+    throw err;
+  }
+
+  const state = JSON.parse(raw) as Record<string, unknown>;
+  const activeContextPackDir = stringOrNull(state.active_context_pack_dir);
+  if (!activeContextPackDir || resolve(activeContextPackDir) !== resolve(contextPackDir)) {
+    return;
+  }
+
+  const before = JSON.stringify(state);
+  state.deep_focus_enabled = selections.deepFocusEnabled;
+  state.deep_focus_primary_repo_id = selections.deepFocusPrimaryRepoId;
+  state.deep_focus_primary_focus_id = selections.deepFocusPrimaryFocusId;
+  state.selected_focus_path = selections.selectedFocusPath;
+  state.selected_focus_target_kind = selections.selectedFocusTargetKind;
+  if (selections.selectedTestTarget === undefined) {
+    delete state.selected_test_target;
+  } else {
+    state.selected_test_target = selections.selectedTestTarget;
+  }
+  state.selected_support_targets = selections.selectedSupportTargets;
+  state.derived_writable_roots = selections.derivedWritableRoots ?? [];
+  state.derived_readonly_context_roots = selections.derivedReadonlyContextRoots ?? [];
+
+  if (JSON.stringify(state) === before) {
+    return;
+  }
+  await writeJsonAtomic(WORKSPACE_CONTEXT_SYNC_PATH, state);
 }
 
 export async function saveDeepFocusSelections(
   payload: { contextPackDir: string; selections: import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState },
 ): Promise<DesktopInvokeResult> {
   try {
+    const selections = withDerivedDeepFocusRoots(payload.selections);
     const all = await readSelectionsFile();
-    all[payload.contextPackDir] = payload.selections;
+    all[payload.contextPackDir] = selections;
     await writeSelectionsFile(all);
+    await mirrorDeepFocusSelectionIntoWorkspaceSync(payload.contextPackDir, selections);
     return {
       ok: true,
       response: {

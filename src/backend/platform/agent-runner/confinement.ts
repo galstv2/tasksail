@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { isMissingPathError } from '../core/index.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
-import { normalizeRelativePath } from '../context-pack/deepFocusNormalization.js';
+import { normalizeRelativePath, type WritableRoot } from '../context-pack/deepFocusNormalization.js';
 
 export interface ChangedPathsSnapshot {
   byRepoRoot: Record<string, string[]>;
@@ -18,6 +20,7 @@ export class DaltonConfinementError extends Error {
 }
 
 const ALLOWED_PLATFORM_WRITE_PATHS = [] as const;
+const SAFETY_SKEW_MS = 2000;
 
 export async function captureChangedPathsSnapshot(
   repoRoots: string[],
@@ -30,12 +33,13 @@ export async function captureChangedPathsSnapshot(
   };
 }
 
-export function validateDaltonBoundaryChanges(options: {
+export async function validateDaltonBoundaryChanges(options: {
   platformRepoRoot: string;
   focused: FocusedRepoResult;
   before: ChangedPathsSnapshot;
   after: ChangedPathsSnapshot;
-}): void {
+  agentSpawnedAtMs?: number;
+}): Promise<void> {
   const violations: string[] = [];
   const roots = new Set([
     options.platformRepoRoot,
@@ -56,14 +60,29 @@ export function validateDaltonBoundaryChanges(options: {
         platformRepoRoot: options.platformRepoRoot,
         focused: options.focused,
       })) {
-        violations.push(path.join(repoRoot, relativePath));
+        const absolutePath = path.join(repoRoot, relativePath);
+        try {
+          const stats = await stat(absolutePath);
+          if (
+            options.agentSpawnedAtMs !== undefined &&
+            stats.mtimeMs < options.agentSpawnedAtMs - SAFETY_SKEW_MS
+          ) {
+            continue;
+          }
+        } catch (error: unknown) {
+          if (isMissingPathError(error)) {
+            continue;
+          }
+          throw error;
+        }
+        violations.push(absolutePath);
       }
     }
   }
 
   if (violations.length > 0) {
     throw new DaltonConfinementError(
-      `Dalton edited files outside the enforced primary boundary: ${violations.join(', ')}`,
+      `Dalton edited files outside the enforced writable roots: ${violations.join(', ')}`,
       violations,
     );
   }
@@ -84,6 +103,10 @@ function isAllowedChangedPath(options: {
     return false;
   }
 
+  if (options.focused.writableRoots?.length) {
+    return options.focused.writableRoots.some((root) => isWithinRelativeRoot(normalizedPath, root));
+  }
+
   if (!options.focused.primaryFocusRelativePath) {
     return true;
   }
@@ -91,23 +114,41 @@ function isAllowedChangedPath(options: {
   const focusPath = normalizeRelativePath(options.focused.primaryFocusRelativePath);
   const primaryKind = options.focused.primaryFocusTargetKind ?? 'directory';
   const inPrimary = primaryKind === 'file'
-    ? normalizedPath === focusPath
-    : normalizedPath === focusPath || normalizedPath.startsWith(`${focusPath}/`);
+    ? isWithinRelativeRoot(normalizedPath, {
+        path: path.posix.dirname(focusPath) === '.' ? '' : path.posix.dirname(focusPath),
+        kind: 'directory',
+        reason: 'primary-focus-parent',
+      })
+    : isWithinRelativeRoot(normalizedPath, { path: focusPath, kind: 'directory', reason: 'selected-primary' });
   if (inPrimary) {
     return true;
   }
 
   if (options.focused.testTarget) {
     const testPath = normalizeRelativePath(options.focused.testTarget.path);
-    const inTest = options.focused.testTarget.kind === 'file'
-      ? normalizedPath === testPath
-      : normalizedPath === testPath || normalizedPath.startsWith(`${testPath}/`);
+    const inTest = isWithinRelativeRoot(normalizedPath, {
+      path: testPath,
+      kind: options.focused.testTarget.kind,
+      reason: 'test-target',
+    });
     if (inTest) {
       return true;
     }
   }
 
   return false;
+}
+
+export function isWithinRelativeRoot(relativePath: string, root: WritableRoot): boolean {
+  const normalizedPath = normalizeRelativePath(relativePath);
+  const rootPath = normalizeRelativePath(root.path);
+  if (root.kind === 'file') {
+    return normalizedPath === rootPath;
+  }
+  if (!rootPath) {
+    return true;
+  }
+  return normalizedPath === rootPath || normalizedPath.startsWith(`${rootPath}/`);
 }
 
 async function listChangedPaths(repoRoot: string): Promise<string[]> {

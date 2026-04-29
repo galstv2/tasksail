@@ -6,6 +6,7 @@ import {
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   DESKTOP_SHELL_STREAM_CHANNEL,
   DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+  PROVIDER_DESCRIBE_ACTIVE_CHANNEL,
   type ContextPackApplyResponse,
   type ContextPackActivationResponse,
   type PlannerListArchivedTasksResponse,
@@ -52,6 +53,7 @@ import {
   type PlannerReadStagedDraftResponse,
   type PlannerFinalizeSpecResponse,
   type PlannerStreamEvent,
+  type ProviderFrontendDescriptor,
   type QueueStatusResponse,
   type TaskBoardReadBoardResponse,
   type TaskBoardReadTaskContentResponse,
@@ -83,6 +85,8 @@ export const bootstrapInfo = {
 
 export const desktopShellApi = {
   getBootstrapInfo: async () => bootstrapInfo,
+  describeActiveProvider: async (): Promise<ProviderFrontendDescriptor> =>
+    ipcRenderer.invoke(PROVIDER_DESCRIBE_ACTIVE_CHANNEL),
   submitPlannerDraft: async (
     draft: PlannerDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
@@ -601,6 +605,7 @@ export const desktopShellApi = {
 
 export type DesktopShellApi = {
   getBootstrapInfo: () => Promise<typeof bootstrapInfo>;
+  describeActiveProvider: () => Promise<ProviderFrontendDescriptor>;
   submitPlannerDraft: (
     draft: PlannerDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',

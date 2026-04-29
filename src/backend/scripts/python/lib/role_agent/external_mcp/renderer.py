@@ -1,8 +1,8 @@
 """
 External MCP runtime materialization.
 
-Renders per-launch-isolated COPILOT_HOME directories containing
-``mcp-config.json`` and a capability summary markdown file.
+Materializes per-launch-isolated CLI home directories containing
+resolved MCP server data and a capability summary markdown file.
 
 All env variable resolution is fail-closed: missing vars exclude the
 server with an actionable warning, never writing unresolved ``${...}``
@@ -10,7 +10,6 @@ placeholders.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -19,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ...workspace_paths import copilot_home_root
+from ...workspace_paths import cli_home_root
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ def _is_pid_alive(pid: int) -> bool:
 
 
 def cleanup_stale_launches(root_dir: Path, agent_id: str) -> int:
-    """Delete stale copilot-home directories for *agent_id*.
+    """Delete stale CLI home directories for *agent_id*.
 
     Only deletes directories whose PID (extracted from the directory name)
     is no longer active. Preserves directories belonging to concurrent
@@ -65,7 +64,7 @@ def cleanup_stale_launches(root_dir: Path, agent_id: str) -> int:
 
     Returns the number of directories deleted.
     """
-    _chr = copilot_home_root(root_dir)
+    _chr = cli_home_root(root_dir)
     if not _chr.is_dir():
         return 0
 
@@ -176,7 +175,7 @@ def preflight_check_servers(
             return (
                 f"[external-mcp] Preflight warning: server '{server_id}' "
                 f"at {host}:{port} is unreachable ({exc}). "
-                f"The server will still be included in mcp-config.json — "
+                f"The server will still be included in resolved MCP server data — "
                 f"the agent will attempt to connect at runtime."
             )
 
@@ -191,39 +190,26 @@ def preflight_check_servers(
                 warnings.append(msg)
 
     return warnings
-
-
 # ---------------------------------------------------------------------------
-# mcp-config.json rendering
+# Resolved server projection
 # ---------------------------------------------------------------------------
 
 
-def render_mcp_config(
-    launch_dir: Path,
+def resolve_mcp_servers(
     servers: list[dict[str, Any]],
     resolved_headers: list[dict[str, str]],
-) -> Path:
-    """Write ``mcp-config.json`` to *launch_dir*.
-
-    Returns the path to the written file.
-    """
-    mcp_servers: dict[str, Any] = {}
-
-    for server, headers in zip(servers, resolved_headers):
-        server_id = server["id"]
-        entry: dict[str, Any] = {
-            "type": server["transport"],
-            "url": server["url"],
+) -> list[dict[str, Any]]:
+    """Return provider-agnostic resolved MCP server records."""
+    return [
+        {
+            "id": str(server.get("id", "?")),
+            "transport": server.get("transport", "http"),
+            "url": server.get("url", ""),
+            "headers": headers,
         }
-        if headers:
-            entry["headers"] = headers
-        mcp_servers[server_id] = entry
+        for server, headers in zip(servers, resolved_headers, strict=False)
+    ]
 
-    config = {"mcpServers": mcp_servers}
-
-    config_path = launch_dir / "mcp-config.json"
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    return config_path
 
 
 # ---------------------------------------------------------------------------
@@ -301,19 +287,18 @@ class LaunchContext:
         status: str,
         reason: str,
         injection_enabled: bool,
-        copilot_home: str | None = None,
-        config_file_path: str | None = None,
+        launch_dir: str | None = None,
         context_file: str | None = None,
+        resolved_servers: list[dict[str, Any]] | None = None,
         selected_servers: list[dict[str, Any]] | None = None,
         excluded_servers: list[str] | None = None,
     ) -> None:
         self.status = status
         self.reason = reason
         self.injection_enabled = injection_enabled
-        self.copilot_home = copilot_home
-        self.config_file_path = config_file_path
-        self.configFilePath = config_file_path
+        self.launch_dir = launch_dir
         self.context_file = context_file
+        self.resolved_servers = resolved_servers or []
         self.selected_servers = selected_servers or []
         self.excluded_servers = excluded_servers or []
 
@@ -349,8 +334,7 @@ def prepare_launch_context(
     2. If no servers, return not-applicable.
     3. Resolve env vars in headers (fail-closed per server).
     4. If no servers survive resolution, return unavailable.
-    5. Create per-launch directory, render mcp-config.json and
-       capability summary.
+    5. Create per-launch directory, resolve server data and render capability summary.
     6. Return launch context with env exports.
 
     *servers* should already be filtered for the agent (enabled +
@@ -395,7 +379,7 @@ def prepare_launch_context(
     preflight_check_servers(surviving)
 
     # Step 5: create per-launch directory and render.
-    _chr = copilot_home_root(root)
+    _chr = cli_home_root(root)
     _chr.mkdir(parents=True, exist_ok=True)
 
     # Generate a unique launch directory. Retry with increasing delay
@@ -415,8 +399,8 @@ def prepare_launch_context(
                 )
             time.sleep(0.002 * (attempt + 1))
 
-    config_path = render_mcp_config(launch_dir, surviving, surviving_headers)
     summary_path = render_capability_summary(launch_dir, surviving)
+    resolved_servers = resolve_mcp_servers(surviving, surviving_headers)
 
     # Step 6: determine status.
     if excluded:
@@ -433,9 +417,9 @@ def prepare_launch_context(
         status=status,
         reason=reason,
         injection_enabled=True,
-        copilot_home=str(launch_dir),
-        config_file_path=str(config_path),
+        launch_dir=str(launch_dir),
         context_file=str(summary_path),
+        resolved_servers=resolved_servers,
         selected_servers=surviving,
         excluded_servers=excluded,
     )

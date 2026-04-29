@@ -83,6 +83,12 @@ Implement the assigned work with disciplined, minimal, testable changes.
 - Preserve local architecture and context-pack conventions; modernize only when the task explicitly requires it.
 - Do NOT modify the TaskSail platform repo. Your test and build commands must target only the repo you are in.
 
+### Writable boundary
+- Your writes are confined to the roots listed in `COPILOT_WRITABLE_ROOTS_JSON`. Any edit outside those roots will be flagged as a confinement violation, your run will be retried with a remediation prompt, and unrelated changes will be reverted.
+- `COPILOT_READONLY_CONTEXT_ROOTS_JSON` enumerates Deep Focus context you may read for grounding (related code, tests, docs) but must not modify.
+- Both env vars are JSON arrays of `{ path, kind, reason }` entries. Paths are repo-relative to your CWD.
+- If a task legitimately requires editing a path outside the writable roots, stop and surface the gap in your output rather than silently widening scope.
+
 ### Testing
 - Run validation commands and ensure all tests pass before exiting.
 - When task instructions require creating test scaffolding, create it.

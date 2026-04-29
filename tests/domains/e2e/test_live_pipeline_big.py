@@ -32,11 +32,7 @@ import unittest
 from pathlib import Path
 
 from tests.domains.e2e._pipeline_base import (
-    HANDOFFS,
-    IMPL_STEPS,
-    PENDING,
-    QMD,
-    REPO_ROOT,
+    QUEUE_CLI,
     BasePipelineTests,
     tsx_cmd,
 )
@@ -66,17 +62,24 @@ class LivePipelineBigTests(BasePipelineTests):
         return "\n".join(collected).strip()
 
     def _read_active_pending_item(self) -> tuple[Path, str]:
-        active_name = (PENDING / ".active-item").read_text(encoding="utf-8").strip()
-        self.assertTrue(active_name, msg=".active-item did not reference a pending file")
-        active_path = PENDING / active_name
+        active_items_dir = self.PENDING / ".active-items"
+        active_markers = sorted(
+            path for path in active_items_dir.iterdir()
+            if not path.name.endswith(".completing")
+        )
+        self.assertTrue(active_markers, msg="No active task marker referenced a pending file")
+        active_name = active_markers[0].read_text(encoding="utf-8").strip()
+        self.assertTrue(active_name, msg="Active task marker did not reference a pending file")
+        active_path = self.PENDING / active_name
         self.assertTrue(active_path.exists(), msg=f"active pending item missing: {active_name}")
         return active_path, active_path.read_text(encoding="utf-8")
 
     def test_01_create_dropbox_task(self) -> None:
         result = subprocess.run(
             tsx_cmd(
-                REPO_ROOT / "src/backend/platform/queue/cli.ts",
+                QUEUE_CLI,
                 "create-task",
+                "--repo-root", str(self.test_repo_root),
                 "--title", "Expand CRUD querying and reporting with independent helpers",
                 "--summary",
                 f"The project at {self.crud_app_dir} contains an in-memory CRUD "
@@ -110,7 +113,7 @@ class LivePipelineBigTests(BasePipelineTests):
                 "(`reporting.py`, reporting tests) as separate deliverables with different primary files. "
                 "Prefer parallel Dalton execution unless Alice can justify a concrete shared-file conflict that makes it unsafe.",
             ),
-            cwd=REPO_ROOT,
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
@@ -119,28 +122,30 @@ class LivePipelineBigTests(BasePipelineTests):
 
     def test_02_activate_through_queue(self) -> None:
         result = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "move-dropbox-items"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "move-dropbox-items", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         result2 = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "activate-next-pending-item"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "activate-next-pending-item", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=30,
         )
         self.assertEqual(result2.returncode, 0, msg=result2.stderr)
+        active_items_dir = self.PENDING / ".active-items"
         self.assertTrue(
-            (PENDING / ".active-item").exists(),
-            msg="Queue activation did not create .active-item",
+            active_items_dir.exists()
+            and any(not path.name.endswith(".completing") for path in active_items_dir.iterdir()),
+            msg="Queue activation did not create an active task marker",
         )
         _active_path, active_content = self._read_active_pending_item()
         template_content = (
-            REPO_ROOT / "AgentWorkSpace" / "templates" / "planning-intake.md"
+            self.test_repo_root / "AgentWorkSpace" / "templates" / "planning-intake.md"
         ).read_text(encoding="utf-8")
         self.assertEqual(
             self._section_headings(active_content),
@@ -180,17 +185,17 @@ class LivePipelineBigTests(BasePipelineTests):
         )
 
         for artifact in (
-            HANDOFFS / "implementation-spec.md",
-            HANDOFFS / "parallel-ok.md",
-            HANDOFFS / "tests.md",
-            HANDOFFS / "issues.md",
-            HANDOFFS / "final-summary.md",
-            HANDOFFS / "retrospective-input.md",
+            self.HANDOFFS / "implementation-spec.md",
+            self.HANDOFFS / "parallel-ok.md",
+            self.HANDOFFS / "tests.md",
+            self.HANDOFFS / "issues.md",
+            self.HANDOFFS / "final-summary.md",
+            self.HANDOFFS / "retrospective-input.md",
         ):
             self.assertTrue(artifact.exists(), msg=f"missing artifact: {artifact.name}")
 
 
-        slice_files = sorted(IMPL_STEPS.glob("*.md"))
+        slice_files = sorted(self.IMPL_STEPS.glob("*.md"))
         self.assertGreaterEqual(
             len([path for path in slice_files if path.name != "slice-template.md"]),
             2,
@@ -206,8 +211,8 @@ class LivePipelineBigTests(BasePipelineTests):
 
     def test_06_queue_closeout_and_archive(self) -> None:
         result = subprocess.run(
-            tsx_cmd(REPO_ROOT / "src/backend/platform/queue/cli.ts", "complete"),
-            cwd=REPO_ROOT,
+            tsx_cmd(QUEUE_CLI, "complete", "--repo-root", str(self.test_repo_root)),
+            cwd=self.test_repo_root,
             text=True,
             capture_output=True,
             timeout=60,
@@ -220,17 +225,21 @@ class LivePipelineBigTests(BasePipelineTests):
             result.returncode, 0,
             msg=f"stdout: {result.stdout[-1000:]}\nstderr: {result.stderr[-1000:]}",
         )
+        active_items_dir = self.PENDING / ".active-items"
         self.assertFalse(
-            (PENDING / ".active-item").exists(),
-            msg=".active-item still present after closeout",
+            active_items_dir.exists() and any(
+                not path.name.endswith(".completing")
+                for path in active_items_dir.iterdir()
+            ),
+            msg="Active task marker still present after closeout",
         )
 
     def test_07_verify_qmd_archive(self) -> None:
         self.assertTrue(
-            QMD.is_dir(),
+            self.QMD.is_dir(),
             msg="AgentWorkSpace/qmd/ directory does not exist",
         )
-        global_history = QMD / "global" / "retrospectives" / "history"
+        global_history = self.QMD / "global" / "retrospectives" / "history"
         history_files = list(global_history.rglob("*.md")) if global_history.is_dir() else []
         pack_qmd = Path(self.context_pack_dir) / "qmd"
         context_pack_archives = list(pack_qmd.rglob("*.json")) if pack_qmd.is_dir() else []
@@ -244,10 +253,7 @@ class LivePipelineBigTests(BasePipelineTests):
         )
 
     def test_08_verify_reinforcement(self) -> None:
-        ledger = (
-            REPO_ROOT / "AgentWorkSpace" / "qmd" / "reinforcement"
-            / "task-ledger.json"
-        )
+        ledger = self.QMD / "reinforcement" / "task-ledger.json"
         self.assertTrue(
             ledger.exists(),
             msg="task-ledger.json not created under AgentWorkSpace/qmd/reinforcement/",

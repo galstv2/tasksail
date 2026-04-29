@@ -23,7 +23,9 @@ export interface QueueStatusResult {
   activeItem: string | null;
   workspaceReady: boolean;
   /** True when active markers exist but handoffs/ is blank — crash-recovery state. */
-  activeItemWithBlankWorkspace: boolean;
+  activeTaskWithBlankWorkspace: boolean;
+  /** Task IDs whose `.completing` sentinel coexists with an active marker. */
+  stuckMidCompletion: string[];
   /** True when a .publish-in-progress marker exists — handoffs partially initialized. */
   partialPublish: boolean;
   /** Count of .md files in error-items/ (failed tasks moved out of the queue). */
@@ -59,10 +61,17 @@ export async function getQueueStatus(
 
   // Active tasks — iterate .active-items/ directory, filter .completing sentinels
   const activeTasks: ActiveTaskEntry[] = [];
+  let stuckMidCompletion: string[] = [];
   if (existsSync(queuePaths.activeItemsDir)) {
     try {
       const entries = await readdir(queuePaths.activeItemsDir);
       const markers = entries.filter((f) => !f.endsWith('.completing'));
+      const markerSet = new Set(markers.map((f) => f.replace(/\.md$/, '')));
+      stuckMidCompletion = entries
+        .filter((f) => f.endsWith('.completing'))
+        .map((f) => f.slice(0, -'.completing'.length))
+        .filter((taskId) => markerSet.has(taskId))
+        .sort();
       for (const marker of markers) {
         const taskId = marker.replace(/\.md$/, '');
         activeTasks.push({
@@ -93,7 +102,7 @@ export async function getQueueStatus(
   }
 
   // Detect crash-recovery state: active markers present but workspace is blank
-  const activeItemWithBlankWorkspace = activeTasks.length > 0 && workspaceReady;
+  const activeTaskWithBlankWorkspace = activeTasks.length > 0 && workspaceReady;
 
   // Per-task handoff publish is checked by repairQueue (check 5), not here.
   const partialPublish = false;
@@ -113,7 +122,8 @@ export async function getQueueStatus(
     activeTasks,
     activeItem,
     workspaceReady,
-    activeItemWithBlankWorkspace,
+    activeTaskWithBlankWorkspace,
+    stuckMidCompletion,
     partialPublish,
     errorItemsCount,
   };

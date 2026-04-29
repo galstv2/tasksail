@@ -17,7 +17,7 @@ export type PlannerUsage = {
 
 export type PlannerBrokerState = {
   brokerStatus: PlannerBrokerStatus;
-  copilotSessionId: string | null;
+  cliSessionId: string | null;
   turnId: string | null;
   content: string;
   exitCode: number | null;
@@ -62,7 +62,7 @@ export type PlannerTurnFailedEvent = PlannerEventBase & {
 
 export type PlannerSessionUpdatedEvent = PlannerEventBase & {
   type: 'planner.session.updated';
-  copilotSessionId: string;
+  cliSessionId: string;
 };
 
 export type PlannerNormalizedEvent =
@@ -111,15 +111,13 @@ export type PlannerEventParseFailure = {
 
 export type PlannerEventParseResult = PlannerEventParseSuccess | PlannerEventParseFailure;
 
-export type PlannerCopilotInvocation = {
+export type PlannerCliInvocation = {
   command: string;
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
   agentId: 'planning-agent';
   model: string;
-  outputFormat: 'json';
-  streamMode: 'on';
   prompt: string;
   promptMode: 'interactive' | 'one-shot';
   resumeSessionId: string | null;

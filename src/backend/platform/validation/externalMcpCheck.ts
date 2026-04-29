@@ -8,6 +8,7 @@
 import path from 'node:path';
 
 import { loadAgentRegistry } from '../agent-runner/metadata.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import {
   loadExternalMcpRegistry,
   loadDefaultExternalRegistry,
@@ -28,12 +29,13 @@ export interface ExternalMcpCheckResult {
  * - Reports validation errors as failures (unlike the fallback helper
  *   which swallows errors for the launch path).
  * - Warns (does not fail) if agent_scope.agent_ids reference IDs not
- *   found in .github/agents/registry.json.
+ *   found in the active provider's agent registry.
  */
 export async function checkExternalMcpRegistry(
   repoRoot: string,
 ): Promise<ExternalMcpCheckResult> {
   const warnings: string[] = [];
+  const registryRelativePath = getActiveProvider(repoRoot).agentConfigPaths().registry;
 
   // Try runtime first, fall back to default on file-not-found.
   const runtimePath = path.join(repoRoot, RUNTIME_REGISTRY_PATH);
@@ -79,7 +81,7 @@ export async function checkExternalMcpRegistry(
         if (!knownAgentIds.has(agentId)) {
           warnings.push(
             `External MCP server "${server.id}": agent_scope references ` +
-            `unknown agent ID "${agentId}" (not in .github/agents/registry.json).`,
+            `unknown agent ID "${agentId}" (not in ${registryRelativePath}).`,
           );
         }
       }

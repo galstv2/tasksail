@@ -3,7 +3,7 @@ Begin the workflow from the active task artifacts already present in the reposit
 Use the repository instruction files as the source of truth.
 
 Authoritative inputs:
-- the active queued task in `AgentWorkSpace/pendingitems/` when present
+- `$COPILOT_HANDOFFS_DIR/intake.md` when present (canonical operator intake for this task)
 - `$COPILOT_HANDOFFS_DIR/professional-task.md`
 - the current repository state
 

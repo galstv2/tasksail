@@ -28,7 +28,7 @@ describe('deletePendingItem', () => {
   });
 
   it('blocks deleting the active item', async () => {
-    // §4.1B: active state is tracked via .active-items/<taskId> marker, not singleton .active-item
+    // §4.1B: active state is tracked via .active-items/<taskId> marker
     const activeItemsDir = path.join(pendingDir, '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'task-002.md'), '# Pending\n', 'utf-8');

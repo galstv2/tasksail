@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { runLocalChecks } from '../localChecks.js';
-import { REQUIRED_DIRS, REQUIRED_FILES } from '../structure.js';
+import { getRequiredDirs, getRequiredFiles } from '../structure.js';
 
 describe('runLocalChecks', () => {
   let tmpDir: string;
@@ -29,10 +29,10 @@ describe('runLocalChecks', () => {
 
   it('respects profile selection — contracts skips python tests', async () => {
     // Create all required structure
-    for (const dir of REQUIRED_DIRS) {
+    for (const dir of getRequiredDirs(tmpDir)) {
       await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
     }
-    for (const file of REQUIRED_FILES) {
+    for (const file of getRequiredFiles(tmpDir)) {
       const filePath = path.join(tmpDir, file);
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
       await fs.promises.writeFile(filePath, '');

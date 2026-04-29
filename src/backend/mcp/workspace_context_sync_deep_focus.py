@@ -31,20 +31,34 @@ def normalize_deep_focus_selection(
             "selected_focus_target_kind must be directory or file when provided"
         )
 
+    normalized_test_target = (
+        normalize_deep_focus_target(
+            selected_test_target, field_name="selected_test_target"
+        )
+        if selected_test_target_provided
+        else None
+    )
+    normalized_support_targets = normalize_deep_focus_targets(
+        selected_support_targets, field_name="selected_support_targets"
+    )
+    derived = derive_deep_focus_roots(
+        selected_focus_path=selected_focus_path,
+        selected_focus_target_kind=selected_focus_target_kind,
+        selected_test_target=normalized_test_target,
+        selected_support_targets=normalized_support_targets,
+    )
+
     result: dict[str, Any] = {
         "deep_focus_enabled": bool(deep_focus_enabled),
         "deep_focus_primary_repo_id": deep_focus_primary_repo_id,
         "deep_focus_primary_focus_id": deep_focus_primary_focus_id,
         "selected_focus_path": selected_focus_path,
         "selected_focus_target_kind": selected_focus_target_kind,
-        "selected_support_targets": normalize_deep_focus_targets(
-            selected_support_targets, field_name="selected_support_targets"
-        ),
+        "selected_support_targets": normalized_support_targets,
+        **derived,
     }
     if selected_test_target_provided:
-        result["selected_test_target"] = normalize_deep_focus_target(
-            selected_test_target, field_name="selected_test_target"
-        )
+        result["selected_test_target"] = normalized_test_target
     return result
 
 
@@ -87,6 +101,10 @@ def extract_deep_focus_fields(source: dict[str, Any]) -> dict[str, Any]:
         "selected_focus_path": source["selected_focus_path"],
         "selected_focus_target_kind": source["selected_focus_target_kind"],
         "selected_support_targets": source["selected_support_targets"],
+        "derived_writable_roots": source["derived_writable_roots"],
+        "derived_readonly_context_roots": source[
+            "derived_readonly_context_roots"
+        ],
     }
     if "selected_test_target" in source:
         fields["selected_test_target"] = source["selected_test_target"]
@@ -109,4 +127,84 @@ def normalize_deep_focus_targets(
         if normalized is None:
             raise ValueError(f"{field_name}[{index}] must not be null")
         result.append(normalized)
+    return result
+
+
+def derive_deep_focus_roots(
+    *,
+    selected_focus_path: str | None,
+    selected_focus_target_kind: str | None,
+    selected_test_target: dict[str, str] | None,
+    selected_support_targets: list[dict[str, str]],
+) -> dict[str, list[dict[str, str]]]:
+    writable_roots: list[dict[str, str]] = []
+    readonly_roots: list[dict[str, str]] = []
+
+    primary_path = normalize_relative_path(selected_focus_path or "")
+    primary_kind = (
+        selected_focus_target_kind
+        if selected_focus_target_kind in TARGET_KINDS
+        else "directory"
+    )
+    if not primary_path or primary_kind == "directory":
+        writable_roots.append(
+            {
+                "path": primary_path,
+                "kind": "directory",
+                "reason": "selected-primary",
+            }
+        )
+    else:
+        writable_roots.append(
+            {
+                "path": parent_relative_path(primary_path),
+                "kind": "directory",
+                "reason": "primary-focus-parent",
+            }
+        )
+
+    if selected_test_target is not None:
+        writable_roots.append(
+            {
+                "path": normalize_relative_path(selected_test_target["path"]),
+                "kind": selected_test_target["kind"],
+                "reason": "test-target",
+            }
+        )
+
+    for target in selected_support_targets:
+        readonly_roots.append(
+            {
+                "path": normalize_relative_path(target["path"]),
+                "kind": target["kind"],
+                "reason": "support-target",
+            }
+        )
+
+    return {
+        "derived_writable_roots": dedupe_roots(writable_roots),
+        "derived_readonly_context_roots": dedupe_roots(readonly_roots),
+    }
+
+
+def normalize_relative_path(value: str) -> str:
+    return value.replace("\\", "/").strip().strip("/")
+
+
+def parent_relative_path(value: str) -> str:
+    normalized = normalize_relative_path(value)
+    if "/" not in normalized:
+        return ""
+    return normalized.rsplit("/", 1)[0]
+
+
+def dedupe_roots(roots: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str, str]] = set()
+    result: list[dict[str, str]] = []
+    for root in roots:
+        key = (root["path"], root["kind"], root["reason"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(root)
     return result

@@ -17,7 +17,8 @@ import {
   type TaskLifecycleFeed,
   type WorkflowLifecycleEntry,
 } from '../src/shared/desktopContract';
-import { namedWorkflowAgentRoster, type NamedWorkflowAgentProfile } from '../src/shared/agentRoster';
+import { createNamedWorkflowAgentRoster, type NamedWorkflowAgentProfile } from '../src/shared/agentRoster';
+import { getProviderFrontendDescriptor } from '../../../backend/platform/cli-provider/index.js';
 import { REPO_ROOT } from './paths';
 import { readTaskRecoveryState } from './main.recoveryState';
 import { pathExists, stringOrNull, repoFs, type ReadOnlyRepoFs } from './utils';
@@ -26,12 +27,6 @@ const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
-
-// §5.5 F27: TODO — per-taskId mtime cache for incremental aggregate view will be
-// populated in §6.0 when subscribeTask/unsubscribeTask are called from the pipeline.
-// Not used until §6.0; declared here as a forward-reference placeholder.
-// const taskRuntimeMtimeCache = new Map<string, number>();
-// const OBSERVABILITY_DEBOUNCE_MS = 200; // TODO §4.4: read from platform config.
 
 const SUSPECTED_STUCK_AFTER_MS = 20 * 60 * 1000;
 const ORPHANED_GRACE_MS = 2 * 60 * 1000;
@@ -162,16 +157,18 @@ async function readJsonObjectIfPresent(
   }
 }
 
-// Pre-computed lookup: maps both registry keys ("software-engineer") and
-// human_name aliases ("dalton") to roster profiles for O(1) resolution.
-const agentLabelLookup = new Map<string, NamedWorkflowAgentProfile>(
-  Object.entries(namedWorkflowAgentRoster).flatMap(([key, profile]) => [
-    [key, profile],
-    [profile.humanName.toLowerCase(), profile],
-  ]),
-);
+function buildAgentLabelLookup(): Map<string, NamedWorkflowAgentProfile> {
+  const roster = createNamedWorkflowAgentRoster(getProviderFrontendDescriptor(REPO_ROOT));
+  return new Map(
+    Object.entries(roster).flatMap(([key, profile]) => [
+      [key, profile],
+      [profile.humanName.toLowerCase(), profile],
+    ]),
+  );
+}
 
 function getAgentLabel(agentId: string, instanceId: string | null): string {
+  const agentLabelLookup = buildAgentLabelLookup();
   const rosterEntry = agentLabelLookup.get(agentId) ?? agentLabelLookup.get(agentId.toLowerCase());
 
   if (rosterEntry) {
@@ -727,6 +724,7 @@ function getLatestTimestamp(...values: Array<string | null | undefined>): string
 function parseSessionEntry(
   payload: JsonObject | null,
   fallbackAgentId: string,
+  taskIdFromRuntimeDir: string | null = null,
   parseError?: string | null,
 ): AgentTerminalSession {
   const agentId = stringOrNull(payload?.agent_id) ?? fallbackAgentId;
@@ -751,7 +749,7 @@ function parseSessionEntry(
   const sessionId = startedAt ? `role:${agentId}:${startedAt}` : `role:${agentId}`;
 
   return {
-    taskId: stringOrNull(payload?.task_id),
+    taskId: stringOrNull(payload?.task_id) ?? taskIdFromRuntimeDir,
     agentId,
     agentLabel: launchPhase
       ? `${getAgentLabel(agentId, null)} — ${launchPhase}`
@@ -780,6 +778,7 @@ function parseSessionEntry(
 async function readRoleAgentTerminalSessions(
   fsAdapter: ReadOnlyRepoFs,
   roleRuntimeSessionsDir: string,
+  taskIdFromRuntimeDir: string | null = null,
 ): Promise<AgentTerminalSession[]> {
   const receiptFiles = (await readDirIfPresent(roleRuntimeSessionsDir, fsAdapter))
     .filter((name) => name.endsWith('.json'));
@@ -790,18 +789,7 @@ async function readRoleAgentTerminalSessions(
     const { payload, parseError } = await readJsonObjectIfPresent(receiptPath, fsAdapter);
     const fallbackAgentId = receiptFile.replace(/\.json$/u, '');
 
-    // Parse previous sessions from history so the watcher can emit
-    // "completed"/"failed" events even after the file was overwritten.
-    const history = payload?.session_history;
-    if (Array.isArray(history)) {
-      for (const entry of history) {
-        if (entry != null && typeof entry === 'object' && !Array.isArray(entry)) {
-          sessions.push(parseSessionEntry(entry as JsonObject, fallbackAgentId));
-        }
-      }
-    }
-
-    sessions.push(parseSessionEntry(payload, fallbackAgentId, parseError));
+    sessions.push(parseSessionEntry(payload, fallbackAgentId, taskIdFromRuntimeDir, parseError));
   }
 
   return sessions;
@@ -874,7 +862,7 @@ async function buildTaskLifecycleFeed(args: {
   agentTerminalSessions: AgentTerminalSession[];
   guardrailSummary: GuardrailSummary;
   recoveryState: TaskRecoveryState | null;
-  /** §5.5: per-task handoffs dir. Defaults to legacy singleton when not supplied. */
+  /** Per-task handoffs directory. Defaults to the legacy singleton when not supplied. */
   handoffsDir?: string;
 }): Promise<TaskLifecycleFeed | null> {
   const {
@@ -896,7 +884,7 @@ async function buildTaskLifecycleFeed(args: {
     activeTaskId,
     agentTerminalSessions,
   );
-  // §5.5: derive parallel-ok path from per-task handoffs dir when available.
+  // Derive the parallel-ok path from the per-task handoffs directory when available.
   const effectiveHandoffsDir = args.handoffsDir ?? join(REPO_ROOT, 'AgentWorkSpace', 'handoffs');
   const parallelOkPath = join(effectiveHandoffsDir, 'parallel-ok.md');
   let parallelOkContent: string | null = null;
@@ -925,7 +913,7 @@ async function buildTaskLifecycleFeed(args: {
     parallelizationEnabled,
     startedAt,
     lastUpdatedAt,
-    // §5.5: sourceArtifact is now per-task; derived from effectiveHandoffsDir.
+    // Source artifact is per-task and derived from the effective handoffs directory.
     sourceArtifact: toRepoRelativePath(join(effectiveHandoffsDir, 'professional-task.md')),
     taskHealth,
     guardrailSummary,
@@ -953,7 +941,6 @@ function inferLifecycleState(args: {
 }
 
 /**
- * §5.5: inferOperatorStatus now returns the new OperatorStatus object shape.
  * activeTasks array is populated from active markers in .active-items/;
  * activeTaskId is derived as activeTasks[0]?.taskId ?? null (F39 back-compat scalar).
  */
@@ -1029,7 +1016,7 @@ async function buildArtifactReference(
 export async function readQueueStatusSnapshot(
   fsAdapter: ReadOnlyRepoFs = repoFs,
 ): Promise<QueueStatusResponse> {
-  // §5.5: enumerate ACTIVE_ITEMS_DIR for multi-task support instead of reading singleton .active-item.
+  // Enumerate ACTIVE_ITEMS_DIR for multi-task support.
   const [dropboxCount, pendingCount, activeTaskIds, errorItemsCount] = await Promise.all([
     countMarkdownFiles(DROPBOX_DIR, fsAdapter),
     countMarkdownFiles(PENDING_DIR, fsAdapter),
@@ -1058,17 +1045,66 @@ export async function readQueueStatusSnapshot(
 
 export async function readObservabilitySnapshot(
   fsAdapter: ReadOnlyRepoFs = repoFs,
+  runtimeTaskIdsOverride?: string[],
 ): Promise<ObservabilitySnapshotResponse> {
-  // §5.5: singleton fallback dirs for backward-compat when no per-task runtime exists yet.
-  const legacyRoleSessionsDir = join(REPO_ROOT, '.platform-state', 'runtime', 'role-sessions');
-  const legacyGuardrailReceiptsDir = join(REPO_ROOT, '.platform-state', 'runtime', 'guardrails');
+  async function readRuntimeReceipts(runtimeTaskIds: string[]): Promise<{
+    agentTerminalSessions: AgentTerminalSession[];
+    guardrails: GuardrailObservation[];
+  }> {
+    const perTaskResults = await Promise.all(runtimeTaskIds.map(async (runtimeTaskId) => {
+      const roleSessionsDir = join(
+        REPO_ROOT,
+        '.platform-state',
+        'runtime',
+        'tasks',
+        runtimeTaskId,
+        'role-sessions',
+      );
+      const guardrailReceiptsDir = join(
+        REPO_ROOT,
+        '.platform-state',
+        'runtime',
+        'tasks',
+        runtimeTaskId,
+        'guardrails',
+      );
+      const [sessions, guardrailObservations] = await Promise.all([
+        readRoleAgentTerminalSessions(fsAdapter, roleSessionsDir, runtimeTaskId),
+        readGuardrailObservations(fsAdapter, guardrailReceiptsDir),
+      ]);
+      const sessionsById = new Set(sessions.map((session) => session.sessionId));
+      const latestSessionByAgent = new Map<string, AgentTerminalSession>();
+      for (const session of sessions) {
+        const current = latestSessionByAgent.get(session.agentId);
+        if (!current || (session.lastUpdatedAt ?? '') > (current.lastUpdatedAt ?? '')) {
+          latestSessionByAgent.set(session.agentId, session);
+        }
+      }
+      const normalizedGuardrails = guardrailObservations.map((observation) => {
+        if (observation.sessionId && sessionsById.has(observation.sessionId)) {
+          return observation;
+        }
+        const latestSession = latestSessionByAgent.get(observation.agentId);
+        return latestSession
+          ? { ...observation, sessionId: latestSession.sessionId }
+          : observation;
+      });
+      return {
+        agentTerminalSessions: mergeGuardrailStateIntoSessions(sessions, normalizedGuardrails),
+        guardrails: normalizedGuardrails,
+      };
+    }));
+
+    return {
+      agentTerminalSessions: perTaskResults.flatMap((result) => result.agentTerminalSessions),
+      guardrails: perTaskResults.flatMap((result) => result.guardrails),
+    };
+  }
 
   const [
     dropboxCount,
     pendingCount,
     activeTaskIds,
-    rawAgentTerminalSessions,
-    guardrails,
     errorItemsCount,
     recoveryState,
   ] =
@@ -1076,18 +1112,13 @@ export async function readObservabilitySnapshot(
       countMarkdownFiles(DROPBOX_DIR, fsAdapter),
       countMarkdownFiles(PENDING_DIR, fsAdapter),
       readActiveTaskIds(fsAdapter),
-      // §5.5: pass dir param; legacy singleton path as default until per-task runtime is wired.
-      readRoleAgentTerminalSessions(fsAdapter, legacyRoleSessionsDir),
-      readGuardrailObservations(fsAdapter, legacyGuardrailReceiptsDir),
       countMarkdownFiles(ERROR_ITEMS_DIR, fsAdapter),
       readTaskRecoveryState(fsAdapter),
     ]);
 
+  const runtimeTaskIds = runtimeTaskIdsOverride ?? activeTaskIds;
+  const { agentTerminalSessions, guardrails } = await readRuntimeReceipts(runtimeTaskIds);
   const guardrailSummary = buildGuardrailSummary(guardrails);
-  const agentTerminalSessions = mergeGuardrailStateIntoSessions(
-    rawAgentTerminalSessions,
-    guardrails,
-  );
 
   const activeTaskIdSet = new Set(activeTaskIds);
   const pendingQueueItems = await readPendingQueueItems(fsAdapter, activeTaskIdSet);

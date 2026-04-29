@@ -78,8 +78,30 @@ class RunRoleAgentHelperExternalMcpTests(unittest.TestCase):
         self.assertEqual(
             payload["envExports"]["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "true",
         )
-        self.assertIn("COPILOT_HOME", payload["envExports"])
+        self.assertNotIn("COPILOT_HOME", payload["envExports"])
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", payload["envExports"])
+        self.assertTrue(payload["launchDir"].endswith("copilot-home/" + Path(payload["launchDir"]).name))
+        self.assertEqual(payload["contextFile"], payload["envExports"]["EXTERNAL_MCP_CONTEXT_FILE"])
+        self.assertEqual(payload["resolvedServers"], [{
+            "id": "test-mcp",
+            "transport": "sse",
+            "url": "",
+            "headers": {},
+        }])
+        self.assertEqual(
+            set(payload.keys()),
+            {
+                "status",
+                "reason",
+                "injectionEnabled",
+                "envExports",
+                "launchDir",
+                "contextFile",
+                "resolvedServers",
+                "selectedServerIds",
+                "excludedServerIds",
+            },
+        )
 
     def test_not_applicable_payload_is_machine_readable_noop(self) -> None:
         self._write_runtime_registry([

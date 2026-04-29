@@ -330,7 +330,7 @@ describe('electron main bootstrap', () => {
         handoffsDir: '/repo/AgentWorkSpace/tasks/20260328-task/handoffs',
       }],
       workspaceReady: false,
-      activeItemWithBlankWorkspace: false,
+      activeTaskWithBlankWorkspace: false,
       partialPublish: false,
       errorItemsCount: 0,
     }));

@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "description": "Electron desktop shell for the TaskSail operator UI.",
-  "author": "GitHub Copilot",
+  "author": "TaskSail",
   "productName": "TaskSail",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -33,6 +33,9 @@
       "dist-electron/**",
       "build/icon.png",
       "package.json"
+    ],
+    "asarUnpack": [
+      "dist-electron/pipelineChildEntry.js"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

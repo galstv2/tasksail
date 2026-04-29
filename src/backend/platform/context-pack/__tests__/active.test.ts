@@ -11,6 +11,8 @@ describe('requireAuthorizedActiveContextPack', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'active-context-pack-test-'));
     process.env = { ...originalEnv };
+    // Ensure the task-sidecar path is not taken when testing the singleton path.
+    delete process.env['TASKSAIL_TASK_ID'];
   });
 
   afterEach(() => {

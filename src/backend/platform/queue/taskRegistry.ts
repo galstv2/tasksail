@@ -6,6 +6,7 @@
  * The Task Board reads from the registry instead of scanning directories.
  */
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { ensureDir, readTextFile } from '../core/index.js';
@@ -22,6 +23,7 @@ export type TaskState = 'open' | 'pending' | 'active' | 'failed' | 'completed';
 
 export interface TaskRegistryEntry {
   taskId: string;
+  taskGuid?: string;
   fileName: string;
   title: string | null;
   state: TaskState;
@@ -104,6 +106,43 @@ function ensurePackSet(registry: TaskRegistry, key: string): ContextPackTaskSet 
   return registry.tasks[key];
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+function ensureTaskGuid(entry: TaskRegistryEntry): TaskRegistryEntry {
+  const taskGuid = typeof entry.taskGuid === 'string' && UUID_PATTERN.test(entry.taskGuid)
+    ? entry.taskGuid
+    : randomUUID();
+  return { ...entry, taskGuid };
+}
+
+function normalizeTaskSet(set: ContextPackTaskSet): ContextPackTaskSet {
+  return {
+    open: set.open.map(ensureTaskGuid),
+    pending: set.pending.map(ensureTaskGuid),
+    active: set.active.map(ensureTaskGuid),
+    failed: set.failed.map(ensureTaskGuid),
+    completed: set.completed.map(ensureTaskGuid),
+  };
+}
+
+function collectTaskGuids(registry: TaskRegistry): Map<string, string> {
+  const taskGuids = new Map<string, string>();
+  for (const set of Object.values(registry.tasks)) {
+    for (const entry of [
+      ...set.open,
+      ...set.pending,
+      ...set.active,
+      ...set.failed,
+      ...set.completed,
+    ]) {
+      if (entry.taskGuid) {
+        taskGuids.set(entry.taskId, entry.taskGuid);
+      }
+    }
+  }
+  return taskGuids;
+}
+
 // ── Schema version handling ───────────────────────────────────────────────
 
 /**
@@ -132,11 +171,11 @@ function migrateV1Set(raw: RawContextPackTaskSetV1): ContextPackTaskSet {
     active = [];
   }
   return {
-    open: raw.open ?? [],
-    pending: raw.pending ?? [],
-    active,
-    failed: raw.failed ?? [],
-    completed: raw.completed ?? [],
+    open: (raw.open ?? []).map(ensureTaskGuid),
+    pending: (raw.pending ?? []).map(ensureTaskGuid),
+    active: active.map(ensureTaskGuid),
+    failed: (raw.failed ?? []).map(ensureTaskGuid),
+    completed: (raw.completed ?? []).map(ensureTaskGuid),
   };
 }
 
@@ -172,13 +211,13 @@ export async function loadTaskRegistry(repoRoot: string): Promise<TaskRegistry> 
     };
     for (const [key, rawSet] of Object.entries(parsed.tasks ?? {})) {
       registry.tasks[key] = {
-        open: (rawSet as ContextPackTaskSet).open ?? [],
-        pending: (rawSet as ContextPackTaskSet).pending ?? [],
+        open: ((rawSet as ContextPackTaskSet).open ?? []).map(ensureTaskGuid),
+        pending: ((rawSet as ContextPackTaskSet).pending ?? []).map(ensureTaskGuid),
         active: Array.isArray((rawSet as ContextPackTaskSet).active)
-          ? (rawSet as ContextPackTaskSet).active
+          ? (rawSet as ContextPackTaskSet).active.map(ensureTaskGuid)
           : [],
-        failed: (rawSet as ContextPackTaskSet).failed ?? [],
-        completed: (rawSet as ContextPackTaskSet).completed ?? [],
+        failed: ((rawSet as ContextPackTaskSet).failed ?? []).map(ensureTaskGuid),
+        completed: ((rawSet as ContextPackTaskSet).completed ?? []).map(ensureTaskGuid),
       };
     }
     return registry;
@@ -202,7 +241,13 @@ export async function saveTaskRegistry(
   const filePath = registryPath(repoRoot);
   await ensureDir(path.dirname(filePath));
   // Always stamp schema_version: 2 on write
-  const toWrite: TaskRegistry = { ...registry, schema_version: 2 };
+  const toWrite: TaskRegistry = {
+    ...registry,
+    schema_version: 2,
+    tasks: Object.fromEntries(
+      Object.entries(registry.tasks).map(([key, set]) => [key, normalizeTaskSet(set)]),
+    ),
+  };
   const tmpPath = filePath + '.tmp';
   await writeFile(tmpPath, JSON.stringify(toWrite, null, 2) + '\n', 'utf-8');
   await rename(tmpPath, filePath);
@@ -215,16 +260,17 @@ export async function registerTask(
   const release = await acquireRegistryMutex();
   try {
     const registry = await loadTaskRegistry(repoRoot);
-    const key = contextPackKey(entry);
+    const normalizedEntry = ensureTaskGuid(entry);
+    const key = contextPackKey(normalizedEntry);
     const set = ensurePackSet(registry, key);
-    if (entry.state === 'active') {
-      if (!set.active.some((e) => e.taskId === entry.taskId)) {
-        set.active.push(entry);
+    if (normalizedEntry.state === 'active') {
+      if (!set.active.some((e) => e.taskId === normalizedEntry.taskId)) {
+        set.active.push(normalizedEntry);
       }
     } else {
-      const list = stateList(set, entry.state);
-      if (list && !list.some((e) => e.taskId === entry.taskId)) {
-        list.push(entry);
+      const list = stateList(set, normalizedEntry.state);
+      if (list && !list.some((e) => e.taskId === normalizedEntry.taskId)) {
+        list.push(normalizedEntry);
       }
     }
     await saveTaskRegistry(repoRoot, registry);
@@ -303,6 +349,9 @@ export function getAllTasks(registry: TaskRegistry): ContextPackTaskSet {
  * markdown.
  */
 export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry> {
+  const previousTaskGuids = await loadTaskRegistry(repoRoot)
+    .then(collectTaskGuids)
+    .catch(() => new Map<string, string>());
   const registry = emptyRegistry();
   const dirs: { dir: string; state: TaskState }[] = [
     { dir: path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), state: 'open' },
@@ -340,6 +389,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
 
       const entry: TaskRegistryEntry = {
         taskId,
+        taskGuid: previousTaskGuids.get(taskId) ?? randomUUID(),
         fileName,
         title,
         state: effectiveState,

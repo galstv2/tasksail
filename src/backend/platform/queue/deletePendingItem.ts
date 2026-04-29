@@ -4,6 +4,7 @@ import { unlink, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 import { findRepoRoot } from '../core/index.js';
+import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { readQueueOrderManifest, writeQueueOrderManifest } from './operations.js';
 import { removeTask } from './taskRegistry.js';
@@ -68,4 +69,11 @@ export async function deletePendingItem(
       await unlink(queuePaths.queueOrderPath);
     }
   } catch { /* best-effort */ }
+
+  // Defense in depth: a pending item that is not the active task should not
+  // have a materialized worktree (worktree creation happens at activation,
+  // and the active-task guard above blocks deletes of currently-active items).
+  // The discard helper is idempotent and a no-op when no forensic state
+  // exists, so calling it here costs nothing and forecloses any ordering bug.
+  await discardRetainedTaskWorktrees(deletedTaskId, repoRoot);
 }

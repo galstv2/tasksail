@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { isRecord, readTextFile, safeJsonParse } from '../core/index.js';
 import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 import type {
@@ -5,18 +7,15 @@ import type {
   PlatformConfigLoadResult,
   PlatformConfigValidationError,
 } from './types.js';
-import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from './types.js';
+import {
+  CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+  VALID_ENGINE_HOSTS,
+  isValidWslDistroName,
+} from './types.js';
 
 const VALID_RUNTIMES: ReadonlySet<ContainerBackend> = new Set([
   'docker',
   'podman',
-]);
-
-const VALID_ENGINE_HOSTS: ReadonlySet<ContainerEngineHost> = new Set([
-  'auto',
-  'native',
-  'desktop-linux',
-  'wsl',
 ]);
 
 function err(
@@ -114,6 +113,22 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     );
   }
 
+  const rawCliProvider = data['cli_provider'];
+  let cliProvider = 'copilot';
+  if (rawCliProvider !== undefined) {
+    if (typeof rawCliProvider !== 'string' || rawCliProvider.trim() === '') {
+      errors.push(
+        err(
+          'cli_provider',
+          `Must be a non-empty string when present, got ${JSON.stringify(rawCliProvider)}.`,
+          'Set cli_provider to "copilot" or remove it to use the default.',
+        ),
+      );
+    } else {
+      cliProvider = rawCliProvider.trim();
+    }
+  }
+
   const rawContainerEngineHost = data['container_engine_host'];
   let containerEngineHost: ContainerEngineHost = 'auto';
   if (
@@ -153,11 +168,7 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
 
   if (
     containerEngineHost === 'wsl'
-    && (
-      containerEngineWslDistro === null
-      || containerEngineWslDistro.trim() === ''
-      || /[\\/]/.test(containerEngineWslDistro)
-    )
+    && !isValidWslDistroName(containerEngineWslDistro)
   ) {
     errors.push(
       err(
@@ -269,30 +280,85 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     completedTaskRuntimeRetentionMs = rawRetentionMs;
   }
 
-  // mcp_port_range
-  let mcpPortRange: { min: number; max: number } = { min: 8811, max: 8820 };
+  // mcp_port
+  let mcpPort = 8811;
+  const rawPort = data['mcp_port'];
+  if (rawPort !== undefined) {
+    if (
+      typeof rawPort !== 'number'
+      || !Number.isInteger(rawPort)
+      || rawPort < 1
+      || rawPort > 65535
+    ) {
+      errors.push(
+        err(
+          'mcp_port',
+          `Must be an integer port number from 1 to 65535, got ${JSON.stringify(rawPort)}.`,
+          'Set mcp_port to a valid integer port number from 1 to 65535.',
+        ),
+      );
+    } else {
+      mcpPort = rawPort;
+    }
+  }
+
+  // mcp_port_range is migration-window compatibility for one release. It is
+  // read-only: when mcp_port is absent, derive mcp_port from mcp_port_range.min.
+  let mcpPortRange: { min: number; max: number } | undefined;
   const rawPortRange = data['mcp_port_range'];
-  if (rawPortRange === undefined) {
-    mcpPortRange = { min: 8811, max: 8820 };
-  } else if (
-    !isRecord(rawPortRange)
-    || typeof rawPortRange['min'] !== 'number'
-    || typeof rawPortRange['max'] !== 'number'
-    || !Number.isInteger(rawPortRange['min'])
-    || !Number.isInteger(rawPortRange['max'])
-    || rawPortRange['min'] < 1
-    || rawPortRange['max'] > 65535
-    || rawPortRange['min'] > rawPortRange['max']
-  ) {
-    errors.push(
-      err(
-        'mcp_port_range',
-        `Must be an object { min, max } with 1 ≤ min ≤ max ≤ 65535, got ${JSON.stringify(rawPortRange)}.`,
-        'Set mcp_port_range to an object with valid integer min and max port numbers.',
-      ),
-    );
-  } else {
-    mcpPortRange = { min: rawPortRange['min'] as number, max: rawPortRange['max'] as number };
+  if (rawPortRange !== undefined) {
+    if (
+      !isRecord(rawPortRange)
+      || typeof rawPortRange['min'] !== 'number'
+      || typeof rawPortRange['max'] !== 'number'
+      || !Number.isInteger(rawPortRange['min'])
+      || !Number.isInteger(rawPortRange['max'])
+      || rawPortRange['min'] < 1
+      || rawPortRange['max'] > 65535
+      || rawPortRange['min'] > rawPortRange['max']
+    ) {
+      errors.push(
+        err(
+          'mcp_port_range',
+          `Must be an object { min, max } with 1 ≤ min ≤ max ≤ 65535, got ${JSON.stringify(rawPortRange)}.`,
+          'Set mcp_port_range to an object with valid integer min and max port numbers.',
+        ),
+      );
+    } else {
+      mcpPortRange = { min: rawPortRange['min'] as number, max: rawPortRange['max'] as number };
+      if (rawPort === undefined) {
+        mcpPort = mcpPortRange.min;
+      }
+    }
+  }
+
+  // repo_context_mcp_external_mount_roots
+  let repoContextMcpExternalMountRoots: string[] = [];
+  const rawExternalMountRoots = data['repo_context_mcp_external_mount_roots'];
+  if (rawExternalMountRoots !== undefined) {
+    if (!Array.isArray(rawExternalMountRoots)) {
+      errors.push(
+        err(
+          'repo_context_mcp_external_mount_roots',
+          `Must be an array of absolute paths, got ${JSON.stringify(rawExternalMountRoots)}.`,
+          'Set repo_context_mcp_external_mount_roots to an array of absolute host paths.',
+        ),
+      );
+    } else {
+      repoContextMcpExternalMountRoots = rawExternalMountRoots.filter((root): root is string => {
+        if (typeof root !== 'string' || !path.isAbsolute(root)) {
+          errors.push(
+            err(
+              'repo_context_mcp_external_mount_roots',
+              `Each entry must be an absolute host path, got ${JSON.stringify(root)}.`,
+              'Use absolute host paths in repo_context_mcp_external_mount_roots.',
+            ),
+          );
+          return false;
+        }
+        return true;
+      });
+    }
   }
 
   if (errors.length > 0) {
@@ -303,6 +369,7 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     valid: true,
     config: {
       schema_version: version as number,
+      cli_provider: cliProvider,
       container_runtime: containerRuntime as ContainerBackend,
       container_engine_host: containerEngineHost,
       container_engine_wsl_distro: containerEngineWslDistro,
@@ -311,7 +378,8 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
       max_retained_failed_task_worktrees: maxRetainedFailedTaskWorktrees,
       max_retry_generations_per_slug: maxRetryGenerationsPerSlug,
       completed_task_runtime_retention_ms: completedTaskRuntimeRetentionMs,
-      mcp_port_range: mcpPortRange,
+      mcp_port: mcpPort,
+      repo_context_mcp_external_mount_roots: repoContextMcpExternalMountRoots,
     } satisfies PlatformConfig,
     raw,
   };

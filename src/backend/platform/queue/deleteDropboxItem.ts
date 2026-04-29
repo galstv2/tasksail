@@ -2,6 +2,7 @@ import { unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { findRepoRoot } from '../core/index.js';
+import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { removeTask } from './taskRegistry.js';
 
@@ -29,6 +30,12 @@ export async function deleteDropboxItem(
 
   const deletedTaskId = queueName.replace(/\.md$/, '');
   try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+
+  // Defense in depth: open tasks have not been activated, so no worktree should
+  // exist. Call the discard helper anyway — it's idempotent and a no-op when
+  // no .task.json sidecar / dirs / branches are present, and it forecloses any
+  // ordering bug where a dropbox item somehow got bound to forensic state.
+  await discardRetainedTaskWorktrees(deletedTaskId, repoRoot);
 }
 
 function normalizeQueueName(queueName: string): string {

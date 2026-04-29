@@ -29,10 +29,10 @@ describe('PlannerSessionBroker', () => {
   });
 
   it('starts idle without spawning Copilot', () => {
-    const spawnCopilotProcess = vi.fn();
+    const spawnCliProcess = vi.fn();
     const broker = new PlannerSessionBroker({
       emitEvent: vi.fn(),
-      spawnCopilotProcess,
+      spawnCliProcess,
       now: () => 100,
     });
 
@@ -40,25 +40,25 @@ describe('PlannerSessionBroker', () => {
     expect(broker.startSession()).toEqual({ sessionId: 'planner-100', created: true });
     expect(broker.getState()).toEqual({
       brokerStatus: 'idle',
-      copilotSessionId: null,
+      cliSessionId: null,
       turnId: null,
       content: '',
       exitCode: null,
       usage: null,
       error: null,
     });
-    expect(spawnCopilotProcess).not.toHaveBeenCalled();
+    expect(spawnCliProcess).not.toHaveBeenCalled();
   });
 
   it('runs a single JSONL turn and emits planner content', async () => {
     const plannerEvents: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();
-    const spawnCopilotProcess = vi.fn(() => child);
+    const spawnCliProcess = vi.fn(() => child);
     const broker = new PlannerSessionBroker({
       emitEvent: (plannerEvent) => {
         plannerEvents.push(plannerEvent);
       },
-      spawnCopilotProcess,
+      spawnCliProcess,
       now: vi.fn()
         .mockReturnValueOnce(10)
         .mockReturnValueOnce(11),
@@ -80,7 +80,7 @@ describe('PlannerSessionBroker', () => {
     child.emit('exit', 0);
 
     await expect(sendPromise).resolves.toBe('sent');
-    expect(spawnCopilotProcess).toHaveBeenCalledWith(
+    expect(spawnCliProcess).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: 'Hello planner',
         promptMode: 'interactive',
@@ -111,7 +111,7 @@ describe('PlannerSessionBroker', () => {
         turnId: 'turn-11',
         done: false,
         error: null,
-        copilotSessionId: 'copilot-session-1',
+        cliSessionId: 'copilot-session-1',
       },
       {
         eventType: 'planner.turn.completed',
@@ -119,12 +119,12 @@ describe('PlannerSessionBroker', () => {
         turnId: 'turn-11',
         done: true,
         error: null,
-        copilotSessionId: 'copilot-session-1',
+        cliSessionId: 'copilot-session-1',
       },
     ]);
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      copilotSessionId: 'copilot-session-1',
+      cliSessionId: 'copilot-session-1',
       turnId: 'turn-11',
       content: 'Structured hello.',
       exitCode: 0,
@@ -136,7 +136,7 @@ describe('PlannerSessionBroker', () => {
       brokerStatus: 'completed',
       activeTurnId: null,
       queuedTurnCount: 0,
-      copilotSessionId: 'copilot-session-1',
+      cliSessionId: 'copilot-session-1',
       lastTurnSource: 'interactive-bootstrap',
       lastTurnOutcome: 'completed',
       lastTurnAt: expect.any(String),
@@ -151,7 +151,7 @@ describe('PlannerSessionBroker', () => {
     const child = createFakeChildProcess();
     const broker = new PlannerSessionBroker({
       emitEvent: vi.fn(),
-      spawnCopilotProcess: vi.fn(() => child),
+      spawnCliProcess: vi.fn(() => child),
       now: vi.fn()
         .mockReturnValueOnce(15)
         .mockReturnValueOnce(16),
@@ -163,7 +163,7 @@ describe('PlannerSessionBroker', () => {
     await expect(sendPromise).resolves.toBe('sent');
     expect(broker.getState()).toEqual({
       brokerStatus: 'running',
-      copilotSessionId: null,
+      cliSessionId: null,
       turnId: 'turn-16',
       content: '',
       exitCode: null,
@@ -190,7 +190,7 @@ describe('PlannerSessionBroker', () => {
       emitEvent: (plannerEvent) => {
         plannerEvents.push(plannerEvent);
       },
-      spawnCopilotProcess: vi.fn(() => child),
+      spawnCliProcess: vi.fn(() => child),
       now: vi.fn()
         .mockReturnValueOnce(20)
         .mockReturnValueOnce(21),
@@ -217,29 +217,29 @@ describe('PlannerSessionBroker', () => {
         turnId: 'turn-21',
         done: true,
         content: undefined,
-        error: 'Planner Copilot process exited with code 1. copilot missing',
+        error: 'Planner agent CLI process exited with code 1. copilot missing',
       },
     ]);
     expect(broker.getState()).toEqual({
       brokerStatus: 'failed',
-      copilotSessionId: null,
+      cliSessionId: null,
       turnId: 'turn-21',
       content: '',
       exitCode: 1,
       usage: null,
-      error: 'Planner Copilot process exited with code 1. copilot missing',
+      error: 'Planner agent CLI process exited with code 1. copilot missing',
     });
   });
 
   it('reuses the prior Copilot sessionId on the second turn', async () => {
     const firstChild = createFakeChildProcess();
     const secondChild = createFakeChildProcess();
-    const spawnCopilotProcess = vi.fn()
+    const spawnCliProcess = vi.fn()
       .mockImplementationOnce(() => firstChild)
       .mockImplementationOnce(() => secondChild);
     const broker = new PlannerSessionBroker({
       emitEvent: vi.fn(),
-      spawnCopilotProcess,
+      spawnCliProcess,
       now: vi.fn()
         .mockReturnValueOnce(40)
         .mockReturnValueOnce(41)
@@ -266,14 +266,14 @@ describe('PlannerSessionBroker', () => {
     await expect(firstSend).resolves.toBe('sent');
 
     const secondSend = broker.sendMessage('Turn two');
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(1,
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1,
       expect.objectContaining({
         prompt: 'Turn one',
         promptMode: 'interactive',
         resumeSessionId: null,
       }),
     );
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(2,
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2,
       expect.objectContaining({
         prompt: 'Turn two',
         promptMode: 'one-shot',
@@ -299,7 +299,7 @@ describe('PlannerSessionBroker', () => {
     await expect(secondSend).resolves.toBe('sent');
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      copilotSessionId: 'copilot-session-40',
+      cliSessionId: 'copilot-session-40',
       turnId: 'turn-42',
       content: 'Turn two reply',
       exitCode: 0,
@@ -311,7 +311,7 @@ describe('PlannerSessionBroker', () => {
       brokerStatus: 'completed',
       activeTurnId: null,
       queuedTurnCount: 0,
-      copilotSessionId: 'copilot-session-40',
+      cliSessionId: 'copilot-session-40',
       lastTurnSource: 'resumed-session',
       lastTurnOutcome: 'completed',
       lastTurnAt: expect.any(String),
@@ -326,7 +326,7 @@ describe('PlannerSessionBroker', () => {
     const plannerMessages: string[] = [];
     const firstChild = createFakeChildProcess();
     const secondChild = createFakeChildProcess();
-    const spawnCopilotProcess = vi.fn()
+    const spawnCliProcess = vi.fn()
       .mockImplementationOnce(() => firstChild)
       .mockImplementationOnce(() => secondChild);
     const broker = new PlannerSessionBroker({
@@ -335,7 +335,7 @@ describe('PlannerSessionBroker', () => {
           plannerMessages.push(plannerEvent.content);
         }
       },
-      spawnCopilotProcess,
+      spawnCliProcess,
       now: vi.fn()
         .mockReturnValueOnce(50)
         .mockReturnValueOnce(51)
@@ -346,8 +346,8 @@ describe('PlannerSessionBroker', () => {
     const firstSend = broker.sendMessage('First turn');
     const secondSend = broker.sendMessage('Second turn');
 
-    expect(spawnCopilotProcess).toHaveBeenCalledTimes(1);
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(1,
+    expect(spawnCliProcess).toHaveBeenCalledTimes(1);
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1,
       expect.objectContaining({
         prompt: 'First turn',
         promptMode: 'interactive',
@@ -371,8 +371,8 @@ describe('PlannerSessionBroker', () => {
     firstChild.emit('exit', 0);
 
     await expect(firstSend).resolves.toBe('sent');
-    expect(spawnCopilotProcess).toHaveBeenCalledTimes(2);
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(2,
+    expect(spawnCliProcess).toHaveBeenCalledTimes(2);
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2,
       expect.objectContaining({
         prompt: 'Second turn',
         promptMode: 'one-shot',
@@ -399,13 +399,13 @@ describe('PlannerSessionBroker', () => {
     const firstChild = createFakeChildProcess();
     const secondChild = createFakeChildProcess();
     const thirdChild = createFakeChildProcess();
-    const spawnCopilotProcess = vi.fn()
+    const spawnCliProcess = vi.fn()
       .mockImplementationOnce(() => firstChild)
       .mockImplementationOnce(() => secondChild)
       .mockImplementationOnce(() => thirdChild);
     const broker = new PlannerSessionBroker({
       emitEvent: vi.fn(),
-      spawnCopilotProcess,
+      spawnCliProcess,
       now: vi.fn()
         .mockReturnValueOnce(60)
         .mockReturnValueOnce(61)
@@ -439,37 +439,37 @@ describe('PlannerSessionBroker', () => {
 
     expect(broker.getState()).toEqual({
       brokerStatus: 'failed',
-      copilotSessionId: null,
+      cliSessionId: null,
       turnId: 'turn-62',
       content: '',
       exitCode: 1,
       usage: null,
-      error: 'Planner Copilot process exited with code 1. resume broken',
+      error: 'Planner agent CLI process exited with code 1. resume broken',
     });
     expect(broker.getObservability()).toEqual({
       sessionId: 'planner-60',
       brokerStatus: 'failed',
       activeTurnId: null,
       queuedTurnCount: 0,
-      copilotSessionId: null,
+      cliSessionId: null,
       lastTurnSource: 'resumed-session',
       lastTurnOutcome: 'failed',
       lastTurnAt: expect.any(String),
       lastTurnHadContent: false,
       lastExitCode: 1,
       turnCount: 2,
-      error: 'Planner Copilot process exited with code 1. resume broken',
+      error: 'Planner agent CLI process exited with code 1. resume broken',
     });
 
     const recoverySend = broker.sendMessage('Turn three');
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(2,
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2,
       expect.objectContaining({
         prompt: 'Turn two',
         promptMode: 'one-shot',
         resumeSessionId: 'copilot-session-60',
       }),
     );
-    expect(spawnCopilotProcess).toHaveBeenNthCalledWith(3,
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(3,
       expect.objectContaining({
         prompt: 'Turn three',
         promptMode: 'one-shot',
@@ -495,7 +495,7 @@ describe('PlannerSessionBroker', () => {
     await expect(recoverySend).resolves.toBe('sent');
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      copilotSessionId: 'copilot-session-63',
+      cliSessionId: 'copilot-session-63',
       turnId: 'turn-63',
       content: 'Recovery reply',
       exitCode: 0,
@@ -504,14 +504,14 @@ describe('PlannerSessionBroker', () => {
     });
   });
 
-  it('surfaces explicit failure when the Copilot process cannot start', async () => {
+  it('surfaces explicit failure when the agent CLI process cannot start', async () => {
     const plannerEvents: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();
     const broker = new PlannerSessionBroker({
       emitEvent: (plannerEvent) => {
         plannerEvents.push(plannerEvent);
       },
-      spawnCopilotProcess: vi.fn(() => child),
+      spawnCliProcess: vi.fn(() => child),
       now: vi.fn()
         .mockReturnValueOnce(30)
         .mockReturnValueOnce(31),
@@ -537,17 +537,17 @@ describe('PlannerSessionBroker', () => {
         turnId: 'turn-31',
         done: true,
         content: undefined,
-        error: 'Failed to start planner Copilot process: spawn copilot ENOENT',
+        error: 'Failed to start planner agent CLI process: spawn copilot ENOENT',
       },
     ]);
     expect(broker.getState()).toEqual({
       brokerStatus: 'failed',
-      copilotSessionId: null,
+      cliSessionId: null,
       turnId: 'turn-31',
       content: '',
       exitCode: null,
       usage: null,
-      error: 'Failed to start planner Copilot process: spawn copilot ENOENT',
+      error: 'Failed to start planner agent CLI process: spawn copilot ENOENT',
     });
   });
 
@@ -558,7 +558,7 @@ describe('PlannerSessionBroker', () => {
       emitEvent: (plannerEvent) => {
         plannerEvents.push(plannerEvent);
       },
-      spawnCopilotProcess: vi.fn(() => child),
+      spawnCliProcess: vi.fn(() => child),
       now: vi.fn()
         .mockReturnValueOnce(70)
         .mockReturnValueOnce(71),

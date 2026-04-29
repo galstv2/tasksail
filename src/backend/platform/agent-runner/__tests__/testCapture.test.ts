@@ -227,6 +227,21 @@ describe('resolveTestCaptureCwd', () => {
     })).resolves.toBe('/target-repo/services/sink');
   });
 
+  it('uses the Acme API parent directory when the selected focus target is Routes.cs', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: '/target-repo',
+      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+      primaryFocusTargetKind: 'file',
+    }));
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/Acme.Api');
+
+    await expect(resolveTestCaptureCwd({
+      repoRoot: '/platform',
+      taskId: 'task-1',
+      contextPackDir: '/context-pack',
+    })).resolves.toBe('/target-repo/services/Acme.Api');
+  });
+
   it('returns undefined when the selected monolith focus subfolder is missing on disk', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
@@ -353,6 +368,8 @@ describe('buildTestCapturePrompt', () => {
     );
 
     expect(prompt).toContain('## Monolith Focus Scope');
+    expect(prompt).toContain('Use the primary focus as the review starting point');
+    expect(prompt).not.toContain('primary implementation scope');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('"QA Helper" may help with reviewing captured validation evidence');
     expect(prompt).toContain('## Orchestrator Test Results');

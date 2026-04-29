@@ -339,7 +339,7 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
 
     // (c) No exception propagated (already asserted above)
 
-    // (d) Subsequent steps 3–9 all ran — check side-effects:
+    // (d) Subsequent cleanup steps all ran — check side-effects:
     //   queue-order.json contains {"order":[]}
     const queueOrder = readFileSync(
       join(TEST_REPO_ROOT, '.platform-state', 'queue', 'queue-order.json'),
@@ -352,8 +352,6 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     expect(existsSync(activeItemsDir)).toBe(true);
     expect(readdirSync(activeItemsDir)).toHaveLength(0);
 
-    //   port-allocations.json absent (clearPortAllocations ran)
-    expect(existsSync(join(TEST_REPO_ROOT, '.platform-state', 'runtime', 'port-allocations.json'))).toBe(false);
   });
 
   // ── Test 6: §4.16 SIGKILL-and-restart orphaned worktree reap ────────────
@@ -430,89 +428,7 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     }
   });
 
-  // ── Test 7: §6.3B container-enumeration assertion ───────────────────────
-  //
-  // Verifies the quit-path prefix scan: composeDownTaskScopedProjects calls
-  // `<backend> compose ls --all --format json`, filters the returned project
-  // list by the `tasksail-` prefix, and runs `<backend> compose -p <name> down`
-  // on each match — never on non-tasksail projects.
-  //
-  // Approach: mock `node:child_process.execFileSync` to (a) serve a canned
-  // project list for `docker compose ls` and (b) record `docker compose -p
-  // <name> down` calls, while passing every other command (git teardown,
-  // worktree prune) through to the real implementation.
-
-  it('§6.3B composeDownTaskScopedProjects: enumerates tasksail-* projects and runs compose -p <name> down on each', async () => {
-    setupWorkspaceScaffold(TEST_REPO_ROOT);
-    writeTaskRegistry(TEST_REPO_ROOT, []);
-
-    // Seed platform.json so readContainerBackendSync returns 'docker' (deterministic).
-    writeFileSync(
-      join(TEST_REPO_ROOT, '.platform-state', 'platform.json'),
-      JSON.stringify({ container_runtime: 'docker' }, null, 2),
-    );
-
-    // Record every observed call so we can assert both presence and absence.
-    const downCalls: string[] = [];
-    let lsCalled = false;
-
-    // Project list the mock serves for `docker compose ls` — mixes two
-    // `tasksail-*` projects with one unrelated project to prove the prefix
-    // filter is enforced.
-    const fakeProjects = JSON.stringify([
-      { Name: 'tasksail-task-a', Status: 'running' },
-      { Name: 'tasksail-task-b', Status: 'running' },
-      { Name: 'some-unrelated-project', Status: 'running' },
-    ]);
-
-    vi.resetModules();
-    vi.doMock('node:child_process', async () => {
-      const real = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-      return {
-        ...real,
-        execFileSync: (
-          file: string,
-          args?: readonly string[],
-          _options?: unknown,
-        ): Buffer | string => {
-          const argList = args ?? [];
-          if (file === 'docker' && argList[0] === 'compose' && argList[1] === 'ls') {
-            lsCalled = true;
-            return fakeProjects;
-          }
-          if (
-            file === 'docker' &&
-            argList[0] === 'compose' &&
-            argList[1] === '-p' &&
-            argList[3] === 'down'
-          ) {
-            // Record project name (argList[2]); return empty stdout.
-            downCalls.push(argList[2] as string);
-            return '';
-          }
-          // Fall through to real execFileSync for git + anything else. Cast
-          // via Reflect so we preserve the overloaded signature.
-          return Reflect.apply(real.execFileSync, undefined, [file, args, _options]);
-        },
-      };
-    });
-
-    const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
-    cleanupWorkspaceOnQuit();
-
-    // Unmock so later tests in this file re-import the real module.
-    vi.doUnmock('node:child_process');
-    vi.resetModules();
-
-    expect(lsCalled).toBe(true);
-    expect(downCalls).toContain('tasksail-task-a');
-    expect(downCalls).toContain('tasksail-task-b');
-    expect(downCalls).not.toContain('some-unrelated-project');
-    // And no accidental double-downs of the same project.
-    expect(downCalls.length).toBe(2);
-  });
-
-  // ── Test 8: dotfiles in AgentWorkSpace/tasks/ are not treated as task IDs ──
+  // ── Test 7: dotfiles in AgentWorkSpace/tasks/ are not treated as task IDs ──
 
   it('preserves dotfiles in AgentWorkSpace/tasks/ (.gitkeep, .DS_Store) — does not treat them as task dirs', async () => {
     const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');

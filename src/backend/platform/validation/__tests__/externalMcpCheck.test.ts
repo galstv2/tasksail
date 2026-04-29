@@ -123,6 +123,7 @@ describe('agent scope advisory warnings', () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain('nonexistent-agent');
     expect(result.warnings[0]).toContain('unknown agent ID');
+    expect(result.warnings[0]).toContain('.github/agents/registry.json');
   });
 
   it('does not warn on known agent IDs', async () => {

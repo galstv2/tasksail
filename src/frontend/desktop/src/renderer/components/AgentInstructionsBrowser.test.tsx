@@ -16,8 +16,8 @@ function defaultProps(overrides: Partial<AgentInstructionsBrowserProps> = {}): A
       ],
       instructions: [],
       prompts: [
-        { fileName: 'planner.prompt.md', relativePath: '.github/copilot/prompts/planner.prompt.md' },
-        { fileName: 'qa.prompt.md', relativePath: '.github/copilot/prompts/qa.prompt.md' },
+        { fileName: 'planner.prompt.md', relativePath: '.provider/prompts/planner.prompt.md' },
+        { fileName: 'qa.prompt.md', relativePath: '.provider/prompts/qa.prompt.md' },
       ],
       templates: [],
     },

@@ -18,9 +18,6 @@ import { getPlatformConfig } from '../platform-config/get.js';
 import { readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
-import { composeDownTask } from '../container/composeDownTask.js';
-import { release as releasePort } from '../container/portAllocator.js';
-import { composeProjectName } from '../container/containerNaming.js';
 
 const execFile = promisify(execFileCb);
 
@@ -75,7 +72,6 @@ function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcom
         strategy: 'copy',
         cloned: [],
         skipped: [],
-        composeProjectName: composeProjectName(taskId),
       },
       frozenAt: new Date().toISOString(),
     };
@@ -138,6 +134,18 @@ export async function finalizeWorktree(
   }
 
   // retain_failed_task_worktrees=false: remove worktree dir + delete branch.
+  await removeWorktreeBindingHard(binding);
+}
+
+/**
+ * Hard-tear down a single worktree binding: remove the worktree dir, prune
+ * stale admin entries, and delete the branch. Best-effort throughout —
+ * out-of-band removal of any of the three is tolerated.
+ *
+ * Shared by the failure+retain=false branch of `finalizeWorktree` and by
+ * `discardRetainedTaskWorktrees` (the requeue-time complement).
+ */
+async function removeWorktreeBindingHard(binding: TaskRepoBinding): Promise<void> {
   try {
     await execFile('git', [
       '-C', binding.originalRoot,
@@ -163,6 +171,52 @@ export async function finalizeWorktree(
       `[worktreeFinalize] branch-delete-failed: branch=${binding.worktreeBranch} err=${errorMessage(err)}\n`,
     );
   }
+}
+
+/**
+ * Discard a previously-retained failed task's worktrees, branches, and
+ * supporting state. Called by the queue's requeue paths
+ * (`requeueErrorItem`, `moveErrorItemToDropbox`) at the moment the operator
+ * decides to retry the task — at that point the forensic affordance of
+ * `retain_failed_task_worktrees=true` has served its purpose, and leaving
+ * the orphan worktree behind would only accumulate disk usage until FIFO
+ * eviction kicks in.
+ *
+ * Tear-down scope per task:
+ *   - each binding's worktree dir (`git worktree remove --force`)
+ *   - each binding's branch (`git branch -D task/<taskId>`)
+ *   - `AgentWorkSpace/tasks/<taskId>/` parent dir
+ *   - `.platform-state/runtime/tasks/<taskId>/` runtime state
+ *
+ * Safety properties:
+ *   - Best-effort throughout — never throws. Tolerant of missing
+ *     `.task.json` (no bindings to walk), already-removed worktree dirs
+ *     or branches (concurrent FIFO eviction), and missing parent dirs.
+ *   - Idempotent: safe to call when retain=false was in effect at finalize
+ *     time and there is nothing left to discard.
+ *   - Does NOT acquire `retention-eviction.lock`. Both this helper and the
+ *     FIFO eviction scanner converge on the same final state for any given
+ *     victim, so a concurrent race is harmless (each operation is wrapped
+ *     in `.catch()` or `force: true`).
+ */
+export async function discardRetainedTaskWorktrees(
+  taskId: string,
+  repoRoot: string,
+): Promise<void> {
+  const taskJson = readTaskJsonSafe(taskId, repoRoot);
+  if (taskJson) {
+    for (const binding of taskJson.contextPackBinding.repoBindings) {
+      await removeWorktreeBindingHard(binding);
+    }
+  }
+  rmSync(
+    path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId),
+    { recursive: true, force: true },
+  );
+  rmSync(
+    runtimeTaskDir(taskId, repoRoot),
+    { recursive: true, force: true },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -276,11 +330,10 @@ export async function finalizeTaskWorktrees(
   outcome: FinalizeOutcome,
   repoRoot: string,
 ): Promise<void> {
-  // Tolerate missing sidecar: crash-recovery paths (and legacy test fixtures
-  // that seed a task without a .task.json) still need the downstream teardown
-  // chain — compose, port release, runtime GC — to run. The binding loop
-  // below is a no-op when the sidecar is absent; persistTaskJson synthesizes
-  // a minimal shell so finalizedAt is still stamped.
+  // Tolerate missing sidecar: crash-recovery paths and legacy test fixtures
+  // that seed a task without a .task.json still need runtime GC to run. The
+  // binding loop below is a no-op when the sidecar is absent; persistTaskJson
+  // synthesizes a minimal shell so finalizedAt is still stamped.
   const taskJson = readTaskJsonSafe(taskId, repoRoot);
 
   if (taskJson) {
@@ -328,33 +381,6 @@ export async function finalizeTaskWorktrees(
     }
   }
 
-  // §6.3B teardown ordering — MUST follow this sequence:
-  //   1. worktree removal        (above, per-binding finalizeWorktree loop)
-  //   2. composeDownTask         (below)
-  //   3. portAllocator.release   (below)
-  //   4. gcTaskRuntime           (below)
-  // Each step is best-effort and errors MUST NOT propagate. composeDownTask
-  // tears down the per-task project's containers, networks, and named volumes;
-  // release removes the task's row from the allocation table; gcTaskRuntime
-  // schedules deferred deletion of the runtime-state dir.
-  try {
-    await composeDownTask(repoRoot, taskId);
-  } catch (err) {
-    const msg = errorMessage(err);
-    process.stderr.write(
-      `[worktreeFinalize] compose-down-task-error: taskId=${taskId} err=${msg}\n`,
-    );
-  }
-
-  try {
-    await releasePort(taskId, repoRoot);
-  } catch (err) {
-    const msg = errorMessage(err);
-    process.stderr.write(
-      `[worktreeFinalize] port-release-error: taskId=${taskId} err=${msg}\n`,
-    );
-  }
-
   try {
     await gcTaskRuntime(taskId, outcome, repoRoot);
   } catch (err) {
@@ -392,9 +418,11 @@ function gcSentinelPath(taskId: string, repoRoot: string): string {
  * Outcome semantics:
  *   - 'completed': retain for `completed_task_runtime_retention_ms` (default 1h),
  *     then delete.
- *   - 'failed' with `retain_failed_task_worktrees=true`: retain indefinitely
- *     in-session — NO sentinel is written, which the sweep interprets as
- *     retain-indefinitely.
+ *   - 'failed' with `retain_failed_task_worktrees=true`: retain in-session
+ *     until the operator requeues (via `requeueErrorItem`) or returns the
+ *     item to the dropbox (via `moveErrorItemToDropbox`), at which point
+ *     `discardRetainedTaskWorktrees` removes it. NO sentinel is written —
+ *     the sweep interprets a missing sentinel as retain-until-requeue.
  *   - 'failed' with `retain_failed_task_worktrees=false`: same retention window
  *     as 'completed', then delete.
  */

@@ -1,15 +1,24 @@
 import path from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { getErrorMessage } from '../core/index.js';
 import type { RunRoleAgentOptions, AgentMcpLaunchStatus } from './types.js';
-import { launchCopilot, waitForCopilotDetailed } from './processLifecycle.js';
+import { launchAgent, waitForAgentDetailed } from './processLifecycle.js';
 import {
   captureCodeDiff,
   prepareExternalMcpLaunchContext,
   type ExternalMcpLaunchContext,
 } from './pythonHelpers.js';
 import { writeSessionStartReceipt, writeSessionTerminalReceipt } from './sessionReceipts.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { ResolvedMcpServer } from '../cli-provider/index.js';
+
+export type PreparedAgentMcpLaunchContext = ExternalMcpLaunchContext & {
+  configFilePath?: string;
+};
 
 export type { ExternalMcpLaunchContext };
+
+let internalMcpLaunchCounter = 0;
 
 export async function refreshQaCodeDiff(options: {
   agentId: RunRoleAgentOptions['agentId'];
@@ -45,42 +54,134 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
   repoRoot: string;
   taskId: string;
   agentEnv: Record<string, string>;
+  internalMcpServer?: ResolvedMcpServer;
   abortSignal?: AbortSignal;
 }): Promise<ExternalMcpLaunchContext | undefined> {
+  const provider = getActiveProvider(options.repoRoot);
+  // Set when prepareExternalMcpLaunchContext throws and we synthesize a fallback
+  // launchContext so the internal MCP can still be wired up. Carries the
+  // underlying error message for diagnostic logging and signals downstream
+  // branches that the launchContext is our synthesized fallback rather than a
+  // real helper response.
+  let helperFailureMessage: string | undefined;
+
+  const renderMergedConfig = (
+    launchContext: ExternalMcpLaunchContext,
+    externalInjectionEnabled: boolean,
+  ): PreparedAgentMcpLaunchContext => {
+    const mergedServers = [
+      ...(options.internalMcpServer ? [options.internalMcpServer] : []),
+      ...(externalInjectionEnabled ? launchContext.resolvedServers : []),
+    ];
+    if (mergedServers.length === 0) {
+      return launchContext;
+    }
+
+    const launchDir = launchContext.launchDir ?? createInternalMcpLaunchDir(
+      options.repoRoot,
+      provider.homeDirName(),
+      options.agentId,
+    );
+    try {
+      const configFilePath = provider.renderMcpConfig(launchDir, mergedServers);
+      // Preserve the synthesized failure reason so operators can see why the
+      // external helper failed; otherwise emit the success message.
+      const preservesFailureReason = !externalInjectionEnabled && helperFailureMessage !== undefined;
+      return {
+        ...launchContext,
+        status: externalInjectionEnabled ? launchContext.status : 'available',
+        reason: externalInjectionEnabled || preservesFailureReason
+          ? launchContext.reason
+          : 'internal repo-context MCP injected',
+        injectionEnabled: true,
+        launchDir,
+        resolvedServers: mergedServers,
+        configFilePath,
+      };
+    } catch (err) {
+      if (options.internalMcpServer) {
+        throw new Error(`internal MCP config render failed: ${getErrorMessage(err)}`);
+      }
+      console.warn(
+        '[roleAgent] external MCP config render failed, continuing without MCP:',
+        getErrorMessage(err),
+      );
+      return {
+        status: 'unavailable',
+        reason: `external MCP config render failed: ${getErrorMessage(err)}`,
+        injectionEnabled: false,
+        envExports: {},
+        resolvedServers: [],
+        selectedServerIds: launchContext.selectedServerIds,
+        excludedServerIds: launchContext.excludedServerIds,
+      };
+    }
+  };
+
+  let launchContext: ExternalMcpLaunchContext;
   try {
-    const launchContext = await prepareExternalMcpLaunchContext({
+    launchContext = await prepareExternalMcpLaunchContext({
       agentId: options.agentId,
       repoRoot: options.repoRoot,
       taskId: options.taskId,
       env: options.agentEnv,
       abortSignal: options.abortSignal,
     });
-    if (launchContext.injectionEnabled) {
-      if (!launchContext.configFilePath && launchContext.envExports['COPILOT_HOME']) {
-        launchContext.configFilePath = path.join(launchContext.envExports['COPILOT_HOME'], 'mcp-config.json');
-      }
-      delete launchContext.envExports['COPILOT_HOME'];
-      Object.assign(options.agentEnv, launchContext.envExports);
-      return launchContext;
-    }
-    if (launchContext.status !== 'not-applicable') {
-      console.warn(
-        '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
-        `${launchContext.status}: ${launchContext.reason}`,
-      );
-    }
-    return launchContext;
   } catch (err) {
-    console.warn(
-      '[roleAgent] external MCP launch context failed, continuing without MCP:',
-      getErrorMessage(err),
-    );
-    return undefined;
+    if (!options.internalMcpServer) {
+      console.warn(
+        '[roleAgent] external MCP launch context failed, continuing without MCP:',
+        getErrorMessage(err),
+      );
+      return undefined;
+    }
+    helperFailureMessage = getErrorMessage(err);
+    launchContext = {
+      status: 'available',
+      reason: `external MCP launch context failed: ${helperFailureMessage}`,
+      injectionEnabled: false,
+      envExports: {},
+      resolvedServers: [],
+      selectedServerIds: [],
+      excludedServerIds: [],
+    };
   }
+
+  if (launchContext.injectionEnabled) {
+    const mergedLaunchContext = renderMergedConfig(launchContext, true);
+    if (mergedLaunchContext.injectionEnabled) {
+      Object.assign(options.agentEnv, launchContext.envExports);
+    }
+    return mergedLaunchContext;
+  }
+  if (helperFailureMessage !== undefined) {
+    console.warn(
+      '[roleAgent] external MCP unavailable, internal MCP wired up:',
+      helperFailureMessage,
+    );
+  } else if (launchContext.status !== 'not-applicable') {
+    console.warn(
+      '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
+      `${launchContext.status}: ${launchContext.reason}`,
+    );
+  }
+  return renderMergedConfig(launchContext, false);
+}
+
+function createInternalMcpLaunchDir(
+  repoRoot: string,
+  providerHomeDirName: string,
+  agentId: string,
+): string {
+  const root = path.join(repoRoot, '.platform-state', 'runtime', providerHomeDirName);
+  mkdirSync(root, { recursive: true });
+  internalMcpLaunchCounter += 1;
+  const token = `${agentId}-${Date.now()}-${process.pid}-${internalMcpLaunchCounter}`;
+  return path.join(root, token);
 }
 
 export function summarizeExternalMcpLaunchContext(
-  launchContext: ExternalMcpLaunchContext | undefined,
+  launchContext: PreparedAgentMcpLaunchContext | undefined,
 ): AgentMcpLaunchStatus {
   if (!launchContext) {
     return {
@@ -129,8 +230,9 @@ export async function correctSessionReceipt(receiptFile: string | null, agentId:
   }).catch(() => {});
 }
 
-export async function runCopilotSession(options: {
-  copilotArgs: string[];
+export async function runAgentSession(options: {
+  repoRoot: string;
+  cliArgs: string[];
   cwd: string;
   env: Record<string, string>;
   wallClockTimeoutS?: number;
@@ -154,11 +256,12 @@ export async function runCopilotSession(options: {
     };
   };
 }): Promise<{
-  runSummary: Awaited<ReturnType<typeof waitForCopilotDetailed>>;
+  runSummary: Awaited<ReturnType<typeof waitForAgentDetailed>>;
   greedyStopTriggered: boolean;
   sessionReceiptFile: string | null;
 }> {
-  const child = launchCopilot(options.copilotArgs, {
+  const child = launchAgent(options.cliArgs, {
+    repoRoot: options.repoRoot,
     cwd: options.cwd,
     env: options.env,
     wallClockTimeoutS: options.wallClockTimeoutS,
@@ -213,7 +316,7 @@ export async function runCopilotSession(options: {
     }, greedyPollIntervalMs)
     : undefined;
 
-  const runSummary = await waitForCopilotDetailed(child, {
+  const runSummary = await waitForAgentDetailed(child, {
     wallClockTimeoutMs: options.wallClockTimeoutS !== undefined
       ? options.wallClockTimeoutS * 1000
       : undefined,
@@ -249,3 +352,6 @@ export async function runCopilotSession(options: {
     sessionReceiptFile: sessionReceiptFile ?? null,
   };
 }
+
+/** @deprecated Use runAgentSession. */
+export const runCopilotSession = runAgentSession;

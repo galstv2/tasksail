@@ -79,7 +79,7 @@ describe('completeActiveItem operation ordering', () => {
   });
 });
 
-// ── Test 3: activateNextPendingItemIfReady rolls pmck .active-item on init failure ──
+// ── Test 3: activateNextPendingItemIfReady rolls active marker on init failure ──
 
 describe('activateNextPendingItemIfReady claim rollback', () => {
   let repoRoot: string;
@@ -105,7 +105,7 @@ describe('activateNextPendingItemIfReady claim rollback', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('rolls pmck .active-item when initializeTaskArtifacts fails', async () => {
+  it('rolls active marker when initializeTaskArtifacts fails', async () => {
     mockInit.mockRejectedValue(new Error('Simulated init failure'));
 
     // Set up: a pending item, empty workspace (ready state)
@@ -119,8 +119,8 @@ describe('activateNextPendingItemIfReady claim rollback', () => {
       activateNextPendingItemIfReady({ paths: queuePaths, repoRoot }),
     ).rejects.toThrow('Simulated init failure');
 
-    // .active-item should NOT exist (rolled pmck)
-    expect(existsSync(path.join(pendingDir, '.active-item'))).toBe(false);
+    // Active marker should NOT exist (rolled back)
+    expect(existsSync(path.join(pendingDir, '.active-items', 'task-002'))).toBe(false);
     // handoffsDir should remain empty
     const handoffFiles = readdirSync(handoffsDir);
     expect(handoffFiles).toEqual([]);

@@ -4,21 +4,26 @@ import { createHash } from 'node:crypto';
 import { resolvePaths } from '../core/index.js';
 import type { RunRoleAgentOptions, AgentRunResult } from './types.js';
 import { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } from './metadata.js';
-import { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } from './autonomy.js';
+import { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } from './autonomy.js';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from './environment.js';
 import { runRuntimePolicyCheck, guardrailReceiptPath, writeGuardrailReceipt } from './guardrails.js';
-import { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } from '../context-pack/focusedRepo.js';
+import {
+  explainSelectedPrimaryBoundaryFailure,
+  resolveFocusedRepoRoot,
+  resolveSelectedPrimaryRepoRoot,
+} from '../context-pack/focusedRepo.js';
 import { readTextFile } from '../core/io.js';
 import { buildAgentArtifactRemediationPrompt, checkAgentArtifactCompletion } from './artifactCompletion.js';
 import { computeRuntimeFactsSourceSignature } from './runtimeFacts.js';
 import {
-  runCopilotSession,
+  runAgentSession,
   correctSessionReceipt,
   refreshQaCodeDiff,
   mergeExternalMcpLaunchEnvironment,
   summarizeExternalMcpLaunchContext,
   logExternalMcpLaunchStatus,
-} from './copilotSession.js';
+  type PreparedAgentMcpLaunchContext,
+} from './agentSession.js';
 import type { ChangedPathsSnapshot } from './confinement.js';
 import {
   buildArtifactCleanupPrompt,
@@ -32,7 +37,6 @@ import {
   applyWorktreeInjectionToFocused,
   applyWorktreeInjectionToAllowedDirs,
 } from './worktreeInjection.js';
-import { listAllocations } from '../container/portAllocator.js';
 import {
   agentErrorWithTails,
   extractPolicyFailureDetails,
@@ -41,16 +45,19 @@ import {
   isRecoverableDeniedActionExit,
   buildDeniedActionContinuationPrompt,
 } from './recoveryPasses.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { ProviderPromptKind, ResolvedMcpServer } from '../cli-provider/index.js';
+import { resolveContextPackContainerPath } from '../container/sharedMcp.js';
+import { getPlatformConfig } from '../platform-config/get.js';
 
-function launchPromptPath(repoRoot: string, agentId: RunRoleAgentOptions['agentId']): string {
-  const promptFile = agentId === 'lily'
-    ? 'plan-task.prompt.md'
+function launchPromptKind(agentId: RunRoleAgentOptions['agentId']): ProviderPromptKind {
+  return agentId === 'lily'
+    ? 'plan-task'
     : agentId === 'alice'
-      ? 'start-task.prompt.md'
+      ? 'start-task'
       : isDaltonFamilyAgent(agentId)
-        ? 'execute-task.prompt.md'
-        : 'continue-task.prompt.md';
-  return path.join(repoRoot, '.github', 'copilot', 'prompts', promptFile);
+        ? 'execute-task'
+        : 'continue-task';
 }
 
 function formatDryRunOutput(
@@ -71,7 +78,8 @@ async function resolveLaunchPrompt(
       promptSource: 'override',
     };
   }
-  const promptPath = launchPromptPath(repoRoot, agentId);
+  const provider = getActiveProvider(repoRoot);
+  const promptPath = path.join(repoRoot, provider.resolvePromptPath(launchPromptKind(agentId)));
   const prompt = (await readTextFile(promptPath))?.trim();
   if (!prompt) {
     throw new Error(`Launch prompt is missing or empty: ${promptPath}`);
@@ -116,8 +124,8 @@ const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunR
  * 1. Resolve metadata from registry
  * 2. Check workflow policy (unless skipped)
  * 3. Resolve autonomy profile
- * 4. Build copilot CLI args
- * 5. Launch and wait for copilot process
+  * 4. Build agent CLI args
+  * 5. Launch and wait for agent process
  * 6. Write guardrail receipt
  */
 export async function runRoleAgent(
@@ -194,7 +202,6 @@ export async function runRoleAgent(
     profile,
     options.contextPackDir,
     paths.repoRoot,
-    options.taskId,
   );
 
   // 3b. When a context pack is active, resolve scoped target repos and add
@@ -219,13 +226,35 @@ export async function runRoleAgent(
   // originalRoot. Build the substitution map once before resolving focused.
   const worktreeBindingMap = await buildWorktreeBindingMap(options.taskId, paths.repoRoot);
   if (options.contextPackDir) {
-    const agentWorkspaceDir = path.join(paths.repoRoot, 'AgentWorkSpace');
     const allowsGenericTaskSailDirs = !enforcesSelectedPrimaryBoundary;
-    if (allowsGenericTaskSailDirs && !autonomyArgs.allowedDirs.includes(agentWorkspaceDir)) {
+    if (allowsGenericTaskSailDirs) {
       // Non-Dalton context-pack launches still rely on workflow artifacts under
-      // AgentWorkSpace. Add it explicitly instead of relying on implicit
-      // CWD-subtree access from the Copilot CLI.
-      autonomyArgs.allowedDirs.push(agentWorkspaceDir);
+      // AgentWorkSpace. When a taskId is bound, restrict the allowance to the
+      // per-task subtree plus shared read/write roots. This is the only
+      // --add-dir backstop preventing two parallel artifact-author launches
+      // (e.g. Alice on T1 and Alice on T2) from writing into each other's
+      // task workspaces — there is no provider-level fence below this layer.
+      // Pre-task launches (no taskId yet, e.g. intake) keep the catch-all
+      // because the per-task subtree does not exist.
+      const ws = path.join(paths.repoRoot, 'AgentWorkSpace');
+      // `pendingitems` is intentionally NOT in this universal list and is not
+      // declared on any per-profile `allowed_dirs` either. The platform's
+      // queue/ module is the only authorized writer. Alice — the only agent
+      // that ever needed to read intake — now reads it from the per-task
+      // workspace at `$COPILOT_HANDOFFS_DIR/intake.md`, which queue/operations.ts
+      // stages via copyFileSafe at activation time.
+      const dirsToAdd = options.taskId
+        ? [
+            path.join(ws, 'tasks', options.taskId),
+            path.join(ws, 'templates'),
+            path.join(ws, 'qmd'),
+          ]
+        : [ws];
+      for (const dir of dirsToAdd) {
+        if (!autonomyArgs.allowedDirs.includes(dir)) {
+          autonomyArgs.allowedDirs.push(dir);
+        }
+      }
     }
 
     const resolvedFocused = enforcesSelectedPrimaryBoundary
@@ -272,13 +301,22 @@ export async function runRoleAgent(
           }
         }
       } else if (usesFocusedRepoLaunch || enforcesSelectedPrimaryBoundary) {
+        if (enforcesSelectedPrimaryBoundary) {
+          const diagnostic = await explainSelectedPrimaryBoundaryFailure(
+            options.contextPackDir,
+            paths.repoRoot,
+          );
+          throw new Error(
+            `Cannot resolve the selected primary boundary for ${daltonFamilyRuntimeLabel(options.agentId)} ` +
+            `from context pack "${options.contextPackDir}": ${diagnostic} ` +
+            'Failing closed — Dalton-family launches require an authoritative active task/workspace selection ' +
+            'with exactly one selected primary target.',
+          );
+        }
         throw new Error(
-          enforcesSelectedPrimaryBoundary
-            ? `Cannot resolve the selected primary boundary for ${daltonFamilyRuntimeLabel(options.agentId)} from context pack "${options.contextPackDir}". ` +
-              'Failing closed — Dalton-family launches require an authoritative active task/workspace selection with exactly one selected primary target.'
-            : `Cannot resolve focused repo root for repo-executor "${options.agentId}" ` +
-              `from context pack "${options.contextPackDir}". ` +
-              `Failing closed — repo-executor requires a resolvable focused repo.`,
+          `Cannot resolve focused repo root for repo-executor "${options.agentId}" ` +
+          `from context pack "${options.contextPackDir}". ` +
+          `Failing closed — repo-executor requires a resolvable focused repo.`,
         );
       } else if (usesFocusedRepoContext) {
         console.warn(
@@ -295,40 +333,45 @@ export async function runRoleAgent(
     );
   }
 
-  // 4. Build copilot CLI args and resolve launch prompt.
-  const skipAgentFlag = usesFocusedRepoLaunch && focused != null;
-  const globalInstructionsPath = path.join(paths.repoRoot, '.github', 'copilot', 'instructions', 'global.instructions.md');
+  // 4. Build provider CLI args and resolve launch prompt.
+  const provider = getActiveProvider(paths.repoRoot);
+  const launchContext = {
+    repoRoot: paths.repoRoot,
+    requestedCwd: agentCwd,
+    ...(focused?.primaryRepoRoot ? { focusedRepoRoot: focused.primaryRepoRoot } : {}),
+  };
+  const argsResult = buildAgentArgs(paths.repoRoot, profile, autonomyArgs, { launchContext });
+  const cliArgs = [...argsResult.args];
+  agentCwd = argsResult.launchCwd;
   // repo-executor agents (Dalton) get only their own instructions — global
   // workflow/artifact context is noise for a pure code agent.
-  const skipGlobalInstructions = profile.autonomyProfile === 'repo-executor';
-  const [launchPrompt, globalInstructions, agentProfileContent, instructionContent] = await Promise.all([
-    resolveLaunchPrompt(paths.repoRoot, options.agentId, options.promptOverride),
-    skipAgentFlag && !skipGlobalInstructions ? readTextFile(globalInstructionsPath) : Promise.resolve(undefined),
-    skipAgentFlag && profile.agentProfilePath
-      ? readTextFile(path.join(paths.repoRoot, profile.agentProfilePath))
-      : Promise.resolve(undefined),
-    skipAgentFlag && profile.instructionPath
-      ? readTextFile(path.join(paths.repoRoot, profile.instructionPath))
-      : Promise.resolve(undefined),
-  ]);
-  // When skipAgentFlag is true, inline the agent context into every prompt —
-  // Copilot CLI can't discover agent config from CWD when it's an external repo.
-  const inlineAgentContext = (prompt: string): string =>
-    skipAgentFlag
-      ? [globalInstructions?.trim(), agentProfileContent?.trim(), instructionContent?.trim(), prompt].filter(Boolean).join('\n\n---\n\n')
-      : prompt;
+  const includeGlobalInstructions = profile.autonomyProfile !== 'repo-executor';
+  const launchPrompt = await resolveLaunchPrompt(paths.repoRoot, options.agentId, options.promptOverride);
+  const materializePrompt = (
+    prompt: string,
+    promptPath: string | null,
+    promptSource: 'file' | 'override',
+  ) => provider.materializePrompt({
+    prompt,
+    promptPath,
+    promptSource,
+    profile,
+    launchContext,
+    includeGlobalInstructions,
+  });
   const runPromptOverrideSession = async (overridePrompt: string, overrideLaunchPhase?: string) => {
-    const effectivePrompt = inlineAgentContext(overridePrompt);
-    const overrideArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', effectivePrompt];
+    const overridePromptResult = materializePrompt(overridePrompt, null, 'override');
+    const overrideArgs = [...argsResult.args, '-p', overridePromptResult.effectivePrompt];
     const overridePromptAudit = buildPromptAudit({
       promptPath: null,
       promptSource: 'override',
-      inlineAgentContext: skipAgentFlag,
-      effectivePrompt,
+      inlineAgentContext: overridePromptResult.inlineAgentContext,
+      effectivePrompt: overridePromptResult.effectivePrompt,
     });
     lastPromptAudit = overridePromptAudit;
-    const overrideSession = await runCopilotSession({
-      copilotArgs: overrideArgs,
+    const overrideSession = await runAgentSession({
+      repoRoot: paths.repoRoot,
+      cliArgs: overrideArgs,
       cwd: agentCwd,
       env: agentEnv,
       wallClockTimeoutS,
@@ -345,53 +388,60 @@ export async function runRoleAgent(
       session: overrideSession,
     };
   };
-  const effectivePrompt = inlineAgentContext(launchPrompt.prompt);
+  const promptResult = materializePrompt(launchPrompt.prompt, launchPrompt.promptPath, launchPrompt.promptSource);
+  const effectivePrompt = promptResult.effectivePrompt;
   const promptAudit = buildPromptAudit({
     promptPath: launchPrompt.promptPath,
     promptSource: launchPrompt.promptSource,
-    inlineAgentContext: skipAgentFlag,
+    inlineAgentContext: promptResult.inlineAgentContext,
     effectivePrompt,
   });
-  const copilotArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', effectivePrompt];
-  const autonomyEnv = buildAutonomyEnvironment(
-    profile,
-    autonomyArgs,
-    agentCwd,
-    paths.repoRoot,
-    focused,
-    options.contextPackDir,
-  );
+  cliArgs.push('-p', effectivePrompt);
 
-  // 5. Build environment for the copilot launch.
-  let taskMcpPort: number | undefined;
-  try {
-    const allocation = (await listAllocations(paths.repoRoot)).get(options.taskId);
-    taskMcpPort = allocation?.port;
-  } catch {
-    taskMcpPort = undefined;
+  const wallClockTimeoutS = options.wallClockBudget ?? profile.wallClockTimeoutS;
+  const idleTimeoutS = options.idleTimeout ?? profile.idleTimeoutS;
+
+  // 5. Build environment for the agent launch.
+  let sharedMcp: { url: string; port: number } | undefined;
+  let containerContextPackDir: string | undefined;
+  let internalMcpServer: ResolvedMcpServer | undefined;
+  if (options.contextPackDir) {
+    const platformConfig = await getPlatformConfig(paths.repoRoot);
+    const sharedMcpPort = platformConfig.mcp_port;
+    const sharedMcpUrl = `http://localhost:${sharedMcpPort}/sse`;
+    sharedMcp = { url: sharedMcpUrl, port: sharedMcpPort };
+    containerContextPackDir = resolveContextPackContainerPath(
+      paths.repoRoot,
+      options.contextPackDir,
+      platformConfig.repo_context_mcp_external_mount_roots,
+    );
+    internalMcpServer = {
+      id: 'repo-context-mcp',
+      transport: 'sse',
+      url: sharedMcpUrl,
+      headers: {
+        'X-TaskSail-Task-Id': options.taskId ?? '',
+        'X-TaskSail-Context-Pack-Dir': containerContextPackDir,
+      },
+    };
   }
 
   const agentEnv = buildAgentEnvironment(
     profile,
-    options.contextPackDir,
+    containerContextPackDir ?? options.contextPackDir,
     paths.repoRoot,
     {
       skipHandoffEnvVars: enforcesSelectedPrimaryBoundary,
-      ...(taskMcpPort !== undefined ? { mcp: { port: taskMcpPort } } : {}),
+      wallClockTimeoutS,
+      focused,
+      ...(sharedMcp ? { mcp: sharedMcp } : {}),
     },
     options.taskId,
   );
 
-  if (options.wallClockBudget !== undefined) {
-    agentEnv['COPILOT_WALL_CLOCK_TIMEOUT_S'] = String(options.wallClockBudget);
-  }
-
-  // 6b. Merge autonomy exports into env.
-  Object.assign(agentEnv, autonomyEnv);
-
   // 5b. Dry-run: print command and return before launch-time side effects.
   if (options.dryRun) {
-    const cmd = formatCopilotCommand(copilotArgs);
+    const cmd = formatAgentCommand(paths.repoRoot, cliArgs);
     process.stdout.write(formatDryRunOutput(cmd));
     return {
       exitCode: 0,
@@ -412,11 +462,13 @@ export async function runRoleAgent(
     repoRoot: paths.repoRoot,
     taskId: options.taskId ?? '',
     agentEnv,
+    internalMcpServer,
     abortSignal: options.abortSignal,
   });
   if (externalMcpLaunchContext?.injectionEnabled) {
-    if (externalMcpLaunchContext.configFilePath) {
-      copilotArgs.push('--additional-mcp-config', `@${externalMcpLaunchContext.configFilePath}`);
+    const configFilePath = (externalMcpLaunchContext as PreparedAgentMcpLaunchContext).configFilePath;
+    if (configFilePath) {
+      cliArgs.push(...provider.mcpConfigArgs(configFilePath));
     } else {
       console.warn(
         '[roleAgent] external MCP config file path unavailable, continuing without MCP flag injection.',
@@ -425,28 +477,28 @@ export async function runRoleAgent(
   }
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
   logExternalMcpLaunchStatus(options.agentId, mcpLaunch);
-  if (externalMcpLaunchContext && externalMcpLaunchContext.status !== 'not-applicable') {
-    Object.assign(
-      agentEnv,
-      buildAutonomyEnvironment(
-        profile,
-        autonomyArgs,
-        agentCwd,
-        paths.repoRoot,
-        focused,
-        options.contextPackDir,
-        externalMcpLaunchContext,
-      ),
-    );
-  }
+  Object.assign(
+    agentEnv,
+    buildAutonomyEnvironment(
+      profile,
+      autonomyArgs,
+      argsResult,
+      agentCwd,
+      paths.repoRoot,
+      focused,
+      options.contextPackDir,
+      externalMcpLaunchContext,
+    ),
+  );
 
   // Preflight: verify that critical env-var paths are reachable before
-  // launching the copilot. A missing handoffs dir means the agent will
+  // launching the agent. A missing handoffs dir means the agent will
   // launch, fail to find its task context, and exit silently — which is
   // hard to diagnose. Fail fast with a clear message instead.
+  const promptPathEnvVars = provider.promptPathEnvVars();
   const preflightPaths: [string, string][] = [
-    ['COPILOT_HANDOFFS_DIR', agentEnv['COPILOT_HANDOFFS_DIR'] ?? ''],
-    ['COPILOT_IMPL_STEPS_DIR', agentEnv['COPILOT_IMPL_STEPS_DIR'] ?? ''],
+    [promptPathEnvVars.handoffsDir, agentEnv[promptPathEnvVars.handoffsDir] ?? ''],
+    [promptPathEnvVars.implStepsDir, agentEnv[promptPathEnvVars.implStepsDir] ?? ''],
   ];
   for (const [envKey, envPath] of preflightPaths) {
     if (envPath && !existsSync(envPath)) {
@@ -466,8 +518,6 @@ export async function runRoleAgent(
     abortSignal: options.abortSignal,
   });
 
-  const wallClockTimeoutS = options.wallClockBudget ?? profile.wallClockTimeoutS;
-  const idleTimeoutS = options.idleTimeout ?? profile.idleTimeoutS;
   let artifactCompletionSignature = '';
   let artifactCompletionResult: boolean | undefined;
   let artifactCompletionInFlight: Promise<boolean> | null = null;
@@ -541,8 +591,12 @@ export async function runRoleAgent(
     launchPhase: options.launchPhase,
   };
 
-  const initialSession = await runCopilotSession({
-    copilotArgs,
+  const daltonAgentSpawnedAtMs = enforcesSelectedPrimaryBoundary && focused && preRunBoundarySnapshot
+    ? Date.now()
+    : undefined;
+  const initialSession = await runAgentSession({
+    repoRoot: paths.repoRoot,
+    cliArgs,
     cwd: agentCwd,
     env: agentEnv,
     wallClockTimeoutS,
@@ -605,19 +659,25 @@ export async function runRoleAgent(
       await correctSessionReceipt(initialSession.sessionReceiptFile, options.agentId);
     } else {
       const continuationArgs = [
-        ...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }),
+        ...argsResult.args,
         '-p',
-        inlineAgentContext(buildDeniedActionContinuationPrompt(options.agentId)),
       ];
+      const continuationPromptResult = materializePrompt(
+        buildDeniedActionContinuationPrompt(options.agentId),
+        null,
+        'override',
+      );
+      continuationArgs.push(continuationPromptResult.effectivePrompt);
       const continuationPromptAudit = buildPromptAudit({
         promptPath: null,
         promptSource: 'override',
-        inlineAgentContext: skipAgentFlag,
-        effectivePrompt: continuationArgs[continuationArgs.length - 1] as string,
+        inlineAgentContext: continuationPromptResult.inlineAgentContext,
+        effectivePrompt: continuationPromptResult.effectivePrompt,
       });
       lastPromptAudit = continuationPromptAudit;
-      const continuationSession = await runCopilotSession({
-        copilotArgs: continuationArgs,
+      const continuationSession = await runAgentSession({
+        repoRoot: paths.repoRoot,
+        cliArgs: continuationArgs,
         cwd: agentCwd,
         env: agentEnv,
         wallClockTimeoutS,
@@ -676,23 +736,26 @@ export async function runRoleAgent(
       activeModel,
       focused,
       preRunBoundarySnapshot,
+      agentSpawnedAtMs: daltonAgentSpawnedAtMs,
       runSummary,
       writeLaunchGuardrailReceipt,
       resetArtifactCompletionCache,
       buildRetryArgs: (prompt: string) => {
-        const retryEffectivePrompt = inlineAgentContext(prompt);
-        const copilotArgs = [...buildCopilotArgs(profile, autonomyArgs, { skipAgentFlag }), '-p', retryEffectivePrompt];
+        const retryPromptResult = materializePrompt(prompt, null, 'override');
+        const retryEffectivePrompt = retryPromptResult.effectivePrompt;
+        const cliArgs = [...argsResult.args, '-p', retryEffectivePrompt];
         const promptAudit = buildPromptAudit({
           promptPath: null,
           promptSource: 'override',
-          inlineAgentContext: skipAgentFlag,
+          inlineAgentContext: retryPromptResult.inlineAgentContext,
           effectivePrompt: retryEffectivePrompt,
         });
-        return { copilotArgs, promptAudit };
+        return { cliArgs, promptAudit };
       },
-      runCopilotSessionForRetry: async (args, promptAudit) => {
-        return runCopilotSession({
-          copilotArgs: args,
+      runAgentSessionForRetry: async (args, promptAudit) => {
+        return runAgentSession({
+          repoRoot: paths.repoRoot,
+          cliArgs: args,
           cwd: agentCwd,
           env: agentEnv,
           wallClockTimeoutS,

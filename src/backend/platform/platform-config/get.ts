@@ -14,6 +14,7 @@ const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
 const ENV_SNAPSHOT_KEYS = [
   'TASKSAIL_MAX_PARALLEL_TASKS',
   'CONTAINER_RUNTIME',
+  'TASKSAIL_CLI_PROVIDER',
 ] as const;
 
 interface CacheEntry {
@@ -31,7 +32,8 @@ function captureEnvSnapshot(): string {
   return JSON.stringify([
     process.env['TASKSAIL_MAX_PARALLEL_TASKS'] ?? '',
     process.env['CONTAINER_RUNTIME'] ?? '',
-  ] satisfies [string, string]);
+    process.env['TASKSAIL_CLI_PROVIDER'] ?? '',
+  ] satisfies [string, string, string]);
 }
 
 async function getFileMtime(filePath: string): Promise<number> {

@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-tasksail}
+name: tasksail
 
 services:
   repo-context-mcp:
@@ -6,24 +6,22 @@ services:
     build:
       context: ../..
       dockerfile: docker/repo-context-mcp/Dockerfile
-    container_name: ${REPO_CONTEXT_MCP_CONTAINER_NAME:-repo-context-mcp}
+    container_name: repo-context-mcp
     restart: unless-stopped
     env_file:
       - ../../.env
     environment:
       - REPO_CONTEXT_MCP_HOST=0.0.0.0
-      - REPO_CONTEXT_MCP_PORT=${REPO_CONTEXT_MCP_CONTAINER_PORT:-8811}
-      - ACTIVE_CONTEXT_PACK_DIR=${ACTIVE_CONTEXT_PACK_DIR:-}
+      - REPO_CONTEXT_MCP_PORT=8811
       - REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR=${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}
       - REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR=${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}
     volumes:
       - ../../:/workspace:ro
-      - ${ACTIVE_CONTEXT_PACK_HOST_DIR:-../../AgentWorkSpace/.empty-context-pack}:/mnt/context-pack:ro
       - ${REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR:-../../AgentWorkSpace/qmd}:${REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR:-/data/qmd}:rw
       - ../../AgentWorkSpace/dropbox:/data/dropbox:rw
     working_dir: /workspace
     ports:
-      - "127.0.0.1:${REPO_CONTEXT_MCP_PORT:-8811}:${REPO_CONTEXT_MCP_CONTAINER_PORT:-8811}"
+      - "127.0.0.1:${REPO_CONTEXT_MCP_PORT:-8811}:8811"
     healthcheck:
       test:
         [

@@ -1,5 +1,5 @@
 export type {
-  ChatAgentProfileParseResult,
+  AgentProfileParseResult,
   GuardrailResult,
   GuardrailStatus,
   NamedAgentRecord,
@@ -17,7 +17,6 @@ export type {
 export {
   AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
-  AGENT_REGISTRY_RELATIVE_PATH,
   ALLOWED_DIFFICULTY_LEVELS,
   CONTENT_SECTION_EXCLUSIONS,
   ISSUES_MD_REQUIRED_FINDING_SECTIONS,
@@ -45,6 +44,7 @@ export {
   isPolicyValidationMode,
   policyResultToJSON,
   sortViolations,
+  getAgentRegistryRelativePath,
 } from './models.js';
 
 export {
@@ -66,7 +66,6 @@ export {
   canonicalAgentLabel,
   expectedInstructionHeading,
   loadNamedAgentTeam,
-  parseChatagentProfile,
 } from './agents.js';
 
 export {

@@ -1,14 +1,43 @@
 import { EventEmitter } from 'node:events';
-import type { ChildProcess } from 'node:child_process';
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import {
   cleanupProcesses,
   gracefulKill,
-  resolveCopilotCommand,
-  waitForCopilot,
-  waitForCopilotDetailed,
+  waitForAgent,
+  waitForAgentDetailed,
 } from '../processLifecycle.js';
+
+const spawnedChildren = new Set<ChildProcess>();
+
+function spawnTestChild(script: string): ChildProcess {
+  const child = spawn('node', ['-e', script], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  spawnedChildren.add(child);
+  child.once('exit', () => {
+    spawnedChildren.delete(child);
+  });
+  return child;
+}
+
+async function cleanupSpawnedChildren(): Promise<void> {
+  const children = [...spawnedChildren];
+  spawnedChildren.clear();
+
+  await Promise.all(children.map(async (child) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+    });
+    child.kill('SIGKILL');
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+  }));
+}
 
 function setPlatform(platform: NodeJS.Platform): () => void {
   const original = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -24,20 +53,9 @@ function setPlatform(platform: NodeJS.Platform): () => void {
   };
 }
 
-describe('resolveCopilotCommand', () => {
-  it('uses the Unix copilot binary on non-Windows platforms', () => {
-    expect(resolveCopilotCommand()).toBe('copilot');
-  });
-
-  it('uses the Windows copilot shim on win32', () => {
-    const restorePlatform = setPlatform('win32');
-
-    try {
-      expect(resolveCopilotCommand()).toBe('copilot.cmd');
-    } finally {
-      restorePlatform();
-    }
-  });
+afterEach(async () => {
+  vi.useRealTimers();
+  await cleanupSpawnedChildren();
 });
 
 describe('gracefulKill', () => {
@@ -54,16 +72,10 @@ describe('gracefulKill', () => {
   });
 });
 
-describe('waitForCopilot', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
+describe('waitForAgent', () => {
   it('drains child stdout/stderr to prevent pipe buffer pmckpressure', async () => {
-    const child = spawn('node', ['-e', 'setTimeout(() => {}, 100)'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    // Simulate what launchCopilot does post-spawn.
+    const child = spawnTestChild('setTimeout(() => {}, 100)');
+    // Simulate what launchAgent does post-spawn.
     child.stdout?.resume();
     child.stderr?.resume();
     expect(child.stdout?.readableFlowing).toBe(true);
@@ -72,35 +84,29 @@ describe('waitForCopilot', () => {
   });
 
   it('kills the child process when wall-clock timeout expires', async () => {
-    const child = spawn('node', ['-e', 'setTimeout(() => {}, 60000)'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild('setTimeout(() => {}, 60000)');
     child.stdout?.resume();
     child.stderr?.resume();
 
-    const exitCode = await waitForCopilot(child, { wallClockTimeoutMs: 200 });
+    const exitCode = await waitForAgent(child, { wallClockTimeoutMs: 200 });
     expect(exitCode).not.toBe(0);
   }, 10_000);
 
   it('clears the timeout timer when child exits normally', async () => {
-    const child = spawn('node', ['-e', 'process.exit(0)'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild('process.exit(0)');
     child.stdout?.resume();
     child.stderr?.resume();
 
-    const exitCode = await waitForCopilot(child, { wallClockTimeoutMs: 30_000 });
+    const exitCode = await waitForAgent(child, { wallClockTimeoutMs: 30_000 });
     expect(exitCode).toBe(0);
     // If timer leaked, vitest would flag the open handle.
   });
 
   it('kills the child process when idle timeout expires with no output', async () => {
     // Child sleeps silently — produces no stdout/stderr output.
-    const child = spawn('node', ['-e', 'setTimeout(() => {}, 60000)'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild('setTimeout(() => {}, 60000)');
 
-    const exitCode = await waitForCopilot(child, { idleTimeoutMs: 200 });
+    const exitCode = await waitForAgent(child, { idleTimeoutMs: 200 });
     expect(exitCode).not.toBe(0);
   }, 10_000);
 
@@ -114,20 +120,16 @@ describe('waitForCopilot', () => {
         if (++count >= 5) { clearInterval(iv); process.exit(0); }
       }, 100);
     `;
-    const child = spawn('node', ['-e', script], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild(script);
 
-    const exitCode = await waitForCopilot(child, { idleTimeoutMs: 300 });
+    const exitCode = await waitForAgent(child, { idleTimeoutMs: 300 });
     expect(exitCode).toBe(0);
   }, 10_000);
 
   it('captures stderr tail and timeout reason', async () => {
-    const child = spawn('node', ['-e', "process.stderr.write('artifact incomplete\\n'); setTimeout(() => {}, 60000)"], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild("process.stderr.write('artifact incomplete\\n'); setTimeout(() => {}, 60000)");
 
-    const summary = await waitForCopilotDetailed(child, { idleTimeoutMs: 200 });
+    const summary = await waitForAgentDetailed(child, { idleTimeoutMs: 200 });
     expect(summary.exitCode).not.toBe(0);
     expect(summary.terminationReason).toBe('idle-timeout');
     expect(summary.stderrTail).toContain('artifact incomplete');
@@ -135,13 +137,11 @@ describe('waitForCopilot', () => {
 
   it('kills the child process when an abort signal fires', async () => {
     const controller = new AbortController();
-    const child = spawn('node', ['-e', 'setTimeout(() => {}, 60000)'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawnTestChild('setTimeout(() => {}, 60000)');
 
     setTimeout(() => controller.abort(), 100);
 
-    const exitCode = await waitForCopilot(child, { abortSignal: controller.signal });
+    const exitCode = await waitForAgent(child, { abortSignal: controller.signal });
     expect(exitCode).toBe(130);
   }, 10_000);
 
@@ -167,7 +167,7 @@ describe('waitForCopilot', () => {
     }
 
     const child = new FakeChild() as unknown as ChildProcess;
-    const wait = waitForCopilot(child, { wallClockTimeoutMs: 100 });
+    const wait = waitForAgent(child, { wallClockTimeoutMs: 100 });
 
     await vi.advanceTimersByTimeAsync(5100);
 
@@ -192,7 +192,7 @@ describe('waitForCopilot', () => {
 
     try {
       const child = new FakeChild() as unknown as ChildProcess;
-      const wait = waitForCopilot(child, { wallClockTimeoutMs: 100 });
+      const wait = waitForAgent(child, { wallClockTimeoutMs: 100 });
 
       await vi.advanceTimersByTimeAsync(5_100);
 

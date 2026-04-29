@@ -11,7 +11,8 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 import {
   DEFAULT_RULE_EVALUATORS,
   FULL_EVALUATION_SEQUENCE,
@@ -101,6 +102,36 @@ function createActiveWorkspace(repoRoot: string): void {
   }
 }
 
+function writeNamedAgentFiles(repoRoot: string): void {
+  const agents = [
+    ['planning-agent', 'Planning Specialist', 'Lily'],
+    ['product-manager', 'Product Manager', 'Alice'],
+    ['software-engineer', 'Software Engineer', 'Dalton'],
+    ['qa', 'QA and Closeout', 'Ron'],
+  ] as const;
+
+  for (const [agentId, role, name] of agents) {
+    const instructionPath = path.join(repoRoot, '.github', 'copilot', 'instructions', `${agentId}.instructions.md`);
+    mkdirSync(path.dirname(instructionPath), { recursive: true });
+    writeFileSync(instructionPath, `# ${role} (${name}) — Instructions\n`, 'utf-8');
+
+    const identity = `Act as ${name}, the ${role}.`;
+    writeFileSync(
+      path.join(repoRoot, '.github', 'agents', `${agentId}.md`),
+      [
+        '---',
+        `name: ${agentId}`,
+        `description: ${role}`,
+        'model: gpt-5.4',
+        '---',
+        identity,
+        `Follow the repository workflow and the ${role} instructions.`,
+      ].join('\n'),
+      'utf-8',
+    );
+  }
+}
+
 function createResetWorkspace(repoRoot: string): void {
   const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
   mkdirSync(handoffsDir, { recursive: true });
@@ -148,6 +179,26 @@ describe('workflow-policy rule parity', () => {
     expect(Object.keys(DEFAULT_RULE_EVALUATORS).sort()).toEqual(
       Object.keys(createDefaultRuleEvaluators()).sort(),
     );
+  });
+
+  it('delegates named-agent profile parsing to the active provider', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'ts-rules-'));
+    createdRoots.push(repoRoot);
+    createRegistry(repoRoot);
+    writeNamedAgentFiles(repoRoot);
+    createActiveWorkspace(repoRoot);
+
+    const parseSpy = vi.spyOn(copilotProvider, 'parseAgentProfile');
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'runtime',
+      taskId: TEST_TASK_ID,
+    });
+
+    await validator.evaluate();
+
+    expect(parseSpy).toHaveBeenCalled();
+    parseSpy.mockRestore();
   });
 
   it('full sequence has exactly 19 steps matching Python order', () => {

@@ -69,9 +69,9 @@ The desktop shell must not reimplement manual overlay setup logic or bypass the 
 
 ## Planner transport architecture
 
-- The desktop planner now runs through a broker-owned JSONL Copilot transport in Electron main.
-- The canonical stream contract is typed planner events, not PTY terminal scraping or terminal-chrome filtering.
-- Session continuity uses Copilot `sessionId` resume semantics instead of PTY-driven stdin bridging.
+- The desktop planner now runs through a broker-owned CLI planner transport in Electron main, resolved through the active CLI provider.
+- The canonical stream contract is typed planner events from the provider parser, not PTY terminal scraping or terminal-chrome filtering.
+- Session continuity uses provider-normalized CLI session ids; for the shipped `copilot` provider this maps to Copilot `sessionId` resume semantics instead of PTY-driven stdin bridging.
 - Observability exposes only bounded broker metadata such as new-vs-resumed turns, success-vs-failure, queue depth, and whether planner content was observed.
 
 ## Slice guardrails

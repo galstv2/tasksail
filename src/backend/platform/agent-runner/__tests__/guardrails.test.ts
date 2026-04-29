@@ -8,11 +8,15 @@ const resolvePaths = vi.fn();
 const writeRuntimeWorkflowFacts = vi.fn();
 const evaluateWorkflowPolicy = vi.fn();
 
-vi.mock('../../core/index.js', () => ({
-  ensureDir: vi.fn(),
-  writeTextFile: vi.fn(),
-  resolvePaths,
-}));
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return {
+    ...actual,
+    ensureDir: vi.fn(),
+    writeTextFile: vi.fn(),
+    resolvePaths,
+  };
+});
 
 vi.mock('../runtimeFacts.js', () => ({
   computeRuntimeFactsSourceSignature: vi.fn(async ({ repoRoot, taskRuntime }: { repoRoot: string; taskRuntime: string }) => `runtime:${repoRoot}:${taskRuntime}`),
@@ -30,31 +34,23 @@ describe('guardrails runtime policy cache', () => {
   let handoffsDir: string;
   let implStepsDir: string;
 
-  function makeTaskRuntime(root: string, taskId?: string): string {
-    return taskId
-      ? path.join(root, '.platform-state', 'runtime', 'tasks', taskId)
-      : path.join(root, '.platform-state', 'runtime');
-  }
-
   const TEST_TASK_ID = 'task-test-001';
 
-  function setupResolvePaths(root: string, taskId?: string): void {
-    const taskRuntime = makeTaskRuntime(root, taskId);
+  function makeTaskRuntime(root: string, taskId: string = TEST_TASK_ID): string {
+    return path.join(root, '.platform-state', 'runtime', 'tasks', taskId);
+  }
+
+  function setupResolvePaths(root: string): void {
     resolvePaths.mockImplementation((opts: { repoRoot?: string; taskId?: string } = {}) => {
       const r = opts.repoRoot ?? root;
       const t = opts.taskId ?? TEST_TASK_ID;
-      const rt = opts.taskId
-        ? path.join(r, '.platform-state', 'runtime', 'tasks', opts.taskId)
-        : path.join(r, '.platform-state', 'runtime');
       return {
         repoRoot: r,
         handoffs: path.join(r, 'AgentWorkSpace', 'tasks', t, 'handoffs'),
         implementationSteps: path.join(r, 'AgentWorkSpace', 'tasks', t, 'ImplementationSteps'),
-        taskRuntime: rt,
+        taskRuntime: path.join(r, '.platform-state', 'runtime', 'tasks', t),
       };
     });
-    // Suppress unused variable warnings.
-    void taskRuntime;
   }
 
   beforeEach(() => {
@@ -99,8 +95,8 @@ describe('guardrails runtime policy cache', () => {
   });
 
   it('reuses the prior result when the tracked policy inputs are unchanged', async () => {
-    const first = await runRuntimePolicyCheck(repoRoot, 'alice');
-    const second = await runRuntimePolicyCheck(repoRoot, 'alice');
+    const first = await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    const second = await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
 
     expect(first).toEqual(second);
     expect(writeRuntimeWorkflowFacts).toHaveBeenCalledTimes(2);
@@ -108,37 +104,72 @@ describe('guardrails runtime policy cache', () => {
   });
 
   it('reruns policy when a tracked runtime file changes', async () => {
-    await runRuntimePolicyCheck(repoRoot, 'alice');
-    const singletonRuntime = makeTaskRuntime(repoRoot);
-    mkdirSync(path.join(singletonRuntime, 'role-sessions'), { recursive: true });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    const taskRuntime = makeTaskRuntime(repoRoot);
+    mkdirSync(path.join(taskRuntime, 'role-sessions'), { recursive: true });
     writeFileSync(
-      path.join(singletonRuntime, 'role-sessions', 'software-engineer.json'),
+      path.join(taskRuntime, 'role-sessions', 'software-engineer.json'),
       '{"session_id": "abc123"}\n',
       'utf-8',
     );
 
-    await runRuntimePolicyCheck(repoRoot, 'alice');
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
 
     expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
   });
 
   it('ignores legacy testing metadata when computing the policy cache key', async () => {
-    await runRuntimePolicyCheck(repoRoot, 'alice');
-    const singletonRuntime = makeTaskRuntime(repoRoot);
-    mkdirSync(path.join(singletonRuntime, 'guardrails'), { recursive: true });
-    mkdirSync(path.join(singletonRuntime, 'conventions'), { recursive: true });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    const taskRuntime = makeTaskRuntime(repoRoot);
+    mkdirSync(path.join(taskRuntime, 'guardrails'), { recursive: true });
+    mkdirSync(path.join(taskRuntime, 'conventions'), { recursive: true });
     writeFileSync(
-      path.join(singletonRuntime, 'guardrails', 'testing-skip.json'),
+      path.join(taskRuntime, 'guardrails', 'testing-skip.json'),
       '{"active": true}\n',
       'utf-8',
     );
     writeFileSync(
-      path.join(singletonRuntime, 'conventions', 'testing-infrastructure.json'),
+      path.join(taskRuntime, 'conventions', 'testing-infrastructure.json'),
       '{"status": "none"}\n',
       'utf-8',
     );
 
-    await runRuntimePolicyCheck(repoRoot, 'alice');
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('tracks only json files in runtime policy directories when computing the policy cache key', async () => {
+    const taskRuntime = makeTaskRuntime(repoRoot);
+    const conventionsDir = path.join(taskRuntime, 'conventions');
+    const guardrailsDir = path.join(taskRuntime, 'guardrails');
+    const roleSessionsDir = path.join(taskRuntime, 'role-sessions');
+    mkdirSync(conventionsDir, { recursive: true });
+    mkdirSync(guardrailsDir, { recursive: true });
+    mkdirSync(roleSessionsDir, { recursive: true });
+    writeFileSync(path.join(conventionsDir, 'team.json'), '{"version": 1}\n', 'utf-8');
+    writeFileSync(path.join(guardrailsDir, 'policy.json'), '{"active": true}\n', 'utf-8');
+    writeFileSync(path.join(roleSessionsDir, 'software-engineer.json'), '{"session_id": "abc123"}\n', 'utf-8');
+    writeFileSync(path.join(conventionsDir, 'notes.md'), 'initial unrelated note\n', 'utf-8');
+    writeFileSync(path.join(guardrailsDir, 'policy.txt'), 'initial unrelated text\n', 'utf-8');
+
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    writeFileSync(path.join(conventionsDir, 'notes.md'), 'changed unrelated note with more bytes\n', 'utf-8');
+    writeFileSync(path.join(guardrailsDir, 'policy.txt'), 'changed unrelated text with more bytes\n', 'utf-8');
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    writeFileSync(path.join(guardrailsDir, 'policy.json'), '{"active": true, "version": 2}\n', 'utf-8');
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows policy evaluation when runtime policy directories are missing', async () => {
+    await expect(runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID)).resolves.toEqual({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
 
     expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(1);
   });
@@ -154,15 +185,12 @@ describe('guardrails per-task receipt isolation', () => {
     mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'ImplementationSteps'), { recursive: true });
     resolvePaths.mockImplementation((opts: { repoRoot?: string; taskId?: string } = {}) => {
       const r = opts.repoRoot ?? repoRoot;
-      const t = opts.taskId;
-      const rt = t
-        ? path.join(r, '.platform-state', 'runtime', 'tasks', t)
-        : path.join(r, '.platform-state', 'runtime');
+      const t = opts.taskId ?? 'task-default';
       return {
         repoRoot: r,
         handoffs: path.join(r, 'AgentWorkSpace', 'handoffs'),
         implementationSteps: path.join(r, 'AgentWorkSpace', 'ImplementationSteps'),
-        taskRuntime: rt,
+        taskRuntime: path.join(r, '.platform-state', 'runtime', 'tasks', t),
       };
     });
   });
@@ -178,12 +206,6 @@ describe('guardrails per-task receipt isolation', () => {
     expect(pathA).toContain(path.join('.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails'));
     expect(pathB).toContain(path.join('.platform-state', 'runtime', 'tasks', 'task-bbb', 'guardrails'));
     expect(pathA).not.toBe(pathB);
-  });
-
-  it('writes the singleton receipt path when taskId is omitted', () => {
-    const pathSingleton = guardrailReceiptPath(repoRoot, 'alice');
-    expect(pathSingleton).toContain(path.join('.platform-state', 'runtime', 'guardrails'));
-    expect(pathSingleton).not.toContain('tasks');
   });
 
   it('cache lookup with different taskId returns different entries (runs policy twice)', async () => {

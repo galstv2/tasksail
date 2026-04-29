@@ -1,18 +1,17 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { isWindowsPlatform } from '../core/platform.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { RunSummary, TerminationReason } from '../cli-provider/types.js';
 
-/** Options for launching a copilot agent process. */
+/** Options for launching an agent CLI process. */
 export interface LaunchOptions {
+  repoRoot?: string;
   cwd?: string;
   env?: Record<string, string>;
   /** Idle timeout in seconds. Used for monitoring. */
   idleTimeoutS?: number;
   /** Wall clock timeout in seconds. */
   wallClockTimeoutS?: number;
-}
-
-export function resolveCopilotCommand(): string {
-  return isWindowsPlatform() ? 'copilot.cmd' : 'copilot';
 }
 
 function terminateChildProcess(
@@ -39,11 +38,11 @@ function signalProcess(
 }
 
 /**
- * Launch a copilot CLI process with the given arguments.
+ * Launch an agent CLI process with the given arguments.
  * Sets up SIGTERM/SIGINT signal forwarding so the child process
  * is cleaned up when the parent is terminated.
  */
-export function launchCopilot(
+export function launchAgent(
   args: string[],
   options: LaunchOptions = {},
 ): ChildProcess {
@@ -52,7 +51,8 @@ export function launchCopilot(
     ...options.env,
   };
 
-  const child = spawn(resolveCopilotCommand(), args, {
+  const repoRoot = options.repoRoot ?? options.cwd ?? process.cwd();
+  const child = spawn(getActiveProvider(repoRoot).resolveCommand(), args, {
     cwd: options.cwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -75,15 +75,15 @@ export function launchCopilot(
     process.removeListener('SIGINT', onSigint);
   });
 
-  // Drain stdout/stderr to prevent pipe buffer pmckpressure deadlocks.
-  // The copilot agent output is not captured by the platform layer.
+  // Drain stdout/stderr to prevent pipe buffer backpressure deadlocks.
+  // The agent CLI output is not captured by the platform layer.
   child.stdout?.resume();
   child.stderr?.resume();
 
   return child;
 }
 
-/** Options for awaiting a copilot child process. */
+/** Options for awaiting an agent CLI child process. */
 export interface WaitOptions {
   /** Hard wall-clock deadline in milliseconds. */
   wallClockTimeoutMs?: number;
@@ -93,20 +93,7 @@ export interface WaitOptions {
   abortSignal?: AbortSignal;
 }
 
-export type CopilotTerminationReason =
-  | 'exited'
-  | 'wall-clock-timeout'
-  | 'idle-timeout'
-  | 'aborted'
-  | 'spawn-error';
-
-export interface CopilotRunSummary {
-  exitCode: number;
-  stdoutTail: string;
-  stderrTail: string;
-  terminationReason: CopilotTerminationReason;
-  signalCode: NodeJS.Signals | null;
-}
+export type { TerminationReason, RunSummary };
 
 const MAX_OUTPUT_TAIL_CHARS = 4000;
 
@@ -119,18 +106,18 @@ function appendTail(existing: string, chunk: Buffer | string): string {
 }
 
 /**
- * Wait for a copilot child process to exit.
- * Returns the exit code (0 on success, non-zero on failure).
- */
-export function waitForCopilotDetailed(
+  * Wait for an agent CLI child process to exit.
+  * Returns the exit code (0 on success, non-zero on failure).
+  */
+export function waitForAgentDetailed(
   child: ChildProcess,
   options: WaitOptions = {},
-): Promise<CopilotRunSummary> {
+): Promise<RunSummary> {
   return new Promise((resolve) => {
     let settled = false;
     let stdoutTail = '';
     let stderrTail = '';
-    let terminationReason: CopilotTerminationReason = 'exited';
+    let terminationReason: TerminationReason = 'exited';
 
     const settle = (code: number): void => {
       if (settled) return;
@@ -248,11 +235,11 @@ export function waitForCopilotDetailed(
   });
 }
 
-export async function waitForCopilot(
+export async function waitForAgent(
   child: ChildProcess,
   options: WaitOptions = {},
 ): Promise<number> {
-  const summary = await waitForCopilotDetailed(child, options);
+  const summary = await waitForAgentDetailed(child, options);
   return summary.exitCode;
 }
 

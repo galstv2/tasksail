@@ -10,9 +10,6 @@ import {
  *
  * Ported from Python: src/backend/scripts/python/lib/policy/template_specs.py
  *
- * Note: contribution_section_names() from Python's lib/registry.py is replaced
- * here with a static list matching the current registry. The values match what
- * the Python registry.py produces from .github/agents/registry.json.
  */
 
 export interface HandoffSpec {
@@ -151,12 +148,6 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'What Went Well',
       'What Could Have Gone Better',
       'Action Items',
-      // Contribution sections are appended dynamically at validation time
-      // using buildContributionSectionNames() from the agent registry.
-      "Lily's Contribution (Planning Specialist)",
-      "Alice's Contribution (Product Manager)",
-      "Dalton's Contribution (Software Engineer)",
-      "Ron's Contribution (QA and Closeout)",
       'Reusable Team Learnings',
       'Anti-Patterns To Avoid',
     ],

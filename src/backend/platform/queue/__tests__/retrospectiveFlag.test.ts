@@ -74,6 +74,167 @@ describe('retrospectiveFlag', () => {
     expect(content).not.toContain('\n  true');
   });
 
+  it('increments once when the same taskId is synchronized twice', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-idempotent.json'),
+      JSON.stringify({ completed_count: 0 }, null, 2),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Task Metadata\n\n- Retrospective Required: false\n',
+      'utf-8',
+    );
+
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-idempotent',
+      taskId: 'task-1',
+    });
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-idempotent',
+      taskId: 'task-1',
+    });
+
+    const raw = await readFile(
+      path.join(counterDir, 'pack-idempotent.json'),
+      'utf-8',
+    );
+    const state = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(state['completed_count']).toBe(1);
+    expect(state['last_archived_task_id']).toBe('task-1');
+    expect(typeof state['last_archived_at']).toBe('string');
+    expect(state['cycle_task_ids']).toEqual(['task-1']);
+  });
+
+  it('increments once per different taskId', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-different-tasks.json'),
+      JSON.stringify({ completed_count: 0 }, null, 2),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Task Metadata\n\n- Retrospective Required: false\n',
+      'utf-8',
+    );
+
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-different-tasks',
+      taskId: 'task-1',
+    });
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-different-tasks',
+      taskId: 'task-2',
+    });
+
+    const raw = await readFile(
+      path.join(counterDir, 'pack-different-tasks.json'),
+      'utf-8',
+    );
+    const state = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(state['completed_count']).toBe(2);
+    expect(state['last_archived_task_id']).toBe('task-2');
+    expect(state['cycle_task_ids']).toEqual(['task-1', 'task-2']);
+  });
+
+
+
+  it('updates the retrospective label without double-incrementing when taskId was already counted', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-already-counted.json'),
+      JSON.stringify({
+        schema_version: 'task-counter/v1',
+        context_pack_id: 'pack-already-counted',
+        completed_count: 0,
+        cycle_count: 1,
+        last_archived_task_id: 'task-10',
+        last_archived_at: '2026-01-01T00:00:00.000Z',
+        last_retrospective_at: '',
+        cycle_task_ids: ['task-1', 'task-2', 'task-3', 'task-4', 'task-5', 'task-6', 'task-7', 'task-8', 'task-9', 'task-10'],
+      }, null, 2),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Task Metadata\n\n- Retrospective Required: false\n',
+      'utf-8',
+    );
+
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-already-counted',
+      taskId: 'task-10',
+    });
+
+    const raw = await readFile(path.join(counterDir, 'pack-already-counted.json'), 'utf-8');
+    const state = JSON.parse(raw) as Record<string, unknown>;
+    const content = await readFile(path.join(handoffsDir, 'retrospective-input.md'), 'utf-8');
+
+    expect(state['completed_count']).toBe(0);
+    expect(state['cycle_count']).toBe(1);
+    expect(state['last_archived_task_id']).toBe('task-10');
+    expect(state['cycle_task_ids']).toEqual(['task-1', 'task-2', 'task-3', 'task-4', 'task-5', 'task-6', 'task-7', 'task-8', 'task-9', 'task-10']);
+    expect(content).toContain('- Retrospective Required: true');
+  });
+
+  it('preserves legacy increment behavior without taskId', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-legacy.json'),
+      JSON.stringify({
+        completed_count: 0,
+        cycle_count: 0,
+        last_archived_task_id: '',
+        last_archived_at: '',
+        cycle_task_ids: [],
+      }, null, 2),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Task Metadata\n\n- Retrospective Required: false\n',
+      'utf-8',
+    );
+
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-legacy',
+    });
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-legacy',
+    });
+
+    const raw = await readFile(path.join(counterDir, 'pack-legacy.json'), 'utf-8');
+    const state = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(state['completed_count']).toBe(2);
+    expect(state['cycle_count']).toBe(0);
+    expect(state['last_archived_task_id']).toBe('');
+    expect(state['last_archived_at']).toBe('');
+    expect(state['cycle_task_ids']).toEqual([]);
+  });
+
   // ── §4.8 concurrency tests ────────────────────────────────────────────────
 
   it('two concurrent completions with same contextPackId increment counter to N+2, exactly one required=true', async () => {

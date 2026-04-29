@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
+from ..config import (
+    TASKSAIL_CONTEXT_PACK_DIR_HEADER,
+    TASKSAIL_TASK_ID_HEADER,
+    RequestScope,
+)
 from ..utils import (
     attach_request_id,
     ensure_non_empty_string,
@@ -18,6 +24,7 @@ from ..utils import (
 )
 
 logger = logging.getLogger("repo-context-mcp")
+TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 class RepoContextHttpHandler:
@@ -35,6 +42,7 @@ class RepoContextHttpHandler:
         active_context_pack_dir: Callable[[], str],
         runtime_state: Any,
         execute_seed_run: Callable[..., dict[str, Any]],
+        resolve_seed_scope_key: Callable[..., str] | None = None,
         build_task_lineage_summary: Callable[..., dict[str, Any]],
         build_carry_forward_summary: Callable[..., dict[str, Any]],
         load_context_pack_conventions_summary: (
@@ -63,6 +71,9 @@ class RepoContextHttpHandler:
         self.active_context_pack_dir = active_context_pack_dir
         self.runtime_state = runtime_state
         self.execute_seed_run = execute_seed_run
+        self.resolve_seed_scope_key = resolve_seed_scope_key or (
+            lambda **kwargs: kwargs["context_pack_dir"]
+        )
         self.load_context_pack_conventions_summary = (
             load_context_pack_conventions_summary
             or (lambda **_: {"conventions_summary_status": "deferred"})
@@ -137,6 +148,62 @@ class RepoContextHttpHandler:
                     body,
                     "application/json; charset=utf-8",
                     request_id,
+                )
+
+            def _payload_value(
+                self,
+                payload_or_query: dict[str, Any],
+                field_name: str,
+            ) -> str:
+                value = payload_or_query.get(field_name)
+                if isinstance(value, list):
+                    value = value[0] if value else ""
+                return normalize_optional_string(value)
+
+            def _request_scope(
+                self,
+                payload_or_query: dict[str, Any],
+            ) -> RequestScope:
+                header_context_pack_dir = normalize_optional_string(
+                    self.headers.get(TASKSAIL_CONTEXT_PACK_DIR_HEADER)
+                )
+                field_context_pack_dir = self._payload_value(
+                    payload_or_query,
+                    "context_pack_dir",
+                )
+                if header_context_pack_dir:
+                    source = "header"
+                    raw_context_pack_dir = header_context_pack_dir
+                elif field_context_pack_dir:
+                    source = "body"
+                    raw_context_pack_dir = field_context_pack_dir
+                else:
+                    source = "env"
+                    raw_context_pack_dir = runtime.active_context_pack_dir()
+
+                context_pack_dir = runtime.normalize_context_pack_dir(
+                    ensure_non_empty_string(
+                        raw_context_pack_dir,
+                        "context_pack_dir",
+                    )
+                )
+
+                task_id = (
+                    normalize_optional_string(
+                        self.headers.get(TASKSAIL_TASK_ID_HEADER)
+                    )
+                    or self._payload_value(payload_or_query, "task_id")
+                )
+                if task_id and TASK_ID_RE.fullmatch(task_id) is None:
+                    raise ValueError(
+                        "Field 'task_id' must match "
+                        "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                    )
+
+                return RequestScope(
+                    task_id=task_id,
+                    context_pack_dir=context_pack_dir,
+                    source=source,
                 )
 
             def do_GET(self) -> None:  # noqa: N802
@@ -224,19 +291,10 @@ class RepoContextHttpHandler:
                 if parsed.path == "/context-pack-conventions":
                     try:
                         query = parse_qs(parsed.query)
-                        requested_context_pack_dir = (
-                            query.get("context_pack_dir", [""])[0].strip()
-                        )
-                        context_pack_dir = runtime.normalize_context_pack_dir(
-                            ensure_non_empty_string(
-                                requested_context_pack_dir
-                                or runtime.active_context_pack_dir(),
-                                "context_pack_dir",
-                            )
-                        )
+                        scope = self._request_scope(query)
                         summary = (
                             runtime.load_context_pack_conventions_summary(
-                                context_pack_dir=context_pack_dir,
+                                context_pack_dir=scope.context_pack_dir,
                             )
                         )
                     except ValueError as exc:
@@ -252,19 +310,10 @@ class RepoContextHttpHandler:
                 if parsed.path == "/behavior-corrections":
                     try:
                         query = parse_qs(parsed.query)
-                        requested_context_pack_dir = (
-                            query.get("context_pack_dir", [""])[0].strip()
-                        )
-                        context_pack_dir = runtime.normalize_context_pack_dir(
-                            ensure_non_empty_string(
-                                requested_context_pack_dir
-                                or runtime.active_context_pack_dir(),
-                                "context_pack_dir",
-                            )
-                        )
+                        scope = self._request_scope(query)
                         summary = (
                             runtime.load_behavior_correction_memo_summary(
-                                context_pack_dir=context_pack_dir,
+                                context_pack_dir=scope.context_pack_dir,
                             )
                         )
                     except ValueError as exc:
@@ -460,61 +509,63 @@ class RepoContextHttpHandler:
                 payload: dict[str, Any],
                 request_id: str,
             ) -> None:
-                if not runtime.runtime_state.acquire_seed_run():
-                    self._write_json(
-                        409,
-                        {"error": "a seed run is already in progress"},
-                        request_id,
-                    )
-                    return
-
+                seed_scope_key = ""
+                seed_lock_acquired = False
                 try:
-                    context_pack_dir = runtime.normalize_context_pack_dir(
-                        ensure_non_empty_string(
-                            payload.get("context_pack_dir")
-                            or runtime.active_context_pack_dir(),
-                            "context_pack_dir",
-                        )
+                    scope = self._request_scope(payload)
+                    context_pack_dir = scope.context_pack_dir
+                    manifest = runtime.normalize_context_pack_relative_path(
+                        context_pack_dir=context_pack_dir,
+                        value=ensure_non_empty_string(
+                            payload.get("manifest")
+                            or runtime.default_manifest,
+                            "manifest",
+                        ),
+                        field_name="manifest",
                     )
+                    plan_file = runtime.normalize_context_pack_relative_path(
+                        context_pack_dir=context_pack_dir,
+                        value=ensure_non_empty_string(
+                            payload.get("plan_file")
+                            or runtime.default_plan_file,
+                            "plan_file",
+                        ),
+                        field_name="plan_file",
+                    )
+                    plan_mode = str(payload.get("plan_mode") or "prefer-plan")
+                    seed_scope_key = runtime.resolve_seed_scope_key(
+                        context_pack_dir=context_pack_dir,
+                        manifest=manifest,
+                        plan_file=plan_file,
+                        plan_mode=plan_mode,
+                    )
+                    if not runtime.runtime_state.acquire_seed_run(seed_scope_key):
+                        self._write_json(
+                            409,
+                            {"error": "a seed run is already in progress"},
+                            request_id,
+                        )
+                        return
+                    seed_lock_acquired = True
                     report = runtime.execute_seed_run(
                         context_pack_dir=context_pack_dir,
-                        manifest=runtime.normalize_context_pack_relative_path(
-                            context_pack_dir=context_pack_dir,
-                            value=ensure_non_empty_string(
-                                payload.get("manifest")
-                                or runtime.default_manifest,
-                                "manifest",
-                            ),
-                            field_name="manifest",
-                        ),
-                        plan_file=(
-                            runtime.normalize_context_pack_relative_path(
-                                context_pack_dir=context_pack_dir,
-                                value=ensure_non_empty_string(
-                                    payload.get("plan_file")
-                                    or runtime.default_plan_file,
-                                    "plan_file",
-                                ),
-                                field_name="plan_file",
-                            )
-                        ),
-                        plan_mode=str(
-                            payload.get("plan_mode") or "prefer-plan"
-                        ),
+                        manifest=manifest,
+                        plan_file=plan_file,
+                        plan_mode=plan_mode,
                         write_report=bool(payload.get("write_report", True)),
                     )
                 except ValueError as exc:
-                    runtime.runtime_state.release_seed_run()
                     logger.error("Seed failed: %s — %s", request_id, exc)
                     self._write_json(400, {"error": str(exc)}, request_id)
                     return
                 except Exception as exc:  # noqa: BLE001
-                    runtime.runtime_state.release_seed_run()
                     logger.error("Seed failed: %s — %s", request_id, exc)
                     self._write_json(500, {"error": str(exc)}, request_id)
                     return
+                finally:
+                    if seed_lock_acquired:
+                        runtime.runtime_state.release_seed_run(seed_scope_key)
 
-                runtime.runtime_state.release_seed_run()
                 runtime.runtime_state.set_latest_run(report)
                 logger.info("Seed completed: %s", request_id)
                 self._write_json(200, report, request_id)
@@ -525,13 +576,8 @@ class RepoContextHttpHandler:
                 request_id: str,
             ) -> None:
                 try:
-                    context_pack_dir = runtime.normalize_context_pack_dir(
-                        ensure_non_empty_string(
-                            payload.get("context_pack_dir")
-                            or runtime.active_context_pack_dir(),
-                            "context_pack_dir",
-                        )
-                    )
+                    scope = self._request_scope(payload)
+                    context_pack_dir = scope.context_pack_dir
                     qmd_scope = runtime.normalize_context_pack_relative_path(
                         context_pack_dir=context_pack_dir,
                         value=ensure_non_empty_string(
@@ -544,9 +590,7 @@ class RepoContextHttpHandler:
                         context_pack_dir=context_pack_dir,
                         qmd_scope=qmd_scope,
                         task_id=(
-                            normalize_optional_string(
-                                payload.get("task_id")
-                            )
+                            scope.task_id
                             or None
                         ),
                         root_task_id=(
@@ -571,13 +615,8 @@ class RepoContextHttpHandler:
                 request_id: str,
             ) -> None:
                 try:
-                    context_pack_dir = runtime.normalize_context_pack_dir(
-                        ensure_non_empty_string(
-                            payload.get("context_pack_dir")
-                            or runtime.active_context_pack_dir(),
-                            "context_pack_dir",
-                        )
-                    )
+                    scope = self._request_scope(payload)
+                    context_pack_dir = scope.context_pack_dir
                     parent_qmd_scope = (
                         runtime.normalize_context_pack_relative_path(
                             context_pack_dir=context_pack_dir,
@@ -617,13 +656,8 @@ class RepoContextHttpHandler:
                 request_id: str,
             ) -> None:
                 try:
-                    context_pack_dir = runtime.normalize_context_pack_dir(
-                        ensure_non_empty_string(
-                            payload.get("context_pack_dir")
-                            or runtime.active_context_pack_dir(),
-                            "context_pack_dir",
-                        )
-                    )
+                    scope = self._request_scope(payload)
+                    context_pack_dir = scope.context_pack_dir
                     qmd_scope = runtime.normalize_context_pack_relative_path(
                         context_pack_dir=context_pack_dir,
                         value=ensure_non_empty_string(
@@ -633,7 +667,7 @@ class RepoContextHttpHandler:
                         field_name="qmd_scope",
                     )
                     task_id = ensure_non_empty_string(
-                        payload.get("task_id"),
+                        scope.task_id,
                         "task_id",
                     )
                     summary = runtime.build_task_retrospective_summary(

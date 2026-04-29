@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
+import { createNamedWorkflowAgentRoster, type NamedWorkflowAgentRoster } from '../../shared/agentRoster';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 import { splitLines } from '../utils/splitLines';
@@ -34,6 +35,7 @@ export type McpConfigModalProps = {
   fieldErrors: Record<string, string>;
   editingServerId: string | null;
   draft: McpServerFormDraft;
+  agentRoster?: NamedWorkflowAgentRoster;
   connectionValidation: ConnectionValidationState;
   removingServerId: string | null;
   saving: boolean;
@@ -79,6 +81,8 @@ function emptyDraft(): McpServerFormDraft {
     enabled: true,
   };
 }
+
+const EMPTY_AGENT_ROSTER: NamedWorkflowAgentRoster = {};
 
 function serverToDraft(server: ExternalMcpServerEntry): McpServerFormDraft {
   return {
@@ -127,6 +131,7 @@ export function useMcpConfigModal(
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpServerFormDraft>(emptyDraft());
+  const [agentRoster, setAgentRoster] = useState<NamedWorkflowAgentRoster>(EMPTY_AGENT_ROSTER);
   const [connectionValidation, setConnectionValidation] = useState<ConnectionValidationState>({ status: 'idle' });
   const [removingServerId, setRemovingServerId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -144,16 +149,23 @@ export function useMcpConfigModal(
     }
   }, [client]);
 
+  const loadProviderRoster = useCallback(async () => {
+    const descriptor = await client.describeActiveProvider();
+    setAgentRoster(createNamedWorkflowAgentRoster(descriptor));
+  }, [client]);
+
   useEffect(() => {
     loadServers().catch(() => {});
-  }, [loadServers]);
+    loadProviderRoster().catch(() => {});
+  }, [loadProviderRoster, loadServers]);
 
   const openMcpConfigModal = useCallback(() => {
     setIsOpen(true);
     setView('list');
     setRemovingServerId(null);
     loadServers().catch(() => {});
-  }, [loadServers]);
+    loadProviderRoster().catch(() => {});
+  }, [loadProviderRoster, loadServers]);
 
   const onClose = useCallback(() => {
     setIsOpen(false);
@@ -360,6 +372,7 @@ export function useMcpConfigModal(
       fieldErrors,
       editingServerId,
       draft,
+      agentRoster,
       connectionValidation,
       removingServerId,
       saving,

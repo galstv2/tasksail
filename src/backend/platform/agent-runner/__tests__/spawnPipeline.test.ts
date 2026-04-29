@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { fork } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -20,16 +20,43 @@ import { resolveChildEntryPath } from '../spawnPipeline.js';
 
 // Path to the CJS stub — forkable without tsx
 const STUB_PATH = fileURLToPath(new URL('./fixtures/pipelineChildStub.cjs', import.meta.url));
+const spawnedChildren = new Set<ChildProcess>();
+
+function trackChild(child: ChildProcess): ChildProcess {
+  spawnedChildren.add(child);
+  child.once('exit', () => {
+    spawnedChildren.delete(child);
+  });
+  return child;
+}
+
+async function cleanupSpawnedChildren(): Promise<void> {
+  const children = [...spawnedChildren];
+  spawnedChildren.clear();
+
+  await Promise.all(children.map(async (child) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+    });
+    child.kill('SIGKILL');
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+  }));
+}
 
 /** Fork the stub with the given argv args and env overrides. Returns { pid, stdout, stderr, exit }. */
 function forkStub(
   args: string[],
   env: Record<string, string> = {},
 ): { pid: number; stdout: Readable; stderr: Readable; exit: Promise<number> } {
-  const child = fork(STUB_PATH, args, {
+  const child = trackChild(fork(STUB_PATH, args, {
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-  });
+  }));
   return {
     pid: child.pid!,
     stdout: child.stdout!,
@@ -51,7 +78,8 @@ function collectStream(stream: Readable): Promise<string> {
 // Temp dirs created during tests
 const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
+  await cleanupSpawnedChildren();
   for (const dir of tempDirs) {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
@@ -161,12 +189,12 @@ describe('spawnPipelineForTask — env-vs-argv precedence', () => {
     // When empty string is set, the stub still falls through to task-id-required
     // because empty string is falsy in the JS check (envTaskId !== undefined && envTaskId)
     // Explicit: spawn without any task id at all
-    const childNoEnv = fork(STUB_PATH, ['--repo-root', '/tmp'], {
+    const childNoEnv = trackChild(fork(STUB_PATH, ['--repo-root', '/tmp'], {
       env: Object.fromEntries(
         Object.entries({ ...process.env }).filter(([k]) => k !== 'TASKSAIL_TASK_ID'),
       ) as NodeJS.ProcessEnv,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    });
+    }));
     const stderrText = await collectStream(childNoEnv.stderr!);
     const exitCode = await new Promise<number>((resolve) => childNoEnv.on('exit', (c) => resolve(c ?? 1)));
     childNoEnv.stdout?.resume();

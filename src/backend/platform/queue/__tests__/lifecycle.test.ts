@@ -16,6 +16,13 @@ import {
 } from '../operations.js';
 import { resolveQueuePaths, HANDOFF_FILES, SLICE_TEMPLATE_FILENAME } from '../paths.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
+import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+
+async function stopPipelinesStartedByTest(): Promise<void> {
+  await Promise.all(
+    listActivePipelines().map(({ taskId }) => stopPipeline(taskId, 1000)),
+  );
+}
 
 describe('clearRuntimeReceipts', () => {
   let repoRoot: string;
@@ -25,7 +32,7 @@ describe('clearRuntimeReceipts', () => {
   });
 
   afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it('clears only the target task receipts, leaving other tasks untouched', async () => {
@@ -154,8 +161,9 @@ describe('§4.2 activation cap: concurrency-cap-reached', () => {
     _clearPlatformConfigCache();
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     _clearPlatformConfigCache();
   });
 
@@ -196,7 +204,7 @@ describe('§4.2 activation cap: concurrency-cap-reached', () => {
     expect(r3.reason).toBe('concurrency-cap-reached');
   });
 
-  it('cap=3, 5 pendings: caller-side while-loop activates exactly 3, 2 remain pending', async () => {
+  it('cap=3, 5 pendings: caller-side while-loop activates exactly 3 (pending files retained until terminal path)', async () => {
     writePlatformConfig(repoRoot, 3);
     const paths = seedQueueFixture(repoRoot, 5);
 
@@ -208,11 +216,15 @@ describe('§4.2 activation cap: concurrency-cap-reached', () => {
     // Exactly 3 tasks must be active.
     expect(getActiveTaskIds(paths)).toHaveLength(3);
 
-    // Exactly 2 pending items must remain.
+    // All 5 pending markdown files remain in pendingitems/. Per the §4.2
+    // contract documented in operations.ts, activation does not remove the
+    // pending file — terminal paths (completion archive / failure rename to
+    // error-items) own its disposition. The active markers in .active-items/
+    // are the source of truth for "activated count", not pendingDir size.
     const pendingFiles = readdirSync(paths.pendingDir).filter(
       (f) => f.endsWith('.md') && !f.startsWith('.'),
     );
-    expect(pendingFiles).toHaveLength(2);
+    expect(pendingFiles).toHaveLength(5);
   });
 });
 
@@ -228,8 +240,9 @@ describe('§4.3 CLI cap=2 — complete without --task-id exits with completion-r
     _clearPlatformConfigCache();
   });
 
-  afterEach(() => {
-    rmSync(repoRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    await stopPipelinesStartedByTest();
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     _clearPlatformConfigCache();
   });
 

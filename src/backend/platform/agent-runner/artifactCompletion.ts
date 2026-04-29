@@ -19,6 +19,7 @@ import {
   ISSUES_MD_ROUTING_AGENT_SECTIONS,
   SLICE_REQUIRED_SECTION_SPECS,
 } from '../workflow-policy/models.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 const FINAL_SUMMARY_REQUIRED_CONTENT_SECTIONS = [
   'Completed Work',
@@ -33,14 +34,15 @@ const PLACEHOLDER_ONLY_RE = /^(?:[-*]\s*)?(?:tbd|todo|tba|placeholder)\.?$/i;
 
 /**
  * Convert an internal relative artifact path to an env-var-based reference
- * suitable for prompt text. This ensures copilot agents resolve paths
+ * suitable for prompt text. This ensures agents resolve paths
  * correctly regardless of CWD (critical for repo-executor agents whose CWD
  * is an external focused repo, not the platform repo).
  */
-function toPromptPath(relativePath: string): string {
+function toPromptPath(repoRoot: string, relativePath: string): string {
+  const envVars = getActiveProvider(repoRoot).promptPathEnvVars();
   return relativePath
-    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/handoffs\//, '$COPILOT_HANDOFFS_DIR/')
-    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/ImplementationSteps\//, '$COPILOT_IMPL_STEPS_DIR/');
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/handoffs\//, `$${envVars.handoffsDir}/`)
+    .replace(/^AgentWorkSpace\/tasks\/[^/]+\/ImplementationSteps\//, `$${envVars.implStepsDir}/`);
 }
 const ISSUES_NON_FINDING_SECTIONS = new Set(['Task Metadata', 'Review Outcome']);
 
@@ -350,22 +352,22 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     const taskId = options.taskId ?? '';
     const missingParts: string[] = [];
     if (!await implementationSpecReady(options.handoffsDir)) {
-      missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
+      missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
     }
     const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
     if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
-      missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`);
+      missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`);
     }
     const slices = await listSliceFiles(options.implStepsDir);
     if (slices.length === 0) {
-      missingParts.push(`- ${toPromptPath(renderImplementationStepsLabel(taskId, ''))}: create at least one substantive sliceN.md handoff file.`);
+      missingParts.push(`- ${toPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: create at least one substantive sliceN.md handoff file.`);
     } else {
       const finalSlice = slices.at(-1)!;
       const missingSections = await sliceMissingRequiredSections(finalSlice);
       if (missingSections.length > 0) {
         const semanticSections = missingSections.map((sectionKey) => describeSemanticSectionSpec(sectionKey));
         const sliceBasename = path.basename(finalSlice);
-        missingParts.push(`- ${toPromptPath(renderImplementationStepsLabel(taskId, sliceBasename))}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
+        missingParts.push(`- ${toPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, sliceBasename))}: fill the required semantic sections still missing content: ${semanticSections.join(', ')}.`);
       }
     }
     if (missingParts.length === 0) {
@@ -390,22 +392,22 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     const basename = path.basename(relativePath);
     const artifact = await readHandoffArtifact(options.handoffsDir, basename);
     if (!artifact.exists || !hasRealContent(artifact)) {
-      missingParts.push(`- ${toPromptPath(relativePath)}: ${remediationInstructions[relativePath] ?? `Fill in ${toPromptPath(relativePath)} with substantive content.`}`);
+      missingParts.push(`- ${toPromptPath(options.repoRoot, relativePath)}: ${remediationInstructions[relativePath] ?? `Fill in ${toPromptPath(options.repoRoot, relativePath)} with substantive content.`}`);
     }
   }
   if (agentId === 'qa' && !await qaIssuesStructured(options.handoffsDir)) {
-    missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'issues.md'))}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
+    missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'issues.md'))}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
   }
   if (agentId === 'qa') {
     const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (finalSummary.exists) {
       const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
       if (owner !== 'qa') {
-        missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set Closeout Owner Agent ID to exactly 'qa'.`);
+        missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set Closeout Owner Agent ID to exactly 'qa'.`);
       }
       const difficultyLevel = finalSummaryDifficultyLevel(finalSummary);
       if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
-        missingParts.push(`- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set '- Difficulty Level:' in the Difficulty Assessment section to exactly 'Easy', 'Medium', or 'Hard'.`);
+        missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set '- Difficulty Level:' in the Difficulty Assessment section to exactly 'Easy', 'Medium', or 'Hard'.`);
       }
       // §4.15 Branch-name surfacing: instruct Ron to copy branch names into
       // ## Task branches in final-summary.md. Ron MUST NOT introspect git —
@@ -413,7 +415,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       // or TASKSAIL_TASK_BRANCHES_FILE (path to a JSON file when payload > 8KB).
       if (!finalSummary.sections['Task branches'] || finalSummary.sections['Task branches']!.join('').trim().length === 0) {
         missingParts.push(
-          `- ${toPromptPath(renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: add a '## Task branches' section. ` +
+          `- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: add a '## Task branches' section. ` +
           `Copy the value of the TASKSAIL_TASK_BRANCHES environment variable (a JSON array of { originalRoot, branch } objects) ` +
           `into this section. If TASKSAIL_TASK_BRANCHES is absent or empty, read the file path from TASKSAIL_TASK_BRANCHES_FILE instead and copy its contents. ` +
           `Do NOT run any git commands to discover branch names — use only the env var or file.`,

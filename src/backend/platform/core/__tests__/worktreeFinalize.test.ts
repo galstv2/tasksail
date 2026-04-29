@@ -26,7 +26,11 @@ import {
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { finalizeTaskWorktrees, finalizeWorktree } from '../worktreeFinalize.js';
+import {
+  discardRetainedTaskWorktrees,
+  finalizeTaskWorktrees,
+  finalizeWorktree,
+} from '../worktreeFinalize.js';
 import { buildAgentEnvironment } from '../../agent-runner/environment.js';
 import type { AgentProfile } from '../../agent-runner/types.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
@@ -70,7 +74,8 @@ function writePlatformJson(
     max_retained_failed_task_worktrees: overrides.max_retained_failed_task_worktrees ?? 5,
     max_retry_generations_per_slug: 5,
     completed_task_runtime_retention_ms: 3600000,
-    mcp_port_range: { min: 8811, max: 8820 },
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
   };
   const platformJsonPath = path.join(platformStateDir, 'platform.json');
   writeFileSync(platformJsonPath, JSON.stringify(platformJson, null, 2) + '\n');
@@ -111,7 +116,6 @@ function writeTaskJson(
       strategy: 'copy',
       cloned: [],
       skipped: [],
-      composeProjectName: 'repo-context-mcp',
     },
     frozenAt: new Date().toISOString(),
     finalizedAt: extra.finalizedAt ?? null,
@@ -540,7 +544,6 @@ describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', ()
         strategy: 'copy',
         cloned: [],
         skipped: [],
-        composeProjectName: 'repo-context-mcp',
       },
       frozenAt: new Date().toISOString(),
       finalizedAt: null,
@@ -648,7 +651,6 @@ describe('§4.15 FIFO eviction', () => {
         strategy: 'copy',
         cloned: [],
         skipped: [],
-        composeProjectName: 'repo-context-mcp',
       },
       frozenAt: new Date(Date.parse(finalizedAt) - 60_000).toISOString(),
       finalizedAt,
@@ -729,7 +731,7 @@ describe('§4.15 FIFO eviction', () => {
             },
           ],
         },
-        materialization: { strategy: 'copy', cloned: [], skipped: [], composeProjectName: 'repo-context-mcp' },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
         frozenAt: new Date().toISOString(),
         // finalizedAt intentionally absent
         state: 'failed',
@@ -825,7 +827,7 @@ describe('§4.15 eviction error isolation', () => {
             },
           ],
         },
-        materialization: { strategy: 'copy', cloned: [], skipped: [], composeProjectName: 'repo-context-mcp' },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
         frozenAt: new Date(Date.now() - 100_000).toISOString(),
         finalizedAt: new Date(Date.now() - 90_000).toISOString(),
         state: 'failed',
@@ -1024,7 +1026,7 @@ describe('§4.15 eviction serialization — concurrent finalize', () => {
             },
           ],
         },
-        materialization: { strategy: 'copy', cloned: [], skipped: [], composeProjectName: 'repo-context-mcp' },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
         frozenAt: new Date(Date.parse(finalizedAt) - 60_000).toISOString(),
         finalizedAt,
         state: 'failed',
@@ -1105,7 +1107,7 @@ describe('§4.15 B4 per-binding git error isolation', () => {
     _clearPlatformConfigCache();
   });
 
-  it('B4: failed git prune does not block branch delete, next binding, or downstream teardown', async () => {
+  it('B4: failed git prune does not block branch delete, next binding, or runtime GC', async () => {
     const execCalls: Array<{ file: string; args: string[] }> = [];
     const spawnCalls: Array<{ command: string; args: string[] }> = [];
     const stderrLines: string[] = [];
@@ -1188,7 +1190,6 @@ describe('§4.15 B4 per-binding git error isolation', () => {
           strategy: 'copy',
           cloned: [],
           skipped: [],
-          composeProjectName: 'repo-context-mcp',
         },
         frozenAt: new Date().toISOString(),
         finalizedAt: null,
@@ -1201,10 +1202,109 @@ describe('§4.15 B4 per-binding git error isolation', () => {
     const branchDeleteCalls = execCalls.filter(({ args }) => args.includes('branch') && args.includes('-D'));
     expect(branchDeleteCalls.map(({ args }) => args.at(-1))).toEqual([firstBranch, secondBranch]);
     expect(execCalls.some(({ args }) => args.includes(secondBranch))).toBe(true);
-    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls.length).toBe(0);
     expect(existsSync(path.join(runtimeDir, '.gc-after-ts'))).toBe(true);
     expect(existsSync(taskDir)).toBe(false);
     expect(stderrLines.join('')).toContain('[worktreeFinalize] prune-failed:');
     expect(stderrLines.join('')).toContain('[worktreeFinalize] branch-delete-failed:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// discardRetainedTaskWorktrees — operator-initiated requeue cleanup
+// ---------------------------------------------------------------------------
+
+describe('discardRetainedTaskWorktrees', () => {
+  let tmpRoot: string;
+  let repoRoot: string;
+  let originalRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'wt-discard-'));
+    originalRoot = createGitRepo(tmpRoot);
+    repoRoot = originalRoot;
+    // retain=true so the worktree, branch, and parent dir all survive
+    // the simulated failure step below.
+    writePlatformJson(repoRoot, { retain_failed_task_worktrees: true });
+    _clearPlatformConfigCache();
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('removes the worktree dir, branch, parent dir, and runtime dir for a retained failed task', async () => {
+    const taskId = 'task-discard-real';
+    const worktreeBranch = `task/${taskId}`;
+    const worktreeRoot = path.join(
+      repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo',
+    );
+    const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch);
+
+    // Simulate the failure path with retain=true: branch + worktree dir
+    // survive, and a runtime dir is materialized as it would be in production.
+    await finalizeTaskWorktrees(taskId, 'failed', repoRoot);
+    mkdirSync(runtimeDir, { recursive: true });
+    writeFileSync(path.join(runtimeDir, 'role-sessions.json'), '{}', 'utf-8');
+
+    // Preconditions: everything still in place pre-discard.
+    expect(existsSync(worktreeRoot)).toBe(true);
+    expect(listBranches(originalRoot)).toContain(worktreeBranch);
+    expect(existsSync(parentDir)).toBe(true);
+    expect(existsSync(runtimeDir)).toBe(true);
+
+    await discardRetainedTaskWorktrees(taskId, repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(listBranches(originalRoot)).not.toContain(worktreeBranch);
+    expect(existsSync(parentDir)).toBe(false);
+    expect(existsSync(runtimeDir)).toBe(false);
+
+    // No stale admin entry — re-adding a worktree at the same path succeeds.
+    // This is the property that matters for the next retry's materialization.
+    expect(() =>
+      execSync(
+        `git -C "${originalRoot}" worktree add -b "task/${taskId}-retry1" "${worktreeRoot}"`,
+        { stdio: 'pipe' },
+      ),
+    ).not.toThrow();
+  });
+
+  it('is a no-op for a task ID that never existed (no throw, no side effects)', async () => {
+    const taskId = 'task-never-existed';
+    const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
+
+    expect(existsSync(parentDir)).toBe(false);
+    expect(existsSync(runtimeDir)).toBe(false);
+
+    await expect(
+      discardRetainedTaskWorktrees(taskId, repoRoot),
+    ).resolves.toBeUndefined();
+
+    expect(existsSync(parentDir)).toBe(false);
+    expect(existsSync(runtimeDir)).toBe(false);
+  });
+
+  it('removes parent + runtime dirs even when .task.json is missing (no bindings to walk)', async () => {
+    const taskId = 'task-no-sidecar';
+    const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
+
+    // Seed both dirs but NO .task.json — exercises the readTaskJsonSafe
+    // tolerance branch.
+    mkdirSync(parentDir, { recursive: true });
+    mkdirSync(runtimeDir, { recursive: true });
+    writeFileSync(path.join(parentDir, 'stray.txt'), 'leftover\n', 'utf-8');
+    writeFileSync(path.join(runtimeDir, 'stray-runtime.txt'), 'leftover\n', 'utf-8');
+
+    await discardRetainedTaskWorktrees(taskId, repoRoot);
+
+    expect(existsSync(parentDir)).toBe(false);
+    expect(existsSync(runtimeDir)).toBe(false);
   });
 });

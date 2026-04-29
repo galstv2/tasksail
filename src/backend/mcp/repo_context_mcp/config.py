@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import FrozenSet
+from typing import FrozenSet, Literal
 
 DEFAULT_EXCLUDED_DIRS: FrozenSet[str] = frozenset(
     {
@@ -49,6 +49,15 @@ ALLOWED_LAYERS: FrozenSet[str] = frozenset(
 )
 REQUEST_ID_HEADER = "X-Request-ID"
 AUTH_TOKEN_HEADER = "X-Repo-Context-Token"
+TASKSAIL_TASK_ID_HEADER = "X-TaskSail-Task-Id"
+TASKSAIL_CONTEXT_PACK_DIR_HEADER = "X-TaskSail-Context-Pack-Dir"
+
+
+@dataclass(frozen=True)
+class RequestScope:
+    task_id: str
+    context_pack_dir: str
+    source: Literal["header", "body", "env"]
 
 
 @dataclass(frozen=True)

@@ -42,7 +42,7 @@ describe('repairQueue', () => {
   });
 
   it('detects stale marker in .active-items/ referencing missing pending file', async () => {
-    // §4.1B: repair now uses .active-items/<taskId> markers, not singleton .active-item
+    // §4.1B: repair now uses .active-items/<taskId> markers
     const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(activeItemsDir, 'nonexistent'), '');
@@ -159,7 +159,7 @@ describe('repairQueue', () => {
     const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
-    // §4.1B: use .active-items/<taskId> marker, not singleton .active-item
+    // §4.1B: use .active-items/<taskId> marker
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
@@ -200,7 +200,7 @@ describe('repairQueue', () => {
     expect(existsSync(path.join(handoffsDir, 'professional-task.md'))).toBe(false);
   });
 
-  it('detects workspace with task data but no .active-item (orphan-task-handoffs-dir)', async () => {
+  it('detects workspace with task data but no active marker (orphan-task-handoffs-dir)', async () => {
     const TEST_TASK_ID = 'task-test-001';
     const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
@@ -321,6 +321,100 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
 
     // Sentinels must not generate marker-without-pending issues
     expect(result.structuredIssues.filter((i) => i.kind === 'marker-without-pending')).toHaveLength(0);
+  });
+
+  it('detects stuck mid-completion marker and sentinel in dry-run', async () => {
+    const taskId = 'task-stuck-dry-run';
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
+    const handoffsDir = path.join(taskDir, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId, state: 'active' }));
+    writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Active Task\n\nContent');
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+    writeFileSync(path.join(activeItemsDir, `${taskId}.completing`), JSON.stringify({ ts: Date.now() }));
+
+    const result = await repairQueue({ repoRoot: tmpRoot, dryRun: true });
+
+    expect(result.structuredIssues).toContainEqual({
+      kind: 'sentinel-without-completed-marker',
+      taskId,
+      detail: `sentinel: ${taskId}.completing; marker present; recovery must run outside repair lock`,
+    });
+    expect(result.issues).toContain(
+      `Task '${taskId}' is stuck mid-completion: .completing sentinel and active marker both present. Run: pnpm run repair -- --auto-fix`,
+    );
+    expect(result.fixed).toEqual([]);
+    expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(true);
+  });
+
+  it('does not mutate stuck mid-completion state when autoFix is false', async () => {
+    const taskId = 'task-stuck-no-autofix';
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(path.join(taskDir, 'handoffs'), { recursive: true });
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId, state: 'active' }));
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+    writeFileSync(path.join(activeItemsDir, `${taskId}.completing`), JSON.stringify({ ts: Date.now() }));
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: false });
+
+    expect(result.structuredIssues.some((i) => i.kind === 'sentinel-without-completed-marker' && i.taskId === taskId)).toBe(true);
+    expect(result.fixed).toEqual([]);
+    expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(true);
+  });
+
+  it('does not emit stuck mid-completion issue for sentinel without active marker', async () => {
+    const taskId = 'task-sentinel-only';
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, `${taskId}.completing`), JSON.stringify({ ts: Date.now() }));
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(result.structuredIssues.filter((i) => i.kind === 'sentinel-without-completed-marker')).toHaveLength(0);
+    expect(result.issues.some((i) => i.includes('stuck mid-completion'))).toBe(false);
+    expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(true);
+  });
+
+  it('does not consume stuck task via marker-without-worktree auto-fix rule', async () => {
+    const taskId = 'task-stuck-blank-worktree';
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(path.join(taskDir, 'handoffs'), { recursive: true });
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId, state: 'active' }));
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+    writeFileSync(path.join(activeItemsDir, `${taskId}.completing`), JSON.stringify({ ts: Date.now() }));
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(result.structuredIssues.some((i) => i.kind === 'sentinel-without-completed-marker' && i.taskId === taskId)).toBe(true);
+    expect(result.structuredIssues.some((i) => i.kind === 'marker-without-worktree' && i.taskId === taskId)).toBe(true);
+    expect(result.fixed.some((f) => f.includes('blank per-task workspace'))).toBe(false);
+    expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(true);
+  });
+
+  it('does not consume stuck task via partial-publish auto-fix rule', async () => {
+    const taskId = 'task-stuck-partial-publish';
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Active Task\n\nContent');
+    writeFileSync(path.join(handoffsDir, '.publish-in-progress'), 'staging');
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+    writeFileSync(path.join(activeItemsDir, `${taskId}.completing`), JSON.stringify({ ts: Date.now() }));
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(result.structuredIssues.some((i) => i.kind === 'sentinel-without-completed-marker' && i.taskId === taskId)).toBe(true);
+    expect(result.structuredIssues.some((i) => i.kind === 'partial-publish-in-progress' && i.taskId === taskId)).toBe(true);
+    expect(result.fixed.some((f) => f.includes('partially published'))).toBe(false);
+    expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
+    expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(true);
+    expect(existsSync(path.join(handoffsDir, '.publish-in-progress'))).toBe(true);
+    expect(existsSync(path.join(handoffsDir, 'professional-task.md'))).toBe(true);
   });
 
   it('structuredIssues is an array (even when empty)', async () => {

@@ -5,6 +5,10 @@ export type ContextPackDeepFocusTarget = {
   kind: ContextPackFocusTargetKind;
 };
 
+export type ContextPackDeepFocusDerivedRoot = ContextPackDeepFocusTarget & {
+  reason: 'selected-primary' | 'primary-focus-parent' | 'test-target' | 'support-target';
+};
+
 export type ContextPackSwitchDeepFocusSelection = {
   deepFocusEnabled?: boolean;
   deepFocusPrimaryRepoId?: string | null;
@@ -23,6 +27,8 @@ export type ContextPackDeepFocusState = {
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
+  derivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];
+  derivedReadonlyContextRoots?: ContextPackDeepFocusDerivedRoot[];
 };
 
 export type ContextPackListRepoTreePayload = {

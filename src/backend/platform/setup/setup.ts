@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
 import { createRuntimeFromConfig } from '../container/runtime.js';
+import { sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
 import { seedMcpRegistry } from '../mcp-registry/index.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
@@ -80,6 +81,7 @@ async function startContainerServices(repoRoot: string): Promise<string> {
       return 'skipped';
     }
 
+    await sweepLegacyPortAllocationsOnce(repoRoot);
     await runtime.composeUp({
       composeFile,
       detach: true,

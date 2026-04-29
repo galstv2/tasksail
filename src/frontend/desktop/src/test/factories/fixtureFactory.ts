@@ -1,6 +1,7 @@
 import type {
   EnvironmentStatusResponse,
   ObservabilitySnapshotResponse,
+  ProviderFrontendDescriptor,
   QueueStatusResponse,
 } from '../../shared/desktopContract';
 
@@ -17,6 +18,32 @@ export function createBootstrapInfo(
     appName: 'TaskSail',
     platform: 'linux',
     versions: { chrome: '131.0.0', electron: '35.0.0', node: '22.0.0' },
+    ...overrides,
+  };
+}
+
+export function createProviderFrontendDescriptor(
+  overrides: Partial<ProviderFrontendDescriptor> = {},
+): ProviderFrontendDescriptor {
+  return {
+    providerId: 'test-provider',
+    homeDirName: 'test-home',
+    registryPath: '/repo/.provider/registry.json',
+    agentConfigPaths: {
+      root: '.provider',
+      instructions: '.provider/instructions',
+      prompts: '.provider/prompts',
+      profiles: '.provider/agents',
+      registry: '.provider/registry.json',
+    },
+    promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
+    contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
+    roster: [
+      { agentId: 'planning-agent', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1 },
+      { agentId: 'product-manager', roleName: 'Product Manager', humanName: 'Alice', workflowOrder: 2 },
+      { agentId: 'software-engineer', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 3 },
+      { agentId: 'qa', roleName: 'QA', humanName: 'Ron', workflowOrder: 4 },
+    ],
     ...overrides,
   };
 }
@@ -76,7 +103,7 @@ export function createObservabilitySnapshot(
       brokerStatus: 'idle',
       activeTurnId: null,
       queuedTurnCount: 0,
-      copilotSessionId: null,
+      cliSessionId: null,
       lastTurnSource: 'none',
       lastTurnOutcome: 'idle',
       lastTurnAt: null,

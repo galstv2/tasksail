@@ -2,6 +2,7 @@ import { unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { findRepoRoot } from '../core/index.js';
+import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { removeTask } from './taskRegistry.js';
 
@@ -29,6 +30,15 @@ export async function deleteErrorItem(
 
   const deletedTaskId = queueName.replace(/\.md$/, '');
   try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+
+  // Failed tasks reach error-items via moveFailedItemToErrorItems, which calls
+  // finalizeTaskWorktrees. With retain_failed_task_worktrees=true that helper
+  // KEEPS the worktree dir, the task/<taskId> branch in each origin, and the
+  // .platform-state/runtime/tasks/<taskId>/ subtree for forensic inspection.
+  // Operator-initiated delete is the signal that this forensic affordance is
+  // no longer needed — mirrors the requeueErrorItem and moveErrorItemToDropbox
+  // disposal contracts.
+  await discardRetainedTaskWorktrees(deletedTaskId, repoRoot);
 }
 
 function normalizeQueueName(queueName: string): string {

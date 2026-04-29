@@ -9,11 +9,12 @@ Authoritative inputs:
 - The active repository state
 
 Implementation boundary:
-- Code changes must stay inside the single selected primary implementation boundary for the active task
+- Code changes must stay inside the writable implementation roots for the active task
 - `COPILOT_TARGET_REPOS_JSON`, when present, defines repo scope (reference/read scope; it does **not** grant write permission by itself)
-- When Deep Focus is active, `COPILOT_PRIMARY_FOCUS_PATH` and `COPILOT_TEST_TARGET_PATH` (if set) are the writable boundaries
-- When `COPILOT_PRIMARY_FOCUS_TARGET_KIND` is `file`, only that exact file is writable — not the containing directory
-- Tests should be written under `COPILOT_TEST_TARGET_PATH` when it is set
+- `COPILOT_PRIMARY_FOCUS_PATH` is where to start reading; it is not the write boundary by itself
+- When present, `COPILOT_WRITABLE_ROOTS_JSON` defines writable implementation roots
+- `COPILOT_READONLY_CONTEXT_ROOTS_JSON` and support roots are reference-only and must not be edited
+- Tests should be written under writable roots with reason `test-target` when present
 
 Required behavior:
 - Navigate to the target repo first

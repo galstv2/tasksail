@@ -12,6 +12,7 @@ import type {
   InstructionDirectory,
   InstructionFileEntry,
 } from '../src/shared/desktopContract';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 import { REPO_ROOT } from './paths';
 
 type FileSystemAdapter = {
@@ -36,12 +37,15 @@ const defaultFsAdapter: FileSystemAdapter = {
   stat: (filePath) => stat(filePath),
 };
 
-const DIRECTORY_MAP: Record<InstructionDirectory, string> = {
-  profiles: '.github/agents',
-  instructions: '.github/copilot/instructions',
-  prompts: '.github/copilot/prompts',
-  templates: 'AgentWorkSpace/templates',
-};
+function buildDirectoryMap(repoRoot: string): Record<InstructionDirectory, string> {
+  const providerPaths = getActiveProvider(repoRoot).agentConfigPaths();
+  return {
+    profiles: providerPaths.profiles,
+    instructions: providerPaths.instructions,
+    prompts: providerPaths.prompts,
+    templates: 'AgentWorkSpace/templates',
+  };
+}
 
 /**
  * Enumerate live allowlisted `.md` files from the given instruction directory.
@@ -52,7 +56,7 @@ async function enumerateAllowedFiles(
   repoRoot: string,
   fsAdapter: FileSystemAdapter,
 ): Promise<InstructionFileEntry[]> {
-  const relativeDir = DIRECTORY_MAP[directory];
+  const relativeDir = buildDirectoryMap(repoRoot)[directory];
   const absoluteDir = path.join(repoRoot, relativeDir);
 
   let entries: string[];
@@ -90,7 +94,7 @@ async function validateAllowlistedPath(
 
   // Determine which directory the path belongs to
   let matchedDirectory: InstructionDirectory | null = null;
-  for (const [dir, prefix] of Object.entries(DIRECTORY_MAP)) {
+  for (const [dir, prefix] of Object.entries(buildDirectoryMap(repoRoot))) {
     if (relativePath.startsWith(`${prefix}/`)) {
       matchedDirectory = dir as InstructionDirectory;
       break;

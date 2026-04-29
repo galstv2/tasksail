@@ -37,7 +37,7 @@ import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { prepareDaltonBoundary } from '../daltonLaunchPrep.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
-import type { CopilotArgs } from '../types.js';
+import type { AutonomyIntent } from '../types.js';
 import type { TaskRepoBinding } from '../../queue/taskJson.js';
 
 // ---------------------------------------------------------------------------
@@ -148,13 +148,12 @@ function makeFocused(overrides: Partial<FocusedRepoResult>): FocusedRepoResult {
   };
 }
 
-function makeAutonomyArgs(): CopilotArgs {
+function makeAutonomyArgs(): AutonomyIntent {
   return {
     model: 'claude-sonnet-4.6',
-    allowTools: [],
-    denyTools: [],
+    autonomyProfile: 'repo-executor',
     allowedDirs: [],
-    additionalFlags: [],
+    disallowTempDir: false,
   };
 }
 

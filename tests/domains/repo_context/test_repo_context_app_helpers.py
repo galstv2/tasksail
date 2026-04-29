@@ -956,18 +956,18 @@ class RepoContextAppHelperTests(unittest.TestCase):
         self.assertIn("## Contributing Tasks", markdown)
         self.assertIn("CAP-1001", markdown)
 
-    def test_run_server_uses_httpserver_forever_loop(self) -> None:
+    def test_run_server_uses_threading_httpserver_forever_loop(self) -> None:
         server = mock.Mock()
 
         with mock.patch.object(
             repo_context_app,
-            "HTTPServer",
+            "ThreadedServer",
             return_value=server,
-        ) as http_server:
+        ) as threading_http_server:
             result = repo_context_app.run_server("127.0.0.1", 8999)
 
         self.assertEqual(result, 0)
-        http_server.assert_called_once_with(
+        threading_http_server.assert_called_once_with(
             ("127.0.0.1", 8999),
             repo_context_app.Handler,
         )

@@ -420,6 +420,31 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
                 result["selected_support_targets"],
                 [{"path": "docs/orders.md", "kind": "file"}],
             )
+            self.assertEqual(
+                result["derived_writable_roots"],
+                [
+                    {
+                        "path": "src/orders",
+                        "kind": "directory",
+                        "reason": "selected-primary",
+                    },
+                    {
+                        "path": "tests/orders",
+                        "kind": "directory",
+                        "reason": "test-target",
+                    },
+                ],
+            )
+            self.assertEqual(
+                result["derived_readonly_context_roots"],
+                [
+                    {
+                        "path": "docs/orders.md",
+                        "kind": "file",
+                        "reason": "support-target",
+                    }
+                ],
+            )
             self.assertTrue(state["deep_focus_enabled"])
             self.assertEqual(state["selected_focus_path"], "src/orders")
             self.assertEqual(
@@ -429,6 +454,14 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             self.assertEqual(
                 state["selected_support_targets"],
                 [{"path": "docs/orders.md", "kind": "file"}],
+            )
+            self.assertEqual(
+                state["derived_writable_roots"],
+                result["derived_writable_roots"],
+            )
+            self.assertEqual(
+                state["derived_readonly_context_roots"],
+                result["derived_readonly_context_roots"],
             )
 
     def test_existing_operator_owned_target_folder_is_preserved_not_managed(

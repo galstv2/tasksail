@@ -156,7 +156,7 @@ describe('electron main — planner finalization', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'running' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Drafting...',
             exitCode: null,
@@ -239,7 +239,7 @@ Not bullet shaped
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -320,7 +320,7 @@ All signals are written as plain text without bullets or numbered items.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -402,7 +402,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -471,7 +471,7 @@ Ship something useful.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -558,7 +558,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -668,7 +668,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'failed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready before failure.',
             exitCode: 1,
@@ -767,7 +767,7 @@ Do not widen the selected boundary.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -868,7 +868,7 @@ Complete the child-task intake with preserved lineage.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            copilotSessionId: 'copilot-session-1',
+            cliSessionId: 'copilot-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,

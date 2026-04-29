@@ -62,7 +62,7 @@ export async function evaluateQueueRules(validator: PolicyValidator): Promise<vo
 
     validator.addViolation({
       rule_id: 'queue.closeout-required',
-      artifact: 'pendingitems/.active-item',
+      artifact: 'pendingitems/.active-items',
       message:
         'Cannot advance the queue because the active pending item has not completed task closeout in final-summary.md.',
       remediation:

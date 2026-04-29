@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAgentEnvironment } from '../../../backend/platform/agent-runner/index.js';
 import type { AgentProfile } from '../../../backend/platform/agent-runner/types.js';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
@@ -261,10 +262,11 @@ describe('buildAgentEnvironment — per-task path threading', () => {
     workflowOrder: 3,
   };
 
-  it('emits TASKSAIL_TASK_ID and per-task COPILOT_HANDOFFS_DIR when taskId is provided', () => {
+  it('emits TASKSAIL_TASK_ID and provider per-task prompt paths when taskId is provided', () => {
     const env = buildAgentEnvironment(profile, '/ctx', '/repo', undefined, 'test-task-id');
+    const promptPathEnvVars = getActiveProvider('/repo').promptPathEnvVars();
     expect(env['TASKSAIL_TASK_ID']).toBe('test-task-id');
-    expect(env['COPILOT_HANDOFFS_DIR']).toContain('tasks/test-task-id');
-    expect(env['COPILOT_IMPL_STEPS_DIR']).toContain('tasks/test-task-id');
+    expect(env[promptPathEnvVars.handoffsDir]).toContain('tasks/test-task-id');
+    expect(env[promptPathEnvVars.implStepsDir]).toContain('tasks/test-task-id');
   });
 });

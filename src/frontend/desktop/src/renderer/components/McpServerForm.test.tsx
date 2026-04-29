@@ -16,8 +16,14 @@ function emptyDraft(): McpServerFormDraft {
 
 type FormProps = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
 >;
+
+const TEST_AGENT_ROSTER = {
+  'software-engineer': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
+  qa: { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
+  'product-manager': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
+};
 
 function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
   return {
@@ -27,6 +33,7 @@ function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
     fieldErrors: {},
     saving: false,
     saveEnabled: false,
+    agentRoster: TEST_AGENT_ROSTER,
     error: null,
     onDraftChange: vi.fn(),
     onValidateConnection: vi.fn(),

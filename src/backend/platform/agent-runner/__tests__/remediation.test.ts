@@ -109,7 +109,7 @@ describe('remediationRunQaLoop', () => {
     }));
     expect(runRoleAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
       agentId: 'ron',
-      promptOverride: expect.stringContaining('This prompt does not change your launch CWD or broader QA authority.'),
+      promptOverride: expect.stringContaining('this prompt does not change your launch CWD or broader QA authority.'),
     }));
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('"Dalton Helper" may help with addressing QA findings');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('"Ron Helper" may help with reviewing remediation evidence');

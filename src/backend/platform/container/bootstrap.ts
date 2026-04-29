@@ -5,7 +5,7 @@ import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
-import type { ContainerRuntime, BootstrapOptions } from './types.js';
+import type { ContainerRuntime, BootstrapOptions, ComposeOptions } from './types.js';
 import type { ServiceHealthSpec } from './types.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { buildComposeCommand, validateComposeConfig, execCommand } from './compose.js';
@@ -27,9 +27,14 @@ export async function bootstrapServices(
         options.repoRoot,
         resolveDefaultComposeFile(runtime.backend),
       );
+  const composeFiles = options.composeFiles
+    ? options.composeFiles.map((file) => path.resolve(options.repoRoot, file))
+    : [composeFile];
 
-  if (!existsSync(composeFile)) {
-    throw new Error(`Compose file not found at ${composeFile}`);
+  for (const file of composeFiles) {
+    if (!existsSync(file)) {
+      throw new Error(`Compose file not found at ${file}`);
+    }
   }
 
   // Ensure .env and seed registries in parallel — they are independent.
@@ -62,67 +67,44 @@ export async function bootstrapServices(
   }
 
   // Use registry directly from seed result — no redundant disk read
-  const healthSpecs = withPerTaskHealthPort(
+  const healthSpecs = withSharedMcpHealthPort(
     toServiceHealthSpecs(seedResult.registry),
-    options.env?.['REPO_CONTEXT_MCP_PORT'],
+    platformSeedResult.config.mcp_port,
   );
   assertHealthSpecsConfigured(healthSpecs, 'bootstrap');
 
-  // Verify enabled registry services have matching compose services.
-  // Uses buildComposeCommand — the same compose invocation path as
-  // validateComposeConfig and runtime.composeUp/Down.
-  await verifyRegistryComposeConsistency(
-    seedResult.registry,
+  const composeOptions: ComposeOptions = {
     composeFile,
-    runtime.backend,
-    options.env,
-    engineHost,
-    wslDistro,
-  );
-
-  // Validate compose configuration
-  await validateComposeConfig(
-    composeFile,
-    runtime.backend,
-    options.env,
-    engineHost,
-    wslDistro,
-  );
-
-  // Start services
-  await runtime.composeUp({
-    composeFile,
-    detach: true,
-    build: options.build,
+    composeFiles,
     env: options.env,
     engineHost,
     wslDistro,
+  };
+
+  await verifyRegistryComposeConsistency(seedResult.registry, runtime.backend, composeOptions);
+
+  await validateComposeConfig(runtime.backend, composeOptions);
+
+  await runtime.composeUp({
+    ...composeOptions,
+    detach: true,
+    build: options.build,
   });
 
-  // Run health checks
   const results = await runtime.healthcheck(healthSpecs);
   const failed = results.filter((r) => !r.healthy);
 
   if (failed.length > 0) {
     const names = failed.map((f) => f.service).join(', ');
-    await runtime.composeDown({
-      composeFile,
-      env: options.env,
-      engineHost,
-      wslDistro,
-    });
+    await runtime.composeDown(composeOptions);
     throw new Error(`Health check failed for: ${names}`);
   }
 }
 
-function withPerTaskHealthPort(
+function withSharedMcpHealthPort(
   specs: ServiceHealthSpec[],
-  rawPort: string | undefined,
+  port: number,
 ): ServiceHealthSpec[] {
-  if (!rawPort) return specs;
-  const port = Number(rawPort);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) return specs;
-
   return specs.map((spec) => {
     let url: URL;
     try {
@@ -149,28 +131,18 @@ function withPerTaskHealthPort(
  */
 async function verifyRegistryComposeConsistency(
   registry: import('../mcp-registry/types.js').McpRegistry,
-  composeFile: string,
   backend: import('../core/types.js').ContainerBackend,
-  env?: NodeJS.ProcessEnv,
-  engineHost?: import('../core/types.js').ContainerEngineHost,
-  wslDistro?: string | null,
+  options: ComposeOptions,
 ): Promise<void> {
-  // Build compose config command using the same path as all other compose calls
-  const cmd = buildComposeCommand(backend, 'config', {
-    composeFile,
-    engineHost,
-    wslDistro,
-  });
-  // Append --services to list service names
+  const cmd = buildComposeCommand(backend, 'config', options);
   cmd.push('--services');
 
   let composeServiceNames: string[];
   try {
-    const { stdout } = await execCommand(cmd[0], cmd.slice(1), undefined, env);
+    const { stdout } = await execCommand(cmd[0], cmd.slice(1), undefined, options.env);
     composeServiceNames = stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   } catch {
-    // If compose config --services fails, skip consistency check
-    // (validateComposeConfig will catch the real error)
+    // compose config --services failed → let validateComposeConfig surface the real error
     return;
   }
 

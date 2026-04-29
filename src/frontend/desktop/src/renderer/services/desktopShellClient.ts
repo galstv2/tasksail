@@ -6,6 +6,7 @@ type DesktopShellSource = Window['desktopShell'] & {
   ) => Promise<unknown>;
   addModel: (displayName: string, modelId: string) => Promise<unknown>;
   removeModel: (modelId: string) => Promise<unknown>;
+  describeActiveProvider: () => Promise<import('../../shared/desktopContract').ProviderFrontendDescriptor>;
   listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
   readInstructionFile: (relativePath: string) => Promise<unknown>;
   writeInstructionFile: (relativePath: string, content: string) => Promise<unknown>;
@@ -18,6 +19,7 @@ type ComposerStage = import('../../shared/desktopContract').ComposerStage;
 type DesktopShellClient = Pick<
   DesktopShellSource,
   | 'getBootstrapInfo'
+  | 'describeActiveProvider'
   | 'getQueueStatus'
   | 'deletePendingItem'
   | 'getEnvironmentStatus'
@@ -93,6 +95,7 @@ export function createDesktopShellClient(
 
   return {
     getBootstrapInfo: () => readShell().getBootstrapInfo(),
+    describeActiveProvider: () => readShell().describeActiveProvider(),
     getQueueStatus: () => readShell().getQueueStatus(),
     deletePendingItem: (queueName) => readShell().deletePendingItem(queueName),
     getEnvironmentStatus: () => readShell().getEnvironmentStatus(),

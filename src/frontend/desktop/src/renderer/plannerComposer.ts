@@ -5,7 +5,8 @@ import type {
   PlannerEditableDraftModel,
   SuggestedPath,
 } from '../shared/desktopContract';
-import { planningAgentDisplayName } from '../shared/agentRoster';
+import { getPlanningAgentDisplayName } from '../shared/agentRoster';
+import type { ProviderFrontendDescriptor } from '../shared/desktopContractProvider';
 
 export type ComposerStage = 'compose' | 'preview' | 'confirm';
 
@@ -165,6 +166,7 @@ export function normalizeArchivedTaskToFollowUpContext(
 export function formatDraftMarkdown(
   draft: PlannerEditableDraftModel,
   metadata: PlannerPreviewMetadata = {},
+  providerDescriptor?: ProviderFrontendDescriptor,
 ): string {
   const sections: string[] = [];
   const title = metadata.title?.trim() || 'Task intake draft preview';
@@ -221,11 +223,14 @@ export function formatDraftMarkdown(
   );
 
   if (metadata.source) {
+    const defaultCreatedBy = providerDescriptor
+      ? getPlanningAgentDisplayName(providerDescriptor)
+      : 'Planning Agent';
     sections.push(
       '',
       '## Source',
       '',
-      `- Created By: ${metadata.source.createdBy ?? planningAgentDisplayName}`,
+      `- Created By: ${metadata.source.createdBy ?? defaultCreatedBy}`,
       `- Created At (UTC): ${metadata.source.createdAt ?? 'local-preview-only'}`,
     );
   }

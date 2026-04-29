@@ -1,4 +1,10 @@
-export { REQUIRED_DIRS, REQUIRED_FILES, validateStructure } from './structure.js';
+export {
+  GENERIC_REQUIRED_DIRS,
+  GENERIC_REQUIRED_FILES,
+  getRequiredDirs,
+  getRequiredFiles,
+  validateStructure,
+} from './structure.js';
 export type { StructureResult } from './structure.js';
 
 export { REQUIRED_TOOLS, validateLocalSetup } from './localSetup.js';

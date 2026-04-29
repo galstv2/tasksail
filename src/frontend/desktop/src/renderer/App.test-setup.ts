@@ -15,6 +15,21 @@ export function installAppTestHarness(): void {
 
     window.desktopShell = {
       getBootstrapInfo: vi.fn(),
+      describeActiveProvider: vi.fn().mockResolvedValue({
+        providerId: 'test-provider',
+        homeDirName: 'test-home',
+        registryPath: '/repo/.provider/registry.json',
+        agentConfigPaths: {
+          root: '.provider',
+          instructions: '.provider/instructions',
+          prompts: '.provider/prompts',
+          profiles: '.provider/agents',
+          registry: '.provider/registry.json',
+        },
+        promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
+        contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
+        roster: [],
+      }),
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),

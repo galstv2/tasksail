@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
@@ -20,6 +20,40 @@ export interface CompletePendingItemOptions {
   skipArchive?: boolean;
   repoRoot?: string;
   contextPackDir?: string;
+  recoveryArchivePath?: string | null;
+  skipRetrospectiveSync?: boolean;
+}
+
+export interface CompletingSentinelPayload {
+  ts: number;
+  archiveSucceeded?: boolean;
+  archivePath?: string | null;
+  contextPackDir?: string;
+  retrospectiveSynced?: boolean;
+}
+
+function readCompletingSentinelPayload(sentinelPath: string): CompletingSentinelPayload {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(sentinelPath, 'utf8'));
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && typeof (parsed as { ts?: unknown }).ts === 'number'
+    ) {
+      return parsed as CompletingSentinelPayload;
+    }
+  } catch {
+    // Legacy or partially-written sentinels are treated as unknown progress.
+  }
+  return { ts: Date.now() };
+}
+
+function mergeCompletingSentinelPayload(
+  sentinelPath: string,
+  patch: Partial<CompletingSentinelPayload>,
+): void {
+  const current = readCompletingSentinelPayload(sentinelPath);
+  writeFileSync(sentinelPath, JSON.stringify({ ...current, ...patch }));
 }
 
 /**
@@ -93,7 +127,7 @@ export async function completePendingItem(
     }
 
     // --- Step 2: archival ---
-    let resolvedArchiveMdPath: string | undefined;
+    let resolvedArchiveMdPath: string | null | undefined;
     if (!options.skipArchive) {
       const contextPackDir = options.contextPackDir
         ?? await requireAuthorizedActiveContextPack({ repoRoot, taskId });
@@ -120,16 +154,43 @@ export async function completePendingItem(
           `Completion blocked: task archival failed (exit ${archiveResult.exitCode}).${suffix}`,
         );
       }
-      if (typeof archiveResult.data?.record_md_path === 'string') {
-        resolvedArchiveMdPath = archiveResult.data.record_md_path;
-      }
+      const archivePath = typeof archiveResult.data?.record_md_path === 'string'
+        ? archiveResult.data.record_md_path
+        : null;
+      resolvedArchiveMdPath = archivePath;
+      mergeCompletingSentinelPayload(sentinelPath, {
+        archiveSucceeded: true,
+        archivePath,
+        contextPackDir,
+      });
 
       // Sync retrospective metadata inside the lock window.
-      await syncRetrospectiveRequiredMetadata({
+      const retrospectiveOptions = {
         repoRoot,
         handoffsDir: queuePaths.taskHandoffs(taskId),
         contextPackDir,
-      });
+        taskId,
+      } as Parameters<typeof syncRetrospectiveRequiredMetadata>[0] & { taskId: string };
+      await syncRetrospectiveRequiredMetadata(retrospectiveOptions);
+      mergeCompletingSentinelPayload(sentinelPath, { retrospectiveSynced: true });
+    } else if (
+      options.recoveryArchivePath !== undefined
+      || options.skipRetrospectiveSync !== undefined
+    ) {
+      resolvedArchiveMdPath = options.recoveryArchivePath ?? null;
+
+      if (options.skipRetrospectiveSync === false) {
+        const contextPackDir = options.contextPackDir
+          ?? await requireAuthorizedActiveContextPack({ repoRoot, taskId });
+        const retrospectiveOptions = {
+          repoRoot,
+          handoffsDir: queuePaths.taskHandoffs(taskId),
+          contextPackDir,
+          taskId,
+        } as Parameters<typeof syncRetrospectiveRequiredMetadata>[0] & { taskId: string };
+        await syncRetrospectiveRequiredMetadata(retrospectiveOptions);
+        mergeCompletingSentinelPayload(sentinelPath, { retrospectiveSynced: true });
+      }
     }
 
     // Update task registry: active → completed.

@@ -18,8 +18,8 @@ vi.mock('../metadata.js', () => ({
 
 vi.mock('../autonomy.js', () => ({
   resolveAutonomyProfile: vi.fn(),
-  buildCopilotArgs: vi.fn(),
-  formatCopilotCommand: vi.fn(),
+  buildAgentArgs: vi.fn(),
+  formatAgentCommand: vi.fn(),
 }));
 
 vi.mock('../environment.js', () => ({
@@ -47,8 +47,8 @@ vi.mock('../confinement.js', () => ({
 }));
 
 vi.mock('../processLifecycle.js', () => ({
-  launchCopilot: vi.fn(),
-  waitForCopilotDetailed: vi.fn(),
+  launchAgent: vi.fn(),
+  waitForAgentDetailed: vi.fn(),
 }));
 
 vi.mock('../pythonHelpers.js', () => ({
@@ -59,6 +59,7 @@ vi.mock('../pythonHelpers.js', () => ({
 vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveFocusedRepoRoot: vi.fn(),
   resolveSelectedPrimaryRepoRoot: vi.fn(),
+  explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
 }));
 
 vi.mock('../../core/index.js', async () => {
@@ -84,15 +85,32 @@ vi.mock('../sessionReceipts.js', () => ({
   writeSessionTerminalReceipt: vi.fn(),
 }));
 
+vi.mock('../../container/sharedMcp.js', () => ({
+  getSharedMcpUrl: vi.fn(async () => 'http://localhost:8811/sse'),
+  resolveContextPackContainerPath: vi.fn(() => '/workspace/context-pack'),
+}));
+
+vi.mock('../../platform-config/get.js', () => ({
+  getPlatformConfig: vi.fn(async () => ({
+    schema_version: 1,
+    cli_provider: 'copilot',
+    container_runtime: 'docker',
+    container_engine_host: null,
+    container_engine_wsl_distro: null,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
+  })),
+}));
+
 const { runRoleAgent } = await import('../roleAgent.js');
 const { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } = await import('../metadata.js');
-const { resolveAutonomyProfile, buildCopilotArgs, formatCopilotCommand } = await import('../autonomy.js');
+const { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } = await import('../autonomy.js');
 const { buildAgentEnvironment, buildAutonomyEnvironment } = await import('../environment.js');
 const { resolvePaths } = await import('../../core/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
-const { launchCopilot, waitForCopilotDetailed } = await import('../processLifecycle.js');
+const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
@@ -105,16 +123,16 @@ const mockedLoadAgentRegistry = vi.mocked(loadAgentRegistry);
 const mockedResolveAgentProfile = vi.mocked(resolveAgentProfile);
 const mockedResolveActiveModel = vi.mocked(resolveActiveModel);
 const mockedResolveAutonomyProfile = vi.mocked(resolveAutonomyProfile);
-const mockedBuildCopilotArgs = vi.mocked(buildCopilotArgs);
-const mockedFormatCopilotCommand = vi.mocked(formatCopilotCommand);
+const mockedBuildAgentArgs = vi.mocked(buildAgentArgs);
+const mockedFormatAgentCommand = vi.mocked(formatAgentCommand);
 const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
-const mockedLaunchCopilot = vi.mocked(launchCopilot);
-const mockedWaitForCopilotDetailed = vi.mocked(waitForCopilotDetailed);
+const mockedLaunchAgent = vi.mocked(launchAgent);
+const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
 const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunchContext);
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
@@ -158,12 +176,21 @@ function setupCommonMocks(): void {
   mockedResolveActiveModel.mockReturnValue('gpt-4.1');
   mockedResolveAutonomyProfile.mockReturnValue({
     model: 'gpt-4.1',
-    allowTools: [],
-    denyTools: [],
+    autonomyProfile: 'repo-executor',
     allowedDirs: [],
-    additionalFlags: [],
+    disallowTempDir: false,
   });
-  mockedBuildCopilotArgs.mockReturnValue(['--agent', 'software-engineer']);
+  mockedBuildAgentArgs.mockReturnValue({
+    args: ['--agent', 'software-engineer'],
+    launchCwd: '/repo',
+    inlineAgentContext: false,
+    resolvedToolPolicy: {
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+      denyTools: [],
+    },
+  });
   mockedBuildAgentEnvironment.mockReturnValue({});
   mockedBuildAutonomyEnvironment.mockReturnValue({
     RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"repo-executor"}',
@@ -177,7 +204,7 @@ function setupCommonMocks(): void {
     exitCode: 0,
   });
   mockedCaptureChangedPathsSnapshot.mockResolvedValue({ byRepoRoot: {} });
-  mockedValidateDaltonBoundaryChanges.mockReturnValue(undefined);
+  mockedValidateDaltonBoundaryChanges.mockResolvedValue(undefined);
   mockedCaptureCodeDiff.mockResolvedValue({
     stdout: 'crud-app',
     stderr: '',
@@ -187,9 +214,11 @@ function setupCommonMocks(): void {
     status: 'not-applicable',
     reason: 'no external MCP servers apply to this agent',
     injectionEnabled: false,
+    launchDir: `${process.cwd()}/.platform-state/runtime/copilot-home/test-launch`,
     envExports: {
       EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable',
     },
+    resolvedServers: [],
     selectedServerIds: [],
     excludedServerIds: [],
   });
@@ -242,8 +271,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('merges RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON into agent env', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -257,8 +286,8 @@ describe('runRoleAgent autonomy env var export', () => {
       skipWorkflowValidation: true,
     });
 
-    // Verify the env passed to launchCopilot contains the autonomy vars
-    const launchCall = mockedLaunchCopilot.mock.calls[0];
+    // Verify the env passed to launchAgent contains the autonomy vars
+    const launchCall = mockedLaunchAgent.mock.calls[0];
     const envArg = (launchCall[1] as { env: Record<string, string> }).env;
     expect(envArg['RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON']).toBe('{"profile":"repo-executor"}');
     expect(envArg['RUN_ROLE_AGENT_AUTONOMY_ALLOW_TOOLS_JSON']).toBe('["editFiles","runCommand"]');
@@ -266,8 +295,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('passes a repo-owned launch prompt to copilot', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -281,7 +310,7 @@ describe('runRoleAgent autonomy env var export', () => {
       skipWorkflowValidation: true,
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledWith(
+    expect(mockedLaunchAgent).toHaveBeenCalledWith(
       ['--agent', 'software-engineer', '-p', 'Execute the assigned implementation slice now.'],
       expect.anything(),
     );
@@ -290,8 +319,8 @@ describe('runRoleAgent autonomy env var export', () => {
   it('uses the Dalton launch prompt family for dalton-verify', async () => {
     useDaltonVerifyProfile();
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -305,7 +334,7 @@ describe('runRoleAgent autonomy env var export', () => {
       skipWorkflowValidation: true,
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledWith(
+    expect(mockedLaunchAgent).toHaveBeenCalledWith(
       ['--agent', 'software-engineer', '-p', 'Execute the assigned implementation slice now.'],
       expect.anything(),
     );
@@ -313,8 +342,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('records prompt audit metadata in session and guardrail receipts for Dalton launches', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -351,8 +380,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('surfaces detailed agent failure output', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 1,
       stdoutTail: 'planning started',
       stderrTail: 'missing artifact section',
@@ -381,11 +410,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 1,
         stdoutTail: 'Permission denied and could not request permission from user',
@@ -416,8 +445,8 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'alice',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Do not run shell commands.'),
@@ -443,11 +472,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 1,
       stdoutTail: 'Permission denied and could not request permission from user',
       stderrTail: '',
@@ -467,7 +496,7 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'alice',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
       '/repo/.platform-state/runtime/guardrails/alice.json',
       expect.objectContaining({
@@ -478,8 +507,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('skips artifact completion check for Dalton (no required SWE artifacts)', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -501,14 +530,14 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'dalton',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
   it('skips artifact completion check for dalton-verify (same SWE artifact bypass)', async () => {
     useDaltonVerifyProfile();
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -529,7 +558,7 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedCheckAgentArtifactCompletion).not.toHaveBeenCalled();
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
   it('does not rerun Alice when Dalton is blocked but no incomplete Alice artifacts are proven', async () => {
@@ -544,11 +573,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -571,7 +600,7 @@ describe('runRoleAgent autonomy env var export', () => {
       }),
     ).rejects.toThrow('no concrete incomplete Alice artifacts were detected');
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
     expect(mockedRunRuntimePolicyCheck).toHaveBeenCalledTimes(1);
   });
 
@@ -587,11 +616,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -624,8 +653,8 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'alice',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('parallel-ok.md'),
@@ -645,11 +674,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -691,9 +720,9 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'alice',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(mockedRunRuntimePolicyCheck).toHaveBeenCalledTimes(2);
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Blocking workflow-policy details'),
@@ -713,11 +742,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -751,14 +780,14 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'ron',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
       repoRoot: '/repo',
       taskId: 't1',
       abortSignal: undefined,
     }));
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Fill in'),
@@ -778,11 +807,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -803,7 +832,7 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedCaptureCodeDiff.mock.invocationCallOrder[0]).toBeLessThan(
-      mockedLaunchCopilot.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+      mockedLaunchAgent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
     expect(mockedCaptureCodeDiff).toHaveBeenCalledWith(expect.objectContaining({
       outputPath: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff',
@@ -825,7 +854,7 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
     mockedCaptureCodeDiff.mockResolvedValueOnce({
       stdout: '',
@@ -834,8 +863,8 @@ describe('runRoleAgent autonomy env var export', () => {
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -855,7 +884,7 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'ron',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
       'git diff failed',
@@ -874,7 +903,7 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
     mockedCaptureCodeDiff.mockResolvedValueOnce({
       stdout: 'warning output',
@@ -883,8 +912,8 @@ describe('runRoleAgent autonomy env var export', () => {
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
         exitCode: 0,
         stdoutTail: '',
@@ -918,12 +947,12 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'ron',
     });
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(2);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(warnSpy).toHaveBeenCalledWith(
       '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
       'warning output',
     );
-    expect(mockedLaunchCopilot.mock.calls[1]?.[0]).toEqual(
+    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md'),
@@ -933,8 +962,8 @@ describe('runRoleAgent autonomy env var export', () => {
 
   it('does not generate code-changes.diff for non-QA agents', async () => {
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -968,11 +997,11 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
     const fakeChild = { pid: 1234 } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockResolvedValue({
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -990,7 +1019,7 @@ describe('runRoleAgent autonomy env var export', () => {
       }),
     ).rejects.toThrow('no concrete incomplete Ron artifacts were detected');
 
-    expect(mockedLaunchCopilot).toHaveBeenCalledTimes(1);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
   it('greedily stops Alice once required PM artifacts are complete', async () => {
@@ -1006,15 +1035,15 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'product-manager']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     const fakeChild = {
       pid: 1234,
       exitCode: null,
       signalCode: null,
       kill: vi.fn(),
     } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockImplementation(async () => {
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       return {
         exitCode: 1,
@@ -1055,15 +1084,15 @@ describe('runRoleAgent autonomy env var export', () => {
       wallClockTimeoutS: 300,
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
-    mockedBuildCopilotArgs.mockReturnValue(['--agent', 'qa']);
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
     const fakeChild = {
       pid: 1234,
       exitCode: null,
       signalCode: null,
       kill: vi.fn(),
     } as never;
-    mockedLaunchCopilot.mockReturnValue(fakeChild);
-    mockedWaitForCopilotDetailed.mockImplementation(async () => {
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       return {
         exitCode: 1,

@@ -1,10 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { findRepoRoot } from '../core/index.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
-export const REQUIRED_DIRS: string[] = [
-  '.github/agents',
-  '.github/copilot',
+export const GENERIC_REQUIRED_DIRS: string[] = [
   'AgentWorkSpace/dropbox',
   'AgentWorkSpace/pendingitems',
   'AgentWorkSpace/error-items',
@@ -17,11 +16,24 @@ export const REQUIRED_DIRS: string[] = [
   'tests',
 ];
 
-export const REQUIRED_FILES: string[] = [
+export function getRequiredDirs(repoRoot: string): string[] {
+  return [
+    ...getActiveProvider(repoRoot).requiredDirs(),
+    ...GENERIC_REQUIRED_DIRS,
+  ];
+}
+
+export const GENERIC_REQUIRED_FILES: string[] = [
   '.env.example',
   'Makefile',
-  '.github/copilot-instructions.md',
 ];
+
+export function getRequiredFiles(repoRoot: string): string[] {
+  return [
+    ...getActiveProvider(repoRoot).requiredFiles(),
+    ...GENERIC_REQUIRED_FILES,
+  ];
+}
 
 export interface StructureResult {
   valid: boolean;
@@ -30,31 +42,32 @@ export interface StructureResult {
 
 export async function validateStructure(repoRoot?: string): Promise<StructureResult> {
   const root = repoRoot ?? await findRepoRoot();
-  const errors: string[] = [];
+  const requiredDirs = getRequiredDirs(root);
+  const requiredFiles = getRequiredFiles(root);
 
-  for (const dir of REQUIRED_DIRS) {
-    const fullPath = path.join(root, dir);
+  async function checkDir(dir: string): Promise<string | null> {
     try {
-      const stat = await fs.promises.stat(fullPath);
-      if (!stat.isDirectory()) {
-        errors.push(`Expected directory but found file: ${dir}`);
-      }
+      const stat = await fs.promises.stat(path.join(root, dir));
+      return stat.isDirectory() ? null : `Expected directory but found file: ${dir}`;
     } catch {
-      errors.push(`Missing required directory: ${dir}`);
+      return `Missing required directory: ${dir}`;
     }
   }
 
-  for (const file of REQUIRED_FILES) {
-    const fullPath = path.join(root, file);
+  async function checkFile(file: string): Promise<string | null> {
     try {
-      const stat = await fs.promises.stat(fullPath);
-      if (!stat.isFile()) {
-        errors.push(`Expected file but found directory: ${file}`);
-      }
+      const stat = await fs.promises.stat(path.join(root, file));
+      return stat.isFile() ? null : `Expected file but found directory: ${file}`;
     } catch {
-      errors.push(`Missing required file: ${file}`);
+      return `Missing required file: ${file}`;
     }
   }
 
+  const results = await Promise.all([
+    ...requiredDirs.map(checkDir),
+    ...requiredFiles.map(checkFile),
+  ]);
+
+  const errors = results.filter((message): message is string => message !== null);
   return { valid: errors.length === 0, errors };
 }

@@ -5,6 +5,25 @@ export interface FocusTarget {
   kind: FocusTargetKind;
 }
 
+export type WritableRootReason =
+  | 'selected-primary'
+  | 'primary-focus-parent'
+  | 'test-target';
+
+export interface WritableRoot {
+  path: string;
+  kind: FocusTargetKind;
+  reason: WritableRootReason;
+}
+
+export type ReadonlyContextRootReason = 'support-target';
+
+export interface ReadonlyContextRoot {
+  path: string;
+  kind: FocusTargetKind;
+  reason: ReadonlyContextRootReason;
+}
+
 export interface NormalizedSupportTarget extends FocusTarget {
   effectiveScope:
     | 'exact-file'

@@ -78,6 +78,8 @@ describe('deep focus selectors', () => {
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      derivedWritableRoots: [],
+      derivedReadonlyContextRoots: [],
     });
   });
 
@@ -118,6 +120,8 @@ describe('deep focus selectors', () => {
           selectedFocusTargetKind: 'directory',
           selectedTestTarget: null,
           selectedSupportTargets: [],
+          derivedWritableRoots: [],
+          derivedReadonlyContextRoots: [],
         },
       ]),
     ).toEqual({
@@ -128,6 +132,8 @@ describe('deep focus selectors', () => {
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: null,
       selectedSupportTargets: [],
+      derivedWritableRoots: [],
+      derivedReadonlyContextRoots: [],
     });
   });
 });

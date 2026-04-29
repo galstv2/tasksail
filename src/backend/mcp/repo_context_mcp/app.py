@@ -1,10 +1,7 @@
 """repo-context-mcp application runtime.
 
-THREADING CONSTRAINT: This module uses module-level globals initialized from
-Path.cwd() and environment variables at import time. The HTTP server MUST be
-single-threaded (http.server.HTTPServer, not ThreadingHTTPServer). Do not
-upgrade to a threaded server without first parameterizing workspace_root
-through the call chain.
+Thread safety is supported through explicit locks around shared service
+initialization/caches and request-scoped context.
 """
 
 from __future__ import annotations
@@ -13,7 +10,8 @@ import logging
 import signal
 import subprocess  # noqa: F401 — re-exported for test patching
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer as ThreadedServer
 from pathlib import Path
 from typing import Any
 
@@ -148,12 +146,14 @@ def create_seeding_service(
 
 
 _SEEDING_SERVICE: SeedingService | None = None
+_SERVICE_INIT_LOCK = threading.RLock()
 
 
 def get_seeding_service() -> SeedingService:
     global _SEEDING_SERVICE  # noqa: PLW0603
-    if _SEEDING_SERVICE is None:
-        _SEEDING_SERVICE = create_seeding_service()
+    with _SERVICE_INIT_LOCK:
+        if _SEEDING_SERVICE is None:
+            _SEEDING_SERVICE = create_seeding_service()
     return _SEEDING_SERVICE
 
 
@@ -162,17 +162,18 @@ _ARCHIVE_SERVICE: TaskArchiveService | None = None
 
 def get_archive_service() -> TaskArchiveService:
     global _ARCHIVE_SERVICE  # noqa: PLW0603
-    if _ARCHIVE_SERVICE is None:
-        _ARCHIVE_SERVICE = TaskArchiveService(
-            workspace_root=Path.cwd(),
-            render_lineage_summary=(
-                REPORT_RENDERER.render_task_lineage_summary
-            ),
-            global_retrospective_root=(
-                REPO_CONTEXT_CONFIG.global_retrospective_root
-            ),
-            record_cache=_RECORD_CACHE,
-        )
+    with _SERVICE_INIT_LOCK:
+        if _ARCHIVE_SERVICE is None:
+            _ARCHIVE_SERVICE = TaskArchiveService(
+                workspace_root=Path.cwd(),
+                render_lineage_summary=(
+                    REPORT_RENDERER.render_task_lineage_summary
+                ),
+                global_retrospective_root=(
+                    REPO_CONTEXT_CONFIG.global_retrospective_root
+                ),
+                record_cache=_RECORD_CACHE,
+            )
     return _ARCHIVE_SERVICE
 
 
@@ -181,14 +182,15 @@ _QMD_INDEX_SERVICE: QmdIndexService | None = None
 
 def get_qmd_index_service() -> QmdIndexService:
     global _QMD_INDEX_SERVICE  # noqa: PLW0603
-    if _QMD_INDEX_SERVICE is None:
-        _QMD_INDEX_SERVICE = QmdIndexService(
-            workspace_root=Path.cwd(),
-            archive_service=get_archive_service(),
-            global_retrospective_root=(
-                REPO_CONTEXT_CONFIG.global_retrospective_root
-            ),
-        )
+    with _SERVICE_INIT_LOCK:
+        if _QMD_INDEX_SERVICE is None:
+            _QMD_INDEX_SERVICE = QmdIndexService(
+                workspace_root=Path.cwd(),
+                archive_service=get_archive_service(),
+                global_retrospective_root=(
+                    REPO_CONTEXT_CONFIG.global_retrospective_root
+                ),
+            )
     return _QMD_INDEX_SERVICE
 
 
@@ -197,16 +199,17 @@ _LINEAGE_SERVICE: LineageService | None = None
 
 def get_lineage_service() -> LineageService:
     global _LINEAGE_SERVICE  # noqa: PLW0603
-    if _LINEAGE_SERVICE is None:
-        qmd = get_qmd_index_service()
-        _LINEAGE_SERVICE = LineageService(
-            workspace_root=Path.cwd(),
-            qmd_index_service=qmd,
-            render_lineage_summary=(
-                REPORT_RENDERER.render_task_lineage_summary
-            ),
-        )
-        qmd.set_lineage_service(_LINEAGE_SERVICE)
+    with _SERVICE_INIT_LOCK:
+        if _LINEAGE_SERVICE is None:
+            qmd = get_qmd_index_service()
+            _LINEAGE_SERVICE = LineageService(
+                workspace_root=Path.cwd(),
+                qmd_index_service=qmd,
+                render_lineage_summary=(
+                    REPORT_RENDERER.render_task_lineage_summary
+                ),
+            )
+            qmd.set_lineage_service(_LINEAGE_SERVICE)
     return _LINEAGE_SERVICE
 
 
@@ -248,6 +251,7 @@ def create_handler_class() -> type[BaseHTTPRequestHandler]:
         active_context_pack_dir=active_context_pack_dir_from_env,
         runtime_state=RUNTIME_STATE,
         execute_seed_run=execute_seed_run,
+        resolve_seed_scope_key=resolve_seed_scope_key,
         load_context_pack_conventions_summary=(
             load_context_pack_conventions_summary
         ),
@@ -357,6 +361,20 @@ def execute_seed_run(
     )
 
 
+def resolve_seed_scope_key(
+    context_pack_dir: str,
+    manifest: str = DEFAULT_MANIFEST,
+    plan_file: str = DEFAULT_PLAN_FILE,
+    plan_mode: str = "prefer-plan",
+) -> str:
+    return get_seeding_service().resolve_seed_scope_key(
+        context_pack_dir=context_pack_dir,
+        manifest=manifest,
+        plan_file=plan_file,
+        plan_mode=plan_mode,
+    )
+
+
 def render_run_markdown(report: dict[str, Any]) -> str:
     return REPORT_RENDERER.render_run_markdown(report)
 
@@ -373,7 +391,7 @@ def run_server(host: str, port: int) -> int:
         level=getattr(logging, SERVER_CONFIG.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
-    server = HTTPServer((host, port), Handler)
+    server = ThreadedServer((host, port), Handler)
 
     shutdown_event = threading.Event()
     received_signal: list[int] = []

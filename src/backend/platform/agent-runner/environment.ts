@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import type { AgentProfile, CopilotArgs } from './types.js';
 import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
+import type { AgentProfile } from './types.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
 import { resolvePaths } from '../core/index.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { AutonomyIntent, BuildArgsResult } from '../cli-provider/index.js';
 
 /**
  * Build the environment variables object for an agent invocation process.
@@ -17,63 +19,85 @@ export function buildAgentEnvironment(
   repoRoot?: string,
   options?: {
     skipHandoffEnvVars?: boolean;
+    wallClockTimeoutS?: number;
+    focused?: FocusedRepoResult;
     /**
-     * §6.3 per-task MCP endpoint override. When provided, overrides
-     * REPO_CONTEXT_MCP_URL and REPO_CONTEXT_MCP_PORT so the agent targets
-     * this task's per-project compose container instead of the shell default.
+     * Shared MCP endpoint resolved once by the launch path. When supplied,
+     * the resolved URL/port are exported as backward-compat env vars
+     * (`REPO_CONTEXT_MCP_URL`, `REPO_CONTEXT_MCP_PORT`). When omitted, the
+     * env vars are not written so callers cannot silently advertise a stale
+     * default — the authoritative scoping is the per-launch MCP config
+     * headers rendered by the active provider.
      */
-    mcp?: { port: number };
+    mcp?: { port: number; url: string };
   },
   taskId?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {};
+  const effectiveRepoRoot = repoRoot ?? resolvePaths({ taskId: taskId ?? '' }).repoRoot;
+  const provider = getActiveProvider(effectiveRepoRoot);
 
   const activeModel = resolveActiveModel(profile.id, profile);
-  env['COPILOT_MODEL'] = activeModel;
   env['RUN_ROLE_AGENT_ACTIVE_MODEL'] = activeModel;
 
-  env['COPILOT_AGENT_ID'] = toRegistryId(profile.id);
-
   if (options?.mcp) {
-    env['REPO_CONTEXT_MCP_URL'] = `http://localhost:${options.mcp.port}/sse`;
+    env['REPO_CONTEXT_MCP_URL'] = options.mcp.url;
     env['REPO_CONTEXT_MCP_PORT'] = String(options.mcp.port);
-  }
-
-  if (profile.wallClockTimeoutS !== undefined) {
-    env['COPILOT_WALL_CLOCK_TIMEOUT_S'] = String(profile.wallClockTimeoutS);
-  }
-
-  if (profile.idleTimeoutS !== undefined) {
-    env['COPILOT_IDLE_TIMEOUT_S'] = String(profile.idleTimeoutS);
-  }
-
-  if (profile.interactive) {
-    env['COPILOT_DISABLE_IDLE_TIMEOUT'] = 'true';
   }
 
   if (contextPackDir) {
     env['ACTIVE_CONTEXT_PACK_DIR'] = contextPackDir;
   }
 
-  if (repoRoot) {
-    const paths = resolvePaths({ repoRoot, taskId: taskId ?? '' });
-    if (!options?.skipHandoffEnvVars) {
-      env['COPILOT_HANDOFFS_DIR'] = paths.handoffs;
-      env['COPILOT_IMPL_STEPS_DIR'] = paths.implementationSteps;
-    }
-    env['TASKSAIL_TASK_ID'] = taskId ?? '';
-    env['COPILOT_PLATFORM_REPO_ROOT'] = repoRoot;
+  const paths = resolvePaths({ repoRoot: effectiveRepoRoot, taskId: taskId ?? '' });
+  const providerEnv = provider.buildEnv({
+    model: activeModel,
+    agentId: toRegistryId(profile.id),
+    wallClockTimeoutS: options?.wallClockTimeoutS ?? profile.wallClockTimeoutS,
+    idleTimeoutS: profile.idleTimeoutS,
+    disableIdleTimeout: profile.interactive,
+    ...(!options?.skipHandoffEnvVars
+      ? {
+          handoffsDir: paths.handoffs,
+          implStepsDir: paths.implementationSteps,
+        }
+      : {}),
+    platformRepoRoot: effectiveRepoRoot,
+    ...(options?.focused?.visibleRepoRoots?.length
+      ? { targetReposJson: JSON.stringify(options.focused.visibleRepoRoots) }
+      : {}),
+    ...(options?.focused?.primaryFocusRelativePath
+      ? { primaryFocusPath: options.focused.primaryFocusRelativePath }
+      : {}),
+    ...(options?.focused?.primaryFocusTargetKind
+      ? { primaryFocusTargetKind: options.focused.primaryFocusTargetKind }
+      : {}),
+    ...(options?.focused?.writableRoots !== undefined
+      ? {
+          writableRootsJson: JSON.stringify(options.focused.writableRoots),
+          readonlyContextRootsJson: JSON.stringify(options.focused.readonlyContextRoots ?? []),
+        }
+      : {}),
+    ...(options?.focused?.testTarget
+      ? {
+          testTargetPath: options.focused.testTarget.path,
+          testTargetKind: options.focused.testTarget.kind,
+        }
+      : {}),
+  });
+  Object.assign(env, providerEnv);
 
-    // §4.15 Branch-name surfacing: inject TASKSAIL_TASK_BRANCHES so Ron can
-    // copy the branch names into ## Task branches in final-summary.md.
-    // Reads .task.json.contextPackBinding.repoBindings[].worktreeBranch.
-    // Windows env-block ceiling: if the serialized JSON exceeds 8192 bytes,
-    // spill to a file and inject TASKSAIL_TASK_BRANCHES_FILE instead.
-    // §B1 Worktree CWD surfacing: inject TASKSAIL_TASK_WORKTREES alongside, so
-    // Dalton/Ron can resolve originalRoot → worktreeRoot for git commands and
-    // path references. Same encoding + spill rule as TASKSAIL_TASK_BRANCHES.
+  env['TASKSAIL_TASK_ID'] = taskId ?? '';
+
+  if (effectiveRepoRoot) {
+
+    // Surface branch names and worktree roots for QA closeout and SWE git
+    // commands. Reads .task.json.contextPackBinding.repoBindings[]; injects
+    // TASKSAIL_TASK_BRANCHES (originalRoot → branch) and TASKSAIL_TASK_WORKTREES
+    // (originalRoot → worktreeRoot). If the serialized JSON exceeds the 8192-
+    // byte Windows env-block ceiling, spills to <name>_FILE instead.
     if (taskId) {
-      const taskSidecar = readTaskJsonSafe(taskId, repoRoot);
+      const taskSidecar = readTaskJsonSafe(taskId, effectiveRepoRoot);
       if (taskSidecar && taskSidecar.contextPackBinding.repoBindings.length > 0) {
         const branches = taskSidecar.contextPackBinding.repoBindings.map((rb) => ({
           originalRoot: rb.originalRoot,
@@ -85,7 +109,7 @@ export function buildAgentEnvironment(
         }));
         emitTaskListEnv({
           env,
-          repoRoot,
+          repoRoot: effectiveRepoRoot,
           taskId,
           envVarName: 'TASKSAIL_TASK_BRANCHES',
           spillFileName: 'task-branches.json',
@@ -93,7 +117,7 @@ export function buildAgentEnvironment(
         });
         emitTaskListEnv({
           env,
-          repoRoot,
+          repoRoot: effectiveRepoRoot,
           taskId,
           envVarName: 'TASKSAIL_TASK_WORKTREES',
           spillFileName: 'task-worktrees.json',
@@ -103,7 +127,7 @@ export function buildAgentEnvironment(
     }
   }
 
-  const missing = validateAgentEnvironment(env);
+  const missing = validateAgentEnvironment(env, effectiveRepoRoot);
   if (missing.length > 0) {
     throw new Error(`Agent environment missing required keys: ${missing.join(', ')}`);
   }
@@ -140,27 +164,39 @@ function emitTaskListEnv(args: {
   args.env[`${args.envVarName}_FILE`] = spillPath;
 }
 
+const AUTONOMY_LABELS: Record<AgentProfile['autonomyProfile'], string> = {
+  'repo-executor': 'Repo Executor',
+  'qa-executor': 'QA Executor',
+  'artifact-author': 'Artifact Author',
+};
+
+const AUTONOMY_DESCRIPTIONS: Record<AgentProfile['autonomyProfile'], string> = {
+  'repo-executor':
+    'High-autonomy repo-local execution profile for implementation and test work with explicit deny rules for destructive commands.',
+  'qa-executor':
+    'High-autonomy repo-local QA review profile with shell access for inspecting repo state and explicit deny rules for destructive commands.',
+  'artifact-author':
+    'Repo-local artifact authoring profile with autonomous read, search, and write operations but without broad shell auto-approval.',
+};
+
 function autonomyLabel(profileId: AgentProfile['autonomyProfile']): string {
-  return profileId === 'repo-executor' ? 'Repo Executor' : 'Artifact Author';
+  return AUTONOMY_LABELS[profileId];
 }
 
 function autonomyDescription(profileId: AgentProfile['autonomyProfile']): string {
-  return profileId === 'repo-executor'
-    ? 'High-autonomy repo-local execution profile for implementation and test work with explicit deny rules for destructive commands.'
-    : 'Repo-local artifact authoring profile with autonomous read, search, and write operations but without broad shell auto-approval.';
+  return AUTONOMY_DESCRIPTIONS[profileId];
 }
 
-function deriveExternalMcpCopilotHome(
+function deriveExternalMcpCliHome(
   externalMcpContext?: ExternalMcpLaunchContext,
 ): string | null {
-  return externalMcpContext?.configFilePath
-    ? path.dirname(externalMcpContext.configFilePath)
-    : null;
+  return externalMcpContext?.launchDir ?? null;
 }
 
 export function buildAutonomyEnvironment(
   profile: AgentProfile,
-  autonomyArgs: CopilotArgs,
+  intent: AutonomyIntent,
+  argsResult: BuildArgsResult,
   cwd: string,
   repoRoot: string,
   focused?: FocusedRepoResult,
@@ -180,11 +216,13 @@ export function buildAutonomyEnvironment(
     scope_mode: focused ? 'focused' : null,
     selected_repo_ids: focused?.selectedRepoIds ?? [],
     selected_focus_ids: focused?.selectedFocusIds ?? [],
+    writable_roots: focused?.writableRoots ?? [],
+    readonly_context_roots: focused?.readonlyContextRoots ?? [],
     // For Dalton's selected-primary path this is the activated reference repo
     // set; for broader focused-repo resolution it is the workspace-visible
     // manifest-declared repo set. Write authority remains separate either way.
     target_folders: focused?.visibleRepoRoots ?? [],
-    allowed_roots: autonomyArgs.allowedDirs,
+    allowed_roots: intent.allowedDirs,
     // Launch CWD is tracked independently from focused targeting metadata so
     // repo-root Dalton launches still preserve focused repo/focus-path context.
     working_directory: workingDirectory,
@@ -204,6 +242,8 @@ export function buildAutonomyEnvironment(
               }
             : null,
           support_targets: focused.supportTargets ?? [],
+          writable_roots: focused.writableRoots ?? [],
+          readonly_context_roots: focused.readonlyContextRoots ?? [],
           warnings: focused.warnings ?? [],
         }
       : null,
@@ -220,7 +260,7 @@ export function buildAutonomyEnvironment(
           selectedServerIds: externalMcpContext.selectedServerIds,
           excludedServerIds: externalMcpContext.excludedServerIds,
           contextFile: externalMcpContext.envExports['EXTERNAL_MCP_CONTEXT_FILE'] ?? null,
-          copilotHome: deriveExternalMcpCopilotHome(externalMcpContext),
+          cliHome: deriveExternalMcpCliHome(externalMcpContext),
         }
       : undefined;
   const payload = {
@@ -229,10 +269,10 @@ export function buildAutonomyEnvironment(
     description: autonomyDescription(profile.autonomyProfile),
     boundary_kind: boundaryKind,
     tool_policy: {
-      allow_all_tools: autonomyArgs.additionalFlags.includes('--allow-all-tools'),
-      no_ask_user: autonomyArgs.additionalFlags.includes('--no-ask-user'),
-      allow_tools: autonomyArgs.allowTools,
-      deny_tools: autonomyArgs.denyTools,
+      allow_all_tools: argsResult.resolvedToolPolicy.allowAllTools,
+      no_ask_user: argsResult.resolvedToolPolicy.noAskUser,
+      allow_tools: argsResult.resolvedToolPolicy.allowTools,
+      deny_tools: argsResult.resolvedToolPolicy.denyTools,
     },
     boundary_context: boundaryContext,
     ...(externalMcpMetadata ? { external_mcp_context: externalMcpMetadata } : {}),
@@ -250,34 +290,18 @@ export function buildAutonomyEnvironment(
     RUN_ROLE_AGENT_AUTONOMY_ALLOWED_DIRS_JSON: JSON.stringify(boundaryContext.allowed_roots),
     RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR: boundaryContext.working_directory,
     RUN_ROLE_AGENT_AUTONOMY_BOUNDARY_STATUS: boundaryContext.resolution_status,
-    RUN_ROLE_AGENT_AUTONOMY_DISALLOW_TEMP_DIR: String(boundaryContext.context_pack_boundary_enforced),
+    RUN_ROLE_AGENT_AUTONOMY_DISALLOW_TEMP_DIR: String(intent.disallowTempDir),
     RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: JSON.stringify(payload),
     // Advisory targeting metadata for focused repo/focus-path context. This is
     // intentionally separate from RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR because
     // Dalton now launches from the platform repo root.
-    ...(focused?.visibleRepoRoots?.length ? { COPILOT_TARGET_REPOS_JSON: JSON.stringify(focused.visibleRepoRoots) } : {}),
-    ...(focused?.primaryFocusRelativePath
-      ? { COPILOT_PRIMARY_FOCUS_PATH: focused.primaryFocusRelativePath }
-      : {}),
-    ...(focused?.primaryFocusTargetKind
-      ? { COPILOT_PRIMARY_FOCUS_TARGET_KIND: focused.primaryFocusTargetKind }
-      : {}),
-    ...(focused?.testTarget
-      ? {
-          COPILOT_TEST_TARGET_PATH: focused.testTarget.path,
-          COPILOT_TEST_TARGET_KIND: focused.testTarget.kind,
-        }
-      : {}),
   };
 }
-
-/** Required environment keys for an agent invocation. */
-const REQUIRED_AGENT_ENV_KEYS = ['COPILOT_MODEL', 'COPILOT_AGENT_ID'] as const;
 
 /**
  * Validate that required keys are present and non-empty in the agent environment.
  * Returns the list of missing or empty keys.
  */
-function validateAgentEnvironment(env: Record<string, string>): string[] {
-  return REQUIRED_AGENT_ENV_KEYS.filter((key) => !env[key]);
+function validateAgentEnvironment(env: Record<string, string>, repoRoot: string): string[] {
+  return getActiveProvider(repoRoot).requiredEnvKeys().filter((key) => !env[key]);
 }

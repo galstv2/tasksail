@@ -3,8 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSWatcher } from 'node:fs';
 
-// §7.0C: Mock pipelineSupervisor so subscribeTask/unsubscribeTask tests run
-// without spawning real processes.
+// Mock pipelineSupervisor so its module-load side effects don't run during these unit tests.
 const mockListActivePipelines = vi.fn(() => [] as Array<{ taskId: string; pid: number; startedAt: string }>);
 
 vi.mock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
@@ -56,7 +55,7 @@ function makeGuardrail(
   overrides: Partial<GuardrailObservation> = {},
 ): GuardrailObservation {
   return {
-    receiptPath: '.platform-state/runtime/guardrails/software-engineer-dalton-1.json',
+    receiptPath: '.platform-state/runtime/tasks/CAP-001/guardrails/software-engineer-dalton-1.json',
     sessionId: 'parallel:dalton-1',
     agentId: 'software-engineer',
     agentLabel: 'Dalton · dalton-1',
@@ -204,27 +203,45 @@ describe('main.runtimeStream', () => {
     }
   });
 
-  it('§7.0C: subscribeTask causes per-task dirs to be watched; unsubscribeTask removes them', async () => {
-    const { subscribeTask, unsubscribeTask, startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+  it('derives watch targets from .active-items/<taskId> markers', async () => {
+    const { startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    let activeEntries = ['TASK-A'];
     const watchedPaths: string[] = [];
-    const closers: Array<ReturnType<typeof vi.fn>> = [];
+    const activeCallbacks: Array<() => void> = [];
+    const closeByPath = new Map<string, ReturnType<typeof vi.fn>>();
 
-    const watchFactory = vi.fn((target: string, _: { persistent: false }, _callback: () => void) => {
+    const watchFactory = vi.fn((target: string, _: { persistent: false }, callback: () => void) => {
       watchedPaths.push(target);
+      if (target.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+        activeCallbacks.push(callback);
+      }
       const close = vi.fn();
-      closers.push(close);
+      closeByPath.set(target, close);
       return { close } as unknown as FSWatcher;
     });
 
     const readSnapshot = vi.fn().mockResolvedValue({ agentTerminalSessions: [], guardrails: [] });
     const fsAdapter = {
-      access: vi.fn(async () => undefined),
+      access: vi.fn(async (path: string) => {
+        const allowed =
+          path.endsWith('.platform-state') ||
+          path.endsWith('.platform-state/runtime') ||
+          path.endsWith('.platform-state/runtime/tasks') ||
+          path.endsWith('AgentWorkSpace/pendingitems') ||
+          path.endsWith('AgentWorkSpace/pendingitems/.active-items') ||
+          path.includes('.platform-state/runtime/tasks/TASK-A');
+        if (!allowed) {
+          throw Object.assign(new Error(`Unexpected watch target: ${path}`), { code: 'ENOENT' });
+        }
+      }),
       readFile: vi.fn(async () => ''),
-      readdir: vi.fn(async () => [] as string[]),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+          return activeEntries;
+        }
+        throw Object.assign(new Error(`Unexpected readdir: ${path}`), { code: 'ENOENT' });
+      }),
     };
-
-    // Subscribe a task before starting the watcher so per-task dirs are included.
-    subscribeTask('TASK-A');
 
     const stop = startRuntimeStreamWatcher({
       fsAdapter,
@@ -234,16 +251,171 @@ describe('main.runtimeStream', () => {
 
     await vi.runAllTimersAsync();
 
-    // Per-task dir for TASK-A should appear in watched targets.
-    const taskDirWatched = watchedPaths.some((p) => p.includes('TASK-A'));
-    expect(taskDirWatched).toBe(true);
+    const roleSessionsPath = watchedPaths.find((path) =>
+      path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions'),
+    );
+    expect(roleSessionsPath).toBeDefined();
+    expect(activeCallbacks.length).toBeGreaterThan(0);
 
-    // Legacy singleton dirs (role-sessions, guardrails) should NOT be watched
-    // because a task is active.
-    const legacyRoleSessionsWatched = watchedPaths.some((p) => p.endsWith('role-sessions') && !p.includes('TASK-A'));
-    expect(legacyRoleSessionsWatched).toBe(false);
+    activeEntries = [];
+
+    for (let i = 0; i < 3; i += 1) {
+      activeCallbacks[0]?.();
+      await vi.advanceTimersByTimeAsync(200);
+    }
+
+    expect(closeByPath.get(roleSessionsPath ?? '')).toHaveBeenCalled();
 
     stop();
-    unsubscribeTask('TASK-A');
+  });
+
+  it('keeps removed active markers in the final-drain snapshot refresh', async () => {
+    const { startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    let activeEntries = ['TASK-A'];
+    const activeCallbacks: Array<() => void> = [];
+
+    const watchFactory = vi.fn((target: string, _: { persistent: false }, callback: () => void) => {
+      if (target.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+        activeCallbacks.push(callback);
+      }
+      return { close: vi.fn() } as unknown as FSWatcher;
+    });
+
+    const readSnapshot = vi.fn()
+      .mockResolvedValueOnce({
+        agentTerminalSessions: [makeSession({ taskId: 'TASK-A', terminalState: 'running' })],
+        guardrails: [],
+      })
+      .mockResolvedValueOnce({
+        agentTerminalSessions: [makeSession({ taskId: 'TASK-A', terminalState: 'completed' })],
+        guardrails: [],
+      });
+
+    const fsAdapter = {
+      access: vi.fn(async (path: string) => {
+        const allowed =
+          path.endsWith('.platform-state') ||
+          path.endsWith('.platform-state/runtime') ||
+          path.endsWith('.platform-state/runtime/tasks') ||
+          path.endsWith('AgentWorkSpace/pendingitems') ||
+          path.endsWith('AgentWorkSpace/pendingitems/.active-items') ||
+          path.includes('.platform-state/runtime/tasks/TASK-A');
+        if (!allowed) {
+          throw Object.assign(new Error(`Unexpected watch target: ${path}`), { code: 'ENOENT' });
+        }
+      }),
+      readFile: vi.fn(async () => ''),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+          return activeEntries;
+        }
+        throw Object.assign(new Error(`Unexpected readdir: ${path}`), { code: 'ENOENT' });
+      }),
+    };
+
+    const stop = startRuntimeStreamWatcher({
+      fsAdapter,
+      readSnapshot,
+      watchFactory: watchFactory as unknown as typeof import('node:fs').watch,
+    });
+
+    await vi.runAllTimersAsync();
+
+    activeEntries = [];
+    activeCallbacks[0]?.();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(readSnapshot).toHaveBeenNthCalledWith(2, fsAdapter, expect.arrayContaining(['TASK-A']));
+    expect(emitStreamEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Completed.',
+        source: 'runtime.agentSession',
+        taskId: 'TASK-A',
+      }),
+    );
+
+    stop();
+  });
+
+  it('emits task-scoped pipeline phase events for each active task', async () => {
+    const { startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    const callbacksByPath = new Map<string, Array<(_: string, filename: string) => void>>();
+
+    const watchFactory = vi.fn((
+      target: string,
+      _: { persistent: false },
+      callback: (_eventType: string, filename: string) => void,
+    ) => {
+      callbacksByPath.set(target, [...(callbacksByPath.get(target) ?? []), callback]);
+      return { close: vi.fn() } as unknown as FSWatcher;
+    });
+
+    const fsAdapter = {
+      access: vi.fn(async (path: string) => {
+        const allowed =
+          path.endsWith('.platform-state') ||
+          path.endsWith('.platform-state/runtime') ||
+          path.endsWith('.platform-state/runtime/tasks') ||
+          path.endsWith('AgentWorkSpace/pendingitems') ||
+          path.endsWith('AgentWorkSpace/pendingitems/.active-items') ||
+          path.includes('.platform-state/runtime/tasks/TASK-A') ||
+          path.includes('.platform-state/runtime/tasks/TASK-B');
+        if (!allowed) {
+          throw Object.assign(new Error(`Unexpected watch target: ${path}`), { code: 'ENOENT' });
+        }
+      }),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/pipeline-phase.json')) {
+          return JSON.stringify({ phase: 'test-capture-started' });
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-B/pipeline-phase.json')) {
+          return JSON.stringify({ phase: 'test-capture-completed' });
+        }
+        throw Object.assign(new Error(`Unexpected readFile: ${path}`), { code: 'ENOENT' });
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-A', 'TASK-B'];
+        }
+        throw Object.assign(new Error(`Unexpected readdir: ${path}`), { code: 'ENOENT' });
+      }),
+    };
+
+    const stop = startRuntimeStreamWatcher({
+      fsAdapter,
+      readSnapshot: vi.fn().mockResolvedValue({ agentTerminalSessions: [], guardrails: [] }),
+      watchFactory: watchFactory as unknown as typeof import('node:fs').watch,
+    });
+
+    await vi.runAllTimersAsync();
+
+    for (const [path, callbacks] of callbacksByPath) {
+      if (
+        path.endsWith('.platform-state/runtime/tasks/TASK-A') ||
+        path.endsWith('.platform-state/runtime/tasks/TASK-B')
+      ) {
+        for (const callback of callbacks) {
+          callback('change', 'pipeline-phase.json');
+        }
+      }
+    }
+    await vi.runAllTimersAsync();
+
+    expect(emitStreamEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Capturing test evidence.',
+        source: 'runtime.pipeline',
+        taskId: 'TASK-A',
+      }),
+    );
+    expect(emitStreamEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Test evidence captured.',
+        source: 'runtime.pipeline',
+        taskId: 'TASK-B',
+      }),
+    );
+
+    stop();
   });
 });

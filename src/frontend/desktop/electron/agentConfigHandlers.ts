@@ -4,8 +4,8 @@ import path from 'node:path';
 import {
   AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
-  AGENT_REGISTRY_RELATIVE_PATH,
 } from '../../../backend/platform/workflow-policy/index.js';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 
 import type {
   AgentConfigAddModelRequest,
@@ -180,7 +180,7 @@ async function atomicWriteJson(
 }
 
 function buildRegistryPath(repoRoot: string): string {
-  return path.join(repoRoot, AGENT_REGISTRY_RELATIVE_PATH);
+  return path.join(repoRoot, getActiveProvider(repoRoot).agentConfigPaths().registry);
 }
 
 function buildModelCatalogPath(repoRoot: string): string {
@@ -209,7 +209,9 @@ async function readRegistryDocument(
 ): Promise<AgentRegistryDocument> {
   const registryPath = buildRegistryPath(repoRoot);
   const raw = await fsAdapter.readTextFile(registryPath);
-  return normalizeRegistryDocument(parseJsonDocument(raw, AGENT_REGISTRY_RELATIVE_PATH));
+  return normalizeRegistryDocument(
+    parseJsonDocument(raw, getActiveProvider(repoRoot).agentConfigPaths().registry),
+  );
 }
 
 async function readDefaultModelCatalogDocument(

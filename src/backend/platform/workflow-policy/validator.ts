@@ -8,7 +8,6 @@ import {
   resolveSemanticSection,
 } from './artifacts.js';
 import {
-  AGENT_REGISTRY_RELATIVE_PATH,
   FAIL_CLOSED_DEFAULT_MODES,
   FINAL_SUMMARY_RELATIVE_PATH,
   HANDOFF_RELATIVE_PATHS,
@@ -18,6 +17,7 @@ import {
   countWarnings,
   createViolation,
   sortViolations,
+  getAgentRegistryRelativePath,
 } from './models.js';
 
 /**
@@ -488,13 +488,14 @@ export class PolicyValidator {
     ));
 
     if (this.requestedAgentId && !requestedAgent) {
+      const registryRelativePath = getAgentRegistryRelativePath(this.rootDir);
       guardrailViolations.push(createViolation({
         rule_id: 'guardrail.unknown-agent-id',
         severity: 'error',
         transition: this.mode,
-        artifact: AGENT_REGISTRY_RELATIVE_PATH,
+        artifact: registryRelativePath,
         message: `Requested agent ID "${this.requestedAgentId}" is not in the agent registry.`,
-        remediation: `Use a valid agent_id from ${AGENT_REGISTRY_RELATIVE_PATH}.`,
+        remediation: `Use a valid agent_id from ${registryRelativePath}.`,
       }));
     }
 

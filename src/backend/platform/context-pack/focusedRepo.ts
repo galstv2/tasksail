@@ -11,6 +11,8 @@ import {
   type FocusTarget,
   type FocusTargetKind,
   type NormalizedSupportTarget,
+  type ReadonlyContextRoot,
+  type WritableRoot,
 } from './deepFocusNormalization.js';
 import {
   resolveDistributedPrimary,
@@ -25,10 +27,10 @@ import {
 /** Result of resolving focused repos for targeting and confinement metadata. */
 export interface FocusedRepoResult {
   /**
-   * Absolute path to the primary repo root selected as Dalton's write boundary.
+   * Absolute path to the selected primary repo root.
    * Consumers may use this as the launch CWD when they still start inside the
    * focused repo, but Dalton now launches from the platform repo root and uses
-   * this value as the explicit primary implementation boundary instead.
+   * this value as the base for explicit writable/read-only roots instead.
    */
   primaryRepoRoot: string;
   /**
@@ -39,7 +41,7 @@ export interface FocusedRepoResult {
    *   current task selection
    *
    * Dalton may read from these repos for reference/research use, but writes
-   * remain confined to the explicit primary boundary above.
+   * remain confined to writableRoots when present.
    */
   visibleRepoRoots: string[];
   /** All manifest-declared repo roots for the active context pack. */
@@ -56,7 +58,7 @@ export interface FocusedRepoResult {
   deepFocusEnabled?: boolean;
   /** 'directory' or 'file' — determines confinement strategy. */
   primaryFocusTargetKind?: FocusTargetKind;
-  /** Optional second write boundary for test files. */
+  /** Optional selected test target; writableRoots carries write authority. */
   testTarget?: {
     path: string;
     kind: FocusTargetKind;
@@ -67,6 +69,10 @@ export interface FocusedRepoResult {
   selectedTestTarget?: FocusTarget | null;
   /** Normalized path-scoped support targets with resolved effective scopes. */
   supportTargets?: NormalizedSupportTarget[];
+  /** Repo-relative roots where implementation changes are authorized. */
+  writableRoots?: WritableRoot[];
+  /** Repo-relative Deep Focus context roots that must remain read-only. */
+  readonlyContextRoots?: ReadonlyContextRoot[];
   /** Advisory warnings surfaced during Deep Focus resolution. */
   warnings?: string[];
   /**
@@ -326,6 +332,12 @@ export async function resolveSelectedPrimaryRepoRoot(
         legacyPrimaryFocusRelativePath: primary.primaryFocusRelativePath,
       })
     : undefined;
+  const derivedRoots = deriveWritableRootsFromFocusedSelection({
+    primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath,
+    primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
+    testTarget: deepFocus?.testTarget,
+    supportTargets: deepFocus?.supportTargets,
+  });
 
   return {
     primaryRepoRoot: primary.repoRoot,
@@ -340,6 +352,8 @@ export async function resolveSelectedPrimaryRepoRoot(
     selectedTestTarget: deepFocus?.selectedTestTarget,
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
+    writableRoots: derivedRoots.writableRoots,
+    readonlyContextRoots: derivedRoots.readonlyContextRoots,
     warnings: deepFocus?.warnings,
     selectedRepoIds: activatedReference.repoIds,
     selectedFocusIds: selection.selectedFocusIds.length > 0
@@ -349,6 +363,206 @@ export async function resolveSelectedPrimaryRepoRoot(
         : [],
     authoritySource: selection.source,
   };
+}
+
+export function deriveWritableRootsFromFocusedSelection(options: {
+  primaryFocusRelativePath?: string;
+  primaryFocusTargetKind?: FocusTargetKind;
+  testTarget?: { path: string; kind: FocusTargetKind };
+  supportTargets?: NormalizedSupportTarget[];
+}): {
+  writableRoots: WritableRoot[];
+  readonlyContextRoots: ReadonlyContextRoot[];
+} {
+  const writableRoots: WritableRoot[] = [];
+  const readonlyContextRoots: ReadonlyContextRoot[] = [];
+  const writableSeen = new Set<string>();
+  const readonlySeen = new Set<string>();
+
+  const addWritableRoot = (root: WritableRoot): void => {
+    const normalizedRoot: WritableRoot = {
+      ...root,
+      path: normalizeRelativePath(root.path),
+    };
+    const key = [normalizedRoot.path, normalizedRoot.kind, normalizedRoot.reason].join('\0');
+    if (writableSeen.has(key)) {
+      return;
+    }
+    writableSeen.add(key);
+    writableRoots.push(normalizedRoot);
+  };
+
+  const addReadonlyContextRoot = (root: ReadonlyContextRoot): void => {
+    const normalizedRoot: ReadonlyContextRoot = {
+      ...root,
+      path: normalizeRelativePath(root.path),
+    };
+    const key = [normalizedRoot.path, normalizedRoot.kind, normalizedRoot.reason].join('\0');
+    if (readonlySeen.has(key)) {
+      return;
+    }
+    readonlySeen.add(key);
+    readonlyContextRoots.push(normalizedRoot);
+  };
+
+  const primaryPath = normalizeRelativePath(options.primaryFocusRelativePath ?? '');
+  const primaryKind = options.primaryFocusTargetKind ?? 'directory';
+  if (!primaryPath || primaryKind === 'directory') {
+    addWritableRoot({ path: primaryPath, kind: 'directory', reason: 'selected-primary' });
+  } else {
+    addWritableRoot({ path: normalizeParentRelativePath(primaryPath), kind: 'directory', reason: 'primary-focus-parent' });
+  }
+
+  if (options.testTarget) {
+    addWritableRoot({
+      path: options.testTarget.path,
+      kind: options.testTarget.kind,
+      reason: 'test-target',
+    });
+  }
+
+  for (const supportTarget of options.supportTargets ?? []) {
+    addReadonlyContextRoot({
+      path: supportTarget.path,
+      kind: supportTarget.kind,
+      reason: 'support-target',
+    });
+  }
+
+  return { writableRoots, readonlyContextRoots };
+}
+
+/**
+ * Explain why {@link resolveSelectedPrimaryRepoRoot} returned undefined.
+ *
+ * The resolver returns undefined to keep its hot path simple, but that hides
+ * the specific precondition that failed. Dalton-launch errors call this helper
+ * to surface a one-line cause (manifest missing, no authoritative selection,
+ * selectedRepoIds contains multiple primaries, primary repo has no resolvable
+ * local_path, etc.) for operators reading logs.
+ *
+ * Never throws. Always returns a non-empty string.
+ */
+export async function explainSelectedPrimaryBoundaryFailure(
+  contextPackDir: string,
+  repoRoot: string,
+): Promise<string> {
+  const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
+  const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
+  const [content, selection] = await Promise.all([
+    readTextFile(manifestPath),
+    resolveAuthoritativeSelection(resolvedPackDir, repoRoot).catch(() => undefined),
+  ]);
+
+  if (content === undefined) {
+    return `manifest is missing at "${manifestPath}".`;
+  }
+  const manifest = safeJsonParse<Manifest>(content, manifestPath);
+  if (!manifest) {
+    return `manifest at "${manifestPath}" is unparseable.`;
+  }
+  if (!selection) {
+    return (
+      'no authoritative active selection found — checked active task sidecar at ' +
+      '".platform-state/queue/active-context-pack.json" and workspace-sync state at ' +
+      '".platform-state/workspace-context-sync.json".'
+    );
+  }
+
+  const estateType = manifest.estate_type ?? 'distributed-platform';
+  if (estateType === 'monolith' || estateType === 'monolith-platform') {
+    return explainMonolithSelectionFailure(manifest, selection);
+  }
+  return explainDistributedSelectionFailure(manifest, resolvedPackDir, selection);
+}
+
+function explainDistributedSelectionFailure(
+  manifest: Manifest,
+  resolvedPackDir: string,
+  selection: AuthoritativeSelection,
+): string {
+  const repositories = Array.isArray(manifest.repositories) ? manifest.repositories : [];
+  const sourceLabel = `source: ${selection.source}`;
+  const candidateIds = selection.deepFocusEnabled === true && selection.deepFocusPrimaryRepoId
+    ? [selection.deepFocusPrimaryRepoId]
+    : selection.selectedRepoIds;
+
+  if (candidateIds.length === 0) {
+    return `authoritative selection (${sourceLabel}) has empty selectedRepoIds.`;
+  }
+  const candidateSet = new Set(candidateIds);
+  const primaryRepos = repositories.filter((repo) =>
+    repo.repo_id && candidateSet.has(repo.repo_id) && repo.repository_type === 'primary',
+  );
+  if (primaryRepos.length === 0) {
+    return (
+      `selectedRepoIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
+      'contains no repos with repository_type=primary in the manifest — exactly one required.'
+    );
+  }
+  if (primaryRepos.length > 1) {
+    const ids = primaryRepos.map((repo) => repo.repo_id ?? '<missing>').join(', ');
+    return (
+      `selectedRepoIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
+      `contains ${primaryRepos.length} repos with repository_type=primary [${ids}] — exactly one required.`
+    );
+  }
+  const primaryRepo = primaryRepos[0];
+  const repoId = primaryRepo.repo_id?.trim();
+  if (!repoId) {
+    return 'the selected primary repo has an empty repo_id.';
+  }
+  const resolved = resolveFirstLocalPath(primaryRepo, resolvedPackDir);
+  if (!resolved) {
+    const candidateCount = Array.isArray(primaryRepo.local_paths) ? primaryRepo.local_paths.length : 0;
+    return (
+      `selected primary repo "${repoId}" has no resolvable local_path on disk ` +
+      `(checked ${candidateCount} candidate path(s)).`
+    );
+  }
+  return (
+    `selected primary repo "${repoId}" resolved to "${resolved}", but the resolver returned undefined — ` +
+    'this likely indicates a logic bug.'
+  );
+}
+
+function explainMonolithSelectionFailure(
+  manifest: Manifest,
+  selection: AuthoritativeSelection,
+): string {
+  const repo = manifest.repository ?? manifest.repositories?.[0];
+  if (!repo) {
+    return 'monolith manifest has no repository entry.';
+  }
+  const sourceLabel = `source: ${selection.source}`;
+  const candidateIds = selection.deepFocusEnabled === true && selection.deepFocusPrimaryFocusId
+    ? [selection.deepFocusPrimaryFocusId]
+    : selection.selectedFocusIds;
+  if (candidateIds.length === 0) {
+    return `authoritative selection (${sourceLabel}) has empty selectedFocusIds.`;
+  }
+  const candidateSet = new Set(candidateIds);
+  const focusableAreas = Array.isArray(manifest.focusable_areas) ? manifest.focusable_areas : [];
+  const primaryAreas = focusableAreas.filter((area) =>
+    area.focus_id && candidateSet.has(area.focus_id) && area.repository_type === 'primary',
+  );
+  if (primaryAreas.length === 0) {
+    return (
+      `selectedFocusIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
+      'contains no focusable_areas with repository_type=primary in the manifest — exactly one required.'
+    );
+  }
+  if (primaryAreas.length > 1) {
+    const ids = primaryAreas.map((area) => area.focus_id ?? '<missing>').join(', ');
+    return (
+      `selectedFocusIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
+      `contains ${primaryAreas.length} focusable_areas with repository_type=primary [${ids}] — exactly one required.`
+    );
+  }
+  return (
+    `selected primary focus area "${primaryAreas[0].focus_id}" matches but the resolver returned undefined — ` +
+    'this likely indicates a logic bug.'
+  );
 }
 
 export function resolveFirstLocalPath(
@@ -854,6 +1068,10 @@ function dedupeResolvedTestTarget(
   };
 }
 
+/**
+ * Collect directory roots for planner context visibility. Dalton write authority
+ * is expressed by writableRoots/readonlyContextRoots instead.
+ */
 export function collectFocusedRepoTargetDirectoryRoots(
   focused?: Pick<
     FocusedRepoResult,

@@ -6,6 +6,7 @@ raw archive records, eliminating per-query O(n) index rebuilds.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 class _LineageIndex:
     """Pre-built lookup indexes derived from task descriptors."""
 
-    source_id: int
+    source_id: tuple[int, ...]
     by_task_id: dict[str, list[dict[str, Any]]]
     by_root: dict[str, list[dict[str, Any]]]
 
@@ -43,37 +44,40 @@ class LineageService:
         self._qmd_index = qmd_index_service
         self._render = render_lineage_summary
         self._index_cache: dict[str, _LineageIndex] = {}
+        self._index_cache_lock = threading.RLock()
 
     def invalidate_cache(self, scope_dir: Path | None = None) -> None:
-        if scope_dir is None:
-            self._index_cache.clear()
-        else:
-            self._index_cache.pop(str(scope_dir), None)
+        with self._index_cache_lock:
+            if scope_dir is None:
+                self._index_cache.clear()
+            else:
+                self._index_cache.pop(str(scope_dir), None)
 
     def _lineage_index(self, scope_dir: Path) -> _LineageIndex:
         """Return cached lineage index, rebuilding only when descriptors change."""
         key = str(scope_dir)
         descriptors = self._qmd_index.task_descriptors(scope_dir)
-        current_id = id(descriptors)
-        cached = self._index_cache.get(key)
-        if cached is not None and cached.source_id == current_id:
-            return cached
+        current_id = tuple(id(descriptor) for descriptor in descriptors)
+        with self._index_cache_lock:
+            cached = self._index_cache.get(key)
+            if cached is not None and cached.source_id == current_id:
+                return cached
 
-        by_task_id: dict[str, list[dict[str, Any]]] = {}
-        by_root: dict[str, list[dict[str, Any]]] = {}
-        for desc in descriptors:
-            tid = desc["task_id"]
-            rid = desc["root_task_id"]
-            by_task_id.setdefault(tid, []).append(desc)
-            by_root.setdefault(rid, []).append(desc)
+            by_task_id: dict[str, list[dict[str, Any]]] = {}
+            by_root: dict[str, list[dict[str, Any]]] = {}
+            for desc in descriptors:
+                tid = desc["task_id"]
+                rid = desc["root_task_id"]
+                by_task_id.setdefault(tid, []).append(desc)
+                by_root.setdefault(rid, []).append(desc)
 
-        index = _LineageIndex(
-            source_id=current_id,
-            by_task_id=by_task_id,
-            by_root=by_root,
-        )
-        self._index_cache[key] = index
-        return index
+            index = _LineageIndex(
+                source_id=current_id,
+                by_task_id=by_task_id,
+                by_root=by_root,
+            )
+            self._index_cache[key] = index
+            return index
 
     def build_task_lineage_summary(
         self,
@@ -175,10 +179,7 @@ class LineageService:
         return summary
 
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
-        return resolve_context_data_dir(
-            self._workspace_root,
-            context_pack_dir,
-        )
+        return resolve_context_data_dir(context_pack_dir)
 
     @staticmethod
     def _require_single_descriptor(

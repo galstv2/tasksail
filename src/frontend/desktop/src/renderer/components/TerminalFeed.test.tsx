@@ -143,7 +143,7 @@ describe('TerminalFeed', () => {
           brokerStatus: 'completed',
           activeTurnId: null,
           queuedTurnCount: 0,
-          copilotSessionId: 'copilot-session-1',
+          cliSessionId: 'copilot-session-1',
           lastTurnSource: 'resumed-session',
           lastTurnOutcome: 'completed',
           lastTurnAt: '2026-03-20T00:45:00.000Z',

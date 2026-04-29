@@ -407,7 +407,10 @@ None.
             "# Queue Item\n",
             encoding="utf-8",
         )
-        (workspace / "AgentWorkSpace" / "pendingitems" / ".active-item").write_text(
+        task_id = Path(file_name).stem.split("-", 1)[1].upper()
+        active_items_dir = workspace / "AgentWorkSpace" / "pendingitems" / ".active-items"
+        active_items_dir.mkdir(parents=True, exist_ok=True)
+        (active_items_dir / task_id).write_text(
             file_name,
             encoding="utf-8",
         )

@@ -17,7 +17,7 @@ if str(_SCRIPTS_PYTHON) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_PYTHON))
 
 from lib.workspace_paths import (
-    copilot_home_root,
+    cli_home_root,
     handoffs_dir,
     implementation_steps_dir,
     platform_runtime_root,
@@ -78,18 +78,29 @@ def test_implementation_steps_dir_per_task():
 
 
 # ---------------------------------------------------------------------------
-# copilot_home_root
+# cli_home_root
 # ---------------------------------------------------------------------------
 
-def test_copilot_home_root_singleton():
+def test_cli_home_root_singleton_default():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
-        assert copilot_home_root(REPO) == REPO / ".platform-state" / "runtime" / "copilot-home"
+        os.environ.pop("TASKSAIL_CLI_HOME_DIR_NAME", None)
+        assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "copilot-home"
 
 
-def test_copilot_home_root_per_task():
-    with mock.patch.dict(os.environ, {"TASKSAIL_TASK_ID": "t1"}, clear=False):
-        assert copilot_home_root(REPO) == REPO / ".platform-state" / "runtime" / "tasks" / "t1" / "copilot-home"
+def test_cli_home_root_singleton_from_env():
+    with mock.patch.dict(os.environ, {"TASKSAIL_CLI_HOME_DIR_NAME": "provider-home"}, clear=False):
+        os.environ.pop("TASKSAIL_TASK_ID", None)
+        assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "provider-home"
+
+
+def test_cli_home_root_per_task():
+    with mock.patch.dict(
+        os.environ,
+        {"TASKSAIL_TASK_ID": "t1", "TASKSAIL_CLI_HOME_DIR_NAME": "provider-home"},
+        clear=False,
+    ):
+        assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "tasks" / "t1" / "provider-home"
 
 
 # ---------------------------------------------------------------------------

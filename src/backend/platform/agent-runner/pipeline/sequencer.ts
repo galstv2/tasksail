@@ -1062,6 +1062,8 @@ function toFocusScopePromptOptions(selectedPrimary?: {
   primaryFocusTargetKind?: 'directory' | 'file';
   testTarget?: { path: string; kind: 'directory' | 'file' };
   supportTargets?: FocusScopePromptOptions['supportTargets'];
+  writableRoots?: FocusScopePromptOptions['writableRoots'];
+  readonlyContextRoots?: FocusScopePromptOptions['readonlyContextRoots'];
   estateType?: string;
 }): FocusScopePromptOptions | undefined {
   if (!selectedPrimary) {
@@ -1078,6 +1080,8 @@ function toFocusScopePromptOptions(selectedPrimary?: {
         }
       : undefined,
     supportTargets: selectedPrimary.supportTargets,
+    writableRoots: selectedPrimary.writableRoots,
+    readonlyContextRoots: selectedPrimary.readonlyContextRoots,
     estateType: selectedPrimary.estateType,
   };
 }
