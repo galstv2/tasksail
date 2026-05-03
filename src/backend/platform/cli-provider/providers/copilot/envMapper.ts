@@ -24,6 +24,7 @@ export function buildCopilotEnv(generic: GenericAgentEnv): Record<string, string
   setOptional(env, 'COPILOT_TARGET_REPOS_JSON', generic.targetReposJson);
   setOptional(env, 'COPILOT_PRIMARY_FOCUS_PATH', generic.primaryFocusPath);
   setOptional(env, 'COPILOT_PRIMARY_FOCUS_TARGET_KIND', generic.primaryFocusTargetKind);
+  setOptional(env, 'COPILOT_PRIMARY_FOCUS_TARGETS_JSON', generic.primaryFocusTargetsJson);
   setOptional(env, 'COPILOT_WRITABLE_ROOTS_JSON', generic.writableRootsJson);
   setOptional(env, 'COPILOT_READONLY_CONTEXT_ROOTS_JSON', generic.readonlyContextRootsJson);
   setOptional(env, 'COPILOT_TEST_TARGET_PATH', generic.testTargetPath);

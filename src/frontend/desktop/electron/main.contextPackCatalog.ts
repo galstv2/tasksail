@@ -9,6 +9,7 @@ import {
   type ContextPackCatalogSource,
   type ContextPackDeepFocusDerivedRoot,
   type ContextPackDeepFocusTarget,
+  type ContextPackPrimaryFocusTarget,
   type ContextPackFocusTargetKind,
   type ContextPackFocusTarget,
   type ContextPackListResponse,
@@ -39,6 +40,7 @@ type WorkspaceSyncStateSnapshot = {
   deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
   derivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];
@@ -97,7 +99,68 @@ function parseDeepFocusTargetList(
   }
   return value
     .map((target) => parseDeepFocusTarget(target))
-    .filter((target): target is ContextPackDeepFocusTarget => target !== null);
+     .filter((target): target is ContextPackDeepFocusTarget => target !== null);
+}
+
+function parseNestedDeepFocusTarget(
+  value: Record<string, unknown>,
+  camelKey: 'testTarget' | 'supportTargets',
+  snakeKey: 'test_target' | 'support_targets',
+): unknown {
+  return Object.prototype.hasOwnProperty.call(value, snakeKey)
+    ? value[snakeKey]
+    : value[camelKey];
+}
+
+function parsePrimaryFocusTargetList(
+  value: unknown,
+): ContextPackPrimaryFocusTarget[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((target): ContextPackPrimaryFocusTarget | null => {
+       const parsed = parseDeepFocusTarget(target);
+       if (!parsed || typeof target !== 'object' || target === null) {
+         return null;
+       }
+       const rawTarget = target as Record<string, unknown>;
+       const role = rawTarget.role;
+       const testTarget = parseDeepFocusTarget(
+         parseNestedDeepFocusTarget(rawTarget, 'testTarget', 'test_target'),
+       );
+       const supportTargets = parseDeepFocusTargetList(
+         parseNestedDeepFocusTarget(rawTarget, 'supportTargets', 'support_targets'),
+       );
+       const rawRepoLocalPath = Object.prototype.hasOwnProperty.call(rawTarget, 'repo_local_path')
+         ? rawTarget.repo_local_path
+         : rawTarget.repoLocalPath;
+       const repoLocalPath = typeof rawRepoLocalPath === 'string' && rawRepoLocalPath.length > 0
+         ? rawRepoLocalPath
+         : undefined;
+       const rawRepoId = Object.prototype.hasOwnProperty.call(rawTarget, 'repo_id')
+         ? rawTarget.repo_id
+         : rawTarget.repoId;
+       const repoId = typeof rawRepoId === 'string' && rawRepoId.length > 0
+         ? rawRepoId
+         : undefined;
+       const rawFocusId = Object.prototype.hasOwnProperty.call(rawTarget, 'focus_id')
+         ? rawTarget.focus_id
+         : rawTarget.focusId;
+       const focusId = typeof rawFocusId === 'string' && rawFocusId.length > 0
+         ? rawFocusId
+         : undefined;
+       return {
+         ...parsed,
+         ...(repoLocalPath ? { repoLocalPath } : {}),
+         ...(repoId ? { repoId } : {}),
+         ...(focusId ? { focusId } : {}),
+         ...(role === 'anchor' || role === 'primary' ? { role } : {}),
+        ...(testTarget ? { testTarget } : {}),
+         ...(supportTargets.length > 0 ? { supportTargets } : {}),
+       };
+     })
+    .filter((target): target is ContextPackPrimaryFocusTarget => target !== null);
 }
 
 function parseDeepFocusDerivedRoot(
@@ -109,14 +172,33 @@ function parseDeepFocusDerivedRoot(
   }
   const reason = (value as { reason?: unknown }).reason;
   if (
-    reason !== 'selected-primary'
-    && reason !== 'primary-focus-parent'
-    && reason !== 'test-target'
-    && reason !== 'support-target'
-  ) {
-    return null;
-  }
-  return { ...target, reason };
+     reason !== 'selected-primary'
+     && reason !== 'primary-focus-parent'
+     && reason !== 'test-target'
+     && reason !== 'support-target'
+     && reason !== 'scoped-test-target'
+     && reason !== 'scoped-support-target'
+   ) {
+     return null;
+   }
+   const sourceTargets = parsePrimaryFocusTargetList(
+     Object.prototype.hasOwnProperty.call(value as Record<string, unknown>, 'source_targets')
+       ? (value as Record<string, unknown>).source_targets
+       : (value as { sourceTargets?: unknown }).sourceTargets,
+   );
+    const rawRoot = value as Record<string, unknown>;
+    const rawRepoLocalPath = Object.prototype.hasOwnProperty.call(rawRoot, 'repo_local_path')
+      ? rawRoot.repo_local_path
+      : rawRoot.repoLocalPath;
+    const repoLocalPath = typeof rawRepoLocalPath === 'string' && rawRepoLocalPath.length > 0
+      ? rawRepoLocalPath
+      : undefined;
+    return {
+      ...target,
+      reason,
+      ...(repoLocalPath ? { repoLocalPath } : {}),
+      ...(sourceTargets.length > 0 ? { sourceTargets } : {}),
+    };
 }
 
 function parseDeepFocusDerivedRootList(
@@ -239,6 +321,7 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
       selectedTestTarget: undefined,
       selectedSupportTargets: [],
       derivedWritableRoots: [],
@@ -265,6 +348,7 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       deep_focus_primary_focus_id?: unknown;
       selected_focus_path?: unknown;
       selected_focus_target_kind?: unknown;
+      selected_focus_targets?: unknown;
       selected_test_target?: unknown;
       selected_support_targets?: unknown;
       derived_writable_roots?: unknown;
@@ -295,6 +379,7 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
           || state.selected_focus_target_kind === 'file')
           ? state.selected_focus_target_kind
           : null,
+      selectedFocusTargets: parsePrimaryFocusTargetList(state.selected_focus_targets),
       selectedTestTarget:
         Object.prototype.hasOwnProperty.call(state, 'selected_test_target')
           ? parseDeepFocusTarget(state.selected_test_target)
@@ -324,6 +409,7 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
       selectedTestTarget: null,
       selectedSupportTargets: [],
       derivedWritableRoots: [],
@@ -360,6 +446,7 @@ export function deriveContextPackRuntimeState(
   | 'lastAppliedDeepFocusPrimaryFocusId'
   | 'lastAppliedSelectedFocusPath'
   | 'lastAppliedSelectedFocusTargetKind'
+  | 'lastAppliedSelectedFocusTargets'
   | 'lastAppliedSelectedTestTarget'
   | 'lastAppliedSelectedSupportTargets'
   | 'lastAppliedDerivedWritableRoots'
@@ -411,6 +498,8 @@ export function deriveContextPackRuntimeState(
     lastAppliedSelectedFocusPath: stateTracksEntry ? syncState.selectedFocusPath : null,
     lastAppliedSelectedFocusTargetKind:
       stateTracksEntry ? syncState.selectedFocusTargetKind : null,
+    lastAppliedSelectedFocusTargets:
+      stateTracksEntry ? syncState.selectedFocusTargets : [],
     lastAppliedSelectedTestTarget:
       stateTracksEntry ? syncState.selectedTestTarget : undefined,
     lastAppliedSelectedSupportTargets:

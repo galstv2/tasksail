@@ -25,21 +25,21 @@
 <!-- restate the problem with technical precision; scale detail with complexity -->
 
 ### Goals
-<!-- each a measurable design objective -->
+<!-- (1+ bullet or numbered items required; prose alone fails validation — each a measurable design objective) -->
 
 ### Non-Goals
-<!-- boundaries the architecture must not cross -->
+<!-- (1+ bullet or numbered items required; prose alone fails validation — boundaries the architecture must not cross) -->
 
 ## Current State and Boundaries
 
 ### Parent Task Carry-Forward Context
-<!-- required for "child-task"; leave blank for "standard" tasks - (1-5 sentences) -->
+<!-- (required for "child-task"; leaving this blank when Task Kind is child-task fails validation. Leave blank for "standard".) -->
 
 ### Codebase Analysis
 <!-- relevant existing code, patterns, and conventions; detail proportional to scope -->
 
 ### Dependency Analysis
-<!-- internal and external dependencies; use bullets, nested subsections, tables, or code fences when authored -->
+<!-- (required) must contain a markdown table (| col | col |) or a fenced code block; bullets and prose alone fail validation. Internal and external dependencies. -->
 
 ### Change Boundaries
 <!-- what may be modified and what must remain untouched -->
@@ -72,10 +72,10 @@
 ## Validation and Evidence
 
 ### Validation Strategy
-<!-- include executable commands in a fenced code block when authored -->
+<!-- (required) must contain a fenced code block (```bash ... ```) or shell-prefixed command lines (e.g., $ pnpm test, npm run lint); narrative prose alone fails validation -->
 
 ### Test Coverage
-<!-- what tests will be added or updated; "None" if not applicable -->
+<!-- (recommended; absence triggers a warning, not an error) what tests will be added or updated; write "None" if not applicable -->
 
 ## Change Surface
 

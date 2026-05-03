@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
+import type { FocusTarget, PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import type { AgentProfile } from './types.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
 import { resolvePaths } from '../core/index.js';
@@ -71,6 +72,9 @@ export function buildAgentEnvironment(
       : {}),
     ...(options?.focused?.primaryFocusTargetKind
       ? { primaryFocusTargetKind: options.focused.primaryFocusTargetKind }
+      : {}),
+    ...(options?.focused
+      ? { primaryFocusTargetsJson: JSON.stringify(resolvePrimaryFocusTargetsForEnv(options.focused)) }
       : {}),
     ...(options?.focused?.writableRoots !== undefined
       ? {
@@ -231,8 +235,13 @@ export function buildAutonomyEnvironment(
       ? {
           primary_repo_root: focused.primaryRepoRoot,
           primary_repo_id: focused.primaryRepoId,
+          primary_repo_roots: resolvePrimaryRepoRootsForEnv(focused),
+          primary_repo_ids: resolvePrimaryRepoIdsForEnv(focused),
           visible_repo_roots: focused.visibleRepoRoots,
           primary_focus_relative_path: focused.primaryFocusRelativePath ?? null,
+          ...(focused.primaryFocusTargets
+            ? { primary_focus_targets: focused.primaryFocusTargets.map(serializePrimaryFocusTargetForEnv) }
+            : {}),
           deep_focus_enabled: focused.deepFocusEnabled ?? false,
           primary_focus_target_kind: focused.primaryFocusTargetKind ?? null,
           test_target: focused.testTarget
@@ -296,6 +305,79 @@ export function buildAutonomyEnvironment(
     // intentionally separate from RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR because
     // Dalton now launches from the platform repo root.
   };
+}
+
+type SerializedPrimaryFocusTarget = PrimaryFocusTarget & {
+  testTarget?: FocusTarget;
+  supportTargets?: FocusTarget[];
+};
+
+function resolvePrimaryFocusTargetsForEnv(focused: FocusedRepoResult): SerializedPrimaryFocusTarget[] {
+  if (focused.primaryFocusTargets?.length) {
+    return focused.primaryFocusTargets.map((target, index) => serializePrimaryFocusTargetForEnv(
+      target,
+      index,
+    ));
+  }
+  return [{
+    path: focused.primaryFocusRelativePath ?? '',
+    kind: focused.primaryFocusTargetKind ?? 'directory',
+    role: 'anchor',
+  }];
+}
+
+function resolvePrimaryRepoRootsForEnv(focused: FocusedRepoResult): string[] {
+  const roots = focused.primaryFocusTargets
+    ?.map((target) => target.repoLocalPath)
+    .filter((repoLocalPath): repoLocalPath is string => Boolean(repoLocalPath)) ?? [];
+  return uniqueNonEmpty([focused.primaryRepoRoot, ...roots]);
+}
+
+function resolvePrimaryRepoIdsForEnv(focused: FocusedRepoResult): string[] {
+  const repoIds = focused.primaryFocusTargets
+    ?.map((target) => target.repoId)
+    .filter((repoId): repoId is string => Boolean(repoId)) ?? [];
+  return uniqueNonEmpty([focused.primaryRepoId, ...repoIds]);
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  const uniqueValues: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    uniqueValues.push(value);
+  }
+  return uniqueValues;
+}
+
+function serializePrimaryFocusTargetForEnv(
+  rawTarget: PrimaryFocusTarget,
+  index?: number,
+): SerializedPrimaryFocusTarget {
+  const serialized: SerializedPrimaryFocusTarget = {
+    path: rawTarget.path,
+    kind: rawTarget.kind,
+    role: rawTarget.role ?? (index === 0 ? 'anchor' : 'primary'),
+  };
+
+  if (rawTarget.path !== '' && rawTarget.testTarget) {
+    serialized.testTarget = {
+      path: rawTarget.testTarget.path,
+      kind: rawTarget.testTarget.kind,
+    };
+  }
+
+  if (rawTarget.path !== '' && rawTarget.supportTargets?.length) {
+    serialized.supportTargets = rawTarget.supportTargets.map((supportTarget) => ({
+      path: supportTarget.path,
+      kind: supportTarget.kind,
+    }));
+  }
+
+  return serialized;
 }
 
 /**

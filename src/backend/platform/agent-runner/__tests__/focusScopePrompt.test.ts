@@ -104,4 +104,45 @@ describe('buildFocusScopeBlock', () => {
     expect(result).toContain('Writable implementation roots:');
     expect(result).toContain('`.` (selected primary)');
   });
+
+  it('renders per-primary scoped blocks and one global block', () => {
+    const result = buildFocusScopeBlock({
+      estateType: 'monolith',
+      primaryFocusRelativePath: 'apps/api',
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [
+        {
+          path: 'apps/api',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'apps/api/tests', kind: 'directory' },
+          supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+        },
+        {
+          path: 'apps/worker/handler.ts',
+          kind: 'file',
+          role: 'primary',
+          supportTargets: [{ path: 'shared/worker', kind: 'directory' }],
+        },
+      ],
+      testTarget: { path: 'tests/global', kind: 'directory' },
+      supportTargets: [
+        { path: 'docs/global.md', kind: 'file', effectiveScope: 'exact-file' },
+      ],
+      writableRoots: [{ path: 'apps/api', kind: 'directory', reason: 'selected-primary' }],
+      readonlyContextRoots: [{ path: 'docs/global.md', kind: 'file', reason: 'support-target' }],
+    });
+
+    expect(result).toContain('Per-primary focus scope:');
+    expect(result).toContain('Anchor target: `apps/api/` (directory)');
+    expect(result).toContain('  - Scoped test target: `apps/api/tests/`');
+    expect(result).toContain('    - `shared/api-types.ts` (file)');
+    expect(result).toContain('Primary target: `apps/worker/handler.ts` (file)');
+    expect(result).toContain('    - `shared/worker/` (directory)');
+    expect(result).toContain('Global test/support scope (applies to all primaries):');
+    expect(result).toContain('- Test target: `tests/global/`');
+    expect(result).toContain('  - `docs/global.md` (exact file)');
+    expect(result).toContain('Writable roots define where implementation changes may be made.');
+    expect(result).toContain('Write only inside the writable implementation roots.');
+  });
 });

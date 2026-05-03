@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ContextPackCatalogEntry, ContextPackFocusTarget } from '../../shared/desktopContract';
 import {
   EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE,
+  isDeepFocusStateEqual,
   orderKnownFocusIds,
   selectLastAppliedDeepFocusState,
   selectPreferredDeepFocusState,
@@ -76,6 +77,7 @@ describe('deep focus selectors', () => {
       deepFocusPrimaryFocusId: null,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [],
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
       derivedWritableRoots: [],
@@ -130,11 +132,101 @@ describe('deep focus selectors', () => {
       deepFocusPrimaryFocusId: null,
       selectedFocusPath: 'src/live',
       selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [],
       selectedTestTarget: null,
       selectedSupportTargets: [],
       derivedWritableRoots: [],
       derivedReadonlyContextRoots: [],
     });
+  });
+
+  it('treats same path and kind in different repos as different state', () => {
+    const baseState = {
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'tools',
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: 'src',
+      selectedFocusTargetKind: 'directory' as const,
+      selectedFocusTargets: [
+        {
+          path: 'src',
+          kind: 'directory' as const,
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'anchor' as const,
+        },
+      ],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      derivedWritableRoots: [],
+      derivedReadonlyContextRoots: [],
+    };
+
+    expect(
+      isDeepFocusStateEqual(baseState, {
+        ...baseState,
+        deepFocusPrimaryRepoId: 'platform',
+        selectedFocusTargets: [
+          {
+            path: 'src',
+            kind: 'directory',
+            repoLocalPath: '/repos/platform',
+            repoId: 'platform',
+            role: 'anchor',
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('includes derived root repoLocalPath in equality', () => {
+    const baseState = {
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'tools',
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: 'src',
+      selectedFocusTargetKind: 'directory' as const,
+      selectedFocusTargets: [
+        {
+          path: 'src',
+          kind: 'directory' as const,
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'anchor' as const,
+        },
+      ],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      derivedWritableRoots: [
+        {
+          path: 'src',
+          kind: 'directory' as const,
+          reason: 'selected-primary' as const,
+          repoLocalPath: '/repos/tools',
+          sourceTargets: [
+            {
+              path: 'src',
+              kind: 'directory' as const,
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              role: 'anchor' as const,
+            },
+          ],
+        },
+      ],
+      derivedReadonlyContextRoots: [],
+    };
+    const nextState = {
+      ...baseState,
+      derivedWritableRoots: [
+        {
+          ...baseState.derivedWritableRoots[0],
+          repoLocalPath: '/repos/platform',
+        },
+      ],
+    };
+
+    expect(isDeepFocusStateEqual(baseState, nextState)).toBe(false);
   });
 });
 

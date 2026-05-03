@@ -3,6 +3,7 @@ import type {
   ContextPackDeepFocusState,
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
+  ContextPackPrimaryFocusTarget,
   ContextPackSwitchDeepFocusSelection,
 } from './desktopContractDeepFocus';
 
@@ -250,6 +251,7 @@ export type ContextPackCatalogEntry = {
   lastAppliedDeepFocusPrimaryFocusId?: string | null;
   lastAppliedSelectedFocusPath?: string | null;
   lastAppliedSelectedFocusTargetKind?: ContextPackFocusTargetKind | null;
+  lastAppliedSelectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   lastAppliedSelectedTestTarget?: ContextPackDeepFocusTarget | null;
   lastAppliedSelectedSupportTargets?: ContextPackDeepFocusTarget[];
   lastAppliedDerivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];

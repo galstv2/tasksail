@@ -4,6 +4,7 @@ import type {
   ContextPackCatalogEntry,
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
+  ContextPackPrimaryFocusTarget,
   ContextPackListResponse,
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
@@ -30,6 +31,7 @@ export type SwitchingStateSnapshot = {
   deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
@@ -82,6 +84,7 @@ export function useContextPackSwitching(
         deepFocusPrimaryFocusId,
         selectedFocusPath,
         selectedFocusTargetKind,
+        selectedFocusTargets,
         selectedTestTarget,
         selectedSupportTargets,
       } = getState();
@@ -155,6 +158,7 @@ export function useContextPackSwitching(
               deepFocusPrimaryFocusId,
               selectedFocusPath,
               selectedFocusTargetKind,
+              selectedFocusTargets,
               selectedTestTarget,
               selectedSupportTargets,
             }

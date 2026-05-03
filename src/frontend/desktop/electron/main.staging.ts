@@ -13,6 +13,7 @@ import type {
   FocusTarget,
   FocusTargetKind,
   NormalizedSupportTarget,
+  PrimaryFocusTarget,
 } from '../../../backend/platform/context-pack/deepFocusNormalization.js';
 import { sleep } from '../../../backend/platform/core/io.js';
 import { slugify } from '../../../backend/platform/core/text.js';
@@ -49,6 +50,7 @@ export type PlannerStagingContextPackBinding = {
   deepFocusEnabled: boolean;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: FocusTargetKind | null;
+  selectedFocusTargets: PrimaryFocusTarget[];
   selectedTestTarget: FocusTarget | null;
   selectedSupportTargets: NormalizedSupportTarget[];
 };
@@ -66,6 +68,7 @@ export type PlannerStagingSidecar = {
   primaryFocusRelativePath: string | null;
   deepFocusEnabled: boolean;
   primaryFocusTargetKind: FocusTargetKind | null;
+  primaryFocusTargets: PrimaryFocusTarget[];
   selectedTestTarget: FocusTarget | null;
   supportTargets: NormalizedSupportTarget[];
   lineage: PlannerStagingLineage;
@@ -89,6 +92,7 @@ export type InitializeStagedPlanningDraftOptions = {
     | 'primaryFocusRelativePath'
     | 'deepFocusEnabled'
     | 'primaryFocusTargetKind'
+    | 'primaryFocusTargets'
     | 'selectedTestTarget'
     | 'supportTargets'
     | 'selectedRepoIds'
@@ -124,6 +128,26 @@ function normalizeIsoTimestamp(now: Date): string {
 
 function trimOrEmpty(value?: string | null): string {
   return value?.trim() ?? '';
+}
+
+function cloneFocusTarget<T extends FocusTarget | NormalizedSupportTarget>(target: T): T {
+  return { ...target };
+}
+
+function clonePrimaryFocusTarget(target: PrimaryFocusTarget): PrimaryFocusTarget {
+  const scopedTarget = target as PrimaryFocusTarget & {
+    testTarget?: FocusTarget | null;
+    supportTargets?: FocusTarget[];
+  };
+  return {
+    ...target,
+    ...(scopedTarget.testTarget !== undefined
+      ? { testTarget: scopedTarget.testTarget === null ? null : cloneFocusTarget(scopedTarget.testTarget) }
+      : {}),
+    ...(scopedTarget.supportTargets
+      ? { supportTargets: scopedTarget.supportTargets.map((supportTarget) => cloneFocusTarget(supportTarget)) }
+      : {}),
+  };
 }
 
 function buildPlannerStagedFilename(title: string, now: Date): string {
@@ -193,6 +217,7 @@ export function derivePlannerDraftTitle(args: {
   primaryRepoRoot?: string | null;
   primaryFocusRelativePath?: string | null;
   primaryFocusTargetKind?: FocusTargetKind | null;
+  primaryFocusTargets?: PrimaryFocusTarget[] | null;
 }): string {
   const primaryRepoId = trimOrEmpty(args.primaryRepoId);
   const primaryRepoRoot = trimOrEmpty(args.primaryRepoRoot);
@@ -203,6 +228,27 @@ export function derivePlannerDraftTitle(args: {
   }
 
   const primaryFocusRelativePath = trimOrEmpty(args.primaryFocusRelativePath);
+  const primaryFocusTargets = (args.primaryFocusTargets ?? []).filter((target) => target.path !== undefined);
+  if (primaryFocusTargets.length > 1) {
+    const anchor = primaryFocusTargets.find((target) => target.role === 'anchor') ?? primaryFocusTargets[0]!;
+    const anchorPath = trimOrEmpty(anchor.path);
+    const parentPaths = new Set(primaryFocusTargets.map((target) => {
+      const normalized = trimOrEmpty(target.path);
+      if (!normalized) return '';
+      const slashIndex = normalized.lastIndexOf('/');
+      return slashIndex >= 0 ? normalized.slice(0, slashIndex) : '';
+    }));
+    if (parentPaths.size === 1) {
+      const parent = [...parentPaths][0]!;
+      return parent
+        ? `${baseTitle} / ${parent} (+${primaryFocusTargets.length} targets)`
+        : `${baseTitle} (+${primaryFocusTargets.length} targets)`;
+    }
+    const title = anchorPath ? `${baseTitle} / ${anchorPath}` : baseTitle;
+    return anchor.kind === 'file'
+      ? `${title} (file, +${primaryFocusTargets.length - 1} targets)`
+      : `${title} (+${primaryFocusTargets.length - 1} targets)`;
+  }
   if (!primaryFocusRelativePath) {
     return baseTitle;
   }
@@ -337,6 +383,7 @@ export async function initializeStagedPlanningDraft(
     primaryRepoRoot: options.focusedRepo?.primaryRepoRoot,
     primaryFocusRelativePath: options.focusedRepo?.primaryFocusRelativePath,
     primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind,
+    primaryFocusTargets: options.focusedRepo?.primaryFocusTargets,
   });
 
   if (!title) {
@@ -353,6 +400,9 @@ export async function initializeStagedPlanningDraft(
   const deepFocusSupportTargets = isDeepFocus
     ? options.focusedRepo!.supportTargets?.map((target) => ({ ...target })) ?? []
     : [];
+  const deepFocusPrimaryTargets = isDeepFocus
+    ? options.focusedRepo!.primaryFocusTargets?.map(clonePrimaryFocusTarget) ?? []
+    : [];
 
   const metadata: PlannerStagingSidecar = {
     version: 1,
@@ -367,6 +417,7 @@ export async function initializeStagedPlanningDraft(
     primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
     deepFocusEnabled: isDeepFocus,
     primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
+    primaryFocusTargets: deepFocusPrimaryTargets,
     selectedTestTarget: deepFocusTestTarget,
     supportTargets: deepFocusSupportTargets,
     lineage: {
@@ -386,6 +437,7 @@ export async function initializeStagedPlanningDraft(
       deepFocusEnabled: isDeepFocus,
       selectedFocusPath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
       selectedFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
+      selectedFocusTargets: deepFocusPrimaryTargets,
       selectedTestTarget: deepFocusTestTarget,
       selectedSupportTargets: deepFocusSupportTargets,
     },

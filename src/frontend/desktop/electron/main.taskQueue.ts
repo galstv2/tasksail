@@ -5,10 +5,15 @@ import {
   type FollowUpDirectSubmissionDraft,
   type PlannerDirectSubmissionDraft,
 } from '../src/shared/desktopContract';
-import type { ContextPackDeepFocusTarget } from '../src/shared/desktopContractDeepFocus';
+import type { ContextPackDeepFocusTarget, ContextPackPrimaryFocusTarget } from '../src/shared/desktopContractDeepFocus';
 import { emitStreamEvent } from './main.stream';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
+import { publishPendingItem } from '../../../backend/platform/queue/publishPendingItem.js';
+import {
+  ACTIVATION_GATE_REASON,
+  type ActivateNextPendingItemResult,
+} from '../../../backend/platform/queue/operations.js';
 import {
   readDeepFocusOverlay,
   resolveFocusedRepoRoot,
@@ -46,6 +51,29 @@ export type FollowUpScriptRunner = (options: {
   planningNotes: string;
 }) => Promise<string | { filePath: string; title: string; rootTaskId: string }>;
 
+function emitPostPublishActivationEvent(
+  activation: ActivateNextPendingItemResult,
+  source: string,
+): void {
+  if (activation.activated) {
+    emitStreamEvent({
+      message: `Activated next pending item after publish.`,
+      source,
+      role: 'workflow',
+      severity: 'info',
+    });
+    return;
+  }
+  if (activation.reason === ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED) {
+    emitStreamEvent({
+      message: `Published; another task already active (cap reached). Will activate when cap frees up.`,
+      source,
+      role: 'workflow',
+      severity: 'info',
+    });
+  }
+}
+
 type WorkspaceSyncState = Awaited<ReturnType<typeof readWorkspaceSyncStateSnapshot>>;
 
 type ResolvedDirectSubmissionContext = {
@@ -58,6 +86,7 @@ type ResolvedDirectSubmissionContext = {
   deepFocusEnabled?: boolean;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget?: ContextPackDeepFocusTarget | null;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
   contextPackName: string;
@@ -116,6 +145,7 @@ async function resolveDirectSubmissionContext(
     primaryRepoRoot: focused.primaryRepoRoot,
     primaryFocusRelativePath: focused.primaryFocusRelativePath,
     primaryFocusTargetKind: focused.primaryFocusTargetKind,
+    primaryFocusTargets: focused.primaryFocusTargets,
   }).trim();
   if (!title) {
     throw new Error('Direct queue submission blocked: canonical title derivation returned an empty value.');
@@ -126,6 +156,7 @@ async function resolveDirectSubmissionContext(
     ? true
     : syncState.deepFocusEnabled;
   const overlaySupportTargets = overlay?.selectedSupportTargets;
+  const overlayFocusTargets = overlay?.selectedFocusTargets;
   return {
     title,
     contextPackDir,
@@ -144,6 +175,9 @@ async function resolveDirectSubmissionContext(
     selectedFocusTargetKind: deepFocusEnabled
       ? overlay?.selectedFocusTargetKind ?? syncState.selectedFocusTargetKind
       : null,
+    selectedFocusTargets: deepFocusEnabled
+      ? overlayFocusTargets ?? syncState.selectedFocusTargets
+      : [],
     selectedTestTarget: deepFocusEnabled
       ? overlay?.selectedTestTarget !== undefined
         ? overlay.selectedTestTarget
@@ -282,27 +316,35 @@ export async function runDropboxTaskScript(options: {
   // Capture the operator's active context pack focus state at submission time.
   const syncState = await readWorkspaceSyncStateSnapshot();
   const context = await resolveDirectSubmissionContext(syncState);
-  const filePath = await createDropboxTask({
-    title: context.title,
-    summary: options.summary,
-    desiredOutcome: options.desiredOutcome,
-    constraints: options.constraints,
-    acceptanceSignals: options.acceptanceSignals,
-    suggestedPath: options.suggestedPath,
-    planningNotes: options.planningNotes,
-    kind: options.kind,
+  const { destinationPath: filePath, activation } = await publishPendingItem({
+    publish: () =>
+      createDropboxTask({
+        title: context.title,
+        summary: options.summary,
+        desiredOutcome: options.desiredOutcome,
+        constraints: options.constraints,
+        acceptanceSignals: options.acceptanceSignals,
+        suggestedPath: options.suggestedPath,
+        planningNotes: options.planningNotes,
+        kind: options.kind,
+        contextPackDir: context.contextPackDir,
+        contextPackId: context.contextPackId,
+        scopeMode: context.scopeMode,
+        selectedRepoIds: context.selectedRepoIds,
+        selectedFocusIds: context.selectedFocusIds,
+        deepFocusEnabled: context.deepFocusEnabled,
+        selectedFocusPath: context.selectedFocusPath,
+        selectedFocusTargetKind: context.selectedFocusTargetKind,
+        selectedFocusTargets: context.selectedFocusTargets,
+        selectedTestTarget: context.selectedTestTarget,
+        selectedSupportTargets: context.selectedSupportTargets,
+      }),
+    repoRoot: REPO_ROOT,
     contextPackDir: context.contextPackDir,
-    contextPackId: context.contextPackId,
-    scopeMode: context.scopeMode,
-    selectedRepoIds: context.selectedRepoIds,
-    selectedFocusIds: context.selectedFocusIds,
-    deepFocusEnabled: context.deepFocusEnabled,
-    selectedFocusPath: context.selectedFocusPath,
-    selectedFocusTargetKind: context.selectedFocusTargetKind,
-    selectedTestTarget: context.selectedTestTarget,
-    selectedSupportTargets: context.selectedSupportTargets,
+    lockOperationName: 'runDropboxTaskScript',
   });
   emitStreamEvent({ message: `Created dropbox task: ${filePath}`, source: 'createDropboxTask', role: 'queue' });
+  emitPostPublishActivationEvent(activation, 'runDropboxTaskScript');
   return { filePath, title: context.title };
 }
 
@@ -326,32 +368,40 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
     options.parentTaskId,
     taskArchiveReader,
   );
-  const filePath = await createFollowupTask({
-    title: context.title,
-    summary: options.summary,
-    desiredOutcome: options.desiredOutcome,
-    constraints: options.constraints,
-    acceptanceSignals: options.acceptanceSignals,
-    parentTaskId: options.parentTaskId,
-    parentQmdScope: parentMetadata.parentQmdScope,
-    parentQmdRecordId: parentMetadata.parentQmdRecordId,
-    rootTaskId: parentMetadata.rootTaskId,
-    followupReason: options.followupReason,
-    carryForwardSummary: options.carryForwardSummary,
-    suggestedPath: options.suggestedPath,
-    planningNotes: options.planningNotes,
+  const { destinationPath: filePath, activation } = await publishPendingItem({
+    publish: () =>
+      createFollowupTask({
+        title: context.title,
+        summary: options.summary,
+        desiredOutcome: options.desiredOutcome,
+        constraints: options.constraints,
+        acceptanceSignals: options.acceptanceSignals,
+        parentTaskId: options.parentTaskId,
+        parentQmdScope: parentMetadata.parentQmdScope,
+        parentQmdRecordId: parentMetadata.parentQmdRecordId,
+        rootTaskId: parentMetadata.rootTaskId,
+        followupReason: options.followupReason,
+        carryForwardSummary: options.carryForwardSummary,
+        suggestedPath: options.suggestedPath,
+        planningNotes: options.planningNotes,
+        contextPackDir: context.contextPackDir,
+        contextPackId: context.contextPackId,
+        scopeMode: context.scopeMode,
+        selectedRepoIds: context.selectedRepoIds,
+        selectedFocusIds: context.selectedFocusIds,
+        deepFocusEnabled: context.deepFocusEnabled,
+        selectedFocusPath: context.selectedFocusPath,
+        selectedFocusTargetKind: context.selectedFocusTargetKind,
+        selectedFocusTargets: context.selectedFocusTargets,
+        selectedTestTarget: context.selectedTestTarget,
+        selectedSupportTargets: context.selectedSupportTargets,
+      }),
+    repoRoot: REPO_ROOT,
     contextPackDir: context.contextPackDir,
-    contextPackId: context.contextPackId,
-    scopeMode: context.scopeMode,
-    selectedRepoIds: context.selectedRepoIds,
-    selectedFocusIds: context.selectedFocusIds,
-    deepFocusEnabled: context.deepFocusEnabled,
-    selectedFocusPath: context.selectedFocusPath,
-    selectedFocusTargetKind: context.selectedFocusTargetKind,
-    selectedTestTarget: context.selectedTestTarget,
-    selectedSupportTargets: context.selectedSupportTargets,
+    lockOperationName: 'runFollowUpTaskScript',
   });
   emitStreamEvent({ message: `Created child-task follow-up: ${filePath}`, source: 'createFollowupTask', role: 'queue' });
+  emitPostPublishActivationEvent(activation, 'runFollowUpTaskScript');
   return { filePath, title: context.title, rootTaskId: parentMetadata.rootTaskId };
 }
 
@@ -464,31 +514,39 @@ export async function submitUploadedSpecHelper(
   }
 
   try {
-    const filePath = await createDropboxTask({
-      title: context.title,
-      summary: editableDraft.summary,
-      desiredOutcome: editableDraft.desiredOutcome,
-      constraints: editableDraft.constraints,
-      acceptanceSignals: editableDraft.acceptanceSignals,
-      suggestedPath: editableDraft.suggestedPath,
-      planningNotes: editableDraft.planningNotes,
-      kind: 'standard',
+    const { destinationPath: filePath, activation } = await publishPendingItem({
+      publish: () =>
+        createDropboxTask({
+          title: context.title,
+          summary: editableDraft.summary,
+          desiredOutcome: editableDraft.desiredOutcome,
+          constraints: editableDraft.constraints,
+          acceptanceSignals: editableDraft.acceptanceSignals,
+          suggestedPath: editableDraft.suggestedPath,
+          planningNotes: editableDraft.planningNotes,
+          kind: 'standard',
+          contextPackDir: context.contextPackDir,
+          contextPackId: context.contextPackId,
+          scopeMode: context.scopeMode,
+          selectedRepoIds: context.selectedRepoIds,
+          selectedFocusIds: context.selectedFocusIds,
+          deepFocusEnabled: context.deepFocusEnabled,
+          selectedFocusPath: context.selectedFocusPath,
+          selectedFocusTargetKind: context.selectedFocusTargetKind,
+          selectedFocusTargets: context.selectedFocusTargets,
+          selectedTestTarget: context.selectedTestTarget,
+          selectedSupportTargets: context.selectedSupportTargets,
+        }),
+      repoRoot: REPO_ROOT,
       contextPackDir: context.contextPackDir,
-      contextPackId: context.contextPackId,
-      scopeMode: context.scopeMode,
-      selectedRepoIds: context.selectedRepoIds,
-      selectedFocusIds: context.selectedFocusIds,
-      deepFocusEnabled: context.deepFocusEnabled,
-      selectedFocusPath: context.selectedFocusPath,
-      selectedFocusTargetKind: context.selectedFocusTargetKind,
-      selectedTestTarget: context.selectedTestTarget,
-      selectedSupportTargets: context.selectedSupportTargets,
+      lockOperationName: 'planner.uploadSpec',
     });
     emitStreamEvent({
       message: `Uploaded spec submitted to dropbox: ${filePath}`,
       source: 'planner.uploadSpec',
       role: 'queue',
     });
+    emitPostPublishActivationEvent(activation, 'planner.uploadSpec');
     return {
       ok: true,
       response: {

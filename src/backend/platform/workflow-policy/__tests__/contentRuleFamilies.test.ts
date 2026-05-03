@@ -188,6 +188,82 @@ describe('workflow-policy content rule families', () => {
     );
   });
 
+  it('accepts Recommended Execution case-insensitively and rejects unrelated values', async () => {
+    const acceptedValues = ['simple', 'Simple', 'SIMPLE', 'complex', 'Complex', 'COMPLEX'];
+
+    for (const value of acceptedValues) {
+      const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-routing-'));
+      createdRoots.push(repoRoot);
+      createRegistryFixture(repoRoot);
+      createBlankHandoffs(repoRoot);
+
+      writeRepoFile(
+        repoRoot,
+        'AgentWorkSpace/dropbox/request.md',
+        [
+          '# Routing request',
+          '',
+          '## Request Summary',
+          'Update routing validation so recommended execution case does not matter.',
+          '',
+          '## Desired Outcome',
+          'The intake validator accepts common casing variants.',
+          '',
+          '## Acceptance Signals',
+          '- Recommended Execution values pass regardless of case.',
+          '',
+          '## Suggested Routing',
+          `- Recommended Execution: ${value}`,
+        ].join('\n'),
+      );
+
+      const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+      await validator.initialize();
+      await evaluateIntakeQualityRules(validator);
+
+      expect(validator.violations).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ rule_id: 'intake.routing-recommendation-valid' }),
+        ]),
+      );
+    }
+
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-routing-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createBlankHandoffs(repoRoot);
+
+    writeRepoFile(
+      repoRoot,
+      'AgentWorkSpace/dropbox/request.md',
+      [
+        '# Routing request',
+        '',
+        '## Request Summary',
+        'Update routing validation so recommended execution case does not matter.',
+        '',
+        '## Desired Outcome',
+        'The intake validator still rejects unsupported values.',
+        '',
+        '## Acceptance Signals',
+        '- Unsupported Recommended Execution values fail validation.',
+        '',
+        '## Suggested Routing',
+        '- Recommended Execution: medium',
+      ].join('\n'),
+    );
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateIntakeQualityRules(validator);
+
+    expect(validator.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule_id: 'intake.routing-recommendation-valid' }),
+      ]),
+    );
+  });
+
   it('enforces spec structure, executable validation strategy, and child carry-forward parity', async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-spec-'));
     createdRoots.push(repoRoot);

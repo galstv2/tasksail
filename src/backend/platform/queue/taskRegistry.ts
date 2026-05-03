@@ -15,6 +15,7 @@ import {
   extractContextPackBinding,
   type TaskContextPackTarget,
 } from './markdown.js';
+import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 
 const REGISTRY_RELATIVE_PATH = '.platform-state/task-registry.json';
 const SCHEMA_VERSION = 2;
@@ -35,6 +36,7 @@ export interface TaskRegistryEntry {
   deepFocusEnabled?: boolean;
   selectedFocusPath?: string;
   selectedFocusTargetKind?: 'directory' | 'file';
+  selectedFocusTargets?: PrimaryFocusTarget[];
   selectedTestTarget?: TaskContextPackTarget | null;
   selectedSupportTargets?: TaskContextPackTarget[];
   createdAt: string | null;
@@ -401,6 +403,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
         deepFocusEnabled: binding?.deepFocusEnabled,
         selectedFocusPath: binding?.selectedFocusPath,
         selectedFocusTargetKind: binding?.selectedFocusTargetKind,
+        selectedFocusTargets: binding?.selectedFocusTargets,
         selectedTestTarget: binding?.selectedTestTarget,
         selectedSupportTargets: binding?.selectedSupportTargets,
         createdAt: null,

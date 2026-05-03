@@ -138,6 +138,62 @@ describe('planner staging helpers', () => {
     }));
   });
 
+  it('carries scoped primary fields through the planner staging sidecar', async () => {
+    const {
+      initializeStagedPlanningDraft,
+      readPlannerStagingSidecar,
+    } = await import('../main.staging');
+
+    await initializeStagedPlanningDraft({
+      sessionId: 'planner-110',
+      contextPackDir: '/contextpacks/orders',
+      focusedRepo: {
+        primaryRepoId: 'backend',
+        primaryRepoRoot: '/repos/backend',
+        primaryFocusRelativePath: 'src/orders',
+        deepFocusEnabled: true,
+        primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: [
+          {
+            path: 'src/orders',
+            kind: 'directory',
+            role: 'anchor',
+            testTarget: { path: 'tests/orders', kind: 'directory' },
+            supportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+          } as never,
+        ],
+        selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders', kind: 'directory', effectiveScope: 'full-directory' }],
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: [],
+      },
+      now: new Date('2026-02-09T10:11:13.000Z'),
+    });
+
+    await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
+      primaryFocusTargets: [
+        {
+          path: 'src/orders',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'tests/orders', kind: 'directory' },
+          supportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+        },
+      ],
+      contextPackBinding: expect.objectContaining({
+        selectedFocusTargets: [
+          {
+            path: 'src/orders',
+            kind: 'directory',
+            role: 'anchor',
+            testTarget: { path: 'tests/orders', kind: 'directory' },
+            supportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+          },
+        ],
+      }),
+    }));
+  });
+
   it('derives child-task lineage defaults during staged draft initialization', async () => {
     const {
       initializeStagedPlanningDraft,

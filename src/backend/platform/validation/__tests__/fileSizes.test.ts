@@ -44,6 +44,7 @@ describe('FILE_SIZE_LIMITS', () => {
     expect(FILE_SIZE_LIMITS['.sh']).toBe(1000);
     expect(FILE_SIZE_LIMITS['.ts']).toBe(1000);
     expect(FILE_SIZE_LIMITS['.tsx']).toBe(1000);
+    expect(FILE_SIZE_LIMITS['.css']).toBe(600);
   });
 });
 

@@ -235,7 +235,7 @@ function validateSuggestedRouting(
     if ((match[1] ?? '').trim() !== 'Recommended Execution') {
       continue;
     }
-    const value = (match[2] ?? '').trim();
+    const value = (match[2] ?? '').trim().toLowerCase();
     if (value === 'simple' || value === 'complex') {
       return;
     }
@@ -243,7 +243,7 @@ function validateSuggestedRouting(
       rule_id: 'intake.routing-recommendation-valid',
       artifact: relPath,
       message: "Suggested Routing must set 'Recommended Execution' to 'Simple' or 'Complex'.",
-      remediation: `Set '- Recommended Execution: simple' or '- Recommended Execution: complex' in ${relPath}.`,
+      remediation: `Set '- Recommended Execution: Simple' or '- Recommended Execution: Complex' in ${relPath}.`,
     });
     return;
   }

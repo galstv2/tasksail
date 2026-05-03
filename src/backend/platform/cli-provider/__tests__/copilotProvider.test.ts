@@ -48,7 +48,7 @@ describe('copilotProvider', () => {
       profiles: '.github/agents',
       registry: '.github/agents/registry.json',
     });
-    expect(copilotProvider.resolvePromptPath('close-task')).toBe('.github/copilot/prompts/close-task.prompt.md');
+    expect(copilotProvider.resolvePromptPath('plan-task')).toBe('.github/copilot/prompts/plan-task.prompt.md');
     expect(copilotProvider.requiredDirs()).toEqual(['.github/agents', '.github/copilot']);
     expect(copilotProvider.requiredEnvKeys()).toEqual(['COPILOT_MODEL', 'COPILOT_AGENT_ID']);
     expect(copilotProvider.promptPathEnvVars()).toEqual({
@@ -135,6 +135,7 @@ describe('copilotProvider', () => {
       targetReposJson: '["/repo"]',
       primaryFocusPath: 'src/index.ts',
       primaryFocusTargetKind: 'file',
+      primaryFocusTargetsJson: '[{"path":"src/index.ts","kind":"file","role":"anchor","testTarget":{"path":"tests/index.test.ts","kind":"file"},"supportTargets":[{"path":"src/types.ts","kind":"file"}]},{"path":"src/admin.ts","kind":"file","role":"primary"}]',
       writableRootsJson: '[{"path":"src","kind":"directory","reason":"primary-focus-parent"}]',
       readonlyContextRootsJson: '[{"path":"docs","kind":"directory","reason":"support-target"}]',
       testTargetPath: 'tests/index.test.ts',
@@ -153,6 +154,7 @@ describe('copilotProvider', () => {
       COPILOT_TARGET_REPOS_JSON: '["/repo"]',
       COPILOT_PRIMARY_FOCUS_PATH: 'src/index.ts',
       COPILOT_PRIMARY_FOCUS_TARGET_KIND: 'file',
+      COPILOT_PRIMARY_FOCUS_TARGETS_JSON: '[{"path":"src/index.ts","kind":"file","role":"anchor","testTarget":{"path":"tests/index.test.ts","kind":"file"},"supportTargets":[{"path":"src/types.ts","kind":"file"}]},{"path":"src/admin.ts","kind":"file","role":"primary"}]',
       COPILOT_WRITABLE_ROOTS_JSON: '[{"path":"src","kind":"directory","reason":"primary-focus-parent"}]',
       COPILOT_READONLY_CONTEXT_ROOTS_JSON: '[{"path":"docs","kind":"directory","reason":"support-target"}]',
       COPILOT_TEST_TARGET_PATH: 'tests/index.test.ts',

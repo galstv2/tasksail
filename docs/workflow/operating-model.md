@@ -64,7 +64,7 @@ Named workflow team: Planning Agent (Lily), Product Manager (Alice), Software En
 Lily is operator-facing pre-task planning only. Automated task execution starts after queue activation and runs the unattended active-task pipeline: Alice → Dalton → Ron.
 
 1. Lily, the Planning Agent, or the operator places a markdown request in `AgentWorkSpace/dropbox/`.
-2. `pnpm run watch-dropbox` moves the file into `AgentWorkSpace/pendingitems/`.
+2. The publish path moves the file into `AgentWorkSpace/pendingitems/`.
 3. Non-markdown files in `AgentWorkSpace/dropbox/` are ignored and generate a warning once per
    poll loop.
 4. The queue activates the oldest pending item when `AgentWorkSpace/tasks/<taskId>/handoffs/` is in a reset
@@ -89,7 +89,7 @@ Lily is operator-facing pre-task planning only. Automated task execution starts 
    - each slice must name expected files, done criteria, test requirements, and
      validation commands
    - `AgentWorkSpace/tasks/<taskId>/handoffs/parallel-ok.md` signals task complexity — PM
-     writes "Complex" to trigger fleet Dalton mode or "Simple" for singleton
+     writes "Complex" to trigger parallel Dalton execution or "Simple" for singleton
      mode, only when slice independence is real rather than assumed
 2. Dalton, the Software Engineer, implements the assigned slice or slices.
 3. Ron, QA and Closeout, reviews the task, records issues in

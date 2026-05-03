@@ -1,0 +1,121 @@
+/*
+ * Deep Focus scope rail navigation.
+ * Owns .deep-focus-scope-rail* selectors.
+ */
+.deep-focus-scope-rail {
+  flex-shrink: 0;
+  border-bottom: none;
+  background: var(--df-surface, var(--ts-surface));
+}
+
+.deep-focus-scope-rail__scroller {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0.35rem 0.6rem 0.45rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--df-border-medium, var(--ts-border-strong)) transparent;
+}
+
+.deep-focus-scope-rail__scroller::-webkit-scrollbar {
+  height: 6px;
+}
+
+.deep-focus-scope-rail__scroller::-webkit-scrollbar-thumb {
+  background: var(--df-border-medium, var(--ts-border-strong));
+  border-radius: var(--ts-radius-pill);
+}
+
+/* Capsules sit directly under the editor title and serve as compact scope controls. */
+.deep-focus-scope-rail__capsule {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 200px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-pill);
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-family: inherit;
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-secondary-line, 1.3);
+  letter-spacing: var(--df-text-secondary-tracking, 0.005em);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 160ms var(--ts-ease);
+}
+
+.deep-focus-scope-rail__capsule--global {
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+}
+
+.deep-focus-scope-rail__capsule--active {
+  border-color: var(--df-accent, var(--ts-accent));
+  background: var(--df-accent-soft, var(--ts-accent-subtle));
+  color: var(--df-text-primary, var(--ts-text));
+  box-shadow: 0 1px 7px color-mix(in srgb, var(--df-accent, var(--ts-accent)) 38%, transparent);
+}
+
+.deep-focus-scope-rail__capsule--entering {
+  animation: deepFocusPrimaryAppend var(--df-motion-expand) var(--ts-ease) 24ms both;
+}
+
+.deep-focus-scope-rail__capsule--removing {
+  animation: deepFocusPrimaryRemove var(--df-motion-standard) var(--ts-ease) both;
+  pointer-events: none;
+}
+
+.deep-focus-scope-rail__capsule:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+}
+
+.deep-focus-scope-rail__capsule:focus-visible {
+  outline: none;
+  border-color: var(--df-accent, var(--ts-accent));
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-scope-rail__icon {
+  display: inline-flex;
+  width: 0.8rem;
+  height: 0.8rem;
+  color: var(--df-accent, var(--ts-accent));
+}
+
+.deep-focus-scope-rail__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-scope-rail__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-focus-scope-rail__empty {
+  flex: 0 0 auto;
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  line-height: var(--df-text-body-line, 1.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deep-focus-scope-rail__capsule {
+    transition-duration: 0ms;
+  }
+
+  .deep-focus-scope-rail__capsule--entering,
+  .deep-focus-scope-rail__capsule--removing {
+    animation: none;
+    transform: none;
+  }
+}

@@ -497,8 +497,8 @@ export async function requeueErrorItem(options: {
  * Registry transition: the failed entry is transitioned to "open" under the
  * SAME taskId/filename so the Task Board's registry-first reader surfaces the
  * dropbox file immediately. There is no auto-promotion path that would
- * re-register this entry on its own — `pollDropbox` only activates pending
- * items; dropbox→pending is operator-initiated. Without this transition the
+ * re-register this entry on its own; dropbox-to-pending promotion is
+ * operator-initiated. Without this transition the
  * file sits on disk in `dropbox/` with no registry record, invisible to the UI
  * until a process restart triggers `repairTaskRegistry`.
  *

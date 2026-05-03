@@ -72,8 +72,6 @@ before starting platform services.
 11. If the activation summary reports a missing dry-run plan, rerun with
   `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --write-plan`
   and review the generated plan before live filing.
-12. Start the queue poller with `pnpm run watch-dropbox`.
-
 The active container runtime is controlled by `.platform-state/platform.json`
 (`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
 override.
@@ -113,11 +111,10 @@ It does not replace repo artifacts as the source of truth.
 Use a tiny starter task for the first validation pass.
 
 1. Create a branch.
-2. Start `pnpm run watch-dropbox` if it is not already running.
-3. Create a toy task with:
+2. Create a toy task with:
    `pnpm run plan-dropbox-task -- --title "Starter Task" --summary "Validate queue intake and handoff seeding."`
-4. Confirm the markdown request appears briefly in `AgentWorkSpace/dropbox/`.
-5. Confirm the poller moves it into `AgentWorkSpace/pendingitems/`.
+3. Confirm the markdown request appears briefly in `AgentWorkSpace/dropbox/`.
+4. Confirm the publish path moves it into `AgentWorkSpace/pendingitems/`.
 6. Confirm the oldest queued item seeds `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`.
 7. Work the task through the required role flow.
 8. After Documentation closeout, confirm:
@@ -234,7 +231,6 @@ Follow-up work after closeout becomes a new child task.
 - `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --bootstrap-repo-root /path/to/project-repo --bootstrap-answers-file /path/to/bootstrap-answers.json`
 - `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --write-plan`
 - `pnpm run agent -- --agent-id <agent-id> --dry-run`
-- `pnpm run watch-dropbox`
 - `pnpm run queue-status`
 - `pnpm run complete-pending-item`
 - `pnpm run local-checks`

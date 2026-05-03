@@ -1,16 +1,14 @@
 import path from 'node:path';
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readTextFile, safeJsonParse, resolvePath } from '../core/index.js';
 import type { RepositoryType } from './types.js';
 import {
-  hasTraversal,
-  isStrictAncestor,
+  normalizeParentRelativePath,
   normalizeRelativePath,
-  normalizeSupportTargets,
-  validateTestTarget,
   type FocusTarget,
   type FocusTargetKind,
   type NormalizedSupportTarget,
+  type PrimaryFocusTarget,
   type ReadonlyContextRoot,
   type WritableRoot,
 } from './deepFocusNormalization.js';
@@ -23,6 +21,17 @@ import {
   resolveMonolithPrimary,
   resolveSelectedMonolithPrimary,
 } from './resolveMonolith.js';
+import { deriveWritableRootsFromFocusedSelection } from './writableRootsDerivation.js';
+import {
+  resolveAuthoritativeSelection,
+  type AuthoritativeSelection,
+  type AuthoritySource,
+} from './authoritativeSelectionReader.js';
+import { resolveDeepFocusSelection } from './deepFocusResolver.js';
+
+export { deriveWritableRootsFromFocusedSelection, getEffectiveScopeForPrimary } from './writableRootsDerivation.js';
+export { readDeepFocusOverlay } from './authoritativeSelectionReader.js';
+export type { AuthoritySource, DeepFocusOverlayPayload } from './authoritativeSelectionReader.js';
 
 /** Result of resolving focused repos for targeting and confinement metadata. */
 export interface FocusedRepoResult {
@@ -58,6 +67,8 @@ export interface FocusedRepoResult {
   deepFocusEnabled?: boolean;
   /** 'directory' or 'file' — determines confinement strategy. */
   primaryFocusTargetKind?: FocusTargetKind;
+  /** Ordered normalized Deep Focus primary targets. The anchor also populates scalar fields. */
+  primaryFocusTargets?: PrimaryFocusTarget[];
   /** Optional selected test target; writableRoots carries write authority. */
   testTarget?: {
     path: string;
@@ -85,8 +96,6 @@ export interface FocusedRepoResult {
   /** Where the boundary authority came from. */
   authoritySource: AuthoritySource;
 }
-
-export type AuthoritySource = 'manifest-primary' | 'active-task-sidecar' | 'workspace-sync-state';
 
 export interface ResolvedPrimaryRepo {
   repoRoot: string;
@@ -122,33 +131,6 @@ export interface ManifestFocusableArea {
 
 interface WorkspaceFile {
   folders?: Array<{ path?: string }>;
-}
-
-interface AuthoritativeSelection {
-  selectedRepoIds: string[];
-  selectedFocusIds: string[];
-  deepFocusEnabled?: boolean;
-  deepFocusPrimaryRepoId?: string | null;
-  deepFocusPrimaryFocusId?: string | null;
-  selectedFocusPath?: string;
-  selectedFocusTargetKind?: FocusTargetKind;
-  selectedTestTarget?: FocusTarget | null;
-  selectedSupportTargets?: FocusTarget[];
-  source: Exclude<AuthoritySource, 'manifest-primary'>;
-}
-
-interface ResolvedDeepFocusSelection {
-  deepFocusEnabled: true;
-  primaryFocusRelativePath: string;
-  primaryFocusTargetKind?: FocusTargetKind;
-  selectedTestTarget?: FocusTarget | null;
-  testTarget?: {
-    path: string;
-    kind: FocusTargetKind;
-    resolvedPath: string;
-  };
-  supportTargets?: NormalizedSupportTarget[];
-  warnings?: string[];
 }
 
 const WORKSPACE_FILENAME = 'tasksail.code-workspace';
@@ -283,12 +265,13 @@ export async function resolveFocusedRepoRoot(
 export async function resolveSelectedPrimaryRepoRoot(
   contextPackDir: string,
   repoRoot: string,
+  options?: { taskId?: string },
 ): Promise<FocusedRepoResult | undefined> {
   const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
   const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
   const [content, selection] = await Promise.all([
     readTextFile(manifestPath),
-    resolveAuthoritativeSelection(resolvedPackDir, repoRoot),
+    resolveAuthoritativeSelection(resolvedPackDir, repoRoot, options),
   ]);
   if (content === undefined || !selection) {
     return undefined;
@@ -301,40 +284,68 @@ export async function resolveSelectedPrimaryRepoRoot(
 
   const estateType = manifest.estate_type ?? 'distributed-platform';
   const declaredRoots = collectDeclaredRepoRoots(manifest, resolvedPackDir);
-  // When deep focus is enabled and the dedicated ID field is set, resolve from
-  // it. When the field is null/missing (backward-compat with older state files),
-  // fall through to the regular-mode arrays via the ?? below.
+  const isMonolith = estateType === 'monolith' || estateType === 'monolith-platform';
   const deepFocusPrimaryIds = selection.deepFocusEnabled === true
-    ? (estateType === 'monolith' || estateType === 'monolith-platform'
-        ? (selection.deepFocusPrimaryFocusId ? [selection.deepFocusPrimaryFocusId] : undefined)
-        : (selection.deepFocusPrimaryRepoId ? [selection.deepFocusPrimaryRepoId] : undefined))
+    ? (isMonolith
+        ? collectDeepFocusPrimaryIds(
+            selection.selectedFocusTargets,
+            'focusId',
+            selection.deepFocusPrimaryFocusId,
+          )
+        : collectDeepFocusPrimaryIds(
+            selection.selectedFocusTargets,
+            'repoId',
+            selection.deepFocusPrimaryRepoId,
+          ))
     : undefined;
 
-  const primary = estateType === 'monolith' || estateType === 'monolith-platform'
-    ? resolveSelectedMonolithPrimary(manifest, resolvedPackDir, deepFocusPrimaryIds ?? selection.selectedFocusIds)
-    : resolveSelectedDistributedPrimary(manifest, resolvedPackDir, deepFocusPrimaryIds ?? selection.selectedRepoIds);
+  const primary = isMonolith
+    ? resolveSelectedMonolithPrimary(
+        manifest,
+        resolvedPackDir,
+        deepFocusPrimaryIds ?? selection.selectedFocusIds,
+        { allowMultiplePrimaries: selection.deepFocusEnabled === true },
+      )
+    : resolveSelectedDistributedPrimary(
+        manifest,
+        resolvedPackDir,
+        deepFocusPrimaryIds ?? selection.selectedRepoIds,
+        { allowMultiplePrimaries: selection.deepFocusEnabled === true },
+      );
 
   if (!primary) {
     return undefined;
   }
 
-  const activatedReference = estateType === 'monolith' || estateType === 'monolith-platform'
+  const activatedReference = isMonolith
     ? {
         repoRoots: [primary.repoRoot],
         repoIds: [primary.repoId],
       }
-    : collectSelectedDistributedReferenceRepos(manifest, resolvedPackDir, selection.selectedRepoIds, primary);
+    : collectSelectedDistributedReferenceRepos(
+        manifest,
+        resolvedPackDir,
+        deepFocusPrimaryIds ?? selection.selectedRepoIds,
+        primary,
+      );
   const deepFocus = selection.deepFocusEnabled === true
-    ? resolveDeepFocusSelection({
-        estateType,
-        selection,
-        primaryRepoRoot: primary.repoRoot,
-        legacyPrimaryFocusRelativePath: primary.primaryFocusRelativePath,
-      })
+      ? resolveDeepFocusSelection({
+          estateType,
+          selection,
+          primaryRepoRoot: primary.repoRoot,
+          declaredRepoRoots: declaredRoots,
+          legacyPrimaryFocusRelativePath: primary.primaryFocusRelativePath,
+        })
+    : undefined;
+  const primaryFocusTargets = deepFocus?.primaryFocusTargets
+    ? attachPrimaryTargetIdentities(deepFocus.primaryFocusTargets, selection.selectedFocusTargets)
     : undefined;
   const derivedRoots = deriveWritableRootsFromFocusedSelection({
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath,
     primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
+    primaryFocusTargets: (primaryFocusTargets?.length ?? 0) > 0
+      ? primaryFocusTargets
+      : undefined,
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
   });
@@ -349,6 +360,7 @@ export async function resolveSelectedPrimaryRepoRoot(
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath,
     deepFocusEnabled: deepFocus?.deepFocusEnabled,
     primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
+    primaryFocusTargets,
     selectedTestTarget: deepFocus?.selectedTestTarget,
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
@@ -356,8 +368,8 @@ export async function resolveSelectedPrimaryRepoRoot(
     readonlyContextRoots: derivedRoots.readonlyContextRoots,
     warnings: deepFocus?.warnings,
     selectedRepoIds: activatedReference.repoIds,
-    selectedFocusIds: selection.selectedFocusIds.length > 0
-      ? selection.selectedFocusIds
+    selectedFocusIds: (deepFocusPrimaryIds ?? selection.selectedFocusIds).length > 0
+      ? (deepFocusPrimaryIds ?? selection.selectedFocusIds)
       : primary.primaryFocusId
         ? [primary.primaryFocusId]
         : [],
@@ -365,71 +377,25 @@ export async function resolveSelectedPrimaryRepoRoot(
   };
 }
 
-export function deriveWritableRootsFromFocusedSelection(options: {
-  primaryFocusRelativePath?: string;
-  primaryFocusTargetKind?: FocusTargetKind;
-  testTarget?: { path: string; kind: FocusTargetKind };
-  supportTargets?: NormalizedSupportTarget[];
-}): {
-  writableRoots: WritableRoot[];
-  readonlyContextRoots: ReadonlyContextRoot[];
-} {
-  const writableRoots: WritableRoot[] = [];
-  const readonlyContextRoots: ReadonlyContextRoot[] = [];
-  const writableSeen = new Set<string>();
-  const readonlySeen = new Set<string>();
-
-  const addWritableRoot = (root: WritableRoot): void => {
-    const normalizedRoot: WritableRoot = {
-      ...root,
-      path: normalizeRelativePath(root.path),
-    };
-    const key = [normalizedRoot.path, normalizedRoot.kind, normalizedRoot.reason].join('\0');
-    if (writableSeen.has(key)) {
-      return;
+function attachPrimaryTargetIdentities(
+  resolvedTargets: PrimaryFocusTarget[],
+  rawTargets: PrimaryFocusTarget[] | undefined,
+): PrimaryFocusTarget[] {
+  if (!rawTargets || rawTargets.length === 0) {
+    return resolvedTargets;
+  }
+  return resolvedTargets.map((target, index) => {
+    const rawTarget = rawTargets[index];
+    if (!rawTarget) {
+      return target;
     }
-    writableSeen.add(key);
-    writableRoots.push(normalizedRoot);
-  };
-
-  const addReadonlyContextRoot = (root: ReadonlyContextRoot): void => {
-    const normalizedRoot: ReadonlyContextRoot = {
-      ...root,
-      path: normalizeRelativePath(root.path),
+    return {
+      ...target,
+      ...(rawTarget.repoLocalPath ? { repoLocalPath: rawTarget.repoLocalPath } : {}),
+      ...(rawTarget.repoId ? { repoId: rawTarget.repoId } : {}),
+      ...(rawTarget.focusId ? { focusId: rawTarget.focusId } : {}),
     };
-    const key = [normalizedRoot.path, normalizedRoot.kind, normalizedRoot.reason].join('\0');
-    if (readonlySeen.has(key)) {
-      return;
-    }
-    readonlySeen.add(key);
-    readonlyContextRoots.push(normalizedRoot);
-  };
-
-  const primaryPath = normalizeRelativePath(options.primaryFocusRelativePath ?? '');
-  const primaryKind = options.primaryFocusTargetKind ?? 'directory';
-  if (!primaryPath || primaryKind === 'directory') {
-    addWritableRoot({ path: primaryPath, kind: 'directory', reason: 'selected-primary' });
-  } else {
-    addWritableRoot({ path: normalizeParentRelativePath(primaryPath), kind: 'directory', reason: 'primary-focus-parent' });
-  }
-
-  if (options.testTarget) {
-    addWritableRoot({
-      path: options.testTarget.path,
-      kind: options.testTarget.kind,
-      reason: 'test-target',
-    });
-  }
-
-  for (const supportTarget of options.supportTargets ?? []) {
-    addReadonlyContextRoot({
-      path: supportTarget.path,
-      kind: supportTarget.kind,
-      reason: 'support-target',
-    });
-  }
-
-  return { writableRoots, readonlyContextRoots };
+  });
 }
 
 /**
@@ -476,6 +442,45 @@ export async function explainSelectedPrimaryBoundaryFailure(
   return explainDistributedSelectionFailure(manifest, resolvedPackDir, selection);
 }
 
+function collectDeepFocusPrimaryIds(
+  targets: PrimaryFocusTarget[] | undefined,
+  identityField: 'repoId' | 'focusId',
+  scalarFallback?: string | null,
+): string[] | undefined {
+  if (targets && targets.length > 0) {
+    const ids = orderedPrimaryTargets(targets)
+      .map((target) => target[identityField]?.trim())
+      .filter((id): id is string => Boolean(id));
+    if (ids.length > 0) {
+      return uniqueOrdered(ids);
+    }
+  }
+
+  const scalar = scalarFallback?.trim();
+  return scalar ? [scalar] : undefined;
+}
+
+function orderedPrimaryTargets(targets: PrimaryFocusTarget[]): PrimaryFocusTarget[] {
+  const anchorIndex = targets.findIndex((target) => target.role === 'anchor');
+  if (anchorIndex <= 0) {
+    return targets;
+  }
+  return [targets[anchorIndex]!, ...targets.slice(0, anchorIndex), ...targets.slice(anchorIndex + 1)];
+}
+
+function uniqueOrdered(ids: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 function explainDistributedSelectionFailure(
   manifest: Manifest,
   resolvedPackDir: string,
@@ -483,17 +488,23 @@ function explainDistributedSelectionFailure(
 ): string {
   const repositories = Array.isArray(manifest.repositories) ? manifest.repositories : [];
   const sourceLabel = `source: ${selection.source}`;
-  const candidateIds = selection.deepFocusEnabled === true && selection.deepFocusPrimaryRepoId
-    ? [selection.deepFocusPrimaryRepoId]
+  const candidateIds = selection.deepFocusEnabled === true
+    ? collectDeepFocusPrimaryIds(
+        selection.selectedFocusTargets,
+        'repoId',
+        selection.deepFocusPrimaryRepoId,
+      ) ?? selection.selectedRepoIds
     : selection.selectedRepoIds;
 
   if (candidateIds.length === 0) {
     return `authoritative selection (${sourceLabel}) has empty selectedRepoIds.`;
   }
-  const candidateSet = new Set(candidateIds);
-  const primaryRepos = repositories.filter((repo) =>
-    repo.repo_id && candidateSet.has(repo.repo_id) && repo.repository_type === 'primary',
-  );
+  const repoById = new Map(repositories
+    .filter((repo) => typeof repo.repo_id === 'string' && repo.repo_id.trim())
+    .map((repo) => [repo.repo_id!.trim(), repo]));
+  const primaryRepos = candidateIds
+    .map((repoId) => repoById.get(repoId))
+    .filter((repo): repo is ManifestRepo => repo?.repository_type === 'primary');
   if (primaryRepos.length === 0) {
     return (
       `selectedRepoIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
@@ -502,6 +513,19 @@ function explainDistributedSelectionFailure(
   }
   if (primaryRepos.length > 1) {
     const ids = primaryRepos.map((repo) => repo.repo_id ?? '<missing>').join(', ');
+    if (selection.deepFocusEnabled === true) {
+      const unresolvedIds = candidateIds.filter((repoId) => {
+        const repo = repoById.get(repoId);
+        return repo?.repository_type !== 'primary' || !resolveFirstLocalPath(repo, resolvedPackDir);
+      });
+      return (
+        `Deep Focus selected primary repo ids [${candidateIds.join(', ')}] (${sourceLabel}) ` +
+        `include ${primaryRepos.length} manifest primary repos [${ids}] in anchor-first order` +
+        (unresolvedIds.length > 0
+          ? `; unresolved primary ids: [${unresolvedIds.join(', ')}].`
+          : '.')
+      );
+    }
     return (
       `selectedRepoIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
       `contains ${primaryRepos.length} repos with repository_type=primary [${ids}] — exactly one required.`
@@ -535,8 +559,12 @@ function explainMonolithSelectionFailure(
     return 'monolith manifest has no repository entry.';
   }
   const sourceLabel = `source: ${selection.source}`;
-  const candidateIds = selection.deepFocusEnabled === true && selection.deepFocusPrimaryFocusId
-    ? [selection.deepFocusPrimaryFocusId]
+  const candidateIds = selection.deepFocusEnabled === true
+    ? collectDeepFocusPrimaryIds(
+        selection.selectedFocusTargets,
+        'focusId',
+        selection.deepFocusPrimaryFocusId,
+      ) ?? selection.selectedFocusIds
     : selection.selectedFocusIds;
   if (candidateIds.length === 0) {
     return `authoritative selection (${sourceLabel}) has empty selectedFocusIds.`;
@@ -612,462 +640,6 @@ function collectDeclaredRepoRoots(manifest: Manifest, contextPackDir: string): s
   return roots;
 }
 
-async function resolveAuthoritativeSelection(
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<AuthoritativeSelection | undefined> {
-  const sidecarSelection = await readTaskSelectionSidecar(resolvedPackDir, repoRoot);
-  if (sidecarSelection) {
-    return sidecarSelection;
-  }
-  const workspaceSelection = await readWorkspaceSyncSelection(resolvedPackDir, repoRoot);
-  if (!workspaceSelection) {
-    return undefined;
-  }
-  const overlay = await readDeepFocusOverlay(resolvedPackDir, repoRoot);
-  if (!overlay) {
-    return workspaceSelection;
-  }
-  return {
-    ...workspaceSelection,
-    deepFocusEnabled: overlay.deepFocusEnabled,
-    deepFocusPrimaryRepoId: overlay.deepFocusPrimaryRepoId,
-    deepFocusPrimaryFocusId: overlay.deepFocusPrimaryFocusId,
-    selectedFocusPath: overlay.selectedFocusPath ?? undefined,
-    selectedFocusTargetKind: overlay.selectedFocusTargetKind ?? undefined,
-    selectedTestTarget: overlay.selectedTestTarget,
-    selectedSupportTargets: overlay.selectedSupportTargets,
-  };
-}
-
-export interface DeepFocusOverlayPayload {
-  deepFocusEnabled: boolean;
-  deepFocusPrimaryRepoId: string | null;
-  deepFocusPrimaryFocusId: string | null;
-  selectedFocusPath: string | null;
-  selectedFocusTargetKind: FocusTargetKind | null;
-  selectedTestTarget: FocusTarget | null | undefined;
-  selectedSupportTargets: FocusTarget[] | undefined;
-}
-
-/**
- * Read the user's draft Deep Focus selection for a given context pack from
- * `.platform-state/deep-focus-selections.json`. Returns undefined when the file
- * is absent, the entry is missing, or `deepFocusEnabled` is not true. Used to
- * overlay UI-side selections onto the last-applied workspace sync state so a
- * user does not need to click "Apply" before submitting a new dropbox task.
- */
-export async function readDeepFocusOverlay(
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<DeepFocusOverlayPayload | undefined> {
-  const filePath = path.join(repoRoot, '.platform-state', 'deep-focus-selections.json');
-  const content = await readTextFile(filePath);
-  if (content === undefined) {
-    return undefined;
-  }
-  const parsed = safeJsonParse<Record<string, unknown>>(content, filePath);
-  if (!parsed || typeof parsed !== 'object') {
-    return undefined;
-  }
-  for (const [key, value] of Object.entries(parsed)) {
-    if (!value || typeof value !== 'object') continue;
-    const canonicalKey = resolvePath(repoRoot, key);
-    if (canonicalKey !== resolvedPackDir) continue;
-
-    const overlay = value as Record<string, unknown>;
-    if (overlay.deepFocusEnabled !== true) {
-      return undefined;
-    }
-    return {
-      deepFocusEnabled: true,
-      deepFocusPrimaryRepoId: toOptionalString(overlay.deepFocusPrimaryRepoId) ?? null,
-      deepFocusPrimaryFocusId: toOptionalString(overlay.deepFocusPrimaryFocusId) ?? null,
-      selectedFocusPath: toOptionalString(overlay.selectedFocusPath) ?? null,
-      selectedFocusTargetKind: toFocusTargetKind(overlay.selectedFocusTargetKind) ?? null,
-      selectedTestTarget: overlay.selectedTestTarget === null
-        ? null
-        : toFocusTarget(overlay.selectedTestTarget),
-      selectedSupportTargets: toFocusTargetArray(overlay.selectedSupportTargets),
-    };
-  }
-  return undefined;
-}
-
-interface SelectionFileDescriptor {
-  filePath: string;
-  contextPackDirField: string;
-  repoIdsField: string;
-  focusIdsField: string;
-  deepFocusEnabledField?: string;
-  deepFocusPrimaryRepoIdField?: string;
-  deepFocusPrimaryFocusIdField?: string;
-  focusPathField?: string;
-  focusTargetKindField?: string;
-  testTargetField?: string;
-  supportTargetsField?: string;
-  source: Exclude<AuthoritySource, 'manifest-primary'>;
-}
-
-async function readSelectionFile(
-  descriptor: SelectionFileDescriptor,
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<AuthoritativeSelection | undefined> {
-  const content = await readTextFile(descriptor.filePath);
-  if (content === undefined) {
-    return undefined;
-  }
-
-  const parsed = safeJsonParse<Record<string, unknown>>(content, descriptor.filePath);
-  const rawContextPackDir = typeof parsed?.[descriptor.contextPackDirField] === 'string'
-    ? (parsed[descriptor.contextPackDirField] as string).trim()
-    : '';
-  if (!rawContextPackDir) {
-    return undefined;
-  }
-
-  const resolvedContextPackDir = resolvePath(repoRoot, rawContextPackDir);
-  if (resolvedContextPackDir !== resolvedPackDir) {
-    return undefined;
-  }
-  const deepFocusEnabled = descriptor.deepFocusEnabledField
-    ? parsed?.[descriptor.deepFocusEnabledField] === true
-    : undefined;
-  const deepFocusPrimaryRepoId = descriptor.deepFocusPrimaryRepoIdField
-    ? toOptionalString(parsed?.[descriptor.deepFocusPrimaryRepoIdField]) ?? null
-    : null;
-  const deepFocusPrimaryFocusId = descriptor.deepFocusPrimaryFocusIdField
-    ? toOptionalString(parsed?.[descriptor.deepFocusPrimaryFocusIdField]) ?? null
-    : null;
-
-  return {
-    selectedRepoIds: toStringArray(parsed?.[descriptor.repoIdsField]),
-    selectedFocusIds: toStringArray(parsed?.[descriptor.focusIdsField]),
-    deepFocusEnabled,
-    deepFocusPrimaryRepoId,
-    deepFocusPrimaryFocusId,
-    selectedFocusPath: descriptor.focusPathField
-      ? deepFocusEnabled === true
-        ? readDeepFocusOptionalString(parsed?.[descriptor.focusPathField], descriptor.focusPathField)
-        : toOptionalString(parsed?.[descriptor.focusPathField])
-      : undefined,
-    selectedFocusTargetKind: descriptor.focusTargetKindField
-      ? deepFocusEnabled === true
-        ? readDeepFocusOptionalFocusTargetKind(parsed?.[descriptor.focusTargetKindField], descriptor.focusTargetKindField)
-        : toFocusTargetKind(parsed?.[descriptor.focusTargetKindField])
-      : undefined,
-    selectedTestTarget: descriptor.testTargetField
-      ? deepFocusEnabled === true
-        ? readDeepFocusOptionalFocusTarget(parsed?.[descriptor.testTargetField], descriptor.testTargetField)
-        : toFocusTarget(parsed?.[descriptor.testTargetField])
-      : undefined,
-    selectedSupportTargets: descriptor.supportTargetsField
-      ? deepFocusEnabled === true
-        ? readDeepFocusOptionalFocusTargetArray(parsed?.[descriptor.supportTargetsField], descriptor.supportTargetsField)
-        : toFocusTargetArray(parsed?.[descriptor.supportTargetsField])
-      : undefined,
-    source: descriptor.source,
-  };
-}
-
-function readTaskSelectionSidecar(
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<AuthoritativeSelection | undefined> {
-  return readSelectionFile({
-    filePath: path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
-    contextPackDirField: 'contextPackDir',
-    repoIdsField: 'selectedRepoIds',
-    focusIdsField: 'selectedFocusIds',
-    deepFocusEnabledField: 'deepFocusEnabled',
-    deepFocusPrimaryRepoIdField: 'deepFocusPrimaryRepoId',
-    deepFocusPrimaryFocusIdField: 'deepFocusPrimaryFocusId',
-    focusPathField: 'selectedFocusPath',
-    focusTargetKindField: 'selectedFocusTargetKind',
-    testTargetField: 'selectedTestTarget',
-    supportTargetsField: 'selectedSupportTargets',
-    source: 'active-task-sidecar',
-  }, resolvedPackDir, repoRoot);
-}
-
-function readWorkspaceSyncSelection(
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<AuthoritativeSelection | undefined> {
-  return readSelectionFile({
-    filePath: path.join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
-    contextPackDirField: 'active_context_pack_dir',
-    repoIdsField: 'selected_repo_ids',
-    focusIdsField: 'selected_focus_ids',
-    deepFocusEnabledField: 'deep_focus_enabled',
-    deepFocusPrimaryRepoIdField: 'deep_focus_primary_repo_id',
-    deepFocusPrimaryFocusIdField: 'deep_focus_primary_focus_id',
-    focusPathField: 'selected_focus_path',
-    focusTargetKindField: 'selected_focus_target_kind',
-    testTargetField: 'selected_test_target',
-    supportTargetsField: 'selected_support_targets',
-    source: 'workspace-sync-state',
-  }, resolvedPackDir, repoRoot);
-}
-
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function toOptionalString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  return value.trim();
-}
-
-function toFocusTargetKind(value: unknown): FocusTargetKind | undefined {
-  return value === 'directory' || value === 'file' ? value : undefined;
-}
-
-function toFocusTarget(value: unknown): FocusTarget | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-  const candidate = value as Record<string, unknown>;
-  const targetPath = toOptionalString(candidate.path);
-  const kind = toFocusTargetKind(candidate.kind);
-  if (targetPath === undefined || !kind) {
-    return undefined;
-  }
-  return { path: targetPath, kind };
-}
-
-function toFocusTargetArray(value: unknown): FocusTarget[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const targets: FocusTarget[] = [];
-  for (const item of value) {
-    const target = toFocusTarget(item);
-    if (!target) {
-      return undefined;
-    }
-    targets.push(target);
-  }
-  return targets;
-}
-
-function readDeepFocusOptionalString(value: unknown, fieldName: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== 'string') {
-    throw new Error(`Deep Focus field "${fieldName}" must be a string when deepFocusEnabled is true.`);
-  }
-  return value.trim();
-}
-
-function readDeepFocusOptionalFocusTargetKind(
-  value: unknown,
-  fieldName: string,
-): FocusTargetKind | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  const kind = toFocusTargetKind(value);
-  if (!kind) {
-    throw new Error(`Deep Focus field "${fieldName}" must be "directory" or "file".`);
-  }
-  return kind;
-}
-
-function readDeepFocusOptionalFocusTarget(value: unknown, fieldName: string): FocusTarget | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (value === null) {
-    return null;
-  }
-  const target = toFocusTarget(value);
-  if (!target) {
-    throw new Error(`Deep Focus field "${fieldName}" must be an object with string path and kind.`);
-  }
-  return target;
-}
-
-function readDeepFocusOptionalFocusTargetArray(value: unknown, fieldName: string): FocusTarget[] | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  const targets = toFocusTargetArray(value);
-  if (!targets) {
-    throw new Error(`Deep Focus field "${fieldName}" must be an array of { path, kind } objects.`);
-  }
-  return targets;
-}
-
-function resolveDeepFocusSelection(options: {
-  selection: AuthoritativeSelection;
-  estateType?: string;
-  primaryRepoRoot: string;
-  legacyPrimaryFocusRelativePath?: string;
-}): ResolvedDeepFocusSelection {
-  const canonicalRoot = realpathSync(options.primaryRepoRoot);
-  const primaryTarget = resolvePrimaryDeepFocusTarget({ ...options, canonicalRoot });
-  const validatedTestTarget = resolveValidatedTestTarget(
-    options.primaryRepoRoot,
-    primaryTarget,
-    options.selection.selectedTestTarget,
-    canonicalRoot,
-  );
-  const supportTargets = resolveValidatedSupportTargets(
-    options.primaryRepoRoot,
-    primaryTarget,
-    validatedTestTarget?.rawTarget,
-    options.selection.selectedSupportTargets ?? [],
-    canonicalRoot,
-  );
-  const warnings = collectDeepFocusWarnings(primaryTarget, validatedTestTarget?.rawTarget);
-
-  return {
-    deepFocusEnabled: true,
-    primaryFocusRelativePath: primaryTarget.path,
-    primaryFocusTargetKind: primaryTarget.kind,
-    selectedTestTarget: validatedTestTarget?.rawTarget ?? (options.selection.selectedTestTarget === null ? null : undefined),
-    testTarget: dedupeResolvedTestTarget(primaryTarget, validatedTestTarget),
-    supportTargets: supportTargets.length > 0 ? supportTargets : undefined,
-    warnings: warnings.length > 0 ? warnings : undefined,
-  };
-}
-
-function resolvePrimaryDeepFocusTarget(options: {
-  selection: AuthoritativeSelection;
-  estateType?: string;
-  primaryRepoRoot: string;
-  legacyPrimaryFocusRelativePath?: string;
-  canonicalRoot?: string;
-}): { path: string; kind?: FocusTargetKind } {
-  const explicitPath = options.selection.selectedFocusPath;
-  const explicitKind = options.selection.selectedFocusTargetKind;
-  if (explicitPath !== undefined) {
-    const normalizedExplicitPath = normalizeDeepFocusRelativePath(
-      explicitPath,
-      'Primary Deep Focus target',
-    );
-    if (!normalizedExplicitPath) {
-      if (explicitKind === 'file') {
-        throw new Error('Deep Focus repo-root selection cannot use file target kind.');
-      }
-      validateResolvedTargetKind(
-        options.primaryRepoRoot,
-        '',
-        'directory',
-        'Primary Deep Focus target',
-        options.canonicalRoot,
-      );
-      return {
-        path: '',
-        kind: undefined,
-      };
-    }
-    if (!explicitKind) {
-      throw new Error('Deep Focus selection is missing required selectedFocusTargetKind metadata.');
-    }
-    const resolved = resolveExistingFocusTarget(
-      options.primaryRepoRoot,
-      { path: normalizedExplicitPath, kind: explicitKind },
-      'Primary Deep Focus target',
-      options.canonicalRoot,
-    );
-    if (
-      isMonolithEstateType(options.estateType)
-      && options.legacyPrimaryFocusRelativePath
-      && !doesTargetCover(options.legacyPrimaryFocusRelativePath, 'directory', resolved.path)
-    ) {
-      throw new Error(
-        `Primary Deep Focus target "${explicitPath}" must stay within the selected monolith focus area "${options.legacyPrimaryFocusRelativePath}".`,
-      );
-    }
-    return resolved;
-  }
-
-  if (options.legacyPrimaryFocusRelativePath) {
-    return resolveExistingFocusTarget(
-      options.primaryRepoRoot,
-      { path: options.legacyPrimaryFocusRelativePath, kind: 'directory' },
-      'Primary Deep Focus target',
-      options.canonicalRoot,
-    );
-  }
-
-  if (explicitKind === 'file') {
-    throw new Error('Deep Focus repo-root selection cannot use file target kind.');
-  }
-
-  validateResolvedTargetKind(
-    options.primaryRepoRoot,
-    '',
-    'directory',
-    'Primary Deep Focus target',
-    options.canonicalRoot,
-  );
-  return {
-    path: '',
-    kind: undefined,
-  };
-}
-
-function isMonolithEstateType(estateType: string | undefined): boolean {
-  return estateType === 'monolith' || estateType === 'monolith-platform';
-}
-
-function resolveValidatedTestTarget(
-  primaryRepoRoot: string,
-  primaryTarget: { path: string; kind?: FocusTargetKind },
-  rawTestTarget?: FocusTarget | null,
-  canonicalRoot?: string,
-): { rawTarget: FocusTarget; resolvedPath: string } | undefined {
-  if (!rawTestTarget) {
-    return undefined;
-  }
-
-  const validation = validateTestTarget({
-    primaryPath: primaryTarget.path,
-    primaryKind: primaryTarget.kind ?? 'directory',
-    testTarget: rawTestTarget,
-  });
-  if (!validation.valid) {
-    throw new Error(validation.reason);
-  }
-
-  const resolved = resolveExistingFocusTarget(primaryRepoRoot, rawTestTarget, 'Deep Focus test target', canonicalRoot);
-  return { rawTarget: { path: resolved.path, kind: resolved.kind ?? rawTestTarget.kind }, resolvedPath: resolved.resolvedPath };
-}
-
-function dedupeResolvedTestTarget(
-  primaryTarget: { path: string; kind?: FocusTargetKind },
-  testTarget?: { rawTarget: FocusTarget; resolvedPath: string },
-): { path: string; kind: FocusTargetKind; resolvedPath: string } | undefined {
-  if (!testTarget) {
-    return undefined;
-  }
-
-  const primaryKind = primaryTarget.kind ?? 'directory';
-  if (doesTargetCover(primaryTarget.path, primaryKind, testTarget.rawTarget.path)) {
-    return undefined;
-  }
-
-  return {
-    path: testTarget.rawTarget.path,
-    kind: testTarget.rawTarget.kind,
-    resolvedPath: testTarget.resolvedPath,
-  };
-}
-
 /**
  * Collect directory roots for planner context visibility. Dalton write authority
  * is expressed by writableRoots/readonlyContextRoots instead.
@@ -1075,7 +647,7 @@ function dedupeResolvedTestTarget(
 export function collectFocusedRepoTargetDirectoryRoots(
   focused?: Pick<
     FocusedRepoResult,
-    'primaryRepoRoot' | 'primaryFocusRelativePath' | 'primaryFocusTargetKind' | 'selectedTestTarget' | 'testTarget' | 'supportTargets'
+    'primaryRepoRoot' | 'primaryFocusRelativePath' | 'primaryFocusTargetKind' | 'primaryFocusTargets' | 'selectedTestTarget' | 'testTarget' | 'supportTargets'
   >,
 ): string[] {
   if (!focused) {
@@ -1085,18 +657,22 @@ export function collectFocusedRepoTargetDirectoryRoots(
   const roots: string[] = [];
   const seen = new Set<string>();
 
-  const addTargetDirectory = (target?: { path: string; kind: FocusTargetKind } | null): void => {
+  const addTargetDirectory = (
+    target?: { path: string; kind: FocusTargetKind } | null,
+    repoRoot?: string,
+  ): void => {
     if (!target) {
       return;
     }
 
+    const targetRepoRoot = repoRoot || focused.primaryRepoRoot;
     const targetPath = normalizeRelativePath(target.path);
     const directoryRelativePath = target.kind === 'file'
       ? normalizeParentRelativePath(targetPath)
       : targetPath;
     const resolvedRoot = directoryRelativePath
-      ? path.resolve(focused.primaryRepoRoot, directoryRelativePath)
-      : focused.primaryRepoRoot;
+      ? path.resolve(targetRepoRoot, directoryRelativePath)
+      : targetRepoRoot;
 
     if (seen.has(resolvedRoot)) {
       return;
@@ -1105,170 +681,23 @@ export function collectFocusedRepoTargetDirectoryRoots(
     roots.push(resolvedRoot);
   };
 
-  addTargetDirectory({
-    path: focused.primaryFocusRelativePath ?? '',
-    kind: focused.primaryFocusTargetKind ?? 'directory',
-  });
+  const primaryTargets: PrimaryFocusTarget[] = focused.primaryFocusTargets?.length
+    ? focused.primaryFocusTargets
+    : [{ path: focused.primaryFocusRelativePath ?? '', kind: focused.primaryFocusTargetKind ?? 'directory' }];
+  for (const target of primaryTargets) {
+    const targetRepoRoot = target.repoLocalPath || focused.primaryRepoRoot;
+    addTargetDirectory(target, targetRepoRoot);
+    addTargetDirectory(target.testTarget ?? null, targetRepoRoot);
+    for (const supportTarget of target.supportTargets ?? []) {
+      addTargetDirectory(supportTarget, targetRepoRoot);
+    }
+  }
   addTargetDirectory(focused.selectedTestTarget ?? focused.testTarget ?? null);
   for (const supportTarget of focused.supportTargets ?? []) {
     addTargetDirectory(supportTarget);
   }
 
   return roots;
-}
-
-function resolveValidatedSupportTargets(
-  primaryRepoRoot: string,
-  primaryTarget: { path: string; kind?: FocusTargetKind },
-  rawTestTarget: FocusTarget | undefined,
-  rawSupportTargets: FocusTarget[],
-  canonicalRoot?: string,
-): NormalizedSupportTarget[] {
-  const validatedTargets = rawSupportTargets.map((target) => {
-    const resolved = resolveExistingFocusTarget(primaryRepoRoot, target, 'Deep Focus support target', canonicalRoot);
-    return { path: resolved.path, kind: resolved.kind ?? target.kind };
-  });
-
-  return normalizeSupportTargets({
-    primaryPath: primaryTarget.path,
-    primaryKind: primaryTarget.kind ?? 'directory',
-    testTarget: rawTestTarget,
-    rawTargets: validatedTargets,
-  });
-}
-
-function resolveExistingFocusTarget(
-  primaryRepoRoot: string,
-  target: FocusTarget,
-  label: string,
-  canonicalRoot?: string,
-): { path: string; kind?: FocusTargetKind; resolvedPath: string } {
-  const normalizedPath = validateResolvedTargetKind(primaryRepoRoot, target.path, target.kind, label, canonicalRoot);
-  return {
-    path: normalizedPath,
-    kind: target.kind,
-    resolvedPath: normalizedPath ? path.resolve(primaryRepoRoot, normalizedPath) : primaryRepoRoot,
-  };
-}
-
-function validateResolvedTargetKind(
-  primaryRepoRoot: string,
-  rawPath: string,
-  kind: FocusTargetKind,
-  label: string,
-  canonicalRoot?: string,
-): string {
-  const normalizedPath = normalizeDeepFocusRelativePath(rawPath, label);
-  const resolvedPath = normalizedPath ? path.resolve(primaryRepoRoot, normalizedPath) : primaryRepoRoot;
-  ensureResolvedWithinRoot(primaryRepoRoot, rawPath, resolvedPath, label, canonicalRoot);
-
-  let stats: ReturnType<typeof statSync>;
-  try {
-    stats = statSync(resolvedPath);
-  } catch {
-    throw new Error(formatInvalidFocusPathError(label, rawPath, 'does not exist on disk.'));
-  }
-
-  if (kind === 'directory' && !stats.isDirectory()) {
-    throw new Error(`${label} "${rawPath}" must resolve to a directory.`);
-  }
-  if (kind === 'file' && !stats.isFile()) {
-    throw new Error(`${label} "${rawPath}" must resolve to a file.`);
-  }
-
-  return normalizedPath;
-}
-
-function normalizeDeepFocusRelativePath(rawPath: string, label: string): string {
-  if (typeof rawPath !== 'string') {
-    throw new Error(`${label} path must be a string.`);
-  }
-
-  const trimmed = rawPath.trim();
-  const normalizedPath = normalizeRelativePath(trimmed);
-
-  if (normalizedPath.startsWith('/')) {
-    throw new Error(formatInvalidFocusPathError(label, rawPath, 'path must be relative, not absolute.'));
-  }
-  if (hasTraversal(normalizedPath)) {
-    throw new Error(formatInvalidFocusPathError(label, rawPath, 'path must not contain ".." traversal segments.'));
-  }
-
-  return normalizedPath;
-}
-
-function normalizeParentRelativePath(relativePath: string): string {
-  const parentRelativePath = path.posix.dirname(relativePath);
-  return parentRelativePath === '.' ? '' : normalizeRelativePath(parentRelativePath);
-}
-
-function ensureResolvedWithinRoot(
-  primaryRepoRoot: string,
-  rawPath: string,
-  resolvedPath: string,
-  label: string,
-  preComputedCanonicalRoot?: string,
-): void {
-  const canonicalRoot = preComputedCanonicalRoot ?? realpathSync(primaryRepoRoot);
-  let canonicalTarget: string;
-  try {
-    canonicalTarget = realpathSync(resolvedPath);
-  } catch {
-    throw new Error(
-      formatInvalidFocusPathError(
-        label,
-        rawPath,
-        `resolved path "${resolvedPath}" does not exist on disk.`,
-      ),
-    );
-  }
-
-  if (canonicalTarget !== canonicalRoot && !canonicalTarget.startsWith(`${canonicalRoot}${path.sep}`)) {
-    throw new Error(
-      formatInvalidFocusPathError(
-        label,
-        rawPath,
-        `resolved path "${canonicalTarget}" must stay within the selected primary repo root "${canonicalRoot}".`,
-      ),
-    );
-  }
-}
-
-function formatInvalidFocusPathError(label: string, rawPath: string, reason: string): string {
-  return `${label} "${rawPath}" is invalid: ${reason}`;
-}
-
-function collectDeepFocusWarnings(
-  primaryTarget: { path: string; kind?: FocusTargetKind },
-  rawTestTarget?: FocusTarget,
-): string[] {
-  if (!rawTestTarget || rawTestTarget.kind !== 'directory') {
-    return [];
-  }
-
-  const primaryPath = normalizeRelativePath(primaryTarget.path);
-  const testPath = normalizeRelativePath(rawTestTarget.path);
-  if (!primaryPath || !isStrictAncestor(testPath, primaryPath)) {
-    return [];
-  }
-
-  return [
-    `Deep Focus test target "${rawTestTarget.path}" is an ancestor of the primary target "${primaryTarget.path}" and broadens the writable scope.`,
-  ];
-}
-
-function doesTargetCover(
-  boundaryPath: string,
-  boundaryKind: FocusTargetKind,
-  candidatePath: string,
-): boolean {
-  if (boundaryKind === 'file') {
-    return candidatePath === boundaryPath;
-  }
-  if (!boundaryPath) {
-    return true;
-  }
-  return candidatePath === boundaryPath || candidatePath.startsWith(`${boundaryPath}/`);
 }
 
 function resolveExistingPath(rawPath: string, pmseDir: string): string | undefined {

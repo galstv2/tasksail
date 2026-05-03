@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,13 @@ import {
   isRetrospectiveRequiredForCompletedCount,
   syncRetrospectiveRequiredMetadata,
 } from '../retrospectiveFlag.js';
+
+// Identity re-mock makes the module spyable so individual tests can stub
+// `sleep` without affecting the real implementation seen by other tests.
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return { ...actual };
+});
 
 describe('retrospectiveFlag', () => {
   let repoRoot: string;
@@ -400,5 +407,80 @@ describe('retrospectiveFlag', () => {
     // Each counter incremented independently: 3+1=4, 5+1=6
     expect(stateA['completed_count']).toBe(4);
     expect(stateB['completed_count']).toBe(6);
+  });
+
+  describe('counter lock staleness', () => {
+    const contextPackId = 'pack-stale-test';
+    let tmpRoot: string;
+    let lockDir: string;
+
+    beforeEach(() => {
+      tmpRoot = mkdtempSync(path.join(tmpdir(), 'retro-stale-lock-'));
+      const counterDir = path.join(tmpRoot, '.platform-state', 'task-counters');
+      mkdirSync(counterDir, { recursive: true });
+      lockDir = path.join(counterDir, `${contextPackId}.lock`);
+    });
+
+    afterEach(async () => {
+      await rm(tmpRoot, { recursive: true, force: true });
+      vi.restoreAllMocks();
+    });
+
+    it('reclaims a counter lock whose mtime is older than 5 minutes', async () => {
+      mkdirSync(lockDir);
+      const tenMinutesAgoSeconds = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
+      utimesSync(lockDir, tenMinutesAgoSeconds, tenMinutesAgoSeconds);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const handoffsDir = path.join(tmpRoot, 'handoffs');
+      mkdirSync(handoffsDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffsDir, 'retrospective-input.md'),
+        '- Retrospective Required: false\n',
+      );
+
+      await syncRetrospectiveRequiredMetadata({
+        repoRoot: tmpRoot,
+        handoffsDir,
+        contextPackDir: path.join(tmpRoot, 'contextpacks', contextPackId),
+        taskId: 'task-stale-lock-test',
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`[retrospectiveFlag] reclaiming stale counter lock: ${lockDir}`),
+      );
+    });
+
+    it('does not reclaim a counter lock whose mtime is fresh', async () => {
+      // Stub sleep so the 50-retry × ~500ms backoff in acquireCounterLock
+      // (~23s wall-clock) does not pad the suite. The assertion under test is
+      // that a fresh lock is NOT reclaimed and acquisition ultimately fails;
+      // the real sleep duration adds nothing to that proof.
+      const core = await import('../../core/index.js');
+      vi.spyOn(core, 'sleep').mockResolvedValue(undefined);
+
+      mkdirSync(lockDir);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const handoffsDir = path.join(tmpRoot, 'handoffs');
+      mkdirSync(handoffsDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffsDir, 'retrospective-input.md'),
+        '- Retrospective Required: false\n',
+      );
+
+      await expect(
+        syncRetrospectiveRequiredMetadata({
+          repoRoot: tmpRoot,
+          handoffsDir,
+          contextPackDir: path.join(tmpRoot, 'contextpacks', contextPackId),
+          taskId: 'task-fresh-lock-test',
+        }),
+      ).rejects.toThrow(/could not acquire counter lock/);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('reclaiming stale counter lock'),
+      );
+    });
   });
 });

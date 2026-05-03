@@ -38,6 +38,7 @@ const CLI_PATH = 'src/backend/platform/container/cli.ts';
 const PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
 const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
 const DEFAULT_TIMEOUT_MS = 120_000;
+const RUNTIME_CHECK_TIMEOUT_MS = 15_000;
 const SIGKILL_GRACE_MS = 5_000;
 
 type ContainerRuntimeBinary = 'docker' | 'podman';
@@ -224,28 +225,41 @@ export function checkContainerRuntimeAvailable(
       return;
     }
 
+    let settled = false;
+    const unavailableResult: RuntimeResolution = {
+      ok: false,
+      error:
+        `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
+    };
+
+    function settle(result: RuntimeResolution): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    }
+
     const child = spawn(runtime.runtimeBinary, ['version', '--format', 'json'], {
       stdio: 'ignore',
     });
 
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve(runtime);
-        return;
+    const timer = setTimeout(() => {
+      if (isWindowsPlatform()) {
+        child.kill();
+      } else {
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }, SIGKILL_GRACE_MS);
       }
+      settle(unavailableResult);
+    }, RUNTIME_CHECK_TIMEOUT_MS);
 
-      resolve({
-        ok: false,
-        error:
-          `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
-      });
+    child.on('close', (code) => {
+      settle(code === 0 ? runtime : unavailableResult);
     });
     child.on('error', () => {
-      resolve({
-        ok: false,
-        error:
-          `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
-      });
+      settle(unavailableResult);
     });
   });
 }

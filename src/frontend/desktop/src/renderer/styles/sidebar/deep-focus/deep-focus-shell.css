@@ -1,0 +1,590 @@
+/*
+ * Deep Focus editor shell, search, breadcrumb, list, and empty states.
+ * Owns .deep-focus-sidebar*, .deep-focus-shell, .deep-focus-editor*,
+ * .deep-focus-search*, .deep-focus-breadcrumb*, and list state selectors.
+ */
+/*
+ * State grammar:
+ * Primary Target = editable permission.
+ * Test Folder = writable verification support.
+ * Support = read-only context (global or scoped to a primary).
+ * Selected Row = command focus.
+ * Hover = affordance only.
+ */
+/*
+ * Deep Focus tokens are a thin alias layer over the platform tokens
+ * (--ts-*) so this surface stays visually consistent with the rest of
+ * TaskSail (Outfit + brass/amber palette). Do NOT introduce
+ * Apple-system fonts/colors here — the platform token is the source
+ * of truth. Sizes follow the sidebar scale set by .scope-focus-row /
+ * .sidebar-section, not iOS HIG.
+ */
+:root {
+  /* Surfaces & borders — alias to platform tokens. */
+  --df-surface:           var(--ts-sidebar-bg);
+  --df-surface-elevated:  var(--ts-surface);
+  --df-surface-muted:     var(--ts-surface-alt);
+  --df-border-hairline:   var(--ts-border);
+  --df-border-medium:     var(--ts-border-strong);
+
+  /* Text — alias to platform tokens. */
+  --df-text-primary:      var(--ts-text);
+  --df-text-secondary:    var(--ts-text-muted);
+  --df-text-tertiary:     var(--ts-text-soft);
+
+  /* Semantic colors — brass/amber accent, platform success/warn/danger.
+     The platform also exposes a teal secondary accent (--ts-accent2) used
+     to distinguish read-only support from editable targets. Deep Focus mirrors
+     that distinction via --df-accent2. */
+  --df-accent:            var(--ts-accent);
+  --df-accent-soft:       var(--ts-accent-subtle);
+  --df-accent2:           var(--ts-accent2);
+  --df-accent2-soft:      var(--ts-accent2-subtle);
+  --df-ghost-row:         var(--ts-accent-tint);
+  --df-warn:              var(--ts-warning);
+  --df-destructive:       var(--ts-error);
+  --df-success:           var(--ts-success);
+  --df-success-soft:      var(--ts-success-tint);
+  --df-error-soft:        var(--ts-danger-tint);
+  --df-focus-ring:        var(--ts-accent-subtle);
+  --df-backdrop:          rgba(15, 25, 45, 0.18);
+
+  /* Typography — match the sidebar scale (scope-focus-row peer).
+     We deliberately use unitless line-heights so vertical rhythm
+     scales with font-size and rows don't feel double-spaced. */
+  --df-font-family:                var(--ts-font-sans);
+  --df-text-editor-title-size:     0.78rem;   /* sidebar h2 */
+  --df-text-editor-title-line:     1.3;
+  --df-text-editor-title-weight:   600;
+  --df-text-editor-title-tracking: -0.005em;
+  --df-text-row-title-size:        0.73rem;   /* matches scope-focus-row */
+  --df-text-row-title-line:        1.3;
+  --df-text-row-title-weight:      500;
+  --df-text-row-title-tracking:    -0.002em;
+  --df-text-body-size:             0.72rem;
+  --df-text-body-line:             1.35;
+  --df-text-body-weight:           400;
+  --df-text-body-tracking:         0;
+  --df-text-secondary-size:        0.68rem;
+  --df-text-secondary-line:        1.35;
+  --df-text-secondary-weight:      400;
+  --df-text-secondary-tracking:    0.005em;
+  --df-text-section-size:          var(--ts-font-xs);   /* small-caps section labels — platform floor (0.66rem) */
+  --df-text-section-line:          1.3;
+  --df-text-section-weight:        600;
+  --df-text-section-tracking:      0.04em;
+  --df-text-action-size:           0.7rem;
+  --df-text-action-line:           1.3;
+  --df-text-action-weight:         500;
+  --df-text-action-tracking:       0;
+
+  --df-motion-fast:     120ms;
+  --df-motion-standard: 160ms;
+  --df-motion-expand:   200ms;
+}
+
+:root.theme-dark {
+  /* Aliases re-resolve through the platform's dark overrides; only the
+     scrim needs a slightly heavier value than the light default. */
+  --df-backdrop: rgba(8, 12, 20, 0.32);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --df-border-hairline: currentColor;
+    --df-border-medium: currentColor;
+    --df-text-secondary: var(--df-text-primary);
+    --df-text-tertiary: var(--df-text-primary);
+    --df-accent-soft: transparent;
+    --df-ghost-row: transparent;
+    --df-success-soft: transparent;
+    --df-error-soft: transparent;
+    --df-focus-ring: currentColor;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --df-surface: Canvas;
+    --df-surface-elevated: Canvas;
+    --df-surface-muted: Canvas;
+    --df-backdrop: Canvas;
+  }
+}
+
+.deep-focus-sidebar--expanded {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow: hidden;
+  z-index: calc(var(--ts-z-dropdown) + 4);
+  width: 420px;
+  max-width: min(420px, calc(100vw - 2.5rem));
+  box-shadow: var(--ts-shadow-xl);
+  transition:
+    width var(--df-motion-expand) var(--ts-ease),
+    box-shadow var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-sidebar--expanded .sidebar-scroll-region {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.deep-focus-sidebar--expanded .sidebar-section:has(.deep-focus-shell) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.deep-focus-sidebar--closing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow: hidden;
+  z-index: calc(var(--ts-z-dropdown) + 3);
+  width: 220px;
+  box-shadow: none;
+  transition:
+    width var(--df-motion-expand) var(--ts-ease),
+    box-shadow var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-shell {
+  --deep-focus-primary-removal-toast-padding: 0.35rem 0.5rem;
+  /* Inherit the platform font (Outfit) — do not switch to system font here.
+   * Goes through the DF token so the layer stays self-contained. */
+  font-family: var(--df-font-family);
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.deep-focus-sidebar--expanded .deep-focus-shell {
+  overflow-y: auto;
+}
+.deep-focus-synced-caption {
+  margin: 0.25rem 0.75rem 0;
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+  opacity: 0.7;
+}
+.deep-focus-editor {
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.deep-focus-editor-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem 0.65rem 0.5rem;
+  border-bottom: none;
+  background: var(--df-surface, var(--ts-sidebar-bg));
+  flex-shrink: 0;
+}
+
+.deep-focus-shell__dismiss {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.45rem;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  cursor: pointer;
+  transition:
+    background var(--df-motion-fast) var(--ts-ease),
+    color var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-shell__dismiss:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+  color: var(--df-text-primary, var(--ts-text));
+}
+
+.deep-focus-shell__dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-shell__dismiss svg {
+  width: 12px;
+  height: 12px;
+}
+
+.deep-focus-editor-header__search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.deep-focus-search {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  border: 1px solid transparent;
+  transition:
+    background var(--df-motion-standard) var(--ts-ease),
+    border-color var(--df-motion-standard) var(--ts-ease),
+    box-shadow var(--df-motion-standard) var(--ts-ease);
+  flex-shrink: 0;
+}
+
+.deep-focus-search:focus-within {
+  background: var(--df-surface-elevated, var(--ts-surface));
+  border-color: var(--df-border-medium, var(--ts-border-strong));
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-search__icon {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex-shrink: 0;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  opacity: 0.6;
+}
+
+.deep-focus-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--df-text-primary, var(--ts-text));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  font-family: inherit;
+  padding: 0;
+  line-height: var(--df-text-body-line, 1.35);
+  letter-spacing: var(--df-text-body-tracking, 0.005em);
+}
+
+.deep-focus-search__input::placeholder {
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+}
+
+.deep-focus-search__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-search__clear:hover {
+  background: var(--df-accent-soft, var(--ts-accent-subtle));
+}
+
+.deep-focus-search__clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-search__clear svg {
+  width: 10px;
+  height: 10px;
+}
+
+.deep-focus-collapse-all {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: center;
+  transition:
+    background var(--df-motion-fast) var(--ts-ease),
+    color var(--df-motion-fast) var(--ts-ease),
+    border-color var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-collapse-all:hover:not(:disabled) {
+  background: var(--df-accent-soft, var(--ts-accent-subtle));
+  color: var(--df-text-primary, var(--ts-text));
+}
+
+.deep-focus-collapse-all:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-collapse-all:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.deep-focus-collapse-all svg {
+  width: 14px;
+  height: 14px;
+}
+
+.deep-focus-editor__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.deep-focus-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  min-height: 1.3rem;
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.deep-focus-breadcrumb__item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.deep-focus-breadcrumb__segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-body-line, 1.35);
+  letter-spacing: var(--df-text-body-tracking, 0.005em);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-breadcrumb__segment:hover:not(.deep-focus-breadcrumb__segment--current) {
+  color: var(--df-text-primary, var(--ts-text));
+}
+
+.deep-focus-breadcrumb__segment svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-breadcrumb__segment--current {
+  color: var(--df-text-primary, var(--ts-text));
+  font-weight: var(--df-text-section-weight, 600);
+  cursor: default;
+}
+
+.deep-focus-breadcrumb__item:last-child .deep-focus-breadcrumb__segment {
+  animation: deepFocusBreadcrumbSegmentIn var(--df-motion-expand) var(--ts-ease) both;
+}
+
+.deep-focus-breadcrumb__separator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+}
+
+.deep-focus-breadcrumb__overflow {
+  position: relative;
+}
+
+.deep-focus-breadcrumb__overflow summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.deep-focus-breadcrumb__overflow summary::-webkit-details-marker {
+  display: none;
+}
+
+.deep-focus-breadcrumb__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  padding: 0.2rem;
+  border: 1px solid var(--df-border-hairline, var(--ts-border));
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-elevated, var(--ts-surface));
+  box-shadow: var(--ts-shadow-lg);
+  z-index: calc(var(--ts-z-dropdown) + 3);
+}
+
+.deep-focus-breadcrumb__menu-item {
+  width: 100%;
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  padding: 0.35rem 0.45rem;
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  font-weight: var(--df-text-body-weight, 400);
+  line-height: var(--df-text-body-line, 1.35);
+  letter-spacing: var(--df-text-body-tracking, 0.005em);
+  text-align: left;
+  cursor: pointer;
+}
+
+.deep-focus-breadcrumb__menu-item:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+}
+.deep-focus-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Horizontal padding tracks the sidebar's inner-container rhythm (0.6rem;
+   * cf. .scope-card__header) so left edges align across stacked panels. */
+  padding: 0.4rem 0.6rem 0.5rem;
+  display: grid;
+  align-content: start;
+  gap: 0.1rem;
+  transition:
+    opacity var(--df-motion-standard) var(--ts-ease),
+    transform var(--df-motion-expand) var(--ts-ease);
+}
+
+.deep-focus-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.deep-focus-loading-row,
+.deep-focus-truncation-notice,
+.deep-focus-empty-state {
+  border-radius: var(--ts-radius-sm);
+  padding: 0.45rem 0.55rem;
+  text-align: center;
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  font-weight: var(--df-text-body-weight, 400);
+  line-height: var(--df-text-body-line, 1.35);
+  letter-spacing: var(--df-text-body-tracking, 0.005em);
+}
+
+.deep-focus-loading-row {
+  height: 28px;
+  border: none;
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  animation:
+    deepFocusLoadingFadeIn var(--df-motion-fast) var(--ts-ease) both,
+    cardGridLoadPulse var(--df-motion-expand) var(--df-motion-fast) ease-in-out infinite alternate;
+}
+
+.deep-focus-truncation-notice {
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  font-style: italic;
+}
+
+.deep-focus-empty-state {
+  align-self: stretch;
+  padding: 1rem 0.6rem;
+  font-style: italic;
+}
+
+.deep-focus-promotion-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  background: color-mix(in srgb, var(--ts-accent2) 6%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--ts-accent2) 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-accent2) 18%, transparent);
+}
+
+.deep-focus-promotion-chip {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--df-text-primary, var(--ts-text));
+  background: color-mix(in srgb, var(--ts-accent2) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ts-accent2) 32%, transparent);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.deep-focus-promotion-chip:hover {
+  background: color-mix(in srgb, var(--ts-accent2) 22%, transparent);
+  border-color: color-mix(in srgb, var(--ts-accent2) 50%, transparent);
+}
+
+.deep-focus-promotion-chip:focus-visible {
+  outline: 2px solid var(--df-focus-ring, var(--ts-accent-subtle));
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .deep-focus-sidebar--expanded,
+  .deep-focus-sidebar--closing,
+  .deep-focus-search,
+  .deep-focus-search__clear,
+  .deep-focus-breadcrumb__segment,
+  .deep-focus-list {
+    transition-duration: 80ms;
+    transition-timing-function: linear;
+  }
+
+  .deep-focus-breadcrumb__item:last-child .deep-focus-breadcrumb__segment,
+  .deep-focus-loading-row {
+    animation-duration: 80ms;
+    animation-delay: 0ms;
+  }
+}

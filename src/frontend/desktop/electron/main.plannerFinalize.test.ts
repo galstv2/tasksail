@@ -134,10 +134,14 @@ describe('electron main — planner finalization', () => {
     vi.doMock('../../../backend/platform/queue', () => ({
       acquireDirLockOrThrow: vi.fn(async () => vi.fn(async () => undefined)),
       deletePendingItem: vi.fn(),
-      getQueueStatus: vi.fn(),
+      getQueueStatus: vi.fn(async () => ({ activeTasks: [] })),
       resolveQueuePaths: vi.fn(() => ({
         queueLockDir: '/repo/AgentWorkSpace/.queue-lock',
       })),
+      publishPendingItem: vi.fn(async ({ publish }: { publish: () => Promise<string> }) => {
+        const destinationPath = await publish();
+        return { destinationPath, activation: { activated: true as const } };
+      }),
     }));
     vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
       listActivePipelines: vi.fn(() => []),
@@ -547,6 +551,7 @@ None
     vi.doMock('../../../backend/platform/queue/createDropboxTask.js', () => ({
       createDropboxTask,
     }));
+    const queueModule = await import('../../../backend/platform/queue');
     const { handleDesktopAction } = await import('./main');
     const endPlannerSession = vi.fn(async () => ({ ended: true }));
 
@@ -594,6 +599,12 @@ None
       selectedFocusTargetKind: null,
       selectedTestTarget: null,
       selectedSupportTargets: [],
+    }));
+    expect(queueModule.publishPendingItem).toHaveBeenCalledOnce();
+    expect(queueModule.publishPendingItem).toHaveBeenCalledWith(expect.objectContaining({
+      lockOperationName: 'planner.finalizeSpec',
+      repoRoot: expect.any(String),
+      contextPackDir: '/contextpacks/orders',
     }));
     expect(clearStagingArtifacts).not.toHaveBeenCalled();
     expect(endPlannerSession).toHaveBeenCalledOnce();

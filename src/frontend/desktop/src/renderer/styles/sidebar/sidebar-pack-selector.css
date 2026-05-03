@@ -1,0 +1,259 @@
+/*
+ * Sidebar pack selector and reusable ts-select dropdown styling.
+ * Owns .sidebar-pack-selector, .sidebar-empty, .ts-select,
+ * and all .ts-select__* selector variants used by the sidebar.
+ */
+/* ── §4.1  ts-select — Standard Select Component ────────────────────── */
+/* Reusable custom select with trigger, floating menu, and status badges.
+   Used for context-pack switching and any future single-value selector.
+   Follows the same token layer as scope-card.                            */
+
+.sidebar-pack-selector {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--ts-border);
+  flex-shrink: 0;
+}
+
+.sidebar-empty {
+  display: grid;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+/* ── Trigger ─────────────────────────────────────────────────────────── */
+
+.ts-select {
+  position: relative;
+}
+
+.ts-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  width: 100%;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.3rem 0.45rem;
+  background: var(--ts-surface);
+  color: var(--ts-text);
+  cursor: pointer;
+  transition: border-color var(--ts-duration) var(--ts-ease),
+              box-shadow var(--ts-duration) var(--ts-ease),
+              background var(--ts-duration) var(--ts-ease);
+}
+
+.ts-select__trigger:hover {
+  border-color: var(--ts-border-strong);
+}
+
+.ts-select[data-open] .ts-select__trigger,
+.ts-select__trigger:focus-visible {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.ts-select__trigger-content {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.ts-select__pack-icon {
+  flex-shrink: 0;
+  color: var(--ts-accent);
+}
+
+.ts-select__value {
+  font-size: var(--ts-font-xs);
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────── */
+
+.ts-select__chevron {
+  flex-shrink: 0;
+  color: var(--ts-text-soft);
+  transition: transform var(--ts-duration) var(--ts-ease);
+}
+
+.ts-select__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── Status badge ────────────────────────────────────────────────────── */
+
+.ts-select__status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.58rem;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0.18rem 0.4rem;
+  border-radius: var(--ts-radius-pill);
+  white-space: nowrap;
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-soft);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.ts-select__status--active {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--ts-success);
+}
+
+.ts-select__status--blocked {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--ts-warning);
+}
+
+.ts-select__status--completed {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent);
+}
+
+/* ── Floating menu ───────────────────────────────────────────────────── */
+
+.ts-select__menu {
+  position: absolute;
+  z-index: var(--ts-z-dropdown);
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.07),
+    0 12px 40px rgba(0, 0, 0, 0.05);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: ts-select-enter 150ms var(--ts-ease) both;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+@keyframes ts-select-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Options ─────────────────────────────────────────────────────────── */
+
+.ts-select__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.3rem 0.45rem;
+  background: transparent;
+  color: var(--ts-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--ts-duration) var(--ts-ease);
+  overflow: hidden;
+}
+
+.ts-select__option:hover {
+  background: var(--ts-bg-hover);
+}
+
+.ts-select__option--selected {
+  background: var(--ts-accent-subtle);
+}
+
+.ts-select__option--selected:hover {
+  background: var(--ts-accent-subtle);
+}
+
+.ts-select__option-name {
+  font-size: var(--ts-font-xs);
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.ts-select__option--selected .ts-select__option-name {
+  font-weight: 600;
+  color: var(--ts-accent);
+}
+
+/* ── Tooltip (portaled to <body>) ───────────────────────────────────── */
+/* Matches the DeepFocusInfoTip aesthetic: surface-alt fill, strong border,
+   shadow-lg elevation, xs typography. Position is set inline by JS. */
+
+.ts-tooltip {
+  position: fixed;
+  padding: 0.22rem 0.4rem;
+  border-radius: var(--ts-radius-sm, 4px);
+  background: var(--ts-surface-alt);
+  border: 1px solid var(--ts-border-strong);
+  box-shadow: var(--ts-shadow-lg);
+  color: var(--ts-text);
+  font-size: 0.6rem;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  z-index: var(--ts-z-toast);
+  pointer-events: none;
+  word-break: break-word;
+  animation: ts-tooltip-enter 120ms var(--ts-ease) both;
+}
+
+@keyframes ts-tooltip-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ts-tooltip--above {
+  animation-name: ts-tooltip-enter-above;
+}
+
+@keyframes ts-tooltip-enter-above {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

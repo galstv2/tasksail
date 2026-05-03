@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdir, rmdir } from 'node:fs/promises';
+import { mkdir, rmdir, stat } from 'node:fs/promises';
 import { readTextFile, safeJsonParse, writeTextFile, sleep } from '../core/index.js';
 import { setLabelValue } from './artifacts.js';
 
@@ -7,6 +7,7 @@ const TASK_COUNTER_DIR_RELATIVE = '.platform-state/task-counters';
 const DEFAULT_CONTEXT_PACK_ID = 'platform-core';
 const RETROSPECTIVE_CYCLE_LENGTH = 10;
 const SCHEMA_VERSION = 'task-counter/v1';
+const COUNTER_LOCK_STALE_MS = 5 * 60 * 1000;
 
 function contextPackIdFromDir(contextPackDir?: string): string {
   const trimmed = contextPackDir?.trim();
@@ -48,12 +49,28 @@ async function acquireCounterLock(
         }
       };
     } catch {
-      // Lock held by another caller — wait and retry
+      // Lock held by another caller — check for staleness, then wait and retry
+      await reclaimIfStale(lockDir);
     }
     await sleep(waitMs);
     waitMs = Math.min(waitMs * 2, 500);
   }
   return null;
+}
+
+async function reclaimIfStale(lockDir: string): Promise<void> {
+  try {
+    const info = await stat(lockDir);
+    const ageMs = Date.now() - info.mtimeMs;
+    if (ageMs > COUNTER_LOCK_STALE_MS) {
+      console.warn(
+        `[retrospectiveFlag] reclaiming stale counter lock: ${lockDir} ageMs=${Math.round(ageMs)}`,
+      );
+      await rmdir(lockDir);
+    }
+  } catch {
+    // Lock vanished between mkdir-failure and stat (race) — let next mkdir retry decide.
+  }
 }
 
 // ── Counter file read/write helpers (used under lock) ────────────────────

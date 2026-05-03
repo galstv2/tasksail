@@ -36,6 +36,7 @@ import {
   type ContextPackDeepFocusDerivedRoot,
   type ContextPackDeepFocusState,
   type ContextPackFocusTargetKind,
+  type ContextPackPrimaryFocusTarget,
   type DesktopInvokeResult,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
@@ -46,6 +47,7 @@ import { rebuildAgentMirror } from '../../../backend/platform/context-pack/rebui
 import { deriveWritableRootsFromFocusedSelection } from '../../../backend/platform/context-pack/focusedRepo';
 import {
   normalizeRelativePath,
+  normalizePrimaryFocusTargets,
   normalizeSupportTargets,
   validateTestTarget,
   type FocusTarget,
@@ -79,6 +81,119 @@ function normalizeDeepFocusTarget(target: FocusTarget): FocusTarget {
   };
 }
 
+function cloneFocusTarget(target: FocusTarget | null | undefined): FocusTarget | null | undefined {
+  if (target === null) {
+    return null;
+  }
+  if (target === undefined) {
+    return undefined;
+  }
+  return normalizeDeepFocusTarget(target);
+}
+
+function clonePrimaryFocusTarget(
+  target: ContextPackPrimaryFocusTarget,
+): ContextPackPrimaryFocusTarget {
+  const testTarget = cloneFocusTarget(target.testTarget);
+  return {
+    path: normalizeRelativePath(target.path),
+    kind: target.kind,
+    ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+    ...(target.repoId ? { repoId: target.repoId } : {}),
+    ...(target.focusId ? { focusId: target.focusId } : {}),
+    ...(target.role ? { role: target.role } : {}),
+    ...(testTarget !== undefined ? { testTarget } : {}),
+    ...(target.supportTargets && target.supportTargets.length > 0
+      ? { supportTargets: target.supportTargets.map(normalizeDeepFocusTarget) }
+      : {}),
+  };
+}
+
+function withScopedFieldsFromRawTargets(
+  normalizedTargets: ContextPackPrimaryFocusTarget[],
+  rawTargets: readonly ContextPackPrimaryFocusTarget[] | undefined,
+): ContextPackPrimaryFocusTarget[] {
+  if (!rawTargets || rawTargets.length === 0) {
+    return normalizedTargets;
+  }
+  const rawByKey = new Map<string, ContextPackPrimaryFocusTarget>();
+  for (const rawTarget of rawTargets) {
+    rawByKey.set(`${normalizeRelativePath(rawTarget.path)}\0${rawTarget.kind}`, rawTarget);
+  }
+  return normalizedTargets.map((target) => {
+    const rawTarget = rawByKey.get(`${target.path}\0${target.kind}`);
+    if (!rawTarget) {
+      return target;
+    }
+    const testTarget = cloneFocusTarget(rawTarget.testTarget);
+    return {
+      ...target,
+      ...(testTarget !== undefined ? { testTarget } : {}),
+      ...(rawTarget.supportTargets && rawTarget.supportTargets.length > 0
+        ? { supportTargets: rawTarget.supportTargets.map(normalizeDeepFocusTarget) }
+        : {}),
+    };
+  });
+}
+
+function mirrorSinglePrimaryScopedFields(
+  selectedFocusTargets: ContextPackPrimaryFocusTarget[],
+  selectedTestTarget: FocusTarget | null | undefined,
+  selectedSupportTargets: FocusTarget[],
+): {
+  selectedTestTarget: FocusTarget | null | undefined;
+  selectedSupportTargets: FocusTarget[];
+} {
+  if (selectedFocusTargets.length !== 1) {
+    return { selectedTestTarget, selectedSupportTargets };
+  }
+  const [primary] = selectedFocusTargets;
+  return {
+    selectedTestTarget:
+      selectedTestTarget === undefined && primary?.testTarget !== undefined
+        ? cloneFocusTarget(primary.testTarget)
+        : selectedTestTarget,
+    selectedSupportTargets:
+      selectedSupportTargets.length === 0 && primary?.supportTargets && primary.supportTargets.length > 0
+        ? primary.supportTargets.map(normalizeDeepFocusTarget)
+        : selectedSupportTargets,
+  };
+}
+
+function toWorkspaceSyncTarget(target: FocusTarget): Record<string, unknown> {
+  return {
+    path: target.path,
+    kind: target.kind,
+  };
+}
+
+function toWorkspaceSyncPrimaryTarget(target: ContextPackPrimaryFocusTarget): Record<string, unknown> {
+  const testTarget = cloneFocusTarget(target.testTarget);
+  return {
+    path: target.path,
+    kind: target.kind,
+    ...(target.repoLocalPath ? { repo_local_path: target.repoLocalPath } : {}),
+    ...(target.repoId ? { repo_id: target.repoId } : {}),
+    ...(target.focusId ? { focus_id: target.focusId } : {}),
+    ...(target.role ? { role: target.role } : {}),
+    ...(testTarget !== undefined ? { test_target: testTarget } : {}),
+    ...(target.supportTargets && target.supportTargets.length > 0
+      ? { support_targets: target.supportTargets.map(toWorkspaceSyncTarget) }
+      : {}),
+  };
+}
+
+function readSnakeOrCamelString(
+  value: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string,
+): string | undefined {
+  const raw = Object.prototype.hasOwnProperty.call(value, snakeKey)
+    ? value[snakeKey]
+    : value[camelKey];
+  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
+}
+
 function normalizeContextPackSwitchPayload(
   payload: ContextPackSwitchPayload,
 ): ContextPackSwitchPayload {
@@ -101,11 +216,29 @@ function normalizeContextPackSwitchPayload(
       ? null
       : normalizeDeepFocusTarget(payload.selectedTestTarget);
   const selectedPrimaryKind = payload.selectedFocusTargetKind ?? 'directory';
+  const hasExplicitPrimaryTargets = Array.isArray(payload.selectedFocusTargets);
+  const normalizedPrimaryTargetsWithoutScopedFields = payload.deepFocusEnabled === true
+    ? normalizePrimaryFocusTargets({
+        rawTargets: hasExplicitPrimaryTargets ? payload.selectedFocusTargets : undefined,
+        legacyPath: selectedFocusPath,
+        legacyKind: selectedPrimaryKind,
+      }).targets
+    : (payload.selectedFocusTargets ?? []).map((target) => ({
+        path: normalizeRelativePath(target.path),
+        kind: target.kind,
+        ...(target.role ? { role: target.role } : {}),
+      }));
+  const normalizedPrimaryTargets = withScopedFieldsFromRawTargets(
+    normalizedPrimaryTargetsWithoutScopedFields as ContextPackPrimaryFocusTarget[],
+    payload.selectedFocusTargets,
+  );
+  const anchorTarget = normalizedPrimaryTargets.find((target) => target.role === 'anchor')
+    ?? normalizedPrimaryTargets[0];
 
   if (payload.deepFocusEnabled === true && selectedTestTarget) {
     const validation = validateTestTarget({
-      primaryPath: selectedFocusPath,
-      primaryKind: selectedPrimaryKind,
+      primaryPath: anchorTarget?.path ?? selectedFocusPath,
+      primaryKind: anchorTarget?.kind ?? selectedPrimaryKind,
       testTarget: selectedTestTarget,
     });
     if (!validation.valid) {
@@ -119,6 +252,7 @@ function normalizeContextPackSwitchPayload(
     ? normalizeSupportTargets({
         primaryPath: selectedFocusPath,
         primaryKind: selectedPrimaryKind,
+        primaryTargets: normalizedPrimaryTargets,
         testTarget: selectedTestTarget ?? undefined,
         rawTargets: payload.selectedSupportTargets ?? [],
       }).map(({ path, kind }) => ({ path, kind }))
@@ -126,14 +260,20 @@ function normalizeContextPackSwitchPayload(
         path: normalizeRelativePath(t.path),
         kind: t.kind,
       }));
+  const mirrored = mirrorSinglePrimaryScopedFields(
+    normalizedPrimaryTargets,
+    selectedTestTarget,
+    selectedSupportTargets,
+  );
 
   return {
     ...payload,
     deepFocusEnabled: payload.deepFocusEnabled === true,
-    selectedFocusPath,
-    selectedFocusTargetKind: payload.selectedFocusTargetKind ?? null,
-    selectedTestTarget,
-    selectedSupportTargets,
+    selectedFocusPath: hasExplicitPrimaryTargets && anchorTarget ? anchorTarget.path : selectedFocusPath,
+    selectedFocusTargetKind: hasExplicitPrimaryTargets && anchorTarget ? anchorTarget.kind : payload.selectedFocusTargetKind ?? null,
+    selectedFocusTargets: hasExplicitPrimaryTargets ? normalizedPrimaryTargets as ContextPackPrimaryFocusTarget[] : undefined,
+    selectedTestTarget: mirrored.selectedTestTarget,
+    selectedSupportTargets: mirrored.selectedSupportTargets,
   };
 }
 
@@ -187,6 +327,9 @@ export function buildContextPackWorkspaceArgs(
     }
     if (normalizedPayload.selectedFocusTargetKind) {
       args.push('--selected-focus-target-kind', normalizedPayload.selectedFocusTargetKind);
+    }
+    for (const target of normalizedPayload.selectedFocusTargets ?? []) {
+      args.push('--selected-focus-target', JSON.stringify(toWorkspaceSyncPrimaryTarget(target)));
     }
     // Only emit test/support target args when deep focus is active.
     // These go through strict object validation in the Python normalizer
@@ -586,6 +729,12 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
           typeof target === 'object' && target !== null,
       )
     : [];
+  const selectedFocusTargets = Array.isArray(workspace.selected_focus_targets)
+    ? workspace.selected_focus_targets.filter(
+        (target): target is Record<string, unknown> =>
+          typeof target === 'object' && target !== null,
+      )
+    : [];
   const derivedWritableRoots = Array.isArray(workspace.derived_writable_roots)
     ? workspace.derived_writable_roots.filter(
         (target): target is Record<string, unknown> =>
@@ -608,12 +757,62 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
       || target.reason === 'primary-focus-parent'
       || target.reason === 'test-target'
       || target.reason === 'support-target'
+      || target.reason === 'scoped-test-target'
+      || target.reason === 'scoped-support-target'
         ? target.reason
         : 'selected-primary';
+    const sourceTargets = Array.isArray(target.source_targets)
+      ? target.source_targets
+      : Array.isArray(target.sourceTargets)
+        ? target.sourceTargets
+        : [];
+    const repoLocalPath = readSnakeOrCamelString(target, 'repo_local_path', 'repoLocalPath');
     return {
       path: stringOrNull(target.path) ?? '',
       kind,
       reason,
+      ...(repoLocalPath ? { repoLocalPath } : {}),
+      ...(sourceTargets.length > 0
+        ? {
+            sourceTargets: sourceTargets
+              .filter((sourceTarget): sourceTarget is Record<string, unknown> =>
+                typeof sourceTarget === 'object' && sourceTarget !== null)
+              .map((sourceTarget) => {
+                const testTarget = typeof sourceTarget.test_target === 'object' && sourceTarget.test_target !== null
+                  ? sourceTarget.test_target as Record<string, unknown>
+                  : typeof sourceTarget.testTarget === 'object' && sourceTarget.testTarget !== null
+                    ? sourceTarget.testTarget as Record<string, unknown>
+                    : null;
+                const sourceRepoLocalPath = readSnakeOrCamelString(
+                  sourceTarget,
+                  'repo_local_path',
+                  'repoLocalPath',
+                );
+                const repoId = readSnakeOrCamelString(sourceTarget, 'repo_id', 'repoId');
+                const focusId = readSnakeOrCamelString(sourceTarget, 'focus_id', 'focusId');
+                return {
+                  path: stringOrNull(sourceTarget.path) ?? '',
+                  kind: sourceTarget.kind === 'directory' || sourceTarget.kind === 'file' ? sourceTarget.kind : 'directory',
+                  ...(sourceRepoLocalPath ? { repoLocalPath: sourceRepoLocalPath } : {}),
+                  ...(repoId ? { repoId } : {}),
+                  ...(focusId ? { focusId } : {}),
+                  ...(sourceTarget.role === 'anchor' || sourceTarget.role === 'primary'
+                    ? { role: sourceTarget.role }
+                    : {}),
+                  ...(testTarget
+                    ? {
+                        testTarget: {
+                          path: stringOrNull(testTarget.path) ?? '',
+                          kind: testTarget.kind === 'directory' || testTarget.kind === 'file'
+                            ? testTarget.kind
+                            : 'directory',
+                        },
+                      }
+                    : {}),
+                };
+              }),
+          }
+        : {}),
     };
   };
   return {
@@ -650,6 +849,50 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
       || workspace.selected_focus_target_kind === 'file'
         ? workspace.selected_focus_target_kind
         : null,
+    selectedFocusTargets: selectedFocusTargets.map((target) => {
+      const testTarget = typeof target.test_target === 'object' && target.test_target !== null
+        ? target.test_target as Record<string, unknown>
+        : typeof target.testTarget === 'object' && target.testTarget !== null
+          ? target.testTarget as Record<string, unknown>
+          : null;
+      const supportTargets = Array.isArray(target.support_targets)
+        ? target.support_targets
+        : Array.isArray(target.supportTargets)
+          ? target.supportTargets
+          : [];
+      const repoLocalPath = readSnakeOrCamelString(target, 'repo_local_path', 'repoLocalPath');
+      const repoId = readSnakeOrCamelString(target, 'repo_id', 'repoId');
+      const focusId = readSnakeOrCamelString(target, 'focus_id', 'focusId');
+      return {
+        path: stringOrNull(target.path) ?? '',
+        kind: target.kind === 'directory' || target.kind === 'file' ? target.kind : 'directory',
+        ...(repoLocalPath ? { repoLocalPath } : {}),
+        ...(repoId ? { repoId } : {}),
+        ...(focusId ? { focusId } : {}),
+        ...(target.role === 'anchor' || target.role === 'primary' ? { role: target.role } : {}),
+        ...(testTarget
+          ? {
+              testTarget: {
+                path: stringOrNull(testTarget.path) ?? '',
+                kind: testTarget.kind === 'directory' || testTarget.kind === 'file' ? testTarget.kind : 'directory',
+              },
+            }
+          : {}),
+        ...(supportTargets.length > 0
+          ? {
+              supportTargets: supportTargets
+                .filter((supportTarget): supportTarget is Record<string, unknown> =>
+                  typeof supportTarget === 'object' && supportTarget !== null)
+                .map((supportTarget) => ({
+                  path: stringOrNull(supportTarget.path) ?? '',
+                  kind: supportTarget.kind === 'directory' || supportTarget.kind === 'file'
+                    ? supportTarget.kind
+                    : 'directory',
+                })),
+            }
+          : {}),
+      };
+    }),
     selectedTestTarget:
       !hasSelectedTestTargetField
         ? undefined
@@ -908,6 +1151,7 @@ function withDerivedDeepFocusRoots(
   const derived = deriveWritableRootsFromFocusedSelection({
     primaryFocusRelativePath: selections.selectedFocusPath ?? '',
     primaryFocusTargetKind: selections.selectedFocusTargetKind ?? undefined,
+    primaryFocusTargets: selections.selectedFocusTargets,
     testTarget: selections.selectedTestTarget ?? undefined,
     supportTargets: selections.selectedSupportTargets.map((target) => ({
       ...target,
@@ -951,6 +1195,7 @@ async function mirrorDeepFocusSelectionIntoWorkspaceSync(
   state.deep_focus_primary_focus_id = selections.deepFocusPrimaryFocusId;
   state.selected_focus_path = selections.selectedFocusPath;
   state.selected_focus_target_kind = selections.selectedFocusTargetKind;
+  state.selected_focus_targets = (selections.selectedFocusTargets ?? []).map(toWorkspaceSyncPrimaryTarget);
   if (selections.selectedTestTarget === undefined) {
     delete state.selected_test_target;
   } else {
@@ -970,7 +1215,18 @@ export async function saveDeepFocusSelections(
   payload: { contextPackDir: string; selections: import('../src/shared/desktopContractDeepFocus').ContextPackDeepFocusState },
 ): Promise<DesktopInvokeResult> {
   try {
-    const selections = withDerivedDeepFocusRoots(payload.selections);
+    const selectedFocusTargets = (payload.selections.selectedFocusTargets ?? []).map(clonePrimaryFocusTarget);
+    const mirrored = mirrorSinglePrimaryScopedFields(
+      selectedFocusTargets,
+      payload.selections.selectedTestTarget,
+      payload.selections.selectedSupportTargets,
+    );
+    const selections = withDerivedDeepFocusRoots({
+      ...payload.selections,
+      selectedFocusTargets,
+      selectedTestTarget: mirrored.selectedTestTarget,
+      selectedSupportTargets: mirrored.selectedSupportTargets,
+    });
     const all = await readSelectionsFile();
     all[payload.contextPackDir] = selections;
     await writeSelectionsFile(all);

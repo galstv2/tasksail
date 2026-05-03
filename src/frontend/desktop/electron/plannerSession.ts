@@ -128,6 +128,7 @@ function toStagingFocusedRepo(
   | 'primaryFocusRelativePath'
   | 'deepFocusEnabled'
   | 'primaryFocusTargetKind'
+  | 'primaryFocusTargets'
   | 'selectedTestTarget'
   | 'supportTargets'
   | 'selectedRepoIds'
@@ -143,6 +144,7 @@ function toStagingFocusedRepo(
     primaryFocusRelativePath: focused.primaryFocusRelativePath,
     deepFocusEnabled: focused.deepFocusEnabled,
     primaryFocusTargetKind: focused.primaryFocusTargetKind,
+    primaryFocusTargets: focused.primaryFocusTargets?.map((target) => ({ ...target })),
     selectedTestTarget: focused.selectedTestTarget
       ? { ...focused.selectedTestTarget }
       : focused.deepFocusEnabled === true

@@ -101,12 +101,14 @@ export interface ResolvedContext {
 
 /** Pipeline timing receipt written after a pipeline run completes. */
 export interface PipelineReceipt {
-  status: 'completed' | 'failed' | 'killed';
+  status: 'completed' | 'failed' | 'killed' | 'closeout-failed';
   workflowPath: 'standard';
   totalSeconds: number;
   prewarmSeconds: number;
   agentTimings: Record<string, number>;
   failureReason?: string;
+  /** Present iff status === 'closeout-failed'. */
+  closeoutError?: string;
   externalMcp?: PipelineExternalMcpReceipt;
 }
 

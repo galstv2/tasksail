@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import type { TaskHealthRollup, TaskRecoveryKind, TaskRecoveryState } from '../src/shared/desktopContract';
 import {
   acquireDirLockOrThrow,
-  activateNextPendingItemIfReady,
   moveFailedItemToErrorItems,
   repairQueue,
   resolveQueuePaths,
@@ -240,20 +239,6 @@ function isQueueDivergenceIssue(issue: QueueRepairIssue): boolean {
   return issue.kind === 'pending-without-marker';
 }
 
-async function activateNextPendingItemAfterRepair(
-  queuePaths: ReturnType<typeof resolveQueuePaths>,
-): Promise<string | null> {
-  const result = await activateNextPendingItemIfReady({
-    paths: queuePaths,
-    repoRoot: REPO_ROOT,
-  });
-  if (!result.activated) {
-    return null;
-  }
-
-  return readActiveQueueName();
-}
-
 export function startTaskRecoveryController(options: {
   activationGraceMs?: number;
   pollIntervalMs?: number;
@@ -389,12 +374,6 @@ export function startTaskRecoveryController(options: {
             role: 'system',
             severity: 'warning',
           });
-
-          const reactivatedQueueName = await activateNextPendingItemAfterRepair(queuePaths);
-          if (reactivatedQueueName) {
-            await scheduleAutoStartForNext(reactivatedQueueName);
-            return;
-          }
 
           await persistRecoveryState(buildRecoveryState({
             kind: 'queue-repair',

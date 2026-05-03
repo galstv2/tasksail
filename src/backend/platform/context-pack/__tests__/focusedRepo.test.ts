@@ -4,44 +4,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSyn
 import { tmpdir } from 'node:os';
 import {
   collectFocusedRepoTargetDirectoryRoots,
-  deriveWritableRootsFromFocusedSelection,
   explainSelectedPrimaryBoundaryFailure,
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
   resolveWorkspaceRepoRoots,
 } from '../focusedRepo.js';
-
-describe('deriveWritableRootsFromFocusedSelection', () => {
-  it('derives parent-directory writable roots and read-only support roots for file focus', () => {
-    expect(deriveWritableRootsFromFocusedSelection({
-      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
-      primaryFocusTargetKind: 'file',
-      testTarget: { path: 'services/Acme.Api.Tests', kind: 'directory' },
-      supportTargets: [
-        { path: 'libs/Acme.Events', kind: 'directory', effectiveScope: 'full-directory' },
-        { path: 'libs/Acme.Models', kind: 'directory', effectiveScope: 'full-directory' },
-      ],
-    })).toEqual({
-      writableRoots: [
-        { path: 'services/Acme.Api', kind: 'directory', reason: 'primary-focus-parent' },
-        { path: 'services/Acme.Api.Tests', kind: 'directory', reason: 'test-target' },
-      ],
-      readonlyContextRoots: [
-        { path: 'libs/Acme.Events', kind: 'directory', reason: 'support-target' },
-        { path: 'libs/Acme.Models', kind: 'directory', reason: 'support-target' },
-      ],
-    });
-  });
-
-  it('derives repo-root sentinel writable root for repo-root focus', () => {
-    expect(deriveWritableRootsFromFocusedSelection({})).toEqual({
-      writableRoots: [
-        { path: '', kind: 'directory', reason: 'selected-primary' },
-      ],
-      readonlyContextRoots: [],
-    });
-  });
-});
+import { resolveDeepFocusSelection } from '../deepFocusResolver.js';
 
 describe('resolveFocusedRepoRoot', () => {
   let tmpDir: string;
@@ -90,6 +58,33 @@ describe('resolveFocusedRepoRoot', () => {
     writeFileSync(
       path.join(stateDir, 'workspace-context-sync.json'),
       JSON.stringify(binding, null, 2),
+    );
+  }
+
+  function writeTaskJsonSelection(taskId: string, selection: object): void {
+    const taskDir = path.join(tmpDir, 'platform', 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+          selection,
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+        },
+      }, null, 2),
     );
   }
 
@@ -304,6 +299,252 @@ describe('resolveFocusedRepoRoot', () => {
     expect(result!.selectedRepoIds).toEqual(['backend', 'frontend']);
   });
 
+  it('multi-repo primaries: anchor repo is primaryRepoRoot; other primary repos are visible and writable', async () => {
+    const platformDir = makeRepo('platform-app');
+    const toolsDir = makeRepo('tools-app');
+    makeRepo('platform-app/src/platform');
+    makeRepo('platform-app/src/tools');
+    makeRepo('tools-app/src/platform');
+    makeRepo('tools-app/src/tools');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }, { path: toolsDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformDir], repository_type: 'primary' },
+        { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      selectedFocusTargets: [
+        {
+          path: 'src/tools',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: toolsDir,
+          repoId: 'tools',
+        },
+        {
+          path: 'src/platform',
+          kind: 'directory',
+          role: 'primary',
+          repoLocalPath: platformDir,
+          repoId: 'platform',
+        },
+      ],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+
+    expect(result).toBeDefined();
+    expect(result!.primaryRepoRoot).toBe(realpathSync(toolsDir));
+    expect(result!.primaryRepoId).toBe('tools');
+    expect(result!.visibleRepoRoots).toEqual([
+      realpathSync(toolsDir),
+      realpathSync(platformDir),
+    ]);
+    expect(result!.selectedRepoIds).toEqual(['tools', 'platform']);
+    expect(result!.writableRoots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'src/tools',
+          kind: 'directory',
+          reason: 'selected-primary',
+          sourceTargets: [
+            expect.objectContaining({ repoId: 'tools', repoLocalPath: toolsDir }),
+          ],
+        }),
+        expect.objectContaining({
+          path: 'src/platform',
+          kind: 'directory',
+          reason: 'selected-primary',
+          sourceTargets: [
+            expect.objectContaining({ repoId: 'platform', repoLocalPath: platformDir }),
+          ],
+        }),
+      ]),
+    );
+  });
+
+  it('validates the same relative Deep Focus path independently in each target repo', async () => {
+    const platformDir = makeRepo('platform-app');
+    const toolsDir = makeRepo('tools-app');
+    const platformShared = makeRepo('platform-app/src/shared');
+    const toolsShared = makeRepo('tools-app/src/shared');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }, { path: toolsDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformDir], repository_type: 'primary' },
+        { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusTargets: [
+        {
+          path: 'src/shared',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: platformDir,
+          repoId: 'platform',
+        },
+        {
+          path: 'src/shared',
+          kind: 'directory',
+          role: 'primary',
+          repoLocalPath: toolsDir,
+          repoId: 'tools',
+        },
+      ],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+
+    expect(result).toBeDefined();
+    expect(result!.primaryRepoRoot).toBe(realpathSync(platformDir));
+    expect(result!.primaryFocusTargets).toEqual([
+      {
+        path: 'src/shared',
+        kind: 'directory',
+        role: 'anchor',
+        repoLocalPath: platformDir,
+        repoId: 'platform',
+      },
+      {
+        path: 'src/shared',
+        kind: 'directory',
+        role: 'primary',
+        repoLocalPath: toolsDir,
+        repoId: 'tools',
+      },
+    ]);
+    expect(realpathSync(path.join(result!.primaryFocusTargets![0]!.repoLocalPath!, 'src/shared'))).toBe(platformShared);
+    expect(realpathSync(path.join(result!.primaryFocusTargets![1]!.repoLocalPath!, 'src/shared'))).toBe(toolsShared);
+  });
+
+  it('rejects a Deep Focus target repoLocalPath outside manifest-declared repo roots', async () => {
+    const backendDir = makeRepo('backend');
+    const outsideDir = makeRepo('outside');
+    makeRepo('outside/src/orders');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }, { path: outsideDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusTargets: [
+        {
+          path: 'src/orders',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: outsideDir,
+          repoId: 'backend',
+        },
+      ],
+    });
+
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot)).rejects.toThrow(
+      'is not declared in the context pack manifest',
+    );
+  });
+
+  it('rejects multi-primary Deep Focus targets missing repoLocalPath metadata', async () => {
+    const platformDir = makeRepo('platform-app');
+    const toolsDir = makeRepo('tools-app');
+    makeRepo('platform-app/src/platform');
+    makeRepo('tools-app/src/tools');
+
+    expect(() => resolveDeepFocusSelection({
+      selection: {
+        selectedRepoIds: ['platform', 'tools'],
+        selectedFocusIds: [],
+        source: 'active-task-sidecar',
+        deepFocusEnabled: true,
+        selectedFocusTargets: [
+          {
+            path: 'src/platform',
+            kind: 'directory',
+            role: 'anchor',
+            repoId: 'platform',
+          },
+          {
+            path: 'src/tools',
+            kind: 'directory',
+            role: 'primary',
+            repoLocalPath: toolsDir,
+            repoId: 'tools',
+          },
+        ],
+      },
+      estateType: 'distributed-platform',
+      primaryRepoRoot: platformDir,
+      declaredRepoRoots: [platformDir, toolsDir],
+    })).toThrow(
+      'is missing required repoLocalPath metadata for a multi-primary selection',
+    );
+  });
+
+  it('does not resolve a scoped support target for one repo against the anchor repo', async () => {
+    const platformDir = makeRepo('platform-app');
+    const toolsDir = makeRepo('tools-app');
+    makeRepo('platform-app/src/platform');
+    makeRepo('tools-app/src/tools');
+    makeFile(path.join(platformDir, 'docs', 'tools.md'));
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }, { path: toolsDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformDir], repository_type: 'primary' },
+        { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusTargets: [
+        {
+          path: 'src/platform',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: platformDir,
+          repoId: 'platform',
+        },
+        {
+          path: 'src/tools',
+          kind: 'directory',
+          role: 'primary',
+          repoLocalPath: toolsDir,
+          repoId: 'tools',
+          supportTargets: [{ path: 'docs/tools.md', kind: 'file' }],
+        },
+      ],
+    });
+
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot)).rejects.toThrow(
+      'Scoped support target[0] for primary "src/tools" "docs/tools.md" is invalid',
+    );
+  });
+
   it('resolves Dalton monolith boundary from the selected primary focus area only', async () => {
     const repoDir = makeRepo('my-app');
     const repoRoot = makePlatformRepo([{ path: '.' }]);
@@ -432,8 +673,10 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeTaskJsonSelection('scoped-task', {
       contextPackDir: packDir,
+      contextPackId: 'pack',
+      scopeMode: 'focused',
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
       deepFocusEnabled: true,
@@ -447,7 +690,7 @@ describe('resolveFocusedRepoRoot', () => {
       ],
     });
 
-    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'scoped-task' });
 
     expect(result).toBeDefined();
     expect(result!.deepFocusEnabled).toBe(true);
@@ -463,7 +706,14 @@ describe('resolveFocusedRepoRoot', () => {
       { path: 'src', kind: 'directory', effectiveScope: 'directory-minus-primary' },
     ]);
     expect(result!.writableRoots).toEqual([
-      { path: 'src', kind: 'directory', reason: 'primary-focus-parent' },
+      {
+        path: 'src',
+        kind: 'directory',
+        reason: 'primary-focus-parent',
+        sourceTargets: [
+          { path: 'src/main.ts', kind: 'file', role: 'anchor' },
+        ],
+      },
       { path: 'tests', kind: 'directory', reason: 'test-target' },
     ]);
     expect(result!.readonlyContextRoots).toEqual([
@@ -472,6 +722,241 @@ describe('resolveFocusedRepoRoot', () => {
     ]);
     expect(realpathSync(path.join(result!.primaryRepoRoot, result!.primaryFocusRelativePath!))).toBe(primaryFile);
     expect(realpathSync(path.join(result!.primaryRepoRoot, result!.supportTargets![0].path))).toBe(supportFile);
+  });
+
+  it('keeps single selectedFocusTargets arrays authoritative for writable root metadata', async () => {
+    const backendDir = makeRepo('backend');
+    makeFile(path.join(backendDir, 'src', 'main.ts'));
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
+      ],
+    });
+    writeActiveContextPackSidecar({
+      contextPackDir: packDir,
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'legacy/fallback.ts',
+      selectedFocusTargetKind: 'file',
+      selectedFocusTargets: [
+        { path: 'src/main.ts', kind: 'file', role: 'anchor' },
+      ],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+
+    expect(result).toBeDefined();
+    expect(result!.primaryFocusRelativePath).toBe('src/main.ts');
+    expect(result!.primaryFocusTargets).toEqual([
+      {
+        path: 'src/main.ts',
+        kind: 'file',
+        role: 'anchor',
+        repoLocalPath: backendDir,
+        repoId: 'backend',
+      },
+    ]);
+    expect(result!.writableRoots).toEqual([
+      {
+        repoLocalPath: backendDir,
+        path: 'src',
+        kind: 'directory',
+        reason: 'primary-focus-parent',
+        sourceTargets: [
+          {
+            path: 'src/main.ts',
+            kind: 'file',
+            role: 'anchor',
+            repoLocalPath: backendDir,
+            repoId: 'backend',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('resolves scoped targets from selectedFocusTargets into derived roots', async () => {
+    const backendDir = makeRepo('backend');
+    makeRepo('backend/src/orders');
+    makeRepo('backend/tests/orders');
+    makeFile(path.join(backendDir, 'docs', 'orders.md'));
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
+      ],
+    });
+    writeTaskJsonSelection('scoped-task', {
+      contextPackDir: packDir,
+      contextPackId: 'pack',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'legacy/fallback',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        repoLocalPath: backendDir,
+        repoId: 'backend',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'scoped-task' });
+
+    expect(result!.primaryFocusTargets).toEqual([{
+      path: 'src/orders',
+      kind: 'directory',
+      role: 'anchor',
+      repoLocalPath: backendDir,
+      repoId: 'backend',
+      testTarget: { path: 'tests/orders', kind: 'directory' },
+      supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    }]);
+    expect(result!.writableRoots).toContainEqual({
+      repoLocalPath: backendDir,
+      path: 'tests/orders',
+      kind: 'directory',
+      reason: 'scoped-test-target',
+      sourceTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        repoLocalPath: backendDir,
+        repoId: 'backend',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+    expect(result!.readonlyContextRoots).toContainEqual({
+      repoLocalPath: backendDir,
+      path: 'docs/orders.md',
+      kind: 'file',
+      reason: 'scoped-support-target',
+      sourceTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        repoLocalPath: backendDir,
+        repoId: 'backend',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+  });
+
+  it('rejects repo-root primaries with scoped fields before root emission', async () => {
+    const backendDir = makeRepo('backend');
+    makeRepo('backend/tests');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
+      ],
+    });
+    writeTaskJsonSelection('repo-root-scoped-task', {
+      contextPackDir: packDir,
+      contextPackId: 'pack',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+      selectedFocusTargets: [{
+        path: '',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests', kind: 'directory' },
+      }],
+    });
+
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'repo-root-scoped-task' })).rejects.toThrow(
+      'scoped-fields-on-repo-root-primary',
+    );
+  });
+
+  it('fails closed when a scoped target is missing on disk', async () => {
+    const backendDir = makeRepo('backend');
+    makeRepo('backend/src/orders');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'distributed-platform',
+      repositories: [
+        { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
+      ],
+    });
+    writeTaskJsonSelection('missing-scoped-task', {
+      contextPackDir: packDir,
+      contextPackId: 'pack',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        supportTargets: [{ path: 'docs/missing.md', kind: 'file' }],
+      }],
+    });
+
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'missing-scoped-task' })).rejects.toThrow(
+      'Scoped support target[0] for primary "src/orders" "docs/missing.md" is invalid',
+    );
+  });
+
+  it('fails closed when a monolith scoped target escapes the selected focus area', async () => {
+    const repoDir = makeRepo('my-app');
+    makeRepo('my-app/apps/api');
+    makeRepo('my-app/tests/api');
+    makeRepo('my-app/tests/web');
+    const repoRoot = makePlatformRepo([{ path: '.' }, { path: repoDir }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'monolith',
+      repository: {
+        repo_id: 'my-app',
+        local_paths: [repoDir],
+      },
+      focusable_areas: [
+        { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
+      ],
+    });
+    writeTaskJsonSelection('monolith-scoped-task', {
+      contextPackDir: packDir,
+      contextPackId: 'pack',
+      scopeMode: 'focused',
+      selectedRepoIds: [],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'apps/api',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'apps/api',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/web', kind: 'directory' },
+      }],
+    });
+
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'monolith-scoped-task' })).rejects.toThrow(
+      'Scoped test target for primary "apps/api" "tests/web" must stay within the selected monolith focus area "apps/api".',
+    );
   });
 
   it('reads Deep Focus metadata from workspace sync using snake_case keys', async () => {
@@ -803,6 +1288,33 @@ describe('resolveFocusedRepoRoot', () => {
       '/repos/backend/src',
       '/repos/backend/tests',
       '/repos/backend/docs',
+    ]);
+  });
+
+  it('collects planner context roots for each primary target repoLocalPath', () => {
+    expect(collectFocusedRepoTargetDirectoryRoots({
+      primaryRepoRoot: '/repos/backend',
+      primaryFocusTargets: [
+        {
+          path: 'src/handler.ts',
+          kind: 'file',
+          role: 'anchor',
+          repoLocalPath: '/repos/backend',
+          testTarget: { path: 'tests/handler.test.ts', kind: 'file' },
+        },
+        {
+          path: 'tools',
+          kind: 'directory',
+          role: 'primary',
+          repoLocalPath: '/repos/tools',
+          supportTargets: [{ path: 'docs', kind: 'directory' }],
+        },
+      ],
+    })).toEqual([
+      '/repos/backend/src',
+      '/repos/backend/tests',
+      '/repos/tools/tools',
+      '/repos/tools/docs',
     ]);
   });
 

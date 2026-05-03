@@ -227,6 +227,7 @@ export async function moveDropboxItemsOnce(
         deepFocusEnabled: binding?.deepFocusEnabled,
         selectedFocusPath: binding?.selectedFocusPath,
         selectedFocusTargetKind: binding?.selectedFocusTargetKind,
+        selectedFocusTargets: binding?.selectedFocusTargets,
         selectedTestTarget: binding?.selectedTestTarget,
         selectedSupportTargets: binding?.selectedSupportTargets,
         createdAt: new Date().toISOString(),
@@ -303,6 +304,7 @@ export async function moveDropboxItemToPending(options: {
       deepFocusEnabled: binding?.deepFocusEnabled,
       selectedFocusPath: binding?.selectedFocusPath,
       selectedFocusTargetKind: binding?.selectedFocusTargetKind,
+      selectedFocusTargets: binding?.selectedFocusTargets,
       selectedTestTarget: binding?.selectedTestTarget,
       selectedSupportTargets: binding?.selectedSupportTargets,
       createdAt: new Date().toISOString(),
@@ -333,9 +335,21 @@ export interface ActivateNextPendingItemOptions {
   contextPackDir?: string;
 }
 
+export const ACTIVATION_GATE_REASON = {
+  CONCURRENCY_CAP_REACHED: 'concurrency-cap-reached',
+  SHARED_MCP_BOOTSTRAP_FAILED: 'shared-mcp-bootstrap-failed',
+  PIPELINE_SPAWN_FAILED: 'pipeline-spawn-failed',
+} as const;
+
+export type ActivationGateReason =
+  (typeof ACTIVATION_GATE_REASON)[keyof typeof ACTIVATION_GATE_REASON];
+
 export interface ActivateNextPendingItemResult {
   activated: boolean;
-  reason?: string;
+  // Stable gate-condition codes use ActivationGateReason. Orchestrators
+  // (e.g. publishPendingItem) may also surface dynamic strings such as
+  // 'activation-error: <msg>' here.
+  reason?: ActivationGateReason | string;
 }
 
 async function readActiveWorkspaceContextPackDir(repoRoot: string): Promise<string | undefined> {
@@ -410,7 +424,7 @@ export async function activateNextPendingItemIfReady(
 
   const currentActive = getActiveTaskIds(paths);
   if (currentActive.length >= cap) {
-    return { activated: false, reason: 'concurrency-cap-reached' };
+    return { activated: false, reason: ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED };
   }
 
   // Skip already-active task IDs so parallel activations pick the next
@@ -636,6 +650,21 @@ export async function activateNextPendingItemIfReady(
       dataHostDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] ?? null,
       dataContainerDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] ?? null,
       repoBindings,
+      selection: contextPackBinding
+        ? {
+            contextPackDir: contextPackBinding.contextPackDir,
+            contextPackId: contextPackBinding.contextPackId,
+            scopeMode: contextPackBinding.scopeMode,
+            selectedRepoIds: contextPackBinding.selectedRepoIds,
+            selectedFocusIds: contextPackBinding.selectedFocusIds,
+            deepFocusEnabled: contextPackBinding.deepFocusEnabled,
+            selectedFocusPath: contextPackBinding.selectedFocusPath ?? null,
+            selectedFocusTargetKind: contextPackBinding.selectedFocusTargetKind ?? null,
+            selectedFocusTargets: contextPackBinding.selectedFocusTargets,
+            selectedTestTarget: contextPackBinding.selectedTestTarget ?? null,
+            selectedSupportTargets: contextPackBinding.selectedSupportTargets ?? [],
+          }
+        : undefined,
     },
     materialization: {
       strategy: combinedMat.strategy,
@@ -717,7 +746,7 @@ export async function activateNextPendingItemIfReady(
         activeMarkerPath,
         repoBindings,
       });
-      return { activated: false, reason: 'shared-mcp-bootstrap-failed' };
+      return { activated: false, reason: ACTIVATION_GATE_REASON.SHARED_MCP_BOOTSTRAP_FAILED };
     }
   } else {
     process.stderr.write(
@@ -750,7 +779,7 @@ export async function activateNextPendingItemIfReady(
       repoBindings,
     });
     console.error(`[operations] pipeline spawn failed for ${taskId}:`, err);
-    return { activated: false, reason: 'pipeline-spawn-failed' };
+    return { activated: false, reason: ACTIVATION_GATE_REASON.PIPELINE_SPAWN_FAILED };
   }
   if ('deferred' in pipelineResult && pipelineResult.deferred) {
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }

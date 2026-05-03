@@ -124,7 +124,7 @@ Use `make test-smoke`, `make test-domain DOMAIN=...`, `make test-contracts`, and
 
 ## How to start the queue and seed a starter task
 
-Run `pnpm run watch-dropbox`, then create an intake item with `pnpm run plan-dropbox-task -- --title "Starter" --summary "..."`. Context packs can be activated with `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --bootstrap-answers-file /path/to/answers.json`.
+Create an intake item with `pnpm run plan-dropbox-task -- --title "Starter" --summary "..."`. Context packs can be activated with `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --bootstrap-answers-file /path/to/answers.json`.
 
 ## Workflow and handoff rules
 
@@ -195,7 +195,6 @@ tasksail/
 | `pnpm run local-checks` | Full validation gate (run before committing) |
 | `pnpm run queue-status` | Show current task queue state |
 | `pnpm run repair -- --auto-fix` | Recover safe queue inconsistencies after inspection |
-| `pnpm run watch-dropbox` | Start the task intake watcher |
 | `pnpm run complete-pending-item` | Archive a completed task and advance the queue |
 
 ### Desktop app (run from `src/frontend/desktop/`)
@@ -266,7 +265,7 @@ npm install
 ```
 
 **Task stuck in the queue?**
-Make sure `pnpm run watch-dropbox` is running.
+Run `pnpm run queue-status` and inspect the active marker state.
 
 **Agents not starting?**
 Check that your configured container runtime (Docker or Podman) is running and

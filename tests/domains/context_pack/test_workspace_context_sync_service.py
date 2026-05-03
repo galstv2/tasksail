@@ -427,6 +427,13 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
                         "path": "src/orders",
                         "kind": "directory",
                         "reason": "selected-primary",
+                        "sourceTargets": [
+                            {
+                                "path": "src/orders",
+                                "kind": "directory",
+                                "role": "anchor",
+                            }
+                        ],
                     },
                     {
                         "path": "tests/orders",
@@ -462,6 +469,87 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             self.assertEqual(
                 state["derived_readonly_context_roots"],
                 result["derived_readonly_context_roots"],
+            )
+
+    def test_deep_focus_multi_primary_writable_roots_include_source_targets(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            workspace_root = Path(temp_root)
+            estate_root = workspace_root / "estate-root"
+            context_pack_dir = workspace_root / "contexts" / "orders-estate"
+            repo_one = estate_root / "services" / "orders-api"
+            self.create_git_repo(repo_one)
+            context_pack_dir.mkdir(parents=True)
+            self.build_distributed_manifest(
+                workspace_root=workspace_root,
+                context_pack_dir=context_pack_dir,
+                repo_roots=[repo_one],
+            )
+            self.write_workspace_file(workspace_root, [{"path": "."}])
+
+            service = WorkspaceContextSyncService(
+                workspace_root=workspace_root,
+                now=lambda: "2026-03-08T02:00:00Z",
+            )
+            result = service.apply_sync(
+                context_pack_dir,
+                selected_repo_ids=["services-orders-api"],
+                deep_focus={
+                    "deep_focus_enabled": True,
+                    "selected_focus_targets": [
+                        {
+                            "path": "src/routes/user.py",
+                            "kind": "file",
+                            "role": "anchor",
+                        },
+                        {
+                            "path": "src/routes/admin.py",
+                            "kind": "file",
+                            "role": "primary",
+                        },
+                        {
+                            "path": "src/services",
+                            "kind": "directory",
+                            "role": "primary",
+                        },
+                    ],
+                },
+            )
+
+            self.assertEqual(
+                result["derived_writable_roots"],
+                [
+                    {
+                        "path": "src/routes",
+                        "kind": "directory",
+                        "reason": "primary-focus-parent",
+                        "sourceTargets": [
+                            {
+                                "path": "src/routes/user.py",
+                                "kind": "file",
+                                "role": "anchor",
+                            },
+                            {
+                                "path": "src/routes/admin.py",
+                                "kind": "file",
+                                "role": "primary",
+                            },
+                        ],
+                    },
+                    {
+                        "path": "src/services",
+                        "kind": "directory",
+                        "reason": "selected-primary",
+                        "sourceTargets": [
+                            {
+                                "path": "src/services",
+                                "kind": "directory",
+                                "role": "primary",
+                            },
+                        ],
+                    },
+                ],
             )
 
     def test_existing_operator_owned_target_folder_is_preserved_not_managed(

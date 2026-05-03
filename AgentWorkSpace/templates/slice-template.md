@@ -18,18 +18,22 @@
 ## Files and Interfaces
 
 ### Files
-<!-- list all expected files with one-line change descriptions; prefix new files with "(new)"; include every file the slice is likely to touch from implementation-spec.md change surface, and call out any file that must stay read-only for this slice -->
+<!-- (required, non-empty; leaving this blank fails validation) list all expected files with one-line change descriptions; prefix new files with "(new)"; include every file the slice is likely to touch from implementation-spec.md change surface, and call out any file that must stay read-only for this slice -->
 
 ### Unit Tests
-<!-- list test files and what they verify; carry forward the relevant validation/test expectations from implementation-spec.md so the slice preserves happy paths, error cases, regressions, and any explicit contract/status-code checks -->
+<!-- (required, non-empty; absence fails validation) list test files and what they verify; carry forward the relevant validation/test expectations from implementation-spec.md so the slice preserves happy paths, error cases, regressions, and any explicit contract/status-code checks -->
 
 ## Acceptance and Validation
 
 ### Acceptance Criteria
-<!-- write measurable criteria only; carry forward the subset of implementation-spec.md goals, contracts, change boundaries, and risk mitigations that this slice must satisfy; each bullet should be provable by command, grep, or test assertion -->
+<!-- (1+ bullet or numbered items required; prose alone fails validation — write measurable criteria only) carry forward the subset of implementation-spec.md goals, contracts, change boundaries, and risk mitigations that this slice must satisfy; each bullet should be provable by command, grep, or test assertion -->
 
 ### Validation Commands
-<!-- paste-and-run commands that prove the slice is done; include a fenced bash block when authored; prefer the exact validation commands from implementation-spec.md when applicable, narrowed only to this slice's touched surface -->
+<!--
+(required, blocking gate) Content must be a fenced bash block (```bash ... ```)
+or shell-prefixed command lines; narrative prose fails validation.
+Add a broader command only when this slice changes shared contracts.
+-->
 
 ## Guards and Coordination
 

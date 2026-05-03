@@ -2,6 +2,7 @@ import type {
   ContextPackCatalogEntry,
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
+  ContextPackPrimaryFocusTarget,
   ContextPackListRepoTreeResponse,
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
@@ -20,6 +21,7 @@ export type ContextPackSidebarProps = {
   deepFocusPrimaryFocusId?: string | null;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget?: ContextPackDeepFocusTarget | null;
   selectedSupportTargets?: ContextPackDeepFocusTarget[];
   actionPending: 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed' | null;
@@ -46,6 +48,7 @@ export type ContextPackSidebarProps = {
     deepFocusPrimaryFocusId: string | null;
     selectedFocusPath: string | null;
     selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+    selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
     selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
     selectedSupportTargets: ContextPackDeepFocusTarget[];
   }) => void;

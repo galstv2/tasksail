@@ -59,6 +59,23 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('./main.services', () => ({
+  autoStartBackendServices: vi.fn(async () => undefined),
+  startBackendServices: vi.fn(async () => ({
+    status: 'idle',
+    action: 'services.readStatus',
+    mode: 'observed',
+  })),
+  checkContainerRuntimeAvailable: vi.fn(async () => ({ ok: true })),
+  stopBackendServices: vi.fn(async () => undefined),
+  checkBackendHealth: vi.fn(async () => undefined),
+  readBackendServiceStatus: vi.fn(() => ({
+    status: 'idle',
+    action: 'services.readStatus',
+    mode: 'observed',
+  })),
+}));
+
 describe('electron main bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1,48 +1,74 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { DeepFocusEditor } from './DeepFocusEditor';
 import { DeepFocusInfoTip } from './DeepFocusInfoTip';
-
 import type {
   ContextPackCatalogEntry,
   ContextPackDeepFocusState,
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
   ContextPackListRepoTreeResponse,
-  ContextPackRepoTreeEntry,
+  ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
 import { classNames } from '../utils/classNames';
-import { formatNumber } from '../utils/formatNumber';
-import { DeepFocusBreadcrumb, type BreadcrumbItem } from './DeepFocusBreadcrumb';
-import { DeepFocusSelectionTray } from './DeepFocusSelectionTray';
-import { DeepFocusTreeRow, type TreeRowData, type FocusRole } from './DeepFocusTreeRow';
+import type { BreadcrumbItem } from './DeepFocusBreadcrumb';
+import { DeepFocusSummary } from './DeepFocusSummary';
+import type { VisibleTreeRow } from './DeepFocusTreeCanvas';
+import type { TreeRowData } from './DeepFocusTreeRow';
 import {
   basename,
-  buildSupportDisplayLabels,
   formatRelativeTime,
-  getPrimaryDisplayLabel,
-  inferDraftPrimaryTarget,
-  joinRelativePath,
+  getAnchorTarget,
   normalizeRelativePath,
-  removePathPrefix,
-  isSameTarget,
+  parentPath,
+  pathContains,
+  primaryIdentityKey,
+  validateNestedScopeForUi,
+  type EditScopeCursor,
+  type ScopedRoleAction,
 } from './SidebarDeepFocusUtils';
+import { deepFocusStrings } from './SidebarDeepFocusStrings';
+import {
+  PRIMARY_REMOVE_COMMIT_MS,
+  type DeepFocusCommit,
+  type DeepFocusDraft,
+  type DeepFocusMode,
+  type TopLevelTarget,
+  type TreeDirectoryListing,
+  type UndoEntry,
+} from './SidebarDeepFocusControls.types';
+import {
+  applyRestoreUndo,
+  applyScopedRoleAction,
+  buildCommit,
+  derivePrimaryIds,
+  deriveWorkingFocusIdsFromTargets,
+  initialScopeCursor,
+  normalizePrimaryTargetRoles,
+} from './sidebarDeepFocusReducers';
+import {
+  buildTopLevelTargets,
+  buildTreeRows,
+  treeExpansionKey,
+} from './sidebarDeepFocusSelectors';
+import {
+  isPrimaryForTopLevel,
+  useDeepFocusEditorModel,
+  type DeepFocusParentSupportGhostState,
+  type DeepFocusSelectedTreeRow,
+} from './useDeepFocusEditorModel';
+import { useDeepFocusKeyboard } from './useDeepFocusKeyboard';
 
-export type DeepFocusCommit = {
-  deepFocusEnabled: boolean;
-  deepFocusPrimaryRepoId: string | null;
-  deepFocusPrimaryFocusId: string | null;
-  selectedFocusPath: string | null;
-  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
-  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
-  selectedSupportTargets: ContextPackDeepFocusTarget[];
-};
+export type { DeepFocusCommit } from './SidebarDeepFocusControls.types';
 
 type SidebarDeepFocusControlsProps = {
   selectedPack: ContextPackCatalogEntry;
   selectedWorkingFocusIds: string[];
+  deepFocusPrimaryId: string | null;
   deepFocusEnabled: boolean;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
   onCommitDeepFocusSelection: (selection: DeepFocusCommit) => void;
@@ -54,71 +80,70 @@ type SidebarDeepFocusControlsProps = {
   editorOpen?: boolean;
 };
 
-type DeepFocusMode = 'distributed' | 'monolith';
-
-type DeepFocusDraft = {
-  selectedWorkingFocusIds: string[];
-  state: ContextPackDeepFocusState;
-};
-
-type TopLevelTarget = {
-  id: string;
-  label: string;
-  rootPath: string;
-  repoLocalPath: string;
-  ancillaryAllowed: boolean;
-  systemLayer: string | null;
-};
-
-type TreeFrame = {
-  topLevelId: string;
-  topLevelLabel: string;
-  topLevelPath: string;
-  repoLocalPath: string;
-  currentPath: string;
-  entries: ContextPackRepoTreeEntry[];
-  truncated: boolean;
-};
-
-type DrillDirection = 'forward' | 'backward';
-
-function FolderGlyph(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
-      <path
-        d="M2.5 4.5a1 1 0 0 1 1-1h2.3l1.2 1.4H12.5a1 1 0 0 1 1 1v5.4a1.2 1.2 0 0 1-1.2 1.2H3.7a1.2 1.2 0 0 1-1.2-1.2z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+function areTargetsEqual(
+  left: ContextPackDeepFocusTarget | null | undefined,
+  right: ContextPackDeepFocusTarget | null | undefined,
+): boolean {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return left.path === right.path && left.kind === right.kind;
 }
 
-function FileGlyph(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
-      <path
-        d="M4 2.5h5.2L12 5.3v8.2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"
-        fill="currentColor"
-        opacity="0.55"
-      />
-      <path
-        d="M9.2 2.5V5a.8.8 0 0 0 .8.8h2"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
+function areTargetListsEqual(
+  left: ContextPackDeepFocusTarget[] | undefined,
+  right: ContextPackDeepFocusTarget[] | undefined,
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((target, index) => areTargetsEqual(target, b[index]));
 }
+
+function arePrimaryTargetsEqual(
+  left: ContextPackPrimaryFocusTarget,
+  right: ContextPackPrimaryFocusTarget,
+): boolean {
+  return left.path === right.path
+    && left.kind === right.kind
+    && (left.repoLocalPath ?? null) === (right.repoLocalPath ?? null)
+    && (left.repoId ?? null) === (right.repoId ?? null)
+    && (left.focusId ?? null) === (right.focusId ?? null)
+    && (left.role ?? null) === (right.role ?? null)
+    && areTargetsEqual(left.testTarget, right.testTarget)
+    && areTargetListsEqual(left.supportTargets, right.supportTargets);
+}
+
+function arePrimaryListsEqual(
+  left: ContextPackPrimaryFocusTarget[] | undefined,
+  right: ContextPackPrimaryFocusTarget[] | undefined,
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((primary, index) => arePrimaryTargetsEqual(primary, b[index]));
+}
+
+function areDeepFocusCommitsEqual(left: DeepFocusCommit, right: DeepFocusCommit): boolean {
+  return left.deepFocusEnabled === right.deepFocusEnabled
+    && left.deepFocusPrimaryRepoId === right.deepFocusPrimaryRepoId
+    && left.deepFocusPrimaryFocusId === right.deepFocusPrimaryFocusId
+    && left.selectedFocusPath === right.selectedFocusPath
+    && left.selectedFocusTargetKind === right.selectedFocusTargetKind
+    && areTargetsEqual(left.selectedTestTarget, right.selectedTestTarget)
+    && areTargetListsEqual(left.selectedSupportTargets, right.selectedSupportTargets)
+    && arePrimaryListsEqual(left.selectedFocusTargets, right.selectedFocusTargets);
+}
+
+const EXPAND_ALL_MAX_DIRECTORIES = 1000;
 
 function SidebarDeepFocusControls({
   selectedPack,
   selectedWorkingFocusIds,
+  deepFocusPrimaryId,
   deepFocusEnabled,
   selectedFocusPath,
   selectedFocusTargetKind,
+  selectedFocusTargets,
   selectedTestTarget,
   selectedSupportTargets,
   onCommitDeepFocusSelection,
@@ -130,51 +155,7 @@ function SidebarDeepFocusControls({
     selectedPack.estateType === 'distributed-platform' ? 'distributed' : 'monolith';
   const topLevelLabel = deepFocusMode === 'distributed' ? 'Repositories' : 'Focus Areas';
   const topLevelTargets = useMemo<TopLevelTarget[]>(
-    () => (
-      deepFocusMode === 'distributed'
-        ? selectedPack.focusTargets
-          .filter(
-            (
-              target,
-            ): target is ContextPackCatalogEntry['focusTargets'][number] & {
-              repoId: string;
-              repoLocalPath: string;
-            } =>
-              target.kind === 'repository'
-              && typeof target.repoId === 'string'
-              && typeof target.repoLocalPath === 'string'
-              && target.repoLocalPath.length > 0,
-          )
-          .map((target) => ({
-            id: target.repoId,
-            label: target.displayName,
-            rootPath: '',
-            repoLocalPath: target.repoLocalPath,
-            ancillaryAllowed: false,
-            systemLayer: target.systemLayer ?? null,
-          }))
-        : selectedPack.focusTargets
-          .filter(
-            (
-              target,
-            ): target is ContextPackCatalogEntry['focusTargets'][number] & {
-              focusId: string;
-              repoLocalPath: string;
-            } =>
-              target.kind === 'focus-area'
-              && typeof target.focusId === 'string'
-              && typeof target.repoLocalPath === 'string'
-              && target.repoLocalPath.length > 0,
-          )
-          .map((target) => ({
-            id: target.focusId,
-            label: target.displayName,
-            rootPath: normalizeRelativePath(target.relativePath),
-            repoLocalPath: target.repoLocalPath,
-            ancillaryAllowed: true,
-            systemLayer: target.systemLayer ?? null,
-          }))
-    ),
+    () => buildTopLevelTargets(selectedPack, deepFocusMode),
     [deepFocusMode, selectedPack.focusTargets],
   );
   const [draft, setDraft] = useState<DeepFocusDraft>({
@@ -185,148 +166,161 @@ function SidebarDeepFocusControls({
       deepFocusPrimaryFocusId: null,
       selectedFocusPath: null,
       selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
       selectedTestTarget: null,
       selectedSupportTargets: [],
     },
+    scopeCursor: { kind: 'global' },
   });
-  const [currentFrame, setCurrentFrame] = useState<TreeFrame | null>(null);
-  const [frameStack, setFrameStack] = useState<TreeFrame[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [directoryListings, setDirectoryListings] = useState<Record<string, TreeDirectoryListing>>({});
+  const [expandAllInFlight, setExpandAllInFlight] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [showTreeLoading, setShowTreeLoading] = useState(false);
-  const [treeTruncated, setTreeTruncated] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
-  const [drillingIndex, setDrillingIndex] = useState<number | null>(null);
-  const [selectionTrayCollapsed, setSelectionTrayCollapsed] = useState(true);
-  const [drillTransitionClass, setDrillTransitionClass] = useState<string | null>(null);
-  const [popoverRowIndex, setPopoverRowIndex] = useState<number | null>(null);
+  const [selectedTreeRow, setSelectedTreeRow] = useState<DeepFocusSelectedTreeRow | null>(null);
+  const [parentSupportGhostState, setParentSupportGhostState] = useState<DeepFocusParentSupportGhostState | null>(null);
+  const [pendingStripFocusCursor, setPendingStripFocusCursor] = useState<EditScopeCursor | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [exitingPrimaryKey, setExitingPrimaryKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const topLevelKeyRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
-  const drillTimerRef = useRef<number | null>(null);
+  const expandAllRunIdRef = useRef(0);
+  const removalUndoTimerRef = useRef<number | null>(null);
+  const removalCommitTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
-      if (drillTimerRef.current !== null) {
-        window.clearTimeout(drillTimerRef.current);
+      if (removalUndoTimerRef.current !== null) {
+        window.clearTimeout(removalUndoTimerRef.current);
+      }
+      if (removalCommitTimerRef.current !== null) {
+        window.clearTimeout(removalCommitTimerRef.current);
       }
     };
   }, []);
 
   useEffect(() => {
+    if (removalUndoTimerRef.current !== null) {
+      window.clearTimeout(removalUndoTimerRef.current);
+      removalUndoTimerRef.current = null;
+    }
+    if (undoStack.length === 0) {
+      return undefined;
+    }
+    removalUndoTimerRef.current = window.setTimeout(() => {
+      setUndoStack([]);
+      removalUndoTimerRef.current = null;
+    }, 6000);
+    return () => {
+      if (removalUndoTimerRef.current !== null) {
+        window.clearTimeout(removalUndoTimerRef.current);
+        removalUndoTimerRef.current = null;
+      }
+    };
+  }, [undoStack.length]);
+
+  useEffect(() => {
     onDeepFocusEditorToggle?.(false);
-    setCurrentFrame(null);
-    setFrameStack([]);
+    expandAllRunIdRef.current += 1;
+    setExpandAllInFlight(false);
+    setExpanded(new Set());
+    setDirectoryListings({});
     setTreeLoading(false);
     setShowTreeLoading(false);
-    setSelectionTrayCollapsed(true);
-    setDrillTransitionClass(null);
     setFocusedIndex(0);
     setFocusedKey(null);
+    setSelectedTreeRow(null);
+    setParentSupportGhostState(null);
+    setPendingStripFocusCursor(null);
     setSearchQuery('');
+    setUndoStack([]);
   }, [selectedPack.contextPackDir]);
 
-  useEffect(() => {
-    setSearchQuery('');
-  }, [currentFrame]);
-
-  useEffect(() => {
-    if (!editorOpen) return;
-    rowRefs.current[focusedIndex]?.focus();
-  }, [editorOpen, focusedIndex, currentFrame]);
-
-  const committedTopLevel = topLevelTargets.find((target) => target.id === selectedWorkingFocusIds[0])
-    ?? topLevelTargets[0]
-    ?? null;
-  const committedTopLevelId = committedTopLevel?.id ?? null;
-  const supportLabels = useMemo(
-    () => buildSupportDisplayLabels(selectedSupportTargets, topLevelTargets, committedTopLevelId),
-    [selectedSupportTargets, topLevelTargets, committedTopLevelId],
+  const committedPrimaries = useMemo(
+    () => normalizePrimaryTargetRoles(selectedFocusTargets ?? []),
+    [selectedFocusTargets],
   );
-  const draftTopLevelId = draft.selectedWorkingFocusIds[0] ?? '';
-  const draftTopLevel = topLevelTargets.find((target) => target.id === draftTopLevelId) ?? null;
-  const draftPrimaryTarget = inferDraftPrimaryTarget(
-    draft.state.selectedFocusPath,
-    draft.state.selectedFocusTargetKind,
-  );
-  const draftHasExplicitNoTests = draft.state.selectedTestTarget === null;
-  const draftHasColocatedPrimaryAndTest = Boolean(
-    draftPrimaryTarget
-      && draft.state.selectedTestTarget
-      && isSameTarget(draftPrimaryTarget, draft.state.selectedTestTarget),
-  );
-  const selectionTraySummary = [
-    draftTopLevel
-      ? `Primary: ${getPrimaryDisplayLabel(
-        draftTopLevel,
-        normalizeRelativePath(draft.state.selectedFocusPath),
-      )}`
-      : 'Primary: none',
-    draft.state.selectedTestTarget
-      ? `Test: ${basename(draft.state.selectedTestTarget.path)}`
-      : draftHasExplicitNoTests
-        ? 'Test: no tests'
-        : 'Test: choose target',
-    `Support: ${draft.state.selectedSupportTargets.length}`,
-  ].join(' · ');
-
-  const derivePrimaryIds = (nextIds: string[]): {
-    deepFocusPrimaryRepoId: string | null;
-    deepFocusPrimaryFocusId: string | null;
-  } => ({
-    deepFocusPrimaryRepoId: deepFocusMode === 'distributed' ? (nextIds[0] ?? null) : null,
-    deepFocusPrimaryFocusId: deepFocusMode === 'monolith' ? (nextIds[0] ?? null) : null,
-  });
-
-  const buildCommit = (
-    enabled: boolean,
-    nextIds: string[],
-    state: Pick<
-      ContextPackDeepFocusState,
-      'selectedFocusPath'
-      | 'selectedFocusTargetKind'
-      | 'selectedTestTarget'
-      | 'selectedSupportTargets'
-    >,
-  ): DeepFocusCommit => ({
-    deepFocusEnabled: enabled,
-    ...derivePrimaryIds(nextIds),
-    selectedFocusPath: state.selectedFocusPath,
-    selectedFocusTargetKind: state.selectedFocusTargetKind,
-    selectedTestTarget: state.selectedTestTarget,
-    selectedSupportTargets: state.selectedSupportTargets,
-  });
-
+  const hasCommittedPrimaryScope = selectedFocusPath !== null
+    || selectedFocusTargetKind !== null
+    || deepFocusPrimaryId !== null
+    || committedPrimaries.length > 0;
+  const committedPrimaryTopLevelId = deriveWorkingFocusIdsFromTargets(committedPrimaries, deepFocusMode)[0]
+    ?? (hasCommittedPrimaryScope ? selectedWorkingFocusIds[0] ?? null : null);
+  const committedTopLevel = committedPrimaryTopLevelId
+    ? topLevelTargets.find((target) => target.id === committedPrimaryTopLevelId) ?? null
+    : null;
+  const draftTopLevel = topLevelTargets.find(
+    (target) => target.id === (draft.selectedWorkingFocusIds[0] ?? ''),
+  ) ?? null;
   const closeEditor = () => {
     onDeepFocusEditorToggle?.(false);
-    setCurrentFrame(null);
-    setFrameStack([]);
+    expandAllRunIdRef.current += 1;
+    setExpandAllInFlight(false);
+    setExpanded(new Set());
+    setDirectoryListings({});
     setTreeLoading(false);
     setShowTreeLoading(false);
-    setSelectionTrayCollapsed(true);
     setFocusedIndex(0);
     setFocusedKey(null);
-    setPopoverRowIndex(null);
+    setSelectedTreeRow(null);
+    setParentSupportGhostState(null);
+    setPendingStripFocusCursor(null);
     setApplyError(null);
+    setSearchQuery('');
+    setUndoStack([]);
   };
 
   const initializeDraft = (): DeepFocusDraft => {
-    const nextTopLevelId = selectedWorkingFocusIds[0] ?? topLevelTargets[0]?.id ?? null;
+    const hasCommittedPrimaryScope = selectedFocusPath !== null
+      || selectedFocusTargetKind !== null
+      || deepFocusPrimaryId !== null
+      || (selectedFocusTargets ?? []).length > 0;
+    const committedTargets = normalizePrimaryTargetRoles(selectedFocusTargets ?? []);
+    const nextTopLevelId = deriveWorkingFocusIdsFromTargets(committedTargets, deepFocusMode)[0]
+      ?? (hasCommittedPrimaryScope ? selectedWorkingFocusIds[0] ?? null : null);
     const nextTopLevel = topLevelTargets.find((target) => target.id === nextTopLevelId) ?? null;
     const nextPath = selectedFocusPath
-      ?? (deepFocusMode === 'monolith' ? nextTopLevel?.rootPath ?? null : null);
+      ?? (committedTargets.length > 0 && deepFocusMode === 'monolith' ? nextTopLevel?.rootPath ?? null : null);
+    const nextTargets = committedTargets.length > 0
+      ? committedTargets.map((target) => ({
+        ...target,
+        ...(target.repoLocalPath || !nextTopLevel?.repoLocalPath ? {} : { repoLocalPath: nextTopLevel.repoLocalPath }),
+        ...(target.repoId || deepFocusMode !== 'distributed' || !nextTopLevel ? {} : { repoId: nextTopLevel.id }),
+        ...(target.focusId || deepFocusMode !== 'monolith' || !nextTopLevel ? {} : { focusId: nextTopLevel.id }),
+        supportTargets: (target.supportTargets ?? []).map((supportTarget) => ({ ...supportTarget })),
+        testTarget: target.testTarget ? { ...target.testTarget } : target.testTarget,
+      }))
+      : nextPath
+        ? [{
+          path: nextPath,
+          kind: selectedFocusTargetKind ?? 'directory',
+          role: 'anchor' as const,
+          // Stamp identity + repoLocalPath on the synthetic primary so every
+          // primary carries its repoLocalPath and matching manifest identifier.
+          ...(nextTopLevel?.repoLocalPath ? { repoLocalPath: nextTopLevel.repoLocalPath } : {}),
+          ...(nextTopLevel && deepFocusMode === 'distributed'
+            ? { repoId: nextTopLevel.id }
+            : {}),
+          ...(nextTopLevel && deepFocusMode === 'monolith'
+            ? { focusId: nextTopLevel.id }
+            : {}),
+        }]
+        : [];
     return {
-      selectedWorkingFocusIds: nextTopLevelId ? [nextTopLevelId] : [],
+      selectedWorkingFocusIds: deriveWorkingFocusIdsFromTargets(nextTargets, deepFocusMode),
       state: {
         deepFocusEnabled: true,
-        ...derivePrimaryIds(nextTopLevelId ? [nextTopLevelId] : []),
+        ...derivePrimaryIds(nextTargets, deepFocusMode),
         selectedFocusPath: nextPath,
         selectedFocusTargetKind: nextPath
           ? (selectedFocusTargetKind ?? 'directory')
           : null,
+        selectedFocusTargets: nextTargets,
         selectedTestTarget:
           selectedTestTarget === undefined
             ? undefined
@@ -335,32 +329,15 @@ function SidebarDeepFocusControls({
               : null,
         selectedSupportTargets: selectedSupportTargets.map((target) => ({ ...target })),
       },
+      scopeCursor: initialScopeCursor(nextTargets),
     };
   };
 
-  const startDrillTransition = (direction: DrillDirection, phase: 'exit' | 'enter') => {
-    if (drillTimerRef.current !== null) {
-      window.clearTimeout(drillTimerRef.current);
-      drillTimerRef.current = null;
-    }
-    setDrillTransitionClass(`deep-focus-list--drill-${direction}-${phase}`);
-    if (phase === 'enter') {
-      drillTimerRef.current = window.setTimeout(() => {
-        setDrillTransitionClass(null);
-        drillTimerRef.current = null;
-      }, 220);
-    }
-  };
-
-  const fetchTree = async (
+  const fetchDirectoryListing = async (
     target: TopLevelTarget,
     nextPath = target.rootPath,
-    nextStack: TreeFrame[] = frameStack,
-    direction?: DrillDirection,
-  ): Promise<void> => {
-    if (direction) {
-      startDrillTransition(direction, 'exit');
-    }
+  ): Promise<TreeDirectoryListing | null> => {
+    const listingKey = treeExpansionKey(target.id, nextPath);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setTreeLoading(true);
@@ -373,11 +350,16 @@ function SidebarDeepFocusControls({
 
     const response = await onListRepoTree(target.repoLocalPath, nextPath || undefined);
     window.clearTimeout(loadingTimer);
-    if (requestIdRef.current !== requestId || !response) {
-      return;
+    if (requestIdRef.current !== requestId) {
+      return null;
+    }
+    if (!response) {
+      setTreeLoading(false);
+      setShowTreeLoading(false);
+      return null;
     }
 
-    setCurrentFrame({
+    const nextListing: TreeDirectoryListing = {
       topLevelId: target.id,
       topLevelLabel: target.label,
       topLevelPath: target.rootPath,
@@ -385,276 +367,378 @@ function SidebarDeepFocusControls({
       currentPath: response.currentPath,
       entries: response.entries,
       truncated: response.truncated,
-    });
-    setFrameStack(nextStack);
+    };
+    setDirectoryListings((current) => ({
+      ...current,
+      [listingKey]: nextListing,
+    }));
     setTreeLoading(false);
     setShowTreeLoading(false);
-    setTreeTruncated(response.truncated);
-    setFocusedIndex(0);
-    setFocusedKey(response.entries[0]?.relativePath ?? `${target.id}:root`);
-    setDrillingIndex(null);
-    if (direction) {
-      startDrillTransition(direction, 'enter');
-    }
+    return nextListing;
   };
 
-  const openEditor = async () => {
+  const openEditor = async (preferredCursor?: EditScopeCursor) => {
+    deepFocusKeyboard.captureEditEntry();
     const nextDraft = initializeDraft();
-    setDraft(nextDraft);
-    setSelectionTrayCollapsed(true);
-    setPopoverRowIndex(null);
+    setDraft({
+      ...nextDraft,
+      scopeCursor: preferredCursor ?? nextDraft.scopeCursor,
+    });
     setApplyError(null);
     onDeepFocusEditorToggle?.(true);
-    setCurrentFrame(null);
-    setFrameStack([]);
-    setTreeTruncated(false);
+    setExpanded(new Set());
+    setDirectoryListings({});
     setFocusedIndex(0);
-    setFocusedKey(nextDraft.selectedWorkingFocusIds[0] ?? topLevelTargets[0]?.id ?? null);
+    // `focusedKey` matches against `row.id` (top-level row id, e.g. `tools`),
+    // which is the same as the manifest ID stored in `selectedWorkingFocusIds`.
+    const focusTopLevel = topLevelTargets.find(
+      (target) => target.id === nextDraft.selectedWorkingFocusIds[0],
+    );
+    setFocusedKey(focusTopLevel?.id ?? topLevelTargets[0]?.id ?? null);
+    setSelectedTreeRow(null);
+    setParentSupportGhostState(null);
+    setPendingStripFocusCursor(null);
   };
 
-  const applyDraft = () => {
-    if (!draftTopLevel) {
+  const applyDraft = (): boolean => {
+    const draftHasPrimaryScope = draft.state.selectedFocusPath !== null
+      || draft.state.selectedFocusTargetKind !== null
+      || (draft.state.selectedFocusTargets ?? []).length > 0;
+    if (!draftTopLevel && draftHasPrimaryScope) {
       setApplyError('Select a Primary target before applying.');
-      return;
+      return false;
     }
     if (draft.state.selectedTestTarget && draft.state.selectedTestTarget.kind === 'file') {
       setApplyError('Test target must be a folder, not a file.');
-      return;
+      return false;
+    }
+    for (const primary of draft.state.selectedFocusTargets ?? []) {
+      if (primary.testTarget?.kind === 'file') {
+        setApplyError('Test target must be a folder, not a file.');
+        return false;
+      }
+    }
+    if (validateNestedScopeForUi(draft.state).length > 0) {
+      setApplyError(null);
+      return false;
     }
     setApplyError(null);
-    setPopoverRowIndex(null);
+    setSelectedTreeRow(null);
+    setParentSupportGhostState(null);
+    setPendingStripFocusCursor(null);
     onCommitDeepFocusSelection(
-      buildCommit(true, draft.selectedWorkingFocusIds.slice(0, 1), draft.state),
+      buildCommit(true, draft.state, deepFocusMode),
     );
+    setUndoStack([]);
     closeEditor();
+    return true;
   };
 
   const handleToggleDeepFocus = () => {
+    const committedSnapshot = {
+      selectedFocusPath,
+      selectedFocusTargetKind,
+      selectedFocusTargets: selectedFocusTargets ?? [],
+      selectedTestTarget,
+      selectedSupportTargets,
+    };
     if (deepFocusEnabled) {
       closeEditor();
       // Preserve selections — only flip the enabled flag
-      onCommitDeepFocusSelection(
-        buildCommit(false, selectedWorkingFocusIds, {
-          selectedFocusPath,
-          selectedFocusTargetKind,
-          selectedTestTarget,
-          selectedSupportTargets,
-        }),
-      );
+      onCommitDeepFocusSelection(buildCommit(false, committedSnapshot, deepFocusMode));
       return;
     }
-
-    const nextTopLevelId = selectedWorkingFocusIds[0] ?? topLevelTargets[0]?.id;
     onCommitDeepFocusSelection(
-      buildCommit(true, nextTopLevelId ? [nextTopLevelId] : [], {
-        selectedFocusPath,
-        selectedFocusTargetKind,
-        selectedTestTarget,
-        selectedSupportTargets,
-      }),
+      buildCommit(true, committedSnapshot, deepFocusMode),
     );
+  };
+
+  const handleToggleExpansion = async () => {
+    if (expandAllInFlight) return;
+    if (expanded.size > 0) {
+      expandAllRunIdRef.current += 1;
+      setExpanded(new Set());
+      setSelectedTreeRow(null);
+      return;
+    }
+    const runId = expandAllRunIdRef.current + 1;
+    expandAllRunIdRef.current = runId;
+    setExpandAllInFlight(true);
+    try {
+      const localListings: Record<string, TreeDirectoryListing> = {};
+      const accumulatedKeys = new Set<string>();
+      let directoriesProcessed = 0;
+
+      const walk = async (target: TopLevelTarget, path: string): Promise<void> => {
+        if (expandAllRunIdRef.current !== runId) return;
+        if (directoriesProcessed >= EXPAND_ALL_MAX_DIRECTORIES) return;
+        const key = treeExpansionKey(target.id, path);
+        if (accumulatedKeys.has(key)) return;
+        accumulatedKeys.add(key);
+        let listing = directoryListings[key] ?? localListings[key] ?? null;
+        if (!listing) {
+          const fetched = await fetchDirectoryListing(target, path);
+          if (expandAllRunIdRef.current !== runId) return;
+          if (!fetched) return;
+          listing = fetched;
+          localListings[key] = fetched;
+          directoriesProcessed += 1;
+        }
+        for (const entry of listing.entries) {
+          if (expandAllRunIdRef.current !== runId) return;
+          if (entry.kind === 'directory' && entry.hasChildren) {
+            await walk(target, entry.relativePath);
+          }
+        }
+      };
+
+      for (const target of topLevelTargets) {
+        if (expandAllRunIdRef.current !== runId) break;
+        if (directoriesProcessed >= EXPAND_ALL_MAX_DIRECTORIES) break;
+        await walk(target, target.rootPath);
+      }
+      if (expandAllRunIdRef.current === runId) {
+        setExpanded(accumulatedKeys);
+      }
+    } finally {
+      setExpandAllInFlight(false);
+    }
   };
 
   const handleClearAll = () => {
     setApplyError(null);
-    setPopoverRowIndex(null);
-    let clearedState: DeepFocusCommit | null = null;
-    setDraft((current) => {
-      clearedState = {
-        ...current.state,
-        selectedFocusPath: null,
-        selectedFocusTargetKind: null,
-        selectedTestTarget: undefined as ContextPackDeepFocusTarget | null | undefined,
-        selectedSupportTargets: [] as ContextPackDeepFocusTarget[],
-      };
-      return {
-        selectedWorkingFocusIds: current.selectedWorkingFocusIds,
-        state: clearedState,
-      };
+    setSelectedTreeRow(null);
+    setParentSupportGhostState(null);
+    setUndoStack([]);
+    const clearedState: ContextPackDeepFocusState = {
+      ...draft.state,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
+      selectedTestTarget: undefined as ContextPackDeepFocusTarget | null | undefined,
+      selectedSupportTargets: [] as ContextPackDeepFocusTarget[],
+    };
+    setDraft({
+      selectedWorkingFocusIds: [],
+      state: clearedState,
+      scopeCursor: { kind: 'global' },
     });
-    // Persist the cleared state after the state transition — side effects
-    // must not live inside the updater (React StrictMode double-invokes it).
-    if (clearedState) {
-      onCommitDeepFocusSelection(clearedState);
+    onCommitDeepFocusSelection(buildCommit(draft.state.deepFocusEnabled, clearedState, deepFocusMode));
+  };
+
+  const removePrimaryTarget = (target: ContextPackPrimaryFocusTarget) => {
+    if (exitingPrimaryKey) {
+      return;
+    }
+    const currentTargets = normalizePrimaryTargetRoles(draft.state.selectedFocusTargets ?? []);
+    const targetKey = primaryIdentityKey(target);
+    const removeIndex = currentTargets.findIndex((candidate) => primaryIdentityKey(candidate) === targetKey);
+    if (removeIndex < 0) {
+      return;
+    }
+    const removedTarget = currentTargets[removeIndex]!;
+    setParentSupportGhostState(null);
+    const nextTargets = normalizePrimaryTargetRoles(
+      currentTargets.filter((_, index) => index !== removeIndex),
+    );
+    const nextFocusCursor: EditScopeCursor = nextTargets.length > 0
+      ? { kind: 'primary', index: Math.min(removeIndex, nextTargets.length - 1) }
+      : { kind: 'global' };
+    const nextAnchor = getAnchorTarget(nextTargets);
+    setApplyError(null);
+    setUndoStack((current) => [
+      ...current,
+      {
+        kind: 'primary',
+        target: removedTarget,
+        index: removeIndex,
+        cursor: draft.scopeCursor,
+        label: deepFocusStrings.toast.primaryRemoved(basename(removedTarget.path)),
+      },
+    ]);
+    setExitingPrimaryKey(primaryIdentityKey(removedTarget));
+    if (removalCommitTimerRef.current !== null) {
+      window.clearTimeout(removalCommitTimerRef.current);
+    }
+    removalCommitTimerRef.current = window.setTimeout(() => {
+      setDraft((current) => ({
+        ...current,
+        // Phase 2: recompute selectedWorkingFocusIds after removal so any repo
+        // that lost its last primary is pruned from the working focus list.
+        selectedWorkingFocusIds: deriveWorkingFocusIdsFromTargets(nextTargets, deepFocusMode),
+        state: {
+          ...current.state,
+          selectedFocusPath: nextAnchor ? normalizeRelativePath(nextAnchor.path) || null : null,
+          selectedFocusTargetKind: nextAnchor?.kind ?? null,
+          selectedFocusTargets: nextTargets,
+        },
+        scopeCursor: nextFocusCursor,
+      }));
+      setPendingStripFocusCursor(nextFocusCursor);
+      setExitingPrimaryKey(null);
+      removalCommitTimerRef.current = null;
+    }, PRIMARY_REMOVE_COMMIT_MS);
+    setFocusedIndex(0);
+    setFocusedKey(nextAnchor ? `${nextAnchor.kind}:${nextAnchor.path}` : null);
+  };
+
+  const selectActiveScopeCursor = (cursor: EditScopeCursor) => {
+    setParentSupportGhostState(null);
+    setDraft((current) => {
+      if (cursor.kind === 'primary' && !current.state.selectedFocusTargets?.[cursor.index]) {
+        return { ...current, scopeCursor: { kind: 'global' } };
+      }
+      return { ...current, scopeCursor: cursor };
+    });
+  };
+
+  const restoreLastUndo = () => {
+    const undoEntry = undoStack[undoStack.length - 1];
+    if (!undoEntry) return;
+    const isPrimaryRemovalInFlight = removalCommitTimerRef.current !== null;
+    if (isPrimaryRemovalInFlight) {
+      window.clearTimeout(removalCommitTimerRef.current!);
+      removalCommitTimerRef.current = null;
+      setExitingPrimaryKey(null);
+    }
+    setDraft((current) => {
+      const result = applyRestoreUndo(current, undoEntry, isPrimaryRemovalInFlight, deepFocusMode);
+      return result.kind === 'apply' ? result.next : current;
+    });
+    setUndoStack((current) => current.slice(0, -1));
+  };
+
+  const expandPath = async (topLevelId: string, targetPath: string) => {
+    const topLevelTarget = topLevelTargets.find((entry) => entry.id === topLevelId);
+    if (!topLevelTarget) return;
+    const expansionKey = treeExpansionKey(topLevelId, targetPath);
+    setExpanded((current) => {
+      if (current.has(expansionKey)) return current;
+      const next = new Set(current);
+      next.add(expansionKey);
+      return next;
+    });
+    if (!directoryListings[expansionKey]) {
+      await fetchDirectoryListing(topLevelTarget, targetPath);
     }
   };
 
-  const handleDismissNoTests = () => {
-    setDraft((current) => ({
-      ...current,
-      state: {
-        ...current.state,
-        selectedTestTarget: null,
-      },
-    }));
+  const isParentSupportAction = (
+    action: ScopedRoleAction,
+    target: ContextPackDeepFocusTarget,
+  ): boolean => {
+    if (action.type !== 'add-primary-support') return false;
+    const primary = draft.state.selectedFocusTargets?.[action.index];
+    return primary !== undefined && normalizeRelativePath(target.path) === parentPath(primary.path);
   };
 
-  const handleAssignRole = (
-    role: FocusRole,
+  const handleScopedRoleAction = async (
+    action: ScopedRoleAction,
     topLevelId: string,
     target: ContextPackDeepFocusTarget,
   ) => {
     setApplyError(null);
-    setDraft((current) => {
-      const currentPrimary = inferDraftPrimaryTarget(
-        current.state.selectedFocusPath,
-        current.state.selectedFocusTargetKind,
-      );
-      const isPrimaryMatch = currentPrimary
-        && isSameTarget(currentPrimary, target)
-        && topLevelId === current.selectedWorkingFocusIds[0];
-      const isTestMatch = isSameTarget(current.state.selectedTestTarget, target);
-      const isSupportMatch = current.state.selectedSupportTargets.some(
-        (s) => isSameTarget(s, target),
-      );
-
-      if (role === 'primary') {
-        const nextTest = isTestMatch ? undefined : current.state.selectedTestTarget;
-        const nextSupport = current.state.selectedSupportTargets.filter(
-          (s) => !isSameTarget(s, target),
-        );
-        return {
-          selectedWorkingFocusIds: [topLevelId],
-          state: {
-            ...current.state,
-            deepFocusEnabled: true,
-            selectedFocusPath: normalizeRelativePath(target.path) || null,
-            selectedFocusTargetKind: target.kind,
-            selectedTestTarget: nextTest,
-            selectedSupportTargets: nextSupport,
-          },
-        };
-      }
-
-      if (role === 'test') {
-        const nextTest = isTestMatch ? undefined : target;
-        const nextFocusPath = isPrimaryMatch ? null : current.state.selectedFocusPath;
-        const nextFocusKind = isPrimaryMatch ? null : current.state.selectedFocusTargetKind;
-        const nextSupport = current.state.selectedSupportTargets.filter(
-          (s) => !isSameTarget(s, target),
-        );
-        return {
-          ...current,
-          state: {
-            ...current.state,
-            selectedFocusPath: nextFocusPath,
-            selectedFocusTargetKind: nextFocusKind,
-            selectedTestTarget: nextTest,
-            selectedSupportTargets: nextSupport,
-          },
-        };
-      }
-
-      // role === 'support'
-      const nextSupport = isSupportMatch
-        ? current.state.selectedSupportTargets.filter(
-          (s) => !isSameTarget(s, target),
-        )
-        : [...current.state.selectedSupportTargets, target];
-      const nextFocusPath = isPrimaryMatch ? null : current.state.selectedFocusPath;
-      const nextFocusKind = isPrimaryMatch ? null : current.state.selectedFocusTargetKind;
-      const nextTest = isTestMatch ? undefined : current.state.selectedTestTarget;
-      return {
-        ...current,
-        state: {
-          ...current.state,
-          selectedFocusPath: nextFocusPath,
-          selectedFocusTargetKind: nextFocusKind,
-          selectedTestTarget: nextTest,
-          selectedSupportTargets: nextSupport,
-        },
-      };
+    const nextGhostState = action.type === 'add-primary-support'
+      && isParentSupportAction(action, target)
+      && target.path.length > 0
+      ? { primaryIndex: action.index, parentPath: normalizeRelativePath(target.path) }
+      : null;
+    const result = applyScopedRoleAction(draft, action, {
+      topLevelId,
+      target,
+      topLevelTargets,
+      deepFocusMode,
     });
+    setDraft(result.next);
+    if (action.type === 'promote-anchor') {
+      setPendingStripFocusCursor({ kind: 'primary', index: action.index });
+    }
+    if (nextGhostState) {
+      setParentSupportGhostState(nextGhostState);
+      await expandPath(topLevelId, nextGhostState.parentPath);
+    } else if (action.type === 'make-primary' || action.type === 'remove-primary') {
+      setParentSupportGhostState(null);
+    }
+    if (result.removePrimaryTarget) {
+      const toRemove = result.removePrimaryTarget;
+      window.setTimeout(() => removePrimaryTarget(toRemove), 0);
+    }
   };
 
-  const frameTopLevel = currentFrame
-    ? topLevelTargets.find((t) => t.id === currentFrame.topLevelId)
-    : null;
+  const currentRows: TreeRowData[] = useMemo(
+    () => buildTreeRows(topLevelTargets, expanded, directoryListings),
+    [topLevelTargets, expanded, directoryListings],
+  );
 
-  const currentRows: TreeRowData[] = useMemo(() => currentFrame
-    ? currentFrame.entries.map((entry) => ({
-      id: `tree:${entry.relativePath || entry.name}`,
-      label: entry.name,
-      displayPath: entry.relativePath,
-      targetPath: entry.relativePath,
-      kind: entry.kind,
-      hasChildren: entry.hasChildren,
-      topLevelId: currentFrame.topLevelId,
-      topLevelLabel: currentFrame.topLevelLabel,
-      topLevelPath: currentFrame.topLevelPath,
-      repoLocalPath: currentFrame.repoLocalPath,
-      isTopLevel: false,
-      ancillaryAllowed: true,
-      systemLayer: frameTopLevel?.systemLayer ?? null,
-    }))
-    : topLevelTargets.map((target) => ({
-      id: `top:${target.id}`,
-      label: target.label,
-      displayPath: target.rootPath || target.label,
-      targetPath: target.rootPath,
-      kind: 'directory' as const,
-      hasChildren: true,
-      topLevelId: target.id,
-      topLevelLabel: target.label,
-      topLevelPath: target.rootPath,
-      repoLocalPath: target.repoLocalPath,
-      isTopLevel: true,
-      ancillaryAllowed: target.ancillaryAllowed,
-      systemLayer: target.systemLayer,
-    })), [currentFrame, topLevelTargets, frameTopLevel]);
+  const treeTruncated = useMemo(
+    () => Object.values(directoryListings).some((listing) => listing.truncated),
+    [directoryListings],
+  );
 
-  const displayRows: Array<{ row: TreeRowData; originalIndex: number }> = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return currentRows.map((row, i) => ({ row, originalIndex: i }));
-    return currentRows.reduce<Array<{ row: TreeRowData; originalIndex: number }>>((acc, row, i) => {
-      if (row.label.toLowerCase().includes(query) || row.displayPath.toLowerCase().includes(query)) {
-        acc.push({ row, originalIndex: i });
-      }
-      return acc;
-    }, []);
-  }, [currentRows, searchQuery]);
+  const editorModel = useDeepFocusEditorModel({
+    draftState: draft.state,
+    scopeCursor: draft.scopeCursor,
+    draftTopLevel,
+    currentRows,
+    expanded,
+    selectedRow: selectedTreeRow,
+    parentSupportGhostState,
+    searchQuery,
+    treeLoading,
+    showTreeLoading,
+    treeTruncated,
+    activeTopLevelId: draft.selectedWorkingFocusIds[0] ?? null,
+    deepFocusMode,
+  });
 
-  const breadcrumbs: BreadcrumbItem[] = currentFrame
-    ? [
+  const displayRows = editorModel.tree.visibleRows;
+  // A row that ends up with no actionable commands has no card to render —
+  // clear the selection so we don't leave it visually highlighted with an
+  // empty popover. The model recomputes commandList from the current
+  // selection, so this fires immediately after a click that yields nothing.
+  const selectedCommandCount = editorModel.selectedRow.commandList.length;
+  useEffect(() => {
+    if (selectedTreeRow && selectedCommandCount === 0) {
+      setSelectedTreeRow(null);
+    }
+  }, [selectedTreeRow, selectedCommandCount]);
+  const hasUnappliedChanges = useMemo(() => {
+    const draftCommit = buildCommit(true, draft.state, deepFocusMode);
+    const committedCommit = buildCommit(
+      true,
       {
-        key: 'roots',
-        label: topLevelLabel,
-        action: () => {
-          setCurrentFrame(null);
-          setFrameStack([]);
-          setFocusedKey(topLevelKeyRef.current ?? topLevelTargets[0]?.id ?? null);
-        },
+        selectedFocusPath,
+        selectedFocusTargetKind,
+        selectedFocusTargets: selectedFocusTargets ?? [],
+        selectedTestTarget,
+        selectedSupportTargets,
       },
-      {
-        key: `root:${currentFrame.topLevelId}`,
-        label: currentFrame.topLevelLabel,
-        action: () => {
-            const target = topLevelTargets.find((entry) => entry.id === currentFrame.topLevelId);
-            if (target) {
-              void fetchTree(target, target.rootPath, [], 'backward');
-            }
-          },
-        },
-      ...removePathPrefix(
-        currentFrame.currentPath,
-        deepFocusMode === 'monolith' ? currentFrame.topLevelPath : '',
-      )
-        .split('/')
-        .filter(Boolean)
-        .map((segment, index, segments) => ({
-          key: `${currentFrame.topLevelId}:${segments.slice(0, index + 1).join('/')}`,
-          label: segment,
-          action: () => {
-            const target = topLevelTargets.find((entry) => entry.id === currentFrame.topLevelId);
-            if (!target) return;
-            const nextRelativePath = segments.slice(0, index + 1).join('/');
-              const nextPath = deepFocusMode === 'monolith'
-                ? joinRelativePath(currentFrame.topLevelPath, nextRelativePath)
-                : nextRelativePath;
-              const nextStack = frameStack.slice(0, Math.max(index, 0));
-              void fetchTree(target, nextPath, nextStack, 'backward');
-            },
-          })),
+      deepFocusMode,
+    );
+    return undoStack.length > 0
+      || exitingPrimaryKey !== null
+      || !areDeepFocusCommitsEqual(draftCommit, committedCommit);
+  }, [
+    deepFocusMode,
+    draft.state,
+    exitingPrimaryKey,
+    selectedFocusPath,
+    selectedFocusTargetKind,
+    selectedFocusTargets,
+    selectedSupportTargets,
+    selectedTestTarget,
+    undoStack.length,
+  ]);
+
+  const activeExpandedTopLevel = (
+    selectedTreeRow
+      ? topLevelTargets.find((target) => target.id === selectedTreeRow.row.topLevelId)
+      : null
+  ) ?? topLevelTargets.find((target) => expanded.has(treeExpansionKey(target.id, target.rootPath))) ?? null;
+  const breadcrumbs: BreadcrumbItem[] = activeExpandedTopLevel
+    ? [
+      { key: 'roots', label: topLevelLabel, action: null },
+      { key: `root:${activeExpandedTopLevel.id}`, label: activeExpandedTopLevel.label, action: null },
     ]
     : [{ key: 'roots', label: topLevelLabel, action: null }];
   const hiddenBreadcrumbs = breadcrumbs.length > 4
@@ -664,91 +748,124 @@ function SidebarDeepFocusControls({
     ? [breadcrumbs[0], ...breadcrumbs.slice(-3)]
     : breadcrumbs;
 
-  const moveFocus = (direction: -1 | 1) => {
-    if (currentRows.length === 0) return;
-    setFocusedIndex((current) => {
-      const next = Math.min(currentRows.length - 1, Math.max(0, current + direction));
-      setFocusedKey(currentRows[next]?.id ?? null);
-      return next;
+  const collapseHiddenSelection = (collapsedRow: TreeRowData) => {
+    setSelectedTreeRow((current) => {
+      if (!current || current.row.topLevelId !== collapsedRow.topLevelId) return current;
+      const currentPath = normalizeRelativePath(current.row.targetPath);
+      const collapsedPath = normalizeRelativePath(collapsedRow.targetPath);
+      return pathContains(collapsedPath, currentPath) && current.row.id !== collapsedRow.id
+        ? null
+        : current;
     });
   };
 
-  const handleBack = () => {
-    if (!currentFrame) {
-      closeEditor();
+  const toggleExpansion = async (row: TreeRowData) => {
+    if (row.kind !== 'directory' || !row.hasChildren) return;
+    const target = topLevelTargets.find((entry) => entry.id === row.topLevelId);
+    if (!target) return;
+    const expansionKey = treeExpansionKey(row.topLevelId, row.targetPath);
+    const wasExpanded = expanded.has(expansionKey);
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (wasExpanded) {
+        next.delete(expansionKey);
+      } else {
+        next.add(expansionKey);
+      }
+      return next;
+    });
+    if (wasExpanded) {
+      collapseHiddenSelection(row);
+      if (parentSupportGhostState?.parentPath === normalizeRelativePath(row.targetPath)) {
+        setParentSupportGhostState(null);
+      }
       return;
     }
-    startDrillTransition('backward', 'exit');
-    if (frameStack.length === 0) {
-      setCurrentFrame(null);
-      setFocusedIndex(0);
-      setFocusedKey(topLevelKeyRef.current ?? topLevelTargets[0]?.id ?? null);
-      window.setTimeout(() => startDrillTransition('backward', 'enter'), 0);
-      return;
+    if (!directoryListings[expansionKey]) {
+      await fetchDirectoryListing(target, row.targetPath);
     }
-    const previousFrame = frameStack[frameStack.length - 1];
-    setCurrentFrame(previousFrame);
-    setFrameStack((current) => current.slice(0, -1));
-    setFocusedIndex(0);
-    setFocusedKey(previousFrame.entries[0]?.relativePath ?? previousFrame.topLevelId);
-    window.setTimeout(() => startDrillTransition('backward', 'enter'), 0);
+  };
+
+  const toggleExpansionByRowId = async (rowId: string) => {
+    const row = currentRows.find((candidate) => candidate.id === rowId);
+    if (row) {
+      await toggleExpansion(row);
+    }
+  };
+
+  const activateGhostSupportCandidate = async (visibleRow: VisibleTreeRow) => {
+    if (!visibleRow.ghostSupportCandidate) return;
+    await handleScopedRoleAction(
+      { type: 'add-primary-support', index: visibleRow.ghostSupportCandidate.primaryIndex },
+      visibleRow.row.topLevelId,
+      {
+        path: visibleRow.row.targetPath,
+        kind: visibleRow.row.kind,
+      },
+    );
+    setSelectedTreeRow(null);
   };
 
   const handleRowActivate = async (rowIndex: number) => {
-    const row = currentRows[rowIndex];
-    if (!row) return;
+    const visibleRow = displayRows[rowIndex];
+    if (!visibleRow) return;
+    if (visibleRow.ghostSupportCandidate) {
+      await activateGhostSupportCandidate(visibleRow);
+      return;
+    }
+    const { row } = visibleRow;
     setFocusedIndex(rowIndex);
     setFocusedKey(row.id);
-    if (row.kind === 'directory') {
-      setDrillingIndex(rowIndex);
-    }
-
-    const topLevelTarget = topLevelTargets.find((target) => target.id === row.topLevelId);
-    if (!topLevelTarget) return;
-
     if (row.isTopLevel) {
       topLevelKeyRef.current = row.topLevelId;
-      await fetchTree(topLevelTarget, topLevelTarget.rootPath, [], 'forward');
-      return;
     }
-
-    if (row.kind === 'directory' && currentFrame) {
-      const nextStack = [...frameStack, currentFrame];
-      await fetchTree(topLevelTarget, row.targetPath, nextStack, 'forward');
-    }
+    await toggleExpansion(row);
   };
 
-  const handleEditorKeyDown = async (event: KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'f') {
-      event.preventDefault();
-      searchInputRef.current?.focus();
-      return;
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault();
-      applyDraft();
-      return;
-    }
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveFocus(1);
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveFocus(-1);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      handleBack();
-      return;
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      await handleRowActivate(focusedIndex);
-    }
+  const handleRowSelect = (row: TreeRowData, rowIndex: number) => {
+    setFocusedIndex(rowIndex);
+    setFocusedKey(row.id);
+    setSelectedTreeRow((current) =>
+      current?.row.id === row.id && current.index === rowIndex
+        ? null
+        : { row, index: rowIndex },
+    );
   };
+
+  const getPrimaryTargetForRow = (focusedRow: TreeRowData | null): ContextPackPrimaryFocusTarget | null => {
+    if (!focusedRow) {
+      return null;
+    }
+    const rowTarget: ContextPackDeepFocusTarget = {
+      path: normalizeRelativePath(focusedRow.targetPath),
+      kind: focusedRow.kind,
+    };
+    return (draft.state.selectedFocusTargets ?? []).find((target) =>
+      isPrimaryForTopLevel(target, rowTarget, focusedRow.topLevelId, deepFocusMode),
+    ) ?? null;
+  };
+
+  const deepFocusKeyboard = useDeepFocusKeyboard({
+    editorOpen,
+    rows: displayRows,
+    focusedIndex,
+    setFocusedIndex,
+    setFocusedKey,
+    selectedRowId: selectedTreeRow?.row.id ?? null,
+    scopeCursor: draft.scopeCursor,
+    undoStackLength: undoStack.length,
+    searchInputRef,
+    onActivateRow: (index) => { void handleRowActivate(index); },
+    onApply: applyDraft,
+    onCancel: closeEditor,
+    onRestoreLastUndo: restoreLastUndo,
+    onClearGhostCandidate: () => setParentSupportGhostState(null),
+    onClearSelectedRow: () => setSelectedTreeRow(null),
+    onResetScopeCursor: () => setDraft((current) => ({ ...current, scopeCursor: { kind: 'global' } })),
+    onRemovePrimaryTarget: removePrimaryTarget,
+    getPrimaryTargetForRow,
+    onRequestScopeFocus: setPendingStripFocusCursor,
+  });
 
   return (
     <>
@@ -762,283 +879,161 @@ function SidebarDeepFocusControls({
         >
           <div className="scope-card__header">
             <span className="scope-card__title">Workspace Selection</span>
-            <div className="deep-focus-toggle-row">
-              <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
-              <DeepFocusInfoTip />
+            {editorOpen ? (
               <button
                 type="button"
-                className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}
-                aria-label="Toggle Deep Focus"
-                aria-pressed={deepFocusEnabled}
-                onClick={handleToggleDeepFocus}
+                className="deep-focus-shell__dismiss"
+                onClick={deepFocusKeyboard.cancelEditMode}
+                aria-label={hasUnappliedChanges ? 'Cancel unapplied changes' : 'Close editor'}
               >
-                <span className="deep-focus-toggle__knob" />
+                <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                  <path
+                    d="M3 3l6 6M9 3l-6 6"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
-            </div>
+            ) : (
+              <div className="deep-focus-toggle-row">
+                <span className="deep-focus-toggle-row__label">Deep Focus Mode</span>
+                <DeepFocusInfoTip />
+                <button
+                  type="button"
+                  ref={deepFocusKeyboard.toggleButtonRef}
+                  className={classNames('deep-focus-toggle', deepFocusEnabled && 'deep-focus-toggle--active')}
+                  aria-label="Toggle Deep Focus"
+                  aria-pressed={deepFocusEnabled}
+                  onClick={handleToggleDeepFocus}
+                >
+                  <span className="deep-focus-toggle__knob" />
+                </button>
+              </div>
+            )}
           </div>
 
           {!editorOpen ? (
-            <div className="deep-focus-summary">
-              {committedTopLevel ? (
-                <>
-                  <div className="deep-focus-summary__header">
-                    <span className="deep-focus-summary__header-title">Focus Targets</span>
-                    <button
-                      type="button"
-                      className="deep-focus-summary__edit-link"
-                      onClick={() => { void openEditor(); }}
-                    >
-                      Edit
-                    </button>
-                  </div>
-                  <div className="deep-focus-summary__selections">
-                    <div className="deep-focus-summary__selection-row deep-focus-summary__selection-row--primary">
-                      <span className="deep-focus-summary__selection-dot" />
-                      <span className="deep-focus-summary__selection-label">Primary</span>
-                      <span className="deep-focus-summary__selection-value" title={selectedFocusPath ?? committedTopLevel.rootPath ?? committedTopLevel.label}>
-                        {getPrimaryDisplayLabel(committedTopLevel, selectedFocusPath ?? '')}
-                      </span>
-                    </div>
-
-                    <div className={classNames(
-                      'deep-focus-summary__selection-row',
-                      'deep-focus-summary__selection-row--test',
-                      !selectedTestTarget && 'deep-focus-summary__selection-row--empty',
-                    )}>
-                      <span className="deep-focus-summary__selection-dot" />
-                      <span className="deep-focus-summary__selection-label">Test</span>
-                      <span className="deep-focus-summary__selection-value" title={selectedTestTarget?.path ?? ''}>
-                        {selectedTestTarget
-                          ? (selectedTestTarget.path ? basename(selectedTestTarget.path) : committedTopLevel?.label ?? 'Repo root')
-                          : 'None'}
-                      </span>
-                    </div>
-
-                    {selectedSupportTargets.length > 0 ? (
-                      <>
-                        <div className="deep-focus-summary__section-divider" />
-                        <div className="deep-focus-summary__support-header">
-                          <span className="deep-focus-summary__selection-dot deep-focus-summary__selection-dot--support" />
-                          <span className="deep-focus-summary__selection-label">Support</span>
-                          <span className="deep-focus-summary__support-count">{selectedSupportTargets.length}</span>
-                        </div>
-                        <div className="deep-focus-summary__support-list">
-                          {selectedSupportTargets.map((target, index) => (
-                            <div
-                              key={`${target.kind}:${target.path || supportLabels.get(index) || index}`}
-                              className="deep-focus-summary__support-item"
-                              title={target.path || (supportLabels.get(index) ?? basename(target.path))}
-                            >
-                              <span className="deep-focus-summary__support-icon">{target.kind === 'directory' ? <FolderGlyph /> : <FileGlyph />}</span>
-                              <span className="deep-focus-summary__support-name">{supportLabels.get(index) ?? basename(target.path)}</span>
-                              <span className="deep-focus-summary__support-path">{target.path}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="deep-focus-summary__selection-row deep-focus-summary__selection-row--support deep-focus-summary__selection-row--empty">
-                        <span className="deep-focus-summary__selection-dot" />
-                        <span className="deep-focus-summary__selection-label">Support</span>
-                        <span className="deep-focus-summary__selection-value">None</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="deep-focus-summary__metrics">
-                    <span>{selectedPack.repoCount} {selectedPack.repoCount === 1 ? 'repo' : 'repos'}</span>
-                    {selectedPack.workspaceFolderCount != null ? (
-                      <>
-                        <span className="deep-focus-summary__metrics-sep" />
-                        <span>{formatNumber(selectedPack.workspaceFolderCount)} {selectedPack.workspaceFolderCount === 1 ? 'folder' : 'folders'}</span>
-                      </>
-                    ) : null}
-                    {selectedPack.workspaceFileCount != null ? (
-                      <>
-                        <span className="deep-focus-summary__metrics-sep" />
-                        <span>{formatNumber(selectedPack.workspaceFileCount)} {selectedPack.workspaceFileCount === 1 ? 'file' : 'files'}</span>
-                      </>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="deep-focus-summary__empty">No focus target selected</p>
-                  <button
-                    type="button"
-                    className="deep-focus-summary__action"
-                    onClick={() => { void openEditor(); }}
-                  >
-                    Select Focus
-                  </button>
-                </>
-              )}
-            </div>
+            <DeepFocusSummary
+              committedTopLevel={committedTopLevel}
+              committedPrimaries={committedPrimaries}
+              selectedFocusPath={selectedFocusPath}
+              selectedFocusTargetKind={selectedFocusTargetKind}
+              selectedTestTarget={selectedTestTarget}
+              selectedSupportTargets={selectedSupportTargets}
+              actionRef={deepFocusKeyboard.summaryActionRef}
+              onOpenEditor={(cursor) => { void openEditor(cursor); }}
+            />
           ) : (
-            <div className="deep-focus-editor" onKeyDown={(event) => { void handleEditorKeyDown(event); }}>
-              <DeepFocusBreadcrumb
-                visibleBreadcrumbs={visibleBreadcrumbs}
-                hiddenBreadcrumbs={hiddenBreadcrumbs}
-              />
-
-              <div className="deep-focus-editor__nav">
-                {currentFrame ? (
-                  <button
-                    type="button"
-                    className="deep-focus-back-button"
-                    onClick={handleBack}
-                    aria-label="Back one level"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ transform: 'rotate(180deg)' }}>
-                      <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <span>Back</span>
-                  </button>
-                ) : (
-                  <span className="deep-focus-back-button-placeholder" />
-                )}
-                <div className="deep-focus-editor__nav-right">
-                  <button
-                    type="button"
-                    className="deep-focus-clear-all-button"
-                    onClick={handleClearAll}
-                    aria-label="Clear all selections"
-                  >
-                    Clear All
-                  </button>
-                  <button
-                    type="button"
-                    className="deep-focus-done-button"
-                    onClick={closeEditor}
-                    aria-label="Close editor"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-
-              <div className="deep-focus-search">
-                <svg className="deep-focus-search__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.3" fill="none" />
-                  <path d="M10.3 10.3 13 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                </svg>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  className="deep-focus-search__input"
-                  placeholder=""
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); }}
-                  aria-label="Filter items"
-                />
-                {searchQuery ? (
-                  <button
-                    type="button"
-                    className="deep-focus-search__clear"
-                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
-                    aria-label="Clear filter"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                      <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="deep-focus-editor__body">
-                <div
-                  className={classNames(
-                    'deep-focus-list',
-                    treeLoading && 'deep-focus-list--loading',
-                    drillTransitionClass,
-                  )}
-                  role="list"
-                  aria-label="Deep Focus tree"
-                >
-                  {showTreeLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
-                      <div key={`loading-${index}`} className="deep-focus-loading-row" />
-                    ))
-                  ) : displayRows.length > 0 ? (
-                    displayRows.map(({ row, originalIndex }) => {
-                      const target: ContextPackDeepFocusTarget = {
-                        path: row.targetPath,
-                        kind: row.kind,
-                      };
-                      const isPrimary = row.topLevelId === draftTopLevelId
-                        && normalizeRelativePath(row.targetPath)
-                          === normalizeRelativePath(draft.state.selectedFocusPath);
-                      const isTest = isSameTarget(draft.state.selectedTestTarget, target);
-                      const isSupport = draft.state.selectedSupportTargets.some(
-                        (supportTarget) => isSameTarget(supportTarget, target),
-                      );
-
-                      return (
-                        <DeepFocusTreeRow
-                          key={row.id}
-                          row={row}
-                          index={originalIndex}
-                          focusedIndex={focusedIndex}
-                          focusedKey={focusedKey}
-                          drillingIndex={drillingIndex}
-                          isPrimary={isPrimary}
-                          isTest={isTest}
-                          isSupport={isSupport}
-                          popoverOpen={popoverRowIndex === originalIndex}
-                          rowRef={(element) => { rowRefs.current[originalIndex] = element; }}
-                          onFocus={(i, id) => { setFocusedIndex(i); setFocusedKey(id); }}
-                          onActivate={(i) => { void handleRowActivate(i); }}
-                          onLongPress={(i) => { setPopoverRowIndex(i); }}
-                          onAssignRole={handleAssignRole}
-                          onDismissPopover={() => { setPopoverRowIndex(null); }}
-                        />
-                      );
-                    })
-                  ) : (
-                    <div className="deep-focus-empty-state">
-                      {searchQuery ? 'No matches' : 'No items'}
-                    </div>
-                  )}
-                  {treeTruncated ? (
-                    <div className="deep-focus-truncation-notice">Showing first 500 items</div>
-                  ) : null}
-                </div>
-
-                <DeepFocusSelectionTray
-                  collapsed={selectionTrayCollapsed}
-                  onToggleCollapsed={() => setSelectionTrayCollapsed((current) => !current)}
-                  summaryLine={selectionTraySummary}
-                  draftTopLevel={draftTopLevel}
-                  draftState={draft.state}
-                  draftHasColocatedPrimaryAndTest={draftHasColocatedPrimaryAndTest}
-                  draftHasExplicitNoTests={draftHasExplicitNoTests}
-                  onDismissNoTests={handleDismissNoTests}
-                />
-
-                <div className="deep-focus-footer">
-                  {applyError ? (
-                    <p className="deep-focus-footer__error" role="alert">{applyError}</p>
-                  ) : null}
-                  <div className="deep-focus-footer__actions">
-                    <button
-                      type="button"
-                      className="deep-focus-footer__cancel"
-                      onClick={closeEditor}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="action-button action-button--primary"
-                      onClick={applyDraft}
-                      disabled={!draftTopLevel}
-                    >
-                      Apply
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <DeepFocusEditor
+              model={editorModel}
+              breadcrumbs={{ visibleBreadcrumbs, hiddenBreadcrumbs }}
+              nav={{
+                onClearAll: handleClearAll,
+                onExit: deepFocusKeyboard.cancelEditMode,
+                onApply: () => {
+                  if (applyDraft()) {
+                    deepFocusKeyboard.focusAfterApply();
+                  }
+                },
+                hasUnappliedChanges,
+                applyDisabled:
+                  !draftTopLevel
+                  && (
+                    draft.state.selectedFocusPath !== null
+                    || draft.state.selectedFocusTargetKind !== null
+                    || editorModel.primaryTargetCount > 0
+                  ),
+              }}
+              selectedRowActions={{
+                onAction: (action) => {
+                  if (!selectedTreeRow) return;
+                  const commandRowId = selectedTreeRow.row.id;
+                  void handleScopedRoleAction(action, selectedTreeRow.row.topLevelId, {
+                    path: selectedTreeRow.row.targetPath,
+                    kind: selectedTreeRow.row.kind,
+                  }).then(() => {
+                    deepFocusKeyboard.focusAfterCommand(
+                      commandRowId,
+                      action.type === 'promote-anchor' ? { kind: 'primary', index: action.index } : undefined,
+                    );
+                    // Dismiss the inline command card after a successful action.
+                    // The user can re-open it by clicking the row again. Keeping
+                    // it open after a click is disorienting because the row's
+                    // available actions usually change once the action lands
+                    // (e.g. "Add as Support" disappears, "Remove" appears).
+                    setSelectedTreeRow(null);
+                  });
+                },
+              }}
+              search={{
+                inputRef: searchInputRef,
+                onQueryChange: setSearchQuery,
+                onClear: () => { setSearchQuery(''); searchInputRef.current?.focus(); },
+              }}
+              onToggleExpansion={() => { void handleToggleExpansion(); }}
+              expansionMode={expanded.size > 0 ? 'collapse' : 'expand'}
+              expansionBusy={expandAllInFlight}
+              scopeStrip={{
+                primaries: draft.state.selectedFocusTargets ?? [],
+                cursor: draft.scopeCursor,
+                draftTopLevel,
+                exitingPrimaryKey,
+                focusRequest: pendingStripFocusCursor,
+                onSelectCursor: selectActiveScopeCursor,
+                onFocusRequestHandled: () => setPendingStripFocusCursor(null),
+              }}
+              tree={{
+                focusedIndex,
+                focusedKey,
+                rowRef: deepFocusKeyboard.rowRef,
+                onRowFocus: deepFocusKeyboard.focusRow,
+                onRowSelect: (selectedRow, index, ghostSupportCandidate) => {
+                  deepFocusKeyboard.focusRow(index, selectedRow.id);
+                  if (ghostSupportCandidate) {
+                    void activateGhostSupportCandidate({ row: selectedRow, originalIndex: index, ghostSupportCandidate });
+                    return;
+                  }
+                  handleRowSelect(selectedRow, index);
+                },
+                onToggleExpand: (rowId) => { void toggleExpansionByRowId(rowId); },
+              }}
+              footer={{
+                undoStack,
+                applyError,
+                onRestoreLastUndo: restoreLastUndo,
+              }}
+              promotion={(() => {
+                const resolvePromotionTopLevelId = () =>
+                  draftTopLevel?.id
+                  ?? draft.state.selectedFocusTargets?.[0]?.repoId
+                  ?? draft.state.selectedFocusTargets?.[0]?.focusId
+                  ?? '';
+                return {
+                  onPromoteTest: () => {
+                    const target = editorModel.promotion.testTarget;
+                    if (!target) return;
+                    void handleScopedRoleAction(
+                      { type: 'promote-test-to-global' },
+                      resolvePromotionTopLevelId(),
+                      target,
+                    );
+                  },
+                  onPromoteSupport: (path) => {
+                    const target = editorModel.promotion.supportTargets.find(
+                      (entry) => entry.path === path,
+                    );
+                    if (!target) return;
+                    void handleScopedRoleAction(
+                      { type: 'promote-support-to-global' },
+                      resolvePromotionTopLevelId(),
+                      target,
+                    );
+                  },
+                };
+              })()}
+              onEditorKeyDown={deepFocusKeyboard.onEditorKeyDown}
+            />
           )}
         </div>
       </div>

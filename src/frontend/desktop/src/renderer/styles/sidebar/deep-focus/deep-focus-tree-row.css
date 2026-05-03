@@ -1,0 +1,394 @@
+/*
+ * Deep Focus tree row styling.
+ * Owns .deep-focus-row* and .deep-focus-row-container selectors.
+ */
+.deep-focus-row-container {
+  position: relative;
+}
+
+.deep-focus-inline-commands {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.3rem;
+  margin: 0.25rem 0 0.35rem;
+  padding: 0.3rem 0.5rem 0.35rem 0.55rem;
+  border: none;
+  border-left: 2px solid var(--df-border-medium, var(--ts-border-strong));
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-muted, var(--ts-surface-alt));
+  box-shadow: none;
+  animation: deepFocusInlineCommandsIn var(--df-motion-standard) var(--ts-ease) both;
+}
+
+.deep-focus-inline-commands__meta {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.deep-focus-inline-commands__target {
+  flex: 0 0 auto;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--df-text-primary, var(--ts-text));
+  font-size: var(--df-text-body-size, var(--ts-font-sm));
+  font-weight: 500;
+  line-height: var(--df-text-body-line, 1.35);
+  letter-spacing: var(--df-text-body-tracking, 0.005em);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-focus-inline-commands__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font-family: var(--ts-font-mono);
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Visually subordinate the path; the target word is the anchor. */
+  opacity: 0.85;
+}
+
+.deep-focus-inline-commands__path::before {
+  content: '· ';
+  margin-right: 0.05rem;
+  opacity: 0.6;
+}
+
+.deep-focus-inline-commands__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.3rem;
+}
+
+.deep-focus-inline-commands__button {
+  appearance: none;
+  min-height: 22px;
+  border: 1px solid var(--df-border-hairline, var(--ts-border));
+  border-radius: var(--ts-radius-pill, 999px);
+  padding: 0.1rem 0.55rem;
+  background: var(--df-surface-elevated, var(--ts-surface));
+  color: var(--df-text-primary, var(--ts-text));
+  font-family: inherit;
+  font-size: var(--ts-font-xs);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: var(--df-text-action-tracking, 0);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--df-motion-fast) var(--ts-ease),
+    border-color var(--df-motion-fast) var(--ts-ease),
+    color var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-inline-commands__button--primary {
+  border-color: var(--df-accent, var(--ts-accent));
+  background: var(--df-accent-soft, var(--ts-accent-subtle));
+  color: var(--df-accent, var(--ts-accent));
+}
+
+.deep-focus-inline-commands__button--destructive {
+  color: var(--df-destructive, var(--ts-danger, var(--ts-text)));
+}
+
+.deep-focus-inline-commands__button:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+}
+
+.deep-focus-inline-commands__button--primary:hover {
+  background: var(--df-accent-soft, var(--ts-accent-subtle));
+}
+
+.deep-focus-inline-commands__button:focus-visible {
+  outline: none;
+  border-color: var(--df-accent, var(--ts-accent));
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-inline-commands__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.deep-focus-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  gap: 0.3rem;
+  align-items: center;
+  /* Match the sibling baseline: .scope-focus-row uses 0.35rem 0.6rem and the
+   * 24px (`--ts-btn-sm`) interactive minimum. Below that, rows feel squished
+   * relative to the rest of the sidebar. */
+  min-height: var(--ts-btn-sm);
+  padding: 0.35rem 0.6rem;
+  border: none;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-size: var(--df-text-row-title-size, var(--ts-font-sm));
+  font-weight: var(--df-text-body-weight, 400);
+  line-height: var(--df-text-row-title-line, 1.3);
+  letter-spacing: var(--df-text-row-title-tracking, -0.002em);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--df-motion-fast) var(--ts-ease),
+    box-shadow var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-row:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+}
+
+.deep-focus-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-row--directory {
+  color: var(--df-text-primary, var(--ts-text));
+  font-weight: var(--df-text-row-title-weight, 500);
+}
+
+.deep-focus-row--file {
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-weight: var(--df-text-body-weight, 400);
+}
+
+.deep-focus-row--ghost-support {
+  min-height: var(--ts-btn-sm);
+  background: var(--df-accent2-soft, var(--ts-accent2-subtle));
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-weight: var(--df-text-action-weight, 500);
+  animation: deepFocusGhostRowIn var(--df-motion-expand) var(--ts-ease) both;
+}
+
+.deep-focus-row--ghost-support .deep-focus-row__icon {
+  color: var(--df-accent2, var(--ts-accent2));
+  font-size: var(--df-text-action-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-action-line, 1.3);
+}
+
+/*
+ * Primary-selected rows use --ts-info (blue), which sits opposite the warm
+ * amber accent on the color wheel and is far from the green --ts-success
+ * test tint. Kept subtle: 9% background tint with a thin ring and soft
+ * glow, so the row reads as quietly highlighted rather than saturated.
+ */
+.deep-focus-row--selected {
+  background: color-mix(in srgb, var(--ts-info) 9%, transparent);
+  box-shadow:
+    inset 3px 0 0 var(--ts-info),
+    0 0 0 1px color-mix(in srgb, var(--ts-info) 22%, transparent),
+    0 0 10px -2px color-mix(in srgb, var(--ts-info) 28%, transparent);
+}
+
+.deep-focus-row--selected:hover {
+  background: color-mix(in srgb, var(--ts-info) 13%, transparent);
+}
+
+.deep-focus-row--command-selected {
+  box-shadow:
+    inset 0 0 0 1px var(--df-border-medium, var(--ts-border-strong)),
+    0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-row--selected.deep-focus-row--command-selected {
+  box-shadow:
+    inset 3px 0 0 var(--ts-info),
+    inset 0 0 0 1px var(--df-border-medium, var(--ts-border-strong)),
+    0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-row--test-selected.deep-focus-row--command-selected {
+  box-shadow:
+    inset 3px 0 0 var(--df-success, var(--ts-success)),
+    inset 0 0 0 1px var(--df-border-medium, var(--ts-border-strong)),
+    0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-row--support-selected.deep-focus-row--command-selected {
+  box-shadow:
+    inset 3px 0 0 var(--df-accent2, var(--ts-accent2)),
+    inset 0 0 0 1px var(--df-border-medium, var(--ts-border-strong)),
+    0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-row--command-selected:not(.deep-focus-row--selected, .deep-focus-row--primary-and-test) {
+  background: var(--df-surface-elevated, var(--ts-surface));
+}
+
+.deep-focus-row--command-selected:hover {
+  background: var(--df-surface-elevated, var(--ts-surface));
+}
+
+.deep-focus-row--selected .status-chip--primary {
+  animation: deepFocusBadgeEntrance var(--df-motion-expand) var(--ts-ease) both;
+}
+
+/*
+ * Test-classified rows (folders matching the test heuristic but not yet
+ * promoted to a primary's test target). The label-pill was removed in favor
+ * of an inline beaker glyph + a slightly stronger highlight: the existing
+ * left-bar + green tint, plus a soft success-tinted ring + outer glow so
+ * the cluster reads at a glance even when several test rows sit adjacent.
+ */
+.deep-focus-row--test-layer {
+  background: var(--df-success-soft, var(--ts-success-tint));
+  box-shadow:
+    inset 3px 0 0 var(--df-success, var(--ts-success)),
+    0 0 0 1px color-mix(in srgb, var(--ts-success) 22%, transparent),
+    0 0 10px -2px color-mix(in srgb, var(--ts-success) 32%, transparent);
+}
+
+.deep-focus-row--test-layer:hover {
+  background: var(--df-success-soft, var(--ts-success-tint));
+}
+
+.deep-focus-row__test-glyph {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--df-success, var(--ts-success));
+  animation: deepFocusBadgeEntrance var(--df-motion-expand) var(--ts-ease) both;
+}
+
+.deep-focus-row--test-selected {
+  background: var(--df-success-soft, var(--ts-success-tint));
+  box-shadow: inset 3px 0 0 var(--df-success, var(--ts-success));
+}
+
+.deep-focus-row--support-selected {
+  background: var(--df-accent2-soft, var(--ts-accent2-subtle));
+  box-shadow: inset 3px 0 0 var(--df-accent2, var(--ts-accent2));
+}
+
+.deep-focus-row--primary-and-test {
+  background:
+    linear-gradient(to bottom, var(--ts-info) 0 60%, var(--ts-success) 60% 100%) left / 3px 100% no-repeat,
+    color-mix(in srgb, var(--ts-info) 9%, transparent);
+}
+
+.deep-focus-row__icon,
+.deep-focus-row__chevron {
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.deep-focus-row__chevron {
+  transition: transform var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-row__chevron--expanded {
+  transform: rotate(90deg);
+}
+
+.deep-focus-row__icon svg,
+.deep-focus-row__chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deep-focus-row__label {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.deep-focus-row__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.deep-focus-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-focus-row__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ts-font-mono);
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+}
+
+.deep-focus-row__support-context-label {
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+}
+
+@keyframes deepFocusGhostRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusInlineCommandsIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.deep-focus-row {
+  animation: deepFocusRowEntrance var(--df-motion-expand) var(--ts-ease) both;
+}
+
+.deep-focus-row:nth-child(1)  { animation-delay: 0ms; }
+.deep-focus-row:nth-child(2)  { animation-delay: 24ms; }
+.deep-focus-row:nth-child(3)  { animation-delay: 48ms; }
+.deep-focus-row:nth-child(4)  { animation-delay: 72ms; }
+.deep-focus-row:nth-child(5)  { animation-delay: 96ms; }
+.deep-focus-row:nth-child(n+6) { animation-delay: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .deep-focus-row,
+  .deep-focus-row--ghost-support,
+  .deep-focus-inline-commands {
+    animation: none;
+    transform: none;
+  }
+
+  .deep-focus-row,
+  .deep-focus-row__chevron,
+  .deep-focus-inline-commands__button {
+    transition-duration: 0ms;
+  }
+}

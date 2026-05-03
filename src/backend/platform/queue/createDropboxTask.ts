@@ -11,6 +11,7 @@ import {
   formatContextPackBindingSection,
   type TaskContextPackTarget,
 } from './markdown.js';
+import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { registerTask } from './taskRegistry.js';
 
 export interface CreateDropboxTaskOptions {
@@ -54,6 +55,8 @@ export interface CreateDropboxTaskOptions {
   selectedFocusPath?: string | null;
   /** Selected Deep Focus target kind. */
   selectedFocusTargetKind?: 'directory' | 'file' | null;
+  /** Ordered Deep Focus primary targets. */
+  selectedFocusTargets?: PrimaryFocusTarget[];
   /** Optional Deep Focus test target. */
   selectedTestTarget?: TaskContextPackTarget | null;
   /** Normalized Deep Focus support targets. */
@@ -180,6 +183,7 @@ export async function createDropboxTask(
     deepFocusEnabled: options.deepFocusEnabled,
     selectedFocusPath: options.selectedFocusPath,
     selectedFocusTargetKind: options.selectedFocusTargetKind,
+    selectedFocusTargets: options.selectedFocusTargets,
     selectedTestTarget: options.selectedTestTarget,
     selectedSupportTargets: options.selectedSupportTargets,
   });
@@ -251,6 +255,7 @@ ${carryForwardSummary}
       deepFocusEnabled: options.deepFocusEnabled,
       selectedFocusPath: options.selectedFocusPath ?? undefined,
       selectedFocusTargetKind: options.selectedFocusTargetKind ?? undefined,
+      selectedFocusTargets: options.selectedFocusTargets,
       selectedTestTarget: options.selectedTestTarget ?? undefined,
       selectedSupportTargets: options.selectedSupportTargets,
       createdAt,

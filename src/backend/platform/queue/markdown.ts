@@ -1,4 +1,5 @@
 import { extractMarkdownSection } from '../core/index.js';
+import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 
 /**
  * Extract the H1 heading text from markdown content.
@@ -78,6 +79,7 @@ export interface TaskContextPackBinding {
   deepFocusEnabled?: boolean;
   selectedFocusPath?: string;
   selectedFocusTargetKind?: 'directory' | 'file';
+  selectedFocusTargets?: PrimaryFocusTarget[];
   selectedTestTarget?: TaskContextPackTarget | null;
   selectedSupportTargets?: TaskContextPackTarget[];
 }
@@ -120,6 +122,9 @@ export function extractContextPackBinding(
     selectedFocusTargetKind: parseTargetKind(
       extractLabeledValue(section, 'Selected Focus Target Kind'),
     ),
+    selectedFocusTargets: parsePrimaryFocusTargetList(
+      extractLabeledValue(section, 'Selected Focus Targets'),
+    ),
     selectedTestTarget: parseContextPackTarget(
       extractLabeledValue(section, 'Selected Test Target'),
     ),
@@ -142,6 +147,7 @@ export function formatContextPackBindingSection(binding: {
   deepFocusEnabled?: boolean;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedFocusTargets?: PrimaryFocusTarget[];
   selectedTestTarget?: TaskContextPackTarget | null;
   selectedSupportTargets?: TaskContextPackTarget[];
 }): string {
@@ -161,6 +167,7 @@ export function formatContextPackBindingSection(binding: {
     lines.push(
       `- Selected Focus Target Kind: ${binding.selectedFocusTargetKind ?? ''}`,
     );
+    lines.push(`- Selected Focus Targets: ${JSON.stringify(binding.selectedFocusTargets ?? [])}`);
     if (binding.selectedTestTarget) {
       lines.push(`- Selected Test Target: ${JSON.stringify(binding.selectedTestTarget)}`);
     }
@@ -209,14 +216,63 @@ function parseContextPackTargetList(value: string): TaskContextPackTarget[] {
   }
 }
 
+function parsePrimaryFocusTargetList(value: string): PrimaryFocusTarget[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return undefined;
+    }
+    const targets = parsed.map(parsePrimaryFocusTarget).filter((target): target is PrimaryFocusTarget => target !== null);
+    return targets.length === parsed.length && targets.length > 0 ? targets : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isContextPackTarget(value: unknown): value is TaskContextPackTarget {
   if (!value || typeof value !== 'object') {
     return false;
   }
 
-  const candidate = value as Record<string, unknown>;
+  const candidate = value as unknown as Record<string, unknown>;
   return typeof candidate.path === 'string'
     && (candidate.kind === 'directory' || candidate.kind === 'file');
+}
+
+function isPrimaryFocusTarget(value: unknown): value is PrimaryFocusTarget {
+  if (!isContextPackTarget(value)) {
+    return false;
+  }
+  const role = (value as unknown as Record<string, unknown>).role;
+  return role === undefined || role === 'anchor' || role === 'primary';
+}
+
+function parsePrimaryFocusTarget(value: unknown): PrimaryFocusTarget | null {
+  if (!isPrimaryFocusTarget(value)) {
+    return null;
+  }
+  const candidate = value as unknown as Record<string, unknown>;
+  const testTarget = candidate.testTarget === null
+    ? undefined
+    : parseContextPackTargetValue(candidate.testTarget);
+  const supportTargets = Array.isArray(candidate.supportTargets)
+    ? candidate.supportTargets.filter(isContextPackTarget)
+    : [];
+  return {
+    path: value.path,
+    kind: value.kind,
+    ...(value.role ? { role: value.role } : {}),
+    ...(testTarget ? { testTarget } : {}),
+    supportTargets,
+  };
+}
+
+function parseContextPackTargetValue(value: unknown): TaskContextPackTarget | undefined {
+  return isContextPackTarget(value) ? value : undefined;
 }
 
 /**

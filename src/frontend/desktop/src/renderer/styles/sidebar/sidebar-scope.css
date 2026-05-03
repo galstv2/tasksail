@@ -1,0 +1,178 @@
+/*
+ * Sidebar scope card and focus-list presentation rules.
+ * Owns .sidebar-scope-*, .scope-focus-*, and focus-list selectors
+ * that render the active scope and focused items.
+ */
+/* ── §5  Scope Card ──────────────────────────────────────────────────── */
+
+.scope-card {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-surface);
+  overflow: hidden;
+}
+
+.scope-card__header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  flex-shrink: 0;
+}
+
+.scope-card__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ts-text-muted);
+}
+
+.scope-card__subtitle {
+  font-size: 0.73rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ts-text-muted);
+  padding: 0.35rem 0.6rem 0.25rem;
+  display: block;
+  border-top: 1px solid var(--ts-border);
+}
+
+.scope-card__focus {
+  display: grid;
+  gap: 0;
+}
+
+.scope-card__hint {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.66rem;
+  border-top: 1px solid var(--ts-border);
+  color: var(--ts-text-soft);
+  line-height: 1.4;
+}
+
+
+/* ── §7  Focus List ──────────────────────────────────────────────────── */
+
+.scope-focus-list {
+  display: grid;
+  gap: 0;
+}
+
+.scope-focus-row {
+  display: grid;
+  grid-template-columns: 15px 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0.1rem 0.3rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.73rem;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease);
+  min-width: 0;
+}
+
+.scope-focus-row + .scope-focus-row {
+  border-top: 1px solid var(--ts-border);
+}
+
+.scope-focus-row:hover {
+  background: var(--ts-bg-hover);
+}
+
+.scope-focus-row--checked {
+  color: var(--ts-text);
+}
+
+.scope-focus-row input[type="checkbox"] {
+  grid-row: 1 / -1;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--ts-accent);
+  align-self: start;
+  margin-top: 2px;
+}
+
+.scope-focus-row__name {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.scope-focus-row__path {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ts-font-mono);
+  font-size: 0.65rem;
+  line-height: 1.25;
+  color: var(--ts-text-muted);
+}
+
+.scope-focus-row__badges {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.scope-focus-row__type {
+  font-family: var(--ts-font-sans);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  flex-shrink: 0;
+  padding: 0.1rem 0.3rem;
+  border: none;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-muted);
+  white-space: nowrap;
+}
+
+.scope-focus-row__type--primary {
+  background: var(--ts-accent-tint);
+  color: var(--ts-accent);
+  font-weight: 600;
+}
+
+.scope-focus-row__type--clickable {
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.scope-focus-row__type--clickable:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.scope-focus-row__type--primary.scope-focus-row__type--clickable:hover {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent-hover);
+}
+
+.scope-focus-row__layer {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ts-text-muted);
+  flex-shrink: 0;
+  padding: 0.1rem 0.3rem;
+  border: none;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-alt);
+  white-space: nowrap;
+}
+
+

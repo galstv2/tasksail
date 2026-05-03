@@ -33,6 +33,7 @@ export function resolveSelectedMonolithPrimary(
   manifest: Manifest,
   contextPackDir: string,
   selectedFocusIds: string[],
+  options: { allowMultiplePrimaries?: boolean } = {},
 ): ResolvedPrimaryRepo | undefined {
   const repo = manifest.repository ?? manifest.repositories?.[0];
   if (!repo) return undefined;
@@ -42,19 +43,29 @@ export function resolveSelectedMonolithPrimary(
     return undefined;
   }
 
-  const selectedSet = new Set(selectedFocusIds);
   const focusableAreas = Array.isArray(manifest.focusable_areas) ? manifest.focusable_areas : [];
-  const primaryAreas = focusableAreas.filter((area) =>
-    area.focus_id &&
-    selectedSet.has(area.focus_id) &&
-    area.repository_type === 'primary',
-  );
-  if (primaryAreas.length !== 1) {
+  const areaById = new Map(focusableAreas
+    .filter((area) => typeof area.focus_id === 'string' && area.focus_id.trim())
+    .map((area) => [area.focus_id!.trim(), area]));
+  const primaryFocusIds: string[] = [];
+  const seen = new Set<string>();
+  for (const selectedFocusId of selectedFocusIds) {
+    const focusId = selectedFocusId.trim();
+    if (!focusId || seen.has(focusId)) {
+      continue;
+    }
+    seen.add(focusId);
+    const area = areaById.get(focusId);
+    if (area?.repository_type === 'primary') {
+      primaryFocusIds.push(focusId);
+    }
+  }
+  if (primaryFocusIds.length === 0 || (!options.allowMultiplePrimaries && primaryFocusIds.length !== 1)) {
     return undefined;
   }
 
-  const primaryArea = primaryAreas[0];
-  const focusId = primaryArea?.focus_id?.trim();
+  const focusId = primaryFocusIds[0];
+  const primaryArea = focusId ? areaById.get(focusId) : undefined;
   const relativePath = typeof primaryArea?.relative_path === 'string'
     ? primaryArea.relative_path.trim()
     : '';

@@ -184,6 +184,34 @@ describe('applyWorktreeInjectionToFocused', () => {
       expect(path.isAbsolute(root.path)).toBe(false);
     }
   });
+
+  it('preserves scoped primary target repo-relative paths when primaryRepoRoot is rewritten', () => {
+    const focused = makeFocused({
+      primaryFocusTargets: [
+        {
+          path: 'apps/api',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'apps/api/tests', kind: 'directory' },
+          supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+        },
+      ],
+    });
+    const map = manualBindingMap([['/repos/crud-app', '/wt/crud-app']]);
+
+    const out = applyWorktreeInjectionToFocused(focused, map);
+
+    expect(out.primaryRepoRoot).toBe('/wt/crud-app');
+    expect(out.primaryFocusTargets).toEqual([
+      {
+        path: 'apps/api',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'apps/api/tests', kind: 'directory' },
+        supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+      },
+    ]);
+  });
 });
 
 describe('rewritePath', () => {

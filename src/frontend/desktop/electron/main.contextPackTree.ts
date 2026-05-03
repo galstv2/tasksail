@@ -33,6 +33,27 @@ export const CONTEXT_PACK_TREE_STATIC_DENY_LIST = [
   '.tox',
   '.mypy_cache',
   '.ruff_cache',
+  // macOS — Finder/Spotlight/system metadata that is never legitimate source content.
+  '.DS_Store',
+  '.AppleDouble',
+  '.LSOverride',
+  '.Spotlight-V100',
+  '.Trashes',
+  '.fseventsd',
+  '.DocumentRevisions-V100',
+  '.TemporaryItems',
+  '.AppleDB',
+  '.AppleDesktop',
+  '.apdisk',
+  // Windows — Explorer/Recycler/index metadata.
+  'Thumbs.db',
+  'ehthumbs.db',
+  'ehthumbs_vista.db',
+  'desktop.ini',
+  '$RECYCLE.BIN',
+  'System Volume Information',
+  // Linux/KDE.
+  '.directory',
 ] as const;
 
 type TreeDirent = Dirent;
@@ -156,6 +177,50 @@ function matchesOperatorIgnorePattern(
     return false;
   }
   return patternMatchesName(normalizedPattern, entryName);
+}
+
+type GitignoreFallback = {
+  ignore: string[];
+  unignore: string[];
+};
+
+async function readRootGitignorePatterns(
+  repoRoot: string,
+  readFile: (path: string, encoding: BufferEncoding) => Promise<string>,
+): Promise<GitignoreFallback> {
+  let raw: string;
+  try {
+    raw = await readFile(resolve(repoRoot, '.gitignore'), 'utf-8');
+  } catch {
+    return { ignore: [], unignore: [] };
+  }
+
+  const ignore: string[] = [];
+  const unignore: string[] = [];
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith('#')) continue;
+
+    const isNegation = line.startsWith('!');
+    let pattern = isNegation ? line.slice(1) : line;
+    if (pattern.startsWith('/')) {
+      pattern = pattern.slice(1);
+    }
+    // Path-anchored patterns (e.g. `src/build`) need full-path matching; we
+    // only do name-segment matching, so skip these to avoid false negatives
+    // and false positives. Trailing-slash-only keeps the directory semantic
+    // for `matchesOperatorIgnorePattern`.
+    const innerSlashIndex = pattern.slice(0, -1).indexOf('/');
+    if (innerSlashIndex !== -1) continue;
+    if (pattern.length === 0) continue;
+    if (isNegation) {
+      unignore.push(pattern);
+    } else {
+      ignore.push(pattern);
+    }
+  }
+  return { ignore, unignore };
 }
 
 async function readOperatorIgnoreConfig(
@@ -332,9 +397,25 @@ export async function executeContextPackListRepoTreeAction(
     canonicalRepoLocalPath,
     candidateEntries.map((entry) => entry.relativePath),
   );
-  const gitFilteredEntries = ignoredByGit === null
-    ? candidateEntries
-    : candidateEntries.filter((entry) => !ignoredByGit.has(entry.relativePath));
+  let gitFilteredEntries: typeof candidateEntries;
+  if (ignoredByGit === null) {
+    // Non-git folder (or git-check-ignore unavailable): apply our own
+    // best-effort .gitignore parser so any rules in the repo root are still
+    // honored. Negation (`!pattern`) un-ignores after the positive pass.
+    const fallback = await readRootGitignorePatterns(canonicalRepoLocalPath, readFile);
+    gitFilteredEntries = fallback.ignore.length === 0
+      ? candidateEntries
+      : candidateEntries.filter((entry) => {
+        const ignored = fallback.ignore.some((pattern) =>
+          matchesOperatorIgnorePattern(entry.name, entry.kind, pattern));
+        if (!ignored) return true;
+        const unignored = fallback.unignore.some((pattern) =>
+          matchesOperatorIgnorePattern(entry.name, entry.kind, pattern));
+        return unignored;
+      });
+  } else {
+    gitFilteredEntries = candidateEntries.filter((entry) => !ignoredByGit.has(entry.relativePath));
+  }
 
   const operatorIgnoreConfig = await readOperatorIgnoreConfig(canonicalRepoLocalPath, readFile);
   const filteredEntries = operatorIgnoreConfig === null

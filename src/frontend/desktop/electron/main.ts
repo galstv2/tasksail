@@ -160,7 +160,9 @@ import {
 import { activateContextPack as activateContextPackImpl } from '../../../backend/platform/context-pack/activate';
 import {
   acquireDirLockOrThrow,
+  ACTIVATION_GATE_REASON,
   deletePendingItem as deletePendingItemImpl,
+  publishPendingItem,
   resolveQueuePaths,
   getQueueStatus,
 } from '../../../backend/platform/queue';
@@ -1094,57 +1096,61 @@ export async function handleDesktopAction(
       try {
         const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
         const metadata = stagedDraft.metadata;
-        const destinationPath = await withQueueMutationLock('planner.finalizeSpec', async () => {
-          if (metadata.lineage.taskKind === 'child-task') {
-            return createFollowupTask({
-              title: metadata.title,
-              summary: editableDraft.summary,
-              desiredOutcome: editableDraft.desiredOutcome,
-              constraints: editableDraft.constraints,
-              acceptanceSignals: editableDraft.acceptanceSignals,
-              parentTaskId: metadata.lineage.parentTaskId,
-              parentQmdRecordId: metadata.lineage.parentQmdRecordId,
-              parentQmdScope: metadata.lineage.parentQmdScope,
-              rootTaskId: metadata.lineage.rootTaskId,
-              followupReason: metadata.lineage.followUpReason,
-              carryForwardSummary: editableDraft.carryForwardSummary,
-              suggestedPath: editableDraft.suggestedPath,
-              planningNotes: editableDraft.planningNotes,
-              contextPackDir: metadata.contextPackBinding.contextPackDir,
-              contextPackId: metadata.contextPackBinding.contextPackId,
-              scopeMode: metadata.contextPackBinding.scopeMode,
-              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-              deepFocusEnabled: metadata.deepFocusEnabled,
-              selectedFocusPath: metadata.primaryFocusRelativePath,
-              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-              selectedTestTarget: metadata.selectedTestTarget,
-              selectedSupportTargets: metadata.supportTargets,
-              repoRoot: REPO_ROOT,
-            });
-          }
-
-          return createDropboxTask({
-            title: metadata.title,
-            summary: editableDraft.summary,
-            desiredOutcome: editableDraft.desiredOutcome,
-            constraints: editableDraft.constraints,
-            acceptanceSignals: editableDraft.acceptanceSignals,
-            suggestedPath: editableDraft.suggestedPath,
-            planningNotes: editableDraft.planningNotes,
-            kind: metadata.lineage.taskKind,
-            contextPackDir: metadata.contextPackBinding.contextPackDir,
-            contextPackId: metadata.contextPackBinding.contextPackId,
-            scopeMode: metadata.contextPackBinding.scopeMode,
-            selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-            selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-            deepFocusEnabled: metadata.deepFocusEnabled,
-            selectedFocusPath: metadata.primaryFocusRelativePath,
-            selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-            selectedTestTarget: metadata.selectedTestTarget,
-            selectedSupportTargets: metadata.supportTargets,
-            repoRoot: REPO_ROOT,
-          });
+        const { destinationPath, activation } = await publishPendingItem({
+          publish: () =>
+            metadata.lineage.taskKind === 'child-task'
+              ? createFollowupTask({
+                  title: metadata.title,
+                  summary: editableDraft.summary,
+                  desiredOutcome: editableDraft.desiredOutcome,
+                  constraints: editableDraft.constraints,
+                  acceptanceSignals: editableDraft.acceptanceSignals,
+                  parentTaskId: metadata.lineage.parentTaskId,
+                  parentQmdRecordId: metadata.lineage.parentQmdRecordId,
+                  parentQmdScope: metadata.lineage.parentQmdScope,
+                  rootTaskId: metadata.lineage.rootTaskId,
+                  followupReason: metadata.lineage.followUpReason,
+                  carryForwardSummary: editableDraft.carryForwardSummary,
+                  suggestedPath: editableDraft.suggestedPath,
+                  planningNotes: editableDraft.planningNotes,
+                  contextPackDir: metadata.contextPackBinding.contextPackDir,
+                  contextPackId: metadata.contextPackBinding.contextPackId,
+                  scopeMode: metadata.contextPackBinding.scopeMode,
+                  selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+                  selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+                  deepFocusEnabled: metadata.deepFocusEnabled,
+                  selectedFocusPath: metadata.primaryFocusRelativePath,
+                  selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+                  selectedFocusTargets: metadata.primaryFocusTargets,
+                  selectedTestTarget: metadata.selectedTestTarget,
+                  selectedSupportTargets: metadata.supportTargets,
+                  repoRoot: REPO_ROOT,
+                })
+              : createDropboxTask({
+                  title: metadata.title,
+                  summary: editableDraft.summary,
+                  desiredOutcome: editableDraft.desiredOutcome,
+                  constraints: editableDraft.constraints,
+                  acceptanceSignals: editableDraft.acceptanceSignals,
+                  suggestedPath: editableDraft.suggestedPath,
+                  planningNotes: editableDraft.planningNotes,
+                  kind: metadata.lineage.taskKind,
+                  contextPackDir: metadata.contextPackBinding.contextPackDir,
+                  contextPackId: metadata.contextPackBinding.contextPackId,
+                  scopeMode: metadata.contextPackBinding.scopeMode,
+                  selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+                  selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+                  deepFocusEnabled: metadata.deepFocusEnabled,
+                  selectedFocusPath: metadata.primaryFocusRelativePath,
+                  selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+                  selectedFocusTargets: metadata.primaryFocusTargets,
+                  selectedTestTarget: metadata.selectedTestTarget,
+                  selectedSupportTargets: metadata.supportTargets,
+                  repoRoot: REPO_ROOT,
+                }),
+          repoRoot: REPO_ROOT,
+          contextPackDir: metadata.contextPackBinding.contextPackDir,
+          lockOperationName: 'planner.finalizeSpec',
         });
 
         try {
@@ -1157,6 +1163,29 @@ export async function handleDesktopAction(
           );
         }
         emitStreamEvent({ message: `Spec finalized to dropbox: ${basename(destinationPath)}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
+        if (activation.activated) {
+          emitStreamEvent({
+            message: `planner.finalizeSpec: activated next pending item.`,
+            source: 'planner.finalizeSpec',
+            role: 'workflow',
+            severity: 'info',
+          });
+          schedulePipelineAutoStart();
+        } else if (activation.reason === ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED) {
+          emitStreamEvent({
+            message: `planner.finalizeSpec: published; another task already active (cap reached). Will activate when cap frees up.`,
+            source: 'planner.finalizeSpec',
+            role: 'workflow',
+            severity: 'info',
+          });
+        } else {
+          emitStreamEvent({
+            message: `planner.finalizeSpec: published; activation gate did not pass on this attempt.`,
+            source: 'planner.finalizeSpec',
+            role: 'workflow',
+            severity: 'info',
+          });
+        }
         return {
           ok: true,
           response: {
@@ -1548,4 +1577,6 @@ export function registerAppLifecycle(): void {
   });
 }
 
-registerAppLifecycle();
+if (!process.env['VITEST']) {
+  registerAppLifecycle();
+}

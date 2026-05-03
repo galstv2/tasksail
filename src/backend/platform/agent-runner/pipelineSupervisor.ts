@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawnPipelineForTask } from './spawnPipeline.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
 import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
+import { recoverStuckMidCompletion } from '../queue/recoverStuckMidCompletion.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -398,10 +399,40 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       continue;
     }
 
-    // 3c: If completed and not yet archived, re-drive archival (idempotent)
-    // We check via outcome classification — if completed, let finalizeTaskWorktrees handle it.
+    // 3c: If sentinel says "completed", re-drive the closeout via
+    // recoverStuckMidCompletion. That call invokes completePendingItem with
+    // skipArchive:true, which itself runs finalizeTaskWorktrees + unlinks the
+    // marker + unlinks the sentinel as steps 3-5 of the five-step sequence,
+    // and removes the pending file, transitions the registry, and (if needed)
+    // syncs the retrospective counter. Do NOT call finalizeTaskWorktrees or
+    // unlink anything here when recovery succeeded — that would double-finalize.
+    if (outcome === 'completed') {
+      let recoveredViaCompletion = false;
+      try {
+        const result = await recoverStuckMidCompletion({ taskId: markerTaskId, repoRoot });
+        recoveredViaCompletion = result.recovered;
+        if (!result.recovered) {
+          console.warn(
+            `[pipelineSupervisor] recoverStuckMidCompletion could not prove archival for ${markerTaskId}: ${result.reason ?? 'unknown'} — falling through to failure recovery`,
+          );
+          outcome = 'failed';
+        }
+      } catch (err) {
+        console.error(
+          `[pipelineSupervisor] recoverStuckMidCompletion threw for ${markerTaskId}:`,
+          err instanceof Error ? err.message : err,
+        );
+        outcome = 'failed';
+      }
+      if (recoveredViaCompletion) {
+        console.log(
+          `[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "pid-gone", reclassifiedAs: "completed" }`,
+        );
+        continue;
+      }
+    }
 
-    // 3d: Invoke finalizeTaskWorktrees (MANDATORY unless step 3b fired)
+    // 3d: Invoke finalizeTaskWorktrees (MANDATORY unless step 3b fired or 3c recovered)
     try {
       await finalizeTaskWorktrees(markerTaskId, outcome, repoRoot);
     } catch (err) {

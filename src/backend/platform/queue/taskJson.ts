@@ -8,6 +8,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { findRepoRoot } from '../core/index.js';
+import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
+import type { TaskContextPackTarget } from './markdown.js';
 
 // ---------------------------------------------------------------------------
 // Schema types
@@ -38,6 +40,21 @@ export interface TaskContextPackBinding {
   dataHostDir: string | null;
   dataContainerDir: string | null;
   repoBindings: TaskRepoBinding[];
+  selection?: TaskContextPackSelection;
+}
+
+export interface TaskContextPackSelection {
+  contextPackDir: string | null;
+  contextPackId: string | null;
+  scopeMode: string | null;
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+  deepFocusEnabled?: boolean;
+  selectedFocusPath?: string | null;
+  selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedFocusTargets?: PrimaryFocusTarget[];
+  selectedTestTarget?: TaskContextPackTarget | null;
+  selectedSupportTargets?: TaskContextPackTarget[];
 }
 
 export interface TaskMaterialization {

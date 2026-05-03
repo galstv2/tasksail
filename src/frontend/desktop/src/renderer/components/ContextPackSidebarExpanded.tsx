@@ -20,6 +20,7 @@ function ContextPackSidebarExpanded({
   deepFocusPrimaryFocusId,
   selectedFocusPath,
   selectedFocusTargetKind,
+  selectedFocusTargets,
   selectedTestTarget,
   selectedSupportTargets,
   actionPending,
@@ -204,6 +205,7 @@ function ContextPackSidebarExpanded({
             deepFocusPrimaryFocusId={deepFocusPrimaryFocusId ?? null}
             selectedFocusPath={selectedFocusPath ?? null}
             selectedFocusTargetKind={selectedFocusTargetKind ?? null}
+            selectedFocusTargets={selectedFocusTargets ?? []}
             selectedTestTarget={selectedTestTarget ?? null}
             selectedSupportTargets={selectedSupportTargets ?? []}
             focusHint={sidebarModel.focusHint}

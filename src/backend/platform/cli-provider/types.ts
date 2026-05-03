@@ -61,7 +61,6 @@ export type ProviderPromptKind =
   | 'start-task'
   | 'execute-task'
   | 'continue-task'
-  | 'close-task'
   | 'execute-task-retry';
 
 export interface AgentLaunchContext {
@@ -114,6 +113,7 @@ export interface GenericAgentEnv {
   targetReposJson?: string;
   primaryFocusPath?: string;
   primaryFocusTargetKind?: 'file' | 'directory';
+  primaryFocusTargetsJson?: string;
   writableRootsJson?: string;
   readonlyContextRootsJson?: string;
   testTargetPath?: string;

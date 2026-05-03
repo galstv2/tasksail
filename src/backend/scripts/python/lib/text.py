@@ -24,11 +24,27 @@ def normalize_text(lines: list[str]) -> str:
     return "\n".join(cleaned).strip()
 
 
+# Operator shorthand strings that mean "no items", not real list entries.
+_EXTRACT_LIST_PLACEHOLDERS: frozenset[str] = frozenset({
+    "none",
+    "none.",
+    "n/a",
+    "n/a.",
+    "nothing",
+    "nothing.",
+    "tbd",
+    "tbd.",
+    "(none)",
+})
+
+
 def extract_list(lines: list[str]) -> list[str]:
     """Extract items from markdown-style unordered lists (``- item``).
 
     Lines without a dash prefix are kept as-is.
     HTML comments are stripped so template placeholders are not extracted.
+    Placeholder tokens such as ``None`` and ``N/A`` are dropped because
+    they mean "no items" in operator-authored handoffs.
     """
     items: list[str] = []
     for line in lines:
@@ -36,10 +52,13 @@ def extract_list(lines: list[str]) -> list[str]:
         if not stripped:
             continue
         if stripped.startswith("- "):
-            items.append(stripped[2:].strip())
-        else:
-            items.append(stripped)
-    return [item for item in items if item]
+            stripped = stripped[2:].strip()
+        if not stripped:
+            continue
+        if stripped.lower() in _EXTRACT_LIST_PLACEHOLDERS:
+            continue
+        items.append(stripped)
+    return items
 
 
 def extract_bullet_items(lines: list[str]) -> list[str]:

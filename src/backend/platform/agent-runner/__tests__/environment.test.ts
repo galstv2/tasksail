@@ -106,6 +106,164 @@ describe('buildAgentEnvironment', () => {
     ]));
   });
 
+  it('emits the full primary focus target list for Lily planning launches', () => {
+    const lilyProfile: AgentProfile = {
+      id: 'lily',
+      registryId: 'planning-agent',
+      displayName: 'Lily',
+      role: 'Planning Specialist',
+      requiredModel: 'claude-sonnet-4.5',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 1,
+    };
+    const primaryFocusTargets = [
+      { path: 'src/routes/UserRoute.ts', kind: 'file' as const, role: 'anchor' as const },
+      { path: 'src/routes/AdminRoute.ts', kind: 'file' as const, role: 'primary' as const },
+    ];
+
+    const env = buildAgentEnvironment(lilyProfile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'frontend',
+        primaryFocusRelativePath: 'src/routes/UserRoute.ts',
+        primaryFocusTargetKind: 'file',
+        primaryFocusTargets,
+        writableRoots: [
+          {
+            path: 'src/routes',
+            kind: 'directory',
+            reason: 'primary-focus-parent',
+            sourceTargets: primaryFocusTargets,
+          },
+        ],
+        readonlyContextRoots: [],
+        selectedRepoIds: ['frontend'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(JSON.parse(env['COPILOT_PRIMARY_FOCUS_TARGETS_JSON'] ?? '[]')).toEqual(primaryFocusTargets);
+    expect(JSON.parse(env['COPILOT_WRITABLE_ROOTS_JSON'] ?? '[]')).toEqual([
+      {
+        path: 'src/routes',
+        kind: 'directory',
+        reason: 'primary-focus-parent',
+        sourceTargets: primaryFocusTargets,
+      },
+    ]);
+  });
+
+  it('inlines scoped primary target fields in COPILOT_PRIMARY_FOCUS_TARGETS_JSON', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'monolith',
+        primaryRepoId: 'monolith-app',
+        primaryFocusRelativePath: 'apps/api',
+        primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: [
+          {
+            path: 'apps/api',
+            kind: 'directory',
+            role: 'anchor',
+            testTarget: { path: 'apps/api/tests', kind: 'directory' },
+            supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+          },
+          { path: 'apps/web', kind: 'directory', role: 'primary' },
+        ],
+        selectedRepoIds: ['monolith-app'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(JSON.parse(env['COPILOT_PRIMARY_FOCUS_TARGETS_JSON'] ?? '[]')).toEqual([
+      {
+        path: 'apps/api',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'apps/api/tests', kind: 'directory' },
+        supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+      },
+      { path: 'apps/web', kind: 'directory', role: 'primary' },
+    ]);
+  });
+
+  it('omits empty scoped fields and repo-root scoped fields from primary target env JSON', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'monolith',
+        primaryRepoId: 'monolith-app',
+        primaryFocusRelativePath: '',
+        deepFocusEnabled: true,
+        primaryFocusTargets: [
+          {
+            path: '',
+            kind: 'directory',
+            role: 'anchor',
+            testTarget: { path: 'tests', kind: 'directory' },
+            supportTargets: [{ path: 'docs', kind: 'directory' }],
+          },
+          {
+            path: 'apps/web',
+            kind: 'directory',
+            role: 'primary',
+            testTarget: null,
+            supportTargets: [],
+          },
+        ],
+        selectedRepoIds: ['monolith-app'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(JSON.parse(env['COPILOT_PRIMARY_FOCUS_TARGETS_JSON'] ?? '[]')).toEqual([
+      { path: '', kind: 'directory', role: 'anchor' },
+      { path: 'apps/web', kind: 'directory', role: 'primary' },
+    ]);
+  });
+
+  it('does not mirror global test target into single-primary JSON entries', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      focused: {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo'],
+        declaredRepoRoots: ['/workspace/repo'],
+        estateType: 'monolith',
+        primaryRepoId: 'monolith-app',
+        primaryFocusRelativePath: 'apps/api',
+        primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: [
+          { path: 'apps/api', kind: 'directory', role: 'anchor' },
+        ],
+        testTarget: {
+          path: 'tests/api',
+          kind: 'directory',
+          resolvedPath: '/workspace/repo/tests/api',
+        },
+        selectedRepoIds: ['monolith-app'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+    });
+
+    expect(env['COPILOT_TEST_TARGET_PATH']).toBe('tests/api');
+    expect(env['COPILOT_TEST_TARGET_KIND']).toBe('directory');
+    expect(JSON.parse(env['COPILOT_PRIMARY_FOCUS_TARGETS_JSON'] ?? '[]')).toEqual([
+      { path: 'apps/api', kind: 'directory', role: 'anchor' },
+    ]);
+  });
+
   it('emits repo-root writable sentinel when focused roots include it', () => {
     const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
       focused: {
@@ -253,6 +411,16 @@ describe('buildAutonomyEnvironment', () => {
         primaryFocusRelativePath: 'apps/api',
         deepFocusEnabled: true,
         primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: [
+          {
+            path: 'apps/api',
+            kind: 'directory',
+            role: 'anchor',
+            testTarget: { path: 'tests/api-scoped', kind: 'directory' },
+            supportTargets: [{ path: 'shared/scoped.ts', kind: 'file' }],
+          },
+          { path: 'apps/worker', kind: 'directory', role: 'primary' },
+        ],
         testTarget: {
           path: 'tests/api',
           kind: 'directory',
@@ -287,8 +455,17 @@ describe('buildAutonomyEnvironment', () => {
         focused_targeting?: {
           primary_repo_root?: string;
           primary_repo_id?: string;
+          primary_repo_roots?: string[];
+          primary_repo_ids?: string[];
           visible_repo_roots?: string[];
           primary_focus_relative_path?: string | null;
+          primary_focus_targets?: Array<{
+            path?: string;
+            kind?: string;
+            role?: string;
+            testTarget?: { path?: string; kind?: string };
+            supportTargets?: Array<{ path?: string; kind?: string }>;
+          }>;
           deep_focus_enabled?: boolean;
           primary_focus_target_kind?: string | null;
           test_target?: { path?: string; kind?: string } | null;
@@ -336,8 +513,20 @@ describe('buildAutonomyEnvironment', () => {
     expect(profileJson.boundary_context?.focused_targeting).toEqual({
       primary_repo_root: '/workspace/repo',
       primary_repo_id: 'monolith-app',
+      primary_repo_roots: ['/workspace/repo'],
+      primary_repo_ids: ['monolith-app'],
       visible_repo_roots: ['/workspace/repo', '/workspace/support'],
       primary_focus_relative_path: 'apps/api',
+      primary_focus_targets: [
+        {
+          path: 'apps/api',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'tests/api-scoped', kind: 'directory' },
+          supportTargets: [{ path: 'shared/scoped.ts', kind: 'file' }],
+        },
+        { path: 'apps/worker', kind: 'directory', role: 'primary' },
+      ],
       deep_focus_enabled: true,
       primary_focus_target_kind: 'directory',
       test_target: {
@@ -367,6 +556,64 @@ describe('buildAutonomyEnvironment', () => {
       contextFile: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch/mcp-capability-summary.md',
       cliHome: '/workspace/repo/.platform-state/runtime/copilot-home/dalton-launch',
     });
+  });
+
+  it('emits plural primary repo roots and ids in autonomy metadata', () => {
+    const env = buildAutonomyEnvironment(
+      profile,
+      {
+        ...autonomyIntent,
+        allowedDirs: ['/workspace/api', '/workspace/shared'],
+      },
+      argsResult,
+      '/workspace/api',
+      '/workspace/platform',
+      {
+        primaryRepoRoot: '/workspace/api',
+        visibleRepoRoots: ['/workspace/api', '/workspace/shared'],
+        declaredRepoRoots: ['/workspace/api', '/workspace/shared'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'api',
+        deepFocusEnabled: true,
+        primaryFocusTargets: [
+          {
+            path: '',
+            kind: 'directory',
+            role: 'anchor',
+            repoLocalPath: '/workspace/api',
+            repoId: 'api',
+          },
+          {
+            path: 'src',
+            kind: 'directory',
+            role: 'primary',
+            repoLocalPath: '/workspace/shared',
+            repoId: 'shared',
+          },
+        ],
+        selectedRepoIds: ['api', 'shared'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+      '/workspace/platform/context-pack',
+    );
+    const profileJson = JSON.parse(env['RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON'] ?? '{}') as {
+      boundary_context?: {
+        focused_targeting?: {
+          primary_repo_root?: string;
+          primary_repo_id?: string;
+          primary_repo_roots?: string[];
+          primary_repo_ids?: string[];
+        } | null;
+      };
+    };
+
+    expect(profileJson.boundary_context?.focused_targeting).toEqual(expect.objectContaining({
+      primary_repo_root: '/workspace/api',
+      primary_repo_id: 'api',
+      primary_repo_roots: ['/workspace/api', '/workspace/shared'],
+      primary_repo_ids: ['api', 'shared'],
+    }));
   });
 
   it('sets external MCP cliHome to null when launchDir is unavailable', () => {

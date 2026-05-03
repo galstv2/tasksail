@@ -261,6 +261,7 @@ export async function runRoleAgent(
       ? await resolveSelectedPrimaryRepoRoot(
           options.contextPackDir,
           paths.repoRoot,
+          { taskId: options.taskId },
         )
       : usesFocusedRepoLaunch || usesFocusedRepoContext || needsFocusedRepoVisibility
         ? await resolveFocusedRepoRoot(

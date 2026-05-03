@@ -744,7 +744,7 @@ export async function runPipelineSequence(
     let testCaptureResults: TestCaptureResult[] = [];
     let testCaptureWarning: string | undefined;
     const selectedPrimary = effectiveContextPackDir
-      ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot)
+      ? await resolveSelectedPrimaryRepoRoot(effectiveContextPackDir, paths.repoRoot, { taskId: options.taskId })
       : undefined;
     const focusScope = toFocusScopePromptOptions(selectedPrimary);
     const testCaptureCwd = effectiveContextPackDir
@@ -982,7 +982,9 @@ export async function runPipelineSequence(
       },
     };
 
-    await writePipelineReceipt(paths.taskRuntime, receipt);
+    // NOTE: receipt is intentionally NOT written here. We defer the write
+    // until after completePendingItem returns so the on-disk status reflects
+    // whether closeout actually finished.
 
     // Pre-check queue-advance readiness. If policy fails (e.g. incomplete
     // retrospective), give Ron one remediation pass before attempting closeout.
@@ -1019,13 +1021,30 @@ export async function runPipelineSequence(
     try {
       await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
     } catch (err) {
-      console.error('[pipeline] Post-pipeline closeout failed:', err instanceof Error ? err.message : err);
+      const closeoutError = err instanceof Error ? err.message : String(err);
+      console.error('[pipeline] Post-pipeline closeout failed:', closeoutError);
+      const closeoutFailedReceipt: PipelineReceipt = {
+        ...receipt,
+        status: 'closeout-failed',
+        closeoutError,
+      };
+      await writePipelineReceipt(paths.taskRuntime, closeoutFailedReceipt);
+      const tagged = err instanceof Error ? err : new Error(closeoutError);
+      (tagged as { _isCloseoutFailure?: boolean })._isCloseoutFailure = true;
+      throw tagged;
     }
 
+    await writePipelineReceipt(paths.taskRuntime, receipt);
     return receipt;
   } catch (err) {
     const killRequest = await readPipelineKillRequest(paths.repoRoot, pipelineTaskId);
     const killed = abortController.signal.aborted || killRequest !== undefined;
+
+    const isCloseoutFailure = !killed && (err as { _isCloseoutFailure?: boolean })?._isCloseoutFailure === true;
+    if (isCloseoutFailure) {
+      throw err;
+    }
+
     const failureReason = killed
       ? `Pipeline killed: ${killRequest?.reason ?? 'operator-request'}`
       : getErrorMessage(err);
@@ -1060,6 +1079,7 @@ export async function runPipelineSequence(
 function toFocusScopePromptOptions(selectedPrimary?: {
   primaryFocusRelativePath?: string;
   primaryFocusTargetKind?: 'directory' | 'file';
+  primaryFocusTargets?: FocusScopePromptOptions['primaryFocusTargets'];
   testTarget?: { path: string; kind: 'directory' | 'file' };
   supportTargets?: FocusScopePromptOptions['supportTargets'];
   writableRoots?: FocusScopePromptOptions['writableRoots'];
@@ -1073,6 +1093,7 @@ function toFocusScopePromptOptions(selectedPrimary?: {
   return {
     primaryFocusRelativePath: selectedPrimary.primaryFocusRelativePath,
     primaryFocusTargetKind: selectedPrimary.primaryFocusTargetKind,
+    primaryFocusTargets: selectedPrimary.primaryFocusTargets,
     testTarget: selectedPrimary.testTarget
       ? {
           path: selectedPrimary.testTarget.path,

@@ -8,7 +8,7 @@ This repository is the control plane for a repo-based local agent workflow on Wi
 
 ## Team Roster
 
-Use human names in handoffs. Canonical source: `.github/agents/registry.json`.
+Use roster names in handoffs. Canonical source: `.github/agents/registry.json`.
 
 | Name | Role | Agent ID | Autonomy | Order |
 |---|---|---|---|---|
@@ -17,6 +17,8 @@ Use human names in handoffs. Canonical source: `.github/agents/registry.json`.
 | Dalton | Software Engineer | software-engineer | repo-executor | 2 |
 | Ron | QA and Closeout | qa | qa-executor | 3 |
 | Dalton (Verify) | Verification Engineer | software-engineer-verify | repo-executor | 99 |
+
+Dalton Verify (`software-engineer-verify`) is an out-of-band verification instance invoked externally by the platform; it is not part of the standard pipeline sequence and never appears in agent-to-agent handoffs.
 
 ## Context-Pack Runtime Signals
 

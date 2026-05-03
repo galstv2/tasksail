@@ -776,4 +776,69 @@ describe('runPipelineSequence', () => {
       ),
     ).toBe(true);
   });
+
+  describe('pipeline receipt ordering', () => {
+    const receiptPath = () =>
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-receipt.json');
+
+    beforeEach(() => {
+      readTextFile.mockImplementation(async (filePath: string) => {
+        if (existsSync(filePath)) {
+          return readFileSync(filePath, 'utf-8');
+        }
+        if (filePath.endsWith('parallel-ok.md')) {
+          return null;
+        }
+        return null;
+      });
+    });
+
+    it('writes a completed receipt only after completePendingItem returns', async () => {
+      let receiptExistedDuringCloseout: boolean | null = null;
+      completePendingItem.mockImplementation(async () => {
+        receiptExistedDuringCloseout = existsSync(receiptPath());
+      });
+
+      const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+      await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
+
+      expect(completePendingItem).toHaveBeenCalledTimes(1);
+      expect(receiptExistedDuringCloseout).toBe(false);
+      expect(existsSync(receiptPath())).toBe(true);
+      const receipt = JSON.parse(readFileSync(receiptPath(), 'utf-8')) as {
+        status: string;
+        closeoutError?: string;
+      };
+      expect(receipt.status).toBe('completed');
+      expect(receipt.closeoutError).toBeUndefined();
+    });
+
+    it('writes a closeout-failed receipt and rethrows when completePendingItem throws', async () => {
+      const synthetic = new Error('synthetic-closeout-failure');
+      completePendingItem.mockRejectedValueOnce(synthetic);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+
+      await expect(
+        runPipelineSequence({ repoRoot, taskId: 'test-task-id' }),
+      ).rejects.toBe(synthetic);
+
+      expect(existsSync(receiptPath())).toBe(true);
+      const receipt = JSON.parse(readFileSync(receiptPath(), 'utf-8')) as {
+        status: string;
+        closeoutError?: string;
+        workflowPath?: string;
+        agentTimings?: Record<string, number>;
+        totalSeconds?: number;
+      };
+      expect(receipt.status).toBe('closeout-failed');
+      expect(receipt.closeoutError).toBe('synthetic-closeout-failure');
+      expect(receipt.workflowPath).toBe('standard');
+      expect(typeof receipt.totalSeconds).toBe('number');
+      expect(receipt.agentTimings).toBeDefined();
+
+      errorSpy.mockRestore();
+    });
+  });
 });

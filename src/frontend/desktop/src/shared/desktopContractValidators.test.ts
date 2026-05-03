@@ -134,6 +134,426 @@ describe('validateDesktopActionRequest', () => {
       expect(errors).toEqual([]);
     });
 
+    it('accepts a scoped test on a directory primary', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              testTarget: { path: 'tests/orders', kind: 'directory' },
+            },
+          ],
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('accepts scoped supports on a file primary', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders/index.ts',
+              kind: 'file',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              supportTargets: [
+                { path: 'docs/orders.md', kind: 'file' },
+                { path: 'packages/shared', kind: 'directory' },
+              ],
+            },
+          ],
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects scoped fields on a repo-root primary', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedFocusTargets: [
+            {
+              path: '',
+              kind: 'directory',
+              role: 'anchor',
+              testTarget: { path: 'tests', kind: 'directory' },
+              supportTargets: [{ path: 'docs', kind: 'directory' }],
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[0] repo-root primary cannot include testTarget or supportTargets.',
+      );
+    });
+
+    it('rejects a scoped test equal to another primary', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedFocusTargets: [
+            { path: 'src/orders', kind: 'directory', role: 'anchor' },
+            {
+              path: 'src/billing',
+              kind: 'directory',
+              testTarget: { path: 'src/orders', kind: 'directory' },
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[1].testTarget overlaps primary[0].',
+      );
+    });
+
+    it('rejects a scoped support inside a primary writable root', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              supportTargets: [{ path: 'src/orders/docs', kind: 'directory' }],
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[0].supportTargets[0] overlaps primary[0] writable root.',
+      );
+    });
+
+    it('allows a scoped support equal to a global support target', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              supportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+            },
+          ],
+          selectedSupportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('multiple primaries in different repos with identical relative paths do not produce overlap errors', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            // Primary in Tools whose testTarget shares a relative path with
+            // primary[1]'s path in Platform. Pre-spec the cross-primary
+            // path-equality check would fire. Post-spec it is suppressed.
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              testTarget: { path: 'src/billing', kind: 'directory' },
+            },
+            // Primary in Platform whose supportTarget shares a relative path
+            // with primary[0]'s path in Tools. Same false-positive shape,
+            // also suppressed cross-repo.
+            {
+              path: 'src/billing',
+              kind: 'directory',
+              role: 'primary',
+              repoLocalPath: '/repos/platform',
+              repoId: 'platform',
+              supportTargets: [{ path: 'src/orders', kind: 'directory' }],
+            },
+          ],
+        },
+      });
+      const overlapErrors = errors.filter((message) => message.includes('overlaps'));
+      expect(overlapErrors).toEqual([]);
+    });
+
+    it('multiple primaries in the same repo with overlapping support targets still produce overlap errors', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+            {
+              path: 'src/billing',
+              kind: 'directory',
+              role: 'primary',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+              supportTargets: [{ path: 'src/orders', kind: 'directory' }],
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[1].supportTargets[0] overlaps primary[0].',
+      );
+    });
+
+    it('legacy state with no repoLocalPath is validated under single-repo rules', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedFocusTargets: [
+            { path: 'src/orders', kind: 'directory', role: 'anchor' },
+            {
+              path: 'src/billing',
+              kind: 'directory',
+              testTarget: { path: 'src/orders', kind: 'directory' },
+            },
+          ],
+        },
+      });
+      // Both primaries omit repoLocalPath (legacy single-repo state).
+      // The same-repo overlap check must still fire — repo-awareness must
+      // not silently weaken validation for legacy state.
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[1].testTarget overlaps primary[0].',
+      );
+    });
+
+    it('rejects a primary focus target missing repoLocalPath when deep focus is on', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+            { path: 'src/billing', kind: 'directory', role: 'primary', repoId: 'tools' },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[1].repoLocalPath must be a non-empty string in Deep Focus mode.',
+      );
+    });
+
+    it('rejects missing scalar anchor fields with non-empty primaries', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.deepFocusPrimaryRepoId or payload.deepFocusPrimaryFocusId is required when Deep Focus primaries are selected.',
+      );
+    });
+
+    it('rejects missing repoId in distributed mode', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[0].repoId must be a non-empty string when payload.deepFocusPrimaryRepoId is set.',
+      );
+    });
+
+    it('rejects missing focusId in monolith mode', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryFocusId: 'orders',
+          selectedFocusTargets: [
+            {
+              path: 'services/orders/src',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/monolith',
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.selectedFocusTargets[0].focusId must be a non-empty string when payload.deepFocusPrimaryFocusId is set.',
+      );
+    });
+
+    it('rejects a repo scalar equal to repoLocalPath instead of repoId', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: '/repos/tools',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+          ],
+        },
+      });
+      expect(errors).toContain(
+        'payload.deepFocusPrimaryRepoId must equal the anchor target repoId.',
+      );
+    });
+
+    it('rejects when both deepFocusPrimaryRepoId and deepFocusPrimaryFocusId are set', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: '/repos/tools',
+          deepFocusPrimaryFocusId: '/repos/platform',
+        },
+      });
+      expect(errors).toContain(
+        'payload.deepFocusPrimaryRepoId and payload.deepFocusPrimaryFocusId cannot both be set.',
+      );
+    });
+
+    it('rejects when anchor scalar disagrees with anchor target manifest id', () => {
+      // Per spec §2.6 / §3.1: `deepFocusPrimaryRepoId` (distributed) and
+      // `deepFocusPrimaryFocusId` (monolith) carry the anchor's manifest
+      // identifier — `anchor.repoId` and `anchor.focusId` respectively, NOT
+      // the resolved `repoLocalPath`. Mismatched scalar/anchor pairs are a
+      // malformed payload.
+      const distributedErrors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: 'platform',
+          selectedFocusTargets: [
+            {
+              path: 'src/orders',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+          ],
+        },
+      });
+      expect(distributedErrors).toContain(
+        'payload.deepFocusPrimaryRepoId must equal the anchor target repoId.',
+      );
+
+      const monolithErrors = validateDesktopActionRequest({
+        action: 'contextPack.applySwitch',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          scopeMode: 'focused',
+          deepFocusEnabled: true,
+          deepFocusPrimaryFocusId: 'orders',
+          selectedFocusTargets: [
+            {
+              path: 'services/billing/src',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/monolith',
+              focusId: 'billing',
+            },
+          ],
+        },
+      });
+      expect(monolithErrors).toContain(
+        'payload.deepFocusPrimaryFocusId must equal the anchor target focusId.',
+      );
+    });
+
     it('accepts repo-root deep focus metadata without selectedFocusTargetKind', () => {
       const errors = validateDesktopActionRequest({
         action: 'contextPack.applySwitch',

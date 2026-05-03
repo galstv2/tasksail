@@ -198,11 +198,13 @@ describe('ContextPackSidebarExpanded', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    // With `selectedRepoIds=['repo-1']` matching a manifest id, the summary is
+    // in the populated state and exposes the scope editor entry point.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Scope' }));
     await screen.findByTestId('deep-focus-editor');
     expect(container.querySelector('.context-pack-sidebar')).toHaveClass('deep-focus-sidebar--expanded');
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel Deep Focus editing' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close editor' })[0]!);
     expect(container.querySelector('.context-pack-sidebar')).toHaveClass('deep-focus-sidebar--closing');
   });
 });

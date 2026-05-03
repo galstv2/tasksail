@@ -115,6 +115,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional primary focus target kind.",
     )
     parser.add_argument(
+        "--selected-focus-target",
+        action="append",
+        default=[],
+        help='Optional JSON object; may be repeated, e.g. {"path":"src","kind":"directory","role":"anchor"}.',
+    )
+    parser.add_argument(
         "--selected-test-target",
         default=None,
         help='Optional JSON object or null, e.g. {"path":"tests","kind":"directory"}.',
@@ -167,12 +173,22 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "--selected-support-target values must decode to objects"
             )
+        selected_focus_targets = [
+            parse_json_argument(
+                value,
+                argument_name="--selected-focus-target",
+            )
+            for value in args.selected_focus_target
+        ]
+        if not all(isinstance(target, dict) for target in selected_focus_targets):
+            raise ValueError("--selected-focus-target values must decode to objects")
         deep_focus = normalize_deep_focus_selection(
             deep_focus_enabled=args.deep_focus_enabled,
             deep_focus_primary_repo_id=args.deep_focus_primary_repo_id,
             deep_focus_primary_focus_id=args.deep_focus_primary_focus_id,
             selected_focus_path=args.selected_focus_path,
             selected_focus_target_kind=args.selected_focus_target_kind,
+            selected_focus_targets=selected_focus_targets,
             selected_test_target=selected_test_target,
             selected_test_target_provided=args.selected_test_target is not None,
             selected_support_targets=selected_support_targets,

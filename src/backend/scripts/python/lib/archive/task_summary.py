@@ -25,19 +25,28 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     lines.append("")
 
     _add_text_section(lines, "Business Goal", payload.get("business_goal"))
-    _add_text_section(
-        lines, "Completed Work", payload.get("completed_work_summary"),
+    _add_list_or_text_section(
+        lines,
+        "Completed Work",
+        items=payload.get("completed_work_items"),
+        text=payload.get("completed_work_summary"),
     )
-    _add_list_section(lines, "Key Decisions", payload.get("key_decisions"))
+    _add_list_section(lines, "Key Design Decisions", payload.get("key_decisions"))
     _add_list_section(
         lines, "Known Limitations", payload.get("known_limitations"),
     )
     _add_text_section(
-        lines, "Test Results", payload.get("test_result_summary"),
+        lines, "Test Result Summary", payload.get("test_result_summary"),
     )
-    _add_text_section(lines, "Rollout Notes", payload.get("rollout_notes"))
+    _add_list_or_text_section(
+        lines,
+        "Rollout or Operational Notes",
+        items=payload.get("rollout_notes_items"),
+        text=payload.get("rollout_notes"),
+    )
     _add_list_section(lines, "Files Changed", payload.get("touched_files"))
-    _add_list_section(lines, "Follow-Up Items", payload.get("followup_refs"))
+    _add_list_section(lines, "Follow-Up Backlog", payload.get("followup_refs"))
+    # Append-only: this advisory section must remain last.
     _add_text_section(lines, "QA Advisory Finding", payload.get("advisory_finding"))
 
     return "\n".join(lines)
@@ -64,3 +73,18 @@ def _add_list_section(
     for item in items:
         lines.append(f"- {item}")
     lines.append("")
+
+
+def _add_list_or_text_section(
+    lines: list[str],
+    heading: str,
+    *,
+    items: list[str] | None,
+    text: str | None,
+) -> None:
+    """Render a populated item list, falling back to legacy prose."""
+    if items:
+        _add_list_section(lines, heading, items)
+        return
+    if text:
+        _add_text_section(lines, heading, text)

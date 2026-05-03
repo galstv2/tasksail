@@ -47,12 +47,14 @@ export {
   moveDropboxItemToPending,
   activateNextPendingItemIfReady,
   completeActiveItem,
+  ACTIVATION_GATE_REASON,
 } from './operations.js';
 
 export type {
   CompleteActiveItemOptions,
   ActivateNextPendingItemOptions,
   ActivateNextPendingItemResult,
+  ActivationGateReason,
 } from './operations.js';
 
 export { createDropboxTask } from './createDropboxTask.js';
@@ -60,6 +62,12 @@ export type { CreateDropboxTaskOptions } from './createDropboxTask.js';
 
 export { createFollowupTask } from './createFollowupTask.js';
 export type { CreateFollowupTaskOptions } from './createFollowupTask.js';
+
+export { publishPendingItem } from './publishPendingItem.js';
+export type {
+  PublishPendingItemOptions,
+  PublishPendingItemResult,
+} from './publishPendingItem.js';
 
 export { initializeTask } from './newTask.js';
 export type { InitializeTaskOptions } from './newTask.js';
@@ -74,9 +82,6 @@ export {
   isRetrospectiveRequiredForCompletedCount,
   syncRetrospectiveRequiredMetadata,
 } from './retrospectiveFlag.js';
-
-export { pollDropbox } from './pollDropbox.js';
-export type { PollDropboxOptions } from './pollDropbox.js';
 
 export { repairQueue } from './repairQueue.js';
 export type { RepairResult, RepairQueueOptions } from './repairQueue.js';

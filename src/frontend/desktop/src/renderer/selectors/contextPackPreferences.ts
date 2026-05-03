@@ -1,7 +1,9 @@
 import type {
   ContextPackCatalogEntry,
+  ContextPackDeepFocusDerivedRoot,
   ContextPackDeepFocusState,
   ContextPackDeepFocusTarget,
+  ContextPackPrimaryFocusTarget,
   WorkspaceScopeMode,
 } from '../../shared/desktopContract';
 
@@ -11,6 +13,7 @@ export const EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE: ContextPackDeepFocusState = {
   deepFocusPrimaryFocusId: null,
   selectedFocusPath: null,
   selectedFocusTargetKind: null,
+  selectedFocusTargets: [],
   selectedTestTarget: undefined,
   selectedSupportTargets: [],
   derivedWritableRoots: [],
@@ -38,6 +41,48 @@ function areTargetListsEqual(
   return left.every((target, index) => isTargetEqual(target, right[index]));
 }
 
+function arePrimaryTargetListsEqual(
+  left: readonly ContextPackPrimaryFocusTarget[],
+  right: readonly ContextPackPrimaryFocusTarget[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((target, index) =>
+    isTargetEqual(target, right[index])
+    && target.repoLocalPath === right[index]?.repoLocalPath
+    && target.repoId === right[index]?.repoId
+    && target.focusId === right[index]?.focusId
+    && target.role === right[index]?.role
+    && isTargetEqual(target.testTarget, right[index]?.testTarget)
+    && areTargetListsEqual(target.supportTargets ?? [], right[index]?.supportTargets ?? []),
+  );
+}
+
+type DerivedRootWithRepoLocalPath = ContextPackDeepFocusDerivedRoot & {
+  repoLocalPath?: string;
+};
+
+function isDerivedRootEqual(
+  left: ContextPackDeepFocusDerivedRoot | null | undefined,
+  right: ContextPackDeepFocusDerivedRoot | null | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  const leftWithRepo = left as DerivedRootWithRepoLocalPath;
+  const rightWithRepo = right as DerivedRootWithRepoLocalPath;
+  return isTargetEqual(left, right)
+    && left.reason === right.reason
+    && leftWithRepo.repoLocalPath === rightWithRepo.repoLocalPath
+    && arePrimaryTargetListsEqual(left.sourceTargets ?? [], right.sourceTargets ?? []);
+}
+
+function areDerivedRootListsEqual(
+  left: readonly ContextPackDeepFocusDerivedRoot[],
+  right: readonly ContextPackDeepFocusDerivedRoot[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((target, index) => isDerivedRootEqual(target, right[index]));
+}
+
 export function isDeepFocusStateEqual(
   left: ContextPackDeepFocusState | null | undefined,
   right: ContextPackDeepFocusState | null | undefined,
@@ -50,11 +95,31 @@ export function isDeepFocusStateEqual(
     && left.deepFocusPrimaryFocusId === right.deepFocusPrimaryFocusId
     && left.selectedFocusPath === right.selectedFocusPath
     && left.selectedFocusTargetKind === right.selectedFocusTargetKind
+    && arePrimaryTargetListsEqual(left.selectedFocusTargets ?? [], right.selectedFocusTargets ?? [])
     && isTargetEqual(left.selectedTestTarget, right.selectedTestTarget)
     && areTargetListsEqual(left.selectedSupportTargets, right.selectedSupportTargets)
-    && areTargetListsEqual(left.derivedWritableRoots ?? [], right.derivedWritableRoots ?? [])
-    && areTargetListsEqual(left.derivedReadonlyContextRoots ?? [], right.derivedReadonlyContextRoots ?? [])
+    && areDerivedRootListsEqual(left.derivedWritableRoots ?? [], right.derivedWritableRoots ?? [])
+    && areDerivedRootListsEqual(left.derivedReadonlyContextRoots ?? [], right.derivedReadonlyContextRoots ?? [])
   );
+}
+
+function clonePrimaryFocusTarget(
+  target: ContextPackPrimaryFocusTarget,
+): ContextPackPrimaryFocusTarget {
+  return {
+    ...target,
+    testTarget: target.testTarget ? { ...target.testTarget } : target.testTarget,
+    supportTargets: (target.supportTargets ?? []).map((supportTarget) => ({ ...supportTarget })),
+  };
+}
+
+function cloneDerivedRoot(
+  target: ContextPackDeepFocusDerivedRoot,
+): ContextPackDeepFocusDerivedRoot {
+  return {
+    ...target,
+    sourceTargets: (target.sourceTargets ?? []).map(clonePrimaryFocusTarget),
+  };
 }
 
 function cloneDeepFocusTarget(
@@ -75,10 +140,11 @@ function cloneDeepFocusState(
     deepFocusPrimaryFocusId: state.deepFocusPrimaryFocusId,
     selectedFocusPath: state.selectedFocusPath,
     selectedFocusTargetKind: state.selectedFocusTargetKind,
+    selectedFocusTargets: (state.selectedFocusTargets ?? []).map(clonePrimaryFocusTarget),
     selectedTestTarget: cloneDeepFocusTarget(state.selectedTestTarget),
     selectedSupportTargets: state.selectedSupportTargets.map((target) => ({ ...target })),
-    derivedWritableRoots: (state.derivedWritableRoots ?? []).map((target) => ({ ...target })),
-    derivedReadonlyContextRoots: (state.derivedReadonlyContextRoots ?? []).map((target) => ({ ...target })),
+    derivedWritableRoots: (state.derivedWritableRoots ?? []).map(cloneDerivedRoot),
+    derivedReadonlyContextRoots: (state.derivedReadonlyContextRoots ?? []).map(cloneDerivedRoot),
   };
 }
 
@@ -94,6 +160,7 @@ export function selectLastAppliedDeepFocusState(
   // selections to survive across sessions.
   const hasSelections =
     contextPack.lastAppliedSelectedFocusPath != null
+    || (contextPack.lastAppliedSelectedFocusTargets ?? []).length > 0
     || contextPack.lastAppliedSelectedTestTarget != null
     || (contextPack.lastAppliedSelectedSupportTargets ?? []).length > 0
     || contextPack.lastAppliedDeepFocusPrimaryRepoId != null
@@ -109,14 +176,15 @@ export function selectLastAppliedDeepFocusState(
     deepFocusPrimaryFocusId: contextPack.lastAppliedDeepFocusPrimaryFocusId ?? null,
     selectedFocusPath: contextPack.lastAppliedSelectedFocusPath ?? null,
     selectedFocusTargetKind: contextPack.lastAppliedSelectedFocusTargetKind ?? null,
+    selectedFocusTargets: (contextPack.lastAppliedSelectedFocusTargets ?? []).map(clonePrimaryFocusTarget),
     selectedTestTarget: cloneDeepFocusTarget(
       Object.prototype.hasOwnProperty.call(contextPack, 'lastAppliedSelectedTestTarget')
         ? contextPack.lastAppliedSelectedTestTarget
         : undefined,
     ),
     selectedSupportTargets: (contextPack.lastAppliedSelectedSupportTargets ?? []).map((target) => ({ ...target })),
-    derivedWritableRoots: (contextPack.lastAppliedDerivedWritableRoots ?? []).map((target) => ({ ...target })),
-    derivedReadonlyContextRoots: (contextPack.lastAppliedDerivedReadonlyContextRoots ?? []).map((target) => ({ ...target })),
+    derivedWritableRoots: (contextPack.lastAppliedDerivedWritableRoots ?? []).map(cloneDerivedRoot),
+    derivedReadonlyContextRoots: (contextPack.lastAppliedDerivedReadonlyContextRoots ?? []).map(cloneDerivedRoot),
   };
 }
 

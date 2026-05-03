@@ -135,6 +135,200 @@ describe('validateDaltonBoundaryChanges', () => {
     }
   });
 
+  it('allows non-anchor visible repo edits inside matching writable roots', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          primaryFocusTargets: [
+            {
+              path: '',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: workspace.primaryRepoRoot,
+              repoId: 'crud-app',
+            },
+            {
+              path: 'src',
+              kind: 'directory',
+              role: 'primary',
+              repoLocalPath: workspace.sharedRepoRoot,
+              repoId: 'shared-lib',
+            },
+          ],
+          writableRoots: [
+            {
+              repoLocalPath: workspace.primaryRepoRoot,
+              path: '',
+              kind: 'directory',
+              reason: 'selected-primary',
+            },
+            {
+              repoLocalPath: workspace.sharedRepoRoot,
+              path: 'src',
+              kind: 'directory',
+              reason: 'selected-primary',
+            },
+          ],
+          selectedRepoIds: ['crud-app', 'shared-lib'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: ['src/index.ts'],
+          },
+        },
+      })).resolves.toBeUndefined();
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects non-anchor visible repo edits outside matching writable roots', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      writeChangedFile(workspace.sharedRepoRoot, 'docs/leak.md');
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          writableRoots: [
+            {
+              repoLocalPath: workspace.sharedRepoRoot,
+              path: 'src',
+              kind: 'directory',
+              reason: 'selected-primary',
+            },
+          ],
+          selectedRepoIds: ['crud-app', 'shared-lib'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: ['docs/leak.md'],
+          },
+        },
+      })).rejects.toThrow(DaltonConfinementError);
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects repo roots outside primary and visible repo roots', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      writeChangedFile(workspace.monolithRepoRoot, 'src/leak.ts');
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot, workspace.monolithRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          writableRoots: [
+            {
+              repoLocalPath: workspace.monolithRepoRoot,
+              path: 'src',
+              kind: 'directory',
+              reason: 'selected-primary',
+            },
+          ],
+          selectedRepoIds: ['crud-app', 'shared-lib'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: [],
+            [workspace.monolithRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: [],
+            [workspace.monolithRepoRoot]: ['src/leak.ts'],
+          },
+        },
+      })).rejects.toThrow(DaltonConfinementError);
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects traversal attempts before matching writable roots', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      writeChangedFile(workspace.primaryRepoRoot, '../shared-lib/leak.ts');
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot, workspace.sharedRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          writableRoots: [
+            { path: '', kind: 'directory', reason: 'selected-primary' },
+          ],
+          selectedRepoIds: ['crud-app', 'shared-lib'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+            [workspace.sharedRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: ['../shared-lib/leak.ts'],
+            [workspace.sharedRepoRoot]: [],
+          },
+        },
+      })).rejects.toThrow(DaltonConfinementError);
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects monolith edits outside the selected primary focus path', async () => {
     const workspace = createTempWorkspace();
     try {
@@ -328,6 +522,82 @@ describe('validateDaltonBoundaryChanges', () => {
           },
         },
       })).resolves.toBeUndefined();
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps parent support read-only when a child folder is the writable primary target', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          primaryFocusRelativePath: 'src/app',
+          primaryFocusTargetKind: 'directory',
+          writableRoots: [
+            { path: 'src/app', kind: 'directory', reason: 'selected-primary' },
+          ],
+          readonlyContextRoots: [
+            { path: 'src', kind: 'directory', reason: 'scoped-support-target' },
+          ],
+          selectedRepoIds: ['crud-app'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: ['src/app/handler.ts'],
+          },
+        },
+      })).resolves.toBeUndefined();
+
+      writeChangedFile(workspace.primaryRepoRoot, 'src/shared/read-model.ts');
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused: {
+          primaryRepoRoot: workspace.primaryRepoRoot,
+          visibleRepoRoots: [workspace.primaryRepoRoot],
+          declaredRepoRoots: [workspace.primaryRepoRoot],
+          estateType: 'distributed-platform',
+          primaryRepoId: 'crud-app',
+          primaryFocusRelativePath: 'src/app',
+          primaryFocusTargetKind: 'directory',
+          writableRoots: [
+            { path: 'src/app', kind: 'directory', reason: 'selected-primary' },
+          ],
+          readonlyContextRoots: [
+            { path: 'src', kind: 'directory', reason: 'scoped-support-target' },
+          ],
+          selectedRepoIds: ['crud-app'],
+          selectedFocusIds: [],
+          authoritySource: 'active-task-sidecar',
+        },
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [workspace.primaryRepoRoot]: ['src/shared/read-model.ts'],
+          },
+        },
+      })).rejects.toThrow(DaltonConfinementError);
     } finally {
       await rm(workspace.root, { recursive: true, force: true });
     }

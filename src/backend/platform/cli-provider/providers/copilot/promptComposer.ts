@@ -15,7 +15,6 @@ const PROMPT_FILES: Record<ProviderPromptKind, string> = {
   'execute-task': 'execute-task.prompt.md',
   'execute-task-retry': 'execute-task-retry.prompt.md',
   'continue-task': 'continue-task.prompt.md',
-  'close-task': 'close-task.prompt.md',
 };
 
 export function resolveCopilotPromptPath(kind: ProviderPromptKind, paths: AgentConfigPaths): string {

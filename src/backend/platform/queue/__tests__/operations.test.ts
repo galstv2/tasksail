@@ -415,6 +415,79 @@ ${binding}
     expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).not.toHaveProperty('selectedFocusTargetKind');
   });
 
+  it('preserves scoped selectedFocusTargets in task sidecars across parallel activation', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'platform.json'),
+      JSON.stringify({
+        schema_version: 1,
+        cli_provider: 'copilot',
+        container_runtime: 'podman',
+        container_engine_host: 'auto',
+        container_engine_wsl_distro: null,
+        max_parallel_tasks: 2,
+        retain_failed_task_worktrees: true,
+        max_retained_failed_task_worktrees: 10,
+        max_retry_generations_per_slug: 5,
+        completed_task_runtime_retention_ms: 3600000,
+        mcp_port: 8811,
+        repo_context_mcp_external_mount_roots: [],
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+    const { contextPackDir } = seedDistributedContextPack(repoRoot);
+    const binding = formatContextPackBindingSection({
+      contextPackDir,
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+    try {
+      writeFileSync(path.join(pendingDir, 'task-scoped-a.md'), `# Scoped A\n\n${binding}\n`);
+      writeFileSync(path.join(pendingDir, 'task-scoped-b.md'), `# Scoped B\n\n${binding}\n`);
+      for (const filename of HANDOFF_FILES) {
+        writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+      }
+      writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+      const queuePaths = resolveQueuePaths(repoRoot);
+      expect((await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot })).activated).toBe(true);
+      expect((await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot })).activated).toBe(true);
+
+      for (const taskId of ['task-scoped-a', 'task-scoped-b']) {
+        const sidecar = JSON.parse(
+          readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json'), 'utf-8'),
+        );
+        expect(sidecar.contextPackBinding.selection.selectedFocusTargets).toEqual([{
+          path: 'src/orders',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'tests/orders', kind: 'directory' },
+          supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+        }]);
+      }
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
   it('refuses to activate an unbound task as a platform worktree while a context pack is active', async () => {
     const activePackDir = path.join(repoRoot, 'contextpacks', 'orders');
     mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });

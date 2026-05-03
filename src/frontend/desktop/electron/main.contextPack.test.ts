@@ -324,6 +324,40 @@ describe('electron main bootstrap — context pack operations', () => {
     ]);
   });
 
+  it('serializes scoped primary fields for workspace sync with snake-case nested keys', async () => {
+    const { buildContextPackWorkspaceArgs } = await import('./main');
+
+    const args = buildContextPackWorkspaceArgs('apply', {
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      scopeMode: 'focused',
+      selectedRepoIds: ['orders-api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders', kind: 'directory' }],
+      }],
+    });
+
+    const selectedFocusTargetIndex = args.indexOf('--selected-focus-target');
+    expect(selectedFocusTargetIndex).toBeGreaterThanOrEqual(0);
+    expect(JSON.parse(args[selectedFocusTargetIndex + 1]!)).toEqual({
+      path: 'src/orders',
+      kind: 'directory',
+      role: 'anchor',
+      test_target: { path: 'tests/orders', kind: 'directory' },
+      support_targets: [{ path: 'docs/orders', kind: 'directory' }],
+    });
+    expect(args).toContain('--selected-test-target');
+    expect(args).toContain('{"path":"tests/orders","kind":"directory"}');
+    expect(args).toContain('--selected-support-target');
+    expect(args).toContain('{"path":"docs/orders","kind":"directory"}');
+  });
+
   it('serializes repo-root deep focus without requiring selectedFocusTargetKind', async () => {
     const { buildContextPackWorkspaceArgs } = await import('./main');
 
@@ -703,11 +737,33 @@ describe('electron main bootstrap — context pack operations', () => {
               scope_mode: 'expanded',
               selected_repo_ids: ['orders-api'],
               selected_focus_ids: ['services-billing'],
+              selected_focus_targets: [
+                {
+                  path: 'src/orders',
+                  kind: 'directory',
+                  role: 'anchor',
+                  repo_local_path: '/repos/orders-api',
+                  repo_id: 'orders-api',
+                },
+                {
+                  path: 'src/web',
+                  kind: 'directory',
+                  role: 'primary',
+                  repoLocalPath: '/repos/orders-web',
+                  repoId: 'orders-web',
+                },
+              ],
               warnings: ['missing docs path'],
               folders_to_add: ['/tmp/context-packs/orders-estate'],
               folders_to_remove: [],
               managed_folders: ['/tmp/context-packs/orders-estate'],
               target_folders: ['/tmp/context-packs/orders-estate'],
+              derived_writable_roots: [{
+                path: 'src/orders',
+                kind: 'directory',
+                reason: 'selected-primary',
+                repo_local_path: '/repos/orders-api',
+              }],
             },
           }),
           stderr: '',
@@ -724,6 +780,24 @@ describe('electron main bootstrap — context pack operations', () => {
           scopeMode: 'focused',
           selectedRepoIds: ['orders-api'],
           selectedFocusIds: ['services-billing'],
+          selectedFocusTargets: [
+            expect.objectContaining({
+              path: 'src/orders',
+              repoLocalPath: '/repos/orders-api',
+              repoId: 'orders-api',
+            }),
+            expect.objectContaining({
+              path: 'src/web',
+              repoLocalPath: '/repos/orders-web',
+              repoId: 'orders-web',
+            }),
+          ],
+          derivedWritableRoots: [
+            expect.objectContaining({
+              path: 'src/orders',
+              repoLocalPath: '/repos/orders-api',
+            }),
+          ],
           warnings: ['missing docs path'],
         }),
       }),
@@ -1069,6 +1143,310 @@ describe('electron main bootstrap — context pack operations', () => {
         }],
       }));
       expect(state.last_synced_at).toBe('2026-04-24T07:21:40Z');
+    } finally {
+      vi.doUnmock('./paths');
+      vi.resetModules();
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('round-trips multi-repo selectedFocusTargets identity through save and workspace-sync mirror', async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), 'tasksail-deep-focus-multi-repo-'));
+    const contextPackDir = join(repoRoot, 'contextpacks', 'platform');
+
+    try {
+      vi.resetModules();
+      vi.doMock('./paths', () => ({
+        REPO_ROOT: repoRoot,
+        DESKTOP_ROOT: join(repoRoot, 'src/frontend/desktop'),
+      }));
+
+      await mkdir(join(repoRoot, '.platform-state'), { recursive: true });
+      await writeFile(
+        join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
+        JSON.stringify({
+          version: 1,
+          workspace_file: join(repoRoot, 'tasksail.code-workspace'),
+          active_context_pack_dir: contextPackDir,
+          active_context_pack_id: 'platform',
+          scope_mode: 'focused',
+          selected_repo_ids: ['platform', 'tools'],
+          selected_focus_ids: [],
+          deep_focus_enabled: false,
+          deep_focus_primary_repo_id: null,
+          deep_focus_primary_focus_id: null,
+          selected_focus_path: null,
+          selected_focus_target_kind: null,
+          selected_support_targets: [],
+          managed_folders: [],
+          last_synced_at: '2026-05-01T08:00:00Z',
+          status: 'success',
+        }, null, 2) + '\n',
+        'utf-8',
+      );
+
+      const { saveDeepFocusSelections } = await import('./main.contextPackActions');
+      const result = await saveDeepFocusSelections({
+        contextPackDir,
+          selections: {
+            deepFocusEnabled: true,
+            deepFocusPrimaryRepoId: 'platform',
+            deepFocusPrimaryFocusId: null,
+            selectedFocusPath: 'src/Api',
+            selectedFocusTargetKind: 'directory',
+          selectedFocusTargets: [
+            {
+              path: 'src/Api',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/platform',
+              repoId: 'platform',
+            },
+            {
+              path: 'src/Cli',
+              kind: 'directory',
+              role: 'primary',
+              repoLocalPath: '/repos/tools',
+              repoId: 'tools',
+            },
+          ],
+          selectedTestTarget: undefined,
+          selectedSupportTargets: [],
+        },
+      });
+      expect(result.ok).toBe(true);
+
+      const persistedSelections = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'deep-focus-selections.json'), 'utf-8'),
+      ) as Record<string, {
+        deepFocusPrimaryRepoId?: unknown;
+        selectedFocusTargets?: Array<Record<string, unknown>>;
+      }>;
+      expect(persistedSelections[contextPackDir]?.deepFocusPrimaryRepoId).toBe('platform');
+      expect(persistedSelections[contextPackDir]?.selectedFocusTargets).toEqual([
+        expect.objectContaining({
+          path: 'src/Api',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        }),
+        expect.objectContaining({
+          path: 'src/Cli',
+          kind: 'directory',
+          role: 'primary',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+        }),
+      ]);
+      for (const target of persistedSelections[contextPackDir]?.selectedFocusTargets ?? []) {
+        expect(target).not.toHaveProperty('repo_local_path');
+        expect(target).not.toHaveProperty('repo_id');
+      }
+
+      const state = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'workspace-context-sync.json'), 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(state.deep_focus_primary_repo_id).toBe('platform');
+      expect(state.selected_focus_targets).toEqual([
+        expect.objectContaining({
+          path: 'src/Api',
+          kind: 'directory',
+          role: 'anchor',
+          repo_local_path: '/repos/platform',
+          repo_id: 'platform',
+        }),
+        expect.objectContaining({
+          path: 'src/Cli',
+          kind: 'directory',
+          role: 'primary',
+          repo_local_path: '/repos/tools',
+          repo_id: 'tools',
+        }),
+      ]);
+      for (const target of state.selected_focus_targets as Array<Record<string, unknown>>) {
+        expect(target).not.toHaveProperty('repoLocalPath');
+        expect(target).not.toHaveProperty('repoId');
+      }
+    } finally {
+      vi.doUnmock('./paths');
+      vi.resetModules();
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('round-trips monolith selectedFocusTargets focus identity through save and workspace-sync mirror', async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), 'tasksail-deep-focus-monolith-'));
+    const contextPackDir = join(repoRoot, 'contextpacks', 'monolith');
+
+    try {
+      vi.resetModules();
+      vi.doMock('./paths', () => ({
+        REPO_ROOT: repoRoot,
+        DESKTOP_ROOT: join(repoRoot, 'src/frontend/desktop'),
+      }));
+
+      await mkdir(join(repoRoot, '.platform-state'), { recursive: true });
+      await writeFile(
+        join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
+        JSON.stringify({
+          version: 1,
+          workspace_file: join(repoRoot, 'tasksail.code-workspace'),
+          active_context_pack_dir: contextPackDir,
+          active_context_pack_id: 'monolith',
+          scope_mode: 'focused',
+          selected_repo_ids: [],
+          selected_focus_ids: ['core'],
+          deep_focus_enabled: false,
+          deep_focus_primary_repo_id: null,
+          deep_focus_primary_focus_id: null,
+          selected_focus_path: null,
+          selected_focus_target_kind: null,
+          selected_support_targets: [],
+          managed_folders: [],
+          last_synced_at: '2026-05-01T09:00:00Z',
+          status: 'success',
+        }, null, 2) + '\n',
+        'utf-8',
+      );
+
+      const { saveDeepFocusSelections } = await import('./main.contextPackActions');
+      const result = await saveDeepFocusSelections({
+        contextPackDir,
+        selections: {
+          deepFocusEnabled: true,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: 'core',
+          selectedFocusPath: 'apps/core',
+          selectedFocusTargetKind: 'directory',
+          selectedFocusTargets: [
+            {
+              path: 'apps/core',
+              kind: 'directory',
+              role: 'anchor',
+              repoLocalPath: '/repos/monolith',
+              focusId: 'core',
+            },
+          ],
+          selectedTestTarget: undefined,
+          selectedSupportTargets: [],
+        },
+      });
+      expect(result.ok).toBe(true);
+
+      const persistedSelections = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'deep-focus-selections.json'), 'utf-8'),
+      ) as Record<string, {
+        deepFocusPrimaryFocusId?: unknown;
+        selectedFocusTargets?: Array<Record<string, unknown>>;
+      }>;
+      expect(persistedSelections[contextPackDir]?.deepFocusPrimaryFocusId).toBe('core');
+      expect(persistedSelections[contextPackDir]?.selectedFocusTargets).toEqual([
+        expect.objectContaining({
+          path: 'apps/core',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/monolith',
+          focusId: 'core',
+        }),
+      ]);
+      expect(persistedSelections[contextPackDir]?.selectedFocusTargets?.[0]).not.toHaveProperty('focus_id');
+
+      const state = JSON.parse(
+        await readFile(join(repoRoot, '.platform-state', 'workspace-context-sync.json'), 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(state.deep_focus_primary_focus_id).toBe('core');
+      expect(state.selected_focus_targets).toEqual([
+        expect.objectContaining({
+          path: 'apps/core',
+          kind: 'directory',
+          role: 'anchor',
+          repo_local_path: '/repos/monolith',
+          focus_id: 'core',
+        }),
+      ]);
+      expect((state.selected_focus_targets as Array<Record<string, unknown>>)[0]).not.toHaveProperty('focusId');
+    } finally {
+      vi.doUnmock('./paths');
+      vi.resetModules();
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reads workspace-sync identity fields from snake-case and camelCase state', async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), 'tasksail-workspace-sync-identities-'));
+    const contextPackDir = join(repoRoot, 'contextpacks', 'platform');
+
+    try {
+      vi.resetModules();
+      vi.doMock('./paths', () => ({
+        REPO_ROOT: repoRoot,
+        DESKTOP_ROOT: join(repoRoot, 'src/frontend/desktop'),
+      }));
+
+      await mkdir(join(repoRoot, '.platform-state'), { recursive: true });
+      await writeFile(
+        join(repoRoot, '.platform-state', 'workspace-context-sync.json'),
+        JSON.stringify({
+          active_context_pack_dir: contextPackDir,
+          active_context_pack_id: 'platform',
+          selected_repo_ids: ['platform'],
+          selected_focus_ids: [],
+          deep_focus_enabled: true,
+          deep_focus_primary_repo_id: 'platform',
+          deep_focus_primary_focus_id: null,
+          selected_focus_path: 'src/Api',
+          selected_focus_target_kind: 'directory',
+          selected_focus_targets: [
+            {
+              path: 'src/Api',
+              kind: 'directory',
+              role: 'anchor',
+              repo_local_path: '/repos/platform',
+              repo_id: 'platform',
+            },
+            {
+              path: 'src/Core',
+              kind: 'directory',
+              role: 'primary',
+              repoLocalPath: '/repos/core',
+              repoId: 'core',
+            },
+          ],
+          derived_writable_roots: [{
+            path: 'src/Api',
+            kind: 'directory',
+            reason: 'selected-primary',
+            repo_local_path: '/repos/platform',
+          }],
+          selected_support_targets: [],
+          managed_folders: [],
+          status: 'success',
+        }, null, 2) + '\n',
+        'utf-8',
+      );
+
+      const { readWorkspaceSyncStateSnapshot } = await import('./main.contextPackCatalog');
+      const snapshot = await readWorkspaceSyncStateSnapshot();
+
+      expect(snapshot.selectedFocusTargets).toEqual([
+        expect.objectContaining({
+          path: 'src/Api',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        }),
+        expect.objectContaining({
+          path: 'src/Core',
+          repoLocalPath: '/repos/core',
+          repoId: 'core',
+        }),
+      ]);
+      expect(snapshot.derivedWritableRoots).toEqual([
+        expect.objectContaining({
+          path: 'src/Api',
+          repoLocalPath: '/repos/platform',
+        }),
+      ]);
     } finally {
       vi.doUnmock('./paths');
       vi.resetModules();

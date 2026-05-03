@@ -110,7 +110,7 @@ then the default `copilot` provider. `copilot` is the only shipped provider.
   architecture, and execution split decisions.
 - `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md` is the authoritative execution
   handoff for Dalton.
-- `parallel-ok.md` signals task complexity — "Complex" triggers fleet Dalton
+- `parallel-ok.md` signals task complexity — "Complex" triggers parallel Dalton execution
   mode, "Simple" triggers singleton mode.
 - QA remains required after implementation.
 

@@ -73,6 +73,7 @@ const SUGGESTED_PATHS = ['sequential', 'parallel'] as const;
 const SOURCE_STATES = ['idle', 'active', 'blocked', 'completed', 'complete'] as const;
 const WORKSPACE_SCOPE_MODES: readonly WorkspaceScopeMode[] = ['focused'] as const;
 const CONTEXT_PACK_FOCUS_TARGET_KINDS = ['directory', 'file'] as const;
+const CONTEXT_PACK_PRIMARY_FOCUS_TARGET_ROLES = ['anchor', 'primary'] as const;
 const CONTEXT_PACK_DIRECTORY_PURPOSES = [
   'discovery-root',
   'context-pack-destination',
@@ -214,6 +215,153 @@ function validateDeepFocusTargetList(
   return errors;
 }
 
+function validatePrimaryFocusTargetList(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return [`${fieldName} must be an array when provided.`];
+  }
+
+  const errors: string[] = [];
+  const normalizedPrimaries = value
+    .filter(isRecord)
+    .map((item) => ({
+      path: typeof item.path === 'string' ? normalizeContractPath(item.path) : '',
+      kind: item.kind,
+      repoLocalPath: typeof item.repoLocalPath === 'string' ? item.repoLocalPath : '',
+    }));
+  for (const [index, item] of value.entries()) {
+    const itemField = `${fieldName}[${index}]`;
+    errors.push(...validateDeepFocusTarget(item, itemField));
+    if (
+      isRecord(item)
+      && item.role !== undefined
+      && !isOneOf(item.role, CONTEXT_PACK_PRIMARY_FOCUS_TARGET_ROLES)
+    ) {
+      errors.push(`${itemField}.role must be anchor or primary when provided.`);
+    }
+    if (isRecord(item)) {
+      errors.push(
+        ...validatePrimaryScopedFields(item, index, itemField, normalizedPrimaries),
+      );
+    }
+  }
+  return errors;
+}
+
+function validatePrimaryScopedFields(
+  item: Record<string, unknown>,
+  primaryIndex: number,
+  itemField: string,
+  primaries: Array<{ path: string; kind: unknown; repoLocalPath: string }>,
+): string[] {
+  const errors: string[] = [];
+  const primaryPath = typeof item.path === 'string' ? normalizeContractPath(item.path) : '';
+  // Cross-repo entries with identical relative paths are not overlaps. Legacy
+  // single-repo state has all-equal (or all-empty) repoLocalPath, so the
+  // existing same-repo rules still apply unchanged.
+  const currentRepoLocalPath = typeof item.repoLocalPath === 'string' ? item.repoLocalPath : '';
+  const hasTestTarget = item.testTarget !== undefined && item.testTarget !== null;
+  const hasSupportTargets = Array.isArray(item.supportTargets) && item.supportTargets.length > 0;
+
+  if (hasTestTarget) {
+    errors.push(...validateDeepFocusTarget(item.testTarget, `${itemField}.testTarget`));
+  }
+  if (item.supportTargets !== undefined) {
+    errors.push(...validateDeepFocusTargetList(item.supportTargets, `${itemField}.supportTargets`));
+  }
+
+  if (primaryPath === '' && (hasTestTarget || hasSupportTargets)) {
+    errors.push(`${itemField} repo-root primary cannot include testTarget or supportTargets.`);
+  }
+
+  if (isRecord(item.testTarget)) {
+    const testPath = typeof item.testTarget.path === 'string'
+      ? normalizeContractPath(item.testTarget.path)
+      : '';
+    if (testPath === primaryPath) {
+      errors.push(`${itemField}.testTarget overlaps primary[${primaryIndex}].`);
+    }
+    primaries.forEach((primary, otherIndex) => {
+      if (otherIndex === primaryIndex) return;
+      if (currentRepoLocalPath !== primary.repoLocalPath) return;
+      if (testPath === primary.path) {
+        errors.push(`${itemField}.testTarget overlaps primary[${otherIndex}].`);
+      }
+    });
+    if (primaryPath !== '' && isStrictAncestorContractPath(testPath, primaryPath)) {
+      errors.push(`${itemField}.testTarget contains primary[${primaryIndex}].`);
+    }
+  }
+
+  if (Array.isArray(item.supportTargets)) {
+    item.supportTargets.forEach((supportTarget, supportIndex) => {
+      if (!isRecord(supportTarget)) {
+        return;
+      }
+      const supportField = `${itemField}.supportTargets[${supportIndex}]`;
+      const supportPath = typeof supportTarget.path === 'string'
+        ? normalizeContractPath(supportTarget.path)
+        : '';
+      const testPath = isRecord(item.testTarget) && typeof item.testTarget.path === 'string'
+        ? normalizeContractPath(item.testTarget.path)
+        : undefined;
+      if (supportPath === testPath) {
+        errors.push(`${supportField} overlaps ${itemField}.testTarget.`);
+      }
+      primaries.forEach((primary, otherIndex) => {
+        // Cross-repo entries with identical relative paths are not overlaps.
+        // Same-primary always shares its own repoLocalPath, so self-overlap
+        // detection still works as before.
+        if (currentRepoLocalPath !== primary.repoLocalPath) return;
+        if (supportPath === primary.path) {
+          errors.push(`${supportField} overlaps primary[${otherIndex}].`);
+        }
+        const writableRoot = primary.kind === 'file'
+          ? parentContractPath(primary.path)
+          : primary.path;
+        if (isDescendantOrEqualContractPath(supportPath, writableRoot)) {
+          errors.push(`${supportField} overlaps primary[${otherIndex}] writable root.`);
+        }
+      });
+    });
+  }
+
+  if (item.kind === 'file' && primaryPath === '') {
+    errors.push(`${itemField}.path repo-root target must be a directory, not a file.`);
+  }
+
+  return errors;
+}
+
+function normalizeContractPath(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/\/+/g, '/')
+    .replace(/\/+$/, '');
+}
+
+function parentContractPath(value: string): string {
+  return normalizeContractPath(value).split('/').filter(Boolean).slice(0, -1).join('/');
+}
+
+function isDescendantOrEqualContractPath(candidatePath: string, parentPath: string): boolean {
+  if (parentPath === '') {
+    return true;
+  }
+  return candidatePath === parentPath || candidatePath.startsWith(`${parentPath}/`);
+}
+
+function isStrictAncestorContractPath(candidatePath: string, childPath: string): boolean {
+  return candidatePath !== childPath && isDescendantOrEqualContractPath(childPath, candidatePath);
+}
+
 function validateDeepFocusSwitchFields(
   value: Record<string, unknown>,
 ): string[] {
@@ -258,6 +406,13 @@ function validateDeepFocusSwitchFields(
   }
 
   errors.push(
+    ...validatePrimaryFocusTargetList(
+      value.selectedFocusTargets,
+      'payload.selectedFocusTargets',
+    ),
+  );
+
+  errors.push(
     ...validateDeepFocusTargetList(
       value.selectedSupportTargets,
       'payload.selectedSupportTargets',
@@ -283,12 +438,71 @@ function validateDeepFocusSwitchFields(
         'payload.selectedFocusTargetKind cannot be file when payload.selectedFocusPath is empty in Deep Focus mode.',
       );
     }
+    const selectedFocusTargets = Array.isArray(value.selectedFocusTargets)
+      ? value.selectedFocusTargets
+      : [];
+    const hasRepoAnchor = isNonEmptyString(value.deepFocusPrimaryRepoId);
+    const hasFocusAnchor = isNonEmptyString(value.deepFocusPrimaryFocusId);
+    if (hasRepoAnchor && hasFocusAnchor) {
+      errors.push(
+        'payload.deepFocusPrimaryRepoId and payload.deepFocusPrimaryFocusId cannot both be set.',
+      );
+    }
+    if (selectedFocusTargets.length > 0) {
+      if (!hasRepoAnchor && !hasFocusAnchor) {
+        errors.push(
+          'payload.deepFocusPrimaryRepoId or payload.deepFocusPrimaryFocusId is required when Deep Focus primaries are selected.',
+        );
+      }
+      selectedFocusTargets.forEach((entry, index) => {
+        if (!isRecord(entry)) return;
+        if (!isNonEmptyString(entry.repoLocalPath)) {
+          errors.push(
+            `payload.selectedFocusTargets[${index}].repoLocalPath must be a non-empty string in Deep Focus mode.`,
+          );
+        }
+        if (hasRepoAnchor && !isNonEmptyString(entry.repoId)) {
+          errors.push(
+            `payload.selectedFocusTargets[${index}].repoId must be a non-empty string when payload.deepFocusPrimaryRepoId is set.`,
+          );
+        }
+        if (hasFocusAnchor && !isNonEmptyString(entry.focusId)) {
+          errors.push(
+            `payload.selectedFocusTargets[${index}].focusId must be a non-empty string when payload.deepFocusPrimaryFocusId is set.`,
+          );
+        }
+      });
+      const anchor = selectedFocusTargets.find(
+        (entry) => isRecord(entry) && entry.role === 'anchor',
+      ) ?? selectedFocusTargets.find(isRecord);
+      if (isRecord(anchor)) {
+        if (
+          hasRepoAnchor
+          && isNonEmptyString(anchor.repoId)
+          && value.deepFocusPrimaryRepoId !== anchor.repoId
+        ) {
+          errors.push(
+            'payload.deepFocusPrimaryRepoId must equal the anchor target repoId.',
+          );
+        }
+        if (
+          hasFocusAnchor
+          && isNonEmptyString(anchor.focusId)
+          && value.deepFocusPrimaryFocusId !== anchor.focusId
+        ) {
+          errors.push(
+            'payload.deepFocusPrimaryFocusId must equal the anchor target focusId.',
+          );
+        }
+      }
+    }
     return errors;
   }
 
   if (
     value.selectedFocusPath !== undefined
     || value.selectedFocusTargetKind !== undefined
+    || (Array.isArray(value.selectedFocusTargets) && value.selectedFocusTargets.length > 0)
     || value.selectedTestTarget !== undefined
     || value.deepFocusPrimaryRepoId !== undefined
     || value.deepFocusPrimaryFocusId !== undefined

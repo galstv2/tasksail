@@ -21,7 +21,6 @@ const MIGRATED_FILES = [
   '.github/copilot/instructions/global.instructions.md',
   '.github/copilot/instructions/product-manager.instructions.md',
   '.github/copilot/instructions/planning-agent.instructions.md',
-  '.github/copilot/prompts/close-task.prompt.md',
   '.github/copilot/prompts/start-task.prompt.md',
   '.github/copilot/prompts/plan-task.prompt.md',
 ];
@@ -57,7 +56,7 @@ describe('promptPathAudit — §1.7 migration', () => {
     });
   }
 
-  // Aggregate: across all 7 files the expanded corpus contains BOTH task paths
+  // Aggregate: across all 6 files the expanded corpus contains BOTH task paths
   it('corpus renders both tasks/t1/handoffs and tasks/t1/ImplementationSteps', () => {
     const corpus = MIGRATED_FILES.map((f) =>
       posixExpand(readFileSync(join(REPO_ROOT, f), 'utf-8'), env),

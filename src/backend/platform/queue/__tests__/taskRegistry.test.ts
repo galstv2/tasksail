@@ -61,6 +61,30 @@ Body
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     });
   });
+
+  it('preserves scoped fields in selectedFocusTargets', async () => {
+    const entry = makeEntry('scoped-task', 'pending');
+    await registerTask(repoRoot, {
+      ...entry,
+      deepFocusEnabled: true,
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+
+    const loaded = await loadTaskRegistry(repoRoot);
+    expect(getAllTasks(loaded).pending[0]?.selectedFocusTargets).toEqual([{
+      path: 'src/orders',
+      kind: 'directory',
+      role: 'anchor',
+      testTarget: { path: 'tests/orders', kind: 'directory' },
+      supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    }]);
+  });
 });
 
 // ── §4.5 new tests ──────────────────────────────────────────────────────────

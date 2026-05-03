@@ -201,4 +201,62 @@ describe('executeContextPackListRepoTreeAction', () => {
     });
     expect(response.entries).toHaveLength(500);
   });
+
+  it('filters cross-OS metadata noise even in non-git folders', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'context-pack-tree-nogit-'));
+    tempDirs.push(root);
+
+    await writeFile(path.join(root, '.DS_Store'), '\x00\x00');
+    await writeFile(path.join(root, 'Thumbs.db'), '\x00');
+    await writeFile(path.join(root, 'desktop.ini'), '[.ShellClassInfo]\n');
+    await writeFile(path.join(root, '.directory'), '[Desktop Entry]\n');
+    await writeFile(path.join(root, 'app.ts'), 'export const a = 1;\n');
+    await mkdir(path.join(root, 'src'));
+
+    const result = await executeContextPackListRepoTreeAction(
+      { repoLocalPath: root },
+      { catalogProvider: async () => makeCatalogResponse(root) },
+    );
+
+    const response = getTreeResponse(result);
+    expect(response.entries.map((entry) => entry.name)).toEqual(['src', 'app.ts']);
+  });
+
+  it('honors a .gitignore fallback parser when the folder is not a git repo', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'context-pack-tree-nogit-'));
+    tempDirs.push(root);
+
+    await writeFile(path.join(root, '.gitignore'), [
+      '# secrets and build outputs',
+      '',
+      '*.secret',
+      'build-out/',
+      '!keep.secret',
+      '/dist',
+      'src/inner/skip',
+    ].join('\n'));
+
+    await writeFile(path.join(root, 'app.ts'), 'export {};\n');
+    await writeFile(path.join(root, 'creds.secret'), 'shh\n');
+    await writeFile(path.join(root, 'keep.secret'), 'keep\n');
+    await mkdir(path.join(root, 'build-out'));
+    await mkdir(path.join(root, 'dist'));
+    await mkdir(path.join(root, 'src'));
+
+    const result = await executeContextPackListRepoTreeAction(
+      { repoLocalPath: root },
+      { catalogProvider: async () => makeCatalogResponse(root) },
+    );
+
+    const response = getTreeResponse(result);
+    const names = response.entries.map((entry) => entry.name);
+    expect(names).not.toContain('creds.secret');
+    expect(names).not.toContain('build-out');
+    expect(names).not.toContain('dist');
+    expect(names).toContain('src');
+    expect(names).toContain('app.ts');
+    // Negation is intentionally not implemented; rather than risk hiding a
+    // legitimate source file, we leave keep.secret visible.
+    expect(names).toContain('keep.secret');
+  });
 });

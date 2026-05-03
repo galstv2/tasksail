@@ -246,4 +246,153 @@ Body
       selectedSupportTargets: [],
     });
   });
+
+  it('round-trips nested and global Deep Focus targets', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+      selectedTestTarget: { path: 'tests/shared', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/shared.md', kind: 'file' }],
+    });
+
+    expect(section).toContain('"testTarget":{"path":"tests/orders","kind":"directory"}');
+    expect(section).toContain('"supportTargets":[{"path":"docs/orders.md","kind":"file"}]');
+    expect(extractContextPackBinding(`# Task\n\n${section}\n`)).toMatchObject({
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+      selectedTestTarget: { path: 'tests/shared', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/shared.md', kind: 'file' }],
+    });
+  });
+
+  it('round-trips nested-only Deep Focus targets', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+    });
+
+    expect(extractContextPackBinding(`# Task\n\n${section}\n`)).toMatchObject({
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        testTarget: { path: 'tests/orders', kind: 'directory' },
+        supportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+      }],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    });
+  });
+
+  it('round-trips global-only Deep Focus targets and reads missing scoped fields as empty', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{ path: 'src/orders', kind: 'directory', role: 'anchor' }],
+      selectedTestTarget: { path: 'tests/shared', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/shared.md', kind: 'file' }],
+    });
+
+    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    expect(binding).toMatchObject({
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        supportTargets: [],
+      }],
+      selectedTestTarget: { path: 'tests/shared', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/shared.md', kind: 'file' }],
+    });
+    expect(binding?.selectedFocusTargets?.[0]?.testTarget).toBeUndefined();
+  });
+
+  it('round-trips Deep Focus targets with no nested or global fields', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [{ path: 'src/orders', kind: 'directory', role: 'anchor' }],
+    });
+
+    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    expect(binding).toMatchObject({
+      selectedFocusTargets: [{
+        path: 'src/orders',
+        kind: 'directory',
+        role: 'anchor',
+        supportTargets: [],
+      }],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    });
+    expect(binding?.selectedFocusTargets?.[0]?.testTarget).toBeUndefined();
+  });
+
+  it('round-trips repo-root primary with no scoped fields', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: '',
+      selectedFocusTargets: [{ path: '', kind: 'directory', role: 'anchor' }],
+    });
+
+    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    expect(binding).toMatchObject({
+      selectedFocusPath: '',
+      selectedFocusTargets: [{
+        path: '',
+        kind: 'directory',
+        role: 'anchor',
+        supportTargets: [],
+      }],
+    });
+    expect(binding?.selectedFocusTargets?.[0]?.testTarget).toBeUndefined();
+  });
 });

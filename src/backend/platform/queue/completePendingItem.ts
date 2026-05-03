@@ -154,6 +154,10 @@ export async function completePendingItem(
           `Completion blocked: task archival failed (exit ${archiveResult.exitCode}).${suffix}`,
         );
       }
+      const archiveStderr = (archiveResult.stderr ?? '').trim();
+      if (archiveStderr) {
+        console.warn(`[archive] ${archiveStderr}`);
+      }
       const archivePath = typeof archiveResult.data?.record_md_path === 'string'
         ? archiveResult.data.record_md_path
         : null;

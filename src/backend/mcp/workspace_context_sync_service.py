@@ -277,6 +277,7 @@ class WorkspaceContextSyncService:
                 selected_focus_target_kind=deep_focus.get(
                     "selected_focus_target_kind"
                 ),
+                selected_focus_targets=deep_focus.get("selected_focus_targets"),
                 selected_test_target=deep_focus.get("selected_test_target"),
                 selected_test_target_provided="selected_test_target"
                 in deep_focus,

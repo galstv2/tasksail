@@ -2,6 +2,7 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import { Readable } from 'node:stream';
@@ -14,13 +15,22 @@ const spawnPipelineForTaskMock = vi.fn();
 const moveFailedItemToErrorItemsMock = vi.fn();
 const finalizeTaskWorktreesMock = vi.fn();
 const sweepRuntimeGCMock = vi.fn();
+const verifyTaskBranchesMock = vi.fn();
 
 vi.mock('../spawnPipeline.js', () => ({
   spawnPipelineForTask: spawnPipelineForTaskMock,
 }));
 
-vi.mock('../../queue/errorItems.js', () => ({
-  moveFailedItemToErrorItems: moveFailedItemToErrorItemsMock,
+vi.mock('../../queue/errorItems.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../queue/errorItems.js')>();
+  return {
+    ...actual,
+    moveFailedItemToErrorItems: moveFailedItemToErrorItemsMock,
+  };
+});
+
+vi.mock('../../queue/branchVerification.js', () => ({
+  verifyTaskBranches: verifyTaskBranchesMock,
 }));
 
 vi.mock('../../core/worktreeFinalize.js', () => ({
@@ -106,6 +116,7 @@ describe('pipelineSupervisor', () => {
     moveFailedItemToErrorItemsMock.mockResolvedValue({ movedItem: 'test.md', errorItemPath: '/error/test.md', nextActiveItem: null });
     finalizeTaskWorktreesMock.mockResolvedValue(undefined);
     sweepRuntimeGCMock.mockReturnValue(undefined);
+    verifyTaskBranchesMock.mockResolvedValue({ ok: true, failures: [] });
     repoRoot = await mkdtemp(path.join(os.tmpdir(), 'supervisor-test-'));
   });
 
@@ -190,7 +201,7 @@ describe('pipelineSupervisor', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('recoverOnStartup with sentinel present treats task as completed', async () => {
+  it('recoverOnStartup with unproven sentinel falls back to failed recovery', async () => {
     const tmpDir = await setupTmpRepo({
       activeTaskIds: ['completing-task'],
       sentinelTaskIds: ['completing-task'],
@@ -200,12 +211,11 @@ describe('pipelineSupervisor', () => {
     const { recoverOnStartup } = await import('../pipelineSupervisor.js');
     await recoverOnStartup(tmpDir);
 
-    // finalizeTaskWorktrees should be called with 'completed'
-    expect(finalizeTaskWorktreesMock).toHaveBeenCalledWith('completing-task', 'completed', tmpDir);
-    // moveFailedItemToErrorItems should NOT be called for a completed task
-    expect(moveFailedItemToErrorItemsMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'completing-task' }),
-    );
+    expect(finalizeTaskWorktreesMock).toHaveBeenCalledWith('completing-task', 'failed', tmpDir);
+    expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith({
+      repoRoot: tmpDir,
+      taskId: 'completing-task',
+    });
 
     await rm(tmpDir, { recursive: true, force: true });
   });
@@ -314,5 +324,78 @@ describe('pipelineSupervisor', () => {
     expect(remaining.some((e) => e.taskId === 'task-ok')).toBe(true);
 
     childB.triggerExit(0);
+  });
+
+  describe('_recoverOnStartupImpl completed-sentinel branch', () => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'tasksail-recover-completed-'));
+    });
+
+    afterEach(async () => {
+      await rm(tmpRoot, { recursive: true, force: true });
+      vi.restoreAllMocks();
+    });
+
+    it('re-drives closeout when a completing sentinel proves archival', async () => {
+      const taskId = 'task-recover-completed-test';
+      const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+      mkdirSync(activeItemsDir, { recursive: true });
+      writeFileSync(path.join(activeItemsDir, taskId), `${taskId}.md`);
+      const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId }));
+      const archiveDir = path.join(tmpRoot, 'contextpacks', 'pack', 'qmd', 'context-packs', 'pack', 'archive', 'tasks', '2026');
+      mkdirSync(archiveDir, { recursive: true });
+      const archivePath = path.join(archiveDir, `${taskId}.md`);
+      writeFileSync(archivePath, '# archive\n');
+      writeFileSync(
+        path.join(activeItemsDir, `${taskId}.completing`),
+        JSON.stringify({
+          ts: Date.now(),
+          archiveSucceeded: true,
+          archivePath,
+          contextPackDir: path.join(tmpRoot, 'contextpacks', 'pack'),
+          retrospectiveSynced: true,
+        }),
+      );
+      const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
+      writeFileSync(path.join(pendingDir, `${taskId}.md`), '# pending\n');
+
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpRoot);
+
+      expect(existsSync(path.join(pendingDir, `${taskId}.md`))).toBe(false);
+      expect(existsSync(path.join(activeItemsDir, taskId))).toBe(false);
+      expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(false);
+    });
+
+    it('falls through to failure recovery when sentinel cannot prove archival', async () => {
+      const taskId = 'task-recover-unproven-test';
+      const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+      mkdirSync(activeItemsDir, { recursive: true });
+      writeFileSync(path.join(activeItemsDir, taskId), `${taskId}.md`);
+      const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({ taskId }));
+      writeFileSync(
+        path.join(activeItemsDir, `${taskId}.completing`),
+        JSON.stringify({ ts: Date.now() }),
+      );
+      const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
+      mkdirSync(pendingDir, { recursive: true });
+      writeFileSync(path.join(pendingDir, `${taskId}.md`), '# pending\n');
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpRoot);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('recoverStuckMidCompletion could not prove archival'),
+      );
+      expect(existsSync(path.join(activeItemsDir, taskId))).toBe(false);
+      expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(false);
+    });
   });
 });

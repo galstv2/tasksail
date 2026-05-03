@@ -1,0 +1,95 @@
+/*
+ * Deep Focus animation keyframes, preference media queries, and dark overrides.
+ * Owns deepFocus* @keyframes plus @media preference blocks
+ * and final .deep-focus-* appearance overrides that must import last.
+ */
+@keyframes deepFocusPrimaryAppend {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusPrimaryRemove {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deep-focus-primary-removal-toast,
+  .deep-focus-footer__inline-errors {
+    animation: none;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .deep-focus-primary-removal-toast {
+    background: var(--df-surface, var(--ts-surface));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ── Deep Focus keyframes ─────────────────────────────────────────────── */
+
+@keyframes deepFocusKnobOn {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(14px) scale(1.03, 1); }
+  100% { transform: translateX(14px) scale(1, 1); }
+}
+
+@keyframes deepFocusKnobOff {
+  0%   { transform: translateX(14px); }
+  50%  { transform: translateX(0) scale(1.03, 1); }
+  100% { transform: translateX(0) scale(1, 1); }
+}
+
+@keyframes deepFocusRowEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusLoadingFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 0.6; }
+}
+
+@keyframes deepFocusBadgeEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepFocusBreadcrumbSegmentIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+

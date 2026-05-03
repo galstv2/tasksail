@@ -1,6 +1,7 @@
 import type {
   FocusTargetKind,
   NormalizedSupportTarget,
+  PrimaryFocusTarget,
   ReadonlyContextRoot,
   WritableRoot,
 } from '../../context-pack/deepFocusNormalization.js';
@@ -8,6 +9,7 @@ import type {
 export interface FocusScopePromptOptions {
   primaryFocusRelativePath?: string;
   primaryFocusTargetKind?: FocusTargetKind;
+  primaryFocusTargets?: PrimaryFocusTarget[];
   testTarget?: { path: string; kind: FocusTargetKind };
   supportTargets?: NormalizedSupportTarget[];
   writableRoots?: WritableRoot[];
@@ -27,6 +29,7 @@ export function buildFocusScopeBlock(
 ): string | undefined {
   const normalizedPath = options.primaryFocusRelativePath?.trim() ?? '';
   const hasFocusedBoundary = normalizedPath
+    || (options.primaryFocusTargets?.length ?? 0) > 0
     || (options.writableRoots?.length ?? 0) > 0
     || (options.readonlyContextRoots?.length ?? 0) > 0;
   if (!hasFocusedBoundary) {
@@ -34,6 +37,9 @@ export function buildFocusScopeBlock(
   }
 
   const focusKind = options.primaryFocusTargetKind ?? 'directory';
+  const primaryTargets = options.primaryFocusTargets?.length
+    ? options.primaryFocusTargets
+    : [{ path: normalizedPath, kind: focusKind, role: 'anchor' as const }];
   const writableRoots = options.writableRoots ?? derivePromptWritableRoots(normalizedPath, focusKind, options.testTarget);
   const distributedEstate = options.estateType?.startsWith('distributed') ?? false;
   const launchContextLine = options.launchContextLine
@@ -51,6 +57,33 @@ export function buildFocusScopeBlock(
     scopeLine,
     'Write only inside the writable implementation roots. Support/read-only roots are reference context and must not be edited.',
   ];
+
+  parts.push('', 'Primary targets:');
+  for (const target of primaryTargets) {
+    const role = target.role === 'anchor' ? 'anchor' : 'primary';
+    parts.push(`- \`${formatTargetPath(target.path, target.kind)}\` (${role})`);
+  }
+
+  parts.push('', 'Per-primary focus scope:');
+  for (const target of primaryTargets) {
+    parts.push(...formatPrimaryScopeBlock(target));
+  }
+
+  if (options.testTarget || (options.supportTargets?.length ?? 0) > 0) {
+    parts.push(
+      '',
+      'Global test/support scope (applies to all primaries):',
+    );
+    if (options.testTarget) {
+      parts.push(`- Test target: \`${formatTargetPath(options.testTarget.path, options.testTarget.kind)}\``);
+    }
+    if ((options.supportTargets?.length ?? 0) > 0) {
+      parts.push('- Support targets:');
+      for (const supportTarget of options.supportTargets ?? []) {
+        parts.push(`  - ${formatSupportTarget(supportTarget, normalizedPath, focusKind, options.testTarget)}`);
+      }
+    }
+  }
 
   if (writableRoots.length > 0) {
     parts.push('', 'Writable implementation roots:');
@@ -110,6 +143,23 @@ function formatSupportTarget(
     case 'full-directory':
       return `${formattedTarget} (full directory)`;
   }
+}
+
+function formatPrimaryScopeBlock(target: PrimaryFocusTarget): string[] {
+  const role = target.role === 'anchor' ? 'anchor' : 'primary';
+  const lines = [
+    `- ${role === 'anchor' ? 'Anchor' : 'Primary'} target: \`${formatTargetPath(target.path, target.kind)}\` (${target.kind})`,
+  ];
+  if (target.testTarget) {
+    lines.push(`  - Scoped test target: \`${formatTargetPath(target.testTarget.path, target.testTarget.kind)}\``);
+  }
+  if (target.supportTargets?.length) {
+    lines.push('  - Scoped support targets:');
+    for (const supportTarget of target.supportTargets) {
+      lines.push(`    - \`${formatTargetPath(supportTarget.path, supportTarget.kind)}\` (${supportTarget.kind})`);
+    }
+  }
+  return lines;
 }
 
 function formatTargetPath(targetPath: string, kind: FocusTargetKind): string {

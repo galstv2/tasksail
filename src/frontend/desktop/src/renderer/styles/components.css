@@ -151,11 +151,6 @@ select {
   color: var(--ts-success);
 }
 
-.status-chip--test-layer {
-  background: var(--ts-success-tint);
-  color: var(--ts-success);
-}
-
 .status-chip--support {
   background: color-mix(in srgb, var(--ts-accent2) 12%, transparent);
   color: var(--ts-accent2);

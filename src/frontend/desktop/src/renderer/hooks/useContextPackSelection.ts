@@ -8,8 +8,10 @@ import type {
   ContextPackListResponse,
   ContextPackListRepoTreeResponse,
   ContextPackDeepFocusTarget,
+  ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
 import { isContextPackListResponse, isDeepFocusLoadSelectionsResponse } from '../../shared/desktopContractTypeGuards';
+import { hydrateLegacyPrimaries, migrateSupportScopes } from '../components/SidebarDeepFocusUtils';
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
 import type { ContextPackSidebarProps } from '../components/ContextPackSidebar';
 import { selectPreferredContextPackDir } from '../selectors/contextPackSidebarModel';
@@ -38,6 +40,7 @@ type DeepFocusSelectionCommit = {
   deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
@@ -151,6 +154,7 @@ export function useContextPackSelection(
     deepFocusPrimaryFocusId: selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
     selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
     selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
+    selectedFocusTargets: selectedDeepFocusState?.selectedFocusTargets ?? [],
     selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
     selectedSupportTargets: selectedDeepFocusState?.selectedSupportTargets ?? [],
   }), [selectedDeepFocusState, selectedRepoIds, selectedFocusIds]);
@@ -228,9 +232,14 @@ export function useContextPackSelection(
           const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
             ? result.response.selections
             : null;
-          if (loaded) {
+          const hydrated = loaded
+            ? migrateSupportScopes(
+                hydrateLegacyPrimaries({ state: loaded, catalogEntry: nextSelectedPack }),
+              )
+            : null;
+          if (hydrated) {
             setSelectedDeepFocusState((current) =>
-              isDeepFocusStateEqual(current, loaded) ? current : loaded,
+              isDeepFocusStateEqual(current, hydrated) ? current : hydrated,
             );
             return;
           }
@@ -313,7 +322,14 @@ export function useContextPackSelection(
         const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
           ? result.response.selections
           : null;
-        setSelectedDeepFocusState(loaded ?? selectLastAppliedDeepFocusState(selectedPack));
+        const next = loaded
+          ? migrateSupportScopes(
+              hydrateLegacyPrimaries({ state: loaded, catalogEntry: selectedPack }),
+            )
+          : selectLastAppliedDeepFocusState(selectedPack);
+        setSelectedDeepFocusState((current) =>
+          isDeepFocusStateEqual(current, next) ? current : next,
+        );
       });
     },
     [catalogResponse, client],
@@ -346,6 +362,11 @@ export function useContextPackSelection(
         deepFocusPrimaryFocusId: selection.deepFocusPrimaryFocusId,
         selectedFocusPath: selection.selectedFocusPath,
         selectedFocusTargetKind: selection.selectedFocusTargetKind,
+        selectedFocusTargets: (selection.selectedFocusTargets ?? []).map((target) => ({
+          ...target,
+          testTarget: target.testTarget ? { ...target.testTarget } : target.testTarget,
+          supportTargets: (target.supportTargets ?? []).map((supportTarget) => ({ ...supportTarget })),
+        })),
         selectedTestTarget:
           selection.selectedTestTarget === undefined
             ? undefined
@@ -401,6 +422,9 @@ export function useContextPackSelection(
       deepFocusPrimaryFocusId: selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
       selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
       selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
+      selectedFocusTargets:
+        selectedDeepFocusState?.selectedFocusTargets
+        ?? EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE.selectedFocusTargets,
       selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
       selectedSupportTargets:
         selectedDeepFocusState?.selectedSupportTargets

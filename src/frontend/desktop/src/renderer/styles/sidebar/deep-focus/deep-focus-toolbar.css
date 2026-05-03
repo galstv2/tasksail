@@ -1,0 +1,315 @@
+/*
+ * Deep Focus controls, info tip, backdrop, footer, and action buttons.
+ * Owns .deep-focus-toggle*, .deep-focus-info-tip*, .deep-focus-backdrop*,
+ * .deep-focus-footer*, button, and primary-removal-toast selectors.
+ */
+.deep-focus-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.deep-focus-toggle-row__label {
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  font-size: var(--df-text-action-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-action-line, 1.3);
+  letter-spacing: var(--df-text-action-tracking, 0);
+}
+.deep-focus-info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  color: var(--df-text-tertiary, var(--ts-text-soft));
+  opacity: 0.5;
+  cursor: default;
+  flex-shrink: 0;
+  transition: opacity var(--df-motion-fast) var(--ts-ease);
+}
+
+.deep-focus-info-tip:hover {
+  opacity: 0.85;
+}
+
+.deep-focus-info-tip svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Portaled to document.body — position: fixed relative to the viewport. */
+.deep-focus-info-tip__bubble {
+  position: fixed;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--ts-radius-md);
+  background: var(--df-surface-elevated, var(--ts-surface-alt));
+  border: 1px solid var(--df-border-medium, var(--ts-border-strong));
+  box-shadow: var(--ts-shadow-lg);
+  color: var(--df-text-primary, var(--ts-text));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+  z-index: var(--ts-z-toast);
+  pointer-events: none;
+  animation: deepFocusInfoTipIn var(--df-motion-standard) var(--ts-ease) both;
+}
+
+/* Caret arrow — tracks the icon via --_caret-left set inline. */
+.deep-focus-info-tip__bubble::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: var(--_caret-left, 50%);
+  translate: -50% 0;
+  width: 10px;
+  height: 5px;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  background: var(--df-surface-elevated, var(--ts-surface-alt));
+}
+
+/* Flipped: bubble appears above the icon. */
+.deep-focus-info-tip__bubble--above::before {
+  bottom: auto;
+  top: 100%;
+  clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
+}
+.deep-focus-toggle {
+  width: 30px;
+  height: 16px;
+  border: 1px solid var(--df-border-hairline, var(--ts-border));
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-strong, var(--ts-surface-alt));
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition:
+    background var(--df-motion-standard) var(--ts-ease),
+    box-shadow var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-toggle--active {
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-toggle__knob {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--ts-radius-pill);
+  background: var(--df-text-tertiary, var(--ts-text-soft));
+  transition: background var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-toggle--active .deep-focus-toggle__knob {
+  animation: deepFocusKnobOn var(--df-motion-expand) var(--ts-ease) forwards;
+  background: var(--df-accent, var(--ts-accent));
+}
+
+.deep-focus-toggle:not(.deep-focus-toggle--active) .deep-focus-toggle__knob {
+  animation: deepFocusKnobOff var(--df-motion-expand) var(--ts-ease) forwards;
+}
+.deep-focus-backdrop {
+  position: fixed;
+  inset: 42px 40px 0 0;
+  border: none;
+  background: var(--df-backdrop);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--df-motion-standard) var(--ts-ease);
+  z-index: calc(var(--ts-z-dropdown) + 1);
+}
+
+.deep-focus-backdrop--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.deep-focus-backdrop--closing {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--df-motion-standard) var(--ts-ease);
+}
+.deep-focus-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border-top: 1px solid var(--df-border-hairline, var(--ts-border));
+  background: var(--df-surface, var(--ts-sidebar-bg));
+  flex-shrink: 0;
+}
+
+.deep-focus-footer__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 28px;
+}
+
+.deep-focus-footer__spacer {
+  flex: 1;
+}
+
+.deep-focus-footer__clear-all {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-soft));
+  font: inherit;
+  font-size: var(--df-text-action-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-action-line, 1.3);
+  letter-spacing: var(--df-text-action-tracking, 0);
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--ts-radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--df-motion-standard) var(--ts-ease),
+    background var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-footer__clear-all:hover {
+  color: var(--df-destructive, var(--ts-error));
+  background: var(--df-error-soft, var(--ts-accent-subtle));
+}
+
+.deep-focus-footer__clear-all:active {
+  transform: scale(0.975);
+}
+
+.deep-focus-footer__clear-all:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-footer__cancel {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--df-text-secondary, var(--ts-text-muted));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--df-text-action-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-action-line, 1.3);
+  letter-spacing: var(--df-text-action-tracking, 0);
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--ts-radius-sm);
+  transition:
+    color var(--df-motion-standard) var(--ts-ease),
+    background var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-footer__cancel:hover {
+  color: var(--df-text-primary, var(--ts-text));
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+}
+
+.deep-focus-footer__cancel:active {
+  transform: scale(0.975);
+}
+
+.deep-focus-footer__cancel:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
+}
+
+.deep-focus-footer__apply,
+.deep-focus-footer__actions .action-button {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--df-text-action-size, var(--ts-font-xs));
+  border-radius: var(--ts-radius-md);
+  background: var(--df-accent, var(--ts-accent));
+  border: 1px solid var(--df-accent, var(--ts-accent));
+  color: var(--ts-text-inverse);
+  font-weight: var(--df-text-section-weight, 600);
+  line-height: var(--df-text-action-line, 1.3);
+  letter-spacing: var(--df-text-action-tracking, 0);
+  cursor: pointer;
+  transition:
+    background var(--df-motion-standard) var(--ts-ease),
+    border-color var(--df-motion-standard) var(--ts-ease),
+    opacity var(--df-motion-standard) var(--ts-ease);
+}
+
+.deep-focus-footer__apply:hover:not(:disabled),
+.deep-focus-footer__actions .action-button:hover:not(:disabled) {
+  background: var(--df-accent, var(--ts-accent-hover));
+  border-color: var(--df-accent, var(--ts-accent-hover));
+}
+
+.deep-focus-footer__apply:disabled,
+.deep-focus-footer__actions .action-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.deep-focus-footer__error {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--ts-radius-sm);
+  background: var(--df-error-soft, var(--ts-accent-subtle));
+  color: var(--df-destructive, var(--ts-error));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-action-weight, 500);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+}
+
+.deep-focus-footer__inline-errors {
+  margin: 0;
+  color: var(--df-destructive, var(--ts-error));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  line-height: var(--df-text-secondary-line, 1.35);
+  animation: deepFocusErrorIn var(--df-motion-fast) var(--ts-ease) both;
+}
+
+.deep-focus-primary-removal-toast {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: var(--deep-focus-primary-removal-toast-padding);
+  border-radius: var(--ts-radius-sm);
+  background: var(--df-surface-elevated, var(--ts-surface-alt));
+  color: var(--df-text-primary, var(--ts-text));
+  font-size: var(--df-text-secondary-size, var(--ts-font-xs));
+  font-weight: var(--df-text-secondary-weight, 400);
+  line-height: var(--df-text-secondary-line, 1.35);
+  letter-spacing: var(--df-text-secondary-tracking, 0.01em);
+  animation: deepFocusPrimaryAppend var(--df-motion-standard) var(--ts-ease) both;
+}
+
+.deep-focus-primary-removal-toast button {
+  border: none;
+  background: transparent;
+  color: var(--df-accent, var(--ts-accent));
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--df-text-section-weight, 600);
+  padding: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .deep-focus-info-tip,
+  .deep-focus-toggle,
+  .deep-focus-toggle__knob,
+  .deep-focus-backdrop,
+  .deep-focus-footer__clear-all,
+  .deep-focus-footer__cancel,
+  .deep-focus-footer__apply,
+  .deep-focus-footer__actions .action-button,
+  .deep-focus-editor-header__dismiss {
+    transition-duration: 0ms;
+  }
+
+  .deep-focus-info-tip__bubble,
+  .deep-focus-toggle--active .deep-focus-toggle__knob,
+  .deep-focus-toggle:not(.deep-focus-toggle--active) .deep-focus-toggle__knob,
+  .deep-focus-primary-removal-toast {
+    animation: none;
+    transform: none;
+  }
+}

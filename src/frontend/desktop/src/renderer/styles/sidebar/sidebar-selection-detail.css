@@ -1,0 +1,80 @@
+/*
+ * Sidebar selection detail and plan section styling.
+ * Owns selection-detail selectors plus plan-section selectors
+ * used for selected file and plan metadata in the sidebar.
+ */
+/* ── §8  Selection Detail ────────────────────────────────────────────── */
+
+.sidebar-selection-detail {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.sidebar-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+
+.sidebar-detail-tag {
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-muted);
+}
+
+
+/* ── §8a  Plan Section ──────────────────────────────────────────────── */
+
+.sidebar-plan-divider {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--ts-border);
+}
+
+.sidebar-plan-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  font-family: var(--ts-font-sans);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              opacity var(--ts-duration) var(--ts-ease);
+}
+
+.sidebar-plan-btn:hover {
+  background: var(--ts-accent-hover);
+}
+
+.sidebar-plan-btn:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.sidebar-plan-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sidebar-plan-btn:disabled:hover {
+  background: var(--ts-accent);
+  box-shadow: none;
+}
+
+.sidebar-plan-btn svg {
+  flex-shrink: 0;
+}
+
+

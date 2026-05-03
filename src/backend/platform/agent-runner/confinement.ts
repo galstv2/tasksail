@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { isMissingPathError } from '../core/index.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
-import { normalizeRelativePath, type WritableRoot } from '../context-pack/deepFocusNormalization.js';
+import { hasTraversal, normalizeRelativePath, type WritableRoot } from '../context-pack/deepFocusNormalization.js';
 
 export interface ChangedPathsSnapshot {
   byRepoRoot: Record<string, string[]>;
@@ -95,16 +95,29 @@ function isAllowedChangedPath(options: {
   focused: FocusedRepoResult;
 }): boolean {
   const normalizedPath = normalizeRelativePath(options.relativePath);
+  if (normalizedPath.startsWith('/') || hasTraversal(normalizedPath)) {
+    return false;
+  }
+
   if (options.repoRoot === options.platformRepoRoot) {
     return ALLOWED_PLATFORM_WRITE_PATHS.includes(normalizedPath as (typeof ALLOWED_PLATFORM_WRITE_PATHS)[number]);
   }
 
-  if (options.repoRoot !== options.focused.primaryRepoRoot) {
+  const isPrimaryRepo = options.repoRoot === options.focused.primaryRepoRoot;
+  const isVisibleRepo = options.focused.visibleRepoRoots.includes(options.repoRoot);
+  if (!isPrimaryRepo && !isVisibleRepo) {
     return false;
   }
 
   if (options.focused.writableRoots?.length) {
-    return options.focused.writableRoots.some((root) => isWithinRelativeRoot(normalizedPath, root));
+    const writableRootsForRepo = options.focused.writableRoots.filter((root) =>
+      root.repoLocalPath === options.repoRoot || (isPrimaryRepo && root.repoLocalPath === undefined),
+    );
+    return writableRootsForRepo.some((root) => isWithinRelativeRoot(normalizedPath, root));
+  }
+
+  if (!isPrimaryRepo) {
+    return false;
   }
 
   if (!options.focused.primaryFocusRelativePath) {

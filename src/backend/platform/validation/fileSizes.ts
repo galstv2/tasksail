@@ -12,6 +12,7 @@ export const FILE_SIZE_LIMITS: Record<string, number> = {
   '.sh': 1000,
   '.ts': 1000,
   '.tsx': 1000,
+  '.css': 600,
 };
 
 export const REFACTOR_THRESHOLD = 1.5;

@@ -28,6 +28,13 @@ vi.mock('node:child_process', async () => {
 
 vi.mock('../../context-pack/focusedRepo.js', () => ({
   resolveSelectedPrimaryRepoRoot,
+  getEffectiveScopeForPrimary: (
+    primary: { testTarget?: { path: string; kind: 'directory' | 'file' } | null },
+    globals?: { testTarget?: { path: string; kind: 'directory' | 'file' } | null },
+  ) => ({
+    testTarget: primary.testTarget ?? globals?.testTarget ?? undefined,
+    supportTargets: [],
+  }),
 }));
 
 const {
@@ -186,7 +193,7 @@ describe('resolveTestCaptureCwd', () => {
     })).resolves.toBe('/platform');
   });
 
-  it('uses the selected primary repo root when context-pack targeting is active without a monolith focus path', async () => {
+  it('returns undefined when context-pack targeting has no scoped or global test target', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
     }));
@@ -195,57 +202,76 @@ describe('resolveTestCaptureCwd', () => {
       repoRoot: '/platform',
       taskId: 'task-1',
       contextPackDir: '/context-pack',
-    })).resolves.toBe('/target-repo');
+    })).resolves.toBeUndefined();
   });
 
-  it('uses the selected monolith focus subfolder when it exists on disk', async () => {
+  it('uses the global test target when the anchor has no scoped test target', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/sink',
+      testTarget: {
+        path: 'tests/sink',
+        kind: 'directory',
+        resolvedPath: '/target-repo/tests/sink',
+      },
     }));
-    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/sink');
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/tests/sink');
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
       taskId: 'task-1',
       contextPackDir: '/context-pack',
-    })).resolves.toBe('/target-repo/services/sink');
+    })).resolves.toBe('/target-repo/tests/sink');
   });
 
-  it('uses the parent directory when the selected focus target is a file', async () => {
+  it('uses the parent directory when the global test target is a file', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/sink/index.ts',
       primaryFocusTargetKind: 'file',
+      testTarget: {
+        path: 'tests/sink/index.test.ts',
+        kind: 'file',
+        resolvedPath: '/target-repo/tests/sink/index.test.ts',
+      },
     }));
-    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/sink');
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/tests/sink');
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
       taskId: 'task-1',
       contextPackDir: '/context-pack',
-    })).resolves.toBe('/target-repo/services/sink');
+    })).resolves.toBe('/target-repo/tests/sink');
   });
 
-  it('uses the Acme API parent directory when the selected focus target is Routes.cs', async () => {
+  it('uses the Acme API test parent directory when the global test target is RoutesTests.cs', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
       primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
       primaryFocusTargetKind: 'file',
+      testTarget: {
+        path: 'services/Acme.Api.Tests/RoutesTests.cs',
+        kind: 'file',
+        resolvedPath: '/target-repo/services/Acme.Api.Tests/RoutesTests.cs',
+      },
     }));
-    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/Acme.Api');
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/services/Acme.Api.Tests');
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
       taskId: 'task-1',
       contextPackDir: '/context-pack',
-    })).resolves.toBe('/target-repo/services/Acme.Api');
+    })).resolves.toBe('/target-repo/services/Acme.Api.Tests');
   });
 
-  it('returns undefined when the selected monolith focus subfolder is missing on disk', async () => {
+  it('returns undefined when the resolved test target folder is missing on disk', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
-      primaryFocusRelativePath: 'services/sink',
+      testTarget: {
+        path: 'services/sink',
+        kind: 'directory',
+        resolvedPath: '/target-repo/services/sink',
+      },
     }));
     existsSync.mockReturnValue(false);
 
@@ -285,8 +311,13 @@ describe('resolveTestCaptureCwd', () => {
       primaryRepoRoot: originalRootReal,
       visibleRepoRoots: [originalRootReal],
       declaredRepoRoots: [originalRootReal],
+      testTarget: {
+        path: '',
+        kind: 'directory',
+        resolvedPath: originalRootReal,
+      },
     }));
-    existsSync.mockImplementation((candidate: string) => candidate === sidecarPath);
+    existsSync.mockImplementation((candidate: string) => candidate === sidecarPath || candidate === worktreeRootReal);
 
     const cwd = await resolveTestCaptureCwd({
       repoRoot,
@@ -322,6 +353,11 @@ describe('resolveTestCaptureCwd', () => {
       declaredRepoRoots: [originalRootReal],
       primaryFocusRelativePath: 'src/feature',
       primaryFocusTargetKind: 'directory',
+      testTarget: {
+        path: 'src/feature',
+        kind: 'directory',
+        resolvedPath: path.join(originalRootReal, 'src', 'feature'),
+      },
     }));
     existsSync.mockImplementation((candidate: string) => (
       candidate === sidecarPath || candidate === worktreeFocusReal
@@ -348,6 +384,11 @@ describe('resolveTestCaptureCwd', () => {
       primaryRepoRoot: originalRoot,
       primaryFocusRelativePath: 'src/feature',
       primaryFocusTargetKind: 'directory',
+      testTarget: {
+        path: 'src/feature',
+        kind: 'directory',
+        resolvedPath: originalFocus,
+      },
     }));
     existsSync.mockImplementation((candidate: string) => candidate === originalFocus);
 
@@ -356,6 +397,38 @@ describe('resolveTestCaptureCwd', () => {
       taskId,
       contextPackDir: path.join(repoRoot, 'context-pack'),
     })).resolves.toBe(originalFocus);
+  });
+
+  it('uses the anchor scoped test target instead of a global test target', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: '/target-repo',
+      primaryFocusTargets: [
+        {
+          path: 'apps/api',
+          kind: 'directory',
+          role: 'anchor',
+          testTarget: { path: 'apps/api/scoped-tests', kind: 'directory' },
+        },
+        {
+          path: 'apps/web',
+          kind: 'directory',
+          role: 'primary',
+          testTarget: { path: 'apps/web/scoped-tests', kind: 'directory' },
+        },
+      ],
+      testTarget: {
+        path: 'tests/global',
+        kind: 'directory',
+        resolvedPath: '/target-repo/tests/global',
+      },
+    }));
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo/apps/api/scoped-tests');
+
+    await expect(resolveTestCaptureCwd({
+      repoRoot: '/platform',
+      taskId: 'task-1',
+      contextPackDir: '/context-pack',
+    })).resolves.toBe('/target-repo/apps/api/scoped-tests');
   });
 });
 

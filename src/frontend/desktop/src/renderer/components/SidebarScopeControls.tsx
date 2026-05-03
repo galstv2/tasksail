@@ -3,6 +3,7 @@ import type {
   ContextPackDeepFocusTarget,
   ContextPackFocusTargetKind,
   ContextPackListRepoTreeResponse,
+  ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
 import type { CompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import { classNames } from '../utils/classNames';
@@ -19,6 +20,7 @@ type SidebarScopeControlsProps = {
   deepFocusPrimaryFocusId: string | null;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
   focusHint: string | null;
@@ -42,6 +44,7 @@ function SidebarScopeControls({
   deepFocusPrimaryFocusId,
   selectedFocusPath,
   selectedFocusTargetKind,
+  selectedFocusTargets,
   selectedTestTarget,
   selectedSupportTargets,
   focusHint,
@@ -60,13 +63,30 @@ function SidebarScopeControls({
   const showDeepFocus = supportsDeepFocus(selectedPack.estateType);
 
   if (showDeepFocus && deepFocusEnabled) {
+    // Deep Focus scope is independent from the regular workspace primary.
+    // Seed the editor only from the persisted Deep Focus scalar; multi-primary
+    // IDs are derived from selectedFocusTargets inside SidebarDeepFocusControls.
+    const fallbackScalarId = selectedPack.estateType === 'distributed-platform'
+      ? deepFocusPrimaryRepoId
+      : deepFocusPrimaryFocusId;
+    const hasDeepFocusScope = selectedFocusPath !== null
+      || selectedFocusTargetKind !== null
+      || (selectedFocusTargets ?? []).length > 0;
+    const deepFocusWorkingFocusIds = fallbackScalarId
+      ? [fallbackScalarId]
+      : hasDeepFocusScope
+        ? selectedWorkingFocusIds
+        : [];
+
     return (
       <SidebarDeepFocusControls
         selectedPack={selectedPack}
-        selectedWorkingFocusIds={selectedWorkingFocusIds}
+        selectedWorkingFocusIds={deepFocusWorkingFocusIds}
+        deepFocusPrimaryId={fallbackScalarId}
         deepFocusEnabled={deepFocusEnabled}
         selectedFocusPath={selectedFocusPath}
         selectedFocusTargetKind={selectedFocusTargetKind}
+        selectedFocusTargets={selectedFocusTargets}
         selectedTestTarget={selectedTestTarget}
         selectedSupportTargets={selectedSupportTargets}
         onCommitDeepFocusSelection={onCommitDeepFocusSelection}
@@ -94,15 +114,15 @@ function SidebarScopeControls({
                   aria-pressed={deepFocusEnabled}
                    onClick={() => {
                      const isDistributed = selectedPack.estateType === 'distributed-platform';
-                     // Restore saved deep focus primary if available; otherwise fall back to standard-mode selection.
-                     const savedPrimary = isDistributed ? deepFocusPrimaryRepoId : deepFocusPrimaryFocusId;
-                     const nextFocusId = savedPrimary ?? selectedWorkingFocusIds[0] ?? selectedPack.focusTargets[0]?.focusId ?? null;
-                     onCommitDeepFocusSelection({
-                       deepFocusEnabled: true,
-                       deepFocusPrimaryRepoId: isDistributed ? (nextFocusId ?? null) : null,
-                       deepFocusPrimaryFocusId: isDistributed ? null : (nextFocusId ?? null),
-                       selectedFocusPath,
-                       selectedFocusTargetKind,
+                     // Restore only the saved Deep Focus primary; regular-mode focus is independent.
+                      const savedPrimary = isDistributed ? deepFocusPrimaryRepoId : deepFocusPrimaryFocusId;
+                      onCommitDeepFocusSelection({
+                        deepFocusEnabled: true,
+                        deepFocusPrimaryRepoId: isDistributed ? savedPrimary : null,
+                        deepFocusPrimaryFocusId: isDistributed ? null : savedPrimary,
+                        selectedFocusPath,
+                        selectedFocusTargetKind,
+                       selectedFocusTargets: selectedFocusTargets ?? [],
                        selectedTestTarget,
                        selectedSupportTargets,
                      });

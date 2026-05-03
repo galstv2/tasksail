@@ -22,6 +22,13 @@ vi.mock('../../../../backend/platform/queue/createFollowupTask.js', () => ({
   createFollowupTask: vi.fn(),
 }));
 
+vi.mock('../../../../backend/platform/queue/publishPendingItem.js', () => ({
+  publishPendingItem: vi.fn(async ({ publish }: { publish: () => Promise<string> }) => {
+    const destinationPath = await publish();
+    return { destinationPath, activation: { activated: true as const } };
+  }),
+}));
+
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {

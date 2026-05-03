@@ -1,0 +1,347 @@
+/*
+ * Sidebar shell, header, icon rail, status chips, and scroll container.
+ * Owns top-level .context-pack-sidebar, .sidebar-header, .sidebar-icon-btn,
+ * .sidebar-section, .sidebar-status-banner, and related shell selectors.
+ */
+/* ── §4  Sidebar ───────────────────────────────────────────────────────── */
+
+.context-pack-sidebar {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--ts-border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: none;
+  background: var(--ts-sidebar-bg);
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+/* ── Sidebar header ──────────────────────────────────────────────────── */
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--ts-border);
+  flex-shrink: 0;
+  min-height: 42px;
+}
+
+.sidebar-header__left {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-header__left h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ts-text-muted);
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.sidebar-header__right {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.sidebar-toggle {
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.25rem;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.sidebar-toggle:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+/* ── Icon buttons ────────────────────────────────────────────────────── */
+
+.sidebar-icon-btn {
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.3rem;
+  background: transparent;
+  color: var(--ts-text-soft);
+  cursor: pointer;
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.sidebar-icon-btn:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.sidebar-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sidebar-icon-btn--accent {
+  color: var(--ts-text);
+}
+
+.sidebar-icon-btn--accent:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.sidebar-icon--active {
+  border-color: var(--ts-accent);
+  color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+/* ── Collapsed sidebar nav ───────────────────────────────────────────── */
+
+.sidebar-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.35rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-icons__divider {
+  width: 24px;
+  height: 0;
+  border-top: 1px solid var(--ts-border);
+  margin: 0.2rem 0;
+}
+
+.sidebar-status-indicator {
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  border-radius: var(--ts-radius-pill);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sidebar-status-indicator--active {
+  color: var(--ts-success);
+  background: color-mix(in srgb, var(--ts-success) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ts-success) 28%, transparent);
+}
+
+.sidebar-status-indicator--inactive {
+  color: var(--ts-warning);
+  background: color-mix(in srgb, var(--ts-warning) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ts-warning) 28%, transparent);
+}
+
+.sidebar-collapsed-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.35rem 0.65rem;
+  border-top: 1px solid var(--ts-border);
+  flex-shrink: 0;
+}
+
+.sidebar-collapsed-action {
+  width: var(--ts-btn-md);
+  height: var(--ts-btn-md);
+  border: none;
+  border-radius: var(--ts-radius-md);
+  background: transparent;
+  color: var(--ts-text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.sidebar-collapsed-action:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.sidebar-collapsed-action--primary {
+  color: var(--ts-accent);
+  background: var(--ts-accent-subtle);
+}
+
+.sidebar-collapsed-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sidebar-collapsed-action:disabled:hover {
+  background: transparent;
+  color: var(--ts-text-soft);
+}
+
+/* ── Sidebar typography ──────────────────────────────────────────────── */
+
+.sidebar-meta {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--ts-text-soft);
+  word-break: break-word;
+}
+
+.sidebar-meta strong {
+  color: var(--ts-text-muted);
+  font-weight: 600;
+}
+
+.sidebar-meta--warn {
+  color: var(--ts-warning);
+  background: var(--ts-warning-tint);
+  border: 1px solid rgba(217, 119, 6, 0.1);
+  border-radius: var(--ts-radius-md);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.sidebar-meta--error {
+  color: var(--ts-error);
+  background: var(--ts-danger-tint);
+  border: 1px solid rgba(220, 38, 38, 0.1);
+  border-radius: var(--ts-radius-md);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.sidebar-meta--hint {
+  color: var(--ts-text-muted);
+  background: var(--ts-surface-alt);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+/* ── Sections ────────────────────────────────────────────────────────── */
+
+.sidebar-section {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.sidebar-section:last-child {
+  border-bottom: none;
+}
+
+/* ── Active status bar ───────────────────────────────────────────────── */
+
+.sidebar-active-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--ts-border);
+  flex-shrink: 0;
+}
+
+.sidebar-active-bar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ts-radius-pill);
+  flex-shrink: 0;
+  background: var(--ts-text-soft);
+}
+
+.sidebar-active-bar__dot--active {
+  background: var(--ts-success);
+}
+
+.sidebar-active-bar__dot--blocked {
+  background: var(--ts-warning);
+}
+
+.sidebar-active-bar__dot--completed {
+  background: var(--ts-text-soft);
+}
+
+.sidebar-active-bar__dot--idle {
+  background: var(--ts-text-soft);
+  opacity: 0.4;
+}
+
+.sidebar-active-bar__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+  color: var(--ts-text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-status-banner {
+  padding: 0.4rem 0.75rem;
+}
+
+/* ── Status chips ────────────────────────────────────────────────────── */
+
+.status-chip--sm {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.status-chip--xs {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+}
+
+/* ── Scrollable region ───────────────────────────────────────────────── */
+
+.sidebar-scroll-region {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+

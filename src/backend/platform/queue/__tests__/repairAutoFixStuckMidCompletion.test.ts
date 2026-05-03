@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -220,6 +221,57 @@ describe('repair --auto-fix stuck mid-completion recovery', () => {
     const { markerPath } = seedStuckTask('task-non-empty-marker', { ts: Date.now() });
 
     expect(readFileSync(markerPath, 'utf8').length).toBeGreaterThan(0);
+  });
+
+  describe('stale counter-lock reclamation', () => {
+    const counterDirOf = () =>
+      path.join(repoRoot, '.platform-state', 'task-counters');
+
+    function seedCounterLock(packId: string, ageMs: number): string {
+      const counterDir = counterDirOf();
+      mkdirSync(counterDir, { recursive: true });
+      const lockDir = path.join(counterDir, `${packId}.lock`);
+      mkdirSync(lockDir);
+      const targetSeconds = Math.floor((Date.now() - ageMs) / 1000);
+      utimesSync(lockDir, targetSeconds, targetSeconds);
+      return lockDir;
+    }
+
+    it('reclaims a counter lock whose mtime is older than 5 minutes', async () => {
+      const stalePath = seedCounterLock('pack-stale', 10 * 60 * 1000);
+
+      await runRepairCommand(commandOptions({ autoFix: true }));
+
+      expect(stdout).toContain("FIXED: reclaimed stale counter lock 'pack-stale.lock'");
+      expect(existsSync(stalePath)).toBe(false);
+    });
+
+    it('does not reclaim a counter lock whose mtime is fresh', async () => {
+      const freshPath = seedCounterLock('pack-fresh', 0);
+
+      await runRepairCommand(commandOptions({ autoFix: true }));
+
+      expect(stdout).not.toContain("reclaimed stale counter lock 'pack-fresh.lock'");
+      expect(existsSync(freshPath)).toBe(true);
+    });
+
+    it('reclaims only stale entries when stale and fresh locks coexist', async () => {
+      const stalePath = seedCounterLock('pack-x', 10 * 60 * 1000);
+      const freshPath = seedCounterLock('pack-y', 0);
+
+      await runRepairCommand(commandOptions({ autoFix: true }));
+
+      expect(stdout).toContain("FIXED: reclaimed stale counter lock 'pack-x.lock'");
+      expect(existsSync(stalePath)).toBe(false);
+      expect(existsSync(freshPath)).toBe(true);
+    });
+
+    it('is a no-op when the task-counters directory does not exist', async () => {
+      await runRepairCommand(commandOptions({ autoFix: true }));
+
+      expect(stdout).not.toContain('reclaimed stale counter lock');
+      expect(stderr).not.toContain('counter lock');
+    });
   });
 
   function commandOptions(options: { autoFix?: boolean; dryRun?: boolean }) {

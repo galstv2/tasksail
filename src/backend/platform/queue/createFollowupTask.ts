@@ -1,5 +1,6 @@
 import { createDropboxTask } from './createDropboxTask.js';
 import type { TaskContextPackTarget } from './markdown.js';
+import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { assertPolicyPasses } from './policyValidation.js';
 import { findRepoRoot } from '../core/index.js';
 
@@ -31,6 +32,7 @@ export interface CreateFollowupTaskOptions {
   deepFocusEnabled?: boolean;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: 'directory' | 'file' | null;
+  selectedFocusTargets?: PrimaryFocusTarget[];
   selectedTestTarget?: TaskContextPackTarget | null;
   selectedSupportTargets?: TaskContextPackTarget[];
 }
@@ -112,6 +114,7 @@ export async function createFollowupTask(
     deepFocusEnabled: options.deepFocusEnabled,
     selectedFocusPath: options.selectedFocusPath,
     selectedFocusTargetKind: options.selectedFocusTargetKind,
+    selectedFocusTargets: options.selectedFocusTargets,
     selectedTestTarget: options.selectedTestTarget,
     selectedSupportTargets: options.selectedSupportTargets,
   });

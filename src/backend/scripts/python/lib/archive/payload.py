@@ -63,6 +63,39 @@ def parse_issues_status(issues_sections: dict[str, list[str]]) -> str:
     return "passed"
 
 
+def _read_structured_status(
+    *,
+    section: list[str],
+    allowed: set[str],
+    fallback,
+    field_name: str,
+    task_id: str,
+) -> str:
+    """Read an authoritative status token, falling back with a warning."""
+    raw = _normalize_archive_text(section).strip().lower()
+    if raw in allowed:
+        return raw
+    fallback_value = fallback()
+    if not raw:
+        print(
+            f"Warning: archive task_id={task_id} field '{field_name}' empty in final-summary.md; "
+            f"using inferred value '{fallback_value}'. Fill the section to suppress this warning.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Warning: archive task_id={task_id} field '{field_name}' has unrecognized value "
+            f"'{raw}' (allowed: {sorted(allowed)}); using inferred value '{fallback_value}'.",
+            file=sys.stderr,
+        )
+    return fallback_value
+
+
+def _join_list_for_summary(items: list[str]) -> str:
+    """Render list items as stable prose without truncating mid-word."""
+    return "; ".join(item.rstrip(". ") + "." for item in items if item)
+
+
 def infer_workflow_path(workflow_sections: dict[str, list[str]] | None = None) -> str:
     """Detect workflow path for archival. Fast path is retired."""
     if workflow_sections is not None:
@@ -121,11 +154,13 @@ def build_archive_payload(
     parent_qmd_scope = strip_html_comments(lineage.get("Parent QMD Scope", "")).strip()
     followup_reason = strip_html_comments(lineage.get("Follow-Up Reason", "")).strip()
 
-    completed_work = _normalize_archive_text(final_sections.get("Completed Work", []))
+    completed_work_items = extract_list(final_sections.get("Completed Work", []))
+    completed_work_text = _normalize_archive_text(final_sections.get("Completed Work", []))
     key_decisions = extract_list(final_sections.get("Key Design Decisions", []))
     known_limitations = extract_list(final_sections.get("Known Limitations", []))
     test_result_summary = _normalize_archive_text(final_sections.get("Test Result Summary", []))
-    rollout_notes = _normalize_archive_text(final_sections.get("Rollout or Operational Notes", []))
+    rollout_notes_items = extract_list(final_sections.get("Rollout or Operational Notes", []))
+    rollout_notes_text = _normalize_archive_text(final_sections.get("Rollout or Operational Notes", []))
     followup_backlog = extract_list(final_sections.get("Follow-Up Backlog", []))
     difficulty_metadata = parse_metadata(final_sections.get("Difficulty Assessment", []))
     difficulty_level = strip_html_comments(difficulty_metadata.get("Difficulty Level", "")).strip()
@@ -134,10 +169,25 @@ def build_archive_payload(
     advisory_finding = _normalize_archive_text(final_sections.get("QA Advisory Finding", []))
     business_goal = _normalize_archive_text(professional_sections.get("Business Goal", []))
     raw_request = _normalize_archive_text(professional_sections.get("Raw Request", []))
-    implementation_summary = completed_work or child_task_outcome_delta
+    implementation_summary = completed_work_text or child_task_outcome_delta
     workflow_path = infer_workflow_path()
-    qa_status = parse_issues_status(issues_sections)
-    test_status = infer_test_status(test_result_summary or _normalize_archive_text(tests_sections.get("Coverage Notes", [])))
+    test_status = _read_structured_status(
+        section=final_sections.get("Test Status", []),
+        allowed={"passed", "failed", "partially-passed", "not-run"},
+        fallback=lambda: infer_test_status(
+            test_result_summary
+            or _normalize_archive_text(tests_sections.get("Coverage Notes", []))
+        ),
+        field_name="Test Status",
+        task_id=task_id,
+    )
+    qa_status = _read_structured_status(
+        section=final_sections.get("QA Status", []),
+        allowed={"passed", "issues-found"},
+        fallback=lambda: parse_issues_status(issues_sections),
+        field_name="QA Status",
+        task_id=task_id,
+    )
     workflow_status = "completed-with-followup" if followup_backlog else "completed"
     if qa_status == "issues-found" and not followup_backlog:
         workflow_status = "closed-with-known-risk"
@@ -183,7 +233,7 @@ def build_archive_payload(
         f"workflow-path:{workflow_path}",
         f"lineage:{'child' if task_kind == 'child-task' else 'root'}",
         f"context-pack:{context_pack_id}",
-        f"type:{infer_task_type(task_title, completed_work or raw_request)}",
+        f"type:{infer_task_type(task_title, completed_work_text or raw_request)}",
     ]
     if parent_task_id:
         tags.append(f"parent-task:{parent_task_id}")
@@ -198,7 +248,7 @@ def build_archive_payload(
     slice_ids = gather_slice_ids(
         json.dumps(implementation_sections),
         "",
-        completed_work,
+        completed_work_text,
         child_task_outcome_delta,
     )
     payload = {
@@ -239,24 +289,27 @@ def build_archive_payload(
         "child_depth": child_depth,
         "parent_resolution": "orphaned" if (task_kind == "child-task" and parent_record_path is None and parent_task_id) else "resolved" if parent_record_path is not None else "not-applicable",
         "task_title": task_title,
-        "task_type": infer_task_type(task_title, completed_work or raw_request),
+        "task_type": infer_task_type(task_title, completed_work_text or raw_request),
         "slice_ids": slice_ids,
         "workflow_path": workflow_path,
         "workflow_status": workflow_status,
         "test_status": test_status,
         "qa_status": qa_status,
         "followup_refs": followup_backlog,
-        "task_summary": compact_text(raw_request or completed_work or task_title),
+        "task_summary": compact_text(raw_request or completed_work_text or task_title),
         "business_goal": compact_text(business_goal, max_length=360),
         "implementation_summary": compact_text(implementation_summary, max_length=420),
-        "completed_work_summary": compact_text(completed_work, max_length=420),
+        "completed_work_items": completed_work_items,
+        "completed_work_summary": _join_list_for_summary(completed_work_items),
         "inherited_parent_context": compact_text(inherited_parent_context, max_length=420),
         "child_task_outcome_delta": compact_text(child_task_outcome_delta, max_length=420),
         "constraints": extract_list(professional_sections.get("Constraints", [])),
         "key_decisions": key_decisions,
         "known_limitations": known_limitations,
         "test_result_summary": compact_text(test_result_summary, max_length=320),
-        "rollout_notes": compact_text(rollout_notes, max_length=320),
+        "rollout_notes_items": rollout_notes_items,
+        "rollout_notes": _join_list_for_summary(rollout_notes_items)
+        or compact_text(rollout_notes_text, max_length=320),
         "touched_files": touched_systems,
         "related_repos": [],
         "related_services": [],

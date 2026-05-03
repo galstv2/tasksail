@@ -9,6 +9,7 @@
 - Intake Source:
 
 ## Task Lineage
+<!-- For Task Kind "child-task", all five fields must be populated: Parent Task ID, Root Task ID, Parent QMD Record ID, Parent QMD Scope, Follow-Up Reason. The first four must match the same fields in implementation-spec.md, final-summary.md, and retrospective-input.md (validator: task.lineage-consistency). -->
 
 - Task Kind:
 - Parent Task ID:
@@ -21,7 +22,7 @@
 <!-- (2+ sentences) — summarize the Intake Source in plain text; keep simple tasks lean and add detail only as needed for complex tasks -->
 
 ## Parent Task Carry-Forward Context
-<!-- (0-5 bullets) — "child-task" only; carry forward inherited context, constraints, or decisions; leave blank for standard tasks -->
+<!-- (1-5 bullets, required for "child-task"; leaving this blank when Task Kind is child-task fails validation. Leave blank for "standard".) -->
 
 ## Problem Statement
 <!-- (1+ sentences) — state what is broken or missing, with evidence; keep it brief unless the task needs more context -->
@@ -33,13 +34,13 @@
 <!-- (1+ bullets) — what this task delivers; use only the bullets needed for the task size -->
 
 ## Non-Goals
-<!-- (1+ bullets) — what this task explicitly will not do; keep the list tight -->
+<!-- (1+ bullet or numbered items required; prose alone fails validation) — what this task explicitly will not do; keep the list tight -->
 
 ## Constraints
 <!-- (0-5 bullets) — technical, timeline, or policy constraints; use "None" if not applicable -->
 
 ## Acceptance Criteria
-<!-- (1+ bullets) — each bullet is a verifiable condition for "done"; keep it lean for simple tasks and expand for complex tasks -->
+<!-- (1+ bullet or numbered items required; prose alone fails validation) — each bullet is a verifiable condition for "done"; keep it lean for simple tasks and expand for complex tasks -->
 
 ## Risks
 <!-- (0-5 bullets) — what could go wrong; use "None" if low risk -->

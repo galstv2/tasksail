@@ -45,21 +45,41 @@ export function resolveSelectedDistributedPrimary(
   manifest: Manifest,
   contextPackDir: string,
   selectedRepoIds: string[],
+  options: { allowMultiplePrimaries?: boolean } = {},
 ): ResolvedPrimaryRepo | undefined {
   const repositories = Array.isArray(manifest.repositories) ? manifest.repositories : [];
-  const selectedSet = new Set(selectedRepoIds);
-  const primaryRepos = repositories.filter((repo) =>
-    repo.repo_id &&
-    selectedSet.has(repo.repo_id) &&
-    repo.repository_type === 'primary',
-  );
-  if (primaryRepos.length !== 1) {
+  const repoById = new Map<string, ManifestRepo>();
+  for (const repo of repositories) {
+    const repoId = repo.repo_id?.trim();
+    if (repoId) {
+      repoById.set(repoId, repo);
+    }
+  }
+
+  const primaryIds: string[] = [];
+  const seen = new Set<string>();
+  for (const selectedRepoId of selectedRepoIds) {
+    const repoId = selectedRepoId.trim();
+    if (!repoId || seen.has(repoId)) {
+      continue;
+    }
+    seen.add(repoId);
+    const repo = repoById.get(repoId);
+    if (repo?.repository_type === 'primary') {
+      primaryIds.push(repoId);
+    }
+  }
+
+  if (primaryIds.length === 0 || (!options.allowMultiplePrimaries && primaryIds.length !== 1)) {
     return undefined;
   }
 
-  const primaryRepo = primaryRepos[0];
-  const repoId = primaryRepo.repo_id?.trim();
+  const repoId = primaryIds[0];
+  const primaryRepo = repoId ? repoById.get(repoId) : undefined;
   if (!repoId) {
+    return undefined;
+  }
+  if (!primaryRepo) {
     return undefined;
   }
 

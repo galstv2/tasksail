@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { readTextFile, getErrorMessage } from '../../core/index.js';
 import { isWindowsPlatform } from '../../core/platform.js';
-import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
+import { getEffectiveScopeForPrimary, resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
 import {
   applyWorktreeInjectionToFocused,
@@ -13,6 +13,7 @@ import {
   appendFocusBlock,
   type FocusScopePromptOptions,
 } from './focusScopePrompt.js';
+import type { FocusTarget, PrimaryFocusTarget } from '../../context-pack/deepFocusNormalization.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
@@ -29,22 +30,58 @@ export interface TestCaptureResult {
 export function resolveTestCaptureCwdFromFocused(
   focused: {
     primaryRepoRoot: string;
+    primaryFocusTargets?: PrimaryFocusTarget[];
     primaryFocusRelativePath?: string;
     primaryFocusTargetKind?: 'directory' | 'file';
+    testTarget?: FocusTarget;
   } | undefined,
 ): string | undefined {
   if (!focused) {
     return undefined;
   }
 
-  if (!focused.primaryFocusRelativePath) {
-    return focused.primaryRepoRoot;
+  const testTarget = resolveAnchorTestTarget(focused);
+  if (!testTarget) {
+    return undefined;
   }
 
-  const focusCwd = focused.primaryFocusTargetKind === 'file'
-    ? path.join(focused.primaryRepoRoot, path.dirname(focused.primaryFocusRelativePath))
-    : path.join(focused.primaryRepoRoot, focused.primaryFocusRelativePath);
+  const focusCwd = testTarget.kind === 'file'
+    ? path.join(focused.primaryRepoRoot, path.dirname(testTarget.path))
+    : path.join(focused.primaryRepoRoot, testTarget.path);
   return existsSync(focusCwd) ? focusCwd : undefined;
+}
+
+function resolveAnchorTestTarget(focused: {
+  primaryFocusTargets?: PrimaryFocusTarget[];
+  primaryFocusRelativePath?: string;
+  primaryFocusTargetKind?: 'directory' | 'file';
+  testTarget?: FocusTarget;
+}): FocusTarget | undefined {
+  const anchor = resolveAnchorPrimaryTarget(focused);
+  if (!anchor) {
+    return focused.testTarget;
+  }
+  return getEffectiveScopeForPrimary(anchor, { testTarget: focused.testTarget }).testTarget;
+}
+
+function resolveAnchorPrimaryTarget(focused: {
+  primaryFocusTargets?: PrimaryFocusTarget[];
+  primaryFocusRelativePath?: string;
+  primaryFocusTargetKind?: 'directory' | 'file';
+}): PrimaryFocusTarget | undefined {
+  const targets = focused.primaryFocusTargets ?? [];
+  const anchor = targets.find((target) => target.role === 'anchor') ?? targets[0];
+  if (anchor) {
+    return anchor;
+  }
+  if (focused.primaryFocusRelativePath === undefined && focused.primaryFocusTargetKind === undefined) {
+    return undefined;
+  }
+  return {
+    path: focused.primaryFocusRelativePath ?? '',
+    kind: focused.primaryFocusTargetKind ?? 'directory',
+    role: 'anchor',
+  };
 }
 
 export async function resolveTestCaptureCwd(options: {
@@ -59,6 +96,7 @@ export async function resolveTestCaptureCwd(options: {
   const focused = await resolveSelectedPrimaryRepoRoot(
     options.contextPackDir,
     options.repoRoot,
+    { taskId: options.taskId },
   );
   if (!focused) {
     return undefined;

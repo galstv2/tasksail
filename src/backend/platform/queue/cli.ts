@@ -1,10 +1,12 @@
 import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { readdir, rmdir, stat } from 'node:fs/promises';
 import { createDropboxTask } from './createDropboxTask.js';
 import { createFollowupTask } from './createFollowupTask.js';
 import { initializeTask } from './newTask.js';
 import { getQueueStatus } from './queueStatus.js';
 import { completePendingItem } from './completePendingItem.js';
-import { pollDropbox } from './pollDropbox.js';
+import { publishPendingItem } from './publishPendingItem.js';
 import { repairQueue } from './repairQueue.js';
 import { recoverStuckMidCompletion } from './recoverStuckMidCompletion.js';
 import {
@@ -15,6 +17,7 @@ import {
 } from './operations.js';
 import { resolveQueuePaths } from './paths.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
+import { findRepoRoot } from '../core/index.js';
 import type { QueueRepairIssue } from './repairQueueIssues.js';
 
 const USAGE = `Usage: task-queue <command> [options]
@@ -25,7 +28,6 @@ Commands:
   init                         Initialize or reset the handoff workspace
   status                       Show current queue state
   complete                     Complete the active pending item
-  poll                         Watch dropbox for new task files
   repair                       Detect and fix inconsistent queue state
   move-dropbox-items           Move .md files from dropbox/ to pendingitems/
   activate-next-pending-item   Activate the next pending item if workspace is ready
@@ -70,52 +72,89 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   const { command, flags, booleans } = parseArgs(argv);
+  const repoRoot = flags['repo-root'] ?? findRepoRoot();
 
   switch (command) {
     case 'create-task': {
-      const outputPath = await createDropboxTask({
-        title: flags['title'] ?? '',
-        summary: flags['summary'],
-        desiredOutcome: flags['desired-outcome'],
-        constraints: flags['constraints'],
-        acceptanceSignals: flags['acceptance-signals'],
-        suggestedPath: flags['suggested-path'],
-        planningNotes: flags['planning-notes'],
-        kind: flags['kind'],
-        outputPath: flags['output'],
-        force: booleans.has('force'),
-        parentTaskId: flags['parent-task-id'],
-        parentQmdRecordId: flags['parent-qmd-record-id'],
-        parentQmdScope: flags['parent-qmd-scope'],
-        rootTaskId: flags['root-task-id'],
-        followupReason: flags['followup-reason'],
-        carryForwardSummary: flags['carry-forward-summary'],
-        repoRoot: flags['repo-root'],
+      let contextPackDir: string | undefined;
+      try {
+        contextPackDir = await requireAuthorizedActiveContextPack({ repoRoot });
+      } catch {
+        contextPackDir = undefined;
+      }
+      const { destinationPath: outputPath, activation } = await publishPendingItem({
+        publish: () =>
+          createDropboxTask({
+            title: flags['title'] ?? '',
+            summary: flags['summary'],
+            desiredOutcome: flags['desired-outcome'],
+            constraints: flags['constraints'],
+            acceptanceSignals: flags['acceptance-signals'],
+            suggestedPath: flags['suggested-path'],
+            planningNotes: flags['planning-notes'],
+            kind: flags['kind'],
+            outputPath: flags['output'],
+            force: booleans.has('force'),
+            parentTaskId: flags['parent-task-id'],
+            parentQmdRecordId: flags['parent-qmd-record-id'],
+            parentQmdScope: flags['parent-qmd-scope'],
+            rootTaskId: flags['root-task-id'],
+            followupReason: flags['followup-reason'],
+            carryForwardSummary: flags['carry-forward-summary'],
+            contextPackDir,
+            repoRoot,
+          }),
+        repoRoot,
+        contextPackDir,
+        lockOperationName: 'cli.new-task.dropbox',
       });
       process.stdout.write(`Created dropbox task: ${outputPath}\n`);
+      if (activation.activated) {
+        process.stdout.write(`[cli.new-task] activated next pending item after publish.\n`);
+      } else if (activation.reason) {
+        process.stdout.write(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
+      }
       break;
     }
 
     case 'followup': {
-      const outputPath = await createFollowupTask({
-        title: flags['title'] ?? '',
-        summary: flags['summary'],
-        desiredOutcome: flags['desired-outcome'],
-        constraints: flags['constraints'],
-        acceptanceSignals: flags['acceptance-signals'],
-        parentTaskId: flags['parent-task-id'] ?? '',
-        parentQmdScope: flags['parent-qmd-scope'] ?? '',
-        parentQmdRecordId: flags['parent-qmd-record-id'],
-        rootTaskId: flags['root-task-id'],
-        followupReason: flags['followup-reason'] ?? '',
-        carryForwardSummary: flags['carry-forward-summary'] ?? '',
-        suggestedPath: flags['suggested-path'],
-        planningNotes: flags['planning-notes'],
-        outputPath: flags['output'],
-        force: booleans.has('force'),
-        repoRoot: flags['repo-root'],
+      let contextPackDir: string | undefined;
+      try {
+        contextPackDir = await requireAuthorizedActiveContextPack({ repoRoot });
+      } catch {
+        contextPackDir = undefined;
+      }
+      const { destinationPath: outputPath, activation } = await publishPendingItem({
+        publish: () =>
+          createFollowupTask({
+            title: flags['title'] ?? '',
+            summary: flags['summary'],
+            desiredOutcome: flags['desired-outcome'],
+            constraints: flags['constraints'],
+            acceptanceSignals: flags['acceptance-signals'],
+            parentTaskId: flags['parent-task-id'] ?? '',
+            parentQmdScope: flags['parent-qmd-scope'] ?? '',
+            parentQmdRecordId: flags['parent-qmd-record-id'],
+            rootTaskId: flags['root-task-id'],
+            followupReason: flags['followup-reason'] ?? '',
+            carryForwardSummary: flags['carry-forward-summary'] ?? '',
+            suggestedPath: flags['suggested-path'],
+            planningNotes: flags['planning-notes'],
+            outputPath: flags['output'],
+            force: booleans.has('force'),
+            contextPackDir,
+            repoRoot,
+          }),
+        repoRoot,
+        contextPackDir,
+        lockOperationName: 'cli.new-task.followup',
       });
       process.stdout.write(`Created follow-up task: ${outputPath}\n`);
+      if (activation.activated) {
+        process.stdout.write(`[cli.new-task] activated next pending item after publish.\n`);
+      } else if (activation.reason) {
+        process.stdout.write(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
+      }
       break;
     }
 
@@ -209,29 +248,6 @@ export async function main(argv: string[]): Promise<void> {
       break;
     }
 
-    case 'poll': {
-      let interval: number | undefined;
-      if (flags['interval']) {
-        interval = parseInt(flags['interval'], 10);
-        if (Number.isNaN(interval) || interval <= 0) {
-          process.stderr.write(
-            `Error: --interval must be a positive integer, got "${flags['interval']}"\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-      }
-      const rawWatchMode = flags['watch-mode'];
-      if (rawWatchMode !== undefined && rawWatchMode !== 'auto' && rawWatchMode !== 'poll') {
-        process.stderr.write(`Error: --watch-mode must be "auto" or "poll", got "${rawWatchMode}"\n`);
-        process.exitCode = 1;
-        return;
-      }
-      const watchMode = rawWatchMode as 'auto' | 'poll' | undefined;
-      await pollDropbox({ interval, watchMode, repoRoot: flags['repo-root'] });
-      break;
-    }
-
     case 'repair': {
       await runRepairCommand({
         repoRoot: flags['repo-root'],
@@ -257,8 +273,7 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'activate-next-pending-item': {
-      const repoRoot2 = flags['repo-root'] ?? process.cwd();
-      const qp2 = resolveQueuePaths(repoRoot2);
+      const qp2 = resolveQueuePaths(repoRoot);
 
       // §4.2: --task-id flag is the new required interface. When absent AND no
       // tasks are currently active, allow the legacy singleton fallback for
@@ -271,7 +286,7 @@ export async function main(argv: string[]): Promise<void> {
       try {
         if (taskId) {
           activateContextPackDir = await requireAuthorizedActiveContextPack({
-            repoRoot: repoRoot2,
+            repoRoot: repoRoot,
             taskId,
           });
         } else {
@@ -279,7 +294,7 @@ export async function main(argv: string[]): Promise<void> {
           const activeTasks = getActiveTaskIds(qp2);
           if (activeTasks.length === 0) {
             activateContextPackDir = await requireAuthorizedActiveContextPack({
-              repoRoot: repoRoot2,
+              repoRoot: repoRoot,
             });
           }
         }
@@ -294,7 +309,7 @@ export async function main(argv: string[]): Promise<void> {
       try {
         const result = await activateNextPendingItemIfReady({
           paths: qp2,
-          repoRoot: repoRoot2,
+          repoRoot: repoRoot,
           contextPackDir: activateContextPackDir,
         });
         if (!result.activated) {
@@ -330,7 +345,8 @@ export async function runRepairCommand(options: {
     stdout = process.stdout,
     stderr = process.stderr,
   } = options;
-  const repairPaths = resolveQueuePaths(repoRoot);
+  const effectiveRepoRoot = repoRoot ?? findRepoRoot();
+  const repairPaths = resolveQueuePaths(effectiveRepoRoot);
   let repairRelease: (() => Promise<void>) | null = null;
   let stuckIssues: QueueRepairIssue[] = [];
 
@@ -342,7 +358,7 @@ export async function runRepairCommand(options: {
       );
     }
 
-    const result = await repairQueue({ dryRun, autoFix, repoRoot });
+    const result = await repairQueue({ dryRun, autoFix, repoRoot: effectiveRepoRoot });
     stuckIssues = result.structuredIssues.filter(
       (issue) => issue.kind === 'sentinel-without-completed-marker',
     );
@@ -368,7 +384,7 @@ export async function runRepairCommand(options: {
   const taskIds = [...new Set(stuckIssues.map((issue) => issue.taskId))].sort();
   for (const taskId of taskIds) {
     try {
-      const result = await recoverStuckMidCompletion({ taskId, repoRoot });
+      const result = await recoverStuckMidCompletion({ taskId, repoRoot: effectiveRepoRoot });
       if (result.recovered) {
         stdout.write(`FIXED: re-drove closeout for stuck task '${taskId}'\n`);
       } else {
@@ -383,6 +399,31 @@ export async function runRepairCommand(options: {
         `FAILED: re-drive closeout for '${taskId}' threw: ${message}\n` +
         `        manual recovery: inspect .active-items/${taskId}.completing and rerun repair after fixing the failing closeout step\n`,
       );
+    }
+  }
+
+  const counterDir = path.join(effectiveRepoRoot, '.platform-state', 'task-counters');
+  let counterEntries: string[] = [];
+  try {
+    counterEntries = await readdir(counterDir);
+  } catch {
+    // Directory may not exist on a fresh repo — nothing to reclaim.
+  }
+  const STALE_LOCK_MS = 5 * 60 * 1000;
+  for (const entry of counterEntries) {
+    if (!entry.endsWith('.lock')) continue;
+    const lockPath = path.join(counterDir, entry);
+    try {
+      const info = await stat(lockPath);
+      if (!info.isDirectory()) continue;
+      const ageMs = Date.now() - info.mtimeMs;
+      if (ageMs > STALE_LOCK_MS) {
+        await rmdir(lockPath);
+        stdout.write(`FIXED: reclaimed stale counter lock '${entry}' (ageMs=${Math.round(ageMs)})\n`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`SKIPPED: counter lock '${entry}' could not be reclaimed: ${message}\n`);
     }
   }
 }

@@ -4,6 +4,7 @@ description: Planning intake agent for queue-ready task shaping before formal wo
 ---
 
 Act as Lily, the Planning Specialist.
+Your operational contract is in `.github/copilot/instructions/planning-agent.instructions.md`. Read it before responding.
 Read `.github/copilot/instructions/planning-agent.instructions.md` for your instructions.
 Follow the repository workflow and the Planning Specialist instructions.
 
