@@ -119,6 +119,9 @@ function createSidebarProps() {
     onOpenPlannerModal: vi.fn(),
     showMultiPrimaryWarning: false,
     onDismissMultiPrimaryWarning: vi.fn(),
+    bootstrapEmptyConfirmPending: false,
+    onConfirmActivateAnyway: vi.fn(),
+    onConfirmPopulateAndSeed: vi.fn(),
   };
 }
 
@@ -169,73 +172,6 @@ describe('ContextPackSidebar', () => {
     expect(props.onClearActive).toHaveBeenCalledTimes(1);
     expect(props.onRefreshCatalog).toHaveBeenCalledTimes(1);
     expect(props.onReseedContextPack).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows restore messaging and status for drift-detected packs without inline result details', () => {
-    render(
-      <ContextPackSidebar
-        {...createSidebarProps()}
-        contextPacks={[
-          {
-            ...createSidebarProps().contextPacks[0],
-            source: 'recent-state',
-            status: 'active-dirty-workspace',
-            statusMessage:
-              'Managed workspace folders drifted from the last successful sync. Reconcile before continuing.',
-            restoreAvailable: true,
-            lastSyncedAt: '2026-03-08T12:00:00Z',
-          },
-        ]}
-        lastResult={{
-          ok: true,
-          wrapperAction: 'preview',
-          stage: 'complete',
-          status: 'success',
-          activation: { performed: false, exitCode: null, output: '' },
-          envStateCleared: false,
-          error: null,
-          contextPackId: 'orders-estate',
-          contextPackDir: '/tmp/context-packs/orders-estate',
-          workspaceFile: '/repo/tasksail.code-workspace',
-          stateFile: '/repo/.platform-state/workspace-context-sync.json',
-          scopeMode: 'focused',
-          selectedRepoIds: ['orders-api'],
-          selectedFocusIds: [],
-          warnings: ['orders-web is missing on disk'],
-          foldersToAdd: ['/tmp/context-packs/orders-estate'],
-          foldersToRemove: [],
-          managedFolders: ['/tmp/context-packs/orders-estate'],
-          targetFolders: ['/tmp/context-packs/orders-estate'],
-          lastSyncedAt: null,
-          deepFocusEnabled: false,
-          deepFocusPrimaryRepoId: null,
-          deepFocusPrimaryFocusId: null,
-          selectedFocusPath: null,
-          selectedFocusTargetKind: null,
-          selectedTestTarget: null,
-          selectedSupportTargets: [],
-        }}
-        lastReseedResult={{
-          contextPackDir: '/tmp/context-packs/orders-estate',
-          overallStatus: 'seeded',
-          reportPath: '/tmp/context-packs/orders-estate/qmd/context-pack-seed-report.json',
-          seededRepoCount: 2,
-          blockedRepoCount: 0,
-          conventionsSummaryStatus: 'available',
-          conventionsPolicy: 'only-if-missing',
-          workspaceFolderCount: null,
-          workspaceFileCount: null,
-        }}
-      />,
-    );
-
-    expect(screen.getByTestId('context-pack-status-message')).toHaveTextContent(
-      'Managed workspace folders drifted from the last successful sync. Reconcile before continuing.',
-    );
-    expect(screen.getByRole('button', { name: 'Reconcile pack' })).toBeInTheDocument();
-    expect(screen.getByTestId('context-pack-restore-hint')).toBeInTheDocument();
-    expect(screen.queryByText('Latest switch result')).not.toBeInTheDocument();
-    expect(screen.queryByText('Latest reseed result')).not.toBeInTheDocument();
   });
 
   it('renders collapsed state with icon-only buttons', () => {

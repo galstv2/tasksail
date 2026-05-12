@@ -1,7 +1,7 @@
 """QMD-native reward memory writer.
 
 Emits per-agent cumulative reward markdown to
-``AgentWorkSpace/qmd/global/agent-rewards/<agent-id>.md`` and patches task
+``AgentWorkSpace/qmd/global/reinforcement/agent-rewards/<agent-id>.md`` and patches task
 archive markdown with a ``## Reward Received`` managed section.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ from src.backend.scripts.python.lib.locking import acquire_file_lock, release_fi
 from src.backend.scripts.python.lib.time import current_utc_timestamp
 
 from .models import AgentRewardMemory, SettlementRecord
+from .paths import agent_rewards_dir, migrate_legacy_agent_reward_sidecars
 
 
 class QmdRewardWriter:
@@ -22,14 +23,13 @@ class QmdRewardWriter:
     ----------
     repo_root:
         Repository root.  Per-agent files are written under
-        ``{repo_root}/AgentWorkSpace/qmd/global/agent-rewards/``.
+        ``{repo_root}/AgentWorkSpace/qmd/global/reinforcement/agent-rewards/``.
     """
 
     def __init__(self, repo_root: Path) -> None:
         self._repo_root = Path(repo_root)
-        self._agent_rewards_dir = (
-            self._repo_root / "AgentWorkSpace" / "qmd" / "global" / "agent-rewards"
-        )
+        migrate_legacy_agent_reward_sidecars(self._repo_root)
+        self._agent_rewards_dir = agent_rewards_dir(self._repo_root)
 
     @property
     def agent_rewards_dir(self) -> Path:

@@ -75,6 +75,40 @@ describe('TerminalFeed', () => {
     expect(firstLine.querySelector('.terminal-message')?.textContent).toBe('Planning started');
   });
 
+  it('does not duplicate an actor already embedded in a task-scoped message', () => {
+    renderFeed({
+      activityStream: [
+        makeEvent({
+          id: 'e1',
+          actorName: 'Alice (Product Manager)',
+          message: 'Task [feedbeef] Alice (Product Manager): Is running.',
+        }),
+      ],
+    });
+
+    const line = document.querySelector('.terminal-line');
+    expect(line?.querySelector('.terminal-actor')).toBeNull();
+    expect(line?.querySelector('.terminal-message')?.textContent).toBe(
+      'Task [feedbeef] Alice (Product Manager): Is running.',
+    );
+  });
+
+  it('renders the separate actor span for non-embedded actor messages', () => {
+    renderFeed({
+      activityStream: [
+        makeEvent({
+          id: 'e1',
+          actorName: 'Lily',
+          message: 'Planning started',
+        }),
+      ],
+    });
+
+    const line = document.querySelector('.terminal-line');
+    expect(line?.querySelector('.terminal-actor')?.textContent).toBe('Lily');
+    expect(line?.querySelector('.terminal-message')?.textContent).toBe('Planning started');
+  });
+
   it('clicking a role tab filters visible events', () => {
     const events = [
       makeEvent({ id: 'e1', role: 'planner', message: 'Plan msg' }),
@@ -143,7 +177,7 @@ describe('TerminalFeed', () => {
           brokerStatus: 'completed',
           activeTurnId: null,
           queuedTurnCount: 0,
-          cliSessionId: 'copilot-session-1',
+          cliSessionId: 'provider-session-1',
           lastTurnSource: 'resumed-session',
           lastTurnOutcome: 'completed',
           lastTurnAt: '2026-03-20T00:45:00.000Z',

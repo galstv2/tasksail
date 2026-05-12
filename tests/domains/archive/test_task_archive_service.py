@@ -41,7 +41,8 @@ class TaskArchiveServiceTests(unittest.TestCase):
             / "tasks"
             / "platform"
             / "2026"
-            / file_name
+            / Path(file_name).stem
+            / "archive.json"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -122,6 +123,14 @@ class TaskArchiveServiceTests(unittest.TestCase):
                     "record_id": "task:platform:CAP-0001",
                     "task_id": "CAP-0001",
                 },
+            )
+            (
+                archive_dir
+                / "cap-0001"
+                / "planner-focus-snapshot.json"
+            ).write_text(
+                json.dumps({"version": 1, "task_id": "CAP-0001"}, indent=2) + "\n",
+                encoding="utf-8",
             )
 
             service = TaskArchiveService(workspace_root=Path(temp_root))
@@ -234,6 +243,10 @@ class TaskArchiveServiceTests(unittest.TestCase):
             )
 
             self.assertEqual(resolution.record["task_id"], "CAP-1001")
+            self.assertEqual(
+                str(resolution.path).split("/archive/tasks/", 1)[1],
+                "platform/2026/cap-1001/archive.json",
+            )
 
     def test_shared_retrospective_memory_resolution_returns_current_synthesis(
         self,

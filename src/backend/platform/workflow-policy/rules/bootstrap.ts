@@ -6,6 +6,7 @@
 
 import path from 'node:path';
 import { readTextFile, safeJsonParse } from '../../core/index.js';
+import { normalizeManifestLocalPaths } from '../../context-pack/localPaths.js';
 import { ALLOWED_SYSTEM_LAYERS } from '../models.js';
 import type { PolicyValidator } from '../validator.js';
 
@@ -235,11 +236,7 @@ function validateManifestContract(
     const repoId = String(repo.repo_id ?? '').trim();
     const repoName = String(repo.repo_name ?? '').trim();
     const systemLayer = String(repo.system_layer ?? '').trim();
-    const validLocalPaths = Array.isArray(repo.local_paths)
-      ? repo.local_paths
-        .map((item) => String(item).trim())
-        .filter((item) => item.length > 0)
-      : [];
+    const validLocalPaths = normalizeManifestLocalPaths(repo.local_paths);
 
     if (!repoId || !repoName || !systemLayer || validLocalPaths.length === 0) {
       validator.addViolation({
@@ -335,11 +332,7 @@ function compareBootstrapContracts(
     const answersRepoName = String(answersRepo.repo_name ?? '').trim();
     const manifestRepoName = String(manifestRepo.repo_name ?? '').trim();
     const answersRepoRoot = String(answersRepo.repo_root ?? '').trim();
-    const manifestLocalPaths = Array.isArray(manifestRepo.local_paths)
-      ? manifestRepo.local_paths
-        .map((item) => String(item).trim())
-        .filter((item) => item.length > 0)
-      : [];
+    const manifestLocalPaths = normalizeManifestLocalPaths(manifestRepo.local_paths);
     const answersSystemLayer = String(answersRepo.system_layer ?? '').trim();
     const manifestSystemLayer = String(manifestRepo.system_layer ?? '').trim();
 

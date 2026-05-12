@@ -9,6 +9,7 @@ from typing import Any
 
 from ..io import load_text
 from ..markdown import parse_metadata, parse_sections
+from ..markdown_contracts import TASK_LINEAGE, TASK_METADATA
 from ..text import compact_text, extract_list, normalize_text, strip_html_comments
 from ..time import current_utc_timestamp
 from ..workspace_paths import handoffs_dir
@@ -96,6 +97,36 @@ def _join_list_for_summary(items: list[str]) -> str:
     return "; ".join(item.rstrip(". ") + "." for item in items if item)
 
 
+def _read_branch_handoffs(_handoffs: Path) -> list[dict[str, Any]]:
+    """Read optional source-branch handoff metadata for operator review."""
+    handoffs_path = _handoffs / "branch-handoffs.json"
+    if not handoffs_path.exists():
+        return []
+    parsed = json.loads(handoffs_path.read_text(encoding="utf-8"))
+    if not isinstance(parsed, list):
+        raise ValueError("branch-handoffs.json must contain a JSON array")
+    handoffs: list[dict[str, Any]] = []
+    required = {
+        "repo_root",
+        "repo_label",
+        "branch",
+        "base_commit_sha",
+        "head_commit_sha",
+        "commits_ahead",
+        "status",
+    }
+    for index, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise ValueError(f"branch-handoffs.json entry {index} must be an object")
+        missing = sorted(required - item.keys())
+        if missing:
+            raise ValueError(
+                f"branch-handoffs.json entry {index} missing field(s): {', '.join(missing)}"
+            )
+        handoffs.append(dict(item))
+    return handoffs
+
+
 def infer_workflow_path(workflow_sections: dict[str, list[str]] | None = None) -> str:
     """Detect workflow path for archival. Fast path is retired."""
     if workflow_sections is not None:
@@ -139,8 +170,8 @@ def build_archive_payload(
     issues_sections = parse_sections(load_text(_handoffs / "issues.md"))
     final_sections = parse_sections(load_text(_handoffs / "final-summary.md"))
 
-    metadata = parse_metadata(final_sections.get("Task Metadata", []))
-    lineage = parse_metadata(final_sections.get("Task Lineage", [])) or parse_metadata(professional_sections.get("Task Lineage", []))
+    metadata = parse_metadata(final_sections.get(TASK_METADATA, []), TASK_METADATA)
+    lineage = parse_metadata(final_sections.get(TASK_LINEAGE, []), TASK_LINEAGE) or parse_metadata(professional_sections.get(TASK_LINEAGE, []), TASK_LINEAGE)
 
     task_id = metadata.get("Task ID", "").strip()
     task_title = metadata.get("Task Title", "").strip()
@@ -162,7 +193,7 @@ def build_archive_payload(
     rollout_notes_items = extract_list(final_sections.get("Rollout or Operational Notes", []))
     rollout_notes_text = _normalize_archive_text(final_sections.get("Rollout or Operational Notes", []))
     followup_backlog = extract_list(final_sections.get("Follow-Up Backlog", []))
-    difficulty_metadata = parse_metadata(final_sections.get("Difficulty Assessment", []))
+    difficulty_metadata = parse_metadata(final_sections.get("Difficulty Assessment", []), "Difficulty Assessment")
     difficulty_level = strip_html_comments(difficulty_metadata.get("Difficulty Level", "")).strip()
     inherited_parent_context = _normalize_archive_text(final_sections.get("Inherited Parent Context", []))
     child_task_outcome_delta = _normalize_archive_text(final_sections.get("Child-Task Outcome Delta", []))
@@ -245,12 +276,22 @@ def build_archive_payload(
         tags.append(f"difficulty:{difficulty_level.lower()}")
 
     touched_systems = extract_list(implementation_sections.get("Touched Systems", []))
+    branch_handoffs = _read_branch_handoffs(_handoffs)
     slice_ids = gather_slice_ids(
         json.dumps(implementation_sections),
         "",
         completed_work_text,
         child_task_outcome_delta,
     )
+    provenance_sources = [
+        str((_handoffs / "professional-task.md").relative_to(repo_root)),
+        str((_handoffs / "implementation-spec.md").relative_to(repo_root)),
+        str((_handoffs / "tests.md").relative_to(repo_root)),
+        str((_handoffs / "final-summary.md").relative_to(repo_root)),
+    ]
+    if branch_handoffs:
+        provenance_sources.append(str((_handoffs / "branch-handoffs.json").relative_to(repo_root)))
+
     payload = {
         "schema_version": "qmd-record/v1",
         "record_id": f"task:{context_pack_id}:{task_id}",
@@ -273,12 +314,7 @@ def build_archive_payload(
         "updated_at": indexed_at,
         "freshness_status": "fresh",
         "provenance_type": "derived",
-        "provenance_sources": [
-            str((_handoffs / "professional-task.md").relative_to(repo_root)),
-            str((_handoffs / "implementation-spec.md").relative_to(repo_root)),
-            str((_handoffs / "tests.md").relative_to(repo_root)),
-            str((_handoffs / "final-summary.md").relative_to(repo_root)),
-        ],
+        "provenance_sources": provenance_sources,
         "review_status": "reviewed",
         "task_id": task_id,
         "root_task_id": root_task_id,
@@ -318,4 +354,6 @@ def build_archive_payload(
         "difficulty_level": difficulty_level,
         "advisory_finding": compact_text(advisory_finding, max_length=420),
     }
+    if branch_handoffs:
+        payload["branch_handoffs"] = branch_handoffs
     return payload, record_path, parent_record_path

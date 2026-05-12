@@ -5,6 +5,7 @@ import { createDropboxTask } from './createDropboxTask.js';
 import { createFollowupTask } from './createFollowupTask.js';
 import { initializeTask } from './newTask.js';
 import { getQueueStatus } from './queueStatus.js';
+import { getCloseoutHealth } from './closeoutHealth.js';
 import { completePendingItem } from './completePendingItem.js';
 import { publishPendingItem } from './publishPendingItem.js';
 import { repairQueue } from './repairQueue.js';
@@ -178,6 +179,11 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'status': {
+      if (booleans.has('closeout-health')) {
+        const health = await getCloseoutHealth(repoRoot);
+        process.stdout.write(JSON.stringify(health, null, 2) + '\n');
+        break;
+      }
       const status = await getQueueStatus(flags['repo-root']);
       process.stdout.write(`Workspace Ready: ${status.workspaceReady ? 'yes' : 'no'}\n`);
       process.stdout.write(`Active Item: ${status.activeTasks[0]?.taskId ?? 'none'}\n`);
@@ -302,24 +308,16 @@ export async function main(argv: string[]): Promise<void> {
         activateContextPackDir = undefined;
       }
 
-      const release2 = await acquireDirLockOrThrow(
-        qp2.queueLockDir,
-        'activate-next-pending-item',
-      );
-      try {
-        const result = await activateNextPendingItemIfReady({
-          paths: qp2,
-          repoRoot: repoRoot,
-          contextPackDir: activateContextPackDir,
-        });
-        if (!result.activated) {
-          process.stdout.write('waiting until handoffs/ is reset or pending items are available\n');
-          process.exitCode = 2;
-        } else {
-          process.stdout.write('Activated next pending item.\n');
-        }
-      } finally {
-        await release2();
+      const result = await activateNextPendingItemIfReady({
+        paths: qp2,
+        repoRoot: repoRoot,
+        contextPackDir: activateContextPackDir,
+      });
+      if (!result.activated) {
+        process.stdout.write('waiting until handoffs/ is reset or pending items are available\n');
+        process.exitCode = 2;
+      } else {
+        process.stdout.write('Activated next pending item.\n');
       }
       break;
     }

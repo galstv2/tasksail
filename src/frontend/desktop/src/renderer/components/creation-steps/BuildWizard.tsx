@@ -72,10 +72,8 @@ function BuildWizard({
           <WizardProjectType
             busy={busy}
             mode={draft.mode}
-            onSelect={(mode) => {
-              onChangeMode(mode);
-              onStepChange('location');
-            }}
+            onModeChange={onChangeMode}
+            onContinue={() => onStepChange('location')}
           />
         ) : null}
 

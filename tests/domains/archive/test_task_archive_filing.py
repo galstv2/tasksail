@@ -12,6 +12,186 @@ from tests.domains.archive._archive_filing_base import TaskArchiveFilingTestBase
 
 
 class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
+    def write_active_planner_focus_snapshot(self, repo_root: Path) -> dict[str, object]:
+        snapshot = {
+            "version": 1,
+            "contextPackDir": "/contextpacks/sample-org",
+            "contextPackId": "sample-org",
+            "title": "Parent task",
+            "primaryRepoId": "repo",
+            "primaryRepoRoot": "/repos/repo",
+            "primaryFocusRelativePath": "src/api",
+            "primaryFocusTargetKind": "directory",
+            "primaryFocusTargets": [],
+            "selectedTestTarget": None,
+            "supportTargets": [],
+            "deepFocusEnabled": True,
+            "contextPackBinding": {
+                "contextPackDir": "/contextpacks/sample-org",
+                "contextPackId": "sample-org",
+                "scopeMode": "selected",
+                "selectedRepoIds": ["repo"],
+                "selectedFocusIds": [],
+                "deepFocusEnabled": True,
+                "selectedFocusPath": "src/api",
+                "selectedFocusTargetKind": "directory",
+                "selectedFocusTargets": [],
+                "selectedTestTarget": None,
+                "selectedSupportTargets": [],
+            },
+        }
+        snapshot_path = (
+            repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001"
+            / ".planner-focus-snapshot.json"
+        )
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        return snapshot
+
+    def write_branch_handoff_snapshot_source(self, repo_root: Path) -> None:
+        handoffs_path = (
+            repo_root
+            / "AgentWorkSpace"
+            / "tasks"
+            / "CAP-2001"
+            / "handoffs"
+            / "branch-handoffs.json"
+        )
+        handoffs_path.parent.mkdir(parents=True, exist_ok=True)
+        handoffs_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "repo_root": str(repo_root),
+                        "repo_label": "repo",
+                        "branch": "task/CAP-2001",
+                        "base_commit_sha": "base",
+                        "head_commit_sha": "head",
+                        "commits_ahead": 1,
+                        "status": "ready-for-operator-review",
+                    }
+                ],
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def test_task_archive_copies_planner_focus_snapshot_to_canonical_and_mirror(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+            snapshot = self.write_active_planner_focus_snapshot(repo_root)
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+            canonical_snapshot_path = self.task_archive_snapshot_path(
+                context_pack_dir
+            )
+            mirror_snapshot_path = self.mirror_task_archive_snapshot_path(
+                repo_root
+            )
+            self.assertEqual(
+                json.loads(canonical_snapshot_path.read_text(encoding="utf-8")),
+                snapshot,
+            )
+            self.assertEqual(
+                json.loads(mirror_snapshot_path.read_text(encoding="utf-8")),
+                snapshot,
+            )
+
+    def test_task_archive_synthesizes_planner_focus_snapshot_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+            canonical_snapshot_path = self.task_archive_snapshot_path(
+                context_pack_dir
+            )
+            mirror_snapshot_path = self.mirror_task_archive_snapshot_path(
+                repo_root
+            )
+            snapshot = json.loads(canonical_snapshot_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                Path(snapshot["contextPackDir"]).resolve(),
+                context_pack_dir.resolve(),
+            )
+            self.assertEqual(snapshot["contextPackId"], "sample-org")
+            self.assertEqual(snapshot["primaryRepoId"], "repo")
+            self.assertEqual(Path(snapshot["primaryRepoRoot"]).resolve(), repo_root.resolve())
+            self.assertEqual(
+                json.loads(mirror_snapshot_path.read_text(encoding="utf-8")),
+                snapshot,
+            )
+
+    def test_task_archive_synthesizes_planner_focus_snapshot_when_malformed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+            snapshot_path = (
+                repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001"
+                / ".planner-focus-snapshot.json"
+            )
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            snapshot_path.write_text("{bad-json}\n", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+            canonical_snapshot_path = self.task_archive_snapshot_path(
+                context_pack_dir
+            )
+            snapshot = json.loads(canonical_snapshot_path.read_text(encoding="utf-8"))
+            self.assertEqual(snapshot["primaryRepoId"], "repo")
+            self.assertEqual(Path(snapshot["primaryRepoRoot"]).resolve(), repo_root.resolve())
+
+    def test_task_archive_does_not_read_planner_conversation_history_for_snapshot_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_active_planner_focus_snapshot(repo_root)
+            history_path = repo_root / ".platform-state" / "planner-conversation-history.json"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            history_path.write_text("{this would fail if parsed}\n", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+
     def test_child_task_archive_filing_preserves_lineage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
@@ -21,8 +201,8 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
 
             parent_path = (
                 context_pack_dir
-                / "qmd/context-packs/sample-org/archive/tasks/2026"
-                / "cap-1000.json"
+                / "qmd/context-packs/sample-org/archive/tasks/2026/cap-1000"
+                / "archive.json"
             )
             parent_path.parent.mkdir(parents=True, exist_ok=True)
             parent_path.write_text(
@@ -68,6 +248,14 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             archive_path = Path(result["record_path"])
             archive_payload = json.loads(
                 archive_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                archive_path.resolve(),
+                self.task_archive_json_path(context_pack_dir).resolve(),
+            )
+            self.assertEqual(
+                Path(result["record_md_path"]).resolve(),
+                self.task_archive_markdown_path(context_pack_dir).resolve(),
             )
             self.assertEqual(archive_payload["parent_task_id"], "CAP-1000")
             self.assertEqual(archive_payload["root_task_id"], "CAP-1000")
@@ -175,6 +363,14 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             archive_payload = json.loads(
                 Path(result["record_path"]).read_text(encoding="utf-8")
             )
+            self.assertEqual(
+                Path(result["record_path"]).resolve(),
+                self.task_archive_json_path(context_pack_dir).resolve(),
+            )
+            self.assertEqual(
+                Path(result["record_md_path"]).resolve(),
+                self.task_archive_markdown_path(context_pack_dir).resolve(),
+            )
             self.assertEqual(archive_payload["parent_task_id"], "")
             self.assertEqual(archive_payload["root_task_id"], "CAP-2001")
             self.assertEqual(archive_payload["child_depth"], 0)
@@ -235,6 +431,69 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             )
             self.assertEqual(archive_payload["difficulty_level"], "Medium")
             self.assertIn("difficulty:medium", archive_payload["tags"])
+
+    def test_branch_handoffs_are_written_to_canonical_archive_and_agent_mirror(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            handoffs = [
+                {
+                    "repo_root": "/repos/platform",
+                    "repo_label": "platform",
+                    "branch": "task/CAP-2001",
+                    "base_commit_sha": "abc123",
+                    "head_commit_sha": "def456",
+                    "commits_ahead": 2,
+                    "status": "ready-for-operator-review",
+                }
+            ]
+            handoffs_path = (
+                repo_root
+                / "AgentWorkSpace"
+                / "tasks"
+                / "CAP-2001"
+                / "handoffs"
+                / "branch-handoffs.json"
+            )
+            handoffs_path.write_text(
+                json.dumps(handoffs, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+
+            canonical_json_path = Path(result["record_path"])
+            canonical_md_path = self.task_archive_markdown_path(context_pack_dir)
+            mirror_json_path = self.mirror_task_archive_json_path(repo_root)
+            mirror_md_path = self.mirror_task_archive_markdown_path(repo_root)
+            self.assertEqual(canonical_json_path.name, "archive.json")
+            self.assertEqual(canonical_json_path.parent.name, "cap-2001")
+            self.assertEqual(mirror_json_path.name, "archive.json")
+            self.assertEqual(mirror_json_path.parent.name, "cap-2001")
+
+            canonical_payload = json.loads(
+                canonical_json_path.read_text(encoding="utf-8")
+            )
+            mirror_payload = json.loads(mirror_json_path.read_text(encoding="utf-8"))
+            canonical_markdown = canonical_md_path.read_text(encoding="utf-8")
+            mirror_markdown = mirror_md_path.read_text(encoding="utf-8")
+
+            self.assertEqual(canonical_payload["branch_handoffs"], handoffs)
+            self.assertEqual(mirror_payload["branch_handoffs"], handoffs)
+            self.assertIn("Source Branches for Operator Review", canonical_markdown)
+            self.assertIn("Source Branches for Operator Review", mirror_markdown)
+            self.assertIn("task/CAP-2001", canonical_markdown)
+            self.assertIn("task/CAP-2001", mirror_markdown)
 
     def test_task_archive_strips_template_comments_from_payload_and_markdown(
         self,
@@ -341,7 +600,7 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             self.assertEqual(completed.returncode, 0, msg=completed.stderr)
             result = json.loads(completed.stdout)
             record_path = Path(result["record_path"])
-            markdown_path = record_path.with_suffix(".md")
+            markdown_path = self.task_archive_markdown_path(context_pack_dir)
             archive_payload = json.loads(record_path.read_text(encoding="utf-8"))
             archive_markdown = markdown_path.read_text(encoding="utf-8")
 

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from src.backend.mcp.context_estate.constants import (  # noqa: F401
+    ALLOWED_DISCOVERY_MODES,
     DEFAULT_DISTRIBUTED_SCAN_DEPTH,
     DIRECT_FOCUS_TYPES,
     ESTATE_TYPES,
@@ -56,7 +57,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=("auto", *ESTATE_TYPES),
+        choices=ALLOWED_DISCOVERY_MODES,
         default="auto",
         help="Discovery mode. Defaults to auto-inference.",
     )
@@ -97,6 +98,13 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if args.mode == "auto":
+        print(
+            "[WARN] --mode auto: estate type will be inferred from directory structure. "
+            "Pass an explicit mode for deterministic output.",
+            file=sys.stderr,
+        )
 
     try:
         payload = discover_estate(args.root, mode=args.mode)

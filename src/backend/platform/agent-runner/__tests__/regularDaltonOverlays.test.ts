@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const readTextFile = vi.fn<(path: string) => Promise<string | null>>();
 const resolveConventionsContext = vi.fn();
 const resolveCorrectionsContext = vi.fn();
-const resolveReinforcementContext = vi.fn();
 
 vi.mock('../../core/index.js', () => ({
   readTextFile,
@@ -17,10 +16,6 @@ vi.mock('../corrections.js', () => ({
   resolveCorrectionsContext,
 }));
 
-vi.mock('../reinforcement.js', () => ({
-  resolveReinforcementContext,
-}));
-
 const { formatRegularDaltonOverlaySections } = await import('../pipeline/regularDaltonOverlays.js');
 
 describe('formatRegularDaltonOverlaySections', () => {
@@ -32,18 +27,12 @@ describe('formatRegularDaltonOverlaySections', () => {
     resolveCorrectionsContext.mockResolvedValue({
       contextFile: '/repo/.platform-state/runtime/context-pack-corrections.md',
     });
-    resolveReinforcementContext.mockResolvedValue({
-      contextFile: '/repo/AgentWorkSpace/qmd/global/agent-rewards/software-engineer.md',
-    });
   });
 
-  it('skips overlays whose content is unavailable', async () => {
+  it('skips overlays whose content is unavailable and leaves reinforcement to launch code', async () => {
     readTextFile.mockImplementation(async (candidate: string) => {
       if (candidate === '/repo/.platform-state/runtime/context-pack-conventions.md') {
         return '# Conventions\nFollow the pack rules.';
-      }
-      if (candidate === '/repo/AgentWorkSpace/qmd/global/agent-rewards/software-engineer.md') {
-        return '# Reinforcement\nKeep changes tightly scoped.';
       }
       return null;
     });
@@ -58,11 +47,8 @@ describe('formatRegularDaltonOverlaySections', () => {
     expect(prompt).toContain('### Conventions');
     expect(prompt).toContain('Follow the pack rules.');
     expect(prompt).not.toContain('### Corrections');
-    expect(prompt).toContain('---\n\n### Reinforcement');
-    expect(prompt).toContain('### Reinforcement');
-    expect(prompt).toContain('Keep changes tightly scoped.');
+    expect(prompt).not.toContain('### Reinforcement');
     expect(readTextFile).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-conventions.md');
     expect(readTextFile).toHaveBeenCalledWith('/repo/.platform-state/runtime/context-pack-corrections.md');
-    expect(readTextFile).toHaveBeenCalledWith('/repo/AgentWorkSpace/qmd/global/agent-rewards/software-engineer.md');
   });
 });

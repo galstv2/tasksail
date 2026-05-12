@@ -1,4 +1,5 @@
 import type { ContextPackDiscoveryMode, ContextPackRepositoryType, WorkspaceScopeMode } from '../shared/desktopContract';
+import { isRecord } from '../shared/desktopContractValidators';
 
 export type RepositoryEntryDraft = {
   key: string;
@@ -67,6 +68,105 @@ export type ContextPackCreationDraft = {
 
 export type ContextPackCreationModalStep = 'setup' | 'shape' | 'review';
 
+export type OpenModalIntent =
+  | { kind: 'fresh' }
+  | { kind: 'prefill-from-repo'; repoRoot: string };
+
+export type OpenContextPackCreationModal = (intent?: OpenModalIntent) => void;
+
+export type PersistedContextPackCreation = {
+  version: 1;
+  savedAt: string;
+  draft: ContextPackCreationDraft;
+  modalStep: ContextPackCreationModalStep;
+  wizardStep: BuildWizardStep | null;
+  wizardParts: PartDraft[];
+  creationOrigin: 'existing' | 'new';
+};
+
+function isRepositoryEntryDraft(value: unknown): value is RepositoryEntryDraft {
+  return isRecord(value)
+    && typeof value.key === 'string'
+    && typeof value.repoRoot === 'string'
+    && typeof value.repoName === 'string'
+    && typeof value.repoId === 'string'
+    && typeof value.owner === 'string'
+    && typeof value.systemLayer === 'string'
+    && typeof value.languages === 'string'
+    && typeof value.artifactRoots === 'string'
+    && typeof value.documentPaths === 'string'
+    && typeof value.boundedContext === 'string'
+    && typeof value.serviceName === 'string'
+    && typeof value.repoRole === 'string'
+    && typeof value.workspaceActivationGroup === 'string'
+    && typeof value.defaultFocusable === 'boolean'
+    && typeof value.activationPriority === 'number'
+    && typeof value.primary === 'boolean'
+    && typeof value.repositoryType === 'string';
+}
+
+function isFocusAreaEntryDraft(value: unknown): value is FocusAreaEntryDraft {
+  return isRecord(value)
+    && typeof value.key === 'string'
+    && typeof value.focusId === 'string'
+    && typeof value.focusName === 'string'
+    && typeof value.relativePath === 'string'
+    && typeof value.path === 'string'
+    && typeof value.focusType === 'string'
+    && typeof value.group === 'string'
+    && typeof value.defaultFocusable === 'boolean'
+    && typeof value.activationPriority === 'number'
+    && typeof value.primary === 'boolean'
+    && typeof value.repositoryType === 'string';
+}
+
+function isPartDraft(value: unknown): value is PartDraft {
+  return isRecord(value)
+    && typeof value.key === 'string'
+    && typeof value.name === 'string'
+    && typeof value.role === 'string'
+    && typeof value.language === 'string'
+    && typeof value.languageIsOther === 'boolean'
+    && typeof value.location === 'string'
+    && typeof value.primary === 'boolean'
+    && typeof value.editing === 'boolean';
+}
+
+function isContextPackCreationDraft(value: unknown): value is ContextPackCreationDraft {
+  return isRecord(value)
+    && typeof value.contextPackDir === 'string'
+    && typeof value.discoveryRoot === 'string'
+    && typeof value.mode === 'string'
+    && typeof value.contextPackId === 'string'
+    && typeof value.estateName === 'string'
+    && typeof value.defaultScopeMode === 'string'
+    && (value.creationOrigin === 'existing' || value.creationOrigin === 'new')
+    && Array.isArray(value.repositories)
+    && value.repositories.every(isRepositoryEntryDraft)
+    && Array.isArray(value.focusAreas)
+    && value.focusAreas.every(isFocusAreaEntryDraft);
+}
+
+export function isPersistedContextPackCreation(
+  value: unknown,
+): value is PersistedContextPackCreation {
+  return isRecord(value)
+    && value.version === 1
+    && typeof value.savedAt === 'string'
+    && isContextPackCreationDraft(value.draft)
+    && (value.modalStep === 'setup' || value.modalStep === 'shape' || value.modalStep === 'review')
+    && (
+      value.wizardStep === null
+      || value.wizardStep === 'project-type'
+      || value.wizardStep === 'location'
+      || value.wizardStep === 'project-name'
+      || value.wizardStep === 'build-parts'
+    )
+    && Array.isArray(value.wizardParts)
+    && value.wizardParts.every(isPartDraft)
+    && (value.creationOrigin === 'existing' || value.creationOrigin === 'new');
+}
+
 export type ContextPackCreationModalProps = {
   isOpen: boolean;
   busy: boolean;
@@ -78,8 +178,10 @@ export type ContextPackCreationModalProps = {
   message: string;
   canGoBack: boolean;
   canGoNext: boolean;
-  onOpen: () => void;
+  canGoNextReason?: string;
+  onOpen: OpenContextPackCreationModal;
   onClose: () => void;
+  onDiscardDraft: () => void;
   onBrowseContextPackDir: () => void | Promise<void>;
   onBrowseDiscoveryRoot: () => void | Promise<void>;
   onChangeMode: (mode: Exclude<ContextPackDiscoveryMode, 'auto'>) => void;

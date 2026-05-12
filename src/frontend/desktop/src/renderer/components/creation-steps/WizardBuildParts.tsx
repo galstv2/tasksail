@@ -1,5 +1,6 @@
 import { slugifyValue } from '../../hooks/useContextPackDraft';
 import type { ContextPackCreationDraft, PartDraft } from '../../contextPackCreationTypes';
+import { isMonolithEstateMode } from '../../contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import LanguageSelector from './LanguageSelector';
 import RoleSelector from './RoleSelector';
@@ -19,14 +20,44 @@ type WizardBuildPartsProps = {
   onRemovePart: (key: string) => void;
 };
 
+function parentOf(absolutePath: string): string {
+  const trimmed = absolutePath.replace(/\/+$/, '');
+  const lastSep = trimmed.lastIndexOf('/');
+  if (lastSep < 0) return trimmed;
+  if (lastSep === 0) return '/';
+  return trimmed.slice(0, lastSep);
+}
+
+/**
+ * Suggests a path for a new part. Infrastructure parts in monolith mode are
+ * separate git repos at a sibling path (created with their own `git init`),
+ * not folders inside the monolith. See `initGitReposForNewProject` in
+ * `electron/contextPackActions/create.ts` for the matching git-init contract.
+ */
 function resolveSuggestedLocation(
   draft: ContextPackCreationDraft,
   candidateName: string,
+  role: string,
 ): string {
-  if (draft.mode === 'monolith') {
-    return slugifyValue(candidateName);
+  const slug = slugifyValue(candidateName);
+  if (isMonolithEstateMode(draft.mode)) {
+    if (role === 'infrastructure') {
+      return `${parentOf(draft.discoveryRoot)}/${slug}`;
+    }
+    return slug;
   }
-  return `${draft.discoveryRoot.replace(/\/+$/, '')}/${slugifyValue(candidateName)}`;
+  return `${draft.discoveryRoot.replace(/\/+$/, '')}/${slug}`;
+}
+
+function isAutoDerivedLocation(
+  draft: ContextPackCreationDraft,
+  part: PartDraft,
+): boolean {
+  if (!part.name.trim() || !part.location.trim()) return false;
+  for (const role of ['backend', 'frontend', 'database', 'infrastructure', 'documents', 'shared']) {
+    if (part.location === resolveSuggestedLocation(draft, part.name, role)) return true;
+  }
+  return false;
 }
 
 function resolveLanguageLabel(part: PartDraft): string {
@@ -123,7 +154,7 @@ function WizardBuildParts({
                             onUpdatePart(
                               part.key,
                               'location',
-                              resolveSuggestedLocation(draft, value),
+                              resolveSuggestedLocation(draft, value, part.role),
                             );
                           }
                         }}
@@ -131,13 +162,13 @@ function WizardBuildParts({
                     </label>
 
                     <label className="composer-field">
-                      <span>{draft.mode === 'monolith' ? 'Folder' : 'Path'}</span>
+                      <span>{isMonolithEstateMode(draft.mode) ? 'Folder' : 'Path'}</span>
                       <input
                         value={part.location}
                         onChange={(event) =>
                           onUpdatePart(part.key, 'location', event.target.value)
                         }
-                        placeholder={draft.mode === 'monolith' ? 'src/api' : draft.discoveryRoot}
+                        placeholder={isMonolithEstateMode(draft.mode) ? 'src/api' : draft.discoveryRoot}
                       />
                     </label>
                   </div>
@@ -147,8 +178,17 @@ function WizardBuildParts({
                     <RoleSelector
                       busy={busy}
                       selectedRole={part.role}
+                      excludeRoles={draft.mode === 'monolith' ? ['infrastructure'] : undefined}
                       onSelect={(role) => {
                         onUpdatePart(part.key, 'role', role);
+
+                        if (isAutoDerivedLocation(draft, part) && part.name.trim()) {
+                          onUpdatePart(
+                            part.key,
+                            'location',
+                            resolveSuggestedLocation(draft, part.name, role),
+                          );
+                        }
 
                         if (role === 'documents') {
                           onUpdatePart(part.key, 'languageIsOther', false);
@@ -163,6 +203,11 @@ function WizardBuildParts({
                       }}
                     />
                   </div>
+                  {isMonolithEstateMode(draft.mode) && part.role === 'infrastructure' ? (
+                    <p className="context-pack-modal__part-picker-note">
+                      Infrastructure parts are created as separate git repos beside the monolith.
+                    </p>
+                  ) : null}
 
                   {part.role && part.role !== 'documents' ? (
                     <div className="context-pack-modal__part-picker">
@@ -221,7 +266,7 @@ function WizardBuildParts({
         onClick={onAddPart}
       >
         <PlusIcon />
-        {draft.mode === 'monolith' ? 'Add working folder' : 'Add repository'}
+        {isMonolithEstateMode(draft.mode) ? 'Add working folder' : 'Add repository'}
       </button>
     </section>
   );

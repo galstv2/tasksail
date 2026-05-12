@@ -73,8 +73,6 @@ export function formatRuntimeStatus(status: ContextPackRuntimeStatus | undefined
   switch (status) {
     case 'active':
       return 'active';
-    case 'active-dirty-workspace':
-      return 'modified';
     case 'activation-failed':
       return 'failed';
     case 'workspace-sync-failed':

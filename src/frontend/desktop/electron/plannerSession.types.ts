@@ -116,7 +116,7 @@ export type PlannerCliInvocation = {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  agentId: 'planning-agent';
+  agentId: string;
   model: string;
   prompt: string;
   promptMode: 'interactive' | 'one-shot';

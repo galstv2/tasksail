@@ -13,6 +13,7 @@ function ContextPackSidebarExpanded({
   contextPacks,
   activeContextPackDir,
   selectedContextPackDir,
+  repoRoot,
   selectedRepoIds,
   selectedFocusIds,
   deepFocusEnabled,
@@ -39,6 +40,9 @@ function ContextPackSidebarExpanded({
   onClearActive,
   showMultiPrimaryWarning,
   onDismissMultiPrimaryWarning,
+  bootstrapEmptyConfirmPending,
+  onConfirmActivateAnyway,
+  onConfirmPopulateAndSeed,
   onToggleRepositoryType,
   onOpenPlannerModal,
 }: ContextPackSidebarExpandedProps): JSX.Element {
@@ -155,7 +159,7 @@ function ContextPackSidebarExpanded({
             className="sidebar-icon-btn sidebar-icon-btn--accent"
             disabled={isBusy}
             aria-label="Create context pack"
-            onClick={onOpenCreateModal}
+            onClick={() => onOpenCreateModal()}
             title="Create"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
@@ -192,6 +196,7 @@ function ContextPackSidebarExpanded({
         isBusy={isBusy}
         onSelectContextPack={onSelectContextPack}
         onOpenCreateModal={onOpenCreateModal}
+        repoRoot={repoRoot}
       />
 
       {/* ── Scrollable detail area ─────────────────── */}
@@ -317,6 +322,44 @@ function ContextPackSidebarExpanded({
             <button type="button" className="action-button" onClick={onDismissMultiPrimaryWarning}>
               OK
             </button>
+          </div>
+        </div>
+      )}
+      {bootstrapEmptyConfirmPending && (
+        <div className="context-pack-modal__overlay" role="presentation">
+          <div
+            className="context-pack-warning-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Pack needs population"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="bootstrap-empty-confirm"
+          >
+            <p className="context-pack-warning-modal__title">Pack needs population</p>
+            <p className="context-pack-warning-modal__body">
+              {selectedPack?.packSeedStateInfo?.reason
+                ? `This pack hasn't been seeded yet (${selectedPack.packSeedStateInfo.reason}). `
+                : 'This pack hasn\'t been seeded yet. '}
+              Activating now will hand agents an empty memory tree.
+            </p>
+            <div className="context-pack-warning-modal__actions">
+              <button
+                type="button"
+                className="action-button"
+                onClick={() => void onConfirmActivateAnyway()}
+                data-testid="bootstrap-empty-activate-anyway"
+              >
+                Activate anyway
+              </button>
+              <button
+                type="button"
+                className="action-button action-button--primary"
+                onClick={() => void onConfirmPopulateAndSeed()}
+                data-testid="bootstrap-empty-populate-and-seed"
+              >
+                Populate and seed now
+              </button>
+            </div>
           </div>
         </div>
       )}

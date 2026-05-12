@@ -10,16 +10,22 @@ from typing import Any
 
 DEFAULT_MANIFEST = "qmd/repo-sources.json"
 DEFAULT_PLAN_FILE = "qmd/bootstrap/seed-plan.json"
-ALLOWED_LAYERS = {
-    "backend",
-    "frontend",
-    "test",
-    "infrastructure",
-    "database",
-    "documents",
-    "shared",
-}
-DEFAULT_MANIFEST_VERSION = "qmd-repo-sources/v1"
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from src.backend.mcp.pack_constants import (  # noqa: E402
+    MANIFEST_VERSION as DEFAULT_MANIFEST_VERSION,
+)
+from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath  # noqa: E402
+from src.backend.mcp.path_resolution import pick_local_path  # noqa: E402
+from src.backend.mcp.repo_context_mcp.utils import (  # noqa: E402
+    ensure_list_of_strings,
+    ensure_non_empty_string,
+    normalize_layer,
+    unique_preserving_order,
+)
 
 
 @dataclass
@@ -37,12 +43,6 @@ class RepoPlan:
     qmd_targets: dict[str, Any]
     status: str
     warnings: list[str]
-
-
-def ensure_non_empty_string(value: Any, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"Field '{field_name}' must be a non-empty string")
-    return value.strip()
 
 
 def parse_args() -> argparse.Namespace:
@@ -110,41 +110,21 @@ def load_json(path: Path) -> dict[str, Any]:
         ) from exc
 
 
-def ensure_list_of_strings(value: Any, field_name: str) -> list[str]:
-    if value is None:
-        return []
+def coerce_local_path(value: Any) -> LocalPath:
     if isinstance(value, str):
-        return [value]
-    if isinstance(value, list) and all(
-        isinstance(item, str) for item in value
-    ):
-        return value
-    raise ValueError(
-        f"Field '{field_name}' must be a string or list of strings"
-    )
+        return LocalPath(host=value.replace("\\", "/"))
+    if isinstance(value, dict) and isinstance(value.get("host"), str):
+        container = value.get("container")
+        if container is not None and not isinstance(container, str):
+            raise ValueError("local_paths[].container must be a string or null")
+        return LocalPath(
+            host=value["host"].replace("\\", "/"),
+            container=container.replace("\\", "/") if isinstance(container, str) else None,
+        )
+    raise ValueError("local_paths entries must be strings or objects with host")
 
 
-def normalize_layer(value: Any) -> str:
-    if not isinstance(value, str) or not value.strip():
-        return "shared"
-    normalized = value.strip().lower()
-    if normalized not in ALLOWED_LAYERS:
-        return "shared"
-    return normalized
-
-
-def unique_preserving_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
-
-
-def normalize_repo_entry(
+def normalize_plan_repo_entry(
     context_pack_dir: Path,
     entry: dict[str, Any],
     qmd_scope_root: str,
@@ -158,10 +138,10 @@ def normalize_repo_entry(
     if not repo_name:
         repo_name = repo_id
 
-    local_paths = ensure_list_of_strings(
-        entry.get("local_paths"),
-        "local_paths",
-    )
+    raw_local_paths = entry.get("local_paths") or []
+    if not isinstance(raw_local_paths, list):
+        raise ValueError("Field 'local_paths' must be a list")
+    local_paths = [coerce_local_path(item) for item in raw_local_paths]
     if not local_paths:
         raise ValueError(
             f"Repository '{repo_id}' requires at least one local path"
@@ -194,7 +174,7 @@ def normalize_repo_entry(
     warnings: list[str] = []
 
     for local_path in local_paths:
-        resolved_root = resolve_path(context_pack_dir, local_path)
+        resolved_root = resolve_path(context_pack_dir, pick_local_path(local_path))
         root_str = str(resolved_root)
         if resolved_root.exists():
             existing_roots.append(root_str)
@@ -337,7 +317,7 @@ def build_plan(context_pack_dir: Path, manifest_path: Path) -> dict[str, Any]:
     for raw_entry in repositories:
         if not isinstance(raw_entry, dict):
             raise ValueError("Each repository entry must be a JSON object")
-        normalized = normalize_repo_entry(context_pack_dir, raw_entry, qmd_scope_root)
+        normalized = normalize_plan_repo_entry(context_pack_dir, raw_entry, qmd_scope_root)
         if normalized.repo_id in seen_repo_ids:
             raise ValueError(
                 f"Duplicate repository repo_id detected in manifest: {normalized.repo_id}"
@@ -467,11 +447,10 @@ def main() -> int:
         return 1
 
     if args.write_plan:
-        plan_file.parent.mkdir(parents=True, exist_ok=True)
-        plan_file.write_text(
-            json.dumps(plan, indent=2, sort_keys=False) + "\n",
-            encoding="utf-8",
-        )
+        from src.backend.mcp.pack_schemas import validate_plan
+        from src.backend.mcp.pack_writer import PackWriter
+        plan_model = validate_plan(plan, path=str(plan_file))
+        PackWriter(context_pack_dir, plan_file=plan_file).write_plan(plan_model)
 
     if not args.quiet:
         if args.format == "json":

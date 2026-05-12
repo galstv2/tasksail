@@ -1,6 +1,10 @@
 import { useCallback } from 'react';
 
 import type { ContextPackDiscoveryMode } from '../../shared/desktopContract';
+import { isDistributedEstateMode, isMonolithEstateMode } from '../contextPackModeUtils';
+import { slugifyValue } from '../../shared/slug';
+
+export { slugifyValue };
 import type {
   PartDraft,
   ContextPackCreationDraft,
@@ -19,15 +23,6 @@ export const INITIAL_DRAFT: ContextPackCreationDraft = {
   repositories: [],
   focusAreas: [],
 };
-
-export function slugifyValue(value: string): string {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return normalized || 'context-pack';
-}
 
 function stableNumericSuffix(value: string): string {
   const input = value.trim().toLowerCase();
@@ -154,17 +149,6 @@ export function createInitialMonolithRepositories(): RepositoryEntryDraft[] {
   ];
 }
 
-function ensurePrimaryRepository(
-  repositories: RepositoryEntryDraft[],
-): RepositoryEntryDraft[] {
-  if (repositories.length === 0 || repositories.some((r) => r.primary)) {
-    return repositories;
-  }
-  return repositories.map((r, i) =>
-    i === 0 ? { ...r, primary: true, defaultFocusable: true } : r,
-  );
-}
-
 function ensurePrimaryFocusArea(
   focusAreas: FocusAreaEntryDraft[],
 ): FocusAreaEntryDraft[] {
@@ -181,12 +165,11 @@ function ensurePrimaryFocusArea(
 export function normalizeDraftForMode(
   draft: ContextPackCreationDraft,
 ): ContextPackCreationDraft {
-  if (draft.mode === 'distributed') {
-    return { ...draft, repositories: ensurePrimaryRepository(draft.repositories) };
+  if (isDistributedEstateMode(draft.mode)) {
+    return draft;
   }
   return {
     ...draft,
-    repositories: ensurePrimaryRepository(draft.repositories),
     focusAreas: ensurePrimaryFocusArea(draft.focusAreas),
   };
 }
@@ -204,7 +187,7 @@ export function buildDraftFromWizardParts(
   draft: ContextPackCreationDraft,
   parts: PartDraft[],
 ): ContextPackCreationDraft {
-  if (draft.mode === 'distributed') {
+  if (isDistributedEstateMode(draft.mode)) {
     const seenRepoIds = new Set<string>();
     const repositories = parts.map((part, index) =>
       createRepositoryEntry({
@@ -227,18 +210,40 @@ export function buildDraftFromWizardParts(
   }
 
   const seenFocusIds = new Set<string>();
+  const seenRepoIds = new Set<string>();
+  const monoRepoId = slugifyValue(directoryName(draft.discoveryRoot));
+  seenRepoIds.add(monoRepoId);
   const monoRepo = createRepositoryEntry({
     repoRoot: draft.discoveryRoot,
     repoName: titleizeValue(directoryName(draft.discoveryRoot)),
-    repoId: slugifyValue(directoryName(draft.discoveryRoot)),
+    repoId: monoRepoId,
     systemLayer: 'shared',
-    languages: parts.map((part) => part.language).filter(Boolean).join(', '),
+    languages: parts
+      .filter((part) => part.role !== 'infrastructure')
+      .map((part) => part.language)
+      .filter(Boolean)
+      .join(', '),
     primary: true,
     repositoryType: 'primary',
     defaultFocusable: true,
     activationPriority: 100,
   });
-  const focusAreas = parts.map((part, index) =>
+  const infrastructureParts = parts.filter((part) => part.role === 'infrastructure');
+  const focusAreaParts = parts.filter((part) => part.role !== 'infrastructure');
+  const infrastructureRepos = infrastructureParts.map((part, index) =>
+    createRepositoryEntry({
+      repoRoot: part.location,
+      repoName: part.name,
+      repoId: ensureUniqueId(slugifyValue(part.name), seenRepoIds),
+      systemLayer: 'infrastructure',
+      languages: part.language,
+      primary: false,
+      repositoryType: 'support',
+      defaultFocusable: false,
+      activationPriority: Math.max(0, 90 - index * 10),
+    }),
+  );
+  const focusAreas = focusAreaParts.map((part, index) =>
     createFocusAreaEntry({
       focusId: ensureUniqueId(slugifyValue(part.name), seenFocusIds),
       focusName: part.name,
@@ -253,7 +258,7 @@ export function buildDraftFromWizardParts(
   );
   return {
     ...draft,
-    repositories: [monoRepo],
+    repositories: [monoRepo, ...infrastructureRepos],
     focusAreas,
   };
 }
@@ -292,7 +297,7 @@ export function buildValidationErrors(
   if (draft.repositories.length > 0 && !draft.repositories.some((r) => r.primary)) {
     errors.push('At least one repository must be marked as primary (service/app).');
   }
-  if (draft.mode === 'monolith' && draft.focusAreas.length === 0) {
+  if (isMonolithEstateMode(draft.mode) && draft.focusAreas.length === 0) {
     errors.push('Monolith creation requires at least one focus area.');
   }
   return errors;
@@ -340,14 +345,14 @@ export function useContextPackDraft(
       ...draft,
       mode,
       repositories:
-        mode === 'distributed'
+        isDistributedEstateMode(mode)
           ? draft.repositories.length > 0
             ? draft.repositories
             : createInitialDistributedRepositories()
           : draft.repositories.length > 0
             ? draft.repositories
             : createInitialMonolithRepositories(),
-      focusAreas: mode === 'distributed' ? [] : draft.focusAreas,
+      focusAreas: isDistributedEstateMode(mode) ? [] : draft.focusAreas,
     }));
   }, [updateDraft]);
 
@@ -388,7 +393,7 @@ export function useContextPackDraft(
       repositories: [
         ...draft.repositories,
         createRepositoryEntry({
-          systemLayer: draft.mode === 'monolith' ? 'database' : 'backend',
+          systemLayer: isMonolithEstateMode(draft.mode) ? 'database' : 'backend',
           activationPriority: Math.max(0, 100 - draft.repositories.length * 10),
         }),
       ],

@@ -9,12 +9,13 @@ import type {
   PlannerLaunchOptions,
   PlannerLaunchSpec,
   ResolvedMcpServer,
+  RoleKind,
 } from '../../types.js';
-import { buildCopilotEnv } from './envMapper.js';
+import { buildCopilotEnv, COPILOT_CONTROLLED_ENV_KEYS } from './envMapper.js';
 import { buildCopilotArgs, formatCopilotCommand, mcpConfigArgs } from './flagBuilder.js';
 import { materializeCopilotPrompt, resolveCopilotPromptPath } from './promptComposer.js';
 import { parseChatagentProfile } from './profileParser.js';
-import { buildCopilotPlannerLaunchSpec, CopilotPlannerParser } from './plannerAdapter.js';
+import { buildCopilotPlannerLaunchSpec, COPILOT_PLANNER_AGENT_ID, CopilotPlannerParser } from './plannerAdapter.js';
 
 const AGENT_CONFIG_PATHS: AgentConfigPaths = {
   root: '.github/copilot',
@@ -23,6 +24,14 @@ const AGENT_CONFIG_PATHS: AgentConfigPaths = {
   prompts: '.github/copilot/prompts',
   profiles: '.github/agents',
   registry: '.github/agents/registry.json',
+};
+
+const COPILOT_ROLE_KINDS: Record<string, RoleKind> = {
+  [COPILOT_PLANNER_AGENT_ID]: 'planner',
+  'product-manager': 'pm',
+  'software-engineer': 'builder',
+  'software-engineer-verify': 'verifier',
+  qa: 'qa',
 };
 
 export const copilotProvider: CliProvider = {
@@ -74,6 +83,10 @@ export const copilotProvider: CliProvider = {
     return ['COPILOT_MODEL', 'COPILOT_AGENT_ID'];
   },
 
+  controlledEnvKeys(): string[] {
+    return [...COPILOT_CONTROLLED_ENV_KEYS];
+  },
+
   promptPathEnvVars(): { handoffsDir: string; implStepsDir: string } {
     return { handoffsDir: 'COPILOT_HANDOFFS_DIR', implStepsDir: 'COPILOT_IMPL_STEPS_DIR' };
   },
@@ -102,6 +115,14 @@ export const copilotProvider: CliProvider = {
     );
     writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2), 'utf-8');
     return configPath;
+  },
+
+  plannerAgentId(): string {
+    return COPILOT_PLANNER_AGENT_ID;
+  },
+
+  roleKindForAgent(agentId: string): RoleKind | null {
+    return COPILOT_ROLE_KINDS[agentId] ?? null;
   },
 
   createPlannerParser(): PlannerChunkParser {

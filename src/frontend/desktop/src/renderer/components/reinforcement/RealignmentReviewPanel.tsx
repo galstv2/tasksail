@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
 import type { ActiveWorkGuardState } from '../../hooks/useActiveWorkGuard';
+import type { RealignmentAnalysisRunState } from '../../hooks/useRealignmentSessions';
 import ConfirmOverlay from '../ConfirmOverlay';
 import { StarIcon } from '../creation-steps/icons';
 import RealignmentSessionDetail from './RealignmentSessionDetail';
@@ -17,6 +18,8 @@ type RealignmentReviewPanelProps = {
   onSelectSession: (sessionId: string | null) => void;
   activeWorkGuard: ActiveWorkGuardState;
   onStartRealignment: () => void;
+  analysisRun: RealignmentAnalysisRunState;
+  onRunAnalysis: (realignmentId: string) => void;
 };
 
 function RealignmentReviewPanel({
@@ -29,6 +32,8 @@ function RealignmentReviewPanel({
   onSelectSession,
   activeWorkGuard,
   onStartRealignment,
+  analysisRun,
+  onRunAnalysis,
 }: RealignmentReviewPanelProps): JSX.Element {
   const [confirmOpen, setConfirmOpen] = useState(false);
   if (!hasActiveContextPack) {
@@ -63,6 +68,8 @@ function RealignmentReviewPanel({
         <RealignmentSessionDetail
           session={selectedSession}
           onBack={() => onSelectSession(null)}
+          analysisRun={analysisRun}
+          onRunAnalysis={onRunAnalysis}
         />
       </div>
     );
@@ -77,6 +84,8 @@ function RealignmentReviewPanel({
         sessions={sessions}
         selectedSessionId={selectedSessionId}
         onSelectSession={onSelectSession}
+        analysisRun={analysisRun}
+        onRunAnalysis={onRunAnalysis}
       />
       <div className="realignment-panel__guard" data-testid="realignment-guard">
         {activeWorkGuard.status === 'blocked' && (

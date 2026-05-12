@@ -6,7 +6,7 @@ import { AliceSprite } from './AliceSprite';
 import { DaltonSprite } from './DaltonSprite';
 import { DaltonVerifySprite } from './DaltonVerifySprite';
 import { RonSprite } from './RonSprite';
-import { agentSpriteMap } from './index';
+import { roleKindSpriteMap } from './index';
 
 describe('agent sprites', () => {
   it.each([
@@ -25,11 +25,11 @@ describe('agent sprites', () => {
     expect(svg?.getAttribute('focusable')).toBe('false');
   });
 
-  it('agentSpriteMap covers all named agents', () => {
-    expect(Object.keys(agentSpriteMap)).toEqual(
-      expect.arrayContaining(['planning-agent', 'product-manager', 'software-engineer', 'software-engineer-verify', 'qa']),
+  it('roleKindSpriteMap covers all role kinds', () => {
+    expect(Object.keys(roleKindSpriteMap)).toEqual(
+      expect.arrayContaining(['planner', 'pm', 'builder', 'verifier', 'qa']),
     );
-    expect(Object.keys(agentSpriteMap)).toHaveLength(5);
+    expect(Object.keys(roleKindSpriteMap)).toHaveLength(5);
   });
 
   it('each sprite renders at a custom size', () => {

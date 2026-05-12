@@ -1,71 +1,12 @@
-import type { DesktopActionRequest, WorkspaceScopeMode } from './desktopContract';
-
-const DESKTOP_ACTION_NAMES = [
-  'planner.submitDraft',
-  'planner.startSession',
-  'planner.sendMessage',
-  'planner.endSession',
-  'planner.saveDraft',
-  'planner.readStagedDraft',
-  'planner.finalizeSpec',
-  'queue.readStatus',
-  'queue.deletePendingItem',
-  'environment.readStatus',
-  'observability.readSnapshot',
-  'followup.begin',
-  'contextPack.pickDirectory',
-  'contextPack.discoverPrefill',
-  'contextPack.create',
-  'contextPack.list',
-  'contextPack.listRepoTree',
-  'contextPack.reseed',
-  'contextPack.previewSwitch',
-  'contextPack.applySwitch',
-  'contextPack.clearActive',
-  'contextPack.activate',
-  'contextPack.setRepositoryType',
-  'planner.pickMarkdownFile',
-  'planner.listArchivedTasks',
-  'planner.uploadSpec',
-  'reinforcement.submitFeedback',
-  'reinforcement.updateRealignmentDoc',
-  'reinforcement.readOverview',
-  'reinforcement.listTasks',
-  'reinforcement.readAgentRewards',
-  'reinforcement.listRealignmentSessions',
-  'reinforcement.readRealignmentDoc',
-  'reinforcement.checkActiveWorkGuard',
-  'reinforcement.startRealignment',
-  'externalMcp.list',
-  'externalMcp.add',
-  'externalMcp.update',
-  'externalMcp.remove',
-  'externalMcp.toggleEnabled',
-  'externalMcp.validateConnection',
-  'agentConfig.loadAgents',
-  'agentConfig.loadModelCatalog',
-  'agentConfig.saveAgentModels',
-  'agentConfig.addModel',
-  'agentConfig.removeModel',
-  'taskBoard.readBoard',
-  'taskBoard.readTaskContent',
-  'taskBoard.reorderPending',
-  'taskBoard.requeueErrorItem',
-  'taskBoard.deleteTask',
-  'taskBoard.moveToPending',
-  'taskBoard.moveToOpen',
-  'services.readStatus',
-  'services.startBackend',
-  'services.stopBackend',
-  'services.healthCheck',
-  'deepFocus.saveSelections',
-  'deepFocus.loadSelections',
-  'deepFocus.clearSelections',
-  'agentInstructions.listFiles',
-  'agentInstructions.readFile',
-  'agentInstructions.writeFile',
-  'cancel-task',
-] as const;
+import {
+  DESKTOP_ACTION_NAMES,
+  type DesktopActionRequest,
+  type WorkspaceScopeMode,
+} from './desktopContract';
+import {
+  PLANNER_FOCUS_FALLBACK_MESSAGE,
+  PLANNER_FOCUS_VALID_MESSAGE,
+} from './desktopContractPlanner';
 
 const COMPOSER_STAGES = ['compose', 'preview', 'confirm'] as const;
 const TASK_KINDS = ['standard', 'child-task'] as const;
@@ -81,7 +22,15 @@ const CONTEXT_PACK_DIRECTORY_PURPOSES = [
 const CONTEXT_PACK_DISCOVERY_MODES = [
   'auto',
   'distributed',
+  'distributed-platform',
   'monolith',
+  'monolith-platform',
+] as const;
+const CONTEXT_PACK_CREATE_MODES = [
+  'distributed',
+  'distributed-platform',
+  'monolith',
+  'monolith-platform',
 ] as const;
 const CONTEXT_PACK_REPOSITORY_TYPES = ['primary', 'support'] as const;
 const CONTEXT_PACK_SYSTEM_LAYERS = [
@@ -93,6 +42,7 @@ const CONTEXT_PACK_SYSTEM_LAYERS = [
   'shared',
 ] as const;
 const REINFORCEMENT_FEEDBACK_TYPES = ['none', 'positive', 'negative'] as const;
+const PLANNER_FOCUS_VALIDATION_MODES = ['valid', 'fallback'] as const;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -249,6 +199,112 @@ function validatePrimaryFocusTargetList(
         ...validatePrimaryScopedFields(item, index, itemField, normalizedPrimaries),
       );
     }
+  }
+  return errors;
+}
+
+export function validatePlannerFocusSnapshot(
+  value: unknown,
+  fieldName = 'payload.childTaskFocusSnapshot',
+): string[] {
+  if (!isRecord(value)) {
+    return [`${fieldName} must be an object.`];
+  }
+  const errors: string[] = [];
+  if (value.version !== 1) {
+    errors.push(`${fieldName}.version must be 1.`);
+  }
+  for (const key of ['contextPackDir', 'contextPackId', 'title', 'primaryRepoId', 'primaryRepoRoot'] as const) {
+    if (!isNonEmptyString(value[key])) {
+      errors.push(`${fieldName}.${key} must be a non-empty string.`);
+    }
+  }
+  if (value.primaryFocusRelativePath !== null && !isNonEmptyString(value.primaryFocusRelativePath)) {
+    errors.push(`${fieldName}.primaryFocusRelativePath must be a non-empty string or null.`);
+  }
+  if (value.primaryFocusTargetKind !== null && !isOneOf(value.primaryFocusTargetKind, CONTEXT_PACK_FOCUS_TARGET_KINDS)) {
+    errors.push(`${fieldName}.primaryFocusTargetKind must be directory, file, or null.`);
+  }
+  errors.push(...validatePrimaryFocusTargetList(value.primaryFocusTargets, `${fieldName}.primaryFocusTargets`));
+  if (value.selectedTestTarget !== null) {
+    errors.push(...validateDeepFocusTarget(value.selectedTestTarget, `${fieldName}.selectedTestTarget`));
+  }
+  errors.push(...validateDeepFocusTargetList(value.supportTargets, `${fieldName}.supportTargets`));
+  if (typeof value.deepFocusEnabled !== 'boolean') {
+    errors.push(`${fieldName}.deepFocusEnabled must be a boolean.`);
+  }
+  if (!isRecord(value.contextPackBinding)) {
+    errors.push(`${fieldName}.contextPackBinding must be an object.`);
+  } else {
+    const binding = value.contextPackBinding;
+    for (const key of ['contextPackDir', 'contextPackId', 'scopeMode'] as const) {
+      if (!isNonEmptyString(binding[key])) {
+        errors.push(`${fieldName}.contextPackBinding.${key} must be a non-empty string.`);
+      }
+    }
+    errors.push(...validateSelectedIds(binding.selectedRepoIds, 'selectedRepoIds').map((error) => error.replace('payload.', `${fieldName}.contextPackBinding.`)));
+    errors.push(...validateSelectedIds(binding.selectedFocusIds, 'selectedFocusIds').map((error) => error.replace('payload.', `${fieldName}.contextPackBinding.`)));
+    if (typeof binding.deepFocusEnabled !== 'boolean') {
+      errors.push(`${fieldName}.contextPackBinding.deepFocusEnabled must be a boolean.`);
+    }
+    if (binding.selectedFocusPath !== null && !isString(binding.selectedFocusPath)) {
+      errors.push(`${fieldName}.contextPackBinding.selectedFocusPath must be a string or null.`);
+    }
+    if (binding.selectedFocusTargetKind !== null && !isOneOf(binding.selectedFocusTargetKind, CONTEXT_PACK_FOCUS_TARGET_KINDS)) {
+      errors.push(`${fieldName}.contextPackBinding.selectedFocusTargetKind must be directory, file, or null.`);
+    }
+    errors.push(...validatePrimaryFocusTargetList(binding.selectedFocusTargets, `${fieldName}.contextPackBinding.selectedFocusTargets`));
+    if (binding.selectedTestTarget !== null) {
+      errors.push(...validateDeepFocusTarget(binding.selectedTestTarget, `${fieldName}.contextPackBinding.selectedTestTarget`));
+    }
+    errors.push(...validateDeepFocusTargetList(binding.selectedSupportTargets, `${fieldName}.contextPackBinding.selectedSupportTargets`));
+  }
+  return errors;
+}
+
+function validatePlannerChildTaskLineage(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload.childTaskLineage must be an object.'];
+  }
+  const errors: string[] = [];
+  for (const key of ['parentTaskId', 'parentQmdRecordId', 'parentQmdScope', 'rootTaskId', 'followUpReason'] as const) {
+    if (!isNonEmptyString(value[key])) {
+      errors.push(`payload.childTaskLineage.${key} must be a non-empty string.`);
+    }
+  }
+  return errors;
+}
+
+function validatePlannerFocusValidationIssue(value: unknown, fieldName: string): string[] {
+  if (!isRecord(value)) {
+    return [`${fieldName} must be an object.`];
+  }
+  const errors: string[] = [];
+  const issueCodes = [
+    'context-pack-missing',
+    'context-pack-mismatch',
+    'context-pack-binding-mismatch',
+    'primary-repo-missing',
+    'primary-focus-path-missing',
+    'primary-focus-target-missing',
+    'selected-test-target-missing',
+    'support-target-missing',
+    'scoped-test-target-missing',
+    'scoped-support-target-missing',
+    'selected-repo-id-missing',
+    'selected-focus-id-missing',
+  ] as const;
+  if (!isOneOf(value.code, issueCodes)) {
+    errors.push(`${fieldName}.code must be a supported planner focus validation issue code.`);
+  }
+  if (!isNonEmptyString(value.label)) {
+    errors.push(`${fieldName}.label must be a non-empty string.`);
+  }
+  if (value.path !== undefined && !isNonEmptyString(value.path)) {
+    errors.push(`${fieldName}.path must be a non-empty string when provided.`);
+  }
+  if (value.id !== undefined && !isNonEmptyString(value.id)) {
+    errors.push(`${fieldName}.id must be a non-empty string when provided.`);
   }
   return errors;
 }
@@ -710,8 +766,14 @@ function validateContextPackCreatePayload(value: unknown): string[] {
   if (!isAbsolutePath(value.discoveryRoot)) {
     errors.push('payload.discoveryRoot must be an absolute path string.');
   }
-  if (!isOneOf(value.mode, CONTEXT_PACK_DISCOVERY_MODES)) {
-    errors.push('payload.mode must be auto, distributed, or monolith.');
+  if (!isOneOf(value.mode, CONTEXT_PACK_CREATE_MODES)) {
+    errors.push('payload.mode must be one of distributed, distributed-platform, monolith, monolith-platform.');
+  }
+  if (value.confirmOverwrite !== undefined && typeof value.confirmOverwrite !== 'boolean') {
+    errors.push('payload.confirmOverwrite must be a boolean when provided.');
+  }
+  if (value.allowScaryPath !== undefined && typeof value.allowScaryPath !== 'boolean') {
+    errors.push('payload.allowScaryPath must be a boolean when provided.');
   }
   if (!isRecord(value.bootstrapAnswers)) {
     errors.push('payload.bootstrapAnswers must be an object.');
@@ -872,6 +934,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'planner.readStagedDraft':
     case 'planner.pickMarkdownFile':
     case 'planner.listArchivedTasks':
+    case 'planner.listConversationHistory':
       return [];
     case 'contextPack.listRepoTree': {
       if (!isRecord(request.payload)) {
@@ -905,6 +968,52 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       }
       if (request.payload.contextPackDir !== undefined && !isString(request.payload.contextPackDir)) {
         return ['payload.contextPackDir must be a string when provided.'];
+      }
+      if (request.payload.replayConversationId !== undefined && !isNonEmptyString(request.payload.replayConversationId)) {
+        return ['payload.replayConversationId must be a non-empty string when provided.'];
+      }
+      const errors: string[] = [];
+      const hasReplay = request.payload.replayConversationId !== undefined;
+      const hasDeepFocus = request.payload.deepFocusSelection !== undefined;
+      const hasSnapshot = request.payload.childTaskFocusSnapshot !== undefined;
+      const hasLineage = request.payload.childTaskLineage !== undefined;
+      if (hasReplay && hasSnapshot) {
+        errors.push('payload.replayConversationId cannot be combined with payload.childTaskFocusSnapshot.');
+      }
+      if (hasDeepFocus && hasSnapshot) {
+        errors.push('payload.deepFocusSelection cannot be combined with payload.childTaskFocusSnapshot.');
+      }
+      if (hasSnapshot && !hasLineage) {
+        errors.push('payload.childTaskFocusSnapshot requires payload.childTaskLineage.');
+      }
+      if (hasLineage && !hasSnapshot) {
+        errors.push('payload.childTaskLineage requires payload.childTaskFocusSnapshot.');
+      }
+      if (hasSnapshot) {
+        errors.push(...validatePlannerFocusSnapshot(request.payload.childTaskFocusSnapshot));
+      }
+      if (hasLineage) {
+        errors.push(...validatePlannerChildTaskLineage(request.payload.childTaskLineage));
+      }
+      return errors;
+    }
+    case 'planner.validateChildTaskFocus': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be a non-empty string.');
+      }
+      errors.push(...validatePlannerFocusSnapshot(request.payload.snapshot, 'payload.snapshot'));
+      return errors;
+    }
+    case 'planner.hydrateConversation': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      if (!isNonEmptyString(request.payload.recordId)) {
+        return ['payload.recordId must be a non-empty string.'];
       }
       return [];
     }
@@ -940,6 +1049,9 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isNonEmptyString(request.payload.text)) {
         return ['payload.text must be a non-empty string.'];
       }
+      if (request.payload.displayText !== undefined && !isString(request.payload.displayText)) {
+        return ['payload.displayText must be a string when provided.'];
+      }
       return [];
     }
     case 'contextPack.pickDirectory': {
@@ -971,7 +1083,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         errors.push('payload.rootPath must be an absolute path string.');
       }
       if (!isOneOf(request.payload.mode, CONTEXT_PACK_DISCOVERY_MODES)) {
-        errors.push('payload.mode must be auto, distributed, or monolith.');
+        errors.push('payload.mode must be one of auto, distributed, distributed-platform, monolith, monolith-platform.');
       }
       return errors;
     }
@@ -1042,6 +1154,22 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       }
       return errors;
     }
+    case 'contextPack.setRepoCategory': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      const errors: string[] = [];
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be an absolute path.');
+      }
+      if (!isNonEmptyString(request.payload.repoId)) {
+        errors.push('payload.repoId must be a non-empty string.');
+      }
+      if (!isNonEmptyString(request.payload.repoCategory)) {
+        errors.push('payload.repoCategory must be a non-empty string.');
+      }
+      return errors;
+    }
     case 'reinforcement.submitFeedback': {
       const dirErrors = validateContextPackDirPayload(request.payload);
       if (dirErrors.length > 0 && dirErrors[0] === 'payload must be an object.') {
@@ -1106,6 +1234,19 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       }
       if (!isNonEmptyString(request.payload.triggerTaskId)) {
         errors.push('payload.triggerTaskId must be a non-empty string.');
+      }
+      return errors;
+    }
+    case 'reinforcement.runRealignmentAnalysis': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      const errors: string[] = [];
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be an absolute path string.');
+      }
+      if (!isNonEmptyString(request.payload.realignmentId)) {
+        errors.push('payload.realignmentId must be a non-empty string.');
       }
       return errors;
     }
@@ -1295,6 +1436,24 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isNonEmptyString(request.payload.content)) {
         return ['planner.uploadSpec requires a non-empty content string in the payload.'];
       }
+      if (
+        request.payload.requirePlannerSidecar !== undefined &&
+        typeof request.payload.requirePlannerSidecar !== 'boolean'
+      ) {
+        return ['payload.requirePlannerSidecar must be a boolean when provided.'];
+      }
+      if (
+        request.payload.expectedTaskKind !== undefined &&
+        !isOneOf(request.payload.expectedTaskKind, TASK_KINDS)
+      ) {
+        return ['payload.expectedTaskKind must be standard or child-task when provided.'];
+      }
+      if (
+        request.payload.expectedTaskKind !== undefined &&
+        request.payload.requirePlannerSidecar !== true
+      ) {
+        return ['payload.expectedTaskKind requires payload.requirePlannerSidecar to be true.'];
+      }
       return [];
     }
     case 'cancel-task': {
@@ -1307,4 +1466,41 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     default:
       return ['action must be one of the approved desktop actions.'];
   }
+}
+
+export function validatePlannerValidateChildTaskFocusResponse(response: unknown): string[] {
+  if (!isRecord(response)) {
+    return ['response must be an object.'];
+  }
+  const errors: string[] = [];
+  if (response.action !== 'planner.validateChildTaskFocus') {
+    errors.push('response.action must be planner.validateChildTaskFocus.');
+  }
+  if (!isOneOf(response.mode, PLANNER_FOCUS_VALIDATION_MODES)) {
+    errors.push('response.mode must be valid or fallback.');
+  }
+  if (!Array.isArray(response.issues)) {
+    errors.push('response.issues must be an array.');
+  } else {
+    for (const [index, issue] of response.issues.entries()) {
+      errors.push(...validatePlannerFocusValidationIssue(issue, `response.issues[${index}]`));
+    }
+  }
+  if (response.mode === 'valid') {
+    if (response.message !== PLANNER_FOCUS_VALID_MESSAGE) {
+      errors.push('response.message must equal the valid planner focus validation message.');
+    }
+    if (Array.isArray(response.issues) && response.issues.length > 0) {
+      errors.push('response.issues must be empty when response.mode is valid.');
+    }
+  }
+  if (response.mode === 'fallback') {
+    if (response.message !== PLANNER_FOCUS_FALLBACK_MESSAGE) {
+      errors.push('response.message must equal the fallback planner focus validation message.');
+    }
+    if (Array.isArray(response.issues) && response.issues.length === 0) {
+      errors.push('response.issues must not be empty when response.mode is fallback.');
+    }
+  }
+  return errors;
 }

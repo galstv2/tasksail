@@ -221,6 +221,11 @@ def _build_distributed_review_payload(
             "artifact_roots": artifact_roots,
             "document_paths": document_paths,
         }
+        # Forward v2 category fields when provided by the operator
+        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+            if repository.get(v2_field) is not None:
+                review_entry[v2_field] = repository[v2_field]
+
         if repository.get("repository_type"):
             review_entry["repository_type"] = repository["repository_type"]
         elif candidate.get("repository_type"):
@@ -268,7 +273,7 @@ def _build_distributed_review_payload(
     return {
         "context_pack_id": answers["context_pack_id"],
         "display_name": answers["estate_name"],
-        "estate_type": "distributed-platform",
+        "estate_type": discovery_payload.get("estate_type") or "distributed",
         "default_scope_mode": answers.get("default_scope_mode", DEFAULT_SCOPE_MODE),
         "primary_working_repo_ids": primary_working_repo_ids,
         "repositories": review_repositories,
@@ -356,12 +361,61 @@ def _build_monolith_focusable_areas(
     return normalized
 
 
+def _build_monolith_infrastructure_repository(
+    repository: dict[str, Any],
+) -> dict[str, Any]:
+    """Shape an infrastructure repo entry for monolith-platform manifests.
+
+    These repos are brand-new (created by `git init` at creation time) and have
+    no discovery candidate to merge against, so the entry is built directly
+    from the operator-provided answers without filesystem detection.
+    """
+    repo_path = Path(repository["repo_root"]).resolve()
+    languages = repository.get("languages") or []
+    artifact_roots = repository.get("artifact_roots") or []
+    document_paths = repository.get("document_paths") or []
+
+    entry: dict[str, Any] = {
+        "repo_id": repository["repo_id"],
+        "path": str(repo_path),
+        "repo_name": repository["repo_name"],
+        "system_layer": repository.get("system_layer") or "infrastructure",
+        "repo_role": repository.get("repo_role") or _repo_role_for_layer("infrastructure"),
+        "default_focusable": bool(repository.get("default_focusable", False)),
+        "activation_priority": int(repository.get("activation_priority") or 0),
+        "adjacent_repo_ids": repository.get("adjacent_repo_ids") or [],
+        "depends_on_repo_ids": repository.get("depends_on_repo_ids") or [],
+        "used_by_repo_ids": repository.get("used_by_repo_ids") or [],
+        "languages": languages,
+        "artifact_roots": artifact_roots,
+        "document_paths": document_paths,
+    }
+    if repository.get("repository_type"):
+        entry["repository_type"] = repository["repository_type"]
+    for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+        if repository.get(v2_field) is not None:
+            entry[v2_field] = repository[v2_field]
+    for field_name in (
+        "owner",
+        "bounded_context",
+        "service_name",
+        "workspace_activation_group",
+    ):
+        if repository.get(field_name):
+            entry[field_name] = repository[field_name]
+    return entry
+
+
 def _build_monolith_review_payload(
     answers: dict[str, Any],
     discovery_payload: dict[str, Any],
 ) -> dict[str, Any]:
     repository = answers["repositories"][0]
     repo_path = Path(repository["repo_root"]).resolve()
+    extra_repositories = [
+        _build_monolith_infrastructure_repository(extra)
+        for extra in answers["repositories"][1:]
+    ]
 
     languages = repository["languages"]
     if not languages:
@@ -400,7 +454,7 @@ def _build_monolith_review_payload(
     return {
         "context_pack_id": answers["context_pack_id"],
         "display_name": answers["estate_name"],
-        "estate_type": "monolith",
+        "estate_type": discovery_payload.get("estate_type") or "monolith",
         "default_scope_mode": answers.get("default_scope_mode", DEFAULT_SCOPE_MODE),
         "repository": {
             "repo_id": repository["repo_id"],
@@ -412,6 +466,27 @@ def _build_monolith_review_payload(
             **(
                 {"repository_type": repository["repository_type"]}
                 if repository.get("repository_type")
+                else {}
+            ),
+            # Forward v2 category fields when provided
+            **(
+                {"repo_focus": repository["repo_focus"]}
+                if repository.get("repo_focus")
+                else {}
+            ),
+            **(
+                {"repo_focus_authored": repository["repo_focus_authored"]}
+                if repository.get("repo_focus_authored") is not None
+                else {}
+            ),
+            **(
+                {"repo_category": repository["repo_category"]}
+                if repository.get("repo_category")
+                else {}
+            ),
+            **(
+                {"repo_category_authored": repository["repo_category_authored"]}
+                if repository.get("repo_category_authored") is not None
                 else {}
             ),
             **(
@@ -430,6 +505,11 @@ def _build_monolith_review_payload(
                 else {}
             ),
         },
+        **(
+            {"repositories": extra_repositories}
+            if extra_repositories
+            else {}
+        ),
         "focusable_areas": focusable_areas,
         "primary_focus_area_ids": primary_focus_area_ids,
     }

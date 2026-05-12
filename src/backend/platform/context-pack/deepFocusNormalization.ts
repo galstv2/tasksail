@@ -44,7 +44,8 @@ export interface WritableRoot {
 
 export type ReadonlyContextRootReason =
   | 'support-target'
-  | 'scoped-support-target';
+  | 'scoped-support-target'
+  | 'support-repo';
 
 export interface ReadonlyContextRoot {
   repoLocalPath?: string;

@@ -1,0 +1,38 @@
+{
+  "blocked_count": 0,
+  "context_pack_dir": "/Users/example/contextpacks/monolith-demo",
+  "context_pack_id": "monolith-demo",
+  "manifest_path": "/Users/example/contextpacks/monolith-demo/qmd/repo-sources.json",
+  "manifest_version": "qmd-repo-sources/v1",
+  "next_steps": [],
+  "overall_status": "ready",
+  "plan_type": "qmd-seeding-dry-run",
+  "plan_version": "qmd-seeding-dry-run/v1",
+  "qmd_scope_root": "qmd/context-packs/monolith-demo",
+  "ready_count": 1,
+  "repositories": [
+    {
+      "bounded_context": null,
+      "existing_roots": [
+        "/Users/example/monolith"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "missing_roots": [],
+      "owner": null,
+      "qmd_targets": {},
+      "repo_id": "monolith",
+      "repo_name": "Monolith",
+      "scan_targets": [
+        "/Users/example/monolith/src"
+      ],
+      "status": "ready",
+      "system_layer": "backend",
+      "tags": [],
+      "warnings": []
+    }
+  ],
+  "repository_count": 1,
+  "warning_count": 0
+}

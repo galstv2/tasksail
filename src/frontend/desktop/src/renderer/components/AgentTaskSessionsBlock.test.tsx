@@ -11,7 +11,7 @@ afterEach(() => {
 function makeSession(overrides: Partial<AgentTerminalSession> = {}): AgentTerminalSession {
   return {
     taskId: 'TASK-1',
-    agentId: 'software-engineer',
+    agentId: 'provider-builder',
     agentLabel: 'Dalton (Software Engineer)',
     sessionId: 'sess-1',
     instanceId: null,

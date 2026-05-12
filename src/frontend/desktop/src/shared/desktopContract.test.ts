@@ -132,7 +132,7 @@ describe('desktopContract', () => {
       }),
     ).toEqual([
       'payload.rootPath must be an absolute path string.',
-      'payload.mode must be auto, distributed, or monolith.',
+      'payload.mode must be one of auto, distributed, distributed-platform, monolith, monolith-platform.',
     ]);
 
     expect(
@@ -165,7 +165,7 @@ describe('desktopContract', () => {
     ).toEqual([
       'payload.contextPackDir must be an absolute path string.',
       'payload.discoveryRoot must be an absolute path string.',
-      'payload.mode must be auto, distributed, or monolith.',
+      'payload.mode must be one of distributed, distributed-platform, monolith, monolith-platform.',
       'payload.bootstrapAnswers.contextPackId must be a non-empty string.',
       'payload.bootstrapAnswers.estateName must be a non-empty string.',
       'payload.bootstrapAnswers.repositories[0].repoRoot must be an absolute path string.',
@@ -305,6 +305,51 @@ describe('desktopContract', () => {
     ).toEqual(['payload.expectedTaskKind must be standard or child-task when provided.']);
   });
 
+  it('accepts planner.uploadSpec sidecar authority requirements for bypass task modes', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'planner.uploadSpec',
+        payload: {
+          content: '## Request Summary\n\nUploaded intake.',
+          requirePlannerSidecar: true,
+          expectedTaskKind: 'child-task',
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects malformed planner.uploadSpec sidecar authority payloads', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'planner.uploadSpec',
+        payload: {
+          content: '## Request Summary\n\nUploaded intake.',
+          requirePlannerSidecar: 'yes',
+        },
+      }),
+    ).toEqual(['payload.requirePlannerSidecar must be a boolean when provided.']);
+
+    expect(
+      validateDesktopActionRequest({
+        action: 'planner.uploadSpec',
+        payload: {
+          content: '## Request Summary\n\nUploaded intake.',
+          expectedTaskKind: 'recent',
+        },
+      }),
+    ).toEqual(['payload.expectedTaskKind must be standard or child-task when provided.']);
+
+    expect(
+      validateDesktopActionRequest({
+        action: 'planner.uploadSpec',
+        payload: {
+          content: '## Request Summary\n\nUploaded intake.',
+          expectedTaskKind: 'child-task',
+        },
+      }),
+    ).toEqual(['payload.expectedTaskKind requires payload.requirePlannerSidecar to be true.']);
+  });
+
   it('rejects malformed context-pack list requests only when action is invalid', () => {
     expect(
       validateDesktopActionRequest({
@@ -326,7 +371,7 @@ describe('desktopContract', () => {
       message: '4 agent(s) loaded.',
       agents: [
         {
-          agent_id: 'software-engineer',
+          agent_id: 'provider-builder',
           human_name: 'Dalton',
           role_name: 'Software Engineer',
           required_model: 'claude-sonnet-4.6',
@@ -354,8 +399,8 @@ describe('desktopContract', () => {
         action: 'agentConfig.saveAgentModels',
         payload: {
           assignments: [
-            { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
-            { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+            { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+            { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
           ],
         },
       }),

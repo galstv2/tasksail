@@ -1,6 +1,8 @@
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { createProviderFrontendDescriptor } from '../test/factories/fixtureFactory';
+
 export function installAppTestHarness(): void {
   afterEach(() => {
     cleanup();
@@ -15,24 +17,11 @@ export function installAppTestHarness(): void {
 
     window.desktopShell = {
       getBootstrapInfo: vi.fn(),
-      describeActiveProvider: vi.fn().mockResolvedValue({
-        providerId: 'test-provider',
-        homeDirName: 'test-home',
-        registryPath: '/repo/.provider/registry.json',
-        agentConfigPaths: {
-          root: '.provider',
-          instructions: '.provider/instructions',
-          prompts: '.provider/prompts',
-          profiles: '.provider/agents',
-          registry: '.provider/registry.json',
-        },
-        promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
-        contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
-        roster: [],
-      }),
+      describeActiveProvider: vi.fn().mockResolvedValue(createProviderFrontendDescriptor()),
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),
+      subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
       getQueueStatus: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -333,6 +322,10 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'contextPack.setRepositoryType', mode: 'updated', message: 'Updated.' },
       }),
+      setRepoCategory: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'contextPack.setRepoCategory', mode: 'updated', message: 'Updated.' },
+      }),
       previewContextPackSwitch: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -485,6 +478,15 @@ export function installAppTestHarness(): void {
           brokerStatus: 'idle',
         },
       }),
+      validateChildTaskFocus: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.validateChildTaskFocus',
+          mode: 'valid',
+          message: 'Parent task focus is still valid.',
+          issues: [],
+        },
+      }),
       sendPlannerMessage: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -556,6 +558,24 @@ export function installAppTestHarness(): void {
           tasks: [],
         },
       }),
+      listPlannerConversationHistory: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'empty',
+          message: 'No planner conversation history.',
+          conversations: [],
+        },
+      }),
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'not-found',
+          message: 'Planner conversation not found.',
+          record: null,
+        },
+      }),
       submitReinforcementFeedback: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -588,7 +608,12 @@ export function installAppTestHarness(): void {
       }),
       listRealignmentSessions: vi.fn().mockResolvedValue({
         ok: true,
-        response: { action: 'reinforcement.listRealignmentSessions' },
+        response: {
+          action: 'reinforcement.listRealignmentSessions',
+          mode: 'read-only',
+          message: '0 session(s).',
+          sessions: [],
+        },
       }),
       readRealignmentDoc: vi.fn().mockResolvedValue({
         ok: true,
@@ -636,6 +661,19 @@ export function installAppTestHarness(): void {
           },
         },
       }),
+      runRealignmentAnalysis: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'reinforcement.runRealignmentAnalysis',
+          mode: 'analysis-started',
+          message: 'Realignment analysis job registered.',
+          job: {
+            jobId: 'realignment:RA-mock',
+            realignmentId: 'RA-mock',
+            status: 'started',
+          },
+        },
+      }),
       listExternalMcpServers: vi.fn().mockResolvedValue({
         ok: true,
         response: { action: 'externalMcp.list', mode: 'read-only', message: '0 server(s) configured.', servers: [] },
@@ -653,28 +691,28 @@ export function installAppTestHarness(): void {
           message: 'Loaded 4 agent assignments.',
           agents: [
             {
-              agent_id: 'planning-agent',
+              agent_id: 'provider-planner',
               human_name: 'Lily',
               role_name: 'Planning Specialist',
               required_model: 'gpt-4.1',
               workflow_order: 0,
             },
             {
-              agent_id: 'product-manager',
+              agent_id: 'provider-pm',
               human_name: 'Alice',
               role_name: 'Product Manager',
               required_model: 'gpt-5.4',
               workflow_order: 1,
             },
             {
-              agent_id: 'software-engineer',
+              agent_id: 'provider-builder',
               human_name: 'Dalton',
               role_name: 'Software Engineer',
               required_model: 'claude-sonnet-4.6',
               workflow_order: 2,
             },
             {
-              agent_id: 'qa',
+              agent_id: 'provider-qa',
               human_name: 'Ron',
               role_name: 'QA and Closeout',
               required_model: 'gpt-5.4',
@@ -704,28 +742,28 @@ export function installAppTestHarness(): void {
           message: 'Agent assignments saved.',
           agents: [
             {
-              agent_id: 'planning-agent',
+              agent_id: 'provider-planner',
               human_name: 'Lily',
               role_name: 'Planning Specialist',
               required_model: 'gpt-4.1',
               workflow_order: 0,
             },
             {
-              agent_id: 'product-manager',
+              agent_id: 'provider-pm',
               human_name: 'Alice',
               role_name: 'Product Manager',
               required_model: 'gpt-5.4',
               workflow_order: 1,
             },
             {
-              agent_id: 'software-engineer',
+              agent_id: 'provider-builder',
               human_name: 'Dalton',
               role_name: 'Software Engineer',
               required_model: 'claude-sonnet-4.6',
               workflow_order: 2,
             },
             {
-              agent_id: 'qa',
+              agent_id: 'provider-qa',
               human_name: 'Ron',
               role_name: 'QA and Closeout',
               required_model: 'gpt-5.4',

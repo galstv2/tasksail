@@ -1,0 +1,63 @@
+{
+  "approval_source": {
+    "artifact_type": "discovery-structure-draft",
+    "draft_discovered_at": "2026-04-17T01:12:18Z",
+    "draft_root_path": "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo"
+  },
+  "approved_at": "2026-04-17T01:12:18Z",
+  "context_pack_id": "crud-app-repo-dotnet-distributed-demo",
+  "default_scope_mode": "focused",
+  "display_name": "Crud App Repo Dotnet Distributed Demo",
+  "estate_type": "distributed-platform",
+  "manifest_status": "approved",
+  "manifest_version": "qmd-repo-sources/v1",
+  "primary_focus_area_ids": [],
+  "primary_working_repo_ids": [
+    "platform"
+  ],
+  "qmd_scope_root": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo",
+  "repositories": [
+    {
+      "activation_priority": 100,
+      "adjacent_repo_ids": [
+        "tools"
+      ],
+      "artifact_roots": [
+        "libs",
+        "services"
+      ],
+      "default_focusable": true,
+      "languages": [
+        "csharp",
+        "json"
+      ],
+      "local_paths": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform"
+      ],
+      "repo_id": "platform",
+      "repo_name": "Platform",
+      "repo_role": "backend-service",
+      "repository_type": "primary",
+      "system_layer": "backend"
+    },
+    {
+      "activation_priority": 90,
+      "adjacent_repo_ids": [
+        "platform"
+      ],
+      "default_focusable": true,
+      "languages": [
+        "csharp",
+        "json"
+      ],
+      "local_paths": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+      ],
+      "repo_id": "tools",
+      "repo_name": "Tools",
+      "repo_role": "backend-service",
+      "repository_type": "support",
+      "system_layer": "backend"
+    }
+  ]
+}

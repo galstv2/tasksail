@@ -1,5 +1,26 @@
 import type { GenericAgentEnv } from '../../types.js';
 
+export const COPILOT_CONTROLLED_ENV_KEYS = [
+  'COPILOT_MODEL',
+  'COPILOT_AGENT_ID',
+  'COPILOT_PLATFORM_REPO_ROOT',
+  'COPILOT_WALL_CLOCK_TIMEOUT_S',
+  'COPILOT_IDLE_TIMEOUT_S',
+  'COPILOT_DISABLE_IDLE_TIMEOUT',
+  'COPILOT_HANDOFFS_DIR',
+  'COPILOT_IMPL_STEPS_DIR',
+  'COPILOT_TARGET_REPOS_JSON',
+  'COPILOT_PRIMARY_FOCUS_PATH',
+  'COPILOT_PRIMARY_FOCUS_TARGET_KIND',
+  'COPILOT_PRIMARY_FOCUS_TARGETS_JSON',
+  'COPILOT_WRITABLE_ROOTS_JSON',
+  'COPILOT_READONLY_CONTEXT_ROOTS_JSON',
+  'COPILOT_TEST_TARGET_PATH',
+  'COPILOT_TEST_TARGET_KIND',
+  'COPILOT_CONTEXT_PACK_PATHS',
+  'COPILOT_CONTEXT_PACK_SEARCH_ROOTS',
+] as const;
+
 function setOptional(env: Record<string, string>, key: string, value: string | number | boolean | undefined): void {
   if (value !== undefined) {
     env[key] = String(value);

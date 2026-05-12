@@ -54,6 +54,7 @@ function writeTaskJson(
   platformRoot: string,
   taskId: string,
   bindings: TaskRepoBinding[],
+  selection?: Record<string, unknown>,
 ): void {
   const dir = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(dir, { recursive: true });
@@ -67,6 +68,7 @@ function writeTaskJson(
         dataHostDir: null,
         dataContainerDir: null,
         repoBindings: bindings,
+        ...(selection ? { selection } : {}),
       },
       materialization: {
         strategy: 'copy',
@@ -77,6 +79,56 @@ function writeTaskJson(
       frozenAt: new Date().toISOString(),
       finalizedAt: null,
       state: 'active',
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+}
+
+function writePackSnapshot(options: {
+  platformRoot: string;
+  taskId: string;
+  primaryRepoId: string;
+  primaryRoot: string;
+  support: Array<{ repoId: string; repoRoot: string }>;
+}): void {
+  const dir = path.join(options.platformRoot, 'AgentWorkSpace', 'tasks', options.taskId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, 'pack-snapshot.json'),
+    JSON.stringify({
+      schemaVersion: 2,
+      stagedAt: new Date().toISOString(),
+      taskId: options.taskId,
+      contextPackDir: path.join(options.platformRoot, 'context-pack'),
+      contextPackId: 'test-pack',
+      estateType: 'distributed-platform',
+      primary: {
+        repoId: options.primaryRepoId,
+        focusId: null,
+        repoRoot: options.primaryRoot,
+        primaryFocusRelativePath: null,
+      },
+      support: options.support,
+      focusAreas: [],
+      selectedFocusIds: [],
+      qmdScopeRoot: 'qmd/context-packs/test-pack',
+      estateRepoIds: [options.primaryRepoId, ...options.support.map((repo) => repo.repoId)],
+      declaredRepoRoots: [options.primaryRoot, ...options.support.map((repo) => repo.repoRoot)],
+      deepFocus: {
+        enabled: false,
+        primaryFocusTargetKind: null,
+        primaryFocusTargets: [],
+        selectedTestTarget: null,
+        supportTargets: [],
+        writableRoots: [{ path: '', kind: 'directory', reason: 'selected-primary' }],
+        readonlyContextRoots: options.support.map((repo) => ({
+          repoLocalPath: repo.repoRoot,
+          path: '',
+          kind: 'directory',
+          reason: 'support-repo',
+        })),
+        warnings: [],
+      },
     }, null, 2) + '\n',
     'utf-8',
   );
@@ -135,6 +187,86 @@ describe('verifyTaskBranches', () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.reason).toBe('no-commits-beyond-base');
     expect(result.failures[0]!.branch).toBe(`task/${taskId}`);
+  });
+
+  it('does not require commits on selected support repo branches', async () => {
+    const taskId = 'verify-support-clean';
+    const primaryRoot = path.join(platformRoot, 'origin', 'primary');
+    const supportRoot = path.join(platformRoot, 'origin', 'support');
+    const primaryWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'primary');
+    const supportWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const primaryBaseSha = initRepo(primaryRoot);
+    const supportBaseSha = initRepo(supportRoot);
+    addWorktree(primaryRoot, primaryWorktree, `task/${taskId}`, primaryBaseSha);
+    addWorktree(supportRoot, supportWorktree, `task/${taskId}`, supportBaseSha);
+    commitInWorktree(primaryWorktree, 'feature.ts');
+    writeTaskJson(platformRoot, taskId, [
+      {
+        originalRoot: primaryRoot,
+        worktreeRoot: primaryWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: primaryBaseSha,
+      },
+      {
+        originalRoot: supportRoot,
+        worktreeRoot: supportWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: supportBaseSha,
+      },
+    ]);
+    writePackSnapshot({
+      platformRoot,
+      taskId,
+      primaryRepoId: 'primary',
+      primaryRoot,
+      support: [{ repoId: 'support', repoRoot: supportRoot }],
+    });
+
+    const result = await verifyTaskBranches(platformRoot, taskId);
+
+    expect(result.ok).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('still requires commits on the selected primary branch when support advanced', async () => {
+    const taskId = 'verify-primary-empty';
+    const primaryRoot = path.join(platformRoot, 'origin', 'primary');
+    const supportRoot = path.join(platformRoot, 'origin', 'support');
+    const primaryWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'primary');
+    const supportWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const primaryBaseSha = initRepo(primaryRoot);
+    const supportBaseSha = initRepo(supportRoot);
+    addWorktree(primaryRoot, primaryWorktree, `task/${taskId}`, primaryBaseSha);
+    addWorktree(supportRoot, supportWorktree, `task/${taskId}`, supportBaseSha);
+    commitInWorktree(supportWorktree, 'support-change.ts');
+    writeTaskJson(platformRoot, taskId, [
+      {
+        originalRoot: primaryRoot,
+        worktreeRoot: primaryWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: primaryBaseSha,
+      },
+      {
+        originalRoot: supportRoot,
+        worktreeRoot: supportWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: supportBaseSha,
+      },
+    ]);
+    writePackSnapshot({
+      platformRoot,
+      taskId,
+      primaryRepoId: 'primary',
+      primaryRoot,
+      support: [{ repoId: 'support', repoRoot: supportRoot }],
+    });
+
+    const result = await verifyTaskBranches(platformRoot, taskId);
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.originalRoot).toBe(primaryRoot);
+    expect(result.failures[0]!.reason).toBe('no-commits-beyond-base');
   });
 
   it('flags branch-missing when the ref was deleted out-of-band', async () => {

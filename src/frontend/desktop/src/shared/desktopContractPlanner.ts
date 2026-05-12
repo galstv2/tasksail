@@ -1,3 +1,20 @@
+import type {
+  ContextPackDeepFocusTarget,
+  ContextPackFocusTargetKind,
+  ContextPackPrimaryFocusTarget,
+} from './desktopContractDeepFocus';
+import type {
+  PlannerConversationRecord,
+  PlannerConversationTranscriptMessage,
+  PlannerStagingSidecar,
+} from '../../../../backend/platform/planner-history/types.js';
+
+export type {
+  PlannerConversationRecord,
+  PlannerConversationTranscriptMessage,
+  PlannerStagingSidecar,
+};
+
 export const DESKTOP_SHELL_PLANNER_EVENT_CHANNEL = 'desktop-shell:planner-event';
 export const DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL = 'desktop-shell:bypass-template';
 
@@ -63,6 +80,7 @@ export type PlannerStreamEventType =
 
 export type PlannerStreamEvent = {
   eventType: PlannerStreamEventType;
+  sessionId: string;
   brokerStatus: PlannerBrokerStatus;
   turnId: string | null;
   done: boolean;
@@ -91,9 +109,93 @@ export type PlannerSubmitResponse = {
   observationMode?: boolean;
 };
 
+export interface PlannerStartSessionPayload {
+  contextPackDir: string;
+  deepFocusSelection?: PlannerStartSessionDeepFocusSelection;
+  replayConversationId?: string;
+  childTaskFocusSnapshot?: PlannerFocusSnapshot;
+  childTaskLineage?: PlannerChildTaskLineage;
+}
+
+export interface PlannerStartSessionDeepFocusSelection {
+  deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets: ContextPackPrimaryFocusTarget[];
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+}
+
+export type PlannerFocusSnapshot = {
+  version: 1;
+  contextPackDir: string;
+  contextPackId: string;
+  title: string;
+  primaryRepoId: PlannerStagingSidecar['primaryRepoId'];
+  primaryRepoRoot: PlannerStagingSidecar['primaryRepoRoot'];
+  primaryFocusRelativePath: PlannerStagingSidecar['primaryFocusRelativePath'];
+  primaryFocusTargetKind: PlannerStagingSidecar['primaryFocusTargetKind'];
+  primaryFocusTargets: PlannerStagingSidecar['primaryFocusTargets'];
+  selectedTestTarget: PlannerStagingSidecar['selectedTestTarget'];
+  supportTargets: PlannerStagingSidecar['supportTargets'];
+  deepFocusEnabled: PlannerStagingSidecar['deepFocusEnabled'];
+  contextPackBinding: PlannerStagingSidecar['contextPackBinding'];
+};
+
+export type PlannerFocusValidationIssueCode =
+  | 'context-pack-missing'
+  | 'context-pack-mismatch'
+  | 'context-pack-binding-mismatch'
+  | 'primary-repo-missing'
+  | 'primary-focus-path-missing'
+  | 'primary-focus-target-missing'
+  | 'selected-test-target-missing'
+  | 'support-target-missing'
+  | 'scoped-test-target-missing'
+  | 'scoped-support-target-missing'
+  | 'selected-repo-id-missing'
+  | 'selected-focus-id-missing';
+
+export type PlannerFocusValidationIssue = {
+  code: PlannerFocusValidationIssueCode;
+  label: string;
+  path?: string;
+  id?: string;
+};
+
+export type PlannerValidateChildTaskFocusRequest = {
+  action: 'planner.validateChildTaskFocus';
+  payload: {
+    contextPackDir: string;
+    snapshot: PlannerFocusSnapshot;
+  };
+};
+
+export type PlannerValidateChildTaskFocusResponse = {
+  action: 'planner.validateChildTaskFocus';
+  mode: 'valid' | 'fallback';
+  message: string;
+  issues: PlannerFocusValidationIssue[];
+};
+
+export const PLANNER_FOCUS_VALID_MESSAGE = 'Parent task focus is still valid.';
+export const PLANNER_FOCUS_FALLBACK_MESSAGE = "The parent task's saved focus no longer matches the current context pack or filesystem. Starting regular mode with the current live context instead.";
+
+export type PlannerChildTaskLineage = {
+  parentTaskId: string;
+  parentQmdRecordId: string;
+  parentQmdScope: string;
+  rootTaskId: string;
+  followUpReason: string;
+};
+
 export type PlannerStartSessionRequest = {
   action: 'planner.startSession';
-  payload?: { contextPackDir?: string };
+  payload?: PlannerStartSessionPayload;
 };
 
 export type PlannerStartSessionResponse = {
@@ -107,7 +209,7 @@ export type PlannerStartSessionResponse = {
 
 export type PlannerSendMessageRequest = {
   action: 'planner.sendMessage';
-  payload: { text: string };
+  payload: { text: string; displayText?: string };
 };
 
 export type PlannerSendMessageResponse = {
@@ -201,6 +303,8 @@ export type PlannerUploadSpecRequest = {
   action: 'planner.uploadSpec';
   payload: {
     content: string;
+    requirePlannerSidecar?: boolean;
+    expectedTaskKind?: PlannerTaskKind;
   };
 };
 
@@ -214,6 +318,22 @@ export type PlannerUploadSpecResponse = {
   observationMode: boolean;
 };
 
+export type ArchivedTaskBranchHandoff = {
+  repoRoot: string;
+  repoLabel: string;
+  branch: string;
+  baseCommitSha: string;
+  headCommitSha: string;
+  commitsAhead: number;
+  status: string;
+  autoMerge?: {
+    enabled: boolean;
+    status: string;
+    targetBranch: string | null;
+    detail: string;
+  };
+};
+
 export type ArchivedTaskEntry = {
   taskId: string;
   title: string;
@@ -224,6 +344,19 @@ export type ArchivedTaskEntry = {
   year: string;
   archivePath: string;
   contextPackName: string;
+  branchHandoffs?: ArchivedTaskBranchHandoff[];
+  plannerFocusSnapshot?: PlannerFocusSnapshot;
+  parentTaskContent?: ArchivedParentTaskContent;
+};
+
+export type ArchivedParentTaskContent = {
+  taskTitle?: string;
+  taskSummary?: string;
+  completedWorkSummary?: string;
+  keyDecisions?: string[];
+  knownLimitations?: string[];
+  constraints?: string[];
+  implementationSummary?: string;
 };
 
 export type PlannerListArchivedTasksRequest = {
@@ -236,6 +369,42 @@ export type PlannerListArchivedTasksResponse = {
   mode: 'found' | 'empty' | 'no-context-pack';
   message: string;
   tasks: ArchivedTaskEntry[];
+};
+
+export type PlannerListConversationHistoryRequest = {
+  action: 'planner.listConversationHistory';
+  payload?: undefined;
+};
+
+export type PlannerListConversationHistorySummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+  finalizedDestinationPath: string;
+  messageCount: number;
+  taskKind: PlannerTaskKind;
+  scopeMode: string;
+  primaryRepoId: string;
+  primaryFocusRelativePath: string | null;
+};
+
+export type PlannerListConversationHistoryResponse = {
+  action: 'planner.listConversationHistory';
+  mode: 'found' | 'empty' | 'no-context-pack';
+  message: string;
+  conversations: PlannerListConversationHistorySummary[];
+};
+
+export type PlannerHydrateConversationRequest = {
+  action: 'planner.hydrateConversation';
+  payload: { recordId: string };
+};
+
+export type PlannerHydrateConversationResponse = {
+  action: 'planner.hydrateConversation';
+  mode: 'found' | 'not-found';
+  message: string;
+  record: PlannerConversationRecord | null;
 };
 
 export type QueueStatusRequest = {

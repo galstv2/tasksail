@@ -18,8 +18,23 @@
 - Context Pack Dir:
 - Context Pack ID:
 - Scope Mode:
-- Selected Repo IDs:
-- Selected Focus IDs:
+
+<!--
+Additional fields emitted conditionally by the staging writer:
+- Primary Repo ID              — distributed estates only (omitted for monolith and deep-focus)
+- Selected Repo IDs            — distributed estates only (omitted for monolith)
+- Primary Focus ID             — when a primary focus is set
+- Selected Focus IDs           — non-deep-focus modes (omitted in deep-focus)
+- Deep Focus Enabled           — deep-focus mode
+- Selected Focus Path          — deep-focus mode
+- Selected Focus Target Kind   — deep-focus mode
+- Selected Focus Targets       — deep-focus mode (JSON array of focus targets)
+- Selected Test Target         — deep-focus mode, when a test target is selected
+- Selected Support Targets     — deep-focus mode, when support targets are selected
+- Deep Focus Primary Repo ID   — deep-focus mode
+- Deep Focus Primary Focus ID  — deep-focus mode
+-->
+
 
 ## Request Summary
 <!-- (2+ sentences; minimum 20 characters) — say what the task is, why it is being asked for, and what concrete result is wanted. Use the Guide's exact terms when possible. Include any behavior, artifact, or workflow that must stay unchanged. Do not do codebase research here; give the clearest possible statement of the ask. -->

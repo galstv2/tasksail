@@ -4,6 +4,7 @@ import {
   isValidDesktopActionRequest,
   validateDesktopActionRequest,
   validatePlannerDraftModel,
+  validatePlannerValidateChildTaskFocusResponse,
 } from './desktopContractValidators';
 
 describe('validateDesktopActionRequest', () => {
@@ -28,10 +29,281 @@ describe('validateDesktopActionRequest', () => {
       'contextPack.clearActive',
       'planner.pickMarkdownFile',
       'planner.listArchivedTasks',
+      'planner.listConversationHistory',
       'externalMcp.list',
     ]) {
       expect(validateDesktopActionRequest({ action })).toEqual([]);
     }
+  });
+
+  describe('planner conversation history actions', () => {
+    it('accepts list and hydrate action discriminants', () => {
+      expect(isValidDesktopActionRequest({
+        action: 'planner.listConversationHistory',
+      })).toBe(true);
+      expect(isValidDesktopActionRequest({
+        action: 'planner.hydrateConversation',
+        payload: { recordId: 'conversation-1' },
+      })).toBe(true);
+    });
+
+    it('rejects malformed hydrate payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.hydrateConversation',
+      })).toEqual(['payload must be an object.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.hydrateConversation',
+        payload: { recordId: '' },
+      })).toEqual(['payload.recordId must be a non-empty string.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.hydrateConversation',
+        payload: { recordId: 42 },
+      })).toEqual(['payload.recordId must be a non-empty string.']);
+    });
+  });
+
+  describe('planner.startSession', () => {
+    const snapshot = {
+      version: 1,
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+      title: 'Parent task',
+      primaryRepoId: 'platform',
+      primaryRepoRoot: '/repo',
+      primaryFocusRelativePath: 'src/features/planner',
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      deepFocusEnabled: true,
+      contextPackBinding: {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+        scopeMode: 'selected',
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/features/planner',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    };
+    const lineage = {
+      parentTaskId: 'TASK-001',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders-estate',
+      rootTaskId: 'TASK-ROOT',
+      followUpReason: 'Correction requested through child-task mode.',
+    };
+
+    it('accepts optional replayConversationId in the payload', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          replayConversationId: 'conversation-1',
+        },
+      })).toEqual([]);
+    });
+
+    it('rejects malformed start-session payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: 'not-an-object',
+      })).toEqual(['payload must be an object when provided.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { contextPackDir: 42 },
+      })).toEqual(['payload.contextPackDir must be a string when provided.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { replayConversationId: '' },
+      })).toEqual(['payload.replayConversationId must be a non-empty string when provided.']);
+    });
+
+    it('accepts child-task lineage with a valid focus snapshot', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          childTaskFocusSnapshot: snapshot,
+          childTaskLineage: lineage,
+        },
+      })).toEqual([]);
+    });
+
+    it('rejects invalid child-task start-session combinations', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { contextPackDir: '/tmp/context-packs/orders-estate', childTaskFocusSnapshot: snapshot },
+      })).toContain('payload.childTaskFocusSnapshot requires payload.childTaskLineage.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { contextPackDir: '/tmp/context-packs/orders-estate', childTaskLineage: lineage },
+      })).toContain('payload.childTaskLineage requires payload.childTaskFocusSnapshot.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          replayConversationId: 'conversation-1',
+          childTaskFocusSnapshot: snapshot,
+          childTaskLineage: lineage,
+        },
+      })).toContain('payload.replayConversationId cannot be combined with payload.childTaskFocusSnapshot.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          deepFocusSelection: { deepFocusEnabled: false },
+          childTaskFocusSnapshot: snapshot,
+          childTaskLineage: lineage,
+        },
+      })).toContain('payload.deepFocusSelection cannot be combined with payload.childTaskFocusSnapshot.');
+    });
+
+    it('rejects malformed child-task lineage and snapshots', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          childTaskFocusSnapshot: snapshot,
+          childTaskLineage: { ...lineage, parentTaskId: '' },
+        },
+      })).toContain('payload.childTaskLineage.parentTaskId must be a non-empty string.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          childTaskFocusSnapshot: { ...snapshot, version: 2 },
+          childTaskLineage: lineage,
+        },
+      })).toContain('payload.childTaskFocusSnapshot.version must be 1.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          childTaskFocusSnapshot: { ...snapshot, primaryRepoRoot: '' },
+          childTaskLineage: lineage,
+        },
+      })).toContain('payload.childTaskFocusSnapshot.primaryRepoRoot must be a non-empty string.');
+    });
+  });
+
+  describe('planner.validateChildTaskFocus', () => {
+    const snapshot = {
+      version: 1,
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+      title: 'Parent task',
+      primaryRepoId: 'platform',
+      primaryRepoRoot: '/repo',
+      primaryFocusRelativePath: 'src/features/planner',
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      deepFocusEnabled: true,
+      contextPackBinding: {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+        scopeMode: 'selected',
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/features/planner',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    };
+
+    it('accepts valid validation payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.validateChildTaskFocus',
+        payload: { contextPackDir: '/tmp/context-packs/orders-estate', snapshot },
+      })).toEqual([]);
+    });
+
+    it('rejects malformed validation payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.validateChildTaskFocus',
+        payload: { snapshot },
+      })).toContain('payload.contextPackDir must be a non-empty string.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.validateChildTaskFocus',
+        payload: { contextPackDir: '', snapshot },
+      })).toContain('payload.contextPackDir must be a non-empty string.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.validateChildTaskFocus',
+        payload: { contextPackDir: '/tmp/context-packs/orders-estate' },
+      })).toContain('payload.snapshot must be an object.');
+      expect(validateDesktopActionRequest({
+        action: 'planner.validateChildTaskFocus',
+        payload: { contextPackDir: '/tmp/context-packs/orders-estate', snapshot: { ...snapshot, version: 2 } },
+      })).toContain('payload.snapshot.version must be 1.');
+    });
+
+    it('validates exact response mode and message rules', () => {
+      expect(validatePlannerValidateChildTaskFocusResponse({
+        action: 'planner.validateChildTaskFocus',
+        mode: 'valid',
+        message: 'Parent task focus is still valid.',
+        issues: [],
+      })).toEqual([]);
+      expect(validatePlannerValidateChildTaskFocusResponse({
+        action: 'planner.validateChildTaskFocus',
+        mode: 'fallback',
+        message: "The parent task's saved focus no longer matches the current context pack or filesystem. Starting regular mode with the current live context instead.",
+        issues: [{ code: 'context-pack-missing', label: 'Context pack directory', path: '/tmp/missing' }],
+      })).toEqual([]);
+      expect(validatePlannerValidateChildTaskFocusResponse({
+        action: 'planner.validateChildTaskFocus',
+        mode: 'valid',
+        message: 'Different.',
+        issues: [{ code: 'context-pack-missing', label: 'Context pack directory', path: '/tmp/missing' }],
+      })).toEqual(expect.arrayContaining([
+        'response.message must equal the valid planner focus validation message.',
+        'response.issues must be empty when response.mode is valid.',
+      ]));
+      expect(validatePlannerValidateChildTaskFocusResponse({
+        action: 'planner.validateChildTaskFocus',
+        mode: 'fallback',
+        message: 'Different.',
+        issues: [],
+      })).toEqual(expect.arrayContaining([
+        'response.message must equal the fallback planner focus validation message.',
+        'response.issues must not be empty when response.mode is fallback.',
+      ]));
+    });
+  });
+
+  describe('planner.sendMessage', () => {
+    it('accepts optional displayText in the payload', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.sendMessage',
+        payload: {
+          text: 'Message sent to Lily.',
+          displayText: 'Message shown in transcript.',
+        },
+      })).toEqual([]);
+    });
+
+    it('rejects malformed send-message payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.sendMessage',
+      })).toEqual(['payload must be an object.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.sendMessage',
+        payload: { text: '' },
+      })).toEqual(['payload.text must be a non-empty string.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.sendMessage',
+        payload: { text: 'Hello', displayText: 42 },
+      })).toEqual(['payload.displayText must be a string when provided.']);
+    });
   });
 
   describe('contextPack.pickDirectory', () => {
@@ -722,8 +994,8 @@ describe('validateDesktopActionRequest', () => {
           action: 'agentConfig.saveAgentModels',
           payload: {
             assignments: [
-              { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
-              { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+              { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+              { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
             ],
           },
         }),
@@ -814,7 +1086,7 @@ describe('validateDesktopActionRequest', () => {
       });
       expect(errors).toContainEqual('payload.contextPackDir must be an absolute path string.');
       expect(errors).toContainEqual('payload.discoveryRoot must be an absolute path string.');
-      expect(errors).toContainEqual('payload.mode must be auto, distributed, or monolith.');
+      expect(errors).toContainEqual('payload.mode must be one of distributed, distributed-platform, monolith, monolith-platform.');
     });
 
     it('validates bootstrapAnswers.repositories is non-empty', () => {
@@ -834,6 +1106,33 @@ describe('validateDesktopActionRequest', () => {
       expect(errors).toContainEqual(
         'payload.bootstrapAnswers.repositories must be a non-empty array.',
       );
+      expect(errors).toContainEqual(
+        'payload.mode must be one of distributed, distributed-platform, monolith, monolith-platform.',
+      );
+    });
+
+    it('accepts platform estate create modes', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'contextPack.create',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          discoveryRoot: '/tmp/root',
+          mode: 'monolith-platform',
+          bootstrapAnswers: {
+            contextPackId: 'id',
+            estateName: 'name',
+            repositories: [
+              {
+                repoRoot: '/tmp/root',
+                repoName: 'root',
+                systemLayer: 'shared',
+              },
+            ],
+          },
+        },
+      });
+
+      expect(errors).toEqual([]);
     });
   });
 });
@@ -996,6 +1295,44 @@ describe('externalMcp validators', () => {
       });
       expect(errors).toEqual([]);
     });
+  });
+});
+
+describe('contextPack.setRepoCategory', () => {
+  it('accepts a valid setRepoCategory request', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'contextPack.setRepoCategory',
+        payload: {
+          contextPackDir: '/tmp/my-pack',
+          repoId: 'api',
+          repoCategory: 'service',
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects missing repoCategory', () => {
+    const errors = validateDesktopActionRequest({
+      action: 'contextPack.setRepoCategory',
+      payload: {
+        contextPackDir: '/tmp/my-pack',
+        repoId: 'api',
+      },
+    });
+    expect(errors).toContain('payload.repoCategory must be a non-empty string.');
+  });
+
+  it('rejects relative contextPackDir', () => {
+    const errors = validateDesktopActionRequest({
+      action: 'contextPack.setRepoCategory',
+      payload: {
+        contextPackDir: 'relative/path',
+        repoId: 'api',
+        repoCategory: 'service',
+      },
+    });
+    expect(errors).toContain('payload.contextPackDir must be an absolute path.');
   });
 });
 

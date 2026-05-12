@@ -15,6 +15,11 @@ import type {
   NormalizedSupportTarget,
   PrimaryFocusTarget,
 } from '../../../backend/platform/context-pack/deepFocusNormalization.js';
+import type {
+  PlannerStagingContextPackBinding,
+  PlannerStagingLineage,
+  PlannerStagingSidecar,
+} from '../../../backend/platform/planner-history/types.js';
 import { sleep } from '../../../backend/platform/core/io.js';
 import { slugify } from '../../../backend/platform/core/text.js';
 import { formatContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
@@ -30,49 +35,10 @@ const PLANNER_LOCK_DIRNAME = '.planner-lock.d';
 const PLANNER_LOCK_DIR = join(STAGING_DIR, PLANNER_LOCK_DIRNAME);
 const PLANNER_LOCK_OWNER_PATH = join(PLANNER_LOCK_DIR, 'owner.json');
 
-type PlannerTaskKind = 'standard' | 'child-task';
-
-export type PlannerStagingLineage = {
-  taskKind: PlannerTaskKind;
-  parentTaskId: string;
-  rootTaskId: string;
-  parentQmdRecordId: string;
-  parentQmdScope: string;
-  followUpReason: string;
-};
-
-export type PlannerStagingContextPackBinding = {
-  contextPackDir: string;
-  contextPackId: string;
-  scopeMode: string;
-  selectedRepoIds: string[];
-  selectedFocusIds: string[];
-  deepFocusEnabled: boolean;
-  selectedFocusPath: string | null;
-  selectedFocusTargetKind: FocusTargetKind | null;
-  selectedFocusTargets: PrimaryFocusTarget[];
-  selectedTestTarget: FocusTarget | null;
-  selectedSupportTargets: NormalizedSupportTarget[];
-};
-
-export type PlannerStagingSidecar = {
-  version: 1;
-  ownership: 'planner-session';
-  sessionId: string;
-  draftFilename: string;
-  draftPath: string;
-  createdAt: string;
-  title: string;
-  primaryRepoId: string;
-  primaryRepoRoot: string;
-  primaryFocusRelativePath: string | null;
-  deepFocusEnabled: boolean;
-  primaryFocusTargetKind: FocusTargetKind | null;
-  primaryFocusTargets: PrimaryFocusTarget[];
-  selectedTestTarget: FocusTarget | null;
-  supportTargets: NormalizedSupportTarget[];
-  lineage: PlannerStagingLineage;
-  contextPackBinding: PlannerStagingContextPackBinding;
+export type {
+  PlannerStagingContextPackBinding,
+  PlannerStagingLineage,
+  PlannerStagingSidecar,
 };
 
 export type PlannerStagingLockOwnership = {
@@ -87,8 +53,10 @@ export type InitializeStagedPlanningDraftOptions = {
   contextPackDir?: string | null;
   focusedRepo?: Pick<
     FocusedRepoResult,
+    | 'estateType'
     | 'primaryRepoId'
     | 'primaryRepoRoot'
+    | 'primaryFocusId'
     | 'primaryFocusRelativePath'
     | 'deepFocusEnabled'
     | 'primaryFocusTargetKind'
@@ -100,6 +68,7 @@ export type InitializeStagedPlanningDraftOptions = {
   >;
   title?: string;
   lineage?: Partial<PlannerStagingLineage>;
+  contextPackBinding?: PlannerStagingContextPackBinding;
   now?: Date;
 };
 
@@ -199,8 +168,15 @@ ${bindingSection}
 `;
 }
 
-function derivePlannerScopeMode(
-  focusedRepo?: InitializeStagedPlanningDraftOptions['focusedRepo'],
+export function isMonolithEstate(estateType?: string): boolean {
+  return estateType === 'monolith' || estateType === 'monolith-platform';
+}
+
+export function derivePlannerScopeMode(
+  focusedRepo?: {
+    selectedFocusIds?: string[];
+    selectedRepoIds?: string[];
+  } | null,
   contextPackDir?: string | null,
 ): string {
   if ((focusedRepo?.selectedFocusIds ?? []).length > 0) {
@@ -428,19 +404,45 @@ export async function initializeStagedPlanningDraft(
       parentQmdScope: trimOrEmpty(options.lineage?.parentQmdScope),
       followUpReason: trimOrEmpty(options.lineage?.followUpReason),
     },
-    contextPackBinding: {
-      contextPackDir: trimOrEmpty(options.contextPackDir),
-      contextPackId: trimOrEmpty(options.contextPackDir) ? basename(trimOrEmpty(options.contextPackDir)) : '',
-      scopeMode: derivePlannerScopeMode(options.focusedRepo, options.contextPackDir),
-      selectedRepoIds: [...(options.focusedRepo?.selectedRepoIds ?? [])],
-      selectedFocusIds: [...(options.focusedRepo?.selectedFocusIds ?? [])],
-      deepFocusEnabled: isDeepFocus,
-      selectedFocusPath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
-      selectedFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
-      selectedFocusTargets: deepFocusPrimaryTargets,
-      selectedTestTarget: deepFocusTestTarget,
-      selectedSupportTargets: deepFocusSupportTargets,
-    },
+    contextPackBinding: options.contextPackBinding
+      ? {
+          ...options.contextPackBinding,
+          selectedRepoIds: [...options.contextPackBinding.selectedRepoIds],
+          selectedFocusIds: [...options.contextPackBinding.selectedFocusIds],
+          selectedFocusTargets: options.contextPackBinding.selectedFocusTargets.map(clonePrimaryFocusTarget),
+          selectedTestTarget: options.contextPackBinding.selectedTestTarget
+            ? cloneFocusTarget(options.contextPackBinding.selectedTestTarget)
+            : options.contextPackBinding.selectedTestTarget,
+          selectedSupportTargets: options.contextPackBinding.selectedSupportTargets.map((target) => ({ ...target })),
+        }
+      : {
+          contextPackDir: trimOrEmpty(options.contextPackDir),
+          contextPackId: trimOrEmpty(options.contextPackDir) ? basename(trimOrEmpty(options.contextPackDir)) : '',
+          scopeMode: derivePlannerScopeMode(options.focusedRepo, options.contextPackDir),
+          // For monolith packs the single repo is implied; the operator-meaningful
+          // primary is the focus area. Suppress Primary Repo ID and Selected Repo
+          // IDs (the latter would just echo Context Pack ID) so only the focus
+          // fields surface.
+          primaryRepoId: isMonolithEstate(options.focusedRepo?.estateType)
+            ? undefined
+            : (trimOrEmpty(options.focusedRepo?.primaryRepoId) || undefined),
+          primaryFocusId: trimOrEmpty(options.focusedRepo?.primaryFocusId) || undefined,
+          // Empty selectedRepoIds is metadata-only: queue ops re-parse markdown
+          // (operations.ts), runtime monolith selection is rebuilt from the task
+          // pack snapshot's primary.repoId in reconstructFocusedRepoResult
+          // (focusedRepo.ts:444-446), and monolith resolution keys off
+          // selectedFocusIds (resolveMonolith.ts:32-85), not selectedRepoIds.
+          selectedRepoIds: isMonolithEstate(options.focusedRepo?.estateType)
+            ? []
+            : [...(options.focusedRepo?.selectedRepoIds ?? [])],
+          selectedFocusIds: [...(options.focusedRepo?.selectedFocusIds ?? [])],
+          deepFocusEnabled: isDeepFocus,
+          selectedFocusPath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+          selectedFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
+          selectedFocusTargets: deepFocusPrimaryTargets,
+          selectedTestTarget: deepFocusTestTarget,
+          selectedSupportTargets: deepFocusSupportTargets,
+        },
   };
   metadata.draftPath = join(STAGING_DIR, metadata.draftFilename);
 

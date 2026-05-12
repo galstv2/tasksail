@@ -31,6 +31,7 @@ export interface PlatformConfig {
   max_retained_failed_task_worktrees: number;
   max_retry_generations_per_slug: number;
   completed_task_runtime_retention_ms: number;
+  auto_merge: boolean;
   mcp_port: number;
   repo_context_mcp_external_mount_roots: string[];
 }

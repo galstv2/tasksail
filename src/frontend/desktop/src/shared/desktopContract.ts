@@ -1,6 +1,12 @@
 export const DESKTOP_SHELL_INVOKE_CHANNEL = 'desktop-shell:invoke';
 export const DESKTOP_SHELL_STREAM_CHANNEL = 'desktop-shell:stream';
 export const DESKTOP_SHELL_TASK_BOARD_CHANNEL = 'desktop-shell:task-board';
+export const CONTEXT_PACK_CATALOG_CHANGED_CHANNEL = 'contextPack.catalogChanged';
+
+export type ContextPackCatalogChangedEvent = {
+  changedRoot: string;
+  reason: 'mkdir' | 'rmdir' | 'rename' | 'unknown';
+};
 
 export * from './desktopContractPlanner';
 export * from './desktopContractDeepFocus';
@@ -26,6 +32,7 @@ import type {
   ContextPackClearResponse,
   ContextPackCreateRequest,
   ContextPackCreateResponse,
+  ContextPackPreflightError,
   ContextPackDiscoverPrefillRequest,
   ContextPackDiscoverPrefillResponse,
   ContextPackListRequest,
@@ -38,6 +45,8 @@ import type {
   ContextPackReseedResponse,
   ContextPackSetRepositoryTypeRequest,
   ContextPackSetRepositoryTypeResponse,
+  ContextPackSetRepoCategoryRequest,
+  ContextPackSetRepoCategoryResponse,
   ContextPackSwitchExecutionResult,
 } from './desktopContractContextPack';
 
@@ -50,8 +59,12 @@ import type {
   PlannerEndSessionResponse,
   PlannerFinalizeSpecRequest,
   PlannerFinalizeSpecResponse,
+  PlannerHydrateConversationRequest,
+  PlannerHydrateConversationResponse,
   PlannerListArchivedTasksRequest,
   PlannerListArchivedTasksResponse,
+  PlannerListConversationHistoryRequest,
+  PlannerListConversationHistoryResponse,
   PlannerPickMarkdownFileRequest,
   PlannerPickMarkdownFileResponse,
   PlannerReadStagedDraftRequest,
@@ -64,6 +77,8 @@ import type {
   PlannerStartSessionResponse,
   PlannerSubmitRequest,
   PlannerSubmitResponse,
+  PlannerValidateChildTaskFocusRequest,
+  PlannerValidateChildTaskFocusResponse,
   PlannerUploadSpecRequest,
   PlannerUploadSpecResponse,
   QueueDeletePendingItemRequest,
@@ -71,66 +86,79 @@ import type {
   QueueStatusRequest,
 } from './desktopContractPlanner';
 
-export type DesktopActionName =
-  | 'planner.submitDraft'
-  | 'planner.startSession'
-  | 'planner.sendMessage'
-  | 'planner.endSession'
-  | 'planner.saveDraft'
-  | 'planner.readStagedDraft'
-  | 'planner.finalizeSpec'
-  | 'queue.readStatus'
-  | 'queue.deletePendingItem'
-  | 'environment.readStatus'
-  | 'observability.readSnapshot'
-  | 'followup.begin'
-  | 'contextPack.pickDirectory'
-  | 'contextPack.discoverPrefill'
-  | 'contextPack.create'
-  | 'contextPack.list'
-  | 'contextPack.listRepoTree'
-  | 'contextPack.reseed'
-  | 'contextPack.previewSwitch'
-  | 'contextPack.applySwitch'
-  | 'contextPack.clearActive'
-  | 'contextPack.activate'
-  | 'contextPack.setRepositoryType'
-  | 'planner.pickMarkdownFile'
-  | 'planner.listArchivedTasks'
-  | 'planner.uploadSpec'
-  | 'reinforcement.submitFeedback'
-  | 'reinforcement.updateRealignmentDoc'
-  | 'reinforcement.checkActiveWorkGuard'
-  | 'reinforcement.startRealignment'
-  | 'externalMcp.list'
-  | 'externalMcp.add'
-  | 'externalMcp.update'
-  | 'externalMcp.remove'
-  | 'externalMcp.toggleEnabled'
-  | 'externalMcp.validateConnection'
-  | 'agentConfig.loadAgents'
-  | 'agentConfig.loadModelCatalog'
-  | 'agentConfig.saveAgentModels'
-  | 'agentConfig.addModel'
-  | 'agentConfig.removeModel'
-  | 'agentInstructions.listFiles'
-  | 'agentInstructions.readFile'
-  | 'agentInstructions.writeFile'
-  | 'taskBoard.readBoard'
-  | 'taskBoard.readTaskContent'
-  | 'taskBoard.reorderPending'
-  | 'taskBoard.requeueErrorItem'
-  | 'taskBoard.deleteTask'
-  | 'taskBoard.moveToPending'
-  | 'taskBoard.moveToOpen'
-  | 'services.readStatus'
-  | 'services.startBackend'
-  | 'services.stopBackend'
-  | 'services.healthCheck'
-  | 'deepFocus.saveSelections'
-  | 'deepFocus.loadSelections'
-  | 'deepFocus.clearSelections'
-  | 'cancel-task';
+export const DESKTOP_ACTION_NAMES = [
+  'planner.submitDraft',
+  'planner.startSession',
+  'planner.validateChildTaskFocus',
+  'planner.sendMessage',
+  'planner.endSession',
+  'planner.saveDraft',
+  'planner.readStagedDraft',
+  'planner.finalizeSpec',
+  'queue.readStatus',
+  'queue.deletePendingItem',
+  'environment.readStatus',
+  'observability.readSnapshot',
+  'followup.begin',
+  'contextPack.pickDirectory',
+  'contextPack.discoverPrefill',
+  'contextPack.create',
+  'contextPack.list',
+  'contextPack.listRepoTree',
+  'contextPack.reseed',
+  'contextPack.previewSwitch',
+  'contextPack.applySwitch',
+  'contextPack.clearActive',
+  'contextPack.activate',
+  'contextPack.setRepositoryType',
+  'contextPack.setRepoCategory',
+  'planner.pickMarkdownFile',
+  'planner.listArchivedTasks',
+  'planner.listConversationHistory',
+  'planner.hydrateConversation',
+  'planner.uploadSpec',
+  'reinforcement.submitFeedback',
+  'reinforcement.updateRealignmentDoc',
+  'reinforcement.readOverview',
+  'reinforcement.listTasks',
+  'reinforcement.readAgentRewards',
+  'reinforcement.listRealignmentSessions',
+  'reinforcement.readRealignmentDoc',
+  'reinforcement.checkActiveWorkGuard',
+  'reinforcement.startRealignment',
+  'reinforcement.runRealignmentAnalysis',
+  'externalMcp.list',
+  'externalMcp.add',
+  'externalMcp.update',
+  'externalMcp.remove',
+  'externalMcp.toggleEnabled',
+  'externalMcp.validateConnection',
+  'agentConfig.loadAgents',
+  'agentConfig.loadModelCatalog',
+  'agentConfig.saveAgentModels',
+  'agentConfig.addModel',
+  'agentConfig.removeModel',
+  'agentInstructions.listFiles',
+  'agentInstructions.readFile',
+  'agentInstructions.writeFile',
+  'taskBoard.readBoard',
+  'taskBoard.readTaskContent',
+  'taskBoard.reorderPending',
+  'taskBoard.requeueErrorItem',
+  'taskBoard.deleteTask',
+  'taskBoard.moveToPending',
+  'taskBoard.moveToOpen',
+  'services.readStatus',
+  'services.startBackend',
+  'services.stopBackend',
+  'services.healthCheck',
+  'deepFocus.saveSelections',
+  'deepFocus.loadSelections',
+  'deepFocus.clearSelections',
+  'cancel-task',
+] as const;
+
+export type DesktopActionName = (typeof DESKTOP_ACTION_NAMES)[number];
 
 export type QueueStatusResponse = {
   action: 'queue.readStatus';
@@ -559,6 +587,28 @@ export type ReinforcementStartRealignmentResponse = {
   session: ReinforcementRealignmentSessionEntry;
 };
 
+export type RealignmentJobStartResult = {
+  jobId: string;
+  realignmentId: string;
+  status: 'started' | 'already-running' | 'failed';
+  reason?: string;
+};
+
+export type ReinforcementRunRealignmentAnalysisRequest = {
+  action: 'reinforcement.runRealignmentAnalysis';
+  payload: {
+    contextPackDir: string;
+    realignmentId: string;
+  };
+};
+
+export type ReinforcementRunRealignmentAnalysisResponse = {
+  action: 'reinforcement.runRealignmentAnalysis';
+  mode: 'analysis-started' | 'analysis-start-failed';
+  message: string;
+  job: RealignmentJobStartResult;
+};
+
 // ---------------------------------------------------------------------------
 // External MCP server management
 // ---------------------------------------------------------------------------
@@ -813,6 +863,7 @@ export type TaskBoardMoveToOpenResponse = {
 export type DesktopActionRequest =
   | PlannerSubmitRequest
   | PlannerStartSessionRequest
+  | PlannerValidateChildTaskFocusRequest
   | PlannerSendMessageRequest
   | PlannerEndSessionRequest
   | PlannerSaveDraftRequest
@@ -834,8 +885,11 @@ export type DesktopActionRequest =
   | ContextPackClearRequest
   | ContextPackActivationRequest
   | ContextPackSetRepositoryTypeRequest
+  | ContextPackSetRepoCategoryRequest
   | PlannerPickMarkdownFileRequest
   | PlannerListArchivedTasksRequest
+  | PlannerListConversationHistoryRequest
+  | PlannerHydrateConversationRequest
   | PlannerUploadSpecRequest
   | ReinforcementSubmitFeedbackRequest
   | ReinforcementUpdateRealignmentDocRequest
@@ -846,6 +900,7 @@ export type DesktopActionRequest =
   | ReinforcementReadRealignmentDocRequest
   | ReinforcementCheckActiveWorkGuardRequest
   | ReinforcementStartRealignmentRequest
+  | ReinforcementRunRealignmentAnalysisRequest
   | ExternalMcpListRequest
   | AgentConfigLoadAgentsRequest
   | AgentConfigLoadModelCatalogRequest
@@ -879,6 +934,7 @@ export type DesktopActionRequest =
 export type DesktopActionResponse =
   | PlannerSubmitResponse
   | PlannerStartSessionResponse
+  | PlannerValidateChildTaskFocusResponse
   | PlannerSendMessageResponse
   | PlannerEndSessionResponse
   | PlannerSaveDraftResponse
@@ -900,8 +956,11 @@ export type DesktopActionResponse =
   | ContextPackClearResponse
   | ContextPackActivationResponse
   | ContextPackSetRepositoryTypeResponse
+  | ContextPackSetRepoCategoryResponse
   | PlannerPickMarkdownFileResponse
   | PlannerListArchivedTasksResponse
+  | PlannerListConversationHistoryResponse
+  | PlannerHydrateConversationResponse
   | PlannerUploadSpecResponse
   | ReinforcementSubmitFeedbackResponse
   | ReinforcementUpdateRealignmentDocResponse
@@ -912,6 +971,7 @@ export type DesktopActionResponse =
   | ReinforcementReadRealignmentDocResponse
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
+  | ReinforcementRunRealignmentAnalysisResponse
   | ExternalMcpListResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
@@ -1004,6 +1064,13 @@ export type DesktopActionError = {
   action?: string;
   errorCode?: string;
   details?: string[];
+  /**
+   * Structured preflight failures emitted by run-pack-preflight.py for
+   * context-pack creation. Present only when `errorCode === 'preflight-failed'`.
+   * Each entry carries a per-field code/message; renderers can render either
+   * the flat `details[]` list or the structured array for field-scoped UI.
+   */
+  preflightErrors?: ContextPackPreflightError[];
   contextPackResult?: ContextPackSwitchExecutionResult;
 };
 

@@ -13,7 +13,7 @@ vi.mock('../../core/index.js', () => ({
 
 vi.mock('../compose.js', () => ({
   validateComposeConfig: vi.fn(),
-  buildComposeCommand: vi.fn().mockReturnValue(['docker', 'compose', '-f', '/repo/docker/compose/docker-compose.yml', 'config']),
+  buildComposeCommand: vi.fn().mockReturnValue(['docker', 'compose', '-f', '/repo/runtime/docker/compose/docker-compose.yml', 'config']),
   execCommand: vi.fn().mockResolvedValue({ stdout: 'repo-context-mcp\n', stderr: '' }),
 }));
 
@@ -81,6 +81,7 @@ describe('bootstrapServices', () => {
     backend: 'docker' as const,
     engineHost: 'auto' as const,
     wslDistro: null,
+    requiresComposeFile: true as const,
     composeUp: vi.fn().mockResolvedValue(undefined),
     composeDown: vi.fn().mockResolvedValue(undefined),
     healthcheck: vi.fn().mockResolvedValue([
@@ -92,7 +93,7 @@ describe('bootstrapServices', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(buildComposeCommand).mockReturnValue(['docker', 'compose', '-f', '/repo/docker/compose/docker-compose.yml', 'config']);
+    vi.mocked(buildComposeCommand).mockReturnValue(['docker', 'compose', '-f', '/repo/runtime/docker/compose/docker-compose.yml', 'config']);
     vi.mocked(execCommand).mockResolvedValue({ stdout: 'repo-context-mcp\n', stderr: '' });
     vi.mocked(getEnabledComposeServices).mockReturnValue([
       { id: 'repo-context-mcp', displayName: 'Repository Context', compose: { serviceName: 'repo-context-mcp' } as never },

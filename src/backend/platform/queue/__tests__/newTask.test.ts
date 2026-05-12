@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 vi.mock('../retrospectiveFlag.js', () => ({
-  syncRetrospectiveRequiredMetadata: vi.fn().mockResolvedValue(undefined),
+  stampRetrospectiveRequiredMetadata: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { initializeTask, validateTaskId, generateTaskId, TASK_ID_PATTERN } from '../newTask.js';
@@ -256,5 +256,77 @@ describe('initializeTask §4.1B — writes under tasks/<taskId>/handoffs/', () =
     await expect(
       initializeTask({ repoRoot, taskId: 'Invalid.Task', force: true }),
     ).rejects.toMatchObject({ code: 'invalid-task-id-shape' });
+  });
+});
+
+// ── Core Metadata + Task Lineage label injection during template stamping ──
+//
+// `stampHandoffTemplate` populates `- LABEL:` lines from the template using
+// `injectLabelValues`, which skips empty values. Both flows that initialize
+// handoff artifacts must therefore supply the lineage record explicitly —
+// otherwise the Task Lineage labels (notably `Task Kind`) stay blank.
+
+describe('initializeTask — stamps Core Metadata and Task Lineage labels', () => {
+  let repoRoot: string;
+  let templatesDir: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-newtask-lineage-'));
+    templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(templatesDir, { recursive: true });
+
+    const labeledTemplate = [
+      '# implementation-spec.md',
+      '',
+      '### Core Metadata',
+      '',
+      '- Task ID:',
+      '- Task Title:',
+      '- Initialized At (UTC):',
+      '- Active Branch:',
+      '- Intake Source:',
+      '',
+      '### Task Lineage',
+      '',
+      '- Task Kind:',
+      '- Parent Task ID:',
+      '- Root Task ID:',
+      '- Parent QMD Record ID:',
+      '- Parent QMD Scope:',
+      '- Follow-Up Reason:',
+      '',
+    ].join('\n');
+
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), labeledTemplate);
+    }
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('populates Core Metadata and defaults Task Kind to "standard"', async () => {
+    await initializeTask({
+      repoRoot,
+      taskId: 'lineage-stamp',
+      title: 'Lineage Stamp',
+      force: true,
+    });
+
+    const stamped = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'lineage-stamp', 'handoffs', 'implementation-spec.md'),
+      'utf-8',
+    );
+
+    expect(stamped).toContain('- Task ID: lineage-stamp');
+    expect(stamped).toContain('- Task Title: Lineage Stamp');
+    expect(stamped).toMatch(/- Initialized At \(UTC\): \d{4}-\d{2}-\d{2}T/);
+    expect(stamped).toContain('- Active Branch: unknown');
+    expect(stamped).toContain('- Task Kind: standard');
+    // Manual init has no parent/QMD context, so those labels stay blank
+    // (the pending-item activation flow is the path that populates them).
+    expect(stamped).toContain('- Parent Task ID:\n');
+    expect(stamped).toContain('- Root Task ID:\n');
   });
 });

@@ -7,6 +7,7 @@ import { useRealignmentSessions } from '../../hooks/useRealignmentSessions';
 import { useReinforcementTasks } from '../../hooks/useReinforcementTasks';
 import { useRealignmentDocument } from '../../hooks/useRealignmentDocument';
 import { useActiveWorkGuard } from '../../hooks/useActiveWorkGuard';
+import { useStreamEvents } from '../../hooks/useStreamEvents';
 import { filterSessionsForTasks, selectScopedSession } from '../../selectors/reinforcementSessionFilter';
 import { CloseIcon } from '../creation-steps/icons';
 import FeedbackPanel from './FeedbackPanel';
@@ -57,8 +58,12 @@ function ReinforcementModal({
 
   const {
     sessions, selectedSessionId,
-    loading: sessionsLoading, error: sessionsError, onSelectSession,
+    loading: sessionsLoading, error: sessionsError, analysisRun,
+    onSelectSession, runAnalysis, completeAnalysisRun, reload: reloadSessions,
   } = useRealignmentSessions(hasActiveContextPack);
+  const { events: streamEvents } = useStreamEvents(50);
+  const runStartEventId = useRef<string | null>(null);
+  const lastCompletionEventId = useRef<string | null>(null);
 
   const contextPackSessions = useMemo(
     () => filterSessionsForTasks(sessions, tasks),
@@ -72,6 +77,7 @@ function ReinforcementModal({
   const { guard: activeWorkGuard, startRealignment } = useActiveWorkGuard(hasActiveContextPack);
 
   const doc = useRealignmentDocument(hasActiveContextPack);
+  const { reload: reloadDocument } = doc;
 
   const feedback = useFeedbackSubmission();
 
@@ -94,10 +100,55 @@ function ReinforcementModal({
 
   const handleStartRealignment = useCallback(() => {
     if (!activeContextPackDir) return;
-    // Use the first task as trigger; operator-initiated realignment is not tied to a specific feedback event
-    const triggerTaskId = tasks.length > 0 ? tasks[0].taskId : 'operator-initiated';
-    startRealignment(activeContextPackDir, triggerTaskId);
-  }, [activeContextPackDir, tasks, startRealignment]);
+    startRealignment(activeContextPackDir, 'operator-initiated');
+  }, [activeContextPackDir, startRealignment]);
+
+  const handleRunAnalysis = useCallback(
+    (realignmentId: string) => {
+      if (!activeContextPackDir) return;
+      runStartEventId.current = streamEvents.length > 0
+        ? streamEvents[streamEvents.length - 1].id
+        : null;
+      runAnalysis(activeContextPackDir, realignmentId).catch(() => {});
+    },
+    [activeContextPackDir, runAnalysis, streamEvents.length],
+  );
+
+  useEffect(() => {
+    if (analysisRun.status !== 'running' && analysisRun.status !== 'starting') {
+      return;
+    }
+    const runStartIndex = runStartEventId.current
+      ? streamEvents.findIndex((event) => event.id === runStartEventId.current)
+      : -1;
+    const candidateEvents = runStartIndex >= 0
+      ? streamEvents.slice(runStartIndex + 1)
+      : streamEvents;
+    const terminalEvent = candidateEvents
+      .find((event) => (
+        event.source === 'runtime.realignment' &&
+        event.id !== lastCompletionEventId.current &&
+        (
+          event.message.includes('archived') ||
+          event.message.includes('failed') ||
+          event.message.includes('skipped') ||
+          event.message.includes('partially completed')
+        )
+      ));
+    if (!terminalEvent) {
+      return;
+    }
+    lastCompletionEventId.current = terminalEvent.id;
+    completeAnalysisRun(terminalEvent.message);
+    reloadSessions().catch(() => {});
+    reloadDocument().catch(() => {});
+  }, [
+    analysisRun.status,
+    completeAnalysisRun,
+    reloadDocument,
+    reloadSessions,
+    streamEvents,
+  ]);
 
   if (!isOpen) return null;
 
@@ -191,6 +242,8 @@ function ReinforcementModal({
               onSelectSession={onSelectSession}
               activeWorkGuard={activeWorkGuard}
               onStartRealignment={handleStartRealignment}
+              analysisRun={analysisRun}
+              onRunAnalysis={handleRunAnalysis}
             />
           )}
           {activeTab === 'document' && (

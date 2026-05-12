@@ -12,9 +12,11 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { spawnPipelineForTask } from './spawnPipeline.js';
+import { CLOSEOUT_FAILURE_EXIT_CODE } from './pipeline/sequencer.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
 import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
 import { recoverStuckMidCompletion } from '../queue/recoverStuckMidCompletion.js';
+import { resumeCloseoutFromSentinel } from '../queue/resumeCloseout.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +95,24 @@ async function handleChildExit(
   if (code === 0 && signal === null) {
     // F: success path. Child triggers its own cleanup via completePendingItem.
     return;
+  }
+
+  if (code === CLOSEOUT_FAILURE_EXIT_CODE) {
+    let resumed = false;
+    try {
+      const result = await resumeCloseoutFromSentinel(taskId, repoRoot);
+      resumed = result.status === 'completed';
+      if (!resumed) {
+        console.warn(
+          `[pipelineSupervisor] closeout recovery for ${taskId} returned ${result.status}; moving task to error-items.`,
+        );
+      }
+    } catch (err) {
+      console.error(`[pipelineSupervisor] resumeCloseoutFromSentinel failed for ${taskId}:`, err);
+    }
+    if (resumed) {
+      return;
+    }
   }
 
   // Failure path: move to error-items for THIS taskId only.
@@ -266,13 +286,19 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     }
   } catch { /* absent */ }
 
-  // Get .active-items marker taskIds (not including .completing sentinels)
-  let activeMarkerTaskIds: string[] = [];
+  // Read .active-items/ once; partition into markers (non-sentinel entries)
+  // and the completing-sentinel set used by the carveout below.
+  let activeItemsEntries: string[] = [];
   try {
-    const entries = await readdir(activeItemsDir);
-    activeMarkerTaskIds = entries.filter((f) => !f.endsWith('.completing'));
+    activeItemsEntries = await readdir(activeItemsDir);
   } catch { /* absent */ }
+  const activeMarkerTaskIds = activeItemsEntries.filter((f) => !f.endsWith('.completing'));
   const activeMarkerSet = new Set(activeMarkerTaskIds);
+  const completingSentinelTaskIds = new Set(
+    activeItemsEntries
+      .filter((f) => f.endsWith('.completing'))
+      .map((f) => f.replace(/\.completing$/, '')),
+  );
 
   // Get error-items for carveout (retained-for-inspection failed tasks)
   let errorItemTaskIds = new Set<string>();
@@ -291,15 +317,6 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     const pendingEntries = await readdir(pendingDir);
     for (const f of pendingEntries.filter((e) => e.endsWith('.md') && !e.startsWith('.'))) {
       pendingItemTaskIds.add(f.replace(/\.md$/, ''));
-    }
-  } catch { /* absent */ }
-
-  // Get completing sentinels for carveout
-  let completingSentinelTaskIds = new Set<string>();
-  try {
-    const entries = await readdir(activeItemsDir);
-    for (const f of entries.filter((e) => e.endsWith('.completing'))) {
-      completingSentinelTaskIds.add(f.replace(/\.completing$/, ''));
     }
   } catch { /* absent */ }
 
@@ -331,6 +348,12 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
         completingSentinelTaskIds.has(branchTaskId);
 
       if (!hasCarveout) {
+        if (existsSync(path.join(activeItemsDir, branchTaskId))) {
+          console.warn(
+            `[recoverOnStartup] skipping branch delete for ${branch}: task became active during sweep`,
+          );
+          continue;
+        }
         try {
           await execFileAsync('git', ['branch', '-D', branch], { cwd: repoRoot });
         } catch {
@@ -343,13 +366,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   }
 
   // ── Step 3: Crash-recovery scan (per-marker) ────────────────────────────
-  let markers: string[] = [];
-  try {
-    const entries = await readdir(activeItemsDir);
-    markers = entries.filter((f) => !f.endsWith('.completing'));
-  } catch { /* absent */ }
-
-  for (const markerTaskId of markers) {
+  for (const markerTaskId of activeMarkerTaskIds) {
     // Check if pid is still live via latest role-session receipt
     const taskRuntime = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', markerTaskId);
     let pidIsAlive = false;
@@ -375,7 +392,11 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       continue;
     }
 
-    // Classify outcome via sentinel
+    // Classify outcome via sentinel: the `.completing` sentinel is the durable
+    // progress record, while pipeline receipts are forensic-only. Any task
+    // whose sentinel exists (step 1 written) but is not yet unlinked (step 5)
+    // is a resume candidate; `resumeCloseoutFromSentinel` further gates on
+    // `archiveSucceeded === true`.
     const sentinelPath = path.join(activeItemsDir, `${markerTaskId}.completing`);
     let outcome: 'completed' | 'failed' = existsSync(sentinelPath) ? 'completed' : 'failed';
 
@@ -409,11 +430,15 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     if (outcome === 'completed') {
       let recoveredViaCompletion = false;
       try {
-        const result = await recoverStuckMidCompletion({ taskId: markerTaskId, repoRoot });
-        recoveredViaCompletion = result.recovered;
-        if (!result.recovered) {
+        const resumeResult = await resumeCloseoutFromSentinel(markerTaskId, repoRoot);
+        recoveredViaCompletion = resumeResult.status === 'completed';
+        if (!recoveredViaCompletion) {
+          const result = await recoverStuckMidCompletion({ taskId: markerTaskId, repoRoot });
+          recoveredViaCompletion = result.recovered;
+        }
+        if (!recoveredViaCompletion) {
           console.warn(
-            `[pipelineSupervisor] recoverStuckMidCompletion could not prove archival for ${markerTaskId}: ${result.reason ?? 'unknown'} — falling through to failure recovery`,
+            `[pipelineSupervisor] recoverStuckMidCompletion could not prove archival for ${markerTaskId}: closeout recovery returned no completed state — falling through to failure recovery`,
           );
           outcome = 'failed';
         }
@@ -465,7 +490,10 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       const siblingTaskId = sentinel.replace(/\.completing$/, '');
       const siblingMarker = path.join(activeItemsDir, siblingTaskId);
       if (!existsSync(siblingMarker)) {
-        try { unlinkSync(path.join(activeItemsDir, sentinel)); } catch { /* best-effort */ }
+        const result = await resumeCloseoutFromSentinel(siblingTaskId, repoRoot);
+        if (result.status !== 'completed') {
+          try { unlinkSync(path.join(activeItemsDir, sentinel)); } catch { /* best-effort */ }
+        }
       }
     }
   } catch { /* absent */ }

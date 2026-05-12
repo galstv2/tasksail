@@ -23,6 +23,7 @@ const FULL_DEFAULT_JSON = JSON.stringify({
   max_retained_failed_task_worktrees: 10,
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
+  auto_merge: false,
   mcp_port: 8811,
   repo_context_mcp_external_mount_roots: [],
 });
@@ -73,27 +74,55 @@ describe('seedPlatformConfig', () => {
     }
   });
 
-  it('overwrites runtime file when default has changed', async () => {
+  it('overwrites runtime values with default values on every seed (default is source of truth)', async () => {
     writeDefault();
     await seedPlatformConfig(tmpDir);
 
-    // Change the default to podman
+    // Operator-edited runtime drifts from default: container_runtime=docker, auto_merge=true.
+    // Then the default is updated to podman/auto_merge=false. Next seed must clobber the
+    // runtime values with the default's values — default is the source of truth.
     const podmanConfig = JSON.stringify({
       schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
       cli_provider: 'copilot',
       container_runtime: 'podman',
+      auto_merge: false,
     });
     writeDefault(podmanConfig);
+    fs.writeFileSync(runtimePath(), JSON.stringify({
+      schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+      cli_provider: 'copilot',
+      container_runtime: 'docker',
+      auto_merge: true,
+    }), 'utf-8');
 
     const result = await seedPlatformConfig(tmpDir);
     expect(result.action).toBe('updated');
     if (result.action === 'updated') {
       expect(result.config.container_runtime).toBe('podman');
+      expect(result.config.auto_merge).toBe(false);
     }
 
     const data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
     expect(data.container_runtime).toBe('podman');
     expect(data.cli_provider).toBe('copilot');
+    expect(data.auto_merge).toBe(false);
+  });
+
+  it('preserves runtime-only keys that the default does not declare', async () => {
+    writeDefault();
+    await seedPlatformConfig(tmpDir);
+
+    // Inject a runtime-only key the default does not declare. The seed must keep it.
+    const runtimeData = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
+    runtimeData.runtime_only_marker = 'preserve-me';
+    fs.writeFileSync(runtimePath(), JSON.stringify(runtimeData), 'utf-8');
+
+    const result = await seedPlatformConfig(tmpDir);
+    expect(result.action).toBe('updated');
+
+    const data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
+    expect(data.runtime_only_marker).toBe('preserve-me');
+    expect(data.container_runtime).toBe('docker');
   });
 
   it('overwrites corrupt runtime file with valid default', async () => {
@@ -141,6 +170,7 @@ describe('seedPlatformConfig', () => {
     expect(runtimeData.max_parallel_tasks).toBe(10);
     expect(runtimeData.cli_provider).toBe('copilot');
     expect(runtimeData.mcp_port).toBe(8811);
+    expect(runtimeData.auto_merge).toBe(false);
     expect(runtimeData.repo_context_mcp_external_mount_roots).toEqual([]);
 
     // getPlatformConfig returns seeded values
@@ -151,6 +181,7 @@ describe('seedPlatformConfig', () => {
     expect(config.max_retained_failed_task_worktrees).toBe(10);
     expect(config.max_retry_generations_per_slug).toBe(5);
     expect(config.completed_task_runtime_retention_ms).toBe(3600000);
+    expect(config.auto_merge).toBe(false);
     expect(config.mcp_port).toBe(8811);
     expect(config.repo_context_mcp_external_mount_roots).toEqual([]);
   });

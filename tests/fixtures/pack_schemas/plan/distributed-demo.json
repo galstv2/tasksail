@@ -1,0 +1,87 @@
+{
+  "plan_type": "qmd-seeding-dry-run",
+  "plan_version": "qmd-seeding-dry-run/v1",
+  "manifest_version": "qmd-repo-sources/v1",
+  "context_pack_id": "crud-app-repo-dotnet-distributed-demo",
+  "context_pack_dir": "/Users/victorgalstyan2/Desktop/AgenticHarness/TaskSail/contextpacks/crud-app-repo-dotnet-distributed-demo",
+  "manifest_path": "/Users/victorgalstyan2/Desktop/AgenticHarness/TaskSail/contextpacks/crud-app-repo-dotnet-distributed-demo/qmd/repo-sources.json",
+  "qmd_scope_root": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo",
+  "overall_status": "ready",
+  "repository_count": 2,
+  "ready_count": 2,
+  "blocked_count": 0,
+  "warning_count": 3,
+  "repositories": [
+    {
+      "repo_id": "platform",
+      "repo_name": "Platform",
+      "owner": null,
+      "bounded_context": null,
+      "system_layer": "backend",
+      "languages": [
+        "csharp",
+        "json"
+      ],
+      "tags": [],
+      "existing_roots": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform"
+      ],
+      "missing_roots": [],
+      "scan_targets": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform/libs",
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform/services"
+      ],
+      "qmd_targets": {
+        "canonical_repo_summary": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/canonical/repos/platform/repo-summary.md",
+        "operational_bootstrap_note": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/operational/bootstrap/platform/initial-index.md",
+        "estate_partition": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/backend/platform/",
+        "language_partitions": [
+          "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/languages/csharp/platform/",
+          "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/languages/json/platform/"
+        ]
+      },
+      "status": "ready",
+      "warnings": [
+        "No bounded_context declared; cross-repo retrieval may be less precise."
+      ]
+    },
+    {
+      "repo_id": "tools",
+      "repo_name": "Tools",
+      "owner": null,
+      "bounded_context": null,
+      "system_layer": "backend",
+      "languages": [
+        "csharp",
+        "json"
+      ],
+      "tags": [],
+      "existing_roots": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+      ],
+      "missing_roots": [],
+      "scan_targets": [
+        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+      ],
+      "qmd_targets": {
+        "canonical_repo_summary": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/canonical/repos/tools/repo-summary.md",
+        "operational_bootstrap_note": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/operational/bootstrap/tools/initial-index.md",
+        "estate_partition": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/backend/tools/",
+        "language_partitions": [
+          "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/languages/csharp/tools/",
+          "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/estate/languages/json/tools/"
+        ]
+      },
+      "status": "ready",
+      "warnings": [
+        "No bounded_context declared; cross-repo retrieval may be less precise.",
+        "No artifact_roots or document_paths declared; dry-run will fall back to broad repo-root scanning."
+      ]
+    }
+  ],
+  "next_steps": [
+    "Review blocked repositories and fix missing local paths before live seeding.",
+    "Approve the QMD targets and scan targets repo by repo.",
+    "Run the actual repo-context or QMD seed flow only after this dry-run plan is accepted."
+  ]
+}

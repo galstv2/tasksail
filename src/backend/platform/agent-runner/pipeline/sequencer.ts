@@ -27,6 +27,11 @@ import {
   resolveTestCaptureCwd,
   type TestCaptureResult,
 } from './testCapture.js';
+import {
+  buildCycleContextBundle,
+  buildRetrospectivePrompt,
+  shouldRunRetrospectivePhase,
+} from './retrospectivePhase.js';
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
@@ -41,6 +46,8 @@ import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.j
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import type { AgentMcpLaunchStatus } from '../types.js';
 import { captureCodeDiff } from '../pythonHelpers.js';
+
+export const CLOSEOUT_FAILURE_EXIT_CODE = 78;
 
 const MISSING_MCP_LAUNCH_STATUS: AgentMcpLaunchStatus = {
   status: 'unknown',
@@ -623,11 +630,7 @@ async function acquirePipelineLock(taskRuntime: string): Promise<PipelineLock> {
  * (§3.2). When taskId is set, reads AgentWorkSpace/tasks/<taskId>/.task.json
  * via readTaskJsonSafe and derives the directory from contextPackPath.
  *
- * Falls back to the singleton active-context-pack.json only for the legacy
- * (no taskId) case. The workspace-context-sync.json UI-written fallback has
- * been deleted — it is a cross-task contamination hazard under parallel mode.
- *
- * Returns undefined for legacy tasks or when no context pack is configured.
+ * Returns undefined when no taskId is provided or when no context pack is configured.
  */
 async function resolveTaskBoundContextPackDir(
   repoRoot: string,
@@ -641,17 +644,6 @@ async function resolveTaskBoundContextPackDir(
     }
     return undefined;
   }
-
-  // Legacy singleton path: canonical queue state sidecar written at activation.
-  try {
-    const raw = await readFile(
-      path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
-      'utf-8',
-    );
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const dir = typeof parsed.contextPackDir === 'string' ? parsed.contextPackDir.trim() : '';
-    if (dir) return dir;
-  } catch { /* absent for legacy tasks — fall through */ }
 
   return undefined;
 }
@@ -690,6 +682,55 @@ function selectAgentOrder(options: PipelineOptions): AgentId[] {
   }
 
   return fullOrder.slice(startIndex, stopIndex + 1);
+}
+
+async function runRetrospectivePhaseIfNeeded(options: {
+  handoffsDir: string;
+  repoRoot: string;
+  contextPackDir?: string;
+  currentTaskId: string;
+  externalMcpRegistry?: ExternalMcpRegistry;
+  abortSignal: AbortSignal;
+  agentMcpStatuses: NonNullable<PipelineReceipt['externalMcp']>['agents'];
+  agentTimings: Record<string, number>;
+}): Promise<void> {
+  if (!(await shouldRunRetrospectivePhase(options.handoffsDir))) {
+    return;
+  }
+  if (!options.contextPackDir) {
+    console.warn('[pipeline] retrospective phase skipped: no active context pack.');
+    return;
+  }
+
+  const bundle = await buildCycleContextBundle({
+    repoRoot: options.repoRoot,
+    contextPackDir: options.contextPackDir,
+    handoffsDir: options.handoffsDir,
+    currentTaskId: options.currentTaskId,
+  });
+  if (!bundle.some((entry) => !entry.isCurrentTask)) {
+    console.warn('[pipeline] retrospective phase skipped: no prior cycle context available.');
+    return;
+  }
+
+  const retrospectivePrompt = await buildRetrospectivePrompt({
+    repoRoot: options.repoRoot,
+    bundle,
+    externalMcpRegistry: options.externalMcpRegistry,
+  });
+  const retrospectiveStart = Date.now();
+  const retrospectiveResult = await runRoleAgent({
+    agentId: 'ron',
+    repoRoot: options.repoRoot,
+    taskId: options.currentTaskId ?? '',
+    skipWorkflowValidation: true,
+    contextPackDir: options.contextPackDir,
+    abortSignal: options.abortSignal,
+    promptOverride: retrospectivePrompt,
+    launchPhase: 'Retrospective',
+  });
+  options.agentMcpStatuses['ron-retrospective'] = retrospectiveResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+  options.agentTimings['ron-retrospective'] = Math.round((Date.now() - retrospectiveStart) / 1000);
 }
 
 /**
@@ -769,10 +810,15 @@ export async function runPipelineSequence(
           abortSignal: abortController.signal,
           reason: 'pre-verification',
         });
-        const stagedVerificationDiff = await stageVerificationDiffArtifact({
-          sharedDiffPath: sharedVerificationDiffPath,
-          verificationDiffStage,
-        });
+        const stagedVerificationDiff: { staged: boolean; warning?: string } = diffGenerationWarning
+          ? { staged: false }
+          : await stageVerificationDiffArtifact({
+              sharedDiffPath: sharedVerificationDiffPath,
+              verificationDiffStage,
+            });
+        if (diffGenerationWarning) {
+          await cleanupVerificationDiffStage(verificationDiffStage, 'stale-cleanup');
+        }
 
         let verificationRan = false;
         try {
@@ -781,7 +827,7 @@ export async function runPipelineSequence(
             paths.implementationSteps,
             focusScope,
             externalMcpRegistry,
-            verificationDiffStage.verificationDiffAbsolutePath,
+            stagedVerificationDiff.staged ? verificationDiffStage.verificationDiffAbsolutePath : undefined,
             joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
           );
           if (verificationPrompt) {
@@ -961,6 +1007,17 @@ export async function runPipelineSequence(
             abortSignal: abortController.signal,
           });
         }
+
+        await runRetrospectivePhaseIfNeeded({
+          handoffsDir: paths.handoffs,
+          repoRoot: paths.repoRoot,
+          contextPackDir: effectiveContextPackDir,
+          currentTaskId: pipelineTaskId,
+          externalMcpRegistry,
+          abortSignal: abortController.signal,
+          agentMcpStatuses,
+          agentTimings,
+        });
       }
 
       if (options.stopAfter && agentId === options.stopAfter) {

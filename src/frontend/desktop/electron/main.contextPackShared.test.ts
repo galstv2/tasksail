@@ -43,4 +43,11 @@ describe('main.contextPackShared', () => {
     const { portablePathBasename } = await import('./main.contextPackShared');
     expect(portablePathBasename('C:\\context-packs\\orders-estate')).toBe('orders-estate');
   });
+
+  it('byte-identity: slugifyValue My Pack 2026! -> my-pack-2026 (main process)', async () => {
+    // Proves the main-process and renderer slugify functions are byte-identical
+    // because both re-export from src/shared/slug.ts.
+    const { slugifyValue } = await import('./main.contextPackShared');
+    expect(slugifyValue('My Pack 2026!')).toBe('my-pack-2026');
+  });
 });

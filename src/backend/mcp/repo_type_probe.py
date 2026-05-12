@@ -12,8 +12,7 @@ import re
 from pathlib import Path
 
 from src.backend.mcp.context_estate.models import ClassificationResult
-
-REPOSITORY_TYPES = frozenset({"primary", "support"})
+from src.backend.mcp.pack_constants import REPOSITORY_TYPES  # noqa: F401 – re-export for callers
 
 _SERVICE_ENTRYPOINTS = frozenset({
     "main.py", "server.py", "app.py", "manage.py",

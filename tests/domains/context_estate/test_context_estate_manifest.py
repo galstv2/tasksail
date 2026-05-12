@@ -118,7 +118,7 @@ class ContextEstateManifestTests(unittest.TestCase):
             }
             self.assertEqual(
                 repo_map["services-orders-api"]["local_paths"],
-                [str(api_repo.resolve())],
+                [{"host": str(api_repo.resolve()), "container": None}],
             )
             self.assertEqual(
                 repo_map["services-orders-api"]["repository_type"],
@@ -216,6 +216,44 @@ class ContextEstateManifestTests(unittest.TestCase):
                 focus_area_map["services-identity"]["repository_type"],
                 "primary",
             )
+
+    def test_monolith_platform_manifest_includes_infrastructure_repositories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            discovery_root = Path(temp_root) / "mono-repo"
+            deploy_root = Path(temp_root) / "deploy"
+            context_pack_dir = Path(temp_root) / "contexts" / "mp-pack"
+            self.create_git_repo(discovery_root)
+            (discovery_root / "services" / "billing").mkdir(parents=True)
+            deploy_root.mkdir(parents=True)
+            context_pack_dir.mkdir(parents=True)
+
+            draft_payload = discover_estate(discovery_root, mode="monolith")
+            write_draft_artifact(context_pack_dir, draft_payload, generated_at="2026-03-08T00:00:00Z")
+            review_payload = {
+                "context_pack_id": "mp-pack",
+                "display_name": "MP Pack",
+                "estate_type": "monolith-platform",
+                "repository": {"repo_id": "mono-repo", "repo_name": "Mono Repo", "system_layer": "shared"},
+                "repositories": [{
+                    "repo_id": "deploy", "repo_name": "Deploy", "path": str(deploy_root.resolve()),
+                    "system_layer": "infrastructure", "languages": ["yaml"],
+                }],
+                "focusable_areas": [{"relative_path": "services/billing", "default_focusable": True}],
+            }
+
+            manifest = build_approved_manifest(
+                draft_payload, review_payload,
+                approved_at="2026-03-08T01:00:00Z", context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(manifest["estate_type"], "monolith-platform")
+            self.assertEqual(len(manifest["repositories"]), 2)
+            repos_by_id = {repo["repo_id"]: repo for repo in manifest["repositories"]}
+            self.assertEqual(repos_by_id["mono-repo"]["repository_type"], "primary")
+            self.assertEqual(repos_by_id["deploy"]["system_layer"], "infrastructure")
+            self.assertEqual(repos_by_id["deploy"]["local_paths"], [str(deploy_root.resolve())])
+            self.assertEqual(repos_by_id["deploy"]["repository_type"], "support")
+            self.assertEqual(repos_by_id["deploy"]["languages"], ["yaml"])
 
     def test_monolith_manifest_preserves_focus_area_repository_type(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:

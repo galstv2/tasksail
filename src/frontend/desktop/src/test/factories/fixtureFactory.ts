@@ -39,11 +39,13 @@ export function createProviderFrontendDescriptor(
     promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
     contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
     roster: [
-      { agentId: 'planning-agent', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1 },
-      { agentId: 'product-manager', roleName: 'Product Manager', humanName: 'Alice', workflowOrder: 2 },
-      { agentId: 'software-engineer', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 3 },
-      { agentId: 'qa', roleName: 'QA', humanName: 'Ron', workflowOrder: 4 },
+      { agentId: 'provider-planner', roleName: 'Planning Specialist', humanName: 'Planner', workflowOrder: 1, roleKind: 'planner' },
+      { agentId: 'provider-pm', roleName: 'Product Manager', humanName: 'PM', workflowOrder: 2, roleKind: 'pm' },
+      { agentId: 'provider-builder', roleName: 'Builder', humanName: 'Builder', workflowOrder: 3, roleKind: 'builder' },
+      { agentId: 'provider-verifier', roleName: 'Verifier', humanName: 'Verifier', workflowOrder: 4, roleKind: 'verifier' },
+      { agentId: 'provider-qa', roleName: 'QA', humanName: 'QA', workflowOrder: 5, roleKind: 'qa' },
     ],
+    plannerAgentId: 'provider-planner',
     ...overrides,
   };
 }

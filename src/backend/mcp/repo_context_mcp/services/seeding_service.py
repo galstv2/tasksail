@@ -1,26 +1,34 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
 from src.backend.mcp.context_estate.workspace_analysis import analyze_workspace_counts
+from src.backend.mcp.pack_io import NoExistingPathError, resolve_first_existing
 
-from ..file_analysis import read_preview
 from ..models import RepoSeedResult
 from ..utils import (
-    ensure_non_empty_string,
     load_json,
-    resolve_path_within,
     utc_now,
 )
 from ..utils import (
     resolve_context_data_dir as _resolve_context_data_dir,
 )
-from .manifest_updater import update_manifest_repository_types
+from .indexes import maybe_write_context_pack_conventions, write_scope_indexes
+from .marker import (
+    acquire_reseed_marker,
+    clear_reseed_marker,
+    update_pack_seed_state,
+    update_pack_seed_state_failure,
+)
+from .plan import build_plan as _build_plan
+from .plan import get_live_plan as _get_live_plan
+from .plan import load_plan as _load_plan
 from .qmd_index_service import QmdIndexService
+from .repository_seed import seed_repository_impl
 from .runtime_state import SeedRuntimeState  # noqa: F401 - re-exported for existing callers
+from .scope import resolve_path_in_context_pack
 
 logger = logging.getLogger(__name__)
 
@@ -88,234 +96,15 @@ class SeedingService:
     def _resolve_context_pack_dir(self, context_pack_dir: str) -> Path:
         return _resolve_context_data_dir(context_pack_dir)
 
-    def _normalize_qmd_scope_root(
-        self,
-        *,
-        context_pack_dir: Path,
-        qmd_scope_root: str,
-    ) -> str:
-        scope_dir = resolve_path_within(
-            context_pack_dir,
-            qmd_scope_root,
-            "qmd_scope_root",
-        )
-        return scope_dir.relative_to(context_pack_dir).as_posix()
-
-    def _resolve_path_in_context_pack(
-        self,
-        *,
-        context_pack_dir: Path,
-        value: str,
-        field_name: str,
-    ) -> Path:
-        return resolve_path_within(context_pack_dir, value, field_name)
-
-    def _write_scope_indexes(
-        self,
-        *,
-        context_pack_dir: Path,
-        scope_dir: Path,
-        plan: dict[str, Any],
-        repositories: list[dict[str, Any]],
-        latest_seed_run_path: str | None,
-    ) -> dict[str, str]:
-        self.qmd_index_service.invalidate_descriptor_cache(scope_dir)
-        repository_index = self.qmd_index_service.build_repository_index(
-            scope_dir=scope_dir,
-            repositories=repositories,
-        )
-        task_index = self.qmd_index_service.build_glopml_task_index(scope_dir=scope_dir)
-        lineage_index = self.qmd_index_service.build_top_level_lineage_index(scope_dir=scope_dir)
-        context_pack_index = self.qmd_index_service.build_context_pack_index(
-            scope_dir=scope_dir,
-            repository_entries=repository_index["repositories"],
-            task_entries=task_index["tasks"],
-            lineage_entries=lineage_index["lineage_roots"],
-            latest_seed_run_path=latest_seed_run_path,
-        )
-
-        repositories_index_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=f"{plan['qmd_scope_root']}/indexes/repositories.json",
-            field_name="qmd_scope_root",
-        )
-        tasks_index_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=f"{plan['qmd_scope_root']}/indexes/tasks.json",
-            field_name="qmd_scope_root",
-        )
-        lineage_index_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=f"{plan['qmd_scope_root']}/indexes/lineage.json",
-            field_name="qmd_scope_root",
-        )
-
-        context_pack_index_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=f"{plan['qmd_scope_root']}/indexes/context-pack-index.json",
-            field_name="qmd_scope_root",
-        )
-
-        self.write_json(context_pack_index_path, context_pack_index)
-        self.write_json(repositories_index_path, repository_index)
-        self.write_json(tasks_index_path, task_index)
-        self.write_json(lineage_index_path, lineage_index)
-
-        return {
-            "context_pack_index": str(context_pack_index_path),
-            "repositories_index": str(repositories_index_path),
-            "tasks_index": str(tasks_index_path),
-            "lineage_index": str(lineage_index_path),
-        }
-
-    def _context_pack_conventions_paths(
-        self,
-        *,
-        context_pack_dir: Path,
-        plan: dict[str, Any],
-    ) -> tuple[Path, Path]:
-        markdown_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=(
-                f"{plan['qmd_scope_root']}/canonical/context-pack/"
-                "codepmse-conventions.md"
-            ),
-            field_name="qmd_scope_root",
-        )
-        return markdown_path, self.sidecar_record_path(markdown_path)
-
-    def _maybe_write_context_pack_conventions(
-        self,
-        *,
-        context_pack_dir: Path,
-        plan: dict[str, Any],
-        repositories: list[dict[str, Any]],
-        indexed_at: str,
-    ) -> dict[str, Any]:
-        markdown_path, record_path = self._context_pack_conventions_paths(
-            context_pack_dir=context_pack_dir,
-            plan=plan,
-        )
-        result = {
-            "status": "existing",
-            "markdown_path": str(markdown_path),
-            "record_path": str(record_path),
-        }
-
-        if markdown_path.exists() or record_path.exists():
-            result["reason"] = "Context-pack conventions memo already exists."
-            return result
-
-        if not repositories:
-            result["status"] = "deferred"
-            result["reason"] = (
-                "Conventions memo generation is deferred until at least one "
-                "repository seeds successfully."
-            )
-            return result
-
-        if not any(repo.get("source_paths") for repo in repositories):
-            result["status"] = "insufficient-inputs"
-            result["reason"] = (
-                "Conventions memo generation was skipped because no bounded "
-                "source paths were observed in the successful seed inputs."
-            )
-            return result
-
-        markdown = self.build_context_pack_conventions_markdown(
-            context_pack_id=plan["context_pack_id"],
-            repositories=repositories,
-            generated_at=indexed_at,
-        )
-        self.write_text(markdown_path, markdown)
-        record = self.create_context_pack_conventions_record(
-            context_pack_id=plan["context_pack_id"],
-            qmd_scope=plan["qmd_scope_root"],
-            indexed_at=indexed_at,
-            record_path=record_path,
-            repositories=repositories,
-        )
-        self.write_json(record_path, record)
-        result["status"] = "created"
-        result["reason"] = (
-            "Context-pack conventions memo was created from the first "
-            "successful live seed inputs."
-        )
-        return result
-
     def build_plan(self, context_pack_dir: Path, manifest_path: Path) -> dict[str, Any]:
-        manifest = load_json(manifest_path)
-        context_pack_id = ensure_non_empty_string(
-            manifest.get("context_pack_id") or context_pack_dir.name,
-            "context_pack_id",
+        return _build_plan(
+            context_pack_dir,
+            manifest_path,
+            normalize_repo_entry=self.normalize_repo_entry,
         )
-        qmd_scope_root = ensure_non_empty_string(
-            manifest.get("qmd_scope_root")
-            or f"qmd/context-packs/{context_pack_id}",
-            "qmd_scope_root",
-        )
-        qmd_scope_root = self._normalize_qmd_scope_root(
-            context_pack_dir=context_pack_dir,
-            qmd_scope_root=qmd_scope_root,
-        )
-        repositories = manifest.get("repositories")
-        if not isinstance(repositories, list) or not repositories:
-            raise ValueError("Manifest requires a non-empty 'repositories' list")
-
-        repo_plans: list[dict[str, Any]] = []
-        seen_repo_ids: set[str] = set()
-        for raw_entry in repositories:
-            if not isinstance(raw_entry, dict):
-                raise ValueError("Each repository entry must be a JSON object")
-            normalized = self.normalize_repo_entry(
-                context_pack_dir,
-                raw_entry,
-                qmd_scope_root,
-            )
-            repo_id = normalized["repo_id"]
-            if repo_id in seen_repo_ids:
-                raise ValueError(
-                    f"Duplicate repository repo_id detected in manifest: {repo_id}"
-                )
-            seen_repo_ids.add(repo_id)
-            repo_plans.append(normalized)
-
-        warning_count = sum(len(repo["warnings"]) for repo in repo_plans)
-        ready_count = sum(1 for repo in repo_plans if repo["status"] == "ready")
-        blocked_count = sum(
-            1 for repo in repo_plans if repo["status"] == "blocked"
-        )
-
-        return {
-            "plan_type": "qmd-seeding-live-input",
-            "plan_version": "qmd-seeding-live-input/v1",
-            "context_pack_id": context_pack_id,
-            "context_pack_dir": str(context_pack_dir),
-            "manifest_path": str(manifest_path),
-            "qmd_scope_root": qmd_scope_root,
-            "repository_count": len(repo_plans),
-            "ready_count": ready_count,
-            "blocked_count": blocked_count,
-            "warning_count": warning_count,
-            "repositories": repo_plans,
-        }
 
     def load_plan(self, plan_path: Path) -> dict[str, Any]:
-        plan = load_json(plan_path)
-        required_fields = [
-            "context_pack_id",
-            "qmd_scope_root",
-            "repositories",
-        ]
-        for field_name in required_fields:
-            if field_name not in plan:
-                raise ValueError(
-                    f"Plan file is missing required field '{field_name}'"
-                )
-        repositories = plan.get("repositories")
-        if not isinstance(repositories, list) or not repositories:
-            raise ValueError("Plan file requires a non-empty 'repositories' list")
-        return plan
+        return _load_plan(plan_path)
 
     def get_live_plan(
         self,
@@ -324,21 +113,13 @@ class SeedingService:
         plan_path: Path,
         plan_mode: str,
     ) -> tuple[dict[str, Any], str]:
-        if plan_mode in {"prefer-plan", "require-plan"} and plan_path.exists():
-            plan = self.load_plan(plan_path)
-            plan["qmd_scope_root"] = self._normalize_qmd_scope_root(
-                context_pack_dir=context_pack_dir,
-                qmd_scope_root=ensure_non_empty_string(
-                    plan.get("qmd_scope_root"),
-                    "qmd_scope_root",
-                ),
-            )
-            return plan, "dry-run-plan"
-        if plan_mode == "require-plan":
-            raise ValueError(
-                f"Approved dry-run plan is required but missing: {plan_path}"
-            )
-        return self.build_plan(context_pack_dir, manifest_path), "manifest"
+        return _get_live_plan(
+            context_pack_dir,
+            manifest_path,
+            plan_path,
+            plan_mode,
+            normalize_repo_entry=self.normalize_repo_entry,
+        )
 
     def seed_repository(
         self,
@@ -347,217 +128,12 @@ class SeedingService:
         repo: dict[str, Any],
         indexed_at: str,
     ) -> RepoSeedResult:
-        repo = dict(repo)
-        repo["context_pack_id"] = plan["context_pack_id"]
-        repo["qmd_scope"] = plan["qmd_scope_root"]
-
-        if repo.get("status") != "ready":
-            return RepoSeedResult(
-                repo_id=repo["repo_id"],
-                repo_name=repo["repo_name"],
-                status="blocked",
-                source_root=None,
-                seeded_records=0,
-                invalidated_records=0,
-                warnings=list(repo.get("warnings", [])),
-                errors=[],
-                report_files={},
-            )
-
-        existing_roots = repo.get("existing_roots") or []
-        if not existing_roots:
-            raise ValueError(
-                f"Repository '{repo['repo_id']}' is marked ready without an existing root"
-            )
-
-        source_root = Path(existing_roots[0]).resolve()
-        source_ref = self.detect_source_ref(source_root)
-        scope_dir = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=plan["qmd_scope_root"],
-            field_name="qmd_scope_root",
-        )
-        summary_markdown_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=repo["qmd_targets"]["canonical_repo_summary"],
-            field_name="canonical_repo_summary",
-        )
-        bootstrap_markdown_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_dir,
-            value=repo["qmd_targets"]["operational_bootstrap_note"],
-            field_name="operational_bootstrap_note",
-        )
-        summary_record_path = self.sidecar_record_path(summary_markdown_path)
-        bootstrap_record_path = self.sidecar_record_path(bootstrap_markdown_path)
-        state_path = self.state_file_path(scope_dir, repo["repo_id"])
-
-        scan_files, scan_warnings = self.iter_scan_files(repo.get("scan_targets", []))
-        warnings = list(repo.get("warnings", [])) + scan_warnings
-        active_record_files: list[str] = []
-        source_paths: list[str] = []
-        accumulated_records: list[tuple[Path, dict[str, Any]]] = []
-        files_to_process = scan_files[:self.max_files_per_repo]
-        files_skipped = max(0, len(scan_files) - self.max_files_per_repo)
-
-        # Pre-compute relative paths (avoids duplicate Path.resolve() calls).
-        source_path_entries = [
-            (self.relative_source_path(source_root, fp), fp)
-            for fp in files_to_process
-        ]
-
-        # Phase 1: Parallel preview reads (I/O-bound, safe for threading).
-        preview_cache: dict[str, str] = {}
-        if source_path_entries:
-            worker_count = min(8, len(source_path_entries))
-            with ThreadPoolExecutor(max_workers=worker_count) as pool:
-                futures = {
-                    pool.submit(read_preview, full_path): sp
-                    for sp, full_path in source_path_entries
-                }
-                for future in futures:
-                    try:
-                        preview_cache[futures[future]] = future.result()
-                    except Exception:
-                        logger.debug("Preview read failed for %s", futures[future], exc_info=True)
-                        preview_cache[futures[future]] = ""
-
-        # Phase 2: Sequential record creation (CPU-bound, uses cached previews).
-        for source_path, _file_path in source_path_entries:
-            source_paths.append(source_path)
-            artifact_preview_path = Path(source_path)
-            effective_layer = (
-                "documents"
-                if self.detect_artifact_type(artifact_preview_path)
-                in {"architecture-doc", "runbook"}
-                else repo["system_layer"]
-            )
-            artifact_record_path = self.record_storage_path(
-                scope_dir,
-                effective_layer,
-                repo["repo_id"],
-                source_path,
-            )
-            artifact_record = self.create_artifact_record(
-                repo=repo,
-                source_root=source_root,
-                source_ref=source_ref,
-                source_path=source_path,
-                indexed_at=indexed_at,
-                record_path=artifact_record_path,
-                preview=preview_cache.get(source_path),
-            )
-            self.write_json(artifact_record_path, artifact_record)
-            active_record_files.append(str(artifact_record_path))
-            accumulated_records.append((artifact_record_path, artifact_record))
-
-        if files_skipped > 0:
-            logger.warning(
-                "Reached max_files_per_repo limit (%d) for %s; skipped %d files",
-                self.max_files_per_repo,
-                repo["repo_id"],
-                files_skipped,
-            )
-
-        summary_markdown = self.build_repo_summary_markdown(
-            repo=repo,
-            source_root=source_root,
-            source_ref=source_ref,
-            source_paths=source_paths,
-            warnings=warnings,
-            generated_at=indexed_at,
-        )
-        self.write_text(summary_markdown_path, summary_markdown)
-        summary_record = self.create_summary_record(
-            repo=repo,
-            source_ref=source_ref,
-            indexed_at=indexed_at,
-            record_path=summary_record_path,
-            source_paths=source_paths,
-        )
-        self.write_json(summary_record_path, summary_record)
-        active_record_files.append(str(summary_record_path))
-        accumulated_records.append((summary_record_path, summary_record))
-
-        previous_state: dict[str, Any] = {}
-        if state_path.exists():
-            try:
-                previous_state = load_json(state_path)
-            except ValueError:
-                logger.warning("Corrupted seed state at %s, starting fresh", state_path)
-                previous_state = {}
-
-        invalidated_records = 0
-        active_record_set = set(active_record_files)
-        for previous_record in previous_state.get("active_record_files", []):
-            if previous_record in active_record_set:
-                continue
-            record_path_obj = Path(previous_record)
-            modified = self.invalidate_record(
-                record_path_obj,
-                indexed_at=indexed_at,
-                reason=(
-                    "Source artifact was not observed in the latest live "
-                    "seed refresh."
-                ),
-            )
-            if modified is not None:
-                invalidated_records += 1
-                accumulated_records.append((record_path_obj, modified))
-
-        bootstrap_markdown = self.build_bootstrap_note_markdown(
-            repo=repo,
-            source_root=source_root,
-            source_ref=source_ref,
-            seeded_count=len(source_paths),
-            invalidated_count=invalidated_records,
-            warnings=warnings,
-            generated_at=indexed_at,
-        )
-        self.write_text(bootstrap_markdown_path, bootstrap_markdown)
-        bootstrap_record = self.create_bootstrap_note_record(
-            repo=repo,
-            source_ref=source_ref,
-            indexed_at=indexed_at,
-            record_path=bootstrap_record_path,
-            source_paths=source_paths,
-        )
-        self.write_json(bootstrap_record_path, bootstrap_record)
-        active_record_files.append(str(bootstrap_record_path))
-        accumulated_records.append((bootstrap_record_path, bootstrap_record))
-
-        self.write_json(
-            state_path,
-            {
-                "repo_id": repo["repo_id"],
-                "repo_name": repo["repo_name"],
-                "source_root": str(source_root),
-                "source_ref": source_ref,
-                "last_seeded_at": indexed_at,
-                "active_record_files": active_record_files,
-            },
-        )
-
-        report_files = {
-            "repo_summary": str(summary_markdown_path),
-            "repo_summary_record": str(summary_record_path),
-            "bootstrap_note": str(bootstrap_markdown_path),
-            "bootstrap_note_record": str(bootstrap_record_path),
-            "seed_state": str(state_path),
-        }
-        return RepoSeedResult(
-            repo_id=repo["repo_id"],
-            repo_name=repo["repo_name"],
-            status="seeded",
-            source_root=str(source_root),
-            seeded_records=len(source_paths) + 2,
-            invalidated_records=invalidated_records,
-            warnings=warnings,
-            errors=[],
-            report_files=report_files,
-            source_ref=source_ref,
-            source_paths=source_paths,
-            files_skipped=files_skipped,
-            accumulated_records=accumulated_records,
+        return seed_repository_impl(
+            context_pack_dir,
+            plan,
+            repo,
+            indexed_at,
+            service=self,
         )
 
     def execute_seed_run(
@@ -571,15 +147,63 @@ class SeedingService:
         effective_manifest = manifest or self.default_manifest
         effective_plan_file = plan_file or self.default_plan_file
         context_pack_path = self._resolve_context_pack_dir(context_pack_dir)
-        manifest_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=effective_manifest,
-            field_name="manifest",
+        marker_path = acquire_reseed_marker(context_pack_path)
+        try:
+            return self._execute_seed_run_with_marker(
+                context_pack_path=context_pack_path,
+                effective_manifest=effective_manifest,
+                effective_plan_file=effective_plan_file,
+                plan_mode=plan_mode,
+                write_report=write_report,
+            )
+        except Exception:
+            try:
+                manifest_path = resolve_path_in_context_pack(
+                    context_pack_path,
+                    effective_manifest,
+                    "manifest",
+                )
+                raw_manifest = load_json(manifest_path)
+                qmd_scope_root = raw_manifest.get("qmd_scope_root")
+                if isinstance(qmd_scope_root, str) and qmd_scope_root:
+                    scope_dir = resolve_path_in_context_pack(
+                        context_pack_path,
+                        qmd_scope_root,
+                        "qmd_scope_root",
+                    )
+                    update_pack_seed_state_failure(
+                        scope_dir=scope_dir,
+                        failed_at=utc_now(),
+                        reason="exception",
+                        last_failure_run_id=None,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "pack_seed_state: failed to record early reseed failure",
+                    exc_info=True,
+                )
+            raise
+        finally:
+            clear_reseed_marker(marker_path)
+
+    def _execute_seed_run_with_marker(
+        self,
+        *,
+        context_pack_path: Path,
+        effective_manifest: str,
+        effective_plan_file: str,
+        plan_mode: str,
+        write_report: bool,
+    ) -> dict[str, Any]:
+        manifest_path = resolve_path_in_context_pack(
+            context_pack_path,
+            effective_manifest,
+            "manifest",
         )
-        plan_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=effective_plan_file,
-            field_name="plan_file",
+        plan_path = resolve_path_in_context_pack(
+            context_pack_path,
+            effective_plan_file,
+            "plan_file",
         )
         plan, plan_source = self.get_live_plan(
             context_pack_dir=context_pack_path,
@@ -589,10 +213,10 @@ class SeedingService:
         )
 
         indexed_at = utc_now()
-        scope_dir = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=plan["qmd_scope_root"],
-            field_name="qmd_scope_root",
+        scope_dir = resolve_path_in_context_pack(
+            context_pack_path,
+            plan["qmd_scope_root"],
+            "qmd_scope_root",
         )
         scope_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.report_file_path(scope_dir, indexed_at) if write_report else None
@@ -614,6 +238,12 @@ class SeedingService:
                     indexed_at=indexed_at,
                 )
             except Exception as exc:  # noqa: BLE001
+                roots_for_error = repo.get("existing_roots") or []
+                try:
+                    chosen_for_error, _ = resolve_first_existing(roots_for_error)
+                    error_source_root: str | None = str(chosen_for_error.resolve())
+                except NoExistingPathError:
+                    error_source_root = roots_for_error[0] if roots_for_error else None
                 result = RepoSeedResult(
                     repo_id=str(
                         repo.get("repo_id") or repo.get("repo_name") or "unknown"
@@ -622,7 +252,7 @@ class SeedingService:
                         repo.get("repo_name") or repo.get("repo_id") or "unknown"
                     ),
                     status="error",
-                    source_root=(repo.get("existing_roots") or [None])[0],
+                    source_root=error_source_root,
                     seeded_records=0,
                     invalidated_records=0,
                     warnings=list(repo.get("warnings", [])),
@@ -636,7 +266,9 @@ class SeedingService:
             repo_index_entry = dict(repo)
             repo_index_entry["seed_status"] = result.status
             repo_index_entry["local_root"] = result.source_root or ""
-            repo_index_entry["last_seeded_at"] = indexed_at if result.status == "seeded" else ""
+            repo_index_entry["last_seeded_at"] = (
+                indexed_at if result.status == "seeded" else ""
+            )
             if result.source_ref:
                 repo_index_entry["source_ref"] = result.source_ref
             if result.source_paths:
@@ -650,13 +282,6 @@ class SeedingService:
                 error_count += 1
             total_invalidated += result.invalidated_records
             total_files_skipped += result.files_skipped
-
-        # Re-probe repository types and update manifest if classifications changed.
-        update_manifest_repository_types(
-            manifest_path,
-            plan["repositories"],
-            write_json=self.write_json,
-        )
 
         if error_count > 0:
             overall_status = "partial-failure" if seeded_count > 0 else "failed"
@@ -690,25 +315,27 @@ class SeedingService:
             for repo in repository_index_inputs
             if repo.get("seed_status") == "seeded"
         ]
-        report["conventions_summary"] = (
-            self._maybe_write_context_pack_conventions(
-                context_pack_dir=context_pack_path,
-                plan=plan,
-                repositories=seeded_repositories,
-                indexed_at=indexed_at,
-            )
+        report["conventions_summary"] = maybe_write_context_pack_conventions(
+            self,
+            context_pack_dir=context_pack_path,
+            plan=plan,
+            repositories=seeded_repositories,
+            indexed_at=indexed_at,
         )
 
         try:
             report["workspace_counts"] = analyze_workspace_counts(load_json(manifest_path))
         except Exception:  # noqa: BLE001
-            logger.warning("workspace_analysis: failed to compute workspace counts", exc_info=True)
+            logger.warning(
+                "workspace_analysis: failed to compute workspace counts", exc_info=True
+            )
         if all_accumulated_records:
             self.qmd_index_service.warm_and_merge_records(
                 scope_dir, all_accumulated_records,
             )
 
-        report["index_outputs"] = self._write_scope_indexes(
+        report["index_outputs"] = write_scope_indexes(
+            self,
             context_pack_dir=context_pack_path,
             scope_dir=scope_dir,
             plan=plan,
@@ -720,6 +347,29 @@ class SeedingService:
             assert output_path is not None
             self.write_json(output_path, report)
             report["report_path"] = str(output_path)
+
+        run_id = self.report_file_path(scope_dir, indexed_at).stem
+        if overall_status != "failed" and not (
+            overall_status in {"completed-with-blocked-repos", "partial-failure"}
+            and seeded_count == 0
+        ):
+            update_pack_seed_state(
+                scope_dir=scope_dir,
+                indexed_at=indexed_at,
+                last_seed_run_id=run_id,
+            )
+        else:
+            failure_reason = (
+                "overall_status=failed"
+                if overall_status == "failed"
+                else "overall_status=partial-failure-no-seeded-repos"
+            )
+            update_pack_seed_state_failure(
+                scope_dir=scope_dir,
+                failed_at=indexed_at,
+                reason=failure_reason,
+                last_failure_run_id=run_id,
+            )
 
         return report
 
@@ -734,15 +384,15 @@ class SeedingService:
         effective_manifest = manifest or self.default_manifest
         effective_plan_file = plan_file or self.default_plan_file
         context_pack_path = self._resolve_context_pack_dir(context_pack_dir)
-        manifest_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=effective_manifest,
-            field_name="manifest",
+        manifest_path = resolve_path_in_context_pack(
+            context_pack_path,
+            effective_manifest,
+            "manifest",
         )
-        plan_path = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=effective_plan_file,
-            field_name="plan_file",
+        plan_path = resolve_path_in_context_pack(
+            context_pack_path,
+            effective_plan_file,
+            "plan_file",
         )
         plan, _ = self.get_live_plan(
             context_pack_dir=context_pack_path,
@@ -750,9 +400,9 @@ class SeedingService:
             plan_path=plan_path,
             plan_mode=plan_mode,
         )
-        scope_dir = self._resolve_path_in_context_pack(
-            context_pack_dir=context_pack_path,
-            value=plan["qmd_scope_root"],
-            field_name="qmd_scope_root",
+        scope_dir = resolve_path_in_context_pack(
+            context_pack_path,
+            plan["qmd_scope_root"],
+            "qmd_scope_root",
         )
         return str(scope_dir.resolve())

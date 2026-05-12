@@ -36,8 +36,9 @@ class CreateDropboxTaskTests(unittest.TestCase):
         completed.dropbox_dir = dropbox_dir  # type: ignore[attr-defined]
         return completed
 
-    def read_single_dropbox_file(self, dropbox_dir: Path) -> str:
-        files = list(dropbox_dir.glob("*.md"))
+    def read_single_published_file(self, dropbox_dir: Path) -> str:
+        pending_dir = dropbox_dir.parent / "pendingitems"
+        files = list(pending_dir.glob("*.md"))
         self.assertEqual(len(files), 1)
         return files[0].read_text(encoding="utf-8")
 
@@ -49,7 +50,7 @@ class CreateDropboxTaskTests(unittest.TestCase):
             "Summarize the request.",
         )
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
-        content = self.read_single_dropbox_file(
+        content = self.read_single_published_file(
             completed.dropbox_dir,  # type: ignore[arg-type]
         )
         self.assertIn("- Task Kind: standard", content)
@@ -79,7 +80,7 @@ class CreateDropboxTaskTests(unittest.TestCase):
             ),
         )
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
-        content = self.read_single_dropbox_file(
+        content = self.read_single_published_file(
             completed.dropbox_dir,  # type: ignore[arg-type]
         )
         self.assertIn("- Task Kind: child-task", content)

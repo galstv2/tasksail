@@ -21,6 +21,25 @@ from .storage import (
 )
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_CROSS_TASK_FIELDS = (
+    "what_went_well",
+    "what_could_have_gone_better",
+    "action_items",
+    "reusable_team_learnings",
+    "anti_patterns",
+)
+
+
+def _clean_retrospective_item(raw: str) -> str:
+    return _HTML_COMMENT_RE.sub("", str(raw)).strip()
+
+
+def _record_has_cross_task_content(payload: dict[str, Any]) -> bool:
+    return any(
+        _clean_retrospective_item(item)
+        for field in _CROSS_TASK_FIELDS
+        for item in (payload.get(field) or [])
+    )
 
 
 def build_shared_retrospective_memory(
@@ -55,27 +74,26 @@ def build_shared_retrospective_memory(
             task_summaries.append((task_id, task_title))
         source_artifacts.append(str(path.relative_to(repo_root)))
 
-        def _clean(raw: str) -> str:
-            return _HTML_COMMENT_RE.sub("", str(raw)).strip()
-
+        if not _record_has_cross_task_content(payload):
+            continue
         for item in payload.get("what_went_well") or []:
-            cleaned = _clean(item)
+            cleaned = _clean_retrospective_item(item)
             if cleaned:
                 strengths.setdefault(cleaned, []).append(task_id)
         for item in payload.get("what_could_have_gone_better") or []:
-            cleaned = _clean(item)
+            cleaned = _clean_retrospective_item(item)
             if cleaned:
                 bottlenecks.setdefault(cleaned, []).append(task_id)
         for item in payload.get("action_items") or []:
-            cleaned = _clean(item)
+            cleaned = _clean_retrospective_item(item)
             if cleaned:
                 action_items.setdefault(cleaned, []).append(task_id)
         for item in payload.get("reusable_team_learnings") or []:
-            cleaned = _clean(item)
+            cleaned = _clean_retrospective_item(item)
             if cleaned:
                 validated_improvements.setdefault(cleaned, []).append(task_id)
         for item in payload.get("anti_patterns") or []:
-            cleaned = _clean(item)
+            cleaned = _clean_retrospective_item(item)
             if cleaned:
                 anti_patterns.setdefault(cleaned, []).append(task_id)
 

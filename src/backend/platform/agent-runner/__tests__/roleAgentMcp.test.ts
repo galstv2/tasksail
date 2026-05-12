@@ -89,6 +89,7 @@ vi.mock('../sessionReceipts.js', () => ({
 vi.mock('../../container/sharedMcp.js', () => ({
   getSharedMcpUrl: vi.fn(),
   resolveContextPackContainerPath: vi.fn(),
+  runtimeRequiresContainerPaths: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../platform-config/get.js', () => ({
@@ -110,7 +111,7 @@ const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges } = await imp
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
-const { getSharedMcpUrl, resolveContextPackContainerPath } = await import('../../container/sharedMcp.js');
+const { getSharedMcpUrl, resolveContextPackContainerPath, runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
 const { getPlatformConfig } = await import('../../platform-config/get.js');
 
 // Shared typed references to mocked functions.
@@ -140,6 +141,7 @@ const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot)
 const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChanges);
 const mockedGetSharedMcpUrl = vi.mocked(getSharedMcpUrl);
 const mockedResolveContextPackContainerPath = vi.mocked(resolveContextPackContainerPath);
+const mockedRuntimeRequiresContainerPaths = vi.mocked(runtimeRequiresContainerPaths);
 const mockedGetPlatformConfig = vi.mocked(getPlatformConfig);
 
 /** Shared mock setup used by all describe blocks. */
@@ -226,6 +228,7 @@ function setupCommonMocks(): void {
   mockedWriteSessionStartReceipt.mockResolvedValue('/repo/.platform-state/runtime/role-sessions/dalton.json');
   mockedWriteSessionTerminalReceipt.mockResolvedValue(undefined);
   mockedGetSharedMcpUrl.mockResolvedValue('http://localhost:8811/sse');
+  mockedRuntimeRequiresContainerPaths.mockResolvedValue(true);
   mockedGetPlatformConfig.mockResolvedValue({
     schema_version: 1,
     cli_provider: 'copilot',

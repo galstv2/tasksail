@@ -11,7 +11,6 @@ Public API
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +26,15 @@ from src.backend.mcp.context_estate.helpers import (
 from src.backend.mcp.context_estate.manifest_normalization import (
     _normalize_distributed_repositories,
     _normalize_focusable_areas,
+    _normalize_monolith_extra_repositories,
     _normalize_monolith_repository,
 )
 from src.backend.mcp.context_estate_draft_index import DEFAULT_DRAFT_FILE
+from src.backend.mcp.pack_constants import MANIFEST_VERSION as _PACK_MANIFEST_VERSION
+from src.backend.mcp.pack_constants import MANIFEST_VERSION_V2 as _PACK_MANIFEST_VERSION_V2
+from src.backend.mcp.pack_constants import qmd_scope_root_for
+from src.backend.mcp.pack_schemas.manifest_v2 import validate_manifest_v2
+from src.backend.mcp.pack_writer import PackWriter
 from src.backend.mcp.repo_context_mcp.utils import (
     ensure_non_empty_string,
     load_json,
@@ -41,7 +46,9 @@ from src.backend.mcp.repo_context_mcp.utils import (
 
 # ---- Manifest-specific constants -------------------------------------------
 DEFAULT_MANIFEST_FILE = "qmd/repo-sources.json"
-MANIFEST_VERSION = "qmd-repo-sources/v1"
+MANIFEST_VERSION = _PACK_MANIFEST_VERSION
+# New packs emit v2 by default; v1 is kept for read-side compat.
+MANIFEST_VERSION_V2 = _PACK_MANIFEST_VERSION_V2
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +57,6 @@ MANIFEST_VERSION = "qmd-repo-sources/v1"
 def normalize_estate_type(value: str | None, draft_estate_type: str) -> str:
     raw = normalize_optional_string(value) or draft_estate_type
     normalized = raw.lower()
-    if normalized == "distributed":
-        return "distributed-platform"
-    if normalized == "monolith":
-        return "monolith"
     if normalized not in ALLOWED_ESTATE_TYPES:
         raise ValueError(f"Unsupported estate_type: {raw}")
     return normalized
@@ -102,7 +105,7 @@ def build_approved_manifest(
     )
 
     manifest: dict[str, Any] = {
-        "manifest_version": MANIFEST_VERSION,
+        "manifest_version": MANIFEST_VERSION_V2,
         "manifest_status": "approved",
         "approved_at": approved_at,
         "context_pack_id": context_pack_id,
@@ -113,7 +116,7 @@ def build_approved_manifest(
             "display_name",
         ),
         "estate_type": estate_type,
-        "qmd_scope_root": f"qmd/context-packs/{context_pack_id}",
+        "qmd_scope_root": qmd_scope_root_for(context_pack_id),
         "default_scope_mode": normalize_scope_mode(
             review_payload.get("default_scope_mode")
         ),
@@ -199,6 +202,12 @@ def build_approved_manifest(
                     "Monolith repository_type must be primary when provided."
                 )
             repo["repository_type"] = "primary"
+        seen_repo_ids = {entry["repo_id"] for entry in repositories}
+        infrastructure_repositories = _normalize_monolith_extra_repositories(
+            review_payload.get("repositories"),
+            seen_repo_ids,
+        )
+        repositories = [*repositories, *infrastructure_repositories]
         manifest["repositories"] = repositories
         manifest["focusable_areas"] = focusable_areas
         primary_focus_ids = _normalize_focus_area_id_list(
@@ -215,6 +224,25 @@ def build_approved_manifest(
         manifest["shared_glossary_terms"] = glossary
 
     return manifest
+
+
+def _backfill_repo_focus_from_repository_type(manifest: dict[str, Any]) -> None:
+    """Populate repo_focus from repository_type on repo entries that lack it.
+
+    build_approved_manifest emits v2 manifests where repository_type is set by the
+    normalization pipeline but repo_focus is absent. PackWriter's mirror is strictly
+    one-way (repo_focus → repository_type), so repo_focus must be populated before the
+    manifest dict is handed to PackWriter. This function applies that one-time backfill
+    in-place, analogous to what upgrade_v1_to_v2 does for genuinely v1 manifests.
+    """
+    for repo in manifest.get("repositories") or []:
+        if isinstance(repo, dict) and not repo.get("repo_focus") and repo.get("repository_type"):
+            repo["repo_focus"] = repo["repository_type"]
+            repo.setdefault("repo_focus_authored", False)
+    repo = manifest.get("repository")
+    if isinstance(repo, dict) and not repo.get("repo_focus") and repo.get("repository_type"):
+        repo["repo_focus"] = repo["repository_type"]
+        repo.setdefault("repo_focus_authored", False)
 
 
 def write_approved_manifest(
@@ -236,11 +264,14 @@ def write_approved_manifest(
         approved_at=approved_at,
         context_pack_dir=resolved_context_pack_dir,
     )
+    # build_approved_manifest emits v2 manifests where repository_type is set but
+    # repo_focus is absent. PackWriter's mirror is one-way (repo_focus → repository_type),
+    # so repo_focus must be populated upstream. Backfill it from repository_type for any
+    # repo entry that is missing it.
+    _backfill_repo_focus_from_repository_type(manifest)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=False) + "\n",
-        encoding="utf-8",
-    )
+    model = validate_manifest_v2(manifest, path=str(manifest_path))
+    PackWriter(resolved_context_pack_dir, manifest_file=manifest_path).write_manifest(model)
     return manifest_path
 
 

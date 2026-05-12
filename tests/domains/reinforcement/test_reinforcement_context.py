@@ -15,6 +15,11 @@ from src.backend.scripts.python.lib.role_agent.reinforcement_cmds import (  # no
     cmd_render_reinforcement_context,
 )
 
+CANONICAL_STORE = Path("AgentWorkSpace/qmd/global/reinforcement/store")
+CANONICAL_SIDECARS = Path("AgentWorkSpace/qmd/global/reinforcement/agent-rewards")
+LEGACY_STORE = Path("AgentWorkSpace/qmd/reinforcement")
+LEGACY_SIDECARS = Path("AgentWorkSpace/qmd/global/agent-rewards")
+
 
 def _write_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,12 +165,13 @@ class TestQmdPathResolution:
 
     def test_qmd_path_preferred_over_legacy(self, tmp_path: Path) -> None:
         # Write data to both QMD and legacy paths.
-        qmd_dir = tmp_path / "AgentWorkSpace" / "qmd" / "reinforcement"
+        qmd_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         legacy_dir = tmp_path / "pack" / "reinforcement"
 
         _write_json(
-            qmd_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent(lifetime_reward=99000)),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(lifetime_reward=99000),
         )
         _write_json(qmd_dir / "task-ledger.json", _make_ledger())
 
@@ -182,10 +188,8 @@ class TestQmdPathResolution:
 
     def test_per_agent_json_preferred_over_shared(self, tmp_path: Path) -> None:
         """Per-agent JSON sidecar is read instead of shared agent-rewards.json."""
-        qmd_dir = tmp_path / "AgentWorkSpace" / "qmd" / "reinforcement"
-        per_agent_dir = (
-            tmp_path / "AgentWorkSpace" / "qmd" / "global" / "agent-rewards"
-        )
+        qmd_dir = tmp_path / CANONICAL_STORE
+        per_agent_dir = tmp_path / CANONICAL_SIDECARS
 
         # Per-agent JSON with distinct lifetime_reward.
         _write_json(
@@ -204,26 +208,64 @@ class TestQmdPathResolution:
         assert "77,000" in md
         assert "11,000" not in md
 
-    def test_falls_back_to_legacy_when_qmd_absent(self, tmp_path: Path) -> None:
-        legacy_dir = tmp_path / "pack" / "reinforcement"
+    def test_migrates_legacy_qmd_store_when_canonical_absent(
+        self, tmp_path: Path,
+    ) -> None:
+        legacy_dir = tmp_path / LEGACY_STORE
+        legacy_sidecars = tmp_path / LEGACY_SIDECARS
         _write_json(
-            legacy_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent(lifetime_reward=7500)),
+            legacy_sidecars / "software-engineer.json",
+            _make_agent(lifetime_reward=7500),
         )
+        _write_json(legacy_dir / "task-ledger.json", _make_ledger())
+
+        rc, md, _ = _run_with_repo_root(tmp_path)
+        assert rc == 0
+        assert "7,500" in md
+        assert (tmp_path / CANONICAL_SIDECARS / "software-engineer.json").is_file()
+        assert (tmp_path / LEGACY_SIDECARS / "software-engineer.json").is_file()
+
+    def test_migrates_legacy_agent_sidecar_when_canonical_absent(
+        self, tmp_path: Path,
+    ) -> None:
+        legacy_sidecars = tmp_path / LEGACY_SIDECARS
+        legacy_store = tmp_path / LEGACY_STORE
+        _write_json(
+            legacy_sidecars / "software-engineer.json",
+            _make_agent(lifetime_reward=88000),
+        )
+        _write_json(
+            legacy_store / "agent-rewards.json",
+            _make_agent_rewards(_make_agent(lifetime_reward=11000)),
+        )
+        _write_json(legacy_store / "task-ledger.json", _make_ledger())
+
+        rc, md, _ = _run_with_repo_root(tmp_path)
+
+        assert rc == 0
+        assert "88,000" in md
+        assert "11,000" not in md
+        assert (tmp_path / CANONICAL_SIDECARS / "software-engineer.json").is_file()
+
+    def test_ignores_context_pack_local_legacy_when_qmd_absent(
+        self, tmp_path: Path,
+    ) -> None:
+        legacy_dir = tmp_path / "pack" / "reinforcement"
         _write_json(legacy_dir / "task-ledger.json", _make_ledger())
 
         rc, md, _ = _run(tmp_path)
         assert rc == 0
-        assert "7,500" in md
+        assert "- Status: unavailable" in md
+        assert "No private per-agent reinforcement data" in md
 
 
 class TestHappyPath:
     def test_all_data_present(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         _write_json(
-            r_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent()),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(),
         )
         _write_json(
             r_dir / "task-ledger.json",
@@ -238,7 +280,7 @@ class TestHappyPath:
         _write_json(
             r_dir / "feedback-events.json",
             {"schema_version": "1.0", "entries": [
-                _make_feedback("T-41", "positive", 5, "triggered settlement"),
+                _make_feedback("T-41", "positive", 5, "strong outcome"),
                 _make_feedback("T-42", "positive", 4),
             ]},
         )
@@ -259,9 +301,9 @@ class TestHappyPath:
         assert "- Role Multiplier: 1.50x" in md
         assert "## Your Reward Standing" in md
         assert "Lifetime Reward: 45,000" in md
-        assert "7 of 10 tasks toward next settlement" in md
-        assert "Unrewarded Reward Pool: 14,000" in md
-        assert "SETTLE-a1b2c3" in md
+        assert "7 of 10 successful tasks toward your next reward checkpoint" in md
+        assert "Reward Pool" not in md
+        assert "SETTLE-a1b2c3" not in md
         assert "## Recent Feedback" in md
         assert "## Standing Expectations" in md
         assert "## Behavioral Guidance" in md
@@ -273,8 +315,7 @@ class TestHappyPath:
 
 class TestUnavailable:
     def test_no_agent_reward_entry(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
         _write_json(
             r_dir / "agent-rewards.json",
             _make_agent_rewards(_make_agent(agent_id="qa", role="QA and Closeout", multiplier=1.0)),
@@ -283,7 +324,7 @@ class TestUnavailable:
         rc, md, env = _run(tmp_path, agent_id="software-engineer")
         assert rc == 0
         assert "- Status: unavailable" in md
-        assert "No reinforcement data has been generated yet." in md
+        assert "No private per-agent reinforcement data has been generated yet." in md
         assert "CONTEXT_PACK_REINFORCEMENT_STATUS=unavailable" in env
         assert "CONTEXT_PACK_REINFORCEMENT_INJECTION_ENABLED=false" in env
 
@@ -300,11 +341,11 @@ class TestUnavailable:
 
 class TestGracefulDegradation:
     def test_without_global_doc_or_settlements(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         _write_json(
-            r_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent()),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(),
         )
         _write_json(
             r_dir / "task-ledger.json",
@@ -324,23 +365,24 @@ class TestGracefulDegradation:
 
 class TestDataIsolation:
     def test_agent_sees_only_own_data(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         _write_json(
-            r_dir / "agent-rewards.json",
-            _make_agent_rewards(
-                _make_agent(
-                    agent_id="software-engineer",
-                    lifetime_reward=45000,
-                ),
-                _make_agent(
-                    agent_id="qa",
-                    role="QA and Closeout",
-                    multiplier=1.0,
-                    lifetime_reward=20000,
-                    unrewarded_task_count=3,
-                    unrewarded_reward_total=6000,
-                ),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(
+                agent_id="software-engineer",
+                lifetime_reward=45000,
+            ),
+        )
+        _write_json(
+            sidecar_dir / "qa.json",
+            _make_agent(
+                agent_id="qa",
+                role="QA and Closeout",
+                multiplier=1.0,
+                lifetime_reward=20000,
+                unrewarded_task_count=3,
+                unrewarded_reward_total=6000,
             ),
         )
         _write_json(
@@ -388,11 +430,11 @@ class TestStreakCalculation:
 
 class TestExportFormat:
     def test_export_file_has_all_keys(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         _write_json(
-            r_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent()),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(),
         )
         _write_json(
             r_dir / "task-ledger.json",
@@ -407,11 +449,11 @@ class TestExportFormat:
         assert "export CONTEXT_PACK_REINFORCEMENT_CONTEXT_FILE=" in env
 
     def test_export_values_are_shell_safe(self, tmp_path: Path) -> None:
-        pack = tmp_path / "pack"
-        r_dir = pack / "reinforcement"
+        r_dir = tmp_path / CANONICAL_STORE
+        sidecar_dir = tmp_path / CANONICAL_SIDECARS
         _write_json(
-            r_dir / "agent-rewards.json",
-            _make_agent_rewards(_make_agent()),
+            sidecar_dir / "software-engineer.json",
+            _make_agent(),
         )
         _write_json(r_dir / "task-ledger.json", _make_ledger())
 

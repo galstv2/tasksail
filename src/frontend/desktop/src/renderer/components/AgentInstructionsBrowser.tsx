@@ -50,6 +50,7 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
     isLoading,
     files,
     draftsByPath,
+    descriptor,
     error,
     loadingPath,
     onClose,
@@ -86,6 +87,11 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
         <header className="mcp-modal__header">
           <div className="instructions-browser__header-main">
             <h2 className="mcp-modal__title">Platform Instructions</h2>
+            {descriptor && (
+              <div className="instructions-browser__provider-subtitle">
+                Provider: {descriptor.providerId} · Registry: {descriptor.agentConfigPaths.root}
+              </div>
+            )}
             <div className="instructions-browser__tabs" role="tablist" aria-label="Instruction directory tabs">
               {TAB_ORDER.map((tab) => (
                 <button

@@ -35,7 +35,8 @@ export type ContextPackDeepFocusDerivedRoot = ContextPackDeepFocusTarget & {
     | 'test-target'
     | 'support-target'
     | 'scoped-test-target'
-    | 'scoped-support-target';
+    | 'scoped-support-target'
+    | 'support-repo';
   sourceTargets?: ContextPackPrimaryFocusTarget[];
 };
 

@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 
 import { getActiveProvider, type CliProvider } from '../../../backend/platform/cli-provider/index.js';
+import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
 import { REPO_ROOT } from './paths';
 import type { PlannerCliInvocation } from './plannerSession.types';
 
@@ -25,35 +26,47 @@ export type BuildPlannerCliInvocationOptions = {
   workingDirectory?: string;
   contextPackBoundaryEnforced?: boolean;
   additionalEnv?: NodeJS.ProcessEnv;
+  focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
 };
 
-let cachedPlannerRegistryEntry: { registryPath: string; entry: PlannerAgentRegistryEntry } | null = null;
+let cachedPlannerRegistryEntry: { registryPath: string; plannerAgentId: string; entry: PlannerAgentRegistryEntry } | null = null;
 
-function loadProviderPlanningAgentRegistryEntry(provider: CliProvider): PlannerAgentRegistryEntry {
+function loadProviderPlanningAgentRegistryEntry(provider: CliProvider, plannerAgentId: string): PlannerAgentRegistryEntry {
   const registryPath = join(REPO_ROOT, provider.agentConfigPaths().registry);
-  if (cachedPlannerRegistryEntry?.registryPath === registryPath) {
+  if (
+    cachedPlannerRegistryEntry?.registryPath === registryPath
+    && cachedPlannerRegistryEntry.plannerAgentId === plannerAgentId
+  ) {
     return cachedPlannerRegistryEntry.entry;
   }
 
   const registryPayload = JSON.parse(readFileSync(registryPath, 'utf-8')) as PlannerAgentRegistry;
-  const planningAgent = registryPayload.agents?.find((entry) => entry.agent_id === 'planning-agent');
+  const planningAgent = registryPayload.agents?.find((entry) => entry.agent_id === plannerAgentId);
 
   if (!planningAgent?.required_model) {
     throw new Error('Planning agent registry entry is missing required_model.');
   }
 
-  cachedPlannerRegistryEntry = { registryPath, entry: planningAgent };
+  cachedPlannerRegistryEntry = { registryPath, plannerAgentId, entry: planningAgent };
   return planningAgent;
 }
 
 export function getPlanningAgentRequiredModel(): string {
   const provider = getActiveProvider(REPO_ROOT);
-  return loadProviderPlanningAgentRegistryEntry(provider).required_model ?? 'gpt-4.1';
+  const plannerAgentId = provider.plannerAgentId();
+  if (!plannerAgentId) {
+    throw new Error('Active provider has no planner agent id; planner launch is not supported.');
+  }
+  return loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).required_model ?? 'gpt-4.1';
 }
 
 export function getPlanningAgentAllowedRoots(): string[] {
   const provider = getActiveProvider(REPO_ROOT);
-  return [...(loadProviderPlanningAgentRegistryEntry(provider).allowed_dirs ?? ['.'])];
+  const plannerAgentId = provider.plannerAgentId();
+  if (!plannerAgentId) {
+    throw new Error('Active provider has no planner agent id; planner launch is not supported.');
+  }
+  return [...(loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).allowed_dirs ?? ['.'])];
 }
 
 function dedupe(values: string[]): string[] {
@@ -68,14 +81,26 @@ function dedupe(values: string[]): string[] {
   });
 }
 
+function inheritedPlannerEnv(controlledEnvKeys: readonly string[]): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of controlledEnvKeys) {
+    delete env[key];
+  }
+  return env;
+}
+
 export function buildPlannerCliInvocation(
   options: BuildPlannerCliInvocationOptions,
 ): PlannerCliInvocation {
   const provider = getActiveProvider(REPO_ROOT);
+  const plannerAgentId = provider.plannerAgentId();
+  if (!plannerAgentId) {
+    throw new Error('Active provider has no planner agent id; planner launch is not supported.');
+  }
   const allowedRoots = dedupe(options.allowedRoots ?? getPlanningAgentAllowedRoots());
   const contextPackBoundaryEnforced =
     options.contextPackBoundaryEnforced ?? allowedRoots.length > 0;
-  const model = loadProviderPlanningAgentRegistryEntry(provider).required_model ?? 'gpt-4.1';
+  const model = loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).required_model ?? 'gpt-4.1';
   const resumeSessionId = options.resumeSessionId ?? null;
   const plannerSessionId = options.plannerSessionId ?? null;
   const promptMode = options.promptMode ?? 'one-shot';
@@ -94,6 +119,7 @@ export function buildPlannerCliInvocation(
     allowedRoots,
     contextPackBoundaryEnforced,
     workingDirectory: options.workingDirectory ?? REPO_ROOT,
+    focusEnv: options.focusEnv,
   });
 
   if (!launchSpec) {
@@ -105,13 +131,13 @@ export function buildPlannerCliInvocation(
     args: launchSpec.args,
     cwd: launchSpec.launchCwd,
     env: {
-      ...process.env,
+      ...inheritedPlannerEnv(provider.controlledEnvKeys()),
       RUN_ROLE_AGENT_ACTIVE_MODEL: model,
       ...(plannerSessionId ? { PLANNER_SESSION_ID: plannerSessionId } : {}),
       ...launchSpec.env,
       ...options.additionalEnv,
     },
-    agentId: 'planning-agent',
+    agentId: launchSpec.agentId,
     model,
     prompt: options.prompt,
     promptMode,

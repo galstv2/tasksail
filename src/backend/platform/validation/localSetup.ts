@@ -52,7 +52,8 @@ export async function validateLocalSetup(repoRoot?: string): Promise<LocalSetupR
   const root = repoRoot ?? process.cwd();
   let runtimeTool: 'docker' | 'podman' | null = null;
   try {
-    runtimeTool = await resolveContainerRuntime(root);
+    const resolvedRuntime = await resolveContainerRuntime(root);
+    runtimeTool = resolvedRuntime === 'direct' ? null : resolvedRuntime;
   } catch (err: unknown) {
     errors.push(err instanceof Error ? err.message : String(err));
   }

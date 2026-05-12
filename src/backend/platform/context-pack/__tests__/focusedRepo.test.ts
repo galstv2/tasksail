@@ -7,7 +7,6 @@ import {
   explainSelectedPrimaryBoundaryFailure,
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
-  resolveWorkspaceRepoRoots,
 } from '../focusedRepo.js';
 import { resolveDeepFocusSelection } from '../deepFocusResolver.js';
 
@@ -25,9 +24,19 @@ describe('resolveFocusedRepoRoot', () => {
   function writeManifest(contextPackDir: string, manifest: object): void {
     const manifestDir = path.join(contextPackDir, 'qmd');
     mkdirSync(manifestDir, { recursive: true });
+    const payload = {
+      manifest_version: 'qmd-repo-sources/v2',
+      manifest_status: 'approved',
+      estate_type: 'distributed-platform',
+      context_pack_id: 'pack',
+      qmd_scope_root: 'qmd/context-packs/pack',
+      primary_working_repo_ids: [],
+      primary_focus_area_ids: [],
+      ...manifest,
+    };
     writeFileSync(
       path.join(manifestDir, 'repo-sources.json'),
-      JSON.stringify(manifest, null, 2),
+      JSON.stringify(payload, null, 2),
     );
   }
 
@@ -43,21 +52,27 @@ describe('resolveFocusedRepoRoot', () => {
     return realpathSync(filePath);
   }
 
-  function writeActiveContextPackSidecar(binding: object): void {
-    const queueStateDir = path.join(tmpDir, 'platform', '.platform-state', 'queue');
-    mkdirSync(queueStateDir, { recursive: true });
-    writeFileSync(
-      path.join(queueStateDir, 'active-context-pack.json'),
-      JSON.stringify(binding, null, 2),
-    );
-  }
-
   function writeWorkspaceSyncState(binding: object): void {
     const stateDir = path.join(tmpDir, 'platform', '.platform-state');
     mkdirSync(stateDir, { recursive: true });
+    const candidate = binding as Record<string, unknown>;
     writeFileSync(
       path.join(stateDir, 'workspace-context-sync.json'),
-      JSON.stringify(binding, null, 2),
+      JSON.stringify({
+        active_context_pack_dir: candidate.contextPackDir ?? candidate.active_context_pack_dir,
+        active_context_pack_id: candidate.contextPackId ?? candidate.active_context_pack_id,
+        scope_mode: candidate.scopeMode ?? candidate.scope_mode,
+        selected_repo_ids: candidate.selectedRepoIds ?? candidate.selected_repo_ids ?? [],
+        selected_focus_ids: candidate.selectedFocusIds ?? candidate.selected_focus_ids ?? [],
+        deep_focus_enabled: candidate.deepFocusEnabled ?? candidate.deep_focus_enabled,
+        deep_focus_primary_repo_id: candidate.deepFocusPrimaryRepoId ?? candidate.deep_focus_primary_repo_id,
+        deep_focus_primary_focus_id: candidate.deepFocusPrimaryFocusId ?? candidate.deep_focus_primary_focus_id,
+        selected_focus_path: candidate.selectedFocusPath ?? candidate.selected_focus_path,
+        selected_focus_target_kind: candidate.selectedFocusTargetKind ?? candidate.selected_focus_target_kind,
+        selected_focus_targets: candidate.selectedFocusTargets ?? candidate.selected_focus_targets,
+        selected_test_target: candidate.selectedTestTarget ?? candidate.selected_test_target,
+        selected_support_targets: candidate.selectedSupportTargets ?? candidate.selected_support_targets,
+      }, null, 2),
     );
   }
 
@@ -175,7 +190,43 @@ describe('resolveFocusedRepoRoot', () => {
     expect(result!.selectedRepoIds).toEqual(['backend']);
   });
 
-  it('includes only manifest-declared workspace repos in visibleRepoRoots', async () => {
+  it('resolves v2 local path objects by host path', async () => {
+    const backendDir = makeRepo('backend');
+    const frontendDir = makeRepo('frontend');
+    const repoRoot = makePlatformRepo([
+      { path: '.' },
+      { path: backendDir },
+      { path: frontendDir },
+    ]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      manifest_version: 'qmd-repo-sources/v2',
+      estate_type: 'distributed-platform',
+      primary_working_repo_ids: ['backend'],
+      repositories: [
+        {
+          repo_id: 'frontend',
+          local_paths: [{ host: frontendDir, container: null }],
+        },
+        {
+          repo_id: 'backend',
+          local_paths: [{ host: backendDir, container: null }],
+        },
+      ],
+    });
+
+    const result = await resolveFocusedRepoRoot(packDir, repoRoot);
+
+    expect(result).toBeDefined();
+    expect(result!.primaryRepoRoot).toBe(realpathSync(backendDir));
+    expect(result!.visibleRepoRoots).toEqual([realpathSync(backendDir)]);
+    expect(result!.declaredRepoRoots).toEqual([
+      realpathSync(frontendDir),
+      realpathSync(backendDir),
+    ]);
+  });
+
+  it('does not include workspace repos in no-task visibleRepoRoots', async () => {
     const backendDir = makeRepo('backend');
     const frontendDir = makeRepo('frontend');
     const rogueDir = makeRepo('rogue');
@@ -197,11 +248,10 @@ describe('resolveFocusedRepoRoot', () => {
 
     const result = await resolveFocusedRepoRoot(packDir, repoRoot);
     expect(result).toBeDefined();
-    // Primary is always first, then only workspace repos declared in the manifest.
     expect(result!.visibleRepoRoots).toContain(realpathSync(backendDir));
-    expect(result!.visibleRepoRoots).toContain(realpathSync(frontendDir));
+    expect(result!.visibleRepoRoots).not.toContain(realpathSync(frontendDir));
     expect(result!.visibleRepoRoots).not.toContain(realpathSync(rogueDir));
-    expect(result!.visibleRepoRoots).toHaveLength(2);
+    expect(result!.visibleRepoRoots).toHaveLength(1);
   });
 
   it('falls back to ranking when no primary_working_repo_ids match', async () => {
@@ -277,7 +327,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend', 'frontend'],
       selectedFocusIds: [],
@@ -295,8 +345,16 @@ describe('resolveFocusedRepoRoot', () => {
       expect.arrayContaining([realpathSync(backendDir), realpathSync(frontendDir)]),
     );
     expect(result!.declaredRepoRoots).toHaveLength(2);
-    expect(result!.authoritySource).toBe('active-task-sidecar');
+    expect(result!.authoritySource).toBe('workspace-sync-state');
     expect(result!.selectedRepoIds).toEqual(['backend', 'frontend']);
+    expect(result!.readonlyContextRoots).toEqual([
+      {
+        repoLocalPath: realpathSync(frontendDir),
+        path: '',
+        kind: 'directory',
+        reason: 'support-repo',
+      },
+    ]);
   });
 
   it('multi-repo primaries: anchor repo is primaryRepoRoot; other primary repos are visible and writable', async () => {
@@ -315,7 +373,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['platform'],
       selectedFocusIds: [],
@@ -369,6 +427,7 @@ describe('resolveFocusedRepoRoot', () => {
         }),
       ]),
     );
+    expect(result!.readonlyContextRoots?.some((root) => root.reason === 'support-repo')).toBe(false);
   });
 
   it('validates the same relative Deep Focus path independently in each target repo', async () => {
@@ -385,7 +444,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['platform', 'tools'],
       selectedFocusIds: [],
@@ -444,7 +503,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
@@ -516,7 +575,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['platform', 'tools'],
       selectedFocusIds: [],
@@ -560,7 +619,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['web', 'api'],
@@ -573,7 +632,8 @@ describe('resolveFocusedRepoRoot', () => {
     expect(result!.primaryFocusId).toBe('api');
     expect(result!.primaryFocusRelativePath).toBe('apps/api');
     expect(result!.selectedFocusIds).toEqual(['web', 'api']);
-    expect(result!.authoritySource).toBe('active-task-sidecar');
+    expect(result!.authoritySource).toBe('workspace-sync-state');
+    expect(result!.readonlyContextRoots).toEqual([]);
   });
 
   it('surfaces a specific error when the selected monolith primary focus is missing relative_path', async () => {
@@ -590,7 +650,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: '', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -617,7 +677,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'tools', local_paths: [toolsDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['platform', 'tools'],
       selectedFocusIds: [],
@@ -655,11 +715,11 @@ describe('resolveFocusedRepoRoot', () => {
 
     const explanation = await explainSelectedPrimaryBoundaryFailure(packDir, repoRoot);
     expect(explanation).toContain('no authoritative active selection found');
-    expect(explanation).toContain('active-context-pack.json');
-    expect(explanation).toContain('workspace-context-sync.json');
+    expect(explanation).toContain('task .task.json selection');
+    expect(explanation).toContain('workspace sync and Deep Focus overlay state');
   });
 
-  it('resolves Deep Focus metadata from the active task sidecar using camelCase keys', async () => {
+  it('resolves Deep Focus metadata from workspace sync using camelCase keys', async () => {
     const backendDir = makeRepo('backend');
     const primaryFile = makeFile(path.join(backendDir, 'src', 'main.ts'));
     const testDir = makeRepo('backend/tests');
@@ -673,7 +733,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeTaskJsonSelection('scoped-task', {
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       contextPackId: 'pack',
       scopeMode: 'focused',
@@ -690,7 +750,7 @@ describe('resolveFocusedRepoRoot', () => {
       ],
     });
 
-    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'scoped-task' });
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
 
     expect(result).toBeDefined();
     expect(result!.deepFocusEnabled).toBe(true);
@@ -735,7 +795,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
@@ -792,7 +852,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeTaskJsonSelection('scoped-task', {
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       contextPackId: 'pack',
       scopeMode: 'focused',
@@ -812,7 +872,7 @@ describe('resolveFocusedRepoRoot', () => {
       }],
     });
 
-    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'scoped-task' });
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
 
     expect(result!.primaryFocusTargets).toEqual([{
       path: 'src/orders',
@@ -866,7 +926,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeTaskJsonSelection('repo-root-scoped-task', {
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       contextPackId: 'pack',
       scopeMode: 'focused',
@@ -882,7 +942,7 @@ describe('resolveFocusedRepoRoot', () => {
       }],
     });
 
-    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'repo-root-scoped-task' })).rejects.toThrow(
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot)).rejects.toThrow(
       'scoped-fields-on-repo-root-primary',
     );
   });
@@ -898,7 +958,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeTaskJsonSelection('missing-scoped-task', {
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       contextPackId: 'pack',
       scopeMode: 'focused',
@@ -915,7 +975,7 @@ describe('resolveFocusedRepoRoot', () => {
       }],
     });
 
-    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'missing-scoped-task' })).rejects.toThrow(
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot)).rejects.toThrow(
       'Scoped support target[0] for primary "src/orders" "docs/missing.md" is invalid',
     );
   });
@@ -937,7 +997,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeTaskJsonSelection('monolith-scoped-task', {
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       contextPackId: 'pack',
       scopeMode: 'focused',
@@ -954,7 +1014,7 @@ describe('resolveFocusedRepoRoot', () => {
       }],
     });
 
-    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot, { taskId: 'monolith-scoped-task' })).rejects.toThrow(
+    await expect(resolveSelectedPrimaryRepoRoot(packDir, repoRoot)).rejects.toThrow(
       'Scoped test target for primary "apps/api" "tests/web" must stay within the selected monolith focus area "apps/api".',
     );
   });
@@ -1007,7 +1067,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1040,7 +1100,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1085,7 +1145,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1116,7 +1176,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1145,7 +1205,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1175,7 +1235,7 @@ describe('resolveFocusedRepoRoot', () => {
         { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
@@ -1205,7 +1265,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
@@ -1232,7 +1292,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
@@ -1257,7 +1317,7 @@ describe('resolveFocusedRepoRoot', () => {
         { repo_id: 'backend', local_paths: [backendDir], repository_type: 'primary' },
       ],
     });
-    writeActiveContextPackSidecar({
+    writeWorkspaceSyncState({
       contextPackDir: packDir,
       selectedRepoIds: ['backend'],
       selectedFocusIds: [],
@@ -1326,66 +1386,5 @@ describe('resolveFocusedRepoRoot', () => {
     })).toEqual([
       '/repos/backend/services/Acme.Api',
     ]);
-  });
-});
-
-describe('resolveWorkspaceRepoRoots', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'workspace-roots-test-'));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('returns empty array when workspace file is missing', async () => {
-    const result = await resolveWorkspaceRepoRoots(tmpDir);
-    expect(result).toEqual([]);
-  });
-
-  it('excludes the platform repo dot entry', async () => {
-    const externalRepo = path.join(tmpDir, 'external');
-    mkdirSync(externalRepo, { recursive: true });
-    writeFileSync(
-      path.join(tmpDir, 'tasksail.code-workspace'),
-      JSON.stringify({
-        folders: [{ path: '.' }, { path: externalRepo }],
-      }),
-    );
-
-    const result = await resolveWorkspaceRepoRoots(tmpDir);
-    expect(result).toEqual([realpathSync(externalRepo)]);
-  });
-
-  it('skips folders that do not exist on disk', async () => {
-    writeFileSync(
-      path.join(tmpDir, 'tasksail.code-workspace'),
-      JSON.stringify({
-        folders: [{ path: '.' }, { path: '/nonexistent/repo' }],
-      }),
-    );
-
-    const result = await resolveWorkspaceRepoRoots(tmpDir);
-    expect(result).toEqual([]);
-  });
-
-  it('canonicalizes and deduplicates equivalent existing paths', async () => {
-    const externalRepo = path.join(tmpDir, 'external');
-    mkdirSync(externalRepo, { recursive: true });
-    writeFileSync(
-      path.join(tmpDir, 'tasksail.code-workspace'),
-      JSON.stringify({
-        folders: [
-          { path: '.' },
-          { path: externalRepo },
-          { path: path.join(tmpDir, '.', 'external') },
-        ],
-      }),
-    );
-
-    const result = await resolveWorkspaceRepoRoots(tmpDir);
-    expect(result).toEqual([realpathSync(externalRepo)]);
   });
 });

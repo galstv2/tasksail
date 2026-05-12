@@ -589,7 +589,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Saved draft.',
             exitCode: 0,
@@ -626,7 +626,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Saved draft.',
             exitCode: 0,
@@ -803,7 +803,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         savePlannerDraft: vi.fn(async () => 'sent' as const),
         getPlannerSessionState: vi.fn(() => ({
           brokerStatus: 'completed' as const,
-          cliSessionId: 'copilot-session-1',
+          cliSessionId: 'provider-session-1',
           turnId: 'turn-1',
           content: 'Draft saved.',
           exitCode: 0,
@@ -837,7 +837,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
         startPlannerSession: vi.fn(async () => ({ sessionId: 'planner-1', created: false })),
         getPlannerSessionState: vi.fn(() => ({
           brokerStatus: 'running' as const,
-          cliSessionId: 'copilot-session-1',
+          cliSessionId: 'provider-session-1',
           turnId: 'turn-1',
           content: 'Working...',
           exitCode: null,

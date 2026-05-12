@@ -85,7 +85,9 @@ function ContextPackCreationModal({
   message,
   canGoBack,
   canGoNext,
+  canGoNextReason,
   onClose,
+  onDiscardDraft,
   onBrowseDiscoveryRoot,
   onChangeMode,
   onDraftFieldChange,
@@ -142,7 +144,7 @@ function ContextPackCreationModal({
     )
     : false;
   const showBackButton = isWizardSetup ? previousWizardStep !== null : canGoBack;
-  const showCreateButton = !isWizardSetup && !canGoNext;
+  const showCreateButton = !isWizardSetup && step === 'review';
   const nextButtonLabel = isWizardSetup
     ? wizardStep === 'build-parts'
       ? 'Continue to details →'
@@ -150,7 +152,9 @@ function ContextPackCreationModal({
     : 'Next';
   const nextButtonTitle = isWizardSetup && wizardStep === 'build-parts' && !wizardCanContinue
     ? 'Add at least one part with a role and language'
-    : undefined;
+    : !isWizardSetup && !canGoNext && canGoNextReason
+      ? canGoNextReason
+      : undefined;
 
   return (
     <div className="context-pack-modal__overlay" role="presentation" onClick={handleOverlayClick}>
@@ -202,6 +206,9 @@ function ContextPackCreationModal({
         <div className="context-pack-modal__scroll-body">
         {message ? <p className="panel__lede">{message}</p> : null}
         {error ? <p className="panel__error">{error}</p> : null}
+        {!isWizardSetup && !canGoNext && canGoNextReason ? (
+          <p className="panel__error">{canGoNextReason}</p>
+        ) : null}
 
         {step === 'setup' ? (
           <SetupStep
@@ -258,11 +265,20 @@ function ContextPackCreationModal({
               Back
             </button>
           ) : null}
+          <button
+            type="button"
+            className="action-button action-button--secondary"
+            disabled={busy}
+            onClick={onDiscardDraft}
+          >
+            Discard draft
+          </button>
           {!showCreateButton ? (
             <button
               type="button"
               className="action-button action-button--primary"
-              disabled={busy || (isWizardSetup && !wizardCanContinue)}
+              disabled={busy || !canGoNext || (isWizardSetup && !wizardCanContinue)}
+              aria-disabled={busy || !canGoNext || (isWizardSetup && !wizardCanContinue) ? 'true' : undefined}
               title={nextButtonTitle}
               onClick={() => {
                 if (isWizardSetup && wizardStep !== 'build-parts' && nextWizardStep && onWizardStepChange) {

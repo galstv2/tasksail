@@ -1,5 +1,6 @@
 import { resolveQueuePaths, type QueuePaths } from './paths.js';
 import { acquireDirLockOrThrow } from './dirLock.js';
+import { ensureDir } from '../core/index.js';
 import {
   activateNextPendingItemIfReady,
   moveDropboxItemsOnce,
@@ -61,32 +62,34 @@ export async function publishPendingItem(
 ): Promise<PublishPendingItemResult> {
   const { publish, repoRoot, contextPackDir, lockOperationName } = options;
   const paths: QueuePaths = resolveQueuePaths(repoRoot);
+  await ensureDir(paths.pendingDir);
+  let destinationPath: string;
   const release = await acquireDirLockOrThrow(paths.queueLockDir, lockOperationName);
   try {
-    const destinationPath = await publish();
+    destinationPath = await publish();
     // Bridge: createDropboxTask/createFollowupTask write into dropbox/, but the
     // activation gate only sees pendingitems/. Sweep before activating so the
     // freshly-published item is visible.
     await moveDropboxItemsOnce(paths.dropboxDir, paths.pendingDir);
-
-    let activation: ActivateNextPendingItemResult;
-    try {
-      activation = await activateNextPendingItemIfReady({
-        paths,
-        repoRoot,
-        contextPackDir,
-      });
-    } catch (activationError) {
-      activation = {
-        activated: false,
-        reason: `activation-error: ${
-          activationError instanceof Error ? activationError.message : String(activationError)
-        }`,
-      };
-    }
-
-    return { destinationPath, activation };
   } finally {
     await release();
   }
+
+  let activation: ActivateNextPendingItemResult;
+  try {
+    activation = await activateNextPendingItemIfReady({
+      paths,
+      repoRoot,
+      contextPackDir,
+    });
+  } catch (activationError) {
+    activation = {
+      activated: false,
+      reason: `activation-error: ${
+        activationError instanceof Error ? activationError.message : String(activationError)
+      }`,
+    };
+  }
+
+  return { destinationPath, activation };
 }

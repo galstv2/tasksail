@@ -16,7 +16,7 @@ class PodmanPackagingTests(unittest.TestCase):
         self,
     ) -> None:
         containerfile = (
-            REPO_ROOT / "podman" / "repo-context-mcp" / "Containerfile"
+            REPO_ROOT / "runtime" / "podman" / "repo-context-mcp" / "Containerfile"
         )
         lines = containerfile.read_text(encoding="utf-8").splitlines()
 
@@ -54,7 +54,7 @@ class PodmanPackagingTests(unittest.TestCase):
         self,
     ) -> None:
         compose_file = (
-            REPO_ROOT / "podman" / "compose" / "podman-compose.yml"
+            REPO_ROOT / "runtime" / "podman" / "compose" / "podman-compose.yml"
         )
         contents = compose_file.read_text(encoding="utf-8")
 
@@ -92,21 +92,21 @@ class PodmanPackagingTests(unittest.TestCase):
         )
         self.assertRegex(
             contents,
-            r"../../:/workspace:ro",
+            r"../../../:/workspace:ro",
             "Workspace volume must be mounted read-only",
         )
         self.assertIn(
-            "podman/repo-context-mcp/Containerfile",
+            "runtime/podman/repo-context-mcp/Containerfile",
             contents,
             "Compose file must reference the Podman Containerfile",
         )
 
 
     def test_app_containerfile_exists(self) -> None:
-        containerfile = REPO_ROOT / "podman" / "app" / "Containerfile"
+        containerfile = REPO_ROOT / "runtime" / "podman" / "app" / "Containerfile"
         self.assertTrue(
             containerfile.exists(),
-            "podman/app/Containerfile must exist",
+            "runtime/podman/app/Containerfile must exist",
         )
 
 

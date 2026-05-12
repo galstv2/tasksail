@@ -1,8 +1,20 @@
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createAgentConfigHandlers } from './agentConfigHandlers';
+
+vi.mock('../../../backend/platform/cli-provider/index.js', () => ({
+  getActiveProvider: () => ({
+    agentConfigPaths: () => ({
+      root: '.provider',
+      instructions: '.provider/instructions',
+      prompts: '.provider/prompts',
+      profiles: '.provider/agents',
+      registry: '.provider/agents/registry.json',
+    }),
+  }),
+}));
 
 type MemoryFsSeed = Record<string, string>;
 
@@ -48,7 +60,7 @@ class MemoryFs {
 }
 
 const repoRoot = '/repo';
-const registryPath = path.join(repoRoot, '.github/agents/registry.json');
+const registryPath = path.join(repoRoot, '.provider/agents/registry.json');
 const defaultCatalogPath = path.join(repoRoot, 'config/agent-model-catalog.default.json');
 const catalogPath = path.join(repoRoot, '.platform-state/agent-model-catalog.json');
 
@@ -56,7 +68,7 @@ const registryDocument = {
   schema_version: 1,
   agents: [
     {
-      agent_id: 'qa',
+      agent_id: 'provider-qa',
       human_name: 'Ron',
       role_name: 'QA and Closeout',
       required_model: 'gpt-5.4',
@@ -64,7 +76,7 @@ const registryDocument = {
       untouched_field: 'keep-me',
     },
     {
-      agent_id: 'planning-agent',
+      agent_id: 'provider-planner',
       human_name: 'Lily',
       role_name: 'Planning Specialist',
       required_model: 'gpt-4.1',
@@ -72,7 +84,7 @@ const registryDocument = {
       interactive: true,
     },
     {
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       human_name: 'Dalton',
       role_name: 'Software Engineer',
       required_model: 'claude-sonnet-4.6',
@@ -115,21 +127,21 @@ describe('agentConfigHandlers', () => {
         message: '3 agent(s) loaded.',
         agents: [
           {
-            agent_id: 'planning-agent',
+            agent_id: 'provider-planner',
             human_name: 'Lily',
             role_name: 'Planning Specialist',
             required_model: 'gpt-4.1',
             workflow_order: 0,
           },
           {
-            agent_id: 'software-engineer',
+            agent_id: 'provider-builder',
             human_name: 'Dalton',
             role_name: 'Software Engineer',
             required_model: 'claude-sonnet-4.6',
             workflow_order: 2,
           },
           {
-            agent_id: 'qa',
+            agent_id: 'provider-qa',
             human_name: 'Ron',
             role_name: 'QA and Closeout',
             required_model: 'gpt-5.4',
@@ -191,8 +203,8 @@ describe('agentConfigHandlers', () => {
 
     const result = await handlers.saveAgentModels({
       assignments: [
-        { agent_id: 'planning-agent', model_id: 'gpt-5.4' },
-        { agent_id: 'software-engineer', model_id: 'claude-opus-4.6' },
+        { agent_id: 'provider-planner', model_id: 'gpt-5.4' },
+        { agent_id: 'provider-builder', model_id: 'claude-opus-4.6' },
       ],
     });
 
@@ -204,21 +216,21 @@ describe('agentConfigHandlers', () => {
         message: 'Saved model assignments for 2 agent(s).',
         agents: [
           {
-            agent_id: 'planning-agent',
+            agent_id: 'provider-planner',
             human_name: 'Lily',
             role_name: 'Planning Specialist',
             required_model: 'gpt-5.4',
             workflow_order: 0,
           },
           {
-            agent_id: 'software-engineer',
+            agent_id: 'provider-builder',
             human_name: 'Dalton',
             role_name: 'Software Engineer',
             required_model: 'claude-opus-4.6',
             workflow_order: 2,
           },
           {
-            agent_id: 'qa',
+            agent_id: 'provider-qa',
             human_name: 'Ron',
             role_name: 'QA and Closeout',
             required_model: 'gpt-5.4',
@@ -233,7 +245,7 @@ describe('agentConfigHandlers', () => {
         schema_version: 1,
         agents: [
           {
-            agent_id: 'qa',
+            agent_id: 'provider-qa',
             human_name: 'Ron',
             role_name: 'QA and Closeout',
             required_model: 'gpt-5.4',
@@ -241,7 +253,7 @@ describe('agentConfigHandlers', () => {
             untouched_field: 'keep-me',
           },
           {
-            agent_id: 'planning-agent',
+            agent_id: 'provider-planner',
             human_name: 'Lily',
             role_name: 'Planning Specialist',
             required_model: 'gpt-5.4',
@@ -249,7 +261,7 @@ describe('agentConfigHandlers', () => {
             interactive: true,
           },
           {
-            agent_id: 'software-engineer',
+            agent_id: 'provider-builder',
             human_name: 'Dalton',
             role_name: 'Software Engineer',
             required_model: 'claude-opus-4.6',
@@ -357,7 +369,7 @@ describe('agentConfigHandlers', () => {
     });
 
     const result = await handlers.saveAgentModels({
-      assignments: [{ agent_id: 'qa', model_id: 'unknown-model-9.9' }],
+      assignments: [{ agent_id: 'provider-qa', model_id: 'unknown-model-9.9' }],
     });
 
     expect(result).toEqual(
@@ -379,7 +391,7 @@ describe('agentConfigHandlers', () => {
     });
 
     const result = await handlers.saveAgentModels({
-      assignments: [{ agent_id: 'qa', model_id: '$$bad$$' }],
+      assignments: [{ agent_id: 'provider-qa', model_id: '$$bad$$' }],
     });
 
     expect(result).toEqual(
@@ -404,7 +416,7 @@ describe('agentConfigHandlers', () => {
       ok: false,
       action: 'agentConfig.removeModel',
       error:
-        'Cannot remove model "gpt-4.1" because it is assigned to: Lily (planning-agent).',
+        'Cannot remove model "gpt-4.1" because it is assigned to: Lily (provider-planner).',
     });
     expect(memoryFs.files.get(catalogPath)).toBe(asJson(defaultCatalogDocument));
   });

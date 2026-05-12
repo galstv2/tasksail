@@ -22,6 +22,10 @@ export const REPO_CONTEXT_APP_PATH = join(
   REPO_ROOT,
   'src/backend/scripts/python/repo-context-app.py',
 );
+export const WRITE_STUB_SCOPE_TREE_SCRIPT_PATH = join(
+  REPO_ROOT,
+  'src/backend/scripts/python/write-stub-scope-tree.py',
+);
 export const REPO_CONTEXT_PYTHON_BIN =
   process.env.DESKTOP_REPO_CONTEXT_PYTHON_BIN ??
   (process.platform === 'win32' ? 'python' : 'python3');
@@ -41,6 +45,7 @@ export type ContextPackReseedRunner = (
 
 export type PythonScriptRunner = (
   args: string[],
+  options?: { stdin?: string },
 ) => Promise<ScriptResult>;
 
 export type ApprovedContextPackDirReader = () => Promise<Set<string>>;
@@ -55,14 +60,7 @@ export function stringArray(value: unknown): string[] {
     : [];
 }
 
-export function slugifyValue(value: string): string {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return normalized || 'context-pack';
-}
+export { slugifyValue } from '../src/shared/slug';
 
 export function titleizeValue(value: string): string {
   return value

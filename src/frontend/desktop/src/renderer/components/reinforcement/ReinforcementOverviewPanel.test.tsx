@@ -83,7 +83,7 @@ describe('ReinforcementOverviewPanel', () => {
     const overview = makeOverview({
       agents: [
         {
-          agentId: 'software-engineer',
+          agentId: 'provider-builder',
           role: 'Software Engineer',
           multiplier: 1.5,
           lifetimeReward: 5000,
@@ -95,7 +95,7 @@ describe('ReinforcementOverviewPanel', () => {
     render(
       <ReinforcementOverviewPanel {...defaultProps({ overview })} />,
     );
-    const card = screen.getByTestId('agent-card-software-engineer');
+    const card = screen.getByTestId('agent-card-provider-builder');
     expect(card).toBeTruthy();
     expect(card.textContent).toContain('5,000');
   });

@@ -44,6 +44,10 @@ vi.mock('../externalMcpCheck.js', () => ({
   }),
 }));
 
+vi.mock('../../workflow-policy/contracts/markdownContract.js', () => ({
+  validateMarkdownContract: vi.fn(),
+}));
+
 import { runPython } from '../../core/index.js';
 import { runLocalChecks } from '../localChecks.js';
 
@@ -58,7 +62,12 @@ describe('runLocalChecks smoke profile', () => {
     const result = await runLocalChecks({ repoRoot, profile: 'smoke' });
 
     expect(result.passed).toBe(true);
-    expect(runPython).toHaveBeenCalledTimes(1);
+    expect(runPython).toHaveBeenCalledTimes(2);
+    expect(runPython).toHaveBeenCalledWith(
+      '-c',
+      [expect.stringContaining('validate_markdown_contract')],
+      { cwd: repoRoot, timeout: 30_000 },
+    );
     expect(runPython).toHaveBeenCalledWith(
       path.join(repoRoot, 'src', 'backend', 'scripts', 'python', 'run-targeted-tests.py'),
       [

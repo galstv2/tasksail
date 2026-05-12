@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPO_ROOT) not in sys.path:
@@ -25,6 +26,7 @@ def _write_handoffs(
     qa_status_section: str | None = None,
     test_result_summary: str = "All tests passed.",
     issues_review_outcome: str = "pass",
+    branch_handoffs: list[dict] | None = None,
 ) -> None:
     """Write a minimal but parseable set of handoff artifacts."""
     handoffs_dir.mkdir(parents=True, exist_ok=True)
@@ -60,23 +62,38 @@ def _write_handoffs(
         "## Difficulty Assessment\n\n- Difficulty Level: Medium\n",
         encoding="utf-8",
     )
+    if branch_handoffs is not None:
+        import json
+        (handoffs_dir / "branch-handoffs.json").write_text(
+            json.dumps(branch_handoffs, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 class StructuredStatusTests(unittest.TestCase):
+    TASK_ID = "TEST-1"
+
     def _run(self, **handoff_kwargs) -> tuple[dict, str]:
         with TemporaryDirectory() as tmp:
             repo_root = Path(tmp) / "repo"
-            handoffs_dir = repo_root / "AgentWorkSpace" / "handoffs"
+            handoffs_dir = (
+                repo_root / "AgentWorkSpace" / "tasks" / self.TASK_ID / "handoffs"
+            )
             _write_handoffs(handoffs_dir, **handoff_kwargs)
             context_pack_dir = repo_root / "contextpacks" / "fixture-pack"
             context_pack_dir.mkdir(parents=True, exist_ok=True)
             stderr_buf = io.StringIO()
-            with redirect_stderr(stderr_buf):
-                payload, _record_path, _parent = build_archive_payload(
-                    repo_root=repo_root,
-                    context_pack_dir=context_pack_dir,
-                    qmd_scope="qmd/context-packs/fixture-pack",
-                )
+            # Production's workspace_paths.handoffs_dir reads TASKSAIL_TASK_ID
+            # to choose per-task vs. legacy singleton layout. Pin it so the
+            # archiver reads from the same per-task path the fixture writes,
+            # matching the rest of the archive test suite.
+            with patch.dict("os.environ", {"TASKSAIL_TASK_ID": self.TASK_ID}):
+                with redirect_stderr(stderr_buf):
+                    payload, _record_path, _parent = build_archive_payload(
+                        repo_root=repo_root,
+                        context_pack_dir=context_pack_dir,
+                        qmd_scope="qmd/context-packs/fixture-pack",
+                    )
             return payload, stderr_buf.getvalue()
 
     def test_test_status_structured_passed_overrides_classifier(self) -> None:
@@ -134,6 +151,25 @@ class StructuredStatusTests(unittest.TestCase):
         payload, stderr = self._run(qa_status_section="yes")
         self.assertIn(payload["qa_status"], {"passed", "issues-found"})
         self.assertIn("yes", stderr)
+
+    def test_branch_handoffs_are_added_to_payload_and_provenance(self) -> None:
+        handoffs = [
+            {
+                "repo_root": "/repos/platform",
+                "repo_label": "platform",
+                "branch": "task/TEST-1",
+                "base_commit_sha": "base123",
+                "head_commit_sha": "head456",
+                "commits_ahead": 1,
+                "status": "ready-for-operator-review",
+            }
+        ]
+        payload, _ = self._run(branch_handoffs=handoffs)
+        self.assertEqual(payload["branch_handoffs"], handoffs)
+        self.assertIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs/branch-handoffs.json",
+            payload["provenance_sources"],
+        )
 
 
 if __name__ == "__main__":

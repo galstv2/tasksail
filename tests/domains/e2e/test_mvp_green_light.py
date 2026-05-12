@@ -373,12 +373,16 @@ class MvpGreenLightTests(unittest.TestCase):
 
     def test_07_reinforcement_recorded(self) -> None:
         ledger_path = (
-            self.workspace / "AgentWorkSpace" / "qmd" / "reinforcement"
+            self.workspace / "AgentWorkSpace" / "qmd" / "global"
+            / "reinforcement" / "store"
             / "task-ledger.json"
         )
         self.assertTrue(
             ledger_path.exists(),
-            msg="task-ledger.json not created under AgentWorkSpace/qmd/reinforcement/",
+            msg=(
+                "task-ledger.json not created under "
+                "AgentWorkSpace/qmd/global/reinforcement/store/"
+            ),
         )
 
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))

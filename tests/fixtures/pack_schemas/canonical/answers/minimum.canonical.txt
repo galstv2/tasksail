@@ -1,0 +1,35 @@
+{
+  "captured_at": "2026-01-01T00:00:00Z",
+  "context_pack_id": "test-pack",
+  "default_scope_mode": "focused",
+  "discovery_mode": "auto",
+  "estate_name": "Test Pack",
+  "estate_type": "",
+  "focusable_areas": [],
+  "primary_focus_area_ids": [],
+  "primary_working_repo_ids": [],
+  "questionnaire_version": "context-pack-bootstrap/v1",
+  "repositories": [
+    {
+      "activation_priority": 100,
+      "adjacent_repo_ids": [],
+      "artifact_roots": [],
+      "bounded_context": "",
+      "default_focusable": true,
+      "depends_on_repo_ids": [],
+      "document_paths": [],
+      "languages": [],
+      "owner": "",
+      "repo_id": "main",
+      "repo_name": "Main",
+      "repo_role": "",
+      "repo_root": "/tmp/main",
+      "repository_type": null,
+      "service_name": "",
+      "system_layer": "backend",
+      "used_by_repo_ids": [],
+      "workspace_activation_group": ""
+    }
+  ],
+  "repository_count": 1
+}

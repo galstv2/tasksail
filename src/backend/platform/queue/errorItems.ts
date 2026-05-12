@@ -6,30 +6,99 @@ import { resolveQueuePaths } from './paths.js';
 import { findRepoRoot } from '../core/index.js';
 import {
   extractContextPackBinding,
+  extractTaskMetadataValue,
+  extractTaskTitle,
   formatContextPackBindingSection,
 } from './markdown.js';
 import {
   activateNextPendingItemIfReady,
-  acquireDirLockOrThrow,
   getActiveTaskIds,
   insertIntoQueueManifest,
-  readQueueOrderManifest,
-  writeQueueOrderManifest,
+  removeFromQueueOrderManifest,
 } from './operations.js';
+import { withDirLock } from './dirLock.js';
 import { removeTask, transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
 import { discardRetainedTaskWorktrees, finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import {
+  buildAddPathspec,
+  buildAllowOverridesPathspec,
+  formatSkippedNoiseWarning,
+  listNoiseSkippedPaths,
+  resolveSnapshotFilterConfig,
+} from './snapshotFilters.js';
 
 const execFileAsync = promisify(execFileCb);
+
+async function readOptionalText(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+}
+
+function normalizeRecoveredErrorItemHeading(
+  recoveredBody: string,
+  taskId: string,
+): string {
+  const metadataTitle = extractTaskMetadataValue(recoveredBody, 'Task Title').trim();
+  const existingTitle = extractTaskTitle(recoveredBody).trim();
+  const recoveredTitle =
+    metadataTitle || (existingTitle && existingTitle !== 'Professional Task' ? existingTitle : taskId);
+
+  if (!existingTitle) {
+    return `# ${recoveredTitle}\n\n${recoveredBody.trimStart()}`;
+  }
+
+  if (existingTitle === 'Professional Task') {
+    return recoveredBody.replace(/^# +Professional Task\s*$/m, `# ${recoveredTitle}`);
+  }
+
+  return recoveredBody;
+}
+
+async function buildRecoveredErrorItemBody(
+  repoRoot: string,
+  taskId: string,
+): Promise<string> {
+  const taskHandoffsDir = path.join(
+    repoRoot,
+    'AgentWorkSpace',
+    'tasks',
+    taskId,
+    'handoffs',
+  );
+  const intakeBody = await readOptionalText(path.join(taskHandoffsDir, 'intake.md'));
+  if (intakeBody?.trim()) {
+    return intakeBody;
+  }
+
+  const professionalTaskBody = await readOptionalText(
+    path.join(taskHandoffsDir, 'professional-task.md'),
+  );
+  if (professionalTaskBody?.trim()) {
+    return normalizeRecoveredErrorItemHeading(professionalTaskBody, taskId);
+  }
+
+  return `# ${taskId}\n\nOriginal pending item was missing during failure recovery.\n`;
+}
 
 async function restoreContextPackBindingForRecoveredItem(
   repoRoot: string,
   taskId: string,
   recoveredBody: string,
 ): Promise<string> {
-  if (extractContextPackBinding(recoveredBody)) {
+  const recoveredBinding = extractContextPackBinding(recoveredBody);
+  if (recoveredBinding.kind === 'binding') {
     return recoveredBody;
+  }
+  if (recoveredBinding.kind === 'invalid') {
+    console.warn(`[error-items] ignoring invalid context-pack binding for ${taskId}: ${recoveredBinding.reason}`);
   }
 
   const intakePath = path.join(
@@ -42,8 +111,11 @@ async function restoreContextPackBindingForRecoveredItem(
   );
   try {
     const intakeBinding = extractContextPackBinding(await readFile(intakePath, 'utf-8'));
-    if (intakeBinding) {
-      return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(intakeBinding)}\n`;
+    if (intakeBinding.kind === 'binding') {
+      return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(intakeBinding.binding)}\n`;
+    }
+    if (intakeBinding.kind === 'invalid') {
+      console.warn(`[error-items] ignoring invalid context-pack binding for ${taskId}: ${intakeBinding.reason}`);
     }
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
@@ -51,28 +123,26 @@ async function restoreContextPackBindingForRecoveredItem(
     }
   }
 
-  const activeContextPackPath = path.join(
-    repoRoot,
-    '.platform-state',
-    'queue',
-    'active-context-pack.json',
-  );
-  let raw: string;
-  try {
-    raw = await readFile(activeContextPackPath, 'utf-8');
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return recoveredBody;
-    }
-    throw err;
-  }
-
-  const binding = JSON.parse(raw) as Parameters<typeof formatContextPackBindingSection>[0];
-  if (!binding.contextPackDir?.trim()) {
+  const taskJson = readTaskJsonSafe(taskId, repoRoot);
+  const selection = taskJson?.contextPackBinding.selection;
+  const contextPackDir = selection?.contextPackDir?.trim();
+  if (!selection || !contextPackDir) {
     return recoveredBody;
   }
 
-  return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(binding)}\n`;
+  return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection({
+    contextPackDir,
+    contextPackId: selection.contextPackId ?? undefined,
+    scopeMode: selection.scopeMode ?? undefined,
+    selectedRepoIds: selection.selectedRepoIds,
+    selectedFocusIds: selection.selectedFocusIds,
+    deepFocusEnabled: selection.deepFocusEnabled,
+    selectedFocusPath: selection.selectedFocusPath ?? undefined,
+    selectedFocusTargetKind: selection.selectedFocusTargetKind ?? undefined,
+    selectedFocusTargets: selection.selectedFocusTargets,
+    selectedTestTarget: selection.selectedTestTarget,
+    selectedSupportTargets: selection.selectedSupportTargets,
+  })}\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +226,31 @@ export async function commitTaskSnapshot(
 
   for (const binding of bindings) {
     try {
-      await runGit(binding.worktreeRoot, ['add', '-A']);
+      const filterConfig = await resolveSnapshotFilterConfig(repoRoot, taskJson);
+      const skipped = await listNoiseSkippedPaths(binding.worktreeRoot, filterConfig);
+      if (skipped.length > 0) {
+        console.warn(formatSkippedNoiseWarning(binding.worktreeRoot, binding.originalRoot, skipped));
+      }
+      await runGit(binding.worktreeRoot, ['add', '-A', '--', ...buildAddPathspec(filterConfig)]);
+
+      // Override pass: re-include files filtered by the platform denylist when
+      // a context-pack `allow_overrides` pattern matches. Git evaluates excludes
+      // after positive matches within a single pathspec, so re-inclusion must
+      // be a separate `git add` without the deny pathspec. No `-f` — gitignored
+      // files stay out.
+      const overrides = buildAllowOverridesPathspec(filterConfig);
+      if (overrides.length > 0) {
+        try {
+          await runGit(binding.worktreeRoot, ['add', '--', ...overrides]);
+        } catch (err) {
+          // Exit 128 from git here means "no files matched any override
+          // pathspec", which is benign — overrides are advisory. Any other
+          // failure must propagate.
+          if (!(err instanceof GitCommandError) || err.exitCode !== 128) {
+            throw err;
+          }
+        }
+      }
 
       try {
         await runGit(binding.worktreeRoot, ['diff', '--cached', '--quiet']);
@@ -279,6 +373,10 @@ export async function moveFailedItemToErrorItems(options: {
   const sourcePath = path.join(queuePaths.pendingDir, activeItem);
   await mkdir(queuePaths.errorItemsDir, { recursive: true });
   const destPath = path.join(queuePaths.errorItemsDir, activeItem);
+  const recoveredMissingPendingBody =
+    (await readOptionalText(sourcePath)) === null
+      ? await buildRecoveredErrorItemBody(root, taskId)
+      : null;
 
   // F7: unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
   // Stale locks would block re-activation if the same taskId is requeued with
@@ -292,54 +390,45 @@ export async function moveFailedItemToErrorItems(options: {
   // .task.json.state = "failed" and finalizedAt.
   await finalizeTaskWorktrees(taskId, 'failed', root);
 
-  try {
-    await rename(sourcePath, destPath);
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-      throw err;
-    }
-    // Backward-compatible recovery for tasks activated by the broken interim
-    // implementation that removed pendingitems/<taskId>.md at activation time.
-    // Preserve an operator-visible error item instead of letting failure
-    // handling abort and leave stale active markers behind.
-    let recoveredBody = '';
+  await withDirLock(queuePaths.queueLockDir, 'Move failed item', async () => {
     try {
-      recoveredBody = await readFile(
-        path.join(queuePaths.taskHandoffs(taskId), 'professional-task.md'),
+      await rename(sourcePath, destPath);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        throw err;
+      }
+      // Backward-compatible recovery for tasks activated by the broken interim
+      // implementation that removed pendingitems/<taskId>.md at activation time.
+      // Capture the original intake before finalization can reap handoffs so the
+      // error item keeps the operator-authored title instead of template H1 text.
+      let missingPendingBody = recoveredMissingPendingBody;
+      if (missingPendingBody === null) {
+        missingPendingBody = await buildRecoveredErrorItemBody(root, taskId);
+      }
+      const recoveredBody = await restoreContextPackBindingForRecoveredItem(
+        root,
+        taskId,
+        missingPendingBody,
+      );
+      await writeFile(
+        destPath,
+        `${recoveredBody.trimEnd()}\n\n---\n\nFailure recovery note: pendingitems/${activeItem} was already absent.\n`,
         'utf-8',
       );
+    }
+
+    // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
+    try { await transitionTask(root, taskId, 'active', 'failed'); } catch { /* best-effort */ }
+
+    // Remove ONLY this task's marker — never the directory, never peer markers.
+    try {
+      await unlink(path.join(queuePaths.activeItemsDir, taskId));
     } catch {
-      recoveredBody = `# ${taskId}\n\nOriginal pending item was missing during failure recovery.\n`;
+      // Already cleared or missing — safe to continue
     }
-    recoveredBody = await restoreContextPackBindingForRecoveredItem(root, taskId, recoveredBody);
-    await writeFile(
-      destPath,
-      `${recoveredBody.trimEnd()}\n\n---\n\nFailure recovery note: pendingitems/${activeItem} was already absent.\n`,
-      'utf-8',
-    );
-  }
 
-  // Transition active → failed in the task registry using .filter semantics.
-  // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
-  try { await transitionTask(root, taskId, 'active', 'failed'); } catch { /* best-effort */ }
-
-  // Remove ONLY this task's marker — never the directory, never peer markers.
-  try {
-    await unlink(path.join(queuePaths.activeItemsDir, taskId));
-  } catch {
-    // Already cleared or missing — safe to continue
-  }
-
-  // Remove the moved item from the queue-order manifest; delete the file when empty
-  try {
-    const order = await readQueueOrderManifest(queuePaths.queueOrderPath);
-    const filtered = order.filter((f) => f !== activeItem);
-    if (filtered.length > 0) {
-      await writeQueueOrderManifest(queuePaths.queueOrderPath, filtered);
-    } else {
-      await unlink(queuePaths.queueOrderPath);
-    }
-  } catch { /* best-effort */ }
+    await removeFromQueueOrderManifest(queuePaths.queueOrderPath, activeItem);
+  });
 
   // Singleton-handoffs reset block DELETED (lines 260-262 in pre-§4.14A code).
   // Under the parallel model the per-task copy is at AgentWorkSpace/tasks/<taskId>/handoffs/
@@ -401,9 +490,7 @@ export async function requeueErrorItem(options: {
   const originalSlug = requeuedTaskId.replace(/-retry\d+$/, '');
 
   await mkdir(queuePaths.pendingDir, { recursive: true });
-  const release = await acquireDirLockOrThrow(queuePaths.queueLockDir, 'Requeue');
-  let requeuedItem: string;
-  try {
+  const requeuedItem = await withDirLock(queuePaths.queueLockDir, 'Requeue', async () => {
     const cfg = await getPlatformConfig(root);
     const n = await pickNextRetryN(requeuedTaskId, root);
     const cap = cfg.max_retry_generations_per_slug;
@@ -457,10 +544,8 @@ export async function requeueErrorItem(options: {
     try { await removeTask(root, requeuedTaskId); } catch { /* best-effort */ }
 
     await insertIntoQueueManifest(queuePaths.pendingDir, retryFileName, options.insertAtIndex);
-    requeuedItem = retryFileName;
-  } finally {
-    await release();
-  }
+    return retryFileName;
+  });
 
   // Discard the retained worktree/branch/dirs for the now-superseded failed
   // task. Done OUTSIDE the queue lock: the lock guards manifest mutation, and
@@ -516,16 +601,17 @@ export async function moveErrorItemToDropbox(options: {
   const sourcePath = path.join(queuePaths.errorItemsDir, options.fileName);
   const destPath = path.join(queuePaths.dropboxDir, options.fileName);
 
-  await rename(sourcePath, destPath);
-
   const movedTaskId = options.fileName.replace(/\.md$/, '');
-  // Transition failed → open so the Task Board surfaces the file in the open
-  // column without waiting for a process restart. Downstream consumers
-  // (moveDropboxItemToPending, deleteDropboxItem) clean up this entry under
-  // the old taskId before registering anything new.
-  try {
-    await transitionTask(root, movedTaskId, 'failed', 'open');
-  } catch { /* best-effort */ }
+  await withDirLock(queuePaths.queueLockDir, 'Move error item to dropbox', async () => {
+    await rename(sourcePath, destPath);
+    // Transition failed → open so the Task Board surfaces the file in the open
+    // column without waiting for a process restart. Downstream consumers
+    // (moveDropboxItemToPending, deleteDropboxItem) clean up this entry under
+    // the old taskId before registering anything new.
+    try {
+      await transitionTask(root, movedTaskId, 'failed', 'open');
+    } catch { /* best-effort */ }
+  });
 
   // Discard retained worktree/branch/dirs for the failed task. The dropbox
   // re-intake will materialize a fresh task ID + worktree, so the failed

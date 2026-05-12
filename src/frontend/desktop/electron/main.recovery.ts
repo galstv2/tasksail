@@ -421,28 +421,26 @@ export function startTaskRecoveryController(options: {
           : false;
 
         if (!pipelineLocked && activationAgeMs > RUNTIME_FAILURE_GRACE_MS && hasCriticalRuntimeFailure(runtimeHealth)) {
-          await withQueueLockIfAvailable('desktop.failStrandedActiveTask', async () => {
-            const result = await moveFailedItemToErrorItems({
-              repoRoot: REPO_ROOT,
-              taskId: activeQueueName.replace(/\.md$/, ''),
-            });
-            emitStreamEvent({
-              message: `Auto-failed stranded task ${result.movedItem}: ${runtimeHealth?.summary ?? 'runtime failure observed.'}`,
-              source: 'recovery.controller',
-              role: 'system',
-              severity: 'error',
-            });
-            await persistRecoveryState(buildRecoveryState({
-              kind: 'runtime-failure',
-              status: 'auto-failed',
-              summary: runtimeHealth?.summary ?? 'Runtime failure observed after pipeline activity.',
-              queueName: result.movedItem,
-              activationStartedAt,
-              deadlineAt: null,
-              errorItemPath: result.errorItemPath,
-            }));
-            await scheduleAutoStartForNext(result.nextActiveItem);
+          const result = await moveFailedItemToErrorItems({
+            repoRoot: REPO_ROOT,
+            taskId: activeQueueName.replace(/\.md$/, ''),
           });
+          emitStreamEvent({
+            message: `Auto-failed stranded task ${result.movedItem}: ${runtimeHealth?.summary ?? 'runtime failure observed.'}`,
+            source: 'recovery.controller',
+            role: 'system',
+            severity: 'error',
+          });
+          await persistRecoveryState(buildRecoveryState({
+            kind: 'runtime-failure',
+            status: 'auto-failed',
+            summary: runtimeHealth?.summary ?? 'Runtime failure observed after pipeline activity.',
+            queueName: result.movedItem,
+            activationStartedAt,
+            deadlineAt: null,
+            errorItemPath: result.errorItemPath,
+          }));
+          await scheduleAutoStartForNext(result.nextActiveItem);
         }
         return;
       }
@@ -461,29 +459,27 @@ export function startTaskRecoveryController(options: {
         return;
       }
 
-      await withQueueLockIfAvailable('desktop.failInactiveActivation', async () => {
-        const result = await moveFailedItemToErrorItems({
-          repoRoot: REPO_ROOT,
-          taskId: activeQueueName.replace(/\.md$/, ''),
-        });
-        const summary = `No pipeline activity was observed within ${Math.round(activationGraceMs / 60000)} minutes of activation.`;
-        emitStreamEvent({
-          message: `Auto-failed stranded task ${result.movedItem}: ${summary}`,
-          source: 'recovery.controller',
-          role: 'system',
-          severity: 'error',
-        });
-        await persistRecoveryState(buildRecoveryState({
-          kind: 'activation-timeout',
-          status: 'auto-failed',
-          summary,
-          queueName: result.movedItem,
-          activationStartedAt,
-          deadlineAt,
-          errorItemPath: result.errorItemPath,
-        }));
-        await scheduleAutoStartForNext(result.nextActiveItem);
+      const result = await moveFailedItemToErrorItems({
+        repoRoot: REPO_ROOT,
+        taskId: activeQueueName.replace(/\.md$/, ''),
       });
+      const summary = `No pipeline activity was observed within ${Math.round(activationGraceMs / 60000)} minutes of activation.`;
+      emitStreamEvent({
+        message: `Auto-failed stranded task ${result.movedItem}: ${summary}`,
+        source: 'recovery.controller',
+        role: 'system',
+        severity: 'error',
+      });
+      await persistRecoveryState(buildRecoveryState({
+        kind: 'activation-timeout',
+        status: 'auto-failed',
+        summary,
+        queueName: result.movedItem,
+        activationStartedAt,
+        deadlineAt,
+        errorItemPath: result.errorItemPath,
+      }));
+      await scheduleAutoStartForNext(result.nextActiveItem);
     } catch (error) {
       emitStreamEvent({
         message: `Recovery reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,

@@ -45,7 +45,23 @@ describe('SidebarPackSelector', () => {
     const onOpenCreateModal = vi.fn();
     render(<SidebarPackSelector {...defaultProps} onOpenCreateModal={onOpenCreateModal} />);
     fireEvent.click(screen.getByLabelText('Create context pack'));
-    expect(onOpenCreateModal).toHaveBeenCalledOnce();
+    expect(onOpenCreateModal).toHaveBeenCalledWith({ kind: 'fresh' });
+  });
+
+  it('calls onOpenCreateModal with repo prefill from onboarding', () => {
+    const onOpenCreateModal = vi.fn();
+    render(
+      <SidebarPackSelector
+        {...defaultProps}
+        repoRoot="/repo/root"
+        onOpenCreateModal={onOpenCreateModal}
+      />,
+    );
+    fireEvent.click(screen.getByText('Use this repository'));
+    expect(onOpenCreateModal).toHaveBeenCalledWith({
+      kind: 'prefill-from-repo',
+      repoRoot: '/repo/root',
+    });
   });
 
   it('renders trigger with selected pack name', () => {
@@ -123,5 +139,74 @@ describe('SidebarPackSelector', () => {
       />,
     );
     expect(screen.getByText('incomplete')).toBeInTheDocument();
+  });
+
+  it('shows needs-review variant for bootstrap-empty review state', () => {
+    const packs = [
+      makePack({
+        packSeedState: 'bootstrap-empty',
+        packSeedStateInfo: {
+          state: 'bootstrap-empty',
+          reason: 'new-flow-needs-review',
+        },
+      }),
+    ];
+    render(
+      <SidebarPackSelector
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Select context pack'));
+    expect(screen.getByText('needs review')).toBeInTheDocument();
+    expect(screen.queryByText('needs population')).not.toBeInTheDocument();
+  });
+
+  it('shows needs population for bootstrap-empty pack without an active reseed marker', () => {
+    const packs = [
+      makePack({
+        packSeedState: 'bootstrap-empty',
+        packSeedStateInfo: {
+          state: 'bootstrap-empty',
+          reason: 'new-flow-seed-skipped',
+          inProgress: false,
+        },
+      }),
+    ];
+    render(
+      <SidebarPackSelector
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Select context pack'));
+    expect(screen.getByText('needs population')).toBeInTheDocument();
+    expect(screen.queryByText('Reseeding...')).not.toBeInTheDocument();
+  });
+
+  it('shows reseeding badge before bootstrap-empty badges while a reseed is in progress', () => {
+    const packs = [
+      makePack({
+        packSeedState: 'bootstrap-empty',
+        packSeedStateInfo: {
+          state: 'bootstrap-empty',
+          reason: 'new-flow-needs-review',
+          inProgress: true,
+        },
+      }),
+    ];
+    render(
+      <SidebarPackSelector
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Select context pack'));
+    expect(screen.getByText('Reseeding...')).toBeInTheDocument();
+    expect(screen.queryByText('needs review')).not.toBeInTheDocument();
+    expect(screen.queryByText('needs population')).not.toBeInTheDocument();
   });
 });

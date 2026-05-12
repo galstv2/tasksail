@@ -117,5 +117,10 @@ describe('activityStream helpers', () => {
     const highPriority = filterActivityStream(events, 'all', true);
     expect(highPriority.every((event) => event.severity === 'warning' || event.severity === 'error')).toBe(true);
     expect(formatStreamMessage(events[0])).toBe('Lily: Accepted the slice brief and opened the draft composer.');
+    expect(formatStreamMessage({
+      ...events[0],
+      actorName: 'Alice (Product Manager)',
+      message: 'Task [feedbeef] Alice (Product Manager): Is running.',
+    })).toBe('Task [feedbeef] Alice (Product Manager): Is running.');
   });
 });

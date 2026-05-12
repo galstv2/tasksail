@@ -179,11 +179,11 @@ class SeedingPreviewFailureLoggingTests(unittest.TestCase):
             }
 
             with patch(
-                "src.backend.mcp.repo_context_mcp.services.seeding_service.read_preview",
+                "src.backend.mcp.repo_context_mcp.services.repository_seed.read_preview",
                 side_effect=PermissionError("access denied"),
             ):
                 with self.assertLogs(
-                    "src.backend.mcp.repo_context_mcp.services.seeding_service",
+                    "src.backend.mcp.repo_context_mcp.services.repository_seed",
                     level="DEBUG",
                 ) as cm:
                     result = service.seed_repository(cp_dir, plan, repo, "2025-01-01T00:00:00Z")

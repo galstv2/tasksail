@@ -2,8 +2,13 @@
 
 import { validateStructure } from './structure.js';
 import { checkFileSizes } from './fileSizes.js';
-import { runLocalChecks, type LocalChecksProfile } from './localChecks.js';
+import {
+  runLocalChecks,
+  runMarkdownContractValidation,
+  type LocalChecksProfile,
+} from './localChecks.js';
 import { preCommitHook } from './preCommitHook.js';
+import { findRepoRoot } from '../core/index.js';
 
 const VALID_PROFILES = new Set<string>(['full', 'smoke', 'integration', 'contracts']);
 
@@ -42,7 +47,9 @@ async function main(): Promise<void> {
         console.error('\nRepository structure validation failed.');
         process.exit(1);
       }
-      console.log('Repository structure validation passed.');
+      const repoRoot = await findRepoRoot();
+      await runMarkdownContractValidation(repoRoot);
+      console.log('Repository structure and markdown contract validation passed.');
       break;
     }
 

@@ -1,0 +1,39 @@
+{
+  "questionnaire_version": "context-pack-bootstrap/v1",
+  "captured_at": "2026-05-01T12:00:00Z",
+  "context_pack_id": "monolith-demo",
+  "estate_name": "Monolith Demo",
+  "repository_count": 1,
+  "default_scope_mode": "focused",
+  "discovery_mode": "monolith",
+  "estate_type": "monolith",
+  "primary_working_repo_ids": [],
+  "primary_focus_area_ids": [
+    "api"
+  ],
+  "focusable_areas": [],
+  "repositories": [
+    {
+      "repo_id": "monolith",
+      "repo_name": "Monolith",
+      "repo_root": "/Users/example/monolith",
+      "system_layer": "backend",
+      "owner": "",
+      "repo_role": "backend-service",
+      "repository_type": "primary",
+      "languages": [
+        "typescript"
+      ],
+      "artifact_roots": [],
+      "document_paths": [],
+      "bounded_context": "",
+      "service_name": "",
+      "workspace_activation_group": "",
+      "default_focusable": true,
+      "activation_priority": 100,
+      "adjacent_repo_ids": [],
+      "depends_on_repo_ids": [],
+      "used_by_repo_ids": []
+    }
+  ]
+}

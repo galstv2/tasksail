@@ -42,6 +42,12 @@ describe('pure helpers', () => {
     it('strips leading and trailing hyphens', () => {
       expect(slugifyValue('--hello--')).toBe('hello');
     });
+
+    it('byte-identity: My Pack 2026! -> my-pack-2026', () => {
+      // Proves the renderer and main-process slugify functions are identical
+      // (both re-exported from src/shared/slug.ts).
+      expect(slugifyValue('My Pack 2026!')).toBe('my-pack-2026');
+    });
   });
 
   describe('titleizeValue', () => {
@@ -120,7 +126,7 @@ describe('pure helpers', () => {
   });
 
   describe('normalizeDraftForMode', () => {
-    it('ensures a primary repository for distributed mode', () => {
+    it('preserves missing primary repository state for distributed gating', () => {
       const draft: ContextPackCreationDraft = {
         ...INITIAL_DRAFT,
         repositories: [
@@ -129,7 +135,7 @@ describe('pure helpers', () => {
         ],
       };
       const normalized = normalizeDraftForMode(draft);
-      expect(normalized.repositories[0].primary).toBe(true);
+      expect(normalized.repositories[0].primary).toBe(false);
       expect(normalized.repositories[1].primary).toBe(false);
     });
 
@@ -305,6 +311,45 @@ describe('pure helpers', () => {
       expect(result.focusAreas[0].focusType).toBe('backend');
       expect(result.focusAreas[1].focusType).toBe('docs');
       expect(result.focusAreas[0].path).toBe('/workspace/mono/src/core');
+    });
+
+    it('promotes infrastructure parts to sibling repository entries in monolith mode', () => {
+      const draft: ContextPackCreationDraft = {
+        ...INITIAL_DRAFT,
+        creationOrigin: 'new',
+        mode: 'monolith-platform',
+        discoveryRoot: '/workspace/mono',
+      };
+
+      const result = buildDraftFromWizardParts(draft, [
+        {
+          key: 'p1',
+          name: 'Core API',
+          role: 'backend',
+          language: 'python',
+          languageIsOther: false,
+          location: 'src/core',
+          primary: true,
+          editing: false,
+        },
+        {
+          key: 'p2',
+          name: 'Deploy',
+          role: 'infrastructure',
+          language: 'yaml',
+          languageIsOther: false,
+          location: '/workspace/deploy',
+          primary: false,
+          editing: false,
+        },
+      ]);
+
+      expect(result.repositories).toHaveLength(2);
+      expect(result.repositories[0].repoRoot).toBe('/workspace/mono');
+      expect(result.repositories[1].repoRoot).toBe('/workspace/deploy');
+      expect(result.repositories[1].systemLayer).toBe('infrastructure');
+      expect(result.focusAreas).toHaveLength(1);
+      expect(result.focusAreas[0].focusName).toBe('Core API');
     });
   });
 });

@@ -75,6 +75,7 @@ import {
   requeueErrorItem,
 } from '../errorItems.js';
 import { resolveQueuePaths } from '../paths.js';
+import { formatContextPackBindingSection } from '../markdown.js';
 import { getAllTasks, loadTaskRegistry } from '../taskRegistry.js';
 import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
 
@@ -102,6 +103,7 @@ function makeTaskJson(
   repoRoot: string,
   repoBindings: Array<{ originalRoot: string; worktreeRoot: string; worktreeBranch: string; baseCommitSha: string }>,
   state: 'active' | 'failed' = 'active',
+  selection?: Record<string, unknown>,
 ): void {
   const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(taskDir, { recursive: true });
@@ -118,6 +120,7 @@ function makeTaskJson(
         dataHostDir: null,
         dataContainerDir: null,
         repoBindings,
+        selection,
       },
       materialization: {
         strategy: 'copy',
@@ -441,32 +444,42 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     expect(existsSync(path.join(queuePaths.errorItemsDir, 'task-B.md'))).toBe(true);
   });
 
-  it('restores active context-pack binding when recovering a failed task whose pending item is missing', async () => {
+  it('restores task-bound context-pack binding when recovering a failed task whose pending item is missing', async () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     const taskId = 'task-recovered-binding';
     const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
 
     makeActiveMarker(queuePaths, taskId);
-    makeTaskJson(taskId, repoRoot, []);
+    makeTaskJson(taskId, repoRoot, [], 'active', {
+      contextPackDir: '/contextpacks/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'services/Orders.Api/Routes.cs',
+      selectedFocusTargetKind: 'file',
+      selectedSupportTargets: [],
+    });
     makeTaskRuntime(repoRoot, taskId);
     mkdirSync(taskHandoffsDir, { recursive: true });
-    mkdirSync(path.join(repoRoot, '.platform-state', 'queue'), { recursive: true });
     writeFileSync(
       path.join(taskHandoffsDir, 'professional-task.md'),
-      '# Professional Task\n\n## Task Lineage\n\n- Task Kind: standard\n',
+      '# Professional Task\n\n## Task Metadata\n\n- Task ID: task-recovered-binding\n- Task Title: Recovered Orders Task\n\n## Task Lineage\n\n- Task Kind: standard\n',
       'utf-8',
     );
+    const staleQueueStateDir = path.join(repoRoot, '.platform-state', 'queue');
+    mkdirSync(staleQueueStateDir, { recursive: true });
     writeFileSync(
-      path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
+      path.join(staleQueueStateDir, ['active', 'context', 'pack'].join('-') + '.json'),
       JSON.stringify({
-        contextPackDir: '/contextpacks/orders',
-        contextPackId: 'orders',
+        contextPackDir: '/contextpacks/stale',
+        contextPackId: 'stale',
         scopeMode: 'focused',
-        selectedRepoIds: ['backend'],
+        selectedRepoIds: ['stale-repo'],
         selectedFocusIds: [],
         deepFocusEnabled: true,
-        selectedFocusPath: 'services/Orders.Api/Routes.cs',
-        selectedFocusTargetKind: 'file',
+        selectedFocusPath: 'stale/path',
         selectedSupportTargets: [],
       }, null, 2) + '\n',
       'utf-8',
@@ -478,12 +491,70 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
       path.join(queuePaths.errorItemsDir, `${taskId}.md`),
       'utf-8',
     );
+    expect(recovered).toMatch(/^# Recovered Orders Task$/m);
+    expect(recovered).not.toMatch(/^# Professional Task$/m);
     expect(recovered).toContain('## Context Pack Binding');
     expect(recovered).toContain('- Context Pack Dir: /contextpacks/orders');
     expect(recovered).toContain('- Selected Repo IDs: backend');
     expect(recovered).toContain('- Deep Focus Enabled: true');
     expect(recovered).toContain('- Selected Focus Path: services/Orders.Api/Routes.cs');
+    expect(recovered).not.toContain('/contextpacks/stale');
+    expect(recovered).not.toContain('stale-repo');
     expect(recovered).toContain(`Failure recovery note: pendingitems/${taskId}.md was already absent.`);
+  });
+
+  it('prefers intake.md context-pack binding over .task.json selection during recovery', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-intake-precedence';
+    const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
+
+    makeActiveMarker(queuePaths, taskId);
+    // .task.json carries binding B — must NOT win over intake.md.
+    makeTaskJson(taskId, repoRoot, [], 'active', {
+      contextPackDir: '/contextpacks/task-json-source',
+      contextPackId: 'task-json-source',
+      scopeMode: 'focused',
+      selectedRepoIds: ['task-json-repo'],
+      selectedFocusIds: [],
+      deepFocusEnabled: false,
+      selectedSupportTargets: [],
+    });
+    makeTaskRuntime(repoRoot, taskId);
+    mkdirSync(taskHandoffsDir, { recursive: true });
+    // professional-task.md (the seed for recoveredBody) intentionally lacks a
+    // binding so recovery has to fall through to intake.md.
+    writeFileSync(
+      path.join(taskHandoffsDir, 'professional-task.md'),
+      '# Professional Task\n\n## Task Lineage\n\n- Task Kind: standard\n',
+      'utf-8',
+    );
+    // intake.md carries binding A — recovery must surface this one.
+    const intakeBinding = formatContextPackBindingSection({
+      contextPackDir: '/contextpacks/intake-source',
+      contextPackId: 'intake-source',
+      scopeMode: 'focused',
+      selectedRepoIds: ['intake-repo'],
+      selectedFocusIds: [],
+    });
+    writeFileSync(
+      path.join(taskHandoffsDir, 'intake.md'),
+      `# ${taskId}\n\n${intakeBinding}\n`,
+      'utf-8',
+    );
+
+    await moveFailedItemToErrorItems({ repoRoot, taskId });
+
+    const recovered = readFileSync(
+      path.join(queuePaths.errorItemsDir, `${taskId}.md`),
+      'utf-8',
+    );
+    expect(recovered).toMatch(/^# task-intake-precedence$/m);
+    expect(recovered).not.toMatch(/^# Professional Task$/m);
+    expect(recovered).toContain('## Context Pack Binding');
+    expect(recovered).toContain('- Context Pack Dir: /contextpacks/intake-source');
+    expect(recovered).toContain('- Selected Repo IDs: intake-repo');
+    expect(recovered).not.toContain('/contextpacks/task-json-source');
+    expect(recovered).not.toContain('task-json-repo');
   });
 });
 
@@ -1091,6 +1162,7 @@ describe('requeue-time disposal of retained worktrees', () => {
     const queuePaths = resolveQueuePaths(repoRoot);
     const taskId = 'task-discard-on-dropbox';
 
+    mkdirSync(queuePaths.pendingDir, { recursive: true });
     mkdirSync(queuePaths.dropboxDir, { recursive: true });
     makeErrorItem(queuePaths, taskId);
     makeTaskJson(taskId, repoRoot, [
@@ -1129,6 +1201,7 @@ describe('requeue-time disposal of retained worktrees', () => {
     const taskId = 'task-no-source';
 
     // Do NOT seed the error item — rename will throw ENOENT
+    mkdirSync(queuePaths.pendingDir, { recursive: true });
     mkdirSync(queuePaths.errorItemsDir, { recursive: true });
     mkdirSync(queuePaths.dropboxDir, { recursive: true });
     seedFailedRegistryEntry(repoRoot, taskId);

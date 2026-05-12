@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.backend.mcp.pack_schemas import validate_manifest
+
 from ..config import RepoContextConfig
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,7 @@ def _resolve_qmd_scope(pack_dir: Path) -> str:
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_manifest(manifest, path=str(manifest_path))
         except (json.JSONDecodeError, OSError):
             return f"qmd/context-packs/{context_pack_id}"
         context_pack_id = (

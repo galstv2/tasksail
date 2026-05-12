@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ArchivedTaskEntry, MarkdownFileSelection, StagedDraftContent } from '../../shared/desktopContract';
+import type { ArchivedTaskEntry, MarkdownFileSelection, PlannerFocusValidationIssue, PlannerListConversationHistorySummary, StagedDraftContent } from '../../shared/desktopContract';
 import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } from '../plannerComposer';
 import { classNames } from '../utils/classNames';
-import { CloseIcon } from './creation-steps/icons';
+import { BackIcon, CloseIcon } from './creation-steps/icons';
 import SailScreen from './SailScreen';
 import MarkdownView from './MarkdownView';
 import ModalShell from './ModalShell';
+import { RecentsTrigger } from './planner/RecentsTrigger';
+import { RecentsPopover } from './planner/RecentsPopover';
 
 export type PlannerSessionStatus = 'idle' | 'connecting' | 'active' | 'busy' | 'failed';
 
@@ -23,6 +25,13 @@ export type PlannerModalProps = {
   primaryActionLabel: string;
   stageCopy: string;
   messages: PlannerConversationMessage[];
+  recentConversations?: PlannerListConversationHistorySummary[];
+  loadingRecentConversations?: boolean;
+  replayInFlight?: boolean;
+  replaySourceRecordId?: string | null;
+  recentConversationsMessage?: string;
+  onSelectConversation?: (recordId: string) => void;
+  onReturnToBlank?: () => void;
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
   sessionStatus?: PlannerSessionStatus;
@@ -30,6 +39,7 @@ export type PlannerModalProps = {
   awaitingDraft?: boolean;
   stagedDraft?: StagedDraftContent | null;
   draftError?: string;
+  plannerFocusValidationIssues?: PlannerFocusValidationIssue[];
   onViewDraft?: () => void;
   onRefreshDraft?: () => Promise<void>;
   onFinalizeSpec?: () => void;
@@ -39,9 +49,11 @@ export type PlannerModalProps = {
   childTaskMode?: boolean;
   onToggleChildTaskMode?: () => void;
   archivedTasks?: ArchivedTaskEntry[];
+  archivedTaskTotalCount?: number;
   selectedParentTask?: ArchivedTaskEntry | null;
   onSelectParentTask?: (task: ArchivedTaskEntry) => void;
   loadingArchivedTasks?: boolean;
+  loadingChildTaskParent?: boolean;
   childTaskBlocked?: boolean;
   onUploadSpec?: () => Promise<boolean>;
   onDownloadTemplate?: () => void;
@@ -71,6 +83,12 @@ function PlannerModal({
   primaryActionLabel,
   stageCopy,
   messages,
+  recentConversations,
+  loadingRecentConversations,
+  replayInFlight,
+  replaySourceRecordId = null,
+  onSelectConversation,
+  onReturnToBlank,
   isStreaming,
   onSendMessage,
   sessionStatus,
@@ -78,6 +96,7 @@ function PlannerModal({
   awaitingDraft,
   stagedDraft,
   draftError,
+  plannerFocusValidationIssues,
   onViewDraft,
   onRefreshDraft,
   onFinalizeSpec,
@@ -87,9 +106,11 @@ function PlannerModal({
   childTaskMode,
   onToggleChildTaskMode,
   archivedTasks,
+  archivedTaskTotalCount,
   selectedParentTask,
   onSelectParentTask,
   loadingArchivedTasks,
+  loadingChildTaskParent,
   childTaskBlocked,
   onUploadSpec,
   onDownloadTemplate,
@@ -100,12 +121,35 @@ function PlannerModal({
   const [submittedExiting, setSubmittedExiting] = useState(false);
   const [draftPopoutOpen, setDraftPopoutOpen] = useState(false);
   const submittedAtRef = useRef<number | null>(null);
+  const recentsTriggerRef = useRef<HTMLButtonElement>(null);
+  const [recentsOpen, setRecentsOpen] = useState(false);
+  const [replayingRecordId, setReplayingRecordId] = useState<string | null>(null);
+
+  const replayingTitle = useMemo(() => {
+    if (!replayingRecordId) return null;
+    return recentConversations?.find((r) => r.id === replayingRecordId)?.title ?? null;
+  }, [recentConversations, replayingRecordId]);
+
+  const handleSelectRecent = useCallback((recordId: string): void => {
+    setReplayingRecordId(recordId);
+    onSelectConversation?.(recordId);
+  }, [onSelectConversation]);
+
+  const handleRecentsToggle = useCallback(() => {
+    setRecentsOpen((v) => !v);
+  }, []);
+
+  const handleRecentsClose = useCallback(() => {
+    setRecentsOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
       setSubmitted(false);
       setSubmittedExiting(false);
       setDraftPopoutOpen(false);
+      setRecentsOpen(false);
+      setReplayingRecordId(null);
       submittedAtRef.current = null;
     }
   }, [isOpen]);
@@ -269,6 +313,18 @@ function PlannerModal({
       >
         <header className="planner-modal__header">
           <div className="planner-modal__header-left">
+            {(childTaskMode || replaySourceRecordId !== null) && !submitted && (
+              <button
+                type="button"
+                className="planner-modal__back"
+                onClick={onReturnToBlank}
+                disabled={!!replayInFlight}
+                aria-label="Return to blank planner"
+                title="Return to blank planner"
+              >
+                <BackIcon />
+              </button>
+            )}
             <svg className="planner-modal__icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M8 1.5L1.5 5v6L8 14.5 14.5 11V5L8 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
               <path d="M8 8v6.5M1.5 5L8 8l6.5-3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -297,11 +353,28 @@ function PlannerModal({
             >
               Child Task
             </button>
+            <RecentsTrigger
+              ref={recentsTriggerRef}
+              count={recentConversations?.length ?? 0}
+              loading={!!loadingRecentConversations}
+              replayInFlight={!!replayInFlight}
+              replayingTitle={replayingTitle}
+              popoverOpen={recentsOpen}
+              onToggle={handleRecentsToggle}
+            />
             <button type="button" className="planner-modal__close-btn" onClick={onClose} aria-label="Close planner">
               <CloseIcon />
             </button>
           </div>
         </header>
+
+        <RecentsPopover
+          open={recentsOpen}
+          records={recentConversations ?? []}
+          triggerRef={recentsTriggerRef}
+          onSelect={handleSelectRecent}
+          onClose={handleRecentsClose}
+        />
 
         {childTaskMode && (
           <div className="planner-modal__parent-select" aria-label="Parent task selection">
@@ -313,14 +386,18 @@ function PlannerModal({
                 const task = archivedTasks?.find((t) => t.taskId === e.target.value);
                 if (task) onSelectParentTask?.(task);
               }}
-              disabled={loadingArchivedTasks}
+              disabled={loadingArchivedTasks || loadingChildTaskParent}
             >
               <option value="">
-                {loadingArchivedTasks
+                {loadingChildTaskParent
+                  ? 'Loading parent task...'
+                  : loadingArchivedTasks
                   ? 'Loading archived tasks...'
                   : archivedTasks && archivedTasks.length > 0
                     ? 'Select a completed parent task...'
-                    : 'No completed tasks found in archive'}
+                    : archivedTaskTotalCount && archivedTaskTotalCount > 0
+                      ? `${archivedTaskTotalCount} archived task${archivedTaskTotalCount === 1 ? '' : 's'} found, but none have a saved planner focus`
+                      : 'No completed tasks found in archive'}
               </option>
               {archivedTasks?.map((task) => (
                 <option key={task.taskId} value={task.taskId}>
@@ -358,7 +435,16 @@ function PlannerModal({
 
         {(contractError || draftError) && (
           <div className="planner-modal__error" role="alert">
-            {contractError || draftError}
+            <div>{contractError || draftError}</div>
+            {plannerFocusValidationIssues && plannerFocusValidationIssues.length > 0 && (
+              <ul className="planner-modal__validation-issues">
+                {plannerFocusValidationIssues.map((issue, index) => (
+                  <li key={`${issue.code}-${issue.path ?? issue.id ?? index}`}>
+                    {issue.label}: {issue.path ?? issue.id}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

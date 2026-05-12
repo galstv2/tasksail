@@ -5,6 +5,8 @@ import { sep, join, dirname } from 'node:path';
 import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { buildTaskLaunchBaseEnv } from './launchEnv.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -69,7 +71,10 @@ export async function spawnPipelineForTask(options: {
     {
       cwd: options.repoRoot,
       env: {
-        ...process.env,
+        ...buildTaskLaunchBaseEnv(
+          process.env,
+          getActiveProvider(options.repoRoot).controlledEnvKeys(),
+        ),
         TASKSAIL_TASK_ID: options.taskId,
         RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS: 'true',
         RUN_ROLE_AGENT_ORCHESTRATOR_ID: 'pipeline-sequencer',

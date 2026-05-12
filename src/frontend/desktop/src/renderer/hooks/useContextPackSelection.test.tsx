@@ -124,6 +124,36 @@ describe('useContextPackSelection', () => {
     );
   });
 
+  it('refreshes catalog and keeps last reseed result empty when reseed is already in progress', async () => {
+    const client = createClient({
+      reseedContextPack: vi.fn().mockResolvedValue({
+        ok: false,
+        action: 'contextPack.reseed',
+        error: 'reseed_in_progress',
+        details: ['pid=1234'],
+      }),
+    });
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Run reseed' }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('message')).toHaveTextContent(
+        'Context-pack reseed is already in progress.',
+      );
+    });
+    expect(screen.getByTestId('reseed-status')).toHaveTextContent('no-reseed');
+    expect(client.listContextPacks).toHaveBeenCalledTimes(2);
+  });
+
   it('surfaces apply failures without hiding structured result state', async () => {
     render(<ContextPackSelectionHarness client={createClient()} />);
 

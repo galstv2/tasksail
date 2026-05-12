@@ -55,7 +55,18 @@
     "context_estate": [
       "tests.domains.context_estate.test_context_estate_draft_index",
       "tests.domains.context_estate.test_context_estate_manifest",
-      "tests.domains.context_estate.test_discover_context_estate"
+      "tests.domains.context_estate.test_discover_context_estate",
+      "tests.domains.context_estate.test_bootstrap_estate_type",
+      "tests.domains.context_estate.test_discovery_modes"
+    ],
+    "pack_io": [
+      "tests.domains.pack_io.test_first_existing"
+    ],
+    "pack_schemas": [
+      "tests.domains.pack_schemas.test_roundtrip"
+    ],
+    "pack_writer": [
+      "tests.domains.pack_writer.test_pack_writer"
     ],
     "repo_context": [
       "tests.domains.repo_context.test_repo_context_app_helpers",
@@ -64,7 +75,8 @@
       "tests.domains.repo_context.test_repo_context_http_transport",
       "tests.domains.repo_context.test_repo_context_packaging",
       "tests.domains.repo_context.test_repo_context_request_id",
-      "tests.domains.repo_context.test_repo_context_server_lifecycle"
+      "tests.domains.repo_context.test_repo_context_server_lifecycle",
+      "tests.domains.repo_context.test_seeding_service_multi_path"
     ],
     "archive": [
       "tests.domains.archive.test_parent_archive_retrieval",
@@ -84,6 +96,8 @@
     "qmd": [
       "tests.domains.qmd.test_live_qmd_seeding",
       "tests.domains.qmd.test_qmd_index_service",
+      "tests.domains.qmd.test_reseed_marker_lifecycle",
+      "tests.domains.qmd.test_reseed_runtime_state",
       "tests.domains.qmd.test_seeding_runtime_state"
     ],
     "test_infra": [
@@ -110,7 +124,7 @@
   "path_rules": {
     ".github/agents/": ["docs_contracts"],
     ".github/copilot/": ["docs_contracts"],
-    "docker/repo-context-mcp/": ["repo_context"],
+    "runtime/docker/repo-context-mcp/": ["repo_context"],
     "docs/": ["docs_contracts"],
     "AgentWorkSpace/tasks/": ["workflow", "docs_contracts"],
     "qmd/": ["context_pack", "context_estate", "qmd"],
@@ -134,6 +148,10 @@
     "tests/domains/queue/": ["queue"],
     "tests/domains/context_pack/": ["context_pack"],
     "tests/domains/context_estate/": ["context_estate"],
+    "tests/domains/pack_io/": ["pack_io"],
+    "tests/domains/pack_schemas/": ["pack_schemas"],
+    "tests/domains/pack_writer/": ["pack_writer"],
+    "src/backend/mcp/pack_io.py": ["pack_io"],
     "tests/domains/repo_context/": ["repo_context"],
     "tests/domains/archive/": ["archive"],
     "tests/domains/docs_contracts/": ["docs_contracts"],

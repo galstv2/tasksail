@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import AgentInstructionsBrowser from './AgentInstructionsBrowser';
 import type { AgentInstructionsBrowserProps } from '../hooks/useAgentInstructionsModal';
+import { createProviderFrontendDescriptor } from '../../test/factories/fixtureFactory';
 
 afterEach(cleanup);
 
@@ -12,16 +13,17 @@ function defaultProps(overrides: Partial<AgentInstructionsBrowserProps> = {}): A
     isLoading: false,
     files: {
       profiles: [
-        { fileName: 'planning-agent.md', relativePath: '.github/agents/planning-agent.md' },
+        { fileName: 'provider-planner.md', relativePath: '.provider/agents/provider-planner.md' },
       ],
       instructions: [],
       prompts: [
         { fileName: 'planner.prompt.md', relativePath: '.provider/prompts/planner.prompt.md' },
-        { fileName: 'qa.prompt.md', relativePath: '.provider/prompts/qa.prompt.md' },
+        { fileName: 'provider-qa.prompt.md', relativePath: '.provider/prompts/provider-qa.prompt.md' },
       ],
       templates: [],
     },
     draftsByPath: {},
+    descriptor: createProviderFrontendDescriptor(),
     error: null,
     loadingPath: null,
     onClose: vi.fn(),

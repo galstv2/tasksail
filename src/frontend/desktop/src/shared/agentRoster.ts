@@ -1,12 +1,5 @@
 import type { ProviderFrontendDescriptor } from './desktopContractProvider';
 
-export type NamedWorkflowAgentKey =
-  | 'planning-agent'
-  | 'product-manager'
-  | 'software-engineer'
-  | 'software-engineer-verify'
-  | 'qa';
-
 export type NamedWorkflowAgentProfile = {
   role: string;
   humanName: string;
@@ -34,16 +27,26 @@ export function createNamedWorkflowAgentRoster(
   );
 }
 
-export function getPlanningAgentDisplayName(descriptor: ProviderFrontendDescriptor): string {
-  return createNamedWorkflowAgentRoster(descriptor)['planning-agent']?.displayName ?? 'Planning Agent';
+export function getPlanningAgentDisplayName(
+  descriptor: ProviderFrontendDescriptor,
+  plannerAgentId: string | null,
+): string {
+  if (!plannerAgentId) {
+    return 'Planning Agent';
+  }
+  return createNamedWorkflowAgentRoster(descriptor)[plannerAgentId]?.displayName ?? 'Planning Agent';
 }
 
 export function getPlannerConversationLabel(
   descriptor: ProviderFrontendDescriptor,
+  plannerAgentId: string | null,
   role: 'planner' | 'operator',
 ): string {
   if (role === 'operator') {
     return 'Operator';
   }
-  return createNamedWorkflowAgentRoster(descriptor)['planning-agent']?.humanName ?? 'Planner';
+  if (!plannerAgentId) {
+    return 'Planner';
+  }
+  return createNamedWorkflowAgentRoster(descriptor)[plannerAgentId]?.humanName ?? 'Planner';
 }

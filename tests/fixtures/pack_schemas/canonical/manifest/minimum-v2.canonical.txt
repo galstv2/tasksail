@@ -1,0 +1,10 @@
+{
+  "context_pack_id": "test-pack-v2",
+  "estate_type": "distributed-platform",
+  "manifest_status": "approved",
+  "manifest_version": "qmd-repo-sources/v2",
+  "primary_focus_area_ids": [],
+  "primary_working_repo_ids": [],
+  "qmd_scope_root": "qmd/context-packs/test-pack-v2",
+  "repositories": []
+}

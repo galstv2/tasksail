@@ -13,9 +13,13 @@ import {
   type ContextPackFocusTargetKind,
   type ContextPackFocusTarget,
   type ContextPackListResponse,
+  type PackSeedState,
+  type PackSeedStateInfo,
   type WorkspaceScopeMode,
 } from '../src/shared/desktopContract';
+import { parsePackSeedStateRecord } from '../src/shared/packSchemas.runtime';
 import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
+import { readReseedMarker } from '../../../backend/platform/context-pack/reseedMarker.js';
 import { REPO_ROOT } from './paths';
 import { pathExists, numberOrNull, stringOrNull, repoFs } from './utils';
 import { portablePathBasename, readDeepFocusPath, stringArray } from './main.contextPackShared';
@@ -46,8 +50,6 @@ type WorkspaceSyncStateSnapshot = {
   derivedWritableRoots?: ContextPackDeepFocusDerivedRoot[];
   derivedReadonlyContextRoots?: ContextPackDeepFocusDerivedRoot[];
   managedFolders: string[];
-  attachedManagedFolders: string[];
-  missingManagedFolders: string[];
   status: string;
   lastSyncedAt: string | null;
   workspaceFolderCount: number | null;
@@ -66,6 +68,12 @@ function resolveFirstLocalPath(value: unknown): string | null {
   for (const entry of value) {
     if (typeof entry === 'string' && entry.trim().length > 0) {
       return resolve(entry);
+    }
+    if (typeof entry === 'object' && entry !== null && !Array.isArray(entry)) {
+      const host = (entry as Record<string, unknown>).host;
+      if (typeof host === 'string' && host.trim().length > 0) {
+        return resolve(host);
+      }
     }
   }
 
@@ -238,8 +246,6 @@ function dedupeResolvedPaths(paths: readonly string[]): string[] {
 export function getDefaultContextPackSearchRoots(repoRoot: string = REPO_ROOT): string[] {
   return dedupeResolvedPaths([
     resolve(repoRoot, 'contextpacks'),
-    resolve(repoRoot, 'context-packs'),
-    resolve(repoRoot, '..', 'context-packs'),
   ]);
 }
 
@@ -268,47 +274,7 @@ async function readEnvAssignment(key: string): Promise<string | null> {
   return value.replace(/^['"]|['"]$/g, '') || null;
 }
 
-function normalizeWorkspaceFolderPath(rawPath: string): string {
-  return resolve(REPO_ROOT, rawPath);
-}
-
-async function readWorkspaceFolderPaths(): Promise<Set<string>> {
-  const workspaceFilePath = join(REPO_ROOT, 'tasksail.code-workspace');
-  if (!(await pathExists(workspaceFilePath, repoFs))) {
-    return new Set();
-  }
-
-  try {
-    const payload = JSON.parse(await repoFs.readFile(workspaceFilePath, 'utf-8')) as {
-      folders?: unknown;
-    };
-    const folders = Array.isArray(payload.folders) ? payload.folders : [];
-    const paths = new Set<string>();
-    for (const folder of folders) {
-      if (typeof folder === 'string' && folder.trim().length > 0) {
-        paths.add(normalizeWorkspaceFolderPath(folder));
-        continue;
-      }
-
-      if (
-        typeof folder === 'object' &&
-        folder !== null &&
-        'path' in folder &&
-        typeof (folder as { path?: unknown }).path === 'string'
-      ) {
-        paths.add(normalizeWorkspaceFolderPath(String((folder as { path: string }).path)));
-      }
-    }
-    return paths;
-  } catch (error: unknown) {
-    console.warn('readWorkspaceFolderPaths: failed to parse workspace file:',
-      error instanceof Error ? error.message : error);
-    return new Set();
-  }
-}
-
 export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncStateSnapshot> {
-  const workspacePaths = await readWorkspaceFolderPaths();
   if (!(await pathExists(WORKSPACE_SYNC_STATE_PATH, repoFs))) {
     return {
       activeContextPackDir: null,
@@ -327,8 +293,6 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       derivedWritableRoots: [],
       derivedReadonlyContextRoots: [],
       managedFolders: [],
-      attachedManagedFolders: [],
-      missingManagedFolders: [],
       status: 'idle',
       lastSyncedAt: null,
       workspaceFolderCount: null,
@@ -361,8 +325,6 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
     };
     const activeContextPackDir = stringOrNull(state.active_context_pack_dir);
     const managedFolders = stringArray(state.managed_folders).map((path) => resolve(path));
-    const attachedManagedFolders = managedFolders.filter((path) => workspacePaths.has(path));
-    const missingManagedFolders = managedFolders.filter((path) => !workspacePaths.has(path));
     const deepFocusEnabled = state.deep_focus_enabled === true;
     return {
       activeContextPackDir: activeContextPackDir ? resolve(activeContextPackDir) : null,
@@ -388,8 +350,6 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       derivedWritableRoots: parseDeepFocusDerivedRootList(state.derived_writable_roots),
       derivedReadonlyContextRoots: parseDeepFocusDerivedRootList(state.derived_readonly_context_roots),
       managedFolders,
-      attachedManagedFolders,
-      missingManagedFolders,
       status: stringOrNull(state.status) ?? 'idle',
       lastSyncedAt: stringOrNull(state.last_synced_at),
       workspaceFolderCount: numberOrNull(state.workspace_folder_count),
@@ -415,8 +375,6 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       derivedWritableRoots: [],
       derivedReadonlyContextRoots: [],
       managedFolders: [],
-      attachedManagedFolders: [],
-      missingManagedFolders: [],
       status: 'idle',
       lastSyncedAt: null,
       workspaceFolderCount: null,
@@ -435,7 +393,6 @@ export function deriveContextPackRuntimeState(
   | 'isActive'
   | 'status'
   | 'statusMessage'
-  | 'driftDetected'
   | 'restoreAvailable'
   | 'lastSyncedAt'
   | 'lastAppliedScopeMode'
@@ -460,7 +417,6 @@ export function deriveContextPackRuntimeState(
   const effectiveActiveDir = envActiveDir ?? stateActiveDir;
   const isActive = effectiveActiveDir === normalizedContextPackDir;
   const stateTracksEntry = stateActiveDir === normalizedContextPackDir;
-  const driftDetected = stateTracksEntry && syncState.missingManagedFolders.length > 0;
 
   let status: ContextPackCatalogEntry['status'] = 'inactive';
   let statusMessage: string | null = null;
@@ -471,11 +427,9 @@ export function deriveContextPackRuntimeState(
     } else if (stateTracksEntry && syncState.status === 'activation-failed') {
       status = 'activation-failed';
       statusMessage = 'Activation did not complete. Try applying again.';
-    } else if (driftDetected || (envActiveDir !== null && !stateTracksEntry)) {
-      status = 'active-dirty-workspace';
-      statusMessage = driftDetected
-        ? 'Workspace folders changed since last apply. Re-apply to reconcile.'
-        : 'Active pack changed outside the desktop. Apply to sync.';
+    } else if (envActiveDir !== null && !stateTracksEntry) {
+      status = 'active';
+      statusMessage = 'Active context pack selected outside the desktop. Apply to record the current selection.';
     } else {
       status = 'active';
       statusMessage = 'Active and synced.';
@@ -486,7 +440,6 @@ export function deriveContextPackRuntimeState(
     isActive,
     status,
     statusMessage,
-    driftDetected,
     restoreAvailable: stateTracksEntry && status !== 'active',
     lastSyncedAt: stateTracksEntry ? syncState.lastSyncedAt : null,
     lastAppliedScopeMode: stateTracksEntry ? syncState.scopeMode : null,
@@ -512,6 +465,49 @@ export function deriveContextPackRuntimeState(
       ?? persistedCounts?.folderCount ?? null,
     workspaceFileCount: (stateTracksEntry ? syncState.workspaceFileCount : null)
       ?? persistedCounts?.fileCount ?? null,
+  };
+}
+
+const SEEDED_FALLBACK: PackSeedStateInfo = { state: 'seeded' };
+
+async function readPackSeedState(
+  contextPackDir: string,
+  qmdScopeRoot: string,
+): Promise<PackSeedStateInfo> {
+  const reseedMarker = await readReseedMarker(resolve(contextPackDir));
+  const inProgress = reseedMarker !== null;
+  // Default to 'seeded' on any read/parse failure (including missing file) so
+  // a pre-Phase-5 pack or a healthy pack with a transient I/O error never
+  // shows a false "needs population" badge.
+  if (!qmdScopeRoot) return { ...SEEDED_FALLBACK, inProgress };
+  const markerPath = join(resolve(contextPackDir), qmdScopeRoot, 'seed-state.json');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await repoFs.readFile(markerPath, 'utf-8'));
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { ...SEEDED_FALLBACK, inProgress };
+    }
+    console.warn('readPackSeedState: failed to read seed-state.json:',
+      err instanceof Error ? err.message : err, '— defaulting to seeded');
+    return { ...SEEDED_FALLBACK, inProgress };
+  }
+  const parsed = parsePackSeedStateRecord(raw);
+  if (parsed === null) {
+    console.warn('readPackSeedState: corrupt seed-state.json at', markerPath, '— defaulting to seeded');
+    return { ...SEEDED_FALLBACK, inProgress };
+  }
+  return {
+    state: parsed.state,
+    createdAt: parsed.created_at ?? null,
+    reason: parsed.reason ?? null,
+    lastSeedAt: parsed.last_seed_at ?? null,
+    lastSeedRunId: parsed.last_seed_run_id ?? null,
+    lastFailureAt: parsed.last_failure_at ?? null,
+    lastFailureReason: parsed.last_failure_reason ?? null,
+    lastFailureRunId: parsed.last_failure_run_id ?? null,
+    inProgress,
+    details: parsed.details ?? null,
   };
 }
 
@@ -545,6 +541,8 @@ async function inspectContextPackDir(
   primaryWorkingRepoIds: string[];
   focusTargets: ContextPackFocusTarget[];
   persistedCounts: { folderCount: number | null; fileCount: number | null };
+  packSeedState: PackSeedState;
+  packSeedStateInfo: PackSeedStateInfo;
 } | null> {
   const normalizedDir = resolve(contextPackDir);
   const manifestPath = join(normalizedDir, 'qmd/repo-sources.json');
@@ -563,6 +561,7 @@ async function inspectContextPackDir(
   let repoCount = 0;
   let primaryWorkingRepoIds: string[] = [];
   let focusTargets: ContextPackFocusTarget[] = [];
+  let qmdScopeRoot = '';
   if (hasManifest) {
     try {
       const manifest = JSON.parse(await repoFs.readFile(manifestPath, 'utf-8')) as {
@@ -575,7 +574,9 @@ async function inspectContextPackDir(
         repository?: unknown;
         repositories?: unknown;
         focusable_areas?: unknown;
+        qmd_scope_root?: unknown;
       };
+      qmdScopeRoot = stringOrNull(manifest.qmd_scope_root) ?? '';
       contextPackId = stringOrNull(manifest.context_pack_id) ?? contextPackId;
       displayName = stringOrNull(manifest.display_name) ?? contextPackId;
       estateType = stringOrNull(manifest.estate_type);
@@ -664,6 +665,7 @@ async function inspectContextPackDir(
   }
 
   const persistedCounts = await readPersistedWorkspaceCounts(normalizedDir);
+  const packSeedStateInfo = await readPackSeedState(normalizedDir, qmdScopeRoot);
 
   return {
     manifestPath: hasManifest ? manifestPath : null,
@@ -671,6 +673,8 @@ async function inspectContextPackDir(
     contextPackId, displayName, estateType, defaultScopeMode,
     repoCount, primaryWorkingRepoIds, focusTargets,
     persistedCounts,
+    packSeedState: packSeedStateInfo.state,
+    packSeedStateInfo,
   };
 }
 
@@ -706,6 +710,8 @@ async function addContextPackCandidate(
     repoCount: inspected.repoCount,
     primaryWorkingRepoIds: inspected.primaryWorkingRepoIds,
     focusTargets: inspected.focusTargets,
+    packSeedState: inspected.packSeedState,
+    packSeedStateInfo: inspected.packSeedStateInfo,
     ...deriveContextPackRuntimeState(normalizedDir, envActiveContextPackDir, syncState, persistedCounts),
   });
 }
@@ -762,4 +768,10 @@ export async function listAvailableContextPacks(): Promise<ContextPackListRespon
     recentContextPackDirs,
     contextPacks,
   };
+}
+
+export function getContextPackCatalogRoots(): string[] {
+  return resolveContextPackSearchRoots(
+    parseConfiguredPaths(process.env[CONTEXT_PACK_SEARCH_ROOTS_ENV]),
+  );
 }

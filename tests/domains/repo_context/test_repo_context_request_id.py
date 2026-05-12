@@ -143,9 +143,13 @@ class RepoContextRequestIdTests(unittest.TestCase):
 
         self.assertEqual(resp.status, 409)
         payload = resp.json()
-        self.assertEqual(
-            payload["error"], "a seed run is already in progress"
-        )
+        self.assertEqual(payload["error"], "reseed_in_progress")
+        self.assertIsNone(payload["pid"])
+        self.assertIsNone(payload["host"])
+        self.assertIsNone(payload["started_at"])
+        self.assertFalse(payload["same_host"])
+        self.assertEqual(payload["stale_after_seconds"], 3600)
+        self.assertEqual(payload["message"], "a seed run is already in progress")
 
 
 if __name__ == "__main__":

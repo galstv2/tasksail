@@ -8,12 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityProvider } from '../contexts/ObservabilityContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import type { DesktopShellClient } from '../services/desktopShellClient';
-import type { PlannerStreamEvent } from '../../shared/desktopContract';
+import type {
+  ArchivedTaskEntry,
+  PlannerFocusSnapshot,
+  PlannerListConversationHistorySummary,
+  PlannerStartSessionDeepFocusSelection,
+  PlannerStreamEvent,
+} from '../../shared/desktopContract';
+import type { PlannerConversationRecord } from '../../../../../backend/platform/planner-history/types.js';
 import {
   createMockClient,
   createPlannerSubmitResponse,
 } from '../../test';
-import { buildChildTaskMarkdownReviewPrompt, buildChildTaskStarterPrompt, buildMarkdownReviewPrompt } from '../../shared/plannerWorkflow';
 import { usePlannerModal } from './usePlannerModal';
 
 afterEach(() => {
@@ -21,6 +27,144 @@ afterEach(() => {
 });
 
 let subscribedPlannerEvent: ((plannerEvent: PlannerStreamEvent) => void) | null = null;
+
+function plannerEvent(event: Omit<PlannerStreamEvent, 'sessionId'>): PlannerStreamEvent {
+  return { sessionId: 'planner-mock-1', ...event };
+}
+
+function createHistorySummary(overrides: Partial<PlannerListConversationHistorySummary> = {}): PlannerListConversationHistorySummary {
+  return {
+    id: 'conversation-1',
+    title: 'Historical planning session',
+    createdAt: '2026-03-20T00:00:00.000Z',
+    finalizedDestinationPath: '/repo/AgentWorkSpace/dropbox/spec.md',
+    messageCount: 2,
+    taskKind: 'standard',
+    scopeMode: 'selected',
+    primaryRepoId: 'platform',
+    primaryFocusRelativePath: 'src/features/planner',
+    ...overrides,
+  };
+}
+
+function createHistoryRecord(overrides: Partial<PlannerConversationRecord> = {}): PlannerConversationRecord {
+  const taskKind = overrides.sidecarSnapshot?.lineage.taskKind ?? 'standard';
+  return {
+    id: 'conversation-1',
+    contextPackDir: '/tmp/test-context-pack',
+    contextPackId: 'test-pack',
+    createdAt: '2026-03-20T00:00:00.000Z',
+    title: 'Historical planning session',
+    finalizedDestinationPath: '/repo/AgentWorkSpace/dropbox/spec.md',
+    sidecarSnapshot: {
+      version: 1,
+      ownership: 'planner-session',
+      sessionId: 'historical-session',
+      draftFilename: 'spec.md',
+      draftPath: '/repo/.staging/spec.md',
+      createdAt: '2026-03-20T00:00:00.000Z',
+      title: 'Historical planning session',
+      primaryRepoId: 'platform',
+      primaryRepoRoot: '/repo',
+      primaryFocusRelativePath: 'src/features/planner',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      lineage: {
+        taskKind,
+        parentTaskId: taskKind === 'child-task' ? 'TASK-001' : '',
+        rootTaskId: taskKind === 'child-task' ? 'TASK-ROOT' : '',
+        parentQmdRecordId: taskKind === 'child-task' ? 'qmd-1' : '',
+        parentQmdScope: taskKind === 'child-task' ? 'qmd/context-packs/test-pack' : '',
+        followUpReason: taskKind === 'child-task' ? 'Follow up' : '',
+      },
+      contextPackBinding: {
+        contextPackDir: '/tmp/test-context-pack',
+        contextPackId: 'test-pack',
+        scopeMode: 'selected',
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        selectedFocusPath: 'src/features/planner',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    },
+    transcript: [
+      { id: 'history-message-1', role: 'operator', text: 'Historical operator question', timestamp: '2026-03-20T00:01:00.000Z' },
+      { id: 'history-message-2', role: 'planner', text: 'Historical planner answer', timestamp: '2026-03-20T00:02:00.000Z' },
+    ],
+    ...overrides,
+  };
+}
+
+function createChildTaskHistoryRecord(overrides: Partial<PlannerConversationRecord> = {}): PlannerConversationRecord {
+  const base = createHistoryRecord();
+  return createHistoryRecord({
+    ...overrides,
+    sidecarSnapshot: {
+      ...base.sidecarSnapshot,
+      lineage: {
+        ...base.sidecarSnapshot.lineage,
+        taskKind: 'child-task',
+        parentTaskId: 'TASK-001',
+        rootTaskId: 'TASK-ROOT',
+        parentQmdRecordId: 'qmd-1',
+        parentQmdScope: 'qmd/context-packs/test-pack',
+        followUpReason: 'Follow-up',
+      },
+      ...overrides.sidecarSnapshot,
+    },
+  });
+}
+
+function createFocusSnapshot(overrides: Partial<PlannerFocusSnapshot> = {}): PlannerFocusSnapshot {
+  const record = createHistoryRecord();
+  return {
+    version: 1,
+    contextPackDir: record.contextPackDir,
+    contextPackId: record.contextPackId,
+    title: record.title,
+    primaryRepoId: record.sidecarSnapshot.primaryRepoId,
+    primaryRepoRoot: record.sidecarSnapshot.primaryRepoRoot,
+    primaryFocusRelativePath: record.sidecarSnapshot.primaryFocusRelativePath,
+    primaryFocusTargetKind: record.sidecarSnapshot.primaryFocusTargetKind,
+    primaryFocusTargets: record.sidecarSnapshot.primaryFocusTargets,
+    selectedTestTarget: record.sidecarSnapshot.selectedTestTarget,
+    supportTargets: record.sidecarSnapshot.supportTargets,
+    deepFocusEnabled: record.sidecarSnapshot.deepFocusEnabled,
+    contextPackBinding: record.sidecarSnapshot.contextPackBinding,
+    ...overrides,
+  };
+}
+
+function createArchivedTask(overrides: Partial<ArchivedTaskEntry> = {}): ArchivedTaskEntry {
+  return {
+    taskId: 'TASK-001',
+    title: 'Parent task',
+    summary: 'Carry forward this work.',
+    rootTaskId: 'TASK-ROOT',
+    qmdRecordId: 'qmd-1',
+    followupReason: 'Follow-up',
+    year: '2026',
+    archivePath: '/repo/archive/task.md',
+    contextPackName: 'test-pack',
+    plannerFocusSnapshot: createFocusSnapshot(),
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
 
 beforeEach(() => {
   subscribedPlannerEvent = null;
@@ -58,15 +202,29 @@ function makeWrapper(client: DesktopShellClient) {
 
 function renderPlannerModalHook(
   client?: DesktopShellClient,
-  options?: { hasActiveContextPack?: boolean; activeContextPackDir?: string | null },
+  options?: {
+    hasActiveContextPack?: boolean;
+    activeContextPackDir?: string | null;
+    deepFocusSelection?: PlannerStartSessionDeepFocusSelection;
+  },
 ) {
   const c = client ?? createClient();
   const hasActive = options?.hasActiveContextPack ?? true;
-  const activeDir = options?.activeContextPackDir ?? (hasActive ? '/tmp/test-context-pack' : null);
+  const activeDir = options && 'activeContextPackDir' in options
+    ? options.activeContextPackDir ?? null
+    : hasActive ? '/tmp/test-context-pack' : null;
   return renderHook(
     () => {
       const [contractError, setContractError] = useState('');
-      return usePlannerModal(c, 'idle', hasActive, contractError, setContractError, activeDir);
+      return usePlannerModal(
+        c,
+        'idle',
+        hasActive,
+        contractError,
+        setContractError,
+        activeDir,
+        options?.deepFocusSelection,
+      );
     },
     { wrapper: makeWrapper(c) },
   );
@@ -88,6 +246,69 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.isOpen).toBe(true);
   });
 
+  it('starts planner sessions with the live Deep Focus payload when enabled', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession' },
+    });
+    const client = createClient({ startPlannerSession });
+    const deepFocusSelection: PlannerStartSessionDeepFocusSelection = {
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: 'libs/Acme.Models',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        {
+          path: 'libs/Acme.Models',
+          kind: 'directory',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          role: 'anchor',
+          testTarget: { path: 'libs/Acme.Models.Tests', kind: 'directory' },
+        },
+        {
+          path: 'Acme.Seed',
+          kind: 'directory',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'primary',
+        },
+      ],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    };
+    const { result } = renderPlannerModalHook(client, { deepFocusSelection });
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    expect(startPlannerSession).toHaveBeenCalledWith({
+      contextPackDir: '/tmp/test-context-pack',
+      deepFocusSelection,
+    });
+  });
+
+  it('omits Deep Focus payload when no enabled selection is supplied', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession' },
+    });
+    const client = createClient({ startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    expect(startPlannerSession).toHaveBeenCalledWith({
+      contextPackDir: '/tmp/test-context-pack',
+    });
+  });
+
   it('modal status follows explicit broker lifecycle', async () => {
     const { result } = renderPlannerModalHook();
 
@@ -98,12 +319,12 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.sessionStatus).toBe('active');
 
     act(() => {
-      subscribedPlannerEvent?.({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false });
+      subscribedPlannerEvent?.(plannerEvent({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false }));
     });
     expect(result.current.plannerModalProps.sessionStatus).toBe('busy');
 
     act(() => {
-      subscribedPlannerEvent?.({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true });
+      subscribedPlannerEvent?.(plannerEvent({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true }));
     });
     expect(result.current.plannerModalProps.sessionStatus).toBe('active');
   });
@@ -116,20 +337,20 @@ describe('usePlannerModal', () => {
     });
 
     act(() => {
-      subscribedPlannerEvent?.({
+      subscribedPlannerEvent?.(plannerEvent({
         eventType: 'planner.turn.failed',
         brokerStatus: 'failed',
         turnId: 'turn-1',
         done: true,
         error: 'Planner turn failed.',
-      });
+      }));
     });
 
     expect(result.current.plannerModalProps.sessionStatus).toBe('failed');
     expect(result.current.plannerModalProps.draftError).toBe('Planner turn failed.');
 
     act(() => {
-      subscribedPlannerEvent?.({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-2', done: true });
+      subscribedPlannerEvent?.(plannerEvent({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-2', done: true }));
     });
 
     expect(result.current.plannerModalProps.sessionStatus).toBe('active');
@@ -178,6 +399,949 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.messages).toEqual([]);
     expect(result.current.plannerModalProps.isStreaming).toBe(false);
     expect(typeof result.current.plannerModalProps.onSendMessage).toBe('function');
+  });
+
+  it('fetches an empty recent conversations list on modal open', async () => {
+    const listPlannerConversationHistory = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listConversationHistory',
+        mode: 'empty',
+        message: 'No planner conversation history.',
+        conversations: [],
+      },
+    });
+    const client = createClient({ listPlannerConversationHistory });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    await waitFor(() => {
+      expect(listPlannerConversationHistory).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.plannerModalProps.recentConversations).toEqual([]);
+    expect(result.current.plannerModalProps.recentConversationsMessage).toBe('No planner conversation history.');
+  });
+
+  it('surfaces no-context-pack recent conversations state without fetching', async () => {
+    const listPlannerConversationHistory = vi.fn();
+    const client = createClient({ listPlannerConversationHistory });
+    const { result } = renderPlannerModalHook(client, {
+      hasActiveContextPack: true,
+      activeContextPackDir: null,
+    });
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    expect(listPlannerConversationHistory).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.recentConversations).toEqual([]);
+    expect(result.current.plannerModalProps.recentConversationsMessage).toBe('Select a context pack to view recent conversations.');
+  });
+
+  it('replays a selected conversation after ending the live session and hydrates transcript before replay start resolves', async () => {
+    const replayStart = deferred<Awaited<ReturnType<DesktopShellClient['startPlannerSession']>>>();
+    const startPlannerSession = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'live-session', brokerStatus: 'idle' },
+      })
+      .mockReturnValueOnce(replayStart.promise);
+    const endPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Planner session ended.' },
+    });
+    const hydratePlannerConversation = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.hydrateConversation',
+        mode: 'found',
+        message: 'Found planner conversation.',
+        record: createHistoryRecord(),
+      },
+    });
+    const client = createClient({
+      startPlannerSession,
+      endPlannerSession,
+      listPlannerConversationHistory: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'found',
+          message: 'Found 1 planner conversation.',
+          conversations: [createHistorySummary()],
+        },
+      }),
+      hydratePlannerConversation,
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.recentConversations).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onSendMessage('Live operator message');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.messages[0].text).toBe('Live operator message');
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onSelectConversation?.('conversation-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.messages.map((message) => message.text)).toEqual([
+        'Historical operator question',
+        'Historical planner answer',
+      ]);
+    });
+    expect(result.current.plannerModalProps.sessionStatus).toBe('connecting');
+    expect(startPlannerSession).toHaveBeenLastCalledWith({
+      contextPackDir: '/tmp/test-context-pack',
+      replayConversationId: 'conversation-1',
+    });
+    expect(endPlannerSession.mock.invocationCallOrder[0]).toBeLessThan(startPlannerSession.mock.invocationCallOrder[1]);
+
+    act(() => {
+      subscribedPlannerEvent?.({
+        sessionId: 'live-session',
+        eventType: 'planner.turn.message',
+        brokerStatus: 'running',
+        turnId: 'stale-turn',
+        done: false,
+        content: 'stale live session message',
+        messageKind: 'delta',
+      });
+    });
+    expect(result.current.plannerModalProps.messages.map((message) => message.text)).toEqual([
+      'Historical operator question',
+      'Historical planner answer',
+    ]);
+
+    await act(async () => {
+      replayStart.resolve({
+        ok: true,
+        response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner replay session started.', sessionId: 'replay-session', brokerStatus: 'idle' },
+      });
+      await replayStart.promise;
+    });
+
+    expect(result.current.plannerModalProps.sessionStatus).toBe('active');
+    expect(result.current.plannerModalProps.replayInFlight).toBe(false);
+
+    act(() => {
+      subscribedPlannerEvent?.({
+        sessionId: 'replay-session',
+        eventType: 'planner.turn.message',
+        brokerStatus: 'running',
+        turnId: 'fresh-turn',
+        done: false,
+        content: 'fresh replay response',
+        messageKind: 'delta',
+      });
+    });
+
+    expect(result.current.plannerModalProps.messages.map((message) => message.text)).toEqual([
+      'Historical operator question',
+      'Historical planner answer',
+      'fresh replay response',
+    ]);
+  });
+
+  it('does not auto-replay when the modal is reopened', async () => {
+    const hydratePlannerConversation = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.hydrateConversation',
+        mode: 'found',
+        message: 'Found planner conversation.',
+        record: createHistoryRecord(),
+      },
+    });
+    const client = createClient({
+      listPlannerConversationHistory: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'found',
+          message: 'Found 1 planner conversation.',
+          conversations: [createHistorySummary()],
+        },
+      }),
+      hydratePlannerConversation,
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.recentConversations).toHaveLength(1);
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('conversation-1');
+    });
+    await waitFor(() => {
+      expect(hydratePlannerConversation).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onClose();
+    });
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    expect(hydratePlannerConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets replaySourceRecordId on successful replay', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-1');
+    });
+  });
+
+  it('uploads regular bypass specs without requiring planner sidecar authority', async () => {
+    const uploadSpec = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: 'Uploaded.' },
+    });
+    const client = createClient({
+      pickMarkdownFile: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.pickMarkdownFile',
+          mode: 'selected',
+          message: 'Markdown file selected: intake.md',
+          filename: 'intake.md',
+          path: '/tmp/intake.md',
+          content: '## Request Summary\n\nRegular upload.',
+        },
+      }),
+      uploadSpec,
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      await result.current.plannerModalProps.onUploadSpec?.();
+    });
+
+    expect(uploadSpec).toHaveBeenCalledWith('## Request Summary\n\nRegular upload.', undefined);
+  });
+
+  it('uploads child-task bypass specs with child sidecar authority required', async () => {
+    const uploadSpec = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: 'Uploaded.' },
+    });
+    const client = createClient({
+      pickMarkdownFile: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.pickMarkdownFile',
+          mode: 'selected',
+          message: 'Markdown file selected: child.md',
+          filename: 'child.md',
+          path: '/tmp/child.md',
+          content: '## Request Summary\n\nChild upload.',
+        },
+      }),
+      uploadSpec,
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    act(() => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+    await act(async () => {
+      await result.current.plannerModalProps.onUploadSpec?.();
+    });
+
+    expect(uploadSpec).toHaveBeenCalledWith('## Request Summary\n\nChild upload.', {
+      requirePlannerSidecar: true,
+      expectedTaskKind: 'child-task',
+    });
+  });
+
+  it('uploads recent-task replay bypass specs with replay sidecar authority required', async () => {
+    const uploadSpec = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: 'Uploaded.' },
+    });
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+      pickMarkdownFile: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.pickMarkdownFile',
+          mode: 'selected',
+          message: 'Markdown file selected: recent.md',
+          filename: 'recent.md',
+          path: '/tmp/recent.md',
+          content: '## Request Summary\n\nRecent upload.',
+        },
+      }),
+      uploadSpec,
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-1');
+    });
+    await act(async () => {
+      await result.current.plannerModalProps.onUploadSpec?.();
+    });
+
+    expect(uploadSpec).toHaveBeenCalledWith('## Request Summary\n\nRecent upload.', {
+      requirePlannerSidecar: true,
+      expectedTaskKind: 'standard',
+    });
+  });
+
+  it('onReturnToBlank clears child-task state', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const endPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Planner session ended.' },
+    });
+    const client = createClient({
+      startPlannerSession,
+      endPlannerSession,
+      sendPlannerMessage: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.', brokerStatus: 'running' },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    act(() => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    expect(result.current.plannerModalProps.childTaskMode).toBe(true);
+    expect(result.current.plannerModalProps.selectedParentTask?.taskId).toBe('TASK-001');
+
+    act(() => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
+    expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
+    expect(result.current.plannerModalProps.draft.title).toBe('');
+    expect(endPlannerSession).toHaveBeenCalled();
+    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack' });
+  });
+
+  it('validates a snapshot-backed parent against the active context pack before child-task start', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.validateChildTaskFocus',
+        mode: 'valid',
+        message: 'Parent task focus is still valid.',
+        issues: [],
+      },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const parent = createArchivedTask({
+      plannerFocusSnapshot: createFocusSnapshot({ contextPackDir: '/tmp/snapshot-context-pack' }),
+    });
+    const client = createClient({ validateChildTaskFocus, startPlannerSession });
+    const { result } = renderPlannerModalHook(client, { activeContextPackDir: '/tmp/live-context-pack' });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(parent);
+    });
+
+    expect(validateChildTaskFocus).toHaveBeenCalledWith({
+      contextPackDir: '/tmp/live-context-pack',
+      snapshot: parent.plannerFocusSnapshot,
+    });
+    expect(startPlannerSession).toHaveBeenLastCalledWith({
+      contextPackDir: '/tmp/snapshot-context-pack',
+      childTaskFocusSnapshot: parent.plannerFocusSnapshot,
+      childTaskLineage: expect.objectContaining({ parentTaskId: 'TASK-001' }),
+    });
+  });
+
+  it('falls back to regular planner mode when parent focus validation fails', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.validateChildTaskFocus',
+        mode: 'fallback',
+        message: "The parent task's saved focus no longer matches the current context pack or filesystem. Starting regular mode with the current live context instead.",
+        issues: [{ code: 'selected-focus-id-missing', label: 'Selected focus ID', id: 'legacy-focus' }],
+      },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const sendPlannerMessage = vi.fn();
+    const client = createClient({ validateChildTaskFocus, startPlannerSession, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client, {
+      activeContextPackDir: '/tmp/live-context-pack',
+      deepFocusSelection: {
+        deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'platform',
+        deepFocusPrimaryFocusId: 'planner',
+        selectedFocusPath: 'src/planner',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: ['planner'],
+      },
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    expect(startPlannerSession).toHaveBeenLastCalledWith({
+      contextPackDir: '/tmp/live-context-pack',
+      deepFocusSelection: expect.objectContaining({ deepFocusEnabled: true }),
+    });
+    expect(startPlannerSession).not.toHaveBeenCalledWith(expect.objectContaining({
+      childTaskFocusSnapshot: expect.anything(),
+    }));
+    expect(sendPlannerMessage).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
+    expect(result.current.plannerModalProps.draftError).toBe("The parent task's saved focus no longer matches the current context pack or filesystem. Starting regular mode with the current live context instead.");
+    expect(result.current.plannerModalProps.plannerFocusValidationIssues).toEqual([
+      { code: 'selected-focus-id-missing', label: 'Selected focus ID', id: 'legacy-focus' },
+    ]);
+  });
+
+  it('auto-dismisses the parent-focus fallback notice after the dismiss delay', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const validateChildTaskFocus = vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.validateChildTaskFocus',
+          mode: 'fallback',
+          message: "The parent task's saved focus no longer matches the current context pack or filesystem. Starting regular mode with the current live context instead.",
+          issues: [{ code: 'selected-focus-id-missing', label: 'Selected focus ID', id: 'legacy-focus' }],
+        },
+      });
+      const startPlannerSession = vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+      });
+      const client = createClient({ validateChildTaskFocus, startPlannerSession });
+      const { result } = renderPlannerModalHook(client, {
+        activeContextPackDir: '/tmp/live-context-pack',
+      });
+
+      await act(async () => {
+        result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+      });
+
+      // Notice is visible immediately after the fallback fires.
+      expect(result.current.plannerModalProps.draftError).toContain('saved focus no longer matches');
+      expect(result.current.plannerModalProps.plannerFocusValidationIssues).toHaveLength(1);
+
+      // After the auto-dismiss delay, the notice clears itself.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(result.current.plannerModalProps.draftError).toBe('');
+      expect(result.current.plannerModalProps.plannerFocusValidationIssues).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not end the current session when parent focus validation returns a system error', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'Validation backend failed.',
+    });
+    const endPlannerSession = vi.fn();
+    const startPlannerSession = vi.fn();
+    const client = createClient({ validateChildTaskFocus, endPlannerSession, startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    expect(endPlannerSession).not.toHaveBeenCalled();
+    expect(startPlannerSession).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.draftError).toBe('Validation backend failed.');
+  });
+
+  it('renders Loading parent task while parent focus validation is in flight', async () => {
+    const pending = deferred<{ ok: true; response: { action: 'planner.validateChildTaskFocus'; mode: 'valid'; message: string; issues: [] } }>();
+    const validateChildTaskFocus = vi.fn().mockReturnValue(pending.promise);
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const client = createClient({ validateChildTaskFocus, startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    act(() => {
+      void result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.loadingChildTaskParent).toBe(true);
+    });
+
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.loadingChildTaskParent).toBe(false);
+    });
+  });
+
+  it('a thrown validation IPC surfaces an error and starts no planner session', async () => {
+    const validateChildTaskFocus = vi.fn().mockRejectedValue(new Error('thrown from preload'));
+    const endPlannerSession = vi.fn();
+    const startPlannerSession = vi.fn();
+    const client = createClient({ validateChildTaskFocus, endPlannerSession, startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    expect(endPlannerSession).not.toHaveBeenCalled();
+    expect(startPlannerSession).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.draftError).toBe('thrown from preload');
+  });
+
+  it('re-runs validation on each parent selection and does not reuse a prior result', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const client = createClient({ validateChildTaskFocus, startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    const firstParent = createArchivedTask({ taskId: 'TASK-001' });
+    const secondParent = createArchivedTask({ taskId: 'TASK-002' });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(firstParent);
+    });
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(secondParent);
+    });
+
+    expect(validateChildTaskFocus).toHaveBeenCalledTimes(2);
+    expect(validateChildTaskFocus).toHaveBeenNthCalledWith(1, expect.objectContaining({ snapshot: firstParent.plannerFocusSnapshot }));
+    expect(validateChildTaskFocus).toHaveBeenNthCalledWith(2, expect.objectContaining({ snapshot: secondParent.plannerFocusSnapshot }));
+  });
+
+  it('selecting an entry without plannerFocusSnapshot through stale UI state surfaces the exact stale-state error', async () => {
+    const validateChildTaskFocus = vi.fn();
+    const startPlannerSession = vi.fn();
+    const client = createClient({ validateChildTaskFocus, startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask({ plannerFocusSnapshot: undefined }));
+    });
+
+    expect(validateChildTaskFocus).not.toHaveBeenCalled();
+    expect(startPlannerSession).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.draftError).toBe(
+      'This archived parent task has no saved planner focus and cannot be used as a parent. Refresh the parent list and try again.',
+    );
+  });
+
+  it('defers the child-task starter prompt until the operator sends their first message', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const client = createClient({ validateChildTaskFocus, startPlannerSession, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    const parent = createArchivedTask({
+      taskId: 'TASK-007',
+      title: 'Original parent',
+      rootTaskId: 'ROOT-007',
+      contextPackName: 'orders-pack',
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(parent);
+    });
+
+    // Selecting a parent must not start a Lily turn — that would put the
+    // modal into "thinking" before the operator has had a chance to speak.
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.loadingChildTaskParent).toBe(false);
+    });
+    expect(sendPlannerMessage).not.toHaveBeenCalled();
+
+    // First operator message carries both the deferred starter prompt and
+    // the operator's text in the same broker turn.
+    await act(async () => {
+      result.current.plannerModalProps.onSendMessage('Tighten the search heuristic.');
+    });
+
+    await waitFor(() => {
+      expect(sendPlannerMessage).toHaveBeenCalledTimes(1);
+    });
+    const [prompt] = sendPlannerMessage.mock.calls[0];
+    expect(typeof prompt).toBe('string');
+    expect(prompt).toContain('Parent Task ID: TASK-007');
+    expect(prompt).toContain('Parent task title: Original parent');
+    expect(prompt).toContain('Root Task ID: ROOT-007');
+    expect(prompt).toContain('Operator message:');
+    expect(prompt).toContain('Tighten the search heuristic.');
+  });
+
+  it('valid child-task parent selection never includes deepFocusSelection alongside childTaskFocusSnapshot', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const client = createClient({ validateChildTaskFocus, startPlannerSession });
+    const { result } = renderPlannerModalHook(client, {
+      deepFocusSelection: {
+        deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'platform',
+        deepFocusPrimaryFocusId: 'planner',
+        selectedFocusPath: 'src/planner',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: ['planner'],
+      },
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    const lastCall = startPlannerSession.mock.calls.at(-1)?.[0];
+    expect(lastCall).toBeDefined();
+    expect(lastCall).toHaveProperty('childTaskFocusSnapshot');
+    expect(lastCall).not.toHaveProperty('deepFocusSelection');
+  });
+
+  it('filters archived entries without plannerFocusSnapshot out of the parent dropdown', async () => {
+    const listArchivedTasks = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'observed',
+        message: 'Observed.',
+        tasks: [
+          { ...createArchivedTask({ taskId: 'TASK-A' }) },
+          { ...createArchivedTask({ taskId: 'TASK-B', plannerFocusSnapshot: undefined }) },
+          { ...createArchivedTask({ taskId: 'TASK-C' }) },
+        ],
+      },
+    });
+    const client = createClient({ listArchivedTasks });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.archivedTasks).toEqual([
+        expect.objectContaining({ taskId: 'TASK-A' }),
+        expect.objectContaining({ taskId: 'TASK-C' }),
+      ]);
+    });
+    expect(result.current.plannerModalProps.archivedTaskTotalCount).toBe(3);
+  });
+
+  it('child-task parent selection never calls transcript hydration', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] },
+    });
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const hydratePlannerConversation = vi.fn();
+    const client = createClient({ validateChildTaskFocus, startPlannerSession, hydratePlannerConversation });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask());
+    });
+
+    expect(hydratePlannerConversation).not.toHaveBeenCalled();
+  });
+
+  it('onReturnToBlank clears replay context', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const endPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Planner session ended.' },
+    });
+    const client = createClient({
+      startPlannerSession,
+      endPlannerSession,
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-1');
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
+    expect(endPlannerSession).toHaveBeenCalled();
+    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack' });
+  });
+
+  it('onReturnToBlank clears child-task replay context', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createChildTaskHistoryRecord({ id: 'rec-2' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-2');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.childTaskMode).toBe(true);
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-2');
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
+    expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
+    expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
+  });
+
+  it('onReturnToBlank is a no-op while replayInFlight is true', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const endPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Planner session ended.' },
+    });
+    const hydratePlannerConversation = vi.fn().mockReturnValue(new Promise(() => {}));
+    const client = createClient({ startPlannerSession, endPlannerSession, hydratePlannerConversation });
+    const { result } = renderPlannerModalHook(client);
+
+    act(() => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-3');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replayInFlight).toBe(true);
+    });
+    const startCalls = startPlannerSession.mock.calls.length;
+    const endCalls = endPlannerSession.mock.calls.length;
+
+    act(() => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    expect(startPlannerSession).toHaveBeenCalledTimes(startCalls);
+    expect(endPlannerSession).toHaveBeenCalledTimes(endCalls);
+  });
+
+  it('onReturnToBlank refetches recents', async () => {
+    const listPlannerConversationHistory = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listConversationHistory',
+        mode: 'empty',
+        message: 'No planner conversation history.',
+        conversations: [],
+      },
+    });
+    const client = createClient({ listPlannerConversationHistory });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    await waitFor(() => {
+      expect(listPlannerConversationHistory).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+    const postOpenCalls = listPlannerConversationHistory.mock.calls.length;
+
+    act(() => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    await waitFor(() => {
+      expect(listPlannerConversationHistory).toHaveBeenCalledTimes(postOpenCalls + 1);
+    });
+  });
+
+  it('clears previous recent conversations when active pack changes and refetches on the next open', async () => {
+    const listPlannerConversationHistory = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'found',
+          message: 'Found 1 planner conversation.',
+          conversations: [createHistorySummary({ id: 'conversation-a', title: 'Pack A conversation' })],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'found',
+          message: 'Found 1 planner conversation.',
+          conversations: [createHistorySummary({ id: 'conversation-b', title: 'Pack B conversation' })],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'found',
+          message: 'Found 1 planner conversation.',
+          conversations: [createHistorySummary({ id: 'conversation-b', title: 'Pack B conversation' })],
+        },
+      });
+    const client = createClient({ listPlannerConversationHistory });
+    const contextPackDirRef = { current: '/tmp/pack-a' };
+    const { result, rerender } = renderHook(
+      () => {
+        const [contractError, setContractError] = useState('');
+        return usePlannerModal(client, 'idle', true, contractError, setContractError, contextPackDirRef.current);
+      },
+      { wrapper: makeWrapper(client) },
+    );
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.recentConversations?.[0]?.id).toBe('conversation-a');
+    });
+
+    contextPackDirRef.current = '/tmp/pack-b';
+    await act(async () => {
+      rerender();
+    });
+
+    expect(result.current.plannerModalProps.isOpen).toBe(false);
+    expect(result.current.plannerModalProps.recentConversations).toEqual([]);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.recentConversations?.[0]?.id).toBe('conversation-b');
+    });
+    expect(listPlannerConversationHistory).toHaveBeenCalledTimes(3);
   });
 
   it('clears conversation messages when modal is closed', async () => {
@@ -340,1081 +1504,4 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.stagedDraft).toBeNull();
   });
 
-  it('exposes selectedMarkdownFile and pick/clear handlers', () => {
-    const { result } = renderPlannerModalHook();
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-    expect(typeof result.current.plannerModalProps.onPickMarkdownFile).toBe('function');
-    expect(typeof result.current.plannerModalProps.onClearSelectedFile).toBe('function');
-  });
-
-  it('pickMarkdownFile sets selectedMarkdownFile on successful selection', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec\n\nContent here.',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toEqual({
-      filename: 'spec.md',
-      path: '/home/user/spec.md',
-      content: '# Spec\n\nContent here.',
-    });
-  });
-
-  it('pickMarkdownFile does not set error on cancelled selection', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'cancelled',
-          message: 'Markdown file selection was cancelled.',
-          filename: null,
-          path: null,
-          content: null,
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-    expect(result.current.plannerModalProps.draftError).toBeFalsy();
-  });
-
-  it('pickMarkdownFile sets draftError on failure', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: false,
-        action: 'planner.pickMarkdownFile',
-        error: 'Selected file exceeds the 128 KB size limit (256 KB).',
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-    expect(result.current.plannerModalProps.draftError).toBe('Selected file exceeds the 128 KB size limit (256 KB).');
-  });
-
-  it('clearSelectedFile resets selectedMarkdownFile', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).not.toBeNull();
-
-    act(() => {
-      result.current.plannerModalProps.onClearSelectedFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-  });
-
-  it('closing modal clears selectedMarkdownFile', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).not.toBeNull();
-
-    act(() => {
-      result.current.plannerModalProps.onClose();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-  });
-
-  it('appends sent message to draft summary', async () => {
-    const { result } = renderPlannerModalHook();
-
-    act(() => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Hello world');
-    });
-
-    expect(result.current.plannerModalProps.draft.summary).toContain('Hello world');
-  });
-
-  it('sends review prompt through regular message path when file is attached', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: intake.md',
-          filename: 'intake.md',
-          path: '/home/user/intake.md',
-          content: '# My Intake\n\n## Request Summary\n\nBuild a feature.',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).not.toBeNull();
-
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Please review this.');
-    });
-
-    expect(sendPlannerMessage).toHaveBeenCalledTimes(1);
-    const sentText = sendPlannerMessage.mock.calls[0][0] as string;
-    expect(sentText).toContain('intake.md');
-    expect(sentText).toContain('AgentWorkSpace/templates/planning-intake.md');
-    expect(sentText).toContain('# My Intake');
-    expect(sentText).toContain('Please review this.');
-    expect(sentText).toContain('Do NOT edit the staged draft');
-
-    // File should be cleared after send
-    expect(result.current.plannerModalProps.selectedMarkdownFile).toBeNull();
-
-    // Conversation shows a display-friendly message, not the full prompt
-    expect(result.current.plannerModalProps.messages.length).toBeGreaterThan(0);
-    const lastOperatorMsg = result.current.plannerModalProps.messages.find(
-      (m) => m.role === 'operator' && m.text.includes('Attached intake.md'),
-    );
-    expect(lastOperatorMsg).toBeDefined();
-  });
-
-  it('retains selected file when send fails', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: false,
-      action: 'planner.sendMessage',
-      error: 'No active planner session.',
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    expect(result.current.plannerModalProps.selectedMarkdownFile).not.toBeNull();
-
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    // File should still be selected since send failed
-    expect(result.current.plannerModalProps.selectedMarkdownFile).not.toBeNull();
-    expect(result.current.plannerModalProps.selectedMarkdownFile?.filename).toBe('spec.md');
-  });
-
-  it('sends review prompt without extra text when operator sends empty message with file attached', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('');
-    });
-
-    const sentText = sendPlannerMessage.mock.calls[0][0] as string;
-    expect(sentText).toContain('spec.md');
-    expect(sentText).toContain('AgentWorkSpace/templates/planning-intake.md');
-    expect(sentText).not.toContain('Additional context from the operator');
-  });
-
-  it('upload-review run without staged draft surfaces draftError on View Draft', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: intake.md',
-          filename: 'intake.md',
-          path: '/home/user/intake.md',
-          content: '# Intake',
-        },
-      }),
-      savePlannerDraft: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.saveDraft',
-          mode: 'instructed',
-          accepted: true,
-          message: 'Save-draft instruction sent.',
-          brokerStatus: 'completed',
-        },
-      }),
-      readStagedDraft: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.readStagedDraft',
-          mode: 'empty',
-          message: 'No staged draft.',
-          draft: null,
-          brokerStatus: 'completed',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    // Attach and send review
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    // Attempt to view draft — Lily hasn't written one
-    await act(async () => {
-      result.current.plannerModalProps.onViewDraft!();
-      await Promise.resolve();
-    });
-
-    expect(result.current.plannerModalProps.awaitingDraft).toBe(false);
-    expect(result.current.plannerModalProps.draftError).toBe('Lily has not written a draft yet. Try again shortly.');
-  });
-
-  it('upload-review finalize surfaces intake validation errors as draftError', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: intake.md',
-          filename: 'intake.md',
-          path: '/home/user/intake.md',
-          content: '# Intake',
-        },
-      }),
-      finalizeSpec: vi.fn().mockResolvedValue({
-        ok: false,
-        action: 'planner.finalizeSpec',
-        error: 'Staged draft is missing required section content: Desired Outcome. Ask Lily to complete the planning intake before finalizing.',
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    // Attach and send
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    // Attempt to finalize — validation fails
-    await act(async () => {
-      await result.current.plannerModalProps.onFinalizeSpec!();
-    });
-
-    expect(result.current.plannerModalProps.draftError).toContain('missing required section content');
-    expect(result.current.plannerModalProps.draftError).toContain('Desired Outcome');
-  });
-
-  it('upload-review finalize succeeds when staged draft passes intake validation', async () => {
-    const client = createClient({
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: intake.md',
-          filename: 'intake.md',
-          path: '/home/user/intake.md',
-          content: '# Intake',
-        },
-      }),
-      finalizeSpec: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.finalizeSpec',
-          mode: 'finalized',
-          accepted: true,
-          message: 'Spec promoted to dropbox: intake.md',
-          destinationPath: '/repo/AgentWorkSpace/dropbox/intake.md',
-          brokerStatus: 'idle',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    await act(async () => {
-      await result.current.plannerModalProps.onFinalizeSpec!();
-    });
-
-    expect(result.current.plannerModalProps.draftError).toBeFalsy();
-    expect(result.current.plannerModalProps.sessionStatus).toBe('idle');
-    expect(result.current.plannerModalProps.stagedDraft).toBeNull();
-  });
-
-  it('follow-up messages after file review use regular chat path without file context', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'Markdown file selected: spec.md',
-          filename: 'spec.md',
-          path: '/home/user/spec.md',
-          content: '# Spec',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    // First: pick and send with file
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    // Second: follow-up without file
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('The desired outcome is X.');
-    });
-
-    expect(sendPlannerMessage).toHaveBeenCalledTimes(2);
-    const followUpText = sendPlannerMessage.mock.calls[1][0] as string;
-    expect(followUpText).toBe('The desired outcome is X.');
-    expect(followUpText).not.toContain('planning-intake.md');
-  });
-
-  it('does not open modal when no context pack is active', async () => {
-    const { result } = renderPlannerModalHook(undefined, { hasActiveContextPack: false });
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    expect(result.current.plannerModalProps.isOpen).toBe(false);
-  });
-
-  it('exposes child-task mode state defaulting to standard', () => {
-    const { result } = renderPlannerModalHook();
-    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
-    expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
-    expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
-    expect(result.current.plannerModalProps.childTaskBlocked).toBe(false);
-  });
-
-  it('toggles child-task mode and fetches archived tasks', async () => {
-    const client = createClient({
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 archived task(s).',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/archive/2026/task.md', contextPackName: 'test-pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    expect(result.current.plannerModalProps.childTaskMode).toBe(true);
-    expect(result.current.plannerModalProps.childTaskBlocked).toBe(true);
-    expect(result.current.plannerModalProps.archivedTasks).toHaveLength(1);
-    expect(result.current.plannerModalProps.archivedTasks![0].taskId).toBe('TASK-001');
-  });
-
-  it('child-task mode blocks chat until parent is selected', async () => {
-    const client = createClient({
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/archive/2026/task.md', contextPackName: 'test-pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    expect(result.current.plannerModalProps.childTaskBlocked).toBe(true);
-
-    act(() => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/archive/2026/task.md', contextPackName: 'test-pack' },
-      );
-    });
-
-    expect(result.current.plannerModalProps.childTaskBlocked).toBe(false);
-    expect(result.current.plannerModalProps.selectedParentTask?.taskId).toBe('TASK-001');
-  });
-
-  it('closing modal resets child-task mode', async () => {
-    const client = createClient({
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Test', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    expect(result.current.plannerModalProps.childTaskMode).toBe(true);
-
-    act(() => {
-      result.current.plannerModalProps.onClose();
-    });
-
-    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
-    expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
-    expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
-  });
-
-  it('resets all planner state when active context pack changes', async () => {
-    const endPlannerSession = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Session ended.' },
-    });
-    const client = createClient({
-      endPlannerSession,
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Test', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack' },
-          ],
-        },
-      }),
-    });
-
-    const contextPackDirRef = { current: '/tmp/pack-a' };
-    const { result, rerender } = renderHook(
-      () => {
-        const [contractError, setContractError] = useState('');
-        return usePlannerModal(client, 'idle', true, contractError, setContractError, contextPackDirRef.current);
-      },
-      { wrapper: makeWrapper(client) },
-    );
-
-    // Open modal, toggle child-task mode
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    expect(result.current.plannerModalProps.isOpen).toBe(true);
-    expect(result.current.plannerModalProps.childTaskMode).toBe(true);
-
-    // Switch context pack
-    contextPackDirRef.current = '/tmp/pack-b';
-    await act(async () => {
-      rerender();
-    });
-
-    expect(result.current.plannerModalProps.isOpen).toBe(false);
-    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
-    expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
-    expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
-    expect(result.current.plannerModalProps.stagedDraft).toBeNull();
-    expect(endPlannerSession).toHaveBeenCalled();
-  });
-
-  it('resets planner state when context pack is cleared', async () => {
-    const endPlannerSession = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.endSession', mode: 'ended', accepted: true, message: 'Session ended.' },
-    });
-    const client = createClient({ endPlannerSession });
-
-    const contextPackDirRef = { current: '/tmp/pack-a' as string | null };
-    const hasActiveRef = { current: true };
-    const { result, rerender } = renderHook(
-      () => {
-        const [contractError, setContractError] = useState('');
-        return usePlannerModal(client, 'idle', hasActiveRef.current, contractError, setContractError, contextPackDirRef.current);
-      },
-      { wrapper: makeWrapper(client) },
-    );
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    expect(result.current.plannerModalProps.isOpen).toBe(true);
-
-    // Clear context pack
-    contextPackDirRef.current = null;
-    hasActiveRef.current = false;
-    await act(async () => {
-      rerender();
-    });
-
-    expect(result.current.plannerModalProps.isOpen).toBe(false);
-    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
-    expect(endPlannerSession).toHaveBeenCalled();
-  });
-
-  it('selecting a parent task seeds a child-task draft with platform lineage', async () => {
-    const client = createClient({
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/archive/2026/task.md', contextPackName: 'test-pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    act(() => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/archive/2026/task.md', contextPackName: 'test-pack' },
-      );
-    });
-
-    expect(result.current.plannerModalProps.draft.taskKind).toBe('child-task');
-    expect(result.current.plannerModalProps.draft.parentTaskId).toBe('TASK-001');
-    expect(result.current.plannerModalProps.draft.rootTaskId).toBe('TASK-001');
-    expect(result.current.plannerModalProps.draft.parentQmdScope).toBe('qmd/context-packs/test-pack');
-  });
-
-  it('selecting a different parent task re-seeds the draft', async () => {
-    const client = createClient({
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 2 tasks.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'First task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path/1', contextPackName: 'pack' },
-            { taskId: 'TASK-002', title: 'Second task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path/2', contextPackName: 'pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    act(() => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-001', title: 'First task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path/1', contextPackName: 'pack' },
-      );
-    });
-
-    expect(result.current.plannerModalProps.draft.parentTaskId).toBe('TASK-001');
-
-    act(() => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-002', title: 'Second task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path/2', contextPackName: 'pack' },
-      );
-    });
-
-    expect(result.current.plannerModalProps.draft.parentTaskId).toBe('TASK-002');
-    expect(result.current.plannerModalProps.draft.taskKind).toBe('child-task');
-  });
-
-  it('sends child-task starter prompt to Lily when parent task is selected', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'test-pack' },
-          ],
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-
-    await act(async () => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-001', title: 'Add search module', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'test-pack' },
-      );
-    });
-
-    // sendPlannerMessage is called once for session start and once for the starter prompt
-    const starterCall = sendPlannerMessage.mock.calls.find(
-      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('child-task workflow'),
-    );
-    expect(starterCall).toBeDefined();
-    const sentText = starterCall![0] as string;
-    expect(sentText).toContain('Add search module');
-    expect(sentText).toContain('staged planning document already contains the platform-owned title and lineage shell');
-    expect(sentText).toContain('Do NOT change the generated title');
-  });
-
-  it('uses child-task review prompt when attaching a file in child-task mode', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      listArchivedTasks: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.listArchivedTasks',
-          mode: 'found',
-          message: 'Found 1 task.',
-          tasks: [
-            { taskId: 'TASK-001', title: 'Parent task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'test-pack' },
-          ],
-        },
-      }),
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'File selected.',
-          filename: 'child-draft.md',
-          path: '/home/user/child-draft.md',
-          content: '# Child Draft\n\n## Request Summary\n\nBuild on parent work.',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    // Toggle child-task mode and select parent
-    await act(async () => {
-      result.current.plannerModalProps.onToggleChildTaskMode!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSelectParentTask!(
-        { taskId: 'TASK-001', title: 'Parent task', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'test-pack' },
-      );
-    });
-
-    // Attach a file and send
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this child-task draft.');
-    });
-
-    // Find the call that contains the child-task review prompt
-    const reviewCall = sendPlannerMessage.mock.calls.find(
-      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('supporting context'),
-    );
-    expect(reviewCall).toBeDefined();
-    const reviewText = reviewCall![0] as string;
-    expect(reviewText).toContain('child-task workflow');
-    expect(reviewText).toContain('existing staged shell');
-    expect(reviewText).toContain('Do NOT validate or rewrite platform-owned title, lineage');
-    expect(reviewText).toContain('child-draft.md');
-    expect(reviewText).toContain('Build on parent work.');
-    expect(reviewText).toContain('Review this child-task draft.');
-  });
-
-  it('uses standard review prompt when attaching a file in standard mode', async () => {
-    const sendPlannerMessage = vi.fn().mockResolvedValue({
-      ok: true,
-      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Message sent.' },
-    });
-    const client = createClient({
-      sendPlannerMessage,
-      pickMarkdownFile: vi.fn().mockResolvedValue({
-        ok: true,
-        response: {
-          action: 'planner.pickMarkdownFile',
-          mode: 'selected',
-          message: 'File selected.',
-          filename: 'standard.md',
-          path: '/home/user/standard.md',
-          content: '# Standard Draft',
-        },
-      }),
-    });
-    const { result } = renderPlannerModalHook(client);
-
-    await act(async () => {
-      result.current.openPlannerModal();
-    });
-
-    // Standard mode — no child-task toggle
-    await act(async () => {
-      result.current.plannerModalProps.onPickMarkdownFile!();
-    });
-    await act(async () => {
-      result.current.plannerModalProps.onSendMessage('Review this.');
-    });
-
-    const reviewCall = sendPlannerMessage.mock.calls.find(
-      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('planning-intake.md'),
-    );
-    expect(reviewCall).toBeDefined();
-    const reviewText = reviewCall![0] as string;
-    expect(reviewText).not.toContain('platform-controlled');
-    expect(reviewText).not.toContain('must NOT be overridden');
-    expect(reviewText).toContain('standard.md');
-  });
-});
-
-describe('buildMarkdownReviewPrompt', () => {
-  it('includes template comparison instructions', () => {
-    const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('AgentWorkSpace/templates/planning-intake.md');
-    expect(prompt).toContain('Request Summary');
-    expect(prompt).toContain('Desired Outcome');
-    expect(prompt).toContain('Acceptance Signals');
-  });
-
-  it('wraps file content with delimiters', () => {
-    const content = '# My Spec\n\nSome content here.';
-    const prompt = buildMarkdownReviewPrompt('spec.md', content);
-    expect(prompt).toContain('--- BEGIN ATTACHED FILE ---');
-    expect(prompt).toContain(content);
-    expect(prompt).toContain('--- END ATTACHED FILE ---');
-  });
-
-  it('includes filename in the prompt', () => {
-    const prompt = buildMarkdownReviewPrompt('my-intake.md', '# Content');
-    expect(prompt).toContain('my-intake.md');
-  });
-
-  it('instructs Lily not to write staged draft prematurely', () => {
-    const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('Do NOT edit the staged draft');
-    expect(prompt).toContain('Wait until I confirm');
-  });
-
-  it('instructs Lily to ask follow-up questions for missing sections', () => {
-    const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('ask me follow-up questions');
-    expect(prompt).toContain('Do not guess or fabricate');
-  });
-
-  it('keeps child-task review focused on editable sections', () => {
-    const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('Parent Task Carry-Forward Summary');
-    expect(prompt).toContain('Do not validate or rewrite platform-owned title, lineage');
-  });
-});
-
-describe('buildChildTaskStarterPrompt', () => {
-  it('includes workflow mode and staged-shell ownership guidance', () => {
-    const prompt = buildChildTaskStarterPrompt({
-      parentTaskId: 'TASK-001',
-      parentTaskTitle: 'Add search module',
-      rootTaskId: 'TASK-001',
-      parentQmdScope: 'qmd/context-packs/test-pack',
-      carryForwardSummary: '',
-    });
-    expect(prompt).toContain('child-task workflow');
-    expect(prompt).toContain('staged planning document already contains the platform-owned title and lineage shell');
-    expect(prompt).toContain('Parent task title: Add search module');
-  });
-
-  it('includes carry-forward summary when provided', () => {
-    const prompt = buildChildTaskStarterPrompt({
-      parentTaskId: 'TASK-001',
-      parentTaskTitle: 'Add search module',
-      rootTaskId: 'TASK-001',
-      parentQmdScope: 'qmd/context-packs/test-pack',
-      carryForwardSummary: 'Preserve read-only console behavior.',
-    });
-    expect(prompt).toContain('Preserve read-only console behavior.');
-  });
-
-  it('omits carry-forward line when empty', () => {
-    const prompt = buildChildTaskStarterPrompt({
-      parentTaskId: 'TASK-001',
-      parentTaskTitle: 'Task',
-      rootTaskId: 'TASK-001',
-      parentQmdScope: 'scope',
-      carryForwardSummary: '',
-    });
-    expect(prompt).not.toContain('Known carry-forward context:');
-  });
-
-  it('tells Lily not to change platform-owned sections', () => {
-    const prompt = buildChildTaskStarterPrompt({
-      parentTaskId: 'TASK-001',
-      parentTaskTitle: 'Task',
-      rootTaskId: 'TASK-001',
-      parentQmdScope: 'scope',
-      carryForwardSummary: '',
-    });
-    expect(prompt).toContain('Fill or refine only the editable sections');
-    expect(prompt).toContain('Do NOT change the generated title');
-    expect(prompt).toContain('platform-owned sections');
-  });
-
-  it('differs from standard planning mode — contains child-task specifics', () => {
-    const prompt = buildChildTaskStarterPrompt({
-      parentTaskId: 'TASK-001',
-      parentTaskTitle: 'Task',
-      rootTaskId: 'TASK-001',
-      parentQmdScope: 'scope',
-      carryForwardSummary: '',
-    });
-    expect(prompt).toContain('active context pack archive');
-    expect(prompt).toContain('child-task intake');
-  });
-});
-
-describe('buildChildTaskMarkdownReviewPrompt', () => {
-  it('keeps child-task review focused on editable staged-shell sections', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('existing staged shell');
-    expect(prompt).toContain('Do NOT validate or rewrite platform-owned title, lineage, context-pack binding, or source sections.');
-  });
-
-  it('lists content sections that the file may fill', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('Request Summary');
-    expect(prompt).toContain('Desired Outcome');
-    expect(prompt).toContain('Constraints');
-    expect(prompt).toContain('Acceptance Signals');
-    expect(prompt).toContain('Parent Task Carry-Forward Summary');
-    expect(prompt).toContain('Suggested Routing / Planner Notes');
-  });
-
-  it('wraps file content with delimiters', () => {
-    const content = '# My Child Task\n\nSome content.';
-    const prompt = buildChildTaskMarkdownReviewPrompt('child.md', content);
-    expect(prompt).toContain('--- BEGIN ATTACHED FILE ---');
-    expect(prompt).toContain(content);
-    expect(prompt).toContain('--- END ATTACHED FILE ---');
-  });
-
-  it('labels the file as supporting context, not workflow definition', () => {
-    const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(prompt).toContain('supporting context');
-    expect(prompt).toContain('child-task workflow');
-  });
-
-  it('standard-mode prompt does not include platform lineage override instructions', () => {
-    const standardPrompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
-    expect(standardPrompt).not.toContain('platform-controlled');
-    expect(standardPrompt).not.toContain('ignore the file values');
-  });
 });

@@ -316,6 +316,28 @@ export async function stopBackendServices(
   return readBackendServiceStatus();
 }
 
+/**
+ * Fire-and-forget teardown of backend MCP services on UI quit. Spawns the
+ * existing `cli.ts down` subcommand detached so quit is not blocked by a hung
+ * container runtime.
+ */
+export function stopBackendServicesDetached(repoRoot: string): void {
+  try {
+    const child = spawn(
+      'npx',
+      ['tsx', CLI_PATH, 'down'],
+      {
+        cwd: repoRoot,
+        detached: true,
+        stdio: 'ignore',
+      },
+    );
+    child.unref();
+  } catch {
+    // Best-effort — quit must not be blocked by spawn failures.
+  }
+}
+
 export async function checkBackendHealth(
   repoRoot: string,
 ): Promise<ServicesReadStatusResponse> {

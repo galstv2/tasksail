@@ -616,6 +616,55 @@ describe('buildAutonomyEnvironment', () => {
     }));
   });
 
+  it('serializes support-repo readonly roots in autonomy profile metadata', () => {
+    const env = buildAutonomyEnvironment(
+      profile,
+      autonomyIntent,
+      argsResult,
+      '/workspace/repo',
+      '/workspace/repo',
+      {
+        primaryRepoRoot: '/workspace/repo',
+        visibleRepoRoots: ['/workspace/repo', '/workspace/tools'],
+        declaredRepoRoots: ['/workspace/repo', '/workspace/tools'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'platform',
+        writableRoots: [{ path: '', kind: 'directory', reason: 'selected-primary' }],
+        readonlyContextRoots: [
+          {
+            repoLocalPath: '/workspace/tools',
+            path: '',
+            kind: 'directory',
+            reason: 'support-repo',
+          },
+        ],
+        selectedRepoIds: ['platform', 'tools'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      },
+      '/workspace/context-pack',
+    );
+    const profileJson = JSON.parse(env['RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON'] ?? '{}') as {
+      boundary_context?: {
+        readonly_context_roots?: Array<{
+          repoLocalPath?: string;
+          path?: string;
+          kind?: string;
+          reason?: string;
+        }>;
+      };
+    };
+
+    expect(profileJson.boundary_context?.readonly_context_roots).toEqual([
+      {
+        repoLocalPath: '/workspace/tools',
+        path: '',
+        kind: 'directory',
+        reason: 'support-repo',
+      },
+    ]);
+  });
+
   it('sets external MCP cliHome to null when launchDir is unavailable', () => {
     const externalMcpContext: ExternalMcpLaunchContext = {
       status: 'available',

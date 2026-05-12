@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { existsSync, realpathSync } from 'node:fs';
 import { readTextFile, safeJsonParse, resolvePath } from '../core/index.js';
+import { assertManifest } from './packSchemas.runtime.js';
 import type { RepositoryType } from './types.js';
 import {
   normalizeParentRelativePath,
@@ -22,16 +22,27 @@ import {
   resolveSelectedMonolithPrimary,
 } from './resolveMonolith.js';
 import { deriveWritableRootsFromFocusedSelection } from './writableRootsDerivation.js';
+import { deriveStandardModeReadonlyRepoRoots } from './standardModeRepoRoots.js';
 import {
   resolveAuthoritativeSelection,
   type AuthoritativeSelection,
   type AuthoritySource,
 } from './authoritativeSelectionReader.js';
 import { resolveDeepFocusSelection } from './deepFocusResolver.js';
+import {
+  assertSnapshotMatchesContextPack,
+  loadTaskPackSnapshot,
+  type TaskPackSnapshot,
+} from './taskPackSnapshot.js';
+import {
+  resolveExistingManifestLocalPath,
+  type ManifestLocalPathInput,
+} from './localPaths.js';
 
 export { deriveWritableRootsFromFocusedSelection, getEffectiveScopeForPrimary } from './writableRootsDerivation.js';
 export { readDeepFocusOverlay } from './authoritativeSelectionReader.js';
 export type { AuthoritySource, DeepFocusOverlayPayload } from './authoritativeSelectionReader.js';
+export { PackSchemaError } from './packSchemas.runtime.js';
 
 /** Result of resolving focused repos for targeting and confinement metadata. */
 export interface FocusedRepoResult {
@@ -106,7 +117,7 @@ export interface ResolvedPrimaryRepo {
 
 export interface ManifestRepo {
   repo_id?: string;
-  local_paths?: string[];
+  local_paths?: ManifestLocalPathInput[];
   default_focusable?: boolean;
   activation_priority?: number;
   service_name?: string;
@@ -120,7 +131,7 @@ export interface Manifest {
   primary_focus_area_ids?: string[];
   focusable_areas?: ManifestFocusableArea[];
   repositories?: ManifestRepo[];
-  repository?: ManifestRepo & { local_paths?: string[] };
+  repository?: ManifestRepo & { local_paths?: ManifestLocalPathInput[] };
 }
 
 export interface ManifestFocusableArea {
@@ -129,78 +140,53 @@ export interface ManifestFocusableArea {
   repository_type?: RepositoryType;
 }
 
-interface WorkspaceFile {
-  folders?: Array<{ path?: string }>;
-}
-
-const WORKSPACE_FILENAME = 'tasksail.code-workspace';
-
 /**
- * Read the VS Code workspace file and return all external repo folder paths.
+ * Read and parse the context pack manifest at `<contextPackDir>/qmd/repo-sources.json`.
  *
- * External folders are any folder entry whose path is not "." (the platform
- * repo itself). Existing paths are canonicalized and deduplicated so callers
- * can safely compare them against manifest-declared repo roots.
+ * Resolves `contextPackDir` against `repoRoot` so callers don't silently fail
+ * when CWD != repoRoot. Returns `undefined` if the manifest is missing or
+ * contains invalid JSON. Throws `PackSchemaError` on schema violation (required
+ * fields missing); callers that previously relied on "never throws" must be
+ * updated to handle this case.
  */
-export async function resolveWorkspaceRepoRoots(
+export async function readContextPackManifest(
+  contextPackDir: string,
   repoRoot: string,
-): Promise<string[]> {
-  const workspacePath = path.join(repoRoot, WORKSPACE_FILENAME);
-  const content = await readTextFile(workspacePath);
-  if (content === undefined) {
-    return [];
-  }
-
-  const workspace = safeJsonParse<WorkspaceFile>(content, workspacePath);
-  if (!workspace?.folders || !Array.isArray(workspace.folders)) {
-    return [];
-  }
-
-  const externalPaths: string[] = [];
-  const seen = new Set<string>();
-  for (const folder of workspace.folders) {
-    const folderPath = folder?.path;
-    if (typeof folderPath !== 'string' || !folderPath.trim()) continue;
-    if (folderPath === '.') continue; // skip the platform repo itself
-
-    const resolved = resolveExistingPath(folderPath, repoRoot);
-    if (!resolved || seen.has(resolved)) {
-      continue;
-    }
-
-    seen.add(resolved);
-    externalPaths.push(resolved);
-  }
-
-  return externalPaths;
+): Promise<Manifest | undefined> {
+  const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
+  const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
+  const content = await readTextFile(manifestPath);
+  if (content === undefined) return undefined;
+  const parsed = safeJsonParse<Manifest>(content, manifestPath) ?? undefined;
+  if (parsed === undefined) return undefined;
+  assertManifest(parsed, manifestPath);
+  return parsed;
 }
 
 /**
  * Resolve focused repo information for targeting and confinement metadata.
  *
- * 1. Reads the workspace file for visible external repos, then filters them to
- *    manifest-declared repo roots before they can widen agent confinement.
- * 2. Resolves the primary repo from the manifest as the primary focused target.
- *    Some agents may still launch inside that repo, while Dalton now launches
- *    from the platform repo root and consumes the result as advisory metadata.
+ * No-task callers see only the manifest primary repo. Task-scoped callers
+ * (with `taskId`) see the pack-snapshot's visible roots.
  *
- * Returns undefined if the manifest is missing/malformed or the primary repo
- * path does not exist on disk.
+ * Returns undefined if the manifest is missing/unparseable or the primary repo
+ * path does not exist on disk. Throws `PackSchemaError` if the manifest exists
+ * but fails schema validation — that error propagates rather than being silently
+ * treated as "missing."
  */
 export async function resolveFocusedRepoRoot(
   contextPackDir: string,
   repoRoot: string,
+  options?: { taskId?: string },
 ): Promise<FocusedRepoResult | undefined> {
-  // Resolve relative context pack dirs against repoRoot so callers (e.g. the
-  // Electron main process) don't silently fail when CWD != repoRoot.
-  const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
-  const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
-  const content = await readTextFile(manifestPath);
-  if (content === undefined) {
-    return undefined;
+  if (options?.taskId) {
+    const snapshot = await loadTaskPackSnapshot(repoRoot, options.taskId);
+    assertSnapshotMatchesContextPack(snapshot, contextPackDir, repoRoot, options.taskId);
+    return reconstructFocusedRepoResult(snapshot, 'active-task-sidecar');
   }
 
-  const manifest = safeJsonParse<Manifest>(content, manifestPath);
+  const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
+  const manifest = await readContextPackManifest(resolvedPackDir, repoRoot);
   if (!manifest) {
     return undefined;
   }
@@ -220,29 +206,10 @@ export async function resolveFocusedRepoRoot(
   // Resolve all manifest-declared repo roots so the workspace file cannot add
   // undeclared confinement roots.
   const declaredRoots = collectDeclaredRepoRoots(manifest, resolvedPackDir);
-  const declaredRootSet = new Set(declaredRoots);
-
-  // Resolve all visible workspace repos for --add-dir.
-  const workspaceRoots = await resolveWorkspaceRepoRoots(repoRoot);
-
-  // Merge: ensure the primary repo is always included, plus all workspace
-  // repos that are also declared in the manifest (avoid duplicates).
-  const seen = new Set<string>();
-  const visibleRoots: string[] = [];
-
-  seen.add(primary.repoRoot);
-  visibleRoots.push(primary.repoRoot);
-
-  for (const root of workspaceRoots) {
-    if (declaredRootSet.has(root) && !seen.has(root)) {
-      seen.add(root);
-      visibleRoots.push(root);
-    }
-  }
 
   return {
     primaryRepoRoot: primary.repoRoot,
-    visibleRepoRoots: visibleRoots,
+    visibleRepoRoots: [primary.repoRoot],
     declaredRepoRoots: declaredRoots,
     estateType,
     primaryRepoId: primary.repoId,
@@ -267,6 +234,12 @@ export async function resolveSelectedPrimaryRepoRoot(
   repoRoot: string,
   options?: { taskId?: string },
 ): Promise<FocusedRepoResult | undefined> {
+  if (options?.taskId) {
+    const snapshot = await loadTaskPackSnapshot(repoRoot, options.taskId);
+    assertSnapshotMatchesContextPack(snapshot, contextPackDir, repoRoot, options.taskId);
+    return reconstructFocusedRepoResult(snapshot, 'active-task-sidecar');
+  }
+
   const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
   const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
   const [content, selection] = await Promise.all([
@@ -349,6 +322,18 @@ export async function resolveSelectedPrimaryRepoRoot(
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
   });
+  const readonlyContextRoots = [
+    ...derivedRoots.readonlyContextRoots,
+    ...(selection.deepFocusEnabled !== true
+      ? deriveStandardModeReadonlyRepoRoots({
+          primaryRepoId: primary.repoId,
+          supportRepos: activatedReference.repoIds.map((repoId, index) => ({
+            repoId,
+            repoRoot: activatedReference.repoRoots[index] ?? '',
+          })),
+        })
+      : []),
+  ];
 
   return {
     primaryRepoRoot: primary.repoRoot,
@@ -365,7 +350,7 @@ export async function resolveSelectedPrimaryRepoRoot(
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
     writableRoots: derivedRoots.writableRoots,
-    readonlyContextRoots: derivedRoots.readonlyContextRoots,
+    readonlyContextRoots,
     warnings: deepFocus?.warnings,
     selectedRepoIds: activatedReference.repoIds,
     selectedFocusIds: (deepFocusPrimaryIds ?? selection.selectedFocusIds).length > 0
@@ -398,6 +383,51 @@ function attachPrimaryTargetIdentities(
   });
 }
 
+function resolvePrimaryRepoIdForResult(snapshot: TaskPackSnapshot): string {
+  const candidate = snapshot.primary.repoId ?? snapshot.estateRepoIds[0];
+  if (!candidate) {
+    throw new Error(
+      `pack-snapshot.json for task "${snapshot.taskId}" is missing both primary.repoId and estateRepoIds. ` +
+      'Re-activate or re-create the task.',
+    );
+  }
+  return candidate;
+}
+
+function reconstructFocusedRepoResult(
+  snapshot: TaskPackSnapshot,
+  authoritySource: AuthoritySource,
+): FocusedRepoResult {
+  const selectedRepoIds: string[] = snapshot.primary.repoId
+    ? [snapshot.primary.repoId, ...snapshot.support.map((repo) => repo.repoId)]
+    : [...snapshot.estateRepoIds];
+  const selectedFocusIds: string[] = [...snapshot.selectedFocusIds];
+  return {
+    primaryRepoRoot: snapshot.primary.repoRoot,
+    visibleRepoRoots: [snapshot.primary.repoRoot, ...snapshot.support.map((repo) => repo.repoRoot)],
+    declaredRepoRoots: [...snapshot.declaredRepoRoots],
+    estateType: snapshot.estateType,
+    primaryRepoId: resolvePrimaryRepoIdForResult(snapshot),
+    primaryFocusId: snapshot.primary.focusId ?? undefined,
+    primaryFocusRelativePath: (snapshot.deepFocus.enabled
+      ? snapshot.deepFocus.primaryFocusTargets[0]?.path
+      : undefined) ?? snapshot.primary.primaryFocusRelativePath ?? undefined,
+    deepFocusEnabled: snapshot.deepFocus.enabled || undefined,
+    primaryFocusTargetKind: snapshot.deepFocus.primaryFocusTargetKind ?? undefined,
+    primaryFocusTargets: snapshot.deepFocus.primaryFocusTargets.length > 0
+      ? snapshot.deepFocus.primaryFocusTargets.map((target) => ({ ...target }))
+      : undefined,
+    selectedTestTarget: snapshot.deepFocus.selectedTestTarget,
+    supportTargets: snapshot.deepFocus.supportTargets.map((target) => ({ ...target })),
+    writableRoots: snapshot.deepFocus.writableRoots.map((root) => ({ ...root })),
+    readonlyContextRoots: snapshot.deepFocus.readonlyContextRoots.map((root) => ({ ...root })),
+    warnings: [...snapshot.deepFocus.warnings],
+    selectedRepoIds,
+    selectedFocusIds,
+    authoritySource,
+  };
+}
+
 /**
  * Explain why {@link resolveSelectedPrimaryRepoRoot} returned undefined.
  *
@@ -412,7 +442,19 @@ function attachPrimaryTargetIdentities(
 export async function explainSelectedPrimaryBoundaryFailure(
   contextPackDir: string,
   repoRoot: string,
+  options?: { taskId?: string },
 ): Promise<string> {
+  if (options?.taskId) {
+    try {
+      const snapshot = await loadTaskPackSnapshot(repoRoot, options.taskId);
+      assertSnapshotMatchesContextPack(snapshot, contextPackDir, repoRoot, options.taskId);
+      const primaryIdentity = snapshot.primary.repoId ?? snapshot.primary.focusId ?? '<unknown>';
+      return `pack-snapshot.json for task "${options.taskId}" exists and targets primary "${primaryIdentity}", but the resolver returned undefined.`;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  }
+
   const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
   const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
   const [content, selection] = await Promise.all([
@@ -429,9 +471,8 @@ export async function explainSelectedPrimaryBoundaryFailure(
   }
   if (!selection) {
     return (
-      'no authoritative active selection found — checked active task sidecar at ' +
-      '".platform-state/queue/active-context-pack.json" and workspace-sync state at ' +
-      '".platform-state/workspace-context-sync.json".'
+      'no authoritative active selection found — with a task ID, the task .task.json selection is checked; ' +
+      'without a task ID, workspace sync and Deep Focus overlay state are checked.'
     );
   }
 
@@ -603,8 +644,7 @@ export function resolveFirstLocalPath(
   }
 
   for (const rawPath of localPaths) {
-    if (typeof rawPath !== 'string' || !rawPath.trim()) continue;
-    const candidate = resolveExistingPath(rawPath, contextPackDir);
+    const candidate = resolveExistingManifestLocalPath(rawPath, contextPackDir);
     if (candidate) return candidate;
   }
 
@@ -628,8 +668,7 @@ function collectDeclaredRepoRoots(manifest: Manifest, contextPackDir: string): s
       continue;
     }
     for (const rawPath of localPaths) {
-      if (typeof rawPath !== 'string' || !rawPath.trim()) continue;
-      const resolved = resolveExistingPath(rawPath, contextPackDir);
+      const resolved = resolveExistingManifestLocalPath(rawPath, contextPackDir);
       if (!resolved || seen.has(resolved)) {
         continue;
       }
@@ -698,18 +737,4 @@ export function collectFocusedRepoTargetDirectoryRoots(
   }
 
   return roots;
-}
-
-function resolveExistingPath(rawPath: string, pmseDir: string): string | undefined {
-  const candidate = path.isAbsolute(rawPath)
-    ? path.resolve(rawPath)
-    : path.resolve(pmseDir, rawPath);
-  if (!existsSync(candidate)) {
-    return undefined;
-  }
-  try {
-    return realpathSync(candidate);
-  } catch {
-    return undefined;
-  }
 }

@@ -89,6 +89,23 @@ Each `slice-N.md` must contain (validator: `slice.required-section-present`):
 - Validation Commands — must include a fenced code block or runnable command (validator: `slice.validation-commands-executable`)
 - Guards
 
+## Engineering Quality Requirements
+
+Frame every `implementation-spec.md` and `slice-N.md` requirement so the resulting code is maintainable, efficient, enterprise-grade, and easy to review.
+
+- Prefer the simplest clear solution that solves the task without obvious inefficiency. Avoid cleverness, hidden magic, speculative flexibility, unnecessary configuration, and wasteful algorithms.
+- Do not introduce new abstractions unless they remove real duplication, clarify a real domain concept, simplify the caller, or match an existing project pattern.
+- Preserve existing behavior by default. State exactly what should change and what must remain compatible.
+- Reuse existing helpers, patterns, module boundaries, and test styles before creating new ones. Cite the closest existing example when it matters.
+- Keep each slice focused and reviewable. Do not mix behavior changes with unrelated refactors, renames, cleanup, or formatting churn.
+- Require explicit data flow, ownership, and error behavior. Avoid vague directions like “handle gracefully”; specify whether to throw, warn, fail closed, or return an explicit result.
+- Prefer readable, typed code over compact or generic code. Avoid broad casts, `as any`, silent fallbacks, and loosely shaped records unless explicitly justified by nearby patterns.
+- Consider expected data sizes and hot paths. Do not require complex optimization without evidence, but avoid designs that repeatedly scan large files, duplicate expensive work, block critical flows unnecessarily, or introduce unbounded memory/runtime behavior.
+- Require meaningful tests for changed behavior and real failure modes, not implementation details.
+- Require documentation updates only when behavior or contracts change. If the implementation needs comments, specify that they should be concise and high-signal, limited to non-obvious constraints, tradeoffs, edge cases, or behavior the code cannot make self-evident.
+
+Convert these principles into concrete slice instructions, for example: “reuse the existing queue markdown parser,” “do not change emitted section names,” “warn once with task ID and fall back,” “avoid re-reading the full registry inside the per-file loop,” or “add regression coverage for malformed JSON and CRLF input.”
+
 ## Rules
 
 - **Write for agents, not humans.** Your `implementation-spec.md` and `slice-N.md` files are executed by agents and subagents. Prioritize agent accuracy and efficiency: use exact file paths and line numbers, literal function signatures and type shapes, specific symbol names (not "the relevant handler" — name it), paste-and-run validation commands, and cite the exact existing instance when a pattern must be followed. Omit prose justification, background context, or design rationale that does not help an agent write correct code faster.

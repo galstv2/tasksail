@@ -12,6 +12,26 @@ from tests.domains.archive._archive_filing_base import TaskArchiveFilingTestBase
 
 
 class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
+    def _clear_cycle_level_retrospective_sections(self, repo_root: Path) -> None:
+        retrospective_path = (
+            repo_root
+            / "AgentWorkSpace"
+            / "tasks"
+            / "CAP-2001"
+            / "handoffs"
+            / "retrospective-input.md"
+        )
+        markdown = retrospective_path.read_text(encoding="utf-8")
+        for bullet in [
+            "- The archive contract stayed deterministic.\n",
+            "- The retrospective could have been captured earlier.\n",
+            "- Capture the retrospective before the archive command.\n",
+            "- Archive legality should derive from repo artifacts.\n",
+            "- Do not archive a task without a retrospective.\n",
+        ]:
+            markdown = markdown.replace(bullet, "")
+        retrospective_path.write_text(markdown, encoding="utf-8")
+
     def test_task_closeout_writes_context_pack_retrospective_archive(
         self,
     ) -> None:
@@ -213,6 +233,49 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
             self.assertIn("CAP-2001: Child Task Closeout", markdown)
             self.assertIn("## Recurring Strengths", markdown)
 
+    def test_shared_retrospective_memory_skips_empty_cross_task_sections(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            self._clear_cycle_level_retrospective_sections(repo_root)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            markdown = self.shared_memory_markdown_path(repo_root).read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("## Contributing Tasks", markdown)
+            self.assertIn("CAP-2001: Child Task Closeout", markdown)
+            self.assertIn("## Audit Trail", markdown)
+            self.assertEqual(markdown.count("- CAP-2001: Child Task Closeout"), 2)
+            for section in [
+                "Recurring Strengths",
+                "Recurring Bottlenecks",
+                "Open Action Items",
+                "Validated Improvements",
+                "Anti-Patterns To Avoid",
+            ]:
+                self.assertIn(f"## {section}\n\n- None yet.", markdown)
+
+            payload = json.loads(
+                self.shared_memory_record_path(repo_root).read_text(encoding="utf-8")
+            )
+            self.assertEqual(payload["synthesized_from_task_ids"], ["CAP-2001"])
+            self.assertEqual(payload["recurring_strengths"], [])
+            self.assertEqual(payload["recurring_bottlenecks"], [])
+            self.assertEqual(payload["open_action_items"], [])
+            self.assertEqual(payload["validated_improvements"], [])
+            self.assertEqual(payload["anti_patterns"], [])
+
     def test_task_closeout_rejects_qmd_scope_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
@@ -266,8 +329,20 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
                 payload["recurring_strengths"],
             )
             self.assertIn(
+                "The retrospective could have been captured earlier.",
+                payload["recurring_bottlenecks"],
+            )
+            self.assertIn(
                 "Capture the retrospective before the archive command.",
                 payload["open_action_items"],
+            )
+            self.assertIn(
+                "Archive legality should derive from repo artifacts.",
+                payload["validated_improvements"],
+            )
+            self.assertIn(
+                "Do not archive a task without a retrospective.",
+                payload["anti_patterns"],
             )
 
     def test_global_retrospective_paths_do_not_modify_context_pack_archive_paths(
@@ -330,8 +405,8 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
             # Transactional: archive JSON must NOT exist when downstream writes fail
             archive_path = (
                 context_pack_dir
-                / "qmd/context-packs/sample-org/archive/tasks/2026"
-                / "cap-2001.json"
+                / "qmd/context-packs/sample-org/archive/tasks/2026/cap-2001"
+                / "archive.json"
             )
             self.assertFalse(archive_path.exists())
             # Staging directory must also be cleaned up

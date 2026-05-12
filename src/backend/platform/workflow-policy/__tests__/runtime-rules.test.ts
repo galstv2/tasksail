@@ -210,4 +210,62 @@ describe('workflow-policy runtime rule parity', () => {
       }),
     ]));
   });
+
+  it('accepts v2 manifest local path objects when host matches bootstrap answers', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-bootstrap-v2-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createWorkspaceFixture(repoRoot);
+
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'demo-pack');
+    mkdirSync(path.join(contextPackDir, 'qmd', 'bootstrap'), { recursive: true });
+
+    writeFileSync(
+      path.join(contextPackDir, 'qmd', 'bootstrap', 'bootstrap-answers.json'),
+      JSON.stringify({
+        context_pack_id: 'demo-pack',
+        repositories: [
+          {
+            repo_id: 'platform',
+            repo_name: 'TaskSail',
+            repo_root: '/repos/tasksail',
+            system_layer: 'backend',
+          },
+        ],
+      }, null, 2),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(contextPackDir, 'qmd', 'repo-sources.json'),
+      JSON.stringify({
+        manifest_version: 'qmd-repo-sources/v2',
+        context_pack_id: 'demo-pack',
+        qmd_scope_root: 'qmd/context-packs/demo-pack',
+        repositories: [
+          {
+            repo_id: 'platform',
+            repo_name: 'TaskSail',
+            local_paths: [{ host: '/repos/tasksail', container: null }],
+            system_layer: 'backend',
+          },
+        ],
+      }, null, 2),
+      'utf-8',
+    );
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      contextPackDir,
+      mode: 'activation-bootstrap',
+      taskId: TEST_TASK_ID,
+    });
+
+    const result = await validator.evaluate();
+
+    expect(result.violations).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rule_id: 'bootstrap.repo-contract-match',
+      }),
+    ]));
+  });
 });

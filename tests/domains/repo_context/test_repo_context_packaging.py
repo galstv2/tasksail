@@ -22,7 +22,7 @@ class RepoContextPackagingTests(unittest.TestCase):
         self,
     ) -> None:
         dockerfile = (
-            REPO_ROOT / "docker" / "repo-context-mcp" / "Dockerfile"
+            REPO_ROOT / "runtime" / "docker" / "repo-context-mcp" / "Dockerfile"
         )
         lines = dockerfile.read_text(encoding="utf-8").splitlines()
 
@@ -58,7 +58,7 @@ class RepoContextPackagingTests(unittest.TestCase):
 
     def test_compose_file_is_valid_yaml_with_expected_service(self) -> None:
         compose_file = (
-            REPO_ROOT / "docker" / "compose" / "docker-compose.yml"
+            REPO_ROOT / "runtime" / "docker" / "compose" / "docker-compose.yml"
         )
         contents = compose_file.read_text(encoding="utf-8")
 
@@ -94,7 +94,7 @@ class RepoContextPackagingTests(unittest.TestCase):
         # Workspace must be mounted read-only.
         self.assertRegex(
             contents,
-            r"../../:/workspace:ro",
+            r"../../../:/workspace:ro",
             "Workspace volume must be mounted read-only",
         )
 

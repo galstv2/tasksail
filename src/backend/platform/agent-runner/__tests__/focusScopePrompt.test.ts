@@ -105,6 +105,49 @@ describe('buildFocusScopeBlock', () => {
     expect(result).toContain('`.` (selected primary)');
   });
 
+  it('renders support-repo readonly roots by repoLocalPath', () => {
+    const result = buildFocusScopeBlock({
+      estateType: 'distributed-platform',
+      writableRoots: [{ path: '', kind: 'directory', reason: 'selected-primary' }],
+      readonlyContextRoots: [
+        {
+          repoLocalPath: '/repos/tools',
+          path: '',
+          kind: 'directory',
+          reason: 'support-repo',
+        },
+        {
+          repoLocalPath: '/repos/shared-lib',
+          path: '',
+          kind: 'directory',
+          reason: 'support-repo',
+        },
+      ],
+    });
+
+    expect(result).toContain('`/repos/tools/` (support repo)');
+    expect(result).toContain('`/repos/shared-lib/` (support repo)');
+    expect(result).not.toContain('`.` (support repo)');
+  });
+
+  it('continues rendering support-target readonly roots by path', () => {
+    const result = buildFocusScopeBlock({
+      estateType: 'distributed-platform',
+      writableRoots: [{ path: '', kind: 'directory', reason: 'selected-primary' }],
+      readonlyContextRoots: [
+        {
+          repoLocalPath: '/repos/tools',
+          path: 'lib/util',
+          kind: 'directory',
+          reason: 'support-target',
+        },
+      ],
+    });
+
+    expect(result).toContain('`lib/util/` (support target)');
+    expect(result).not.toContain('`/repos/tools/` (support target)');
+  });
+
   it('renders per-primary scoped blocks and one global block', () => {
     const result = buildFocusScopeBlock({
       estateType: 'monolith',

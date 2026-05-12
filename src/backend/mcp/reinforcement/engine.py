@@ -149,6 +149,8 @@ class ReinforcementEngine:
         for agent_id, reward_amount in settlement.per_agent_rewards.items():
             if agent_id in existing:
                 mem = existing[agent_id]
+                mem.role = AGENT_ROLES.get(agent_id, agent_id)
+                mem.multiplier = ROLE_MULTIPLIERS.get(agent_id, 0.0)
                 mem.lifetime_reward += reward_amount
             else:
                 mem = AgentRewardMemory(

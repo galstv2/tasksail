@@ -16,6 +16,7 @@ import { getNodeErrorCode } from './main.textUtils';
 const PLATFORM_STATE_DIR = join(REPO_ROOT, '.platform-state');
 const RUNTIME_DIR = join(PLATFORM_STATE_DIR, 'runtime');
 const TASKS_RUNTIME_DIR = join(RUNTIME_DIR, 'tasks');
+const REALIGNMENT_RUNTIME_DIR = join(RUNTIME_DIR, 'realignment');
 const PENDING_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ACTIVE_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
 const WATCH_DEBOUNCE_MS = 150;
@@ -27,11 +28,22 @@ const PIPELINE_PHASE_MESSAGES: Record<string, { message: string; severity: Strea
   'test-capture-skipped': { message: 'Test capture skipped — could not resolve target repo.', severity: 'warning' },
 };
 
-type RuntimeSnapshot = Pick<ObservabilitySnapshotResponse, 'agentTerminalSessions' | 'guardrails'>;
+type RealignmentJobObservation = {
+  jobId: string;
+  realignmentId: string;
+  status: 'running' | 'archived' | 'error' | 'skipped' | 'partial';
+  reason?: string;
+  globalRealignmentVersion?: number;
+};
+
+type RuntimeSnapshot = Pick<ObservabilitySnapshotResponse, 'agentTerminalSessions' | 'guardrails'> & {
+  realignmentJobs?: RealignmentJobObservation[];
+};
 
 type RuntimeStreamState = {
   sessions: Map<string, AgentTerminalSession>;
   guardrails: Map<string, GuardrailObservation>;
+  realignmentJobs: Map<string, RealignmentJobObservation>;
 };
 
 type RuntimeWatcherOptions = {
@@ -45,11 +57,15 @@ type RuntimeWatcherOptions = {
  * under AgentWorkSpace/pendingitems/.active-items. Snapshot reads and watcher
  * targets both treat that directory as the canonical active taskId source.
  */
-function computeWatchTargets(runtimeTaskIds: string[]): string[] {
+function computeWatchTargets(
+  runtimeTaskIds: string[],
+  realignmentIds: string[] = [],
+): string[] {
   const targets = new Set<string>([
     PLATFORM_STATE_DIR,
     RUNTIME_DIR,
     TASKS_RUNTIME_DIR,
+    REALIGNMENT_RUNTIME_DIR,
     PENDING_ITEMS_DIR,
     ACTIVE_ITEMS_DIR,
   ]);
@@ -59,6 +75,10 @@ function computeWatchTargets(runtimeTaskIds: string[]): string[] {
     targets.add(taskRuntimeDir);
     targets.add(join(taskRuntimeDir, 'role-sessions'));
     targets.add(join(taskRuntimeDir, 'guardrails'));
+  }
+
+  for (const realignmentId of realignmentIds) {
+    targets.add(join(REALIGNMENT_RUNTIME_DIR, realignmentId));
   }
 
   return [...targets];
@@ -71,6 +91,9 @@ function createRuntimeStreamState(snapshot: RuntimeSnapshot): RuntimeStreamState
     ),
     guardrails: new Map(
       (snapshot.guardrails ?? []).map((guardrail) => [guardrail.receiptPath, guardrail]),
+    ),
+    realignmentJobs: new Map(
+      (snapshot.realignmentJobs ?? []).map((job) => [job.realignmentId, job]),
     ),
   };
 }
@@ -247,6 +270,44 @@ function diffGuardrailEvents(
   return [buildGuardrailEvent(next, session)];
 }
 
+function buildRealignmentEvent(
+  job: RealignmentJobObservation,
+): StreamEventOptions {
+  const messages: Record<RealignmentJobObservation['status'], string> = {
+    running: 'Realignment analysis is running.',
+    archived: 'Realignment analysis archived.',
+    skipped: 'Realignment analysis skipped.',
+    error: 'Realignment analysis failed.',
+    partial: 'Realignment analysis partially completed.',
+  };
+  const severities: Record<RealignmentJobObservation['status'], StreamEventOptions['severity']> = {
+    running: 'info',
+    archived: 'success',
+    skipped: 'warning',
+    error: 'error',
+    partial: 'warning',
+  };
+
+  return {
+    message: job.reason ? `${messages[job.status]} ${job.reason}` : messages[job.status],
+    source: 'runtime.realignment',
+    role: 'workflow',
+    severity: severities[job.status],
+    taskId: 'N/A',
+    actorName: 'Ron - Realignment',
+  };
+}
+
+function diffRealignmentEvents(
+  previous: RealignmentJobObservation | undefined,
+  next: RealignmentJobObservation,
+): StreamEventOptions[] {
+  if (previous?.status === next.status) {
+    return [];
+  }
+  return [buildRealignmentEvent(next)];
+}
+
 export function diffRuntimeStreamEvents(
   previous: RuntimeSnapshot,
   next: RuntimeSnapshot,
@@ -265,6 +326,15 @@ export function diffRuntimeStreamEvents(
         previousState.guardrails.get(receiptPath),
         observation,
         nextState.sessions,
+      ),
+    );
+  }
+
+  for (const [realignmentId, job] of nextState.realignmentJobs) {
+    events.push(
+      ...diffRealignmentEvents(
+        previousState.realignmentJobs.get(realignmentId),
+        job,
       ),
     );
   }
@@ -291,12 +361,27 @@ export function startRuntimeStreamWatcher(
   let previousSnapshot: RuntimeSnapshot | null = null;
   const previousPipelinePhaseByTask = new Map<string, string>();
   let currentRuntimeTaskIds: string[] = [];
+  let currentRealignmentIds: string[] = [];
 
   const readActiveTaskIdsFromFs = async (): Promise<string[]> => {
     try {
       const entries = await fsAdapter.readdir(ACTIVE_ITEMS_DIR);
       return entries
         .filter((entry) => !entry.endsWith('.completing') && !entry.startsWith('.'))
+        .sort();
+    } catch (err) {
+      if (getNodeErrorCode(err) === 'ENOENT') {
+        return [];
+      }
+      throw err;
+    }
+  };
+
+  const readRealignmentIdsFromFs = async (): Promise<string[]> => {
+    try {
+      const entries = await fsAdapter.readdir(REALIGNMENT_RUNTIME_DIR);
+      return entries
+        .filter((entry) => typeof entry === 'string' && entry.length > 0)
         .sort();
     } catch (err) {
       if (getNodeErrorCode(err) === 'ENOENT') {
@@ -372,6 +457,45 @@ export function startRuntimeStreamWatcher(
     }
   };
 
+  const readRealignmentJobs = async (): Promise<RealignmentJobObservation[]> => {
+    const jobs: RealignmentJobObservation[] = [];
+    for (const realignmentId of currentRealignmentIds) {
+      try {
+        const raw = await fsAdapter.readFile(
+          join(REALIGNMENT_RUNTIME_DIR, realignmentId, 'job.json'),
+          'utf-8',
+        );
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const status = parsed.status;
+        if (
+          status !== 'running' &&
+          status !== 'archived' &&
+          status !== 'error' &&
+          status !== 'skipped' &&
+          status !== 'partial'
+        ) {
+          continue;
+        }
+        jobs.push({
+          jobId: typeof parsed.jobId === 'string' ? parsed.jobId : realignmentId,
+          realignmentId: typeof parsed.realignmentId === 'string'
+            ? parsed.realignmentId
+            : realignmentId,
+          status,
+          ...(typeof parsed.reason === 'string' ? { reason: parsed.reason } : {}),
+          ...(typeof parsed.globalRealignmentVersion === 'number'
+            ? { globalRealignmentVersion: parsed.globalRealignmentVersion }
+            : {}),
+        });
+      } catch (err) {
+        if (getNodeErrorCode(err) !== 'ENOENT') {
+          throw err;
+        }
+      }
+    }
+    return jobs;
+  };
+
   /**
    * Read pipeline-phase.json from per-task runtime dirs of currently active or final-draining tasks.
    */
@@ -426,10 +550,11 @@ export function startRuntimeStreamWatcher(
   const ensureWatchers = async (): Promise<void> => {
     const activeTaskIds = await readActiveTaskIdsFromFs();
     currentRuntimeTaskIds = resolveRuntimeTaskIds(activeTaskIds);
+    currentRealignmentIds = await readRealignmentIdsFromFs();
     const runtimeTaskIdSet = new Set(currentRuntimeTaskIds);
     closeStaleRuntimeWatchers(runtimeTaskIdSet);
 
-    const watchTargets = computeWatchTargets(currentRuntimeTaskIds);
+    const watchTargets = computeWatchTargets(currentRuntimeTaskIds, currentRealignmentIds);
 
     for (const target of watchTargets) {
       if (activeWatchers.has(target) || !(await pathExists(target, fsAdapter))) {
@@ -485,6 +610,7 @@ export function startRuntimeStreamWatcher(
       const runtimeSnapshot: RuntimeSnapshot = {
         agentTerminalSessions: snapshot.agentTerminalSessions ?? [],
         guardrails: snapshot.guardrails ?? [],
+        realignmentJobs: await readRealignmentJobs(),
       };
 
       if (stopped) return;

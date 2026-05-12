@@ -55,6 +55,8 @@ describe('electron preload bridge', () => {
         activateContextPack: expect.any(Function),
         pickMarkdownFile: expect.any(Function),
         listArchivedTasks: expect.any(Function),
+        listPlannerConversationHistory: expect.any(Function),
+        hydratePlannerConversation: expect.any(Function),
         submitReinforcementFeedback: expect.any(Function),
         updateRealignmentDoc: expect.any(Function),
         readReinforcementOverview: expect.any(Function),
@@ -64,13 +66,25 @@ describe('electron preload bridge', () => {
         readRealignmentDoc: expect.any(Function),
         checkActiveWorkGuard: expect.any(Function),
         startRealignment: expect.any(Function),
+        runRealignmentAnalysis: expect.any(Function),
         loadAgentConfig: expect.any(Function),
         loadModelCatalog: expect.any(Function),
         saveAgentModels: expect.any(Function),
         addModel: expect.any(Function),
         removeModel: expect.any(Function),
+        describeActiveProvider: expect.any(Function),
       }),
     );
+  });
+
+  it('exposes provider metadata without provider-specific bridge names', async () => {
+    const { exposeDesktopShell } = await import('./preload');
+
+    exposeDesktopShell();
+
+    const exposedContract = exposeInMainWorld.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(exposedContract.describeActiveProvider).toEqual(expect.any(Function));
+    expect(Object.keys(exposedContract).join('\n')).not.toMatch(/copilot|COPILOT|\.github/u);
   });
 
   it('returns bootstrap metadata for the renderer', async () => {
@@ -170,6 +184,17 @@ describe('electron preload bridge', () => {
     );
     await desktopShellApi.clearActiveContextPack();
     await desktopShellApi.activateContextPack('platform-default');
+    await desktopShellApi.startPlannerSession({
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      replayConversationId: 'conversation-1',
+    });
+    await desktopShellApi.sendPlannerMessage(
+      'Message sent to Lily.',
+      'Message shown in transcript.',
+    );
+    await desktopShellApi.sendPlannerMessage('Plain message only.');
+    await desktopShellApi.listPlannerConversationHistory();
+    await desktopShellApi.hydratePlannerConversation('conversation-1');
     await desktopShellApi.pickMarkdownFile();
     await desktopShellApi.listArchivedTasks();
     await desktopShellApi.finalizeSpec('child-task');
@@ -196,11 +221,15 @@ describe('electron preload bridge', () => {
     await desktopShellApi.loadAgentConfig();
     await desktopShellApi.loadModelCatalog();
     await desktopShellApi.saveAgentModels([
-      { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
-      { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+      { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+      { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
     ]);
     await desktopShellApi.addModel('Claude Sonnet 4.6', 'claude-sonnet-4.6');
     await desktopShellApi.removeModel('gpt-4.1');
+    await desktopShellApi.uploadSpec('## Request Summary\n\nUploaded bypass intake.', {
+      requirePlannerSidecar: true,
+      expectedTaskKind: 'child-task',
+    });
 
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.submitDraft',
@@ -311,6 +340,33 @@ describe('electron preload bridge', () => {
       },
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.startSession',
+      payload: {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        replayConversationId: 'conversation-1',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.sendMessage',
+      payload: {
+        text: 'Message sent to Lily.',
+        displayText: 'Message shown in transcript.',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.sendMessage',
+      payload: {
+        text: 'Plain message only.',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.listConversationHistory',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.hydrateConversation',
+      payload: { recordId: 'conversation-1' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.pickMarkdownFile',
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -319,6 +375,14 @@ describe('electron preload bridge', () => {
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.finalizeSpec',
       payload: { expectedTaskKind: 'child-task' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.uploadSpec',
+      payload: {
+        content: '## Request Summary\n\nUploaded bypass intake.',
+        requirePlannerSidecar: true,
+        expectedTaskKind: 'child-task',
+      },
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'reinforcement.submitFeedback',
@@ -372,8 +436,8 @@ describe('electron preload bridge', () => {
       action: 'agentConfig.saveAgentModels',
       payload: {
         assignments: [
-          { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
-          { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
+          { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+          { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
         ],
       },
     });
@@ -439,7 +503,11 @@ describe('electron preload bridge', () => {
       )?.[1];
       expect(handler).toBeDefined();
 
-      const validEvent = { eventType: 'turn-complete', brokerStatus: 'idle' };
+      const validEvent = {
+        eventType: 'planner.turn.completed',
+        sessionId: 'planner-session-1',
+        brokerStatus: 'idle',
+      };
       handler!({} as Electron.IpcRendererEvent, validEvent);
       expect(callback).toHaveBeenCalledWith(validEvent);
     });
@@ -454,11 +522,22 @@ describe('electron preload bridge', () => {
         (call) => call[0] === DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
       )?.[1];
 
-      handler!({} as Electron.IpcRendererEvent, { eventType: 'turn-complete' });
-      handler!({} as Electron.IpcRendererEvent, { brokerStatus: 'idle' });
+      handler!({} as Electron.IpcRendererEvent, {
+        eventType: 'planner.turn.completed',
+        brokerStatus: 'idle',
+      });
+      handler!({} as Electron.IpcRendererEvent, {
+        eventType: 'planner.turn.completed',
+        sessionId: 42,
+        brokerStatus: 'idle',
+      });
+      handler!({} as Electron.IpcRendererEvent, {
+        sessionId: 'planner-session-1',
+        brokerStatus: 'idle',
+      });
       handler!({} as Electron.IpcRendererEvent, 'not-an-object');
       expect(callback).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledTimes(3);
+      expect(warnSpy).toHaveBeenCalledTimes(4);
       warnSpy.mockRestore();
     });
   });

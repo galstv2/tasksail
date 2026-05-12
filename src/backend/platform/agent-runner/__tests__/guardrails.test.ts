@@ -27,7 +27,12 @@ vi.mock('../../workflow-policy/index.js', () => ({
   evaluateWorkflowPolicy,
 }));
 
-const { runRuntimePolicyCheck, guardrailReceiptPath } = await import('../guardrails.js');
+const {
+  evictPolicyResultCache,
+  guardrailReceiptPath,
+  policyResultCache,
+  runRuntimePolicyCheck,
+} = await import('../guardrails.js');
 
 describe('guardrails runtime policy cache', () => {
   let repoRoot: string;
@@ -55,6 +60,7 @@ describe('guardrails runtime policy cache', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    policyResultCache.clear();
     repoRoot = mkdtempSync(path.join(tmpdir(), 'guardrails-cache-'));
     handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps');
@@ -172,6 +178,22 @@ describe('guardrails runtime policy cache', () => {
     });
 
     expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts a completed task cache entry', async () => {
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', 't1');
+
+    expect(policyResultCache.size).toBeGreaterThanOrEqual(1);
+    evictPolicyResultCache(repoRoot, 't1');
+    expect(policyResultCache.size).toBe(0);
+  });
+
+  it('caps the runtime policy cache at 64 entries', async () => {
+    for (let i = 0; i < 65; i += 1) {
+      await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', `task-${i}`);
+    }
+
+    expect(policyResultCache.size).toBe(64);
   });
 });
 

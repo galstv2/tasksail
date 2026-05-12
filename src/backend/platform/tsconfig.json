@@ -14,7 +14,8 @@
     "validation",
     "setup",
     "external-mcp-registry",
-    "cli-provider"
+    "cli-provider",
+    "planner-history"
   ],
   "exclude": ["**/__tests__", "dist"]
 }

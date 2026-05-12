@@ -15,7 +15,7 @@ function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMc
     enabled: true,
     transport: 'sse',
     url: 'https://mcp.example.com/sse',
-    agent_scope: { mode: 'allowlist', agent_ids: ['swe', 'qa'] },
+    agent_scope: { mode: 'allowlist', agent_ids: ['swe', 'provider-qa'] },
     ...overrides,
   };
 }
@@ -29,10 +29,10 @@ function emptyDraft(): McpServerFormDraft {
 }
 
 const TEST_AGENT_ROSTER = {
-  'software-engineer': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
-  qa: { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
-  'product-manager': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
-  'planning-agent': { role: 'Planning Specialist', humanName: 'Lily', displayName: 'Lily (Planning Specialist)' },
+  'provider-builder': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
+  'provider-qa': { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
+  'provider-pm': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
+  'provider-planner': { role: 'Planning Specialist', humanName: 'Lily', displayName: 'Lily (Planning Specialist)' },
 };
 
 function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigModalProps {
@@ -86,7 +86,7 @@ describe('McpConfigModal — list view', () => {
 
   it('shows "all agents" badge when all workflow agents are selected', () => {
     const allAgentIds = [
-      'planning-agent', 'product-manager', 'software-engineer', 'qa',
+      'provider-planner', 'provider-pm', 'provider-builder', 'provider-qa',
     ];
     const servers = [makeServer({ agent_scope: { mode: 'allowlist', agent_ids: allAgentIds } })];
     render(<McpConfigModal {...defaultProps({ servers })} />);

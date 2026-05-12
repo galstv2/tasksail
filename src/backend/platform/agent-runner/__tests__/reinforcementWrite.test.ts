@@ -17,15 +17,28 @@ vi.mock('../../context-pack/index.js', () => ({
   requireAuthorizedActiveContextPack: vi.fn(),
 }));
 
+vi.mock('../realignmentPhase/driver.js', () => ({
+  executeRealignmentSession: vi.fn(),
+}));
+
+vi.mock('../pipeline/externalMcpRegistryCache.js', () => ({
+  prewarmExternalMcpRegistry: vi.fn(),
+}));
+
 import { runPython } from '../../core/pythonRunner.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/index.js';
+import { prewarmExternalMcpRegistry } from '../pipeline/externalMcpRegistryCache.js';
+import { executeRealignmentSession } from '../realignmentPhase/driver.js';
 import {
+  runRealignmentAnalysis,
   submitReinforcementFeedback,
   updateGlobalRealignmentDoc,
 } from '../reinforcementWrite.js';
 
 const mockRunPython = vi.mocked(runPython);
 const mockRequireAuthorizedActiveContextPack = vi.mocked(requireAuthorizedActiveContextPack);
+const mockPrewarmExternalMcpRegistry = vi.mocked(prewarmExternalMcpRegistry);
+const mockExecuteRealignmentSession = vi.mocked(executeRealignmentSession);
 
 describe('submitReinforcementFeedback', () => {
   beforeEach(() => {
@@ -209,5 +222,98 @@ describe('updateGlobalRealignmentDoc', () => {
     ).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
 
     expect(mockRunPython).not.toHaveBeenCalled();
+  });
+});
+
+describe('runRealignmentAnalysis', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuthorizedActiveContextPack.mockResolvedValue('/packs/pack-a');
+    mockExecuteRealignmentSession.mockResolvedValue({
+      passed: true,
+      realignmentId: 'RA-1',
+      status: 'archived',
+      globalRealignmentVersion: 3,
+    });
+    mockPrewarmExternalMcpRegistry.mockResolvedValue({
+      schema_version: 1,
+      external_servers: [],
+    });
+  });
+
+  it('authorizes the active context pack, loads external MCP registry, and calls the realignment driver', async () => {
+    const abortController = new AbortController();
+    const externalMcpRegistry = {
+      schema_version: 1,
+      external_servers: [{
+        id: 'docs',
+        display_name: 'Docs',
+        enabled: true,
+        purpose: 'reference checks',
+        transport: 'http' as const,
+        url: 'https://example.invalid',
+        agent_scope: { mode: 'allowlist' as const, agent_ids: ['ron'] },
+      }],
+    };
+    mockPrewarmExternalMcpRegistry.mockResolvedValue(externalMcpRegistry);
+
+    const result = await runRealignmentAnalysis({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+      abortSignal: abortController.signal,
+    });
+
+    expect(result).toEqual({
+      passed: true,
+      realignmentId: 'RA-1',
+      status: 'archived',
+      globalRealignmentVersion: 3,
+    });
+    expect(mockRequireAuthorizedActiveContextPack).toHaveBeenCalledWith({
+      repoRoot: '/fake/repo',
+      requestedContextPackDir: '/packs/pack-a',
+    });
+    expect(mockPrewarmExternalMcpRegistry).toHaveBeenCalledWith('/fake/repo');
+    expect(mockExecuteRealignmentSession).toHaveBeenCalledWith({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+      abortSignal: abortController.signal,
+      externalMcpRegistry,
+    });
+  });
+
+  it('uses an explicitly provided external MCP registry without reloading it', async () => {
+    const externalMcpRegistry = {
+      schema_version: 1,
+      external_servers: [],
+    };
+
+    await runRealignmentAnalysis({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+      externalMcpRegistry,
+    });
+
+    expect(mockPrewarmExternalMcpRegistry).not.toHaveBeenCalled();
+    expect(mockExecuteRealignmentSession).toHaveBeenCalledWith(expect.objectContaining({
+      externalMcpRegistry,
+    }));
+  });
+
+  it('rejects unauthorized context packs without launching the driver', async () => {
+    mockRequireAuthorizedActiveContextPack.mockRejectedValue(
+      new Error('Write operations are limited to the active context pack configured in repo .env.'),
+    );
+
+    await expect(runRealignmentAnalysis({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/rogue-pack',
+      realignmentId: 'RA-1',
+    })).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
+
+    expect(mockExecuteRealignmentSession).not.toHaveBeenCalled();
   });
 });

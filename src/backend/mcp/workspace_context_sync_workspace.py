@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.backend.mcp.path_resolution import normalize_manifest_local_path
 from src.backend.mcp.repo_context_mcp.utils import (
     resolve_path_within,
     unique_preserving_order,
@@ -156,16 +157,19 @@ def build_sync_preview(
 
 def resolve_manifest_target_path(
     context_pack_dir: Path,
-    raw_path: str,
+    raw_path: Any,
 ) -> Path | None:
     """Resolve a manifest local_paths entry to a real path, or ``None``."""
-    candidate = Path(raw_path).expanduser()
+    normalized_path = normalize_manifest_local_path(raw_path)
+    if normalized_path is None:
+        return None
+    candidate = Path(normalized_path).expanduser()
     if candidate.is_absolute():
         resolved = candidate.resolve(strict=False)
     else:
         resolved = resolve_path_within(
             context_pack_dir,
-            raw_path,
+            normalized_path,
             "local_paths",
         )
     if not resolved.exists():

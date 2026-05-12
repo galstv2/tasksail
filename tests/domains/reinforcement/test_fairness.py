@@ -112,3 +112,59 @@ class TestApplyLessonsFromSession:
         manager.apply_lessons_from_session(session)
         doc = manager.apply_lessons_from_session(session)
         assert doc.lessons_learned.count("fix config") == 1
+
+    def test_promoted_guidance_is_normalized_and_sanitized(
+        self, manager: FairnessManager,
+    ) -> None:
+        session = RealignmentSession(
+            realignment_id="RA-1", trigger_task_id="T-1",
+            trigger_feedback_id="FB-1", participating_agents=[],
+            failure_analysis="",
+            root_cause="TASK-123 failed in src/runtime.ts line 42",
+            corrective_actions=[
+                "  Add validation before promotion.  ",
+                "add   validation before promotion.",
+                "Patch src/runtime.ts line 42",
+                "Avoid `runThing()` in retries",
+            ],
+            status="archived", meeting_notes="",
+            created_at="2026-01-01T00:00:00Z",
+        )
+
+        doc = manager.apply_lessons_from_session(session)
+
+        assert doc.lessons_learned == ["Add validation before promotion."]
+        assert doc.behavioral_guidance == []
+
+
+class TestCompactGlobalDocument:
+    def test_compacts_without_incrementing_version(
+        self, manager: FairnessManager,
+    ) -> None:
+        manager.update_global_document({
+            "lessons_learned": [
+                *[f"lesson {i}" for i in range(28)],
+                "lesson 27",
+                "TASK-999 leaked from src/file.ts line 12",
+            ],
+            "behavioral_guidance": [
+                *[f"guidance {i}" for i in range(28)],
+                "Guidance 27",
+                "Avoid: traceback in repo/file.py:12",
+            ],
+            "standing_expectations": [f"expectation {i}" for i in range(30)],
+            "fairness_framing": [f"framing {i}" for i in range(30)],
+        })
+
+        doc = manager.compact_global_document()
+
+        assert doc.version == 1
+        assert doc.lessons_learned == [f"lesson {i}" for i in range(3, 28)]
+        assert doc.behavioral_guidance == [
+            *[f"guidance {i}" for i in range(3, 27)],
+            "Guidance 27",
+        ]
+        assert doc.standing_expectations == [
+            f"expectation {i}" for i in range(30)
+        ]
+        assert doc.fairness_framing == [f"framing {i}" for i in range(30)]

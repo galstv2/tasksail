@@ -12,10 +12,12 @@ import {
   VALID_ENGINE_HOSTS,
   isValidWslDistroName,
 } from './types.js';
+import { DEFAULT_CLI_PROVIDER_ID } from '../cli-provider/registry.js';
 
 const VALID_RUNTIMES: ReadonlySet<ContainerBackend> = new Set([
   'docker',
   'podman',
+  'direct',
 ]);
 
 function err(
@@ -107,21 +109,21 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     errors.push(
       err(
         'container_runtime',
-        `Must be "docker" or "podman", got ${JSON.stringify(containerRuntime)}.`,
-        'Set container_runtime to "docker" or "podman".',
+        `Must be "docker", "podman", or "direct", got ${JSON.stringify(containerRuntime)}.`,
+        'Set container_runtime to "docker", "podman", or "direct".',
       ),
     );
   }
 
   const rawCliProvider = data['cli_provider'];
-  let cliProvider = 'copilot';
+  let cliProvider = DEFAULT_CLI_PROVIDER_ID;
   if (rawCliProvider !== undefined) {
     if (typeof rawCliProvider !== 'string' || rawCliProvider.trim() === '') {
       errors.push(
         err(
           'cli_provider',
           `Must be a non-empty string when present, got ${JSON.stringify(rawCliProvider)}.`,
-          'Set cli_provider to "copilot" or remove it to use the default.',
+          `Set cli_provider to a registered provider or remove it to use the default (${DEFAULT_CLI_PROVIDER_ID}).`,
         ),
       );
     } else {
@@ -280,6 +282,23 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     completedTaskRuntimeRetentionMs = rawRetentionMs;
   }
 
+  // auto_merge
+  let autoMerge = false;
+  const rawAutoMerge = data['auto_merge'];
+  if (rawAutoMerge === undefined) {
+    autoMerge = false;
+  } else if (typeof rawAutoMerge !== 'boolean') {
+    errors.push(
+      err(
+        'auto_merge',
+        `Must be a boolean, got ${JSON.stringify(rawAutoMerge)}.`,
+        'Set auto_merge to true or false.',
+      ),
+    );
+  } else {
+    autoMerge = rawAutoMerge;
+  }
+
   // mcp_port
   let mcpPort = 8811;
   const rawPort = data['mcp_port'];
@@ -378,6 +397,7 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
       max_retained_failed_task_worktrees: maxRetainedFailedTaskWorktrees,
       max_retry_generations_per_slug: maxRetryGenerationsPerSlug,
       completed_task_runtime_retention_ms: completedTaskRuntimeRetentionMs,
+      auto_merge: autoMerge,
       mcp_port: mcpPort,
       repo_context_mcp_external_mount_roots: repoContextMcpExternalMountRoots,
     } satisfies PlatformConfig,

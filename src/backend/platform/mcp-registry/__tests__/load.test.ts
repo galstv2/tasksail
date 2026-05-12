@@ -319,11 +319,11 @@ describe('volume path variable reference validation', () => {
 
 describe('buildContext path validation', () => {
   it('accepts buildContext that resolves to repo root', () => {
-    // docker/repo-context-mcp/Dockerfile + ../.. = .
+    // runtime/docker/repo-context-mcp/Dockerfile + ../../.. = .
     const data = validRegistry();
     const compose = (data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>;
-    compose['dockerfile'] = 'docker/repo-context-mcp/Dockerfile';
-    compose['buildContext'] = '../..';
+    compose['dockerfile'] = 'runtime/docker/repo-context-mcp/Dockerfile';
+    compose['buildContext'] = '../../..';
     const result = validateRegistry(data);
     expect(result.ok).toBe(true);
   });
@@ -331,7 +331,7 @@ describe('buildContext path validation', () => {
   it('rejects absolute buildContext', () => {
     const data = validRegistry();
     const compose = (data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>;
-    compose['dockerfile'] = 'docker/repo-context-mcp/Dockerfile';
+    compose['dockerfile'] = 'runtime/docker/repo-context-mcp/Dockerfile';
     compose['buildContext'] = '/etc';
     const result = validateRegistry(data);
     expect(result.ok).toBe(false);
@@ -343,8 +343,8 @@ describe('buildContext path validation', () => {
   it('rejects buildContext that escapes repo root', () => {
     const data = validRegistry();
     const compose = (data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>;
-    compose['dockerfile'] = 'docker/repo-context-mcp/Dockerfile';
-    compose['buildContext'] = '../../..';
+    compose['dockerfile'] = 'runtime/docker/repo-context-mcp/Dockerfile';
+    compose['buildContext'] = '../../../..';
     const result = validateRegistry(data);
     expect(result.ok).toBe(false);
     if (!result.ok) {

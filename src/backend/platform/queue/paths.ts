@@ -67,8 +67,6 @@ export interface QueuePaths {
    */
   activeItemLink: () => string | undefined;
   queueLockDir: string;
-  /** Runtime state: which context pack is active for the current task. */
-  activeContextPackPath: string;
   /** Runtime state: queue ordering manifest. */
   queueOrderPath: string;
   /**
@@ -115,7 +113,6 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
       return path.join(activeItemsPath, markers[0]!);
     },
     queueLockDir: path.join(pendingDir, '.queue-lock.d'),
-    activeContextPackPath: path.join(platformQueueState, 'active-context-pack.json'),
     queueOrderPath: path.join(platformQueueState, 'queue-order.json'),
     activeItemsDir: path.join(pendingDir, '.active-items'),
     taskWorktree: (taskId: string) => path.join(tasksDir, taskId),
@@ -183,13 +180,11 @@ export function implementationStepsTemplatePath(
  * is not available. Used by functions that only receive pendingDir as a parameter.
  */
 export function deriveQueueStatePaths(pendingDir: string): {
-  activeContextPackPath: string;
   queueOrderPath: string;
 } {
   const repoRoot = path.resolve(pendingDir, '..', '..');
   const platformQueueState = path.join(repoRoot, '.platform-state', 'queue');
   return {
-    activeContextPackPath: path.join(platformQueueState, 'active-context-pack.json'),
     queueOrderPath: path.join(platformQueueState, 'queue-order.json'),
   };
 }

@@ -148,7 +148,7 @@ export function createCreateContextPackResponse(
     displayName: 'Test Pack',
     contextPackDir: '/tmp/context-packs/test-pack',
     discoveryRoot: '/repo',
-    discoveryMode: 'auto',
+    discoveryMode: 'monolith',
     estateType: 'monolith',
     defaultScopeMode: 'focused',
     bootstrapAnswersPath: '/tmp/bootstrap.json',

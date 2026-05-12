@@ -12,6 +12,7 @@ const posixExpand = (text: string, env: Record<string, string>): string =>
 const env = {
   COPILOT_HANDOFFS_DIR: 'AgentWorkSpace/tasks/t1/handoffs',
   COPILOT_IMPL_STEPS_DIR: 'AgentWorkSpace/tasks/t1/ImplementationSteps',
+  TASKSAIL_REALIGNMENT_STAGING_PATH: '.platform-state/runtime/realignment/r1/analysis.md',
 };
 
 const REPO_ROOT = join(import.meta.dirname, '../../../../..');
@@ -23,6 +24,8 @@ const MIGRATED_FILES = [
   '.github/copilot/instructions/planning-agent.instructions.md',
   '.github/copilot/prompts/start-task.prompt.md',
   '.github/copilot/prompts/plan-task.prompt.md',
+  '.github/copilot/prompts/retrospective-task.prompt.md',
+  '.github/copilot/prompts/realignment-task.prompt.md',
 ];
 
 describe('promptPathAudit — §1.7 migration', () => {
@@ -53,10 +56,17 @@ describe('promptPathAudit — §1.7 migration', () => {
           'tasks/t1/ImplementationSteps',
         );
       }
+
+      // If the file references TASKSAIL_REALIGNMENT_STAGING_PATH it must expand into the runtime staging path.
+      if (raw.includes('TASKSAIL_REALIGNMENT_STAGING_PATH')) {
+        expect(rendered, 'TASKSAIL_REALIGNMENT_STAGING_PATH must expand to runtime staging path').toContain(
+          '.platform-state/runtime/realignment/r1/analysis.md',
+        );
+      }
     });
   }
 
-  // Aggregate: across all 6 files the expanded corpus contains BOTH task paths
+  // Aggregate: across all migrated files the expanded corpus contains BOTH task paths
   it('corpus renders both tasks/t1/handoffs and tasks/t1/ImplementationSteps', () => {
     const corpus = MIGRATED_FILES.map((f) =>
       posixExpand(readFileSync(join(REPO_ROOT, f), 'utf-8'), env),

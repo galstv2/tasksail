@@ -541,8 +541,7 @@ Run local checks.
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
         self.assertTrue(
             "closeout.retrospective" in completed.stderr
-            or "closeout.retrospective" in completed.stderr
-            or (dropbox_dir / "blocked-retrospective.md").exists(),
+            or "Created follow-up task:" in completed.stdout,
             msg=(
                 "Expected either a closeout.retrospective-* warning "
                 "or a created follow-up task."
@@ -580,7 +579,7 @@ Run local checks.
         )
 
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
-        self.assertTrue((dropbox_dir / "allowed.md").exists())
+        self.assertIn("Created follow-up task:", completed.stdout)
 
     def test_queue_advance_allows_missing_routing_agent_ids(
         self,

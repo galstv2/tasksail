@@ -49,6 +49,10 @@ export interface CreateDropboxTaskOptions {
   selectedRepoIds?: string[];
   /** Selected focus IDs at submission time. */
   selectedFocusIds?: string[];
+  /** Primary repo ID at submission time. */
+  primaryRepoId?: string | null;
+  /** Primary focus ID at submission time. */
+  primaryFocusId?: string | null;
   /** Whether Deep Focus metadata should be persisted. */
   deepFocusEnabled?: boolean;
   /** Selected Deep Focus path relative to the primary repo root. */
@@ -178,6 +182,8 @@ export async function createDropboxTask(
     contextPackDir: (options.contextPackDir ?? '').trim() || undefined,
     contextPackId: (options.contextPackId ?? '').trim() || undefined,
     scopeMode: (options.scopeMode ?? '').trim() || undefined,
+    primaryRepoId: (options.primaryRepoId ?? '')?.trim() || undefined,
+    primaryFocusId: (options.primaryFocusId ?? '')?.trim() || undefined,
     selectedRepoIds: options.selectedRepoIds,
     selectedFocusIds: options.selectedFocusIds,
     deepFocusEnabled: options.deepFocusEnabled,
@@ -223,7 +229,7 @@ ${carryForwardSummary}
 
 ## Suggested Routing
 
-- Recommended Execution: ${suggestedPath}
+- Recommended Execution: ${suggestedPath === 'parallel' ? 'Complex' : 'Simple'}
 - Planner Notes: ${planningNotes}
 
 ## Source

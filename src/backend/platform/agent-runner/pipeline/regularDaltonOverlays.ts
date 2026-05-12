@@ -1,7 +1,6 @@
 import { readTextFile } from '../../core/index.js';
 import { resolveConventionsContext } from '../conventions.js';
 import { resolveCorrectionsContext } from '../corrections.js';
-import { resolveReinforcementContext } from '../reinforcement.js';
 import type { ResolvedContext } from '../types.js';
 
 async function resolveOptionalOverlay(
@@ -40,13 +39,11 @@ export async function formatRegularDaltonOverlaySections(
   const overlays = await Promise.all([
     resolveOptionalOverlay(() => resolveConventionsContext('dalton', contextPackDir, repoRoot)),
     resolveOptionalOverlay(() => resolveCorrectionsContext('dalton', contextPackDir, repoRoot)),
-    resolveOptionalOverlay(() => resolveReinforcementContext('dalton', contextPackDir, repoRoot)),
   ]);
 
-  const [conventions, corrections, reinforcement] = await Promise.all([
+  const [conventions, corrections] = await Promise.all([
     readOptionalOverlayContent(overlays[0]),
     readOptionalOverlayContent(overlays[1]),
-    readOptionalOverlayContent(overlays[2]),
   ]);
 
   const sections: string[] = [];
@@ -56,10 +53,6 @@ export async function formatRegularDaltonOverlaySections(
   if (corrections) {
     sections.push('---', '', '### Corrections', '', corrections, '');
   }
-  if (reinforcement) {
-    sections.push('---', '', '### Reinforcement', '', reinforcement, '');
-  }
-
   if (sections.length === 0) {
     return '';
   }

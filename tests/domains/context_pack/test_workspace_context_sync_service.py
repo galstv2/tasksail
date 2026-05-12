@@ -150,88 +150,51 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             )
             self.assertEqual(preview["folders_to_remove"], [])
 
-    def test_apply_writes_expected_folder_order(self) -> None:
+    def test_preview_accepts_v2_local_path_objects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             workspace_root = Path(temp_root)
-            estate_root = workspace_root / "estate-root"
             context_pack_dir = workspace_root / "contexts" / "orders-estate"
-            repo_one = estate_root / "services" / "orders-api"
-            operator_folder = workspace_root / "notes"
+            repo_one = workspace_root / "estate-root" / "services" / "orders-api"
             self.create_git_repo(repo_one)
-            operator_folder.mkdir(parents=True)
             context_pack_dir.mkdir(parents=True)
-            self.build_distributed_manifest(
-                workspace_root=workspace_root,
-                context_pack_dir=context_pack_dir,
-                repo_roots=[repo_one],
+            manifest_path = context_pack_dir / "qmd" / "repo-sources.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "manifest_version": "qmd-repo-sources/v2",
+                        "manifest_status": "approved",
+                        "context_pack_id": "orders-estate",
+                        "estate_type": "distributed-platform",
+                        "qmd_scope_root": "qmd/context-packs/orders-estate",
+                        "primary_working_repo_ids": ["services-orders-api"],
+                        "primary_focus_area_ids": [],
+                        "repositories": [
+                            {
+                                "repo_id": "services-orders-api",
+                                "repo_name": "Orders Api",
+                                "local_paths": [
+                                    {
+                                        "host": str(repo_one.resolve()),
+                                        "container": None,
+                                    }
+                                ],
+                                "system_layer": "backend",
+                                "repository_type": "primary",
+                            }
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
             )
-            workspace_path = self.write_workspace_file(
-                workspace_root,
-                [{"path": "."}, {"path": str(operator_folder)}],
-            )
+            self.write_workspace_file(workspace_root, [{"path": "."}])
 
-            service = WorkspaceContextSyncService(
-                workspace_root=workspace_root
-            )
-            service.apply_sync(
-                context_pack_dir,
-                scope_mode="focused",
-            )
+            service = WorkspaceContextSyncService(workspace_root=workspace_root)
+            preview = service.preview_sync(context_pack_dir, scope_mode="focused")
 
-            workspace_payload = json.loads(
-                workspace_path.read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                workspace_payload["folders"],
-                [
-                    {"path": "."},
-                    {"path": str(operator_folder)},
-                    {"path": str(repo_one.resolve())},
-                ],
-            )
-
-    def test_clear_preserves_platform_owned_and_operator_owned_folders(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_root:
-            workspace_root = Path(temp_root)
-            estate_root = workspace_root / "estate-root"
-            context_pack_dir = workspace_root / "contexts" / "orders-estate"
-            repo_one = estate_root / "services" / "orders-api"
-            operator_folder = workspace_root / "notes"
-            self.create_git_repo(repo_one)
-            operator_folder.mkdir(parents=True)
-            context_pack_dir.mkdir(parents=True)
-            self.build_distributed_manifest(
-                workspace_root=workspace_root,
-                context_pack_dir=context_pack_dir,
-                repo_roots=[repo_one],
-            )
-            workspace_path = self.write_workspace_file(
-                workspace_root,
-                [{"path": "."}, {"path": str(operator_folder)}],
-            )
-
-            service = WorkspaceContextSyncService(
-                workspace_root=workspace_root
-            )
-            service.apply_sync(
-                context_pack_dir,
-                scope_mode="focused",
-            )
-            clear_result = service.clear_context_pack_workspace()
-
-            workspace_payload = json.loads(
-                workspace_path.read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                workspace_payload["folders"],
-                [{"path": "."}, {"path": str(operator_folder)}],
-            )
-            self.assertEqual(
-                clear_result["folders_to_remove"],
-                [str(repo_one.resolve())],
-            )
+            self.assertEqual(preview["folders_to_add"], [str(repo_one.resolve())])
 
     def test_duplicate_real_path_is_deduplicated_safely(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
@@ -371,7 +334,7 @@ class WorkspaceContextSyncServiceTests(unittest.TestCase):
             )
             self.assertEqual(
                 state["managed_folders"],
-                [str(repo_one.resolve())],
+                [],
             )
 
     def test_sync_state_persists_deep_focus_metadata(self) -> None:

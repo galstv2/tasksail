@@ -67,8 +67,19 @@ export function formatStreamMetadata(event: StreamEvent): string {
   return metadataParts.join(' · ');
 }
 
+export function messageEmbedsActorName(event: Pick<StreamEvent, 'actorName' | 'message'>): boolean {
+  const actorName = event.actorName?.trim();
+  if (!actorName) {
+    return false;
+  }
+  return event.message.startsWith(`Task [`) && event.message.includes(`] ${actorName}:`);
+}
+
 export function formatStreamMessage(event: StreamEvent): string {
-  return event.actorName ? `${event.actorName}: ${event.message}` : event.message;
+  if (!event.actorName || messageEmbedsActorName(event)) {
+    return event.message;
+  }
+  return `${event.actorName}: ${event.message}`;
 }
 
 export function filterActivityStream(

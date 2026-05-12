@@ -9,8 +9,8 @@ function successResult(response: Record<string, unknown>): DesktopInvokeResult {
   return { ok: true, response } as unknown as DesktopInvokeResult;
 }
 
-function errorResult(error: string, details?: string[]): DesktopInvokeResult {
-  return { ok: false, error, details } as DesktopInvokeResult;
+function errorResult(error: string, details?: string[], errorCode?: string): DesktopInvokeResult {
+  return { ok: false, error, details, errorCode } as DesktopInvokeResult;
 }
 
 describe('useIpcCall', () => {
@@ -42,8 +42,28 @@ describe('useIpcCall', () => {
       );
     });
 
-    expect(callResult).toEqual({ ok: false, error: 'bad request detail1' });
+    expect(callResult).toEqual({ ok: false, error: 'bad request', details: ['detail1'] });
     expect(onError).toHaveBeenCalledWith('bad request detail1');
+  });
+
+  it('returns raw structured error and details while setting formatted error text', async () => {
+    const onError = vi.fn();
+    const { result } = renderHook(() => useIpcCall(onError));
+
+    let callResult!: Awaited<ReturnType<typeof result.current.call>>;
+    await act(async () => {
+      callResult = await result.current.call(
+        () => Promise.resolve(errorResult('reseed in progress', ['pid=1234'], 'reseed_in_progress')),
+        { timeoutMs: 0 },
+      );
+    });
+
+    expect(callResult).toEqual({
+      ok: false,
+      error: 'reseed in progress',
+      details: ['pid=1234'],
+    });
+    expect(onError).toHaveBeenCalledWith('reseed in progress pid=1234');
   });
 
   it('normalizes a thrown Error', async () => {

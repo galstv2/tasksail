@@ -39,6 +39,7 @@ export type { InitializeTaskOptions as InitializeTaskArtifactOptions } from './l
 export {
   acquireDirLock,
   acquireDirLockOrThrow,
+  withDirLock,
   getActiveTaskIds,
   hasAnyActiveTask,
   nextPendingItemPath,
@@ -107,5 +108,3 @@ export { moveFailedItemToErrorItems, commitTaskSnapshot, requeueErrorItem, moveE
 export type { MoveFailedItemResult } from './errorItems.js';
 
 export { readQueueOrderManifest, writeQueueOrderManifest, insertIntoQueueManifest } from './operations.js';
-
-export { main as cli } from './cli.js';

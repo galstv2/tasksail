@@ -116,6 +116,45 @@ describe('main.stream', () => {
     expect(randomUUID).not.toHaveBeenCalled();
   });
 
+  it('includes the actor after the task GUID for task-scoped actor messages', async () => {
+    const { emitStreamEvent } = await import('./main.stream');
+    readFileSync.mockReturnValue(JSON.stringify({
+      schema_version: 2,
+      tasks: {
+        _unbound: {
+          open: [
+            {
+              taskId: 'TASK-A',
+              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+            },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    }));
+
+    emitStreamEvent({
+      message: 'Is running.',
+      source: 'runtime.agentSession',
+      role: 'workflow',
+      taskId: 'TASK-A',
+      actorName: 'Alice (Product Manager)',
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({
+        taskId: 'TASK-A',
+        actorName: 'Alice (Product Manager)',
+        message: 'Task [feedbeef] Alice (Product Manager): Is running.',
+      }),
+    );
+    expect(randomUUID).not.toHaveBeenCalled();
+  });
+
   it('leaves non-task and already-prefixed messages unchanged', async () => {
     const { emitStreamEvent } = await import('./main.stream');
 

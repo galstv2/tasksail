@@ -57,6 +57,54 @@
   flex-shrink: 0;
 }
 
+/* ── §24.01a  Header back / return-to-blank button ───────────────────── */
+
+.planner-modal__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ts-text-muted);
+  border-radius: var(--ts-radius-pill);
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease),
+              transform 100ms var(--ts-spring);
+}
+
+.planner-modal__back:hover:not(:disabled) {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.planner-modal__back:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.planner-modal__back:focus-visible {
+  outline: 2px solid var(--ts-accent-subtle);
+  outline-offset: 2px;
+}
+
+.planner-modal__back:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal__back {
+    transition: background var(--ts-duration) var(--ts-ease),
+                color var(--ts-duration) var(--ts-ease);
+  }
+  .planner-modal__back:active:not(:disabled) {
+    transform: none;
+  }
+}
+
 .planner-modal__header h2 {
   margin: 0;
   font-family: var(--ts-font-sans);
@@ -97,6 +145,80 @@
   border-bottom: 1px solid var(--ts-border);
   font-size: 0.74rem;
   color: var(--ts-text-muted);
+}
+
+.planner-modal__recents {
+  padding: 0.45rem 0.85rem;
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+}
+
+.planner-modal__recents-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  color: var(--ts-text-soft);
+  font-family: var(--ts-font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.planner-modal__recents-status,
+.planner-modal__recents-empty {
+  color: var(--ts-text-soft);
+  font-weight: 400;
+}
+
+.planner-modal__recents-empty {
+  font-size: 0.72rem;
+}
+
+.planner-modal__recents-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.planner-modal__recent-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1.3fr) auto auto minmax(4rem, 0.7fr) minmax(6rem, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  padding: 0.32rem 0.45rem;
+  text-align: left;
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.planner-modal__recent-row:hover:not(:disabled) {
+  background: var(--ts-bg-hover);
+}
+
+.planner-modal__recent-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.planner-modal__recent-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.planner-modal__recent-badge {
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent);
+  padding: 0.1rem 0.35rem;
+  white-space: nowrap;
 }
 
 .planner-modal__stage-bar {
@@ -744,4 +866,3 @@
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-

@@ -178,14 +178,14 @@ describe('buildComposeCommand', () => {
 
   it('resolves the default compose file for docker', () => {
     expect(resolveDefaultComposeFile('docker')).toBe(
-      'docker/compose/docker-compose.yml',
+      'runtime/docker/compose/docker-compose.yml',
     );
-    expect(DEFAULT_COMPOSE_FILE).toBe('docker/compose/docker-compose.yml');
+    expect(DEFAULT_COMPOSE_FILE).toBe('runtime/docker/compose/docker-compose.yml');
   });
 
   it('resolves the default compose file for podman', () => {
     expect(resolveDefaultComposeFile('podman')).toBe(
-      'podman/compose/podman-compose.yml',
+      'runtime/podman/compose/podman-compose.yml',
     );
   });
 });

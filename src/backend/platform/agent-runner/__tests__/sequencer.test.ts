@@ -90,6 +90,7 @@ function writeRegularDaltonOverlayFixture(
       'AgentWorkSpace',
       'qmd',
       'global',
+      'reinforcement',
       'agent-rewards',
       'software-engineer.md',
     );
@@ -226,8 +227,8 @@ describe('buildFleetPrompt', () => {
     expect(prompt).toContain('Follow the pack rules.');
     expect(prompt).toContain('### Corrections');
     expect(prompt).toContain('Avoid the previous bug.');
-    expect(prompt).toContain('### Reinforcement');
-    expect(prompt).toContain('Keep changes tightly scoped.');
+    expect(prompt).not.toContain('### Reinforcement');
+    expect(prompt).not.toContain('Keep changes tightly scoped.');
     expect(prompt).toContain('## Slice: slice-1');
     expect(prompt).toContain('Do the first thing.');
     expect(prompt).toContain('## Slice: slice-2');
@@ -369,8 +370,8 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).not.toContain('### Conventions');
     expect(prompt).toContain('### Corrections');
     expect(prompt).toContain('Avoid the previous bug.');
-    expect(prompt).toContain('### Reinforcement');
-    expect(prompt).toContain('Keep changes tightly scoped.');
+    expect(prompt).not.toContain('### Reinforcement');
+    expect(prompt).not.toContain('Keep changes tightly scoped.');
     expect(prompt.indexOf('Honor the contract.')).toBeLessThan(
       prompt.indexOf('## Implementation Slices (1 total)'),
     );
@@ -396,7 +397,7 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).toContain('## Behavioral Overlays');
     expect(prompt).toContain('### Conventions');
     expect(prompt).not.toContain('### Corrections');
-    expect(prompt).toContain('### Reinforcement');
+    expect(prompt).not.toContain('### Reinforcement');
   });
 
   it('preserves no-focus prompt behavior when no primary focus path is provided', async () => {

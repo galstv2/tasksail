@@ -4,6 +4,8 @@ import { basename, join } from 'node:path';
 import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
+import { withDirLock } from './dirLock.js';
+import { cleanupStagedPlannerFocusSnapshot } from './plannerFocusSnapshotStaging.js';
 import { removeTask } from './taskRegistry.js';
 
 export interface DeleteDropboxItemOptions {
@@ -19,17 +21,19 @@ export async function deleteDropboxItem(
   const queueName = normalizeQueueName(options.queueName);
   const targetPath = join(queuePaths.dropboxDir, queueName);
 
-  try {
-    await unlink(targetPath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`Delete dropbox item blocked: "${queueName}" does not exist in dropbox/.`);
-    }
-    throw err;
-  }
-
   const deletedTaskId = queueName.replace(/\.md$/, '');
-  try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+  await withDirLock(queuePaths.queueLockDir, 'Delete dropbox item', async () => {
+    try {
+      await unlink(targetPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Delete dropbox item blocked: "${queueName}" does not exist in dropbox/.`);
+      }
+      throw err;
+    }
+    await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+    try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+  });
 
   // Defense in depth: open tasks have not been activated, so no worktree should
   // exist. Call the discard helper anyway — it's idempotent and a no-op when

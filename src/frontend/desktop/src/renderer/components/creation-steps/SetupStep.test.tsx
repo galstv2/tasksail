@@ -62,6 +62,17 @@ describe('SetupStep', () => {
     expect(onChangeMode).toHaveBeenCalledWith('monolith');
   });
 
+  it('creation-mode select uses infrastructure estate labels without "platform"', () => {
+    render(<SetupStep {...defaultProps} />);
+    const select = screen.getByRole('combobox', { name: 'Creation mode' });
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.text);
+    expect(options).toContain('Monolith');
+    expect(options).toContain('Monolith + infrastructure');
+    expect(options).toContain('Distributed');
+    expect(options).toContain('Distributed + infrastructure');
+    expect(options.some((t) => /platform repos/i.test(t))).toBe(false);
+  });
+
   it('discover button calls onDiscoverPrefill', () => {
     const onDiscoverPrefill = vi.fn();
     render(<SetupStep {...defaultProps} onDiscoverPrefill={onDiscoverPrefill} />);
@@ -111,7 +122,7 @@ describe('SetupStep', () => {
       />,
     );
 
-    expect(screen.getByText('What kind of project are you building?')).toBeInTheDocument();
+    expect(screen.getByText('How is this project organized?')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Scan for repositories' })).toBeNull();
   });
 

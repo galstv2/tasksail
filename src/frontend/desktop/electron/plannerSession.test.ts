@@ -7,7 +7,69 @@ import { PassThrough } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlannerStreamEvent } from '../src/shared/desktopContract';
+import type { PlannerFocusSnapshot } from '../src/shared/desktopContract';
 import { PlannerSessionBroker } from './plannerSessionBroker';
+
+const sessionMocks = vi.hoisted(() => ({
+  getPlannerHistoryRecord: vi.fn(),
+  resolveSelectedPrimaryRepoRoot: vi.fn(),
+  resolveFocusedRepoRoot: vi.fn(),
+  clearStagingArtifacts: vi.fn(),
+  initializeStagedPlanningDraft: vi.fn(),
+  beginPendingRecord: vi.fn(),
+  appendPendingMessage: vi.fn(),
+  discardPendingRecord: vi.fn(),
+}));
+
+vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+}));
+
+vi.mock('../../../backend/platform/planner-history/store.js', () => ({
+  getPlannerHistoryRecord: sessionMocks.getPlannerHistoryRecord,
+}));
+
+vi.mock('../../../backend/platform/context-pack/focusedRepo.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/context-pack/focusedRepo.js')>();
+  return {
+    ...actual,
+    resolveSelectedPrimaryRepoRoot: sessionMocks.resolveSelectedPrimaryRepoRoot,
+    resolveFocusedRepoRoot: sessionMocks.resolveFocusedRepoRoot,
+  };
+});
+
+vi.mock('../../../backend/platform/core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/core/index.js')>();
+  return {
+    ...actual,
+    readTextFile: vi.fn(),
+    safeJsonParse: vi.fn(),
+  };
+});
+
+vi.mock('./main.contextPackCatalog', () => ({
+  readWorkspaceSyncStateSnapshot: vi.fn(async () => ({ activeContextPackId: 'orders' })),
+}));
+
+vi.mock('./main.staging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./main.staging')>();
+  return {
+    ...actual,
+    clearStagingArtifacts: sessionMocks.clearStagingArtifacts,
+    initializeStagedPlanningDraft: sessionMocks.initializeStagedPlanningDraft,
+  };
+});
+
+vi.mock('./plannerCliProcess', () => ({
+  getPlanningAgentAllowedRoots: vi.fn(() => ['/platform']),
+  spawnPlannerCliProcess: vi.fn(),
+}));
+
+vi.mock('./plannerHistory', () => ({
+  appendPendingMessage: sessionMocks.appendPendingMessage,
+  beginPendingRecord: sessionMocks.beginPendingRecord,
+  discardPendingRecord: sessionMocks.discardPendingRecord,
+}));
 
 type FakeChildProcess = ChildProcess & {
   stdout: PassThrough;
@@ -73,7 +135,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     child.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-1',
+      sessionId: 'provider-session-1',
       exitCode: 0,
       usage: { premiumRequests: 1 },
     }) + '\n'));
@@ -91,6 +153,7 @@ describe('PlannerSessionBroker', () => {
     expect(plannerEvents).toEqual([
       {
         eventType: 'planner.turn.started',
+        sessionId: 'planner-10',
         brokerStatus: 'running',
         turnId: 'turn-11',
         done: false,
@@ -98,6 +161,7 @@ describe('PlannerSessionBroker', () => {
       },
       {
         eventType: 'planner.turn.message',
+        sessionId: 'planner-10',
         brokerStatus: 'running',
         turnId: 'turn-11',
         done: false,
@@ -107,24 +171,26 @@ describe('PlannerSessionBroker', () => {
       },
       {
         eventType: 'planner.session.updated',
+        sessionId: 'planner-10',
         brokerStatus: 'running',
         turnId: 'turn-11',
         done: false,
         error: null,
-        cliSessionId: 'copilot-session-1',
+        cliSessionId: 'provider-session-1',
       },
       {
         eventType: 'planner.turn.completed',
+        sessionId: 'planner-10',
         brokerStatus: 'completed',
         turnId: 'turn-11',
         done: true,
         error: null,
-        cliSessionId: 'copilot-session-1',
+        cliSessionId: 'provider-session-1',
       },
     ]);
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      cliSessionId: 'copilot-session-1',
+      cliSessionId: 'provider-session-1',
       turnId: 'turn-11',
       content: 'Structured hello.',
       exitCode: 0,
@@ -136,7 +202,7 @@ describe('PlannerSessionBroker', () => {
       brokerStatus: 'completed',
       activeTurnId: null,
       queuedTurnCount: 0,
-      cliSessionId: 'copilot-session-1',
+      cliSessionId: 'provider-session-1',
       lastTurnSource: 'interactive-bootstrap',
       lastTurnOutcome: 'completed',
       lastTurnAt: expect.any(String),
@@ -177,10 +243,52 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     child.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-15',
+      sessionId: 'provider-session-15',
       exitCode: 0,
     }) + '\n'));
     child.emit('exit', 0);
+  });
+
+  it('does not emit queued planner events after endSession returns', async () => {
+    const plannerEvents: PlannerStreamEvent[] = [];
+    const child = createFakeChildProcess();
+    const broker = new PlannerSessionBroker({
+      emitEvent: (plannerEvent) => {
+        plannerEvents.push(plannerEvent);
+      },
+      spawnCliProcess: vi.fn(() => child),
+      now: vi.fn()
+        .mockReturnValueOnce(40)
+        .mockReturnValueOnce(41),
+    });
+
+    broker.startSession();
+    await expect(broker.sendMessage('Hello planner')).resolves.toBe('sent');
+    expect(plannerEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'planner.turn.started',
+        sessionId: 'planner-40',
+      }),
+    ]);
+
+    broker.endSession();
+    child.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'assistant.message',
+      data: { content: 'Late reply' },
+    }) + '\n'));
+    child.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result',
+      sessionId: 'copilot-late',
+      exitCode: 0,
+    }) + '\n'));
+    child.emit('exit', 0);
+
+    expect(plannerEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'planner.turn.started',
+        sessionId: 'planner-40',
+      }),
+    ]);
   });
 
   it('surfaces explicit failure when the Copilot turn exits non-zero', async () => {
@@ -206,6 +314,7 @@ describe('PlannerSessionBroker', () => {
     expect(plannerEvents).toEqual([
       {
         eventType: 'planner.turn.started',
+        sessionId: 'planner-20',
         brokerStatus: 'running',
         turnId: 'turn-21',
         done: false,
@@ -213,6 +322,7 @@ describe('PlannerSessionBroker', () => {
       },
       {
         eventType: 'planner.turn.failed',
+        sessionId: 'planner-20',
         brokerStatus: 'failed',
         turnId: 'turn-21',
         done: true,
@@ -259,7 +369,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-40',
+      sessionId: 'provider-session-40',
       exitCode: 0,
     }) + '\n'));
     firstChild.emit('exit', 0);
@@ -277,7 +387,7 @@ describe('PlannerSessionBroker', () => {
       expect.objectContaining({
         prompt: 'Turn two',
         promptMode: 'one-shot',
-        resumeSessionId: 'copilot-session-40',
+        resumeSessionId: 'provider-session-40',
       }),
     );
 
@@ -291,7 +401,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     secondChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-40',
+      sessionId: 'provider-session-40',
       exitCode: 0,
     }) + '\n'));
     secondChild.emit('exit', 0);
@@ -299,7 +409,7 @@ describe('PlannerSessionBroker', () => {
     await expect(secondSend).resolves.toBe('sent');
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      cliSessionId: 'copilot-session-40',
+      cliSessionId: 'provider-session-40',
       turnId: 'turn-42',
       content: 'Turn two reply',
       exitCode: 0,
@@ -311,7 +421,7 @@ describe('PlannerSessionBroker', () => {
       brokerStatus: 'completed',
       activeTurnId: null,
       queuedTurnCount: 0,
-      cliSessionId: 'copilot-session-40',
+      cliSessionId: 'provider-session-40',
       lastTurnSource: 'resumed-session',
       lastTurnOutcome: 'completed',
       lastTurnAt: expect.any(String),
@@ -365,7 +475,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-50',
+      sessionId: 'provider-session-50',
       exitCode: 0,
     }) + '\n'));
     firstChild.emit('exit', 0);
@@ -376,7 +486,7 @@ describe('PlannerSessionBroker', () => {
       expect.objectContaining({
         prompt: 'Second turn',
         promptMode: 'one-shot',
-        resumeSessionId: 'copilot-session-50',
+        resumeSessionId: 'provider-session-50',
       }),
     );
 
@@ -386,7 +496,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     secondChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-50',
+      sessionId: 'provider-session-50',
       exitCode: 0,
     }) + '\n'));
     secondChild.emit('exit', 0);
@@ -426,7 +536,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-60',
+      sessionId: 'provider-session-60',
       exitCode: 0,
     }) + '\n'));
     firstChild.emit('exit', 0);
@@ -466,7 +576,7 @@ describe('PlannerSessionBroker', () => {
       expect.objectContaining({
         prompt: 'Turn two',
         promptMode: 'one-shot',
-        resumeSessionId: 'copilot-session-60',
+        resumeSessionId: 'provider-session-60',
       }),
     );
     expect(spawnCliProcess).toHaveBeenNthCalledWith(3,
@@ -487,7 +597,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     thirdChild.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-63',
+      sessionId: 'provider-session-63',
       exitCode: 0,
     }) + '\n'));
     thirdChild.emit('exit', 0);
@@ -495,7 +605,7 @@ describe('PlannerSessionBroker', () => {
     await expect(recoverySend).resolves.toBe('sent');
     expect(broker.getState()).toEqual({
       brokerStatus: 'completed',
-      cliSessionId: 'copilot-session-63',
+      cliSessionId: 'provider-session-63',
       turnId: 'turn-63',
       content: 'Recovery reply',
       exitCode: 0,
@@ -526,6 +636,7 @@ describe('PlannerSessionBroker', () => {
     expect(plannerEvents).toEqual([
       {
         eventType: 'planner.turn.started',
+        sessionId: 'planner-30',
         brokerStatus: 'running',
         turnId: 'turn-31',
         done: false,
@@ -533,6 +644,7 @@ describe('PlannerSessionBroker', () => {
       },
       {
         eventType: 'planner.turn.failed',
+        sessionId: 'planner-30',
         brokerStatus: 'failed',
         turnId: 'turn-31',
         done: true,
@@ -577,7 +689,7 @@ describe('PlannerSessionBroker', () => {
     }) + '\n'));
     child.stdout.emit('data', Buffer.from(JSON.stringify({
       type: 'result',
-      sessionId: 'copilot-session-70',
+      sessionId: 'provider-session-70',
       exitCode: 0,
     }) + '\n'));
     child.emit('exit', 0);
@@ -595,5 +707,222 @@ describe('PlannerSessionBroker', () => {
     }
 
     expect(broker.getState()?.turnId).toBe('turn-71');
+  });
+});
+
+function buildFocusSnapshot(overrides: Partial<PlannerFocusSnapshot> = {}): PlannerFocusSnapshot {
+  return {
+    version: 1,
+    contextPackDir: '/contextpacks/orders',
+    contextPackId: 'orders',
+    title: 'Parent task',
+    primaryRepoId: 'orders-api',
+    primaryRepoRoot: '/repos/orders-api',
+    primaryFocusRelativePath: 'src/api',
+    primaryFocusTargetKind: 'directory',
+    primaryFocusTargets: [
+      { path: 'src/api', kind: 'directory', role: 'anchor' },
+    ],
+    selectedTestTarget: { path: 'tests/api', kind: 'directory' },
+    supportTargets: [{ path: 'docs/api.md', kind: 'file', effectiveScope: 'full-directory' }],
+    deepFocusEnabled: true,
+    contextPackBinding: {
+      contextPackDir: '/contextpacks/orders',
+      contextPackId: 'orders',
+      scopeMode: 'selected',
+      selectedRepoIds: ['orders-api'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/api',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        { path: 'src/api', kind: 'directory', role: 'anchor' },
+      ],
+      selectedTestTarget: { path: 'tests/api', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'docs/api.md', kind: 'file', effectiveScope: 'full-directory' }],
+    },
+    ...overrides,
+  };
+}
+
+describe('plannerSession.startSession child-task focus snapshots', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    sessionMocks.clearStagingArtifacts.mockResolvedValue(undefined);
+    sessionMocks.initializeStagedPlanningDraft.mockResolvedValue({
+      version: 1,
+      ownership: 'planner-session',
+      sessionId: 'planner-test',
+      draftFilename: 'draft.md',
+      draftPath: '/staging/draft.md',
+      createdAt: '2026-03-21T00:00:00Z',
+      title: 'Parent task',
+      primaryRepoId: 'orders-api',
+      primaryRepoRoot: '/repos/orders-api',
+      primaryFocusRelativePath: 'src/api',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      lineage: {
+        taskKind: 'child-task',
+        parentTaskId: 'PARENT-1',
+        rootTaskId: 'ROOT-1',
+        parentQmdRecordId: 'qmd-1',
+        parentQmdScope: 'qmd/context-packs/orders',
+        followUpReason: 'Correction.',
+      },
+      contextPackBinding: buildFocusSnapshot().contextPackBinding,
+    });
+  });
+
+  it('restores focus fields and context-pack binding from childTaskFocusSnapshot', async () => {
+    const { startSession } = await import('./plannerSession');
+    const snapshot = buildFocusSnapshot();
+
+    await startSession('/ignored/current-pack', undefined, undefined, snapshot, {
+      parentTaskId: 'PARENT-1',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders',
+      rootTaskId: 'ROOT-1',
+      followUpReason: 'Correction.',
+    });
+
+    expect(sessionMocks.initializeStagedPlanningDraft).toHaveBeenCalledWith(expect.objectContaining({
+      contextPackDir: '/contextpacks/orders',
+      title: 'Parent task',
+      contextPackBinding: snapshot.contextPackBinding,
+      focusedRepo: expect.objectContaining({
+        primaryRepoId: 'orders-api',
+        primaryRepoRoot: '/repos/orders-api',
+        primaryFocusRelativePath: 'src/api',
+        primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: snapshot.primaryFocusTargets,
+        selectedTestTarget: snapshot.selectedTestTarget,
+        supportTargets: snapshot.supportTargets,
+        deepFocusEnabled: true,
+        selectedRepoIds: ['orders-api'],
+        selectedFocusIds: ['api'],
+      }),
+    }));
+  });
+
+  it('sets staged lineage from childTaskLineage and forces child-task kind', async () => {
+    const { startSession } = await import('./plannerSession');
+
+    await startSession('/contextpacks/orders', undefined, undefined, buildFocusSnapshot(), {
+      parentTaskId: 'PARENT-1',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders',
+      rootTaskId: 'ROOT-1',
+      followUpReason: 'Correction.',
+    });
+
+    expect(sessionMocks.initializeStagedPlanningDraft).toHaveBeenCalledWith(expect.objectContaining({
+      lineage: {
+        taskKind: 'child-task',
+        parentTaskId: 'PARENT-1',
+        parentQmdRecordId: 'qmd-1',
+        parentQmdScope: 'qmd/context-packs/orders',
+        rootTaskId: 'ROOT-1',
+        followUpReason: 'Correction.',
+      },
+    }));
+  });
+
+  it('rejects childTaskLineage without childTaskFocusSnapshot', async () => {
+    const { startSession } = await import('./plannerSession');
+
+    await expect(startSession('/contextpacks/orders', undefined, undefined, undefined, {
+      parentTaskId: 'PARENT-1',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders',
+      rootTaskId: 'ROOT-1',
+      followUpReason: 'Correction.',
+    })).rejects.toThrow('Child-task planner sessions require a focus snapshot.');
+  });
+
+  it('does not read planner history for child-task snapshot starts', async () => {
+    const { startSession } = await import('./plannerSession');
+
+    await startSession('/contextpacks/orders', undefined, undefined, buildFocusSnapshot(), {
+      parentTaskId: 'PARENT-1',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders',
+      rootTaskId: 'ROOT-1',
+      followUpReason: 'Correction.',
+    });
+
+    expect(sessionMocks.getPlannerHistoryRecord).not.toHaveBeenCalled();
+  });
+
+  it('does not hydrate transcript messages for child-task snapshot starts', async () => {
+    const { startSession } = await import('./plannerSession');
+
+    await startSession('/contextpacks/orders', undefined, undefined, buildFocusSnapshot(), {
+      parentTaskId: 'PARENT-1',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/context-packs/orders',
+      rootTaskId: 'ROOT-1',
+      followUpReason: 'Correction.',
+    });
+
+    expect(sessionMocks.appendPendingMessage).toHaveBeenCalledTimes(0);
+    expect(sessionMocks.initializeStagedPlanningDraft).not.toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: expect.anything() }),
+    );
+  });
+
+  it('preserves replay history lookup behavior for replayConversationId', async () => {
+    const snapshot = buildFocusSnapshot();
+    sessionMocks.getPlannerHistoryRecord.mockResolvedValue({
+      id: 'conversation-1',
+      contextPackDir: snapshot.contextPackDir,
+      contextPackId: snapshot.contextPackId,
+      createdAt: '2026-03-21T00:00:00Z',
+      title: 'Replay task',
+      finalizedDestinationPath: '/repo/final.md',
+      sidecarSnapshot: {
+        version: 1,
+        ownership: 'planner-session',
+        sessionId: 'old',
+        draftFilename: 'draft.md',
+        draftPath: '/staging/draft.md',
+        createdAt: '2026-03-21T00:00:00Z',
+        title: 'Replay task',
+        primaryRepoId: snapshot.primaryRepoId,
+        primaryRepoRoot: snapshot.primaryRepoRoot,
+        primaryFocusRelativePath: snapshot.primaryFocusRelativePath,
+        deepFocusEnabled: snapshot.deepFocusEnabled,
+        primaryFocusTargetKind: snapshot.primaryFocusTargetKind,
+        primaryFocusTargets: snapshot.primaryFocusTargets,
+        selectedTestTarget: snapshot.selectedTestTarget,
+        supportTargets: snapshot.supportTargets,
+        lineage: {
+          taskKind: 'standard',
+          parentTaskId: '',
+          rootTaskId: '',
+          parentQmdRecordId: '',
+          parentQmdScope: '',
+          followUpReason: '',
+        },
+        contextPackBinding: snapshot.contextPackBinding,
+      },
+      transcript: [{ id: 'm1', role: 'operator', text: 'historical', timestamp: '2026-03-21T00:00:00Z' }],
+    });
+    const { startSession } = await import('./plannerSession');
+
+    await startSession('/contextpacks/orders', undefined, 'conversation-1');
+
+    expect(sessionMocks.getPlannerHistoryRecord).toHaveBeenCalledWith(expect.objectContaining({
+      contextPackDir: '/contextpacks/orders',
+      recordId: 'conversation-1',
+    }));
+    expect(sessionMocks.initializeStagedPlanningDraft).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Replay task',
+      contextPackBinding: snapshot.contextPackBinding,
+    }));
   });
 });

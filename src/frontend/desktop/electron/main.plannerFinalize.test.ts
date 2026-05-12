@@ -64,6 +64,7 @@ function buildPlannerStagingMetadata(overrides: {
   primaryFocusTargetKind?: 'directory' | 'file' | null;
   selectedTestTarget?: { path: string; kind: 'directory' | 'file' } | null;
   supportTargets?: Array<{ path: string; kind: 'directory' | 'file'; effectiveScope?: string }>;
+  contextPackBinding?: Record<string, unknown>;
 } = {}) {
   const draftFilename = overrides.draftFilename ?? '20260321T040000Z_backend-apps-api.md';
   return {
@@ -100,6 +101,7 @@ function buildPlannerStagingMetadata(overrides: {
       selectedFocusTargetKind: overrides.primaryFocusTargetKind ?? null,
       selectedTestTarget: overrides.selectedTestTarget ?? null,
       selectedSupportTargets: (overrides.supportTargets ?? []).map((target) => ({ ...target })),
+      ...overrides.contextPackBinding,
     },
   };
 }
@@ -160,7 +162,7 @@ describe('electron main — planner finalization', () => {
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'running' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Drafting...',
             exitCode: null,
@@ -243,7 +245,7 @@ Not bullet shaped
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -324,7 +326,7 @@ All signals are written as plain text without bullets or numbered items.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -364,6 +366,7 @@ All signals are written as plain text without bullets or numbered items.
 - Context Pack Dir: /contextpacks/orders
 - Context Pack ID: orders
 - Scope Mode: focus-selection
+- Primary Repo ID: backend
 - Selected Repo IDs: backend
 - Selected Focus IDs: api
 
@@ -392,7 +395,7 @@ None
 
 - Created By: Planning Agent
 - Created At (UTC): 2026-03-21T04:00:00Z
-`)),
+`, { contextPackBinding: { primaryRepoId: 'backend' } })),
       };
     });
     const { handleDesktopAction } = await import('./main');
@@ -406,7 +409,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -475,7 +478,7 @@ Ship something useful.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -517,6 +520,7 @@ Ship something useful.
 - Context Pack Dir: /contextpacks/orders
 - Context Pack ID: orders
 - Scope Mode: focus-selection
+- Primary Repo ID: backend
 - Selected Repo IDs: backend
 - Selected Focus IDs: api
 
@@ -545,13 +549,14 @@ None
 
 - Created By: Planning Agent
 - Created At (UTC): 2026-03-21T04:00:00Z
-`)),
+`, { contextPackBinding: { primaryRepoId: 'backend' } })),
       };
     });
     vi.doMock('../../../backend/platform/queue/createDropboxTask.js', () => ({
       createDropboxTask,
     }));
     const queueModule = await import('../../../backend/platform/queue');
+    const pipelineSupervisor = await import('../../../backend/platform/agent-runner/pipelineSupervisor.js');
     const { handleDesktopAction } = await import('./main');
     const endPlannerSession = vi.fn(async () => ({ ended: true }));
 
@@ -563,7 +568,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -592,6 +597,7 @@ None
       contextPackDir: '/contextpacks/orders',
       contextPackId: 'orders',
       scopeMode: 'focus-selection',
+      primaryRepoId: 'backend',
       selectedRepoIds: ['backend'],
       selectedFocusIds: ['api'],
       deepFocusEnabled: false,
@@ -600,12 +606,8 @@ None
       selectedTestTarget: null,
       selectedSupportTargets: [],
     }));
-    expect(queueModule.publishPendingItem).toHaveBeenCalledOnce();
-    expect(queueModule.publishPendingItem).toHaveBeenCalledWith(expect.objectContaining({
-      lockOperationName: 'planner.finalizeSpec',
-      repoRoot: expect.any(String),
-      contextPackDir: '/contextpacks/orders',
-    }));
+    expect(queueModule.publishPendingItem).not.toHaveBeenCalled();
+    expect(pipelineSupervisor.listActivePipelines).not.toHaveBeenCalled();
     expect(clearStagingArtifacts).not.toHaveBeenCalled();
     expect(endPlannerSession).toHaveBeenCalledOnce();
   });
@@ -679,7 +681,7 @@ None
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'failed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready before failure.',
             exitCode: 1,
@@ -778,7 +780,7 @@ Do not widen the selected boundary.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,
@@ -879,7 +881,7 @@ Complete the child-task intake with preserved lineage.
         {
           getPlannerSessionState: vi.fn(() => ({
             brokerStatus: 'completed' as const,
-            cliSessionId: 'copilot-session-1',
+            cliSessionId: 'provider-session-1',
             turnId: 'turn-1',
             content: 'Draft ready.',
             exitCode: 0,

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.constants import SKIP_DIR_NAMES
+from src.backend.mcp.path_resolution import normalize_manifest_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,10 @@ def analyze_workspace_counts(
     for repo in repos:
         local_paths = repo.get("local_paths") or []
         for local_path in local_paths:
-            root = Path(local_path).resolve()
+            normalized_path = normalize_manifest_local_path(local_path)
+            if normalized_path is None:
+                continue
+            root = Path(normalized_path).resolve()
             root_key = str(root)
             if root_key in seen_roots:
                 continue

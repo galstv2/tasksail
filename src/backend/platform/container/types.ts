@@ -57,6 +57,7 @@ export interface ContainerRuntime {
   readonly backend: ContainerBackend;
   readonly engineHost: ContainerEngineHost;
   readonly wslDistro: string | null;
+  readonly requiresComposeFile: boolean;
   composeUp(options: ComposeOptions): Promise<void>;
   composeDown(options: ComposeOptions): Promise<void>;
   healthcheck(services: ServiceHealthSpec[]): Promise<HealthResult[]>;
@@ -64,15 +65,15 @@ export interface ContainerRuntime {
   seedIndex(options: SeedOptions): Promise<void>;
 }
 
-const DEFAULT_COMPOSE_FILES: Record<ContainerBackend, string> = {
-  docker: 'docker/compose/docker-compose.yml',
-  podman: 'podman/compose/podman-compose.yml',
+const DEFAULT_COMPOSE_FILES: Partial<Record<ContainerBackend, string>> = {
+  docker: 'runtime/docker/compose/docker-compose.yml',
+  podman: 'runtime/podman/compose/podman-compose.yml',
 };
 
 /** Default compose file path relative to repo root, based on backend. */
-export function resolveDefaultComposeFile(backend: ContainerBackend): string {
+export function resolveDefaultComposeFile(backend: ContainerBackend): string | undefined {
   return DEFAULT_COMPOSE_FILES[backend];
 }
 
 /** @deprecated Use resolveDefaultComposeFile(backend) instead. */
-export const DEFAULT_COMPOSE_FILE = 'docker/compose/docker-compose.yml';
+export const DEFAULT_COMPOSE_FILE = 'runtime/docker/compose/docker-compose.yml';

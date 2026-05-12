@@ -8,7 +8,7 @@ import {
   templateSourceFor,
 } from './paths.js';
 import { initializeTaskArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
-import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
+import { stampRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 
 /**
  * Regex that taskId values MUST conform to.
@@ -183,6 +183,13 @@ export async function initializeTask(
     'Intake Source': source,
   };
 
+  // Manually-initialized tasks have no parent/QMD lineage, but the templates
+  // still expose a `- Task Kind:` line. Default it to 'standard' so the
+  // stamped handoff matches activation-flow output (operations.ts).
+  const lineage: Record<string, string> = {
+    'Task Kind': 'standard',
+  };
+
   const sections: Record<string, string> = {};
   if (rawRequest) {
     sections['Raw Request'] = rawRequest;
@@ -194,6 +201,7 @@ export async function initializeTask(
     handoffsDir: perTaskHandoffsDir,
     templatesDir: queuePaths.templatesDir,
     metadata,
+    lineage,
     sections,
     implementationStepsDir,
   });
@@ -202,7 +210,7 @@ export async function initializeTask(
   // When missing, treat as non-fatal for task initialization (best-effort).
   const resolvedContextPackDir: string | undefined = contextPackPath;
 
-  await syncRetrospectiveRequiredMetadata({
+  await stampRetrospectiveRequiredMetadata({
     repoRoot,
     handoffsDir: perTaskHandoffsDir,
     contextPackDir: resolvedContextPackDir,

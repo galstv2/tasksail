@@ -2,6 +2,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  PLANNER_FOCUS_FALLBACK_MESSAGE,
+  PLANNER_FOCUS_VALID_MESSAGE,
+} from './plannerFocusValidation';
+
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
 const show = vi.fn();
@@ -408,7 +413,7 @@ describe('electron main bootstrap — IPC dispatch', () => {
       },
     });
 
-    expect(sendPlannerMessage).toHaveBeenCalledWith('Hello planner');
+    expect(sendPlannerMessage).toHaveBeenCalledWith('Hello planner', undefined);
   });
 
   it('accepts repeated planner.sendMessage requests while broker-owned serialization is in effect', async () => {
@@ -467,8 +472,152 @@ describe('electron main bootstrap — IPC dispatch', () => {
       },
     });
 
-    expect(sendPlannerMessage).toHaveBeenNthCalledWith(1, 'First planner message');
-    expect(sendPlannerMessage).toHaveBeenNthCalledWith(2, 'Second planner message');
+    expect(sendPlannerMessage).toHaveBeenNthCalledWith(1, 'First planner message', undefined);
+    expect(sendPlannerMessage).toHaveBeenNthCalledWith(2, 'Second planner message', undefined);
     expect(maxConcurrent).toBe(1);
+  });
+
+  describe('planner.validateChildTaskFocus', () => {
+    function buildPayload() {
+      return {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        snapshot: {
+          version: 1 as const,
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          contextPackId: 'orders-estate',
+          title: 'Parent task',
+          primaryRepoId: 'platform',
+          primaryRepoRoot: '/tmp/repo',
+          primaryFocusRelativePath: 'src/planner',
+          primaryFocusTargetKind: 'directory' as const,
+          primaryFocusTargets: [{
+            path: 'src/planner',
+            kind: 'directory' as const,
+            repoId: 'platform',
+            focusId: 'planner',
+            role: 'anchor' as const,
+          }],
+          selectedTestTarget: { path: 'tests/planner.test.ts', kind: 'file' as const },
+          supportTargets: [],
+          deepFocusEnabled: true,
+          contextPackBinding: {
+            contextPackDir: '/tmp/context-packs/orders-estate',
+            contextPackId: 'orders-estate',
+            scopeMode: 'selected' as const,
+            selectedRepoIds: ['platform'],
+            selectedFocusIds: ['planner'],
+            deepFocusEnabled: true,
+            selectedFocusPath: 'src/planner',
+            selectedFocusTargetKind: 'directory' as const,
+            selectedFocusTargets: [{
+              path: 'src/planner',
+              kind: 'directory' as const,
+              repoId: 'platform',
+              focusId: 'planner',
+              role: 'anchor' as const,
+            }],
+            selectedTestTarget: { path: 'tests/planner.test.ts', kind: 'file' as const },
+            selectedSupportTargets: [],
+          },
+        },
+      };
+    }
+
+    it('returns mode: valid with the exact valid message text when no issues exist', async () => {
+      const { handleDesktopAction } = await import('./main');
+      const validateChildTaskFocus = vi.fn(async () => []);
+
+      await expect(
+        handleDesktopAction(
+          { action: 'planner.validateChildTaskFocus', payload: buildPayload() },
+          { validateChildTaskFocus },
+        ),
+      ).resolves.toEqual({
+        ok: true,
+        response: {
+          action: 'planner.validateChildTaskFocus',
+          mode: 'valid',
+          message: PLANNER_FOCUS_VALID_MESSAGE,
+          issues: [],
+        },
+      });
+    });
+
+    it('returns mode: fallback with the exact fallback message text when issues exist', async () => {
+      const { handleDesktopAction } = await import('./main');
+      const validateChildTaskFocus = vi.fn(async () => [
+        { code: 'context-pack-mismatch' as const, label: 'Context pack directory', path: '/tmp/old' },
+      ]);
+
+      const result = await handleDesktopAction(
+        { action: 'planner.validateChildTaskFocus', payload: buildPayload() },
+        { validateChildTaskFocus },
+      );
+
+      expect(result).toEqual({
+        ok: true,
+        response: expect.objectContaining({
+          action: 'planner.validateChildTaskFocus',
+          mode: 'fallback',
+          message: PLANNER_FOCUS_FALLBACK_MESSAGE,
+        }),
+      });
+    });
+
+    it('includes issue details in the fallback response', async () => {
+      const { handleDesktopAction } = await import('./main');
+      const validateChildTaskFocus = vi.fn(async () => [
+        { code: 'primary-focus-path-missing' as const, label: 'Primary focus path', path: '/tmp/repo/src/missing' },
+        { code: 'selected-repo-id-missing' as const, label: 'Selected repo ID', id: 'missing-repo' },
+      ]);
+
+      const result = await handleDesktopAction(
+        { action: 'planner.validateChildTaskFocus', payload: buildPayload() },
+        { validateChildTaskFocus },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.response).toMatchObject({
+        action: 'planner.validateChildTaskFocus',
+        mode: 'fallback',
+        issues: [
+          { code: 'primary-focus-path-missing', label: 'Primary focus path', path: '/tmp/repo/src/missing' },
+          { code: 'selected-repo-id-missing', label: 'Selected repo ID', id: 'missing-repo' },
+        ],
+      });
+    });
+
+    it('rejects malformed payloads at the IPC boundary', async () => {
+      const { handleDesktopAction } = await import('./main');
+      const validateChildTaskFocus = vi.fn(async () => []);
+
+      const result = await handleDesktopAction(
+        // Missing snapshot field -> request validator should reject before the handler runs.
+        { action: 'planner.validateChildTaskFocus', payload: { contextPackDir: '/tmp/context-packs/orders-estate' } },
+        { validateChildTaskFocus },
+      );
+
+      expect(result.ok).toBe(false);
+      expect(validateChildTaskFocus).not.toHaveBeenCalled();
+    });
+
+    it('returns a non-success envelope when validateChildTaskFocusSnapshot throws', async () => {
+      const { handleDesktopAction } = await import('./main');
+      const validateChildTaskFocus = vi.fn(async () => {
+        throw new Error('validator boom');
+      });
+
+      const result = await handleDesktopAction(
+        { action: 'planner.validateChildTaskFocus', payload: buildPayload() },
+        { validateChildTaskFocus },
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        action: 'planner.validateChildTaskFocus',
+        error: 'validator boom',
+      });
+    });
   });
 });

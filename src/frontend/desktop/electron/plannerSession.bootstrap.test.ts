@@ -1,6 +1,9 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const initializeStagedPlanningDraft = vi.fn();
 const clearStagingArtifacts = vi.fn();
@@ -70,6 +73,7 @@ describe('plannerSession staging bootstrap', () => {
       sessionId: 'planner-101',
       contextPackDir: '/contextpacks/orders',
       focusedRepo: {
+        estateType: 'distributed-platform',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'apps/api',
@@ -206,6 +210,7 @@ describe('plannerSession staging bootstrap', () => {
       sessionId: 'planner-101',
       contextPackDir: '/contextpacks/orders',
       focusedRepo: {
+        estateType: 'distributed-platform',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'src/handler.ts',
@@ -217,5 +222,137 @@ describe('plannerSession staging bootstrap', () => {
         selectedFocusIds: [],
       },
     });
+  });
+
+  it('prefers live UI Deep Focus state over disk-derived selection for staging', async () => {
+    const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'planner-ui-roots-'));
+    const contextPackDir = path.join(fixtureRoot, 'context-pack');
+    const platformRoot = path.join(fixtureRoot, 'platform');
+    const toolsRoot = path.join(fixtureRoot, 'tools');
+    mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+    mkdirSync(platformRoot, { recursive: true });
+    mkdirSync(toolsRoot, { recursive: true });
+    writeFileSync(
+      path.join(contextPackDir, 'qmd', 'repo-sources.json'),
+      JSON.stringify({
+        estate_type: 'distributed-platform',
+        repositories: [
+          {
+            repo_id: 'platform',
+            repository_type: 'primary',
+            local_paths: [platformRoot],
+          },
+          {
+            repo_id: 'tools',
+            repository_type: 'primary',
+            local_paths: [toolsRoot],
+          },
+        ],
+      }),
+      'utf-8',
+    );
+    const resolvedPlatformRoot = realpathSync(platformRoot);
+    const resolvedToolsRoot = realpathSync(toolsRoot);
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repos/stale',
+      visibleRepoRoots: ['/repos/stale'],
+      declaredRepoRoots: ['/repos/stale'],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'stale',
+      primaryFocusRelativePath: 'services/Acme.Api/Routes.cs',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'file',
+      selectedTestTarget: { path: 'services/Acme.Api.Tests', kind: 'directory' },
+      supportTargets: [{ path: 'libs/Acme.Events', kind: 'directory', effectiveScope: 'full-directory' }],
+      selectedRepoIds: ['stale'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    });
+    resolveFocusedRepoRoot.mockResolvedValue({
+      primaryRepoRoot: platformRoot,
+      visibleRepoRoots: [platformRoot, toolsRoot],
+      declaredRepoRoots: [platformRoot, toolsRoot],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      authoritySource: 'manifest-primary',
+    });
+    initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    clearStagingArtifacts.mockResolvedValue(undefined);
+
+    const uiSelection = {
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: 'libs/Acme.Models',
+      selectedFocusTargetKind: 'directory' as const,
+      selectedFocusTargets: [
+        {
+          path: 'libs/Acme.Models',
+          kind: 'directory' as const,
+          repoLocalPath: '/malicious/platform',
+          repoId: 'platform',
+          role: 'anchor' as const,
+          testTarget: { path: 'libs/Acme.Models.Tests', kind: 'directory' as const },
+        },
+        {
+          path: 'Acme.Seed',
+          kind: 'directory' as const,
+          repoLocalPath: '/malicious/tools',
+          repoId: 'tools',
+          role: 'primary' as const,
+        },
+      ],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    };
+
+    const plannerSession = await import('./plannerSession');
+    try {
+      await plannerSession.startSession(contextPackDir, uiSelection);
+
+      expect(resolveSelectedPrimaryRepoRoot).not.toHaveBeenCalled();
+      expect(initializeStagedPlanningDraft).toHaveBeenCalledWith({
+        sessionId: 'planner-101',
+        contextPackDir,
+        focusedRepo: {
+          estateType: 'distributed-platform',
+          primaryRepoId: 'platform',
+          primaryRepoRoot: resolvedPlatformRoot,
+          primaryFocusRelativePath: 'libs/Acme.Models',
+          deepFocusEnabled: true,
+          primaryFocusTargetKind: 'directory',
+          primaryFocusTargets: [
+            {
+              ...uiSelection.selectedFocusTargets[0],
+              repoLocalPath: resolvedPlatformRoot,
+            },
+            {
+              ...uiSelection.selectedFocusTargets[1],
+              repoLocalPath: resolvedToolsRoot,
+            },
+          ],
+          selectedTestTarget: { path: 'libs/Acme.Models.Tests', kind: 'directory' },
+          supportTargets: [],
+          selectedRepoIds: ['platform', 'tools'],
+          selectedFocusIds: [],
+        },
+      });
+      expect(collectFocusedRepoTargetDirectoryRoots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          primaryRepoRoot: resolvedPlatformRoot,
+          visibleRepoRoots: [resolvedPlatformRoot, resolvedToolsRoot],
+          primaryFocusTargets: expect.arrayContaining([
+            expect.objectContaining({ repoLocalPath: resolvedPlatformRoot }),
+            expect.objectContaining({ repoLocalPath: resolvedToolsRoot }),
+          ]),
+        }),
+      );
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

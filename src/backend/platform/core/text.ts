@@ -1,3 +1,5 @@
+import { loadMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
+
 /**
  * Remove leading and trailing whitespace from a string.
  */
@@ -65,6 +67,10 @@ export function extractFrontmatter(
   return { frontmatter: match[1], body: match[2] };
 }
 
+export function stripHtmlComments(value: string): string {
+  return value.replace(/<!--[\s\S]*?-->/g, '');
+}
+
 /**
  * Extract the body content of a markdown ## section by heading name.
  * Returns empty string if the section is not found.
@@ -73,12 +79,42 @@ export function extractMarkdownSection(
   content: string,
   sectionName: string,
 ): string {
-  const regex = new RegExp(
-    `^## ${escapeRegExp(sectionName)}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`,
-    'm',
-  );
-  const match = content.match(regex);
-  return match ? match[1].trim() : '';
+  const contract = loadMarkdownContract();
+  const lines = content.split(/\r?\n/);
+  const body: string[] = [];
+  let inSection = false;
+  let inFence: string | null = null;
+
+  for (const rawLine of lines) {
+    if (inFence && rawLine.trim() === inFence) {
+      inFence = null;
+    } else {
+      const fenceMatch = contract.compiled.fenceOpen.exec(rawLine);
+      if (fenceMatch?.[contract.groups.fenceMarker]) {
+        inFence = fenceMatch[contract.groups.fenceMarker]!;
+      }
+    }
+
+    if (!inFence) {
+      const headingMatch = contract.compiled.heading.exec(rawLine);
+      const heading = headingMatch?.[contract.groups.headingName]?.trim();
+      if (heading !== undefined) {
+        if (inSection) {
+          break;
+        }
+        if (heading === sectionName) {
+          inSection = true;
+        }
+        continue;
+      }
+    }
+
+    if (inSection) {
+      body.push(rawLine);
+    }
+  }
+
+  return body.join('\n').trim();
 }
 
 export function escapeRegExp(str: string): string {

@@ -16,6 +16,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
 });
 
 function createClient(overrides?: Partial<DesktopShellClient>): DesktopShellClient {
@@ -121,6 +122,50 @@ describe('useContextPackCreation', () => {
     expect(result.current.contextPackCreationModalProps.draft.contextPackDir).toBe('/custom/path');
   });
 
+  it('persists draft state across close and reopen', () => {
+    const { result } = renderCreationHook(createClient());
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+    act(() => {
+      result.current.contextPackCreationModalProps.onDraftFieldChange('estateName', 'Persisted Estate');
+      result.current.contextPackCreationModalProps.onDraftFieldChange('creationOrigin', 'new');
+    });
+    act(() => {
+      result.current.contextPackCreationModalProps.onWizardStepChange?.('project-name');
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onClose();
+    });
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    expect(result.current.contextPackCreationModalProps.isOpen).toBe(true);
+    expect(result.current.contextPackCreationModalProps.draft.estateName).toBe('Persisted Estate');
+    expect(result.current.contextPackCreationModalProps.draft.creationOrigin).toBe('new');
+    expect(result.current.contextPackCreationModalProps.wizardStep).toBe('project-name');
+  });
+
+  it('prefills from repo intent when no persisted draft exists', async () => {
+    const client = createClient();
+    const { result } = renderCreationHook(client);
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen({
+        kind: 'prefill-from-repo',
+        repoRoot: '/tmp/current-repo',
+      });
+    });
+
+    expect(result.current.contextPackCreationModalProps.draft.discoveryRoot).toBe('/tmp/current-repo');
+    await waitFor(() => {
+      expect(client.discoverContextPackPrefill).toHaveBeenCalled();
+    });
+  });
+
   it('navigates forward through steps: setup → shape → review', () => {
     const { result } = renderCreationHook(createClient());
 
@@ -174,6 +219,80 @@ describe('useContextPackCreation', () => {
     });
 
     expect(result.current.contextPackCreationModalProps.step).toBe('setup');
+  });
+
+  it('blocks distributed shape advancement until a primary repository is selected', () => {
+    const { result } = renderCreationHook(createClient());
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onChangeMode('distributed-platform');
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    const repoKey = result.current.contextPackCreationModalProps.draft.repositories[0]?.key;
+    expect(repoKey).toBeTruthy();
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onSetPrimaryRepository(repoKey!);
+    });
+
+    expect(result.current.contextPackCreationModalProps.canGoNext).toBe(false);
+    expect(result.current.contextPackCreationModalProps.canGoNextReason).toBe(
+      'Mark at least one repository as primary to continue.',
+    );
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    expect(result.current.contextPackCreationModalProps.step).toBe('shape');
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onSetPrimaryRepository(repoKey!);
+    });
+
+    expect(result.current.contextPackCreationModalProps.canGoNext).toBe(true);
+  });
+
+  it('blocks monolith shape advancement until a focus area exists', () => {
+    const { result } = renderCreationHook(createClient());
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onChangeMode('monolith-platform');
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    expect(result.current.contextPackCreationModalProps.step).toBe('shape');
+    expect(result.current.contextPackCreationModalProps.canGoNext).toBe(false);
+    expect(result.current.contextPackCreationModalProps.canGoNextReason).toBe(
+      'Add at least one focus area to continue.',
+    );
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onNext();
+    });
+
+    expect(result.current.contextPackCreationModalProps.step).toBe('shape');
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onAddFocusArea();
+    });
+
+    expect(result.current.contextPackCreationModalProps.canGoNext).toBe(true);
   });
 
   it('close resets to closed state', () => {
@@ -277,6 +396,7 @@ describe('useContextPackCreation', () => {
     act(() => {
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'role', 'backend');
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'language', 'python');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'primary', true);
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(
         firstPartKey!,
         'location',
@@ -393,6 +513,7 @@ describe('useContextPackCreation', () => {
     act(() => {
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'role', 'backend');
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'language', 'python');
+      result.current.contextPackCreationModalProps.onWizardUpdatePart?.(firstPartKey!, 'primary', true);
       result.current.contextPackCreationModalProps.onWizardUpdatePart?.(
         firstPartKey!,
         'location',

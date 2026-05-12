@@ -48,6 +48,15 @@ describe('authoritativeSelectionReader', () => {
     );
   }
 
+  function writeStaleQueueSelection(selection: object): void {
+    const queueDir = path.join(platformRoot, '.platform-state', 'queue');
+    mkdirSync(queueDir, { recursive: true });
+    writeFileSync(
+      path.join(queueDir, ['active', 'context', 'pack'].join('-') + '.json'),
+      JSON.stringify(selection, null, 2),
+    );
+  }
+
   it('hydrates distributed legacy primary through manifest repo_id', async () => {
     const toolsRepo = makeRepo('tools');
     writeManifest({
@@ -154,6 +163,25 @@ describe('authoritativeSelectionReader', () => {
       '[deep-focus] discarded malformed legacy primaries:',
       'could not resolve primary scalar through manifest.',
     );
+  });
+
+  it('uses workspace sync when stale queue selection state conflicts without a task id', async () => {
+    writeWorkspaceSyncState({
+      selected_repo_ids: ['workspace-repo'],
+      selected_focus_ids: ['workspace-focus'],
+    });
+    writeStaleQueueSelection({
+      contextPackDir: packDir,
+      contextPackId: 'stale',
+      selectedRepoIds: ['stale-repo'],
+      selectedFocusIds: ['stale-focus'],
+    });
+
+    const selection = await resolveAuthoritativeSelection(packDir, platformRoot);
+
+    expect(selection?.selectedRepoIds).toEqual(['workspace-repo']);
+    expect(selection?.selectedFocusIds).toEqual(['workspace-focus']);
+    expect(selection?.source).toBe('workspace-sync-state');
   });
 
   it('hydrates per-primary testTarget and supportTargets from snake_case keys', () => {

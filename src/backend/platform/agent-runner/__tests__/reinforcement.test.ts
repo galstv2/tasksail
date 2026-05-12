@@ -1,15 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import type { AgentId } from '../../core/types.js';
 
-const { mockExistsSync } = vi.hoisted(() => ({
-  mockExistsSync: vi.fn(),
+const { runPython, readFile, writeTextFile } = vi.hoisted(() => ({
+  runPython: vi.fn(),
+  readFile: vi.fn(),
+  writeTextFile: vi.fn(),
 }));
 
-vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
-  return { ...actual, existsSync: mockExistsSync };
-});
+vi.mock('../../core/index.js', () => ({
+  runPython,
+  writeTextFile,
+}));
+
+vi.mock('node:fs/promises', () => ({
+  readFile,
+}));
+
+vi.mock('../../cli-provider/index.js', () => ({
+  getActiveProvider: () => ({
+    homeDirName: () => '.copilot',
+    agentConfigPaths: () => ({ registry: '.github/copilot/agents/registry.json' }),
+  }),
+}));
 
 vi.mock('../../core/paths.js', () => ({
   findRepoRoot: () => '/fake/repo',
@@ -39,39 +52,86 @@ describe('roleRequiresReinforcement', () => {
 describe('resolveReinforcementContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runPython.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+    readFile.mockResolvedValue('# Reinforcement Context\n\n- Status: available\n');
+    writeTextFile.mockResolvedValue(undefined);
   });
 
-  it('returns available when per-agent .md exists', async () => {
-    const agentMdPath = path.join(
-      '/fake/repo', 'AgentWorkSpace', 'qmd', 'global', 'agent-rewards',
-      'software-engineer.md',
-    );
-
-    mockExistsSync.mockImplementation((p: string) => p === agentMdPath);
-
+  it('renders canonical runtime markdown through the Python renderer', async () => {
     const result = await resolveReinforcementContext(
       'dalton' as AgentId,
       '/packs/pack-a',
       '/fake/repo',
     );
 
-    expect(result.status).toBe('available');
-    expect(result.injectionEnabled).toBe(true);
-    expect(result.contextFile).toBe(agentMdPath);
+    const renderedPath = path.join(
+      '/fake/repo',
+      '.platform-state',
+      'runtime',
+      'reinforcement',
+      'software-engineer.md',
+    );
+
+    expect(runPython).toHaveBeenCalledWith(
+      path.join('/fake/repo', 'src', 'backend', 'scripts', 'python', 'run-role-agent-helper.py'),
+      [
+        'render-reinforcement-context',
+        '/packs/pack-a',
+        'software-engineer',
+        renderedPath,
+        path.join('/fake/repo', '.platform-state', 'runtime', 'reinforcement', 'software-engineer.env'),
+        '--repo-root',
+        '/fake/repo',
+      ],
+      expect.objectContaining({
+        cwd: '/fake/repo',
+      }),
+    );
+    expect(readFile).toHaveBeenCalledWith(renderedPath, 'utf-8');
+    expect(result).toEqual({
+      status: 'available',
+      reason: 'Rendered reinforcement context available for launch overlay.',
+      injectionEnabled: true,
+      contextFile: renderedPath,
+    });
+    expect(writeTextFile).toHaveBeenCalledWith(
+      path.join('/fake/repo', '.platform-state', 'runtime', 'reinforcement', 'software-engineer.diagnostics.json'),
+      expect.stringContaining('"status": "available"'),
+    );
   });
 
-  it('returns unavailable when per-agent .md absent', async () => {
-    mockExistsSync.mockReturnValue(false);
+  it('returns unavailable when rendered status is unavailable', async () => {
+    readFile.mockResolvedValue('# Reinforcement Context\n\n- Status: unavailable\n- Reason: missing\n');
 
     const result = await resolveReinforcementContext(
-      'dalton' as AgentId,
+      'alice' as AgentId,
+      '/packs/pack-a',
+      '/fake/repo',
+    );
+
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'missing',
+      injectionEnabled: false,
+    });
+    expect(writeTextFile).toHaveBeenCalledWith(
+      path.join('/fake/repo', '.platform-state', 'runtime', 'reinforcement', 'product-manager.diagnostics.json'),
+      expect.stringContaining('"reason": "missing"'),
+    );
+  });
+
+  it('returns unavailable when rendering fails', async () => {
+    runPython.mockRejectedValue(new Error('boom'));
+
+    const result = await resolveReinforcementContext(
+      'ron' as AgentId,
       '/packs/pack-a',
       '/fake/repo',
     );
 
     expect(result.status).toBe('unavailable');
     expect(result.injectionEnabled).toBe(false);
-    expect(result.reason).toBe('No per-agent reward memory has been generated yet.');
+    expect(result.reason).toContain('failed to render');
   });
 
   it('returns not-applicable for non-reinforcement agents', async () => {
@@ -83,6 +143,7 @@ describe('resolveReinforcementContext', () => {
 
     expect(result.status).toBe('not-applicable');
     expect(result.injectionEnabled).toBe(false);
+    expect(runPython).not.toHaveBeenCalled();
   });
 
   it('returns unavailable when no context pack is set', async () => {
@@ -94,5 +155,6 @@ describe('resolveReinforcementContext', () => {
 
     expect(result.status).toBe('unavailable');
     expect(result.injectionEnabled).toBe(false);
+    expect(runPython).not.toHaveBeenCalled();
   });
 });

@@ -37,6 +37,11 @@ class CreateFollowupTaskTests(unittest.TestCase):
         )
         return completed
 
+    def read_single_published_file(self, temp_path: Path) -> str:
+        files = list((temp_path / "AgentWorkSpace" / "pendingitems").glob("*.md"))
+        self.assertEqual(len(files), 1)
+        return files[0].read_text(encoding="utf-8")
+
     def test_followup_writes_child_task_to_dropbox(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
@@ -68,7 +73,7 @@ class CreateFollowupTaskTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, msg=completed.stderr)
-            content = output_path.read_text(encoding="utf-8")
+            content = self.read_single_published_file(temp_path)
             self.assertIn("- Task Kind: child-task", content)
             self.assertIn("- Parent Task ID: CAP-1001", content)
             self.assertIn("- Root Task ID: CAP-1000", content)
@@ -131,7 +136,7 @@ class CreateFollowupTaskTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, msg=completed.stderr)
-            content = output_path.read_text(encoding="utf-8")
+            content = self.read_single_published_file(temp_path)
             self.assertIn("- Root Task ID: CAP-1000", content)
 
 

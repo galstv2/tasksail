@@ -42,7 +42,7 @@
   border: 1px solid var(--ts-border);
   box-shadow: var(--ts-shadow-xl);
   overflow: hidden;
-  animation: modalShellIn 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: modalShellIn 300ms var(--ts-spring) both;
   animation-delay: 60ms;
 }
 

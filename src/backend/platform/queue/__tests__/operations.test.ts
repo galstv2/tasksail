@@ -7,8 +7,9 @@ import {
   readFileSync,
   existsSync,
   readdirSync,
+  realpathSync,
 } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -27,9 +28,12 @@ import {
   acquireDirLock,
   acquireDirLockOrThrow,
   moveDropboxItemsOnce,
+  moveDropboxItemToPending,
   queueNameForSource,
   activateNextPendingItemIfReady,
+  completeActiveItem,
 } from '../operations.js';
+import { deleteDropboxItem } from '../deleteDropboxItem.js';
 import { resetHandoffArtifacts } from '../lifecycle.js';
 import {
   HANDOFF_FILES,
@@ -59,8 +63,10 @@ function seedDistributedContextPack(
     path.join(contextPackDir, 'qmd', 'repo-sources.json'),
     JSON.stringify({
       manifest_version: 'qmd-repo-sources/v1',
+      manifest_status: 'approved',
       context_pack_id: options.packName ?? 'orders',
       estate_type: 'distributed-platform',
+      qmd_scope_root: `qmd/context-packs/${options.packName ?? 'orders'}`,
       repositories: [{
         repo_id: repoId,
         local_paths: [repoDir],
@@ -74,6 +80,67 @@ function seedDistributedContextPack(
     'utf-8',
   );
   return { contextPackDir, repoDir, repoId };
+}
+
+function seedTemplates(templatesDir: string): void {
+  for (const filename of HANDOFF_FILES) {
+    writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+  }
+  writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+}
+
+function initGitRepo(repoDir: string): string {
+  mkdirSync(repoDir, { recursive: true });
+  execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore' });
+  writeFileSync(path.join(repoDir, 'README.md'), `# ${path.basename(repoDir)}\n\n${repoDir}\n`, 'utf-8');
+  execFileSync('git', ['add', 'README.md'], { cwd: repoDir, stdio: 'ignore' });
+  execFileSync(
+    'git',
+    ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'initial'],
+    { cwd: repoDir, stdio: 'ignore' },
+  );
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir, encoding: 'utf-8' }).trim();
+}
+
+function seedDistributedContextPackWithRepos(
+  repoRoot: string,
+  repos: Array<{ repoId: string; repoDir: string }>,
+  workspaceRepoDirs: string[],
+  packName = 'multi-repo',
+): string {
+  const contextPackDir = path.join(repoRoot, 'contextpacks', packName);
+  mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+  writeFileSync(
+    path.join(contextPackDir, 'qmd', 'repo-sources.json'),
+    JSON.stringify({
+      manifest_version: 'qmd-repo-sources/v1',
+      manifest_status: 'approved',
+      context_pack_id: packName,
+      estate_type: 'distributed-platform',
+      qmd_scope_root: `qmd/context-packs/${packName}`,
+      repositories: repos.map((repo, index) => ({
+        repo_id: repo.repoId,
+        local_paths: [repo.repoDir],
+        repository_type: 'primary',
+        default_focusable: index === 0,
+        activation_priority: 100 - index,
+      })),
+      primary_working_repo_ids: [repos[0]?.repoId],
+      primary_focus_area_ids: [],
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+  writeFileSync(
+    path.join(repoRoot, 'tasksail.code-workspace'),
+    JSON.stringify({
+      folders: [
+        { path: '.' },
+        ...workspaceRepoDirs.map((repoDir) => ({ path: repoDir })),
+      ],
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+  return contextPackDir;
 }
 
 describe('acquireDirLock', () => {
@@ -175,11 +242,14 @@ describe('moveDropboxItemsOnce', () => {
   let pendingDir: string;
 
   beforeEach(() => {
+    // Nest under AgentWorkSpace so `path.resolve(pendingDir, '..', '..')`
+    // (used inside moveDropboxItemsOnce to derive repoRoot) yields a real
+    // tmpdir-scoped repoRoot rather than the OS tmpdir itself.
     tmpDir = mkdtempSync(path.join(tmpdir(), 'tq-move-'));
-    dropboxDir = path.join(tmpDir, 'dropbox');
-    pendingDir = path.join(tmpDir, 'pending');
-    mkdirSync(dropboxDir);
-    mkdirSync(pendingDir);
+    dropboxDir = path.join(tmpDir, 'AgentWorkSpace', 'dropbox');
+    pendingDir = path.join(tmpDir, 'AgentWorkSpace', 'pendingitems');
+    mkdirSync(dropboxDir, { recursive: true });
+    mkdirSync(pendingDir, { recursive: true });
   });
 
   afterEach(() => {
@@ -200,6 +270,44 @@ describe('moveDropboxItemsOnce', () => {
 
     // Source files should be gone
     expect(readdirSync(dropboxDir).length).toBe(0);
+  });
+
+  it('moves the staged planner focus snapshot into the new taskId dir and rewrites bindingKey', async () => {
+    writeFileSync(path.join(dropboxDir, 'task-a.md'), '# Task A');
+    const oldStagingPath = path.join(tmpDir, '.platform-state', 'runtime', 'tasks', 'task-a', 'planner-focus-snapshot.json');
+    mkdirSync(path.dirname(oldStagingPath), { recursive: true });
+    writeFileSync(oldStagingPath, JSON.stringify({
+      schemaVersion: 1,
+      bindingKey: 'task-a',
+      stagedAt: '2026-05-01T00:00:00.000Z',
+      markdownDestination: 'AgentWorkSpace/dropbox/task-a.md',
+      snapshot: { version: 1, contextPackId: 'orders' },
+    }));
+
+    const count = await moveDropboxItemsOnce(dropboxDir, pendingDir);
+    expect(count).toBe(1);
+
+    const pendingMarkdown = readdirSync(pendingDir).find((f) => f.endsWith('.md'));
+    expect(pendingMarkdown).toBeDefined();
+    const newTaskId = pendingMarkdown!.replace(/\.md$/u, '');
+
+    const newStagingPath = path.join(tmpDir, '.platform-state', 'runtime', 'tasks', newTaskId, 'planner-focus-snapshot.json');
+    expect(existsSync(newStagingPath)).toBe(true);
+    expect(existsSync(oldStagingPath)).toBe(false);
+
+    const movedEnvelope = JSON.parse(readFileSync(newStagingPath, 'utf-8'));
+    expect(movedEnvelope.bindingKey).toBe(newTaskId);
+    expect(movedEnvelope.markdownDestination).toContain(`pendingitems/${newTaskId}.md`);
+    expect(movedEnvelope.snapshot).toEqual({ version: 1, contextPackId: 'orders' });
+  });
+
+  it('still moves markdown when the staged planner focus snapshot is missing', async () => {
+    writeFileSync(path.join(dropboxDir, 'task-a.md'), '# Task A');
+
+    const count = await moveDropboxItemsOnce(dropboxDir, pendingDir);
+
+    expect(count).toBe(1);
+    expect(readdirSync(pendingDir).some((file) => file.endsWith('.md'))).toBe(true);
   });
 
   it('ignores non-markdown files', async () => {
@@ -246,6 +354,59 @@ describe('queueNameForSource', () => {
   });
 });
 
+describe('moveDropboxItemToPending planner focus snapshots', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-single-move-'));
+    const paths = resolveQueuePaths(repoRoot);
+    mkdirSync(paths.dropboxDir, { recursive: true });
+    mkdirSync(paths.pendingDir, { recursive: true });
+    mkdirSync(paths.activeItemsDir, { recursive: true });
+    writeFileSync(path.join(paths.activeItemsDir, 'already-active'), 'already-active.md', 'utf-8');
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  it('moves the staged snapshot to the timestamped pending taskId dir', async () => {
+    const paths = resolveQueuePaths(repoRoot);
+    writeFileSync(path.join(paths.dropboxDir, 'task-a.md'), '# Task A');
+    const oldStagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-a', 'planner-focus-snapshot.json');
+    mkdirSync(path.dirname(oldStagingPath), { recursive: true });
+    writeFileSync(oldStagingPath, JSON.stringify({
+      schemaVersion: 1,
+      bindingKey: 'task-a',
+      stagedAt: '2026-05-01T00:00:00.000Z',
+      markdownDestination: 'AgentWorkSpace/dropbox/task-a.md',
+      snapshot: { version: 1 },
+    }));
+
+    const result = await moveDropboxItemToPending({ repoRoot, fileName: 'task-a.md', insertAtIndex: 0 });
+    expect(existsSync(path.join(paths.pendingDir, result.movedItem))).toBe(true);
+
+    const newTaskId = result.movedItem.replace(/\.md$/u, '');
+    const newStagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', newTaskId, 'planner-focus-snapshot.json');
+    expect(existsSync(newStagingPath)).toBe(true);
+    expect(existsSync(oldStagingPath)).toBe(false);
+
+    const movedEnvelope = JSON.parse(readFileSync(newStagingPath, 'utf-8'));
+    expect(movedEnvelope.bindingKey).toBe(newTaskId);
+  });
+
+  it('still moves markdown when the staged snapshot is missing', async () => {
+    const paths = resolveQueuePaths(repoRoot);
+    writeFileSync(path.join(paths.dropboxDir, 'task-a.md'), '# Task A');
+
+    const result = await moveDropboxItemToPending({ repoRoot, fileName: 'task-a.md', insertAtIndex: 0 });
+
+    expect(existsSync(path.join(paths.pendingDir, result.movedItem))).toBe(true);
+    const newTaskId = result.movedItem.replace(/\.md$/u, '');
+    expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', newTaskId, 'planner-focus-snapshot.json'))).toBe(false);
+  });
+});
+
 describe('activateNextPendingItemIfReady', () => {
   let repoRoot: string;
   let pendingDir: string;
@@ -285,6 +446,152 @@ describe('activateNextPendingItemIfReady', () => {
 
     expect(result.activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-items', 'task-003'))).toBe(true);
+  });
+
+  it('transfers the staged planner focus snapshot envelope into the active task directory unwrapped', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    try {
+      writeFileSync(path.join(pendingDir, 'task-003.md'), '# Task');
+      const stagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-003', 'planner-focus-snapshot.json');
+      mkdirSync(path.dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, JSON.stringify({
+        schemaVersion: 1,
+        bindingKey: 'task-003',
+        stagedAt: '2026-05-01T00:00:00.000Z',
+        markdownDestination: 'AgentWorkSpace/pendingitems/task-003.md',
+        snapshot: { version: 1, contextPackId: 'orders' },
+      }));
+      seedTemplates(templatesDir);
+
+      const result = await activateNextPendingItemIfReady({
+        paths: resolveQueuePaths(repoRoot),
+        repoRoot,
+      });
+
+      expect(result.activated).toBe(true);
+      const activeSnapshotPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-003', '.planner-focus-snapshot.json');
+      expect(existsSync(activeSnapshotPath)).toBe(true);
+      // Active-dir copy must be unwrapped (no envelope) — python closeout reads
+      // the bare PlannerFocusSnapshot shape.
+      expect(JSON.parse(readFileSync(activeSnapshotPath, 'utf-8'))).toEqual({ version: 1, contextPackId: 'orders' });
+      // Staging file is unlinked after successful transfer.
+      expect(existsSync(stagingPath)).toBe(false);
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('activates successfully when the staged snapshot is missing', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    try {
+      writeFileSync(path.join(pendingDir, 'task-003.md'), '# Task');
+      seedTemplates(templatesDir);
+
+      const result = await activateNextPendingItemIfReady({
+        paths: resolveQueuePaths(repoRoot),
+        repoRoot,
+      });
+
+      expect(result.activated).toBe(true);
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('refuses activation while the bound context pack has an active reseed marker', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    try {
+      const { contextPackDir } = seedDistributedContextPack(repoRoot);
+      const binding = formatContextPackBindingSection({
+        contextPackDir,
+        contextPackId: 'orders',
+        scopeMode: 'focused',
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: [],
+        deepFocusEnabled: false,
+        selectedFocusPath: '',
+      });
+      writeFileSync(path.join(pendingDir, 'task-reseed.md'), `# Reseed blocked\n\n${binding}\n`);
+      writeFileSync(path.join(contextPackDir, '.reseed-in-progress.json'), JSON.stringify({
+        started_at: new Date().toISOString(),
+        pid: process.pid,
+        host: 'test-host',
+      }), 'utf-8');
+      seedTemplates(templatesDir);
+
+      await expect(activateNextPendingItemIfReady({
+        paths: resolveQueuePaths(repoRoot),
+        repoRoot,
+      })).rejects.toThrow('reseed is in progress');
+      expect(existsSync(path.join(pendingDir, 'task-reseed.md'))).toBe(true);
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('does not run merge detection sweep during activation', async () => {
+    const sourceRepo = path.join(repoRoot, 'source-repo');
+    const baseCommitSha = initGitRepo(sourceRepo);
+    const baseBranch = execFileSync('git', ['branch', '--show-current'], { cwd: sourceRepo, encoding: 'utf-8' }).trim();
+    const taskId = 'completed-handoff';
+    const branch = `task/${taskId}`;
+    execFileSync('git', ['checkout', '-b', branch], { cwd: sourceRepo, stdio: 'ignore' });
+    writeFileSync(path.join(sourceRepo, 'change.txt'), 'change\n');
+    execFileSync('git', ['add', 'change.txt'], { cwd: sourceRepo, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'task change'],
+      { cwd: sourceRepo, stdio: 'ignore' },
+    );
+    execFileSync('git', ['checkout', baseBranch], { cwd: sourceRepo, stdio: 'ignore' });
+    execFileSync('git', ['merge', '--ff-only', branch], { cwd: sourceRepo, stdio: 'ignore' });
+
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+      schema_version: 1,
+      taskId,
+      contextPackBinding: {
+        contextPackPath: null,
+        dataHostDir: null,
+        dataContainerDir: null,
+        repoBindings: [{
+          originalRoot: sourceRepo,
+          worktreeRoot: path.join(taskDir, 'worktrees', 'source-repo'),
+          worktreeBranch: branch,
+          baseCommitSha,
+        }],
+      },
+      materialization: { strategy: 'copy', cloned: [], skipped: [] },
+      frozenAt: new Date().toISOString(),
+      finalizedAt: new Date().toISOString(),
+      state: 'completed',
+    }, null, 2) + '\n');
+
+    const result = await activateNextPendingItemIfReady({
+      paths: resolveQueuePaths(repoRoot),
+      repoRoot,
+    });
+
+    expect(result.activated).toBe(false);
+    expect(existsSync(path.join(taskDir, '.task.json'))).toBe(true);
+    const branches = execFileSync('git', ['branch', '--list', branch], { cwd: sourceRepo, encoding: 'utf-8' });
+    expect(branches).toContain(branch);
   });
 
   it('seeds handoffs and ImplementationSteps templates when activating a pending item', async () => {
@@ -342,6 +649,141 @@ describe('activateNextPendingItemIfReady', () => {
     expect(readFileSync(stagedIntakePath, 'utf-8')).toBe('# Add search\n');
   });
 
+  it('stamps Core Metadata and Task Lineage labels into handoff templates', async () => {
+    // Seed the pending item with explicit lineage values so we can confirm
+    // the activation flow extracts them and forwards to stampHandoffTemplate.
+    const pendingMarkdown = [
+      '# Follow-up: tighten validation',
+      '',
+      '## Task Lineage',
+      '',
+      '- Task Kind: follow-up',
+      '- Parent Task ID: task-parent-007',
+      '- Root Task ID: task-root-001',
+      '- Parent QMD Record ID: qmd-2026-05-01-007',
+      '- Parent QMD Scope: orders',
+      '- Follow-Up Reason: ron-found-edge-case',
+      '',
+    ].join('\n');
+    writeFileSync(path.join(pendingDir, 'task-lineage-009.md'), pendingMarkdown);
+
+    const labeledTemplate = [
+      '# implementation-spec.md',
+      '',
+      '### Core Metadata',
+      '',
+      '- Task ID:',
+      '- Task Title:',
+      '- Initialized At (UTC):',
+      '- Active Branch:',
+      '- Intake Source:',
+      '',
+      '### Task Lineage',
+      '',
+      '- Task Kind:',
+      '- Parent Task ID:',
+      '- Root Task ID:',
+      '- Parent QMD Record ID:',
+      '- Parent QMD Scope:',
+      '- Follow-Up Reason:',
+      '',
+    ].join('\n');
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), labeledTemplate);
+    }
+    writeFileSync(
+      path.join(templatesDir, SLICE_TEMPLATE_FILENAME),
+      '# Slice Template\n',
+    );
+
+    const result = await activateNextPendingItemIfReady({
+      paths: resolveQueuePaths(repoRoot),
+      repoRoot,
+    });
+    expect(result.activated).toBe(true);
+
+    const stamped = readFileSync(
+      path.join(
+        repoRoot,
+        'AgentWorkSpace',
+        'tasks',
+        'task-lineage-009',
+        'handoffs',
+        'implementation-spec.md',
+      ),
+      'utf-8',
+    );
+
+    // Core Metadata
+    expect(stamped).toContain('- Task ID: task-lineage-009');
+    expect(stamped).toContain('- Task Title: Follow-up: tighten validation');
+    expect(stamped).toMatch(/- Initialized At \(UTC\): \d{4}-\d{2}-\d{2}T/);
+    expect(stamped).toContain('- Active Branch: unknown');
+    expect(stamped).toContain('- Intake Source: AgentWorkSpace/pendingitems/task-lineage-009.md');
+
+    // Task Lineage — extracted from the pending markdown
+    expect(stamped).toContain('- Task Kind: follow-up');
+    expect(stamped).toContain('- Parent Task ID: task-parent-007');
+    expect(stamped).toContain('- Root Task ID: task-root-001');
+    expect(stamped).toContain('- Parent QMD Record ID: qmd-2026-05-01-007');
+    expect(stamped).toContain('- Parent QMD Scope: orders');
+    expect(stamped).toContain('- Follow-Up Reason: ron-found-edge-case');
+  });
+
+  it('stamps the retrospective label during activation without mutating the counter', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    try {
+      const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+      mkdirSync(counterDir, { recursive: true });
+      const counterPath = path.join(counterDir, 'platform-core.json');
+      const originalCounter = {
+        schema_version: 'task-counter/v1',
+        context_pack_id: 'platform-core',
+        completed_count: 9,
+        cycle_count: 4,
+        last_archived_task_id: 'task-previous',
+        last_archived_at: '2026-01-01T00:00:00.000Z',
+        last_retrospective_at: '2026-01-01T00:00:00.000Z',
+        cycle_task_ids: ['task-previous'],
+      };
+      writeFileSync(counterPath, JSON.stringify(originalCounter, null, 2) + '\n', 'utf-8');
+      writeFileSync(path.join(pendingDir, 'task-activation-stamp.md'), '# Activation stamp\n');
+      for (const filename of HANDOFF_FILES) {
+        const template = filename === 'retrospective-input.md'
+          ? '# retrospective-input.md\n\n## Task Metadata\n\n- Task ID:\n- Retrospective Required: false\n'
+          : `# ${filename}\n\n- Task ID:\n`;
+        writeFileSync(path.join(templatesDir, filename), template);
+      }
+      writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+
+      const result = await activateNextPendingItemIfReady({
+        paths: resolveQueuePaths(repoRoot),
+        repoRoot,
+      });
+
+      expect(result.activated).toBe(true);
+      const taskHandoffsDir = path.join(
+        repoRoot,
+        'AgentWorkSpace',
+        'tasks',
+        'task-activation-stamp',
+        'handoffs',
+      );
+      const retrospective = readFileSync(path.join(taskHandoffsDir, 'retrospective-input.md'), 'utf-8');
+      const rawCounter = readFileSync(counterPath, 'utf-8');
+
+      expect(retrospective).toContain('- Retrospective Required: true');
+      expect(JSON.parse(rawCounter)).toEqual(originalCounter);
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
   it('clears prior runtime receipts only after the next task activates successfully', async () => {
     const taskRuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-005');
     const roleSessionsDir = path.join(taskRuntimeDir, 'role-sessions');
@@ -370,8 +812,7 @@ describe('activateNextPendingItemIfReady', () => {
     expect(existsSync(path.join(taskRuntimeDir, 'last-reset-ts'))).toBe(true);
   });
 
-  it('persists repo-root Deep Focus fields to the active-task sidecar during activation', async () => {
-    const activeContextPackPath = path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json');
+  it('persists repo-root Deep Focus fields to the task sidecar without writing queue singleton state', async () => {
     const { contextPackDir } = seedDistributedContextPack(repoRoot);
 
     const binding = formatContextPackBindingSection({
@@ -391,9 +832,10 @@ ${binding}
 
     Body
 `);
-    expect(extractContextPackBinding(readFileSync(path.join(pendingDir, 'task-006.md'), 'utf-8'))).toEqual(
-      expect.objectContaining({ contextPackDir }),
-    );
+    expect(extractContextPackBinding(readFileSync(path.join(pendingDir, 'task-006.md'), 'utf-8'))).toEqual({
+      kind: 'binding',
+      binding: expect.objectContaining({ contextPackDir }),
+    });
     for (const filename of HANDOFF_FILES) {
       writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
     }
@@ -406,13 +848,16 @@ ${binding}
     });
 
     expect(result.activated).toBe(true);
-    expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).toEqual(expect.objectContaining({
+    const sidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-006', '.task.json');
+    const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+    expect(sidecar.contextPackBinding.selection).toEqual(expect.objectContaining({
       contextPackDir,
       contextPackId: 'orders',
       deepFocusEnabled: true,
       selectedFocusPath: '',
     }));
-    expect(JSON.parse(readFileSync(activeContextPackPath, 'utf-8'))).not.toHaveProperty('selectedFocusTargetKind');
+    expect(sidecar.contextPackBinding.selection).toHaveProperty('selectedFocusTargetKind', null);
+    expect(existsSync(path.join(repoRoot, '.platform-state', 'queue'))).toBe(false);
   });
 
   it('preserves scoped selectedFocusTargets in task sidecars across parallel activation', async () => {
@@ -488,6 +933,103 @@ ${binding}
     }
   });
 
+  it('materializes selected focus target repos beyond visible workspace roots with deterministic collision-safe slugs', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    const repoA = path.join(repoRoot, 'external-repos', 'a', 'service');
+    const repoB = path.join(repoRoot, 'external-repos', 'b', 'service');
+    const shaA = initGitRepo(repoA);
+    const shaB = initGitRepo(repoB);
+    const contextPackDir = seedDistributedContextPackWithRepos(
+      repoRoot,
+      [
+        { repoId: 'platform', repoDir: repoA },
+        { repoId: 'tools', repoDir: repoB },
+      ],
+      [repoA],
+    );
+    const binding = formatContextPackBindingSection({
+      contextPackDir,
+      contextPackId: 'multi-repo',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api', 'seed'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        { repoLocalPath: repoA, repoId: 'platform', path: 'src', kind: 'directory', role: 'anchor' },
+        { repoLocalPath: repoB, repoId: 'tools', path: 'src', kind: 'directory', role: 'primary' },
+      ],
+    });
+    try {
+      writeFileSync(path.join(pendingDir, 'task-multi-repo.md'), `# Multi repo\n\n${binding}\n`);
+      seedTemplates(templatesDir);
+
+      const queuePaths = resolveQueuePaths(repoRoot);
+      const result = await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });
+
+      expect(result.activated).toBe(true);
+      const sidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-multi-repo', '.task.json');
+      const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+      const repoBindings = sidecar.contextPackBinding.repoBindings;
+      expect(repoBindings.map((binding: { originalRoot: string }) => binding.originalRoot)).toEqual([
+        realpathSync(repoA),
+        realpathSync(repoB),
+      ]);
+      expect(repoBindings.map((binding: { worktreeRoot: string }) => path.basename(binding.worktreeRoot))).toEqual([
+        `service-${shaA.slice(0, 8)}`,
+        `service-${shaB.slice(0, 8)}`,
+      ]);
+      expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-multi-repo', 'worktrees', `service-${shaA.slice(0, 8)}`))).toBe(true);
+      expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-multi-repo', 'worktrees', `service-${shaB.slice(0, 8)}`))).toBe(true);
+    } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('fails activation before sidecar or marker when a selected focus target repo is missing', async () => {
+    const repoA = path.join(repoRoot, 'external-repos', 'platform');
+    initGitRepo(repoA);
+    const missingRepo = path.join(repoRoot, 'external-repos', 'tools-missing');
+    const contextPackDir = seedDistributedContextPackWithRepos(
+      repoRoot,
+      [{ repoId: 'platform', repoDir: repoA }],
+      [repoA],
+      'missing-selected',
+    );
+    const binding = formatContextPackBindingSection({
+      contextPackDir,
+      contextPackId: 'missing-selected',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api', 'seed'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        { repoLocalPath: repoA, repoId: 'platform', path: 'src', kind: 'directory', role: 'anchor' },
+        { repoLocalPath: missingRepo, repoId: 'tools', path: 'src', kind: 'directory', role: 'primary' },
+      ],
+    });
+    writeFileSync(path.join(pendingDir, 'task-missing-selected.md'), `# Missing selected\n\n${binding}\n`);
+    seedTemplates(templatesDir);
+
+    const queuePaths = resolveQueuePaths(repoRoot);
+    await expect(activateNextPendingItemIfReady({ paths: queuePaths, repoRoot })).rejects.toThrow(
+      `activation-selected-repo-missing: selectedFocusTargets[1].repoLocalPath "${missingRepo}" does not exist for task "task-missing-selected"`,
+    );
+
+    expect(existsSync(path.join(queuePaths.activeItemsDir, 'task-missing-selected'))).toBe(false);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-missing-selected', '.task.json'))).toBe(false);
+    expect(existsSync(path.join(pendingDir, 'task-missing-selected.md'))).toBe(true);
+    expect(readdirSync(pendingDir)).toContain('task-missing-selected.md');
+  });
+
   it('refuses to activate an unbound task as a platform worktree while a context pack is active', async () => {
     const activePackDir = path.join(repoRoot, 'contextpacks', 'orders');
     mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
@@ -538,15 +1080,18 @@ describe('activateNextPendingItemIfReady shared MCP bootstrap', () => {
     const ensureSharedMcpRunning = vi.fn().mockRejectedValue(new Error('shared bootstrap failed'));
     vi.resetModules();
     vi.doMock('../../container/sharedMcp.js', () => ({ ensureSharedMcpRunning }));
+    vi.doMock('../../container/runtime.js', () => ({
+      createRuntimeFromConfig: vi.fn().mockResolvedValue({ requiresComposeFile: true }),
+    }));
     const { activateNextPendingItemIfReady: activateWithMock } = await import('../operations.js');
 
     const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
     const templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
     mkdirSync(pendingDir, { recursive: true });
     mkdirSync(templatesDir, { recursive: true });
-    mkdirSync(path.join(repoRoot, 'docker', 'compose'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'runtime', 'docker', 'compose'), { recursive: true });
     mkdirSync(path.join(repoRoot, 'config'), { recursive: true });
-    writeFileSync(path.join(repoRoot, 'docker', 'compose', 'docker-compose.yml'), 'services: {}\n');
+    writeFileSync(path.join(repoRoot, 'runtime', 'docker', 'compose', 'docker-compose.yml'), 'services: {}\n');
     writeFileSync(
       path.join(repoRoot, 'config', 'platform.default.json'),
       JSON.stringify({
@@ -580,6 +1125,52 @@ describe('activateNextPendingItemIfReady shared MCP bootstrap', () => {
     expect(existsSync(path.join(queuePaths.activeItemsDir, 'task-shared-mcp'))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-shared-mcp'))).toBe(false);
     expect(existsSync(path.join(pendingDir, 'task-shared-mcp.md'))).toBe(true);
+  });
+});
+
+describe('queue planner focus snapshot cleanup', () => {
+  let repoRoot: string;
+  let paths: ReturnType<typeof resolveQueuePaths>;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-snapshot-cleanup-'));
+    paths = resolveQueuePaths(repoRoot);
+    mkdirSync(paths.dropboxDir, { recursive: true });
+    mkdirSync(paths.pendingDir, { recursive: true });
+    mkdirSync(paths.activeItemsDir, { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-done', 'handoffs'), { recursive: true });
+    mkdirSync(paths.templatesDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  it('deleteDropboxItem removes the staged planner-focus-snapshot for the deleted task', async () => {
+    writeFileSync(path.join(paths.dropboxDir, 'task-drop.md'), '# Drop');
+    const stagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-drop', 'planner-focus-snapshot.json');
+    mkdirSync(path.dirname(stagingPath), { recursive: true });
+    writeFileSync(stagingPath, '{}\n');
+
+    await deleteDropboxItem({ repoRoot, queueName: 'task-drop.md' });
+
+    expect(existsSync(path.join(paths.dropboxDir, 'task-drop.md'))).toBe(false);
+    expect(existsSync(stagingPath)).toBe(false);
+  });
+
+  it('completeActiveItem succeeds without a residual sibling snapshot', async () => {
+    writeFileSync(path.join(paths.pendingDir, 'task-done.md'), '# Done');
+    writeFileSync(path.join(paths.activeItemsDir, 'task-done'), 'task-done.md');
+
+    const result = await completeActiveItem({
+      pendingDir: paths.pendingDir,
+      taskId: 'task-done',
+      handoffsDir: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-done', 'handoffs'),
+      templatesDir: paths.templatesDir,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(existsSync(path.join(paths.pendingDir, 'task-done.md'))).toBe(false);
   });
 });
 

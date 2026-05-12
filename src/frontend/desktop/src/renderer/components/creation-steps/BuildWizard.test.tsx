@@ -57,7 +57,84 @@ describe('BuildWizard', () => {
     expect(screen.getByLabelText('Build wizard progress')).toBeInTheDocument();
     expect(screen.getByText('Project type')).toBeInTheDocument();
     expect(screen.getByText('Location')).toBeInTheDocument();
-    expect(screen.getByText('What kind of project are you building?')).toBeInTheDocument();
+    expect(screen.getByText('How is this project organized?')).toBeInTheDocument();
+  });
+
+  it('renders Application shape and Infrastructure repos fieldsets', () => {
+    render(<BuildWizard {...makeProps()} />);
+    expect(screen.getByRole('group', { name: 'Application shape' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Infrastructure repos' })).toBeInTheDocument();
+  });
+
+  it('renders native radio inputs for Monolith, Distributed, No, and Yes', () => {
+    render(<BuildWizard {...makeProps()} />);
+    expect(screen.getByRole('radio', { name: 'Monolith' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Distributed' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'No' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Yes' })).toBeInTheDocument();
+  });
+
+  it('defaults infrastructure repos to No', () => {
+    render(<BuildWizard {...makeProps()} />);
+
+    expect(screen.getByRole('radio', { name: 'No' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Yes' })).not.toBeChecked();
+  });
+
+  it('emits the correct internal mode when infrastructure estate variants are selected', () => {
+    const onChangeMode = vi.fn();
+    const { rerender } = render(<BuildWizard {...makeProps({ onChangeMode })} />);
+
+    // Default draft mode is 'distributed' (Distributed + No infra).
+    // Selecting Monolith emits 'monolith'.
+    fireEvent.click(screen.getByRole('radio', { name: 'Monolith' }));
+    expect(onChangeMode).toHaveBeenCalledWith('monolith');
+
+    // Rerender with mode 'monolith', then select Yes → 'monolith-platform'.
+    rerender(
+      <BuildWizard
+        {...makeProps({ onChangeMode, draft: { ...defaultDraft, mode: 'monolith' } })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }));
+    expect(onChangeMode).toHaveBeenCalledWith('monolith-platform');
+
+    // Rerender with mode 'monolith-platform', then select Distributed → 'distributed-platform'.
+    rerender(
+      <BuildWizard
+        {...makeProps({ onChangeMode, draft: { ...defaultDraft, mode: 'monolith-platform' } })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Distributed' }));
+    expect(onChangeMode).toHaveBeenCalledWith('distributed-platform');
+
+    // Rerender with mode 'distributed-platform', then select No → 'distributed'.
+    rerender(
+      <BuildWizard
+        {...makeProps({ onChangeMode, draft: { ...defaultDraft, mode: 'distributed-platform' } })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'No' }));
+    expect(onChangeMode).toHaveBeenCalledWith('distributed');
+  });
+
+  it('selecting a radio choice does not advance to the location step', () => {
+    const onStepChange = vi.fn();
+    render(<BuildWizard {...makeProps({ onStepChange })} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Monolith' }));
+    expect(onStepChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Yes' }));
+    expect(onStepChange).not.toHaveBeenCalled();
+  });
+
+  it('Continue button advances to the location step', () => {
+    const onStepChange = vi.fn();
+    render(<BuildWizard {...makeProps({ onStepChange })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(onStepChange).toHaveBeenCalledWith('location');
   });
 
   it('renders part builders for the build step', () => {

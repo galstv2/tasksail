@@ -253,10 +253,16 @@ class LivePipelineBigTests(BasePipelineTests):
         )
 
     def test_08_verify_reinforcement(self) -> None:
-        ledger = self.QMD / "reinforcement" / "task-ledger.json"
+        ledger = (
+            self.QMD / "global" / "reinforcement" / "store"
+            / "task-ledger.json"
+        )
         self.assertTrue(
             ledger.exists(),
-            msg="task-ledger.json not created under AgentWorkSpace/qmd/reinforcement/",
+            msg=(
+                "task-ledger.json not created under "
+                "AgentWorkSpace/qmd/global/reinforcement/store/"
+            ),
         )
         data = json.loads(ledger.read_text(encoding="utf-8"))
         self.assertGreaterEqual(

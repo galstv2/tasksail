@@ -139,6 +139,65 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
                 ],
             )
 
+    def test_monolith_focus_accepts_v2_local_path_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            workspace_root = Path(temp_root)
+            monolith_root = workspace_root / "mono-repo"
+            context_pack_dir = workspace_root / "contexts" / "mono-pack"
+            self.create_git_repo(monolith_root)
+            (monolith_root / "services" / "billing").mkdir(parents=True)
+            context_pack_dir.mkdir(parents=True)
+            manifest_path = context_pack_dir / "qmd" / "repo-sources.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "manifest_version": "qmd-repo-sources/v2",
+                        "manifest_status": "approved",
+                        "context_pack_id": "mono-pack",
+                        "estate_type": "monolith",
+                        "qmd_scope_root": "qmd/context-packs/mono-pack",
+                        "primary_working_repo_ids": [],
+                        "primary_focus_area_ids": ["services-billing"],
+                        "repositories": [
+                            {
+                                "repo_id": "mono-repo",
+                                "repo_name": "Mono Repo",
+                                "local_paths": [
+                                    {
+                                        "host": str(monolith_root.resolve()),
+                                        "container": None,
+                                    }
+                                ],
+                                "system_layer": "shared",
+                                "repository_type": "primary",
+                            }
+                        ],
+                        "focusable_areas": [
+                            {
+                                "focus_id": "services-billing",
+                                "focus_name": "Billing",
+                                "focus_type": "service",
+                                "relative_path": "services/billing",
+                                "repository_type": "primary",
+                            }
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.write_workspace_file(workspace_root, [{"path": "."}])
+
+            service = WorkspaceContextSyncService(workspace_root=workspace_root)
+            preview = service.preview_sync(context_pack_dir)
+
+            self.assertEqual(
+                preview["folders_to_add"],
+                [str((monolith_root / "services" / "billing").resolve())],
+            )
+
     def test_monolith_selected_focus_id_is_persisted_without_folder_changes(
         self,
     ) -> None:

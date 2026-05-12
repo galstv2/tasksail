@@ -21,16 +21,17 @@ const descriptor: ProviderFrontendDescriptor = {
   promptPathEnvVars: { handoffsDir: 'TEST_HANDOFFS_DIR', implStepsDir: 'TEST_IMPL_STEPS_DIR' },
   contextPackEnvVars: { paths: 'TEST_CONTEXT_PACK_PATHS', searchRoots: 'TEST_CONTEXT_PACK_SEARCH_ROOTS' },
   roster: [
-    { agentId: 'planning-agent', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1 },
-    { agentId: 'software-engineer', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 2 },
+    { agentId: 'provider-planner', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1, roleKind: 'planner' },
+    { agentId: 'provider-builder', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 2, roleKind: 'builder' },
   ],
+  plannerAgentId: 'provider-planner',
 };
 
 describe('createNamedWorkflowAgentRoster', () => {
   it('derives roster profiles from the provider descriptor', () => {
     const roster = createNamedWorkflowAgentRoster(descriptor);
-    expect(Object.keys(roster)).toEqual(['planning-agent', 'software-engineer']);
-    expect(roster['software-engineer']).toEqual({
+    expect(Object.keys(roster)).toEqual(['provider-planner', 'provider-builder']);
+    expect(roster['provider-builder']).toEqual({
       displayName: 'Dalton (Software Engineer)',
       humanName: 'Dalton',
       role: 'Software Engineer',
@@ -39,17 +40,17 @@ describe('createNamedWorkflowAgentRoster', () => {
 });
 
 describe('getPlanningAgentDisplayName', () => {
-  it('matches the planning-agent descriptor entry', () => {
-    expect(getPlanningAgentDisplayName(descriptor)).toBe('Lily (Planning Specialist)');
+  it('matches the provider-planner descriptor entry', () => {
+    expect(getPlanningAgentDisplayName(descriptor, descriptor.plannerAgentId)).toBe('Lily (Planning Specialist)');
   });
 });
 
 describe('getPlannerConversationLabel', () => {
   it('returns the provider planning agent human name for planner role', () => {
-    expect(getPlannerConversationLabel(descriptor, 'planner')).toBe('Lily');
+    expect(getPlannerConversationLabel(descriptor, descriptor.plannerAgentId, 'planner')).toBe('Lily');
   });
 
   it('returns "Operator" for operator role', () => {
-    expect(getPlannerConversationLabel(descriptor, 'operator')).toBe('Operator');
+    expect(getPlannerConversationLabel(descriptor, descriptor.plannerAgentId, 'operator')).toBe('Operator');
   });
 });

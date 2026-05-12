@@ -162,6 +162,32 @@ describe('writeSessionStartReceipt', () => {
     expect(receipt['launch_id']).toBe(launchId);
   });
 
+  it('writes retry launch metadata and phase-aware latest output lines', async () => {
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+
+    const taskRuntime = path.join(baseDir, 'runtime', 'tasks', 'task-retry');
+    const launchId = '1713111111111-55556';
+
+    const receiptPath = await writeSessionStartReceipt({
+      taskRuntime,
+      launchId,
+      agentId: 'dalton',
+      roleName: 'Software Engineer',
+      displayName: 'Dalton',
+      launchPid: 55556,
+      launchPhase: 'Confinement retry',
+      retryOfLaunchId: '1713111111111-55555',
+    });
+
+    const receipt = await readReceipt(receiptPath);
+    expect(receipt['launch_phase']).toBe('Confinement retry');
+    expect(receipt['retry_of_launch_id']).toBe('1713111111111-55555');
+    expect(receipt['latest_output_lines']).toEqual([
+      'Started Dalton Confinement retry runtime.',
+    ]);
+  });
+
   it('does not preserve same-launch continuations as session history', async () => {
     const baseDir = makeTmpDir();
     tmpDirs.push(baseDir);

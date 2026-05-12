@@ -30,7 +30,7 @@ function makeSession(
 ): AgentTerminalSession {
   return {
     taskId: 'CAP-001',
-    agentId: 'software-engineer',
+    agentId: 'provider-builder',
     agentLabel: 'Dalton · dalton-1',
     sessionId: 'parallel:dalton-1',
     instanceId: 'dalton-1',
@@ -55,9 +55,9 @@ function makeGuardrail(
   overrides: Partial<GuardrailObservation> = {},
 ): GuardrailObservation {
   return {
-    receiptPath: '.platform-state/runtime/tasks/CAP-001/guardrails/software-engineer-dalton-1.json',
+    receiptPath: '.platform-state/runtime/tasks/CAP-001/guardrails/provider-builder-dalton-1.json',
     sessionId: 'parallel:dalton-1',
-    agentId: 'software-engineer',
+    agentId: 'provider-builder',
     agentLabel: 'Dalton · dalton-1',
     instanceId: 'dalton-1',
     status: 'allowed',
@@ -65,7 +65,7 @@ function makeGuardrail(
     summary: 'Compliant runtime launch recorded.',
     validatorMode: 'runtime',
     launchSeam: 'desktop',
-    expectedAgentId: 'software-engineer',
+    expectedAgentId: 'provider-builder',
     requiredModel: 'gpt-4.1',
     activeModel: 'gpt-4.1',
     violationCount: 0,
@@ -110,6 +110,43 @@ describe('main.runtimeStream', () => {
     ]);
   });
 
+  it('emits a new running event for a confinement retry runtime session', async () => {
+    const { diffRuntimeStreamEvents } = await import('./main.runtimeStream');
+
+    const initial = makeSession({
+      agentId: 'dalton',
+      agentLabel: 'Dalton (Software Engineer)',
+      sessionId: 'role:dalton:initial-launch',
+      instanceId: null,
+      terminalState: 'completed',
+      launchState: 'started',
+    });
+    const retry = makeSession({
+      agentId: 'dalton',
+      agentLabel: 'Dalton (Software Engineer) — Confinement retry',
+      sessionId: 'role:dalton:retry-launch',
+      instanceId: null,
+      terminalState: 'running',
+      launchState: 'started',
+    });
+
+    const events = diffRuntimeStreamEvents(
+      { agentTerminalSessions: [initial], guardrails: [] },
+      { agentTerminalSessions: [initial, retry], guardrails: [] },
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        source: 'runtime.agentSession',
+        actorName: 'Dalton (Software Engineer) — Confinement retry',
+        message: 'Is running.',
+        sessionContext: expect.objectContaining({
+          sessionId: 'role:dalton:retry-launch',
+        }),
+      }),
+    ]);
+  });
+
   it('does not emit for rewrites that only change timestamps or output lines', async () => {
     const { diffRuntimeStreamEvents } = await import('./main.runtimeStream');
 
@@ -125,6 +162,143 @@ describe('main.runtimeStream', () => {
     );
 
     expect(events).toEqual([]);
+  });
+
+  it('emits and dedupes realignment job status transitions', async () => {
+    const { diffRuntimeStreamEvents } = await import('./main.runtimeStream');
+
+    expect(diffRuntimeStreamEvents(
+      { agentTerminalSessions: [], guardrails: [], realignmentJobs: [] },
+      {
+        agentTerminalSessions: [],
+        guardrails: [],
+        realignmentJobs: [{
+          jobId: 'realignment:RA-1',
+          realignmentId: 'RA-1',
+          status: 'running',
+        }],
+      },
+    )).toEqual([
+      expect.objectContaining({
+        role: 'workflow',
+        source: 'runtime.realignment',
+        actorName: 'Ron - Realignment',
+        taskId: 'N/A',
+        message: 'Realignment analysis is running.',
+      }),
+    ]);
+
+    expect(diffRuntimeStreamEvents(
+      {
+        agentTerminalSessions: [],
+        guardrails: [],
+        realignmentJobs: [{
+          jobId: 'realignment:RA-1',
+          realignmentId: 'RA-1',
+          status: 'running',
+        }],
+      },
+      {
+        agentTerminalSessions: [],
+        guardrails: [],
+        realignmentJobs: [{
+          jobId: 'realignment:RA-1',
+          realignmentId: 'RA-1',
+          status: 'running',
+        }],
+      },
+    )).toEqual([]);
+
+    expect(diffRuntimeStreamEvents(
+      {
+        agentTerminalSessions: [],
+        guardrails: [],
+        realignmentJobs: [{
+          jobId: 'realignment:RA-1',
+          realignmentId: 'RA-1',
+          status: 'running',
+        }],
+      },
+      {
+        agentTerminalSessions: [],
+        guardrails: [],
+        realignmentJobs: [{
+          jobId: 'realignment:RA-1',
+          realignmentId: 'RA-1',
+          status: 'archived',
+          globalRealignmentVersion: 5,
+        }],
+      },
+    )).toEqual([
+      expect.objectContaining({
+        source: 'runtime.realignment',
+        severity: 'success',
+        message: 'Realignment analysis archived.',
+      }),
+    ]);
+  });
+
+  it('watches realignment runtime receipts and emits terminal stream events', async () => {
+    const { startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    let realignmentEntries: string[] = [];
+    const realignmentCallbacks: Array<() => void> = [];
+
+    const watchFactory = vi.fn((target: string, _: { persistent: false }, callback: () => void) => {
+      if (target.endsWith('.platform-state/runtime/realignment')) {
+        realignmentCallbacks.push(callback);
+      }
+      return { close: vi.fn() } as unknown as FSWatcher;
+    });
+
+    const fsAdapter = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/realignment/RA-1/job.json')) {
+          return JSON.stringify({
+            jobId: 'realignment:RA-1',
+            realignmentId: 'RA-1',
+            status: 'error',
+            reason: 'ron_failed',
+          });
+        }
+        return '';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+          return [] as string[];
+        }
+        if (path.endsWith('.platform-state/runtime/realignment')) {
+          return realignmentEntries;
+        }
+        throw Object.assign(new Error(`Unexpected readdir: ${path}`), { code: 'ENOENT' });
+      }),
+    };
+
+    const stop = startRuntimeStreamWatcher({
+      fsAdapter,
+      readSnapshot: vi.fn().mockResolvedValue({ agentTerminalSessions: [], guardrails: [] }),
+      watchFactory: watchFactory as unknown as typeof import('node:fs').watch,
+    });
+
+    await vi.runAllTimersAsync();
+    expect(emitStreamEvent).not.toHaveBeenCalled();
+
+    realignmentEntries = ['RA-1'];
+    realignmentCallbacks[0]?.();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(emitStreamEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'runtime.realignment',
+        role: 'workflow',
+        taskId: 'N/A',
+        actorName: 'Ron - Realignment',
+        severity: 'error',
+        message: 'Realignment analysis failed. ron_failed',
+      }),
+    );
+
+    stop();
   });
 
   it('emits a guardrail milestone when a receipt is newly observed', async () => {

@@ -38,6 +38,16 @@ def state_file_path(scope_dir: Path, repo_id: str) -> Path:
     return scope_dir / "operational" / "bootstrap" / repo_id / "seed-state.json"
 
 
+def pack_seed_state_path(scope_dir: Path) -> Path:
+    """Return the path to the pack-level seed-state file.
+
+    This is the single top-level marker for whether the pack has been
+    seeded.  It is distinct from :func:`state_file_path`, which returns
+    the *per-repo* state file under operational/bootstrap/<repo_id>/.
+    """
+    return scope_dir / "seed-state.json"
+
+
 def report_file_path(scope_dir: Path, run_timestamp: str) -> Path:
     return scope_dir / "operational" / "bootstrap" / "seed-runs" / f"seed-run-{slugify_timestamp(run_timestamp)}.json"
 

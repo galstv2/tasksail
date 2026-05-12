@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { readTextFile, resolvePaths } from '../core/index.js';
+import { readTextFile, resolvePaths, stripHtmlComments } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { resolveQueuePaths, type QueuePaths } from '../queue/paths.js';
 import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
@@ -11,27 +11,45 @@ import {
   SECTION_HEADING,
   type SemanticSectionSpec,
 } from './models.js';
+import { loadMarkdownContract } from './contracts/markdownContract.js';
+import { SECTION_NAMES } from './contracts/sectionNames.js';
 
 import {
   markdownSectionsHaveContent,
   normalizeIdentifier,
   normalizeText,
-  stripHtmlComments,
+  stripHtmlComments as stripHtmlCommentsLines,
 } from './matching.js';
 import { SLICE_TEMPLATE_RELATIVE_PATH } from './rules/templateSpecs.js';
 import { LINEAGE_METADATA_LABELS } from './rules/templateSpecs.js';
 import type { WorkspaceArtifact } from './types.js';
 
 const NESTED_SECTION_HEADING = /^(#{3,6})\s+(.*\S)\s*$/;
+const MARKDOWN_CONTRACT = loadMarkdownContract();
 
 export function parseSections(text: string | null | undefined): Record<string, string[]> {
   const sections: Record<string, string[]> = {};
   let currentSection: string | null = null;
+  let inFence: string | null = null;
 
-  for (const rawLine of (text ?? '').split(/\r?\n/)) {
-    const match = SECTION_HEADING.exec(rawLine.trim());
-    if (match?.[1]) {
-      currentSection = match[1];
+  const lines = (text ?? '').split(/\r?\n/);
+  if (lines.at(-1) === '') {
+    lines.pop();
+  }
+
+  for (const rawLine of lines) {
+    if (inFence && rawLine.trim() === inFence) {
+      inFence = null;
+    } else {
+      const fenceMatch = MARKDOWN_CONTRACT.compiled.fenceOpen.exec(rawLine);
+      if (fenceMatch?.[MARKDOWN_CONTRACT.groups.fenceMarker]) {
+        inFence = fenceMatch[MARKDOWN_CONTRACT.groups.fenceMarker]!;
+      }
+    }
+
+    const match = inFence ? null : SECTION_HEADING.exec(rawLine.trim());
+    if (match?.[MARKDOWN_CONTRACT.groups.headingName]) {
+      currentSection = match[MARKDOWN_CONTRACT.groups.headingName]!;
       sections[currentSection] ??= [];
       continue;
     }
@@ -49,8 +67,10 @@ export function parseMetadata(lines: readonly string[]): Record<string, string> 
 
   for (const line of lines) {
     const match = METADATA_LINE.exec(line.trim());
-    if (match?.[1]) {
-      values[match[1]] = (match[2] ?? '').trim();
+    if (match?.[MARKDOWN_CONTRACT.groups.labelName]) {
+      values[match[MARKDOWN_CONTRACT.groups.labelName]!] ??= stripHtmlComments(
+        match[MARKDOWN_CONTRACT.groups.labelValue] ?? '',
+      ).trim();
     }
   }
 
@@ -159,12 +179,12 @@ export function resolveSemanticSection(
 export function parseArtifactMetadata(
   sections: Record<string, string[]>,
 ): { metadata: Record<string, string>; taskLineage: Record<string, string> } {
-  const taskMetadataLines = sections['Task Metadata'] ?? [];
+  const taskMetadataLines = sections[SECTION_NAMES.TASK_METADATA] ?? [];
   const parsedTaskMetadata = parseMetadata(taskMetadataLines);
   const nestedTaskLineage =
-    findNestedSection(taskMetadataLines, ['Task Lineage'])?.content
+    findNestedSection(taskMetadataLines, [SECTION_NAMES.TASK_LINEAGE])?.content
     ?? [];
-  const taskLineageLines = sections['Task Lineage'] ?? nestedTaskLineage;
+  const taskLineageLines = sections[SECTION_NAMES.TASK_LINEAGE] ?? nestedTaskLineage;
   const parsedTaskLineage = parseMetadata(taskLineageLines.length > 0 ? taskLineageLines : taskMetadataLines);
   const metadata = Object.fromEntries(
     Object.entries(parsedTaskMetadata).filter(([label]) =>
@@ -233,7 +253,7 @@ export async function parallelOkHasActiveApproval(
     return authoritative;
   }
 
-  const decisionText = normalizeText(stripHtmlComments(artifact.sections.Decision ?? [])).toLowerCase();
+  const decisionText = normalizeText(stripHtmlCommentsLines(artifact.sections[SECTION_NAMES.DECISION] ?? [])).toLowerCase();
   return decisionText.includes('complex') && !decisionText.includes('simple');
 }
 

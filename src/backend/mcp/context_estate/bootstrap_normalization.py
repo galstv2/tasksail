@@ -146,6 +146,24 @@ def normalize_bootstrap_answers(payload: dict[str, Any]) -> dict[str, Any]:
                     or ""
                 ).lower()
                 or None,
+                # v2 fields — pass through from IPC input when provided
+                "repo_focus": normalize_optional_string(
+                    raw_repo.get("repo_focus") or raw_repo.get("repoFocus")
+                    or raw_repo.get("repository_type") or raw_repo.get("repositoryType")
+                ),
+                "repo_focus_authored": bool(
+                    raw_repo.get("repo_focus_authored")
+                    if raw_repo.get("repo_focus_authored") is not None
+                    else raw_repo.get("repoFocusAuthored")
+                ),
+                "repo_category": normalize_optional_string(
+                    raw_repo.get("repo_category") or raw_repo.get("repoCategory")
+                ),
+                "repo_category_authored": bool(
+                    raw_repo.get("repo_category_authored")
+                    if raw_repo.get("repo_category_authored") is not None
+                    else raw_repo.get("repoCategoryAuthored")
+                ),
                 "workspace_activation_group": normalize_optional_string(
                     raw_repo.get("workspace_activation_group")
                     or raw_repo.get("workspaceActivationGroup")

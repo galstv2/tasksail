@@ -17,8 +17,8 @@ import {
   type TaskLifecycleFeed,
   type WorkflowLifecycleEntry,
 } from '../src/shared/desktopContract';
-import { createNamedWorkflowAgentRoster, type NamedWorkflowAgentProfile } from '../src/shared/agentRoster';
 import { getProviderFrontendDescriptor } from '../../../backend/platform/cli-provider/index.js';
+import { escapeRegExp } from '../../../backend/platform/core/index.js';
 import { REPO_ROOT } from './paths';
 import { readTaskRecoveryState } from './main.recoveryState';
 import { pathExists, stringOrNull, repoFs, type ReadOnlyRepoFs } from './utils';
@@ -34,6 +34,12 @@ const ORPHANED_GRACE_MS = 2 * 60 * 1000;
 type GuardrailSeverity = 'info' | 'warning' | 'error';
 
 type JsonObject = Record<string, unknown>;
+
+type AgentLabelProfile = {
+  role: string;
+  humanName: string;
+  displayName: string;
+};
 
 function toRepoRelativePath(absolutePath: string): string {
   return relative(REPO_ROOT, absolutePath).replace(/\\/g, '/');
@@ -157,18 +163,23 @@ async function readJsonObjectIfPresent(
   }
 }
 
-function buildAgentLabelLookup(): Map<string, NamedWorkflowAgentProfile> {
-  const roster = createNamedWorkflowAgentRoster(getProviderFrontendDescriptor(REPO_ROOT));
+function buildAgentLabelLookup(roster: ReturnType<typeof getProviderFrontendDescriptor>['roster']): Map<string, AgentLabelProfile> {
   return new Map(
-    Object.entries(roster).flatMap(([key, profile]) => [
-      [key, profile],
-      [profile.humanName.toLowerCase(), profile],
-    ]),
+    roster.flatMap((entry) => {
+      const profile = {
+        role: entry.roleName,
+        humanName: entry.humanName,
+        displayName: `${entry.humanName} (${entry.roleName})`,
+      };
+      return [
+        [entry.agentId, profile],
+        [profile.humanName.toLowerCase(), profile],
+      ] as Array<[string, AgentLabelProfile]>;
+    }),
   );
 }
 
-function getAgentLabel(agentId: string, instanceId: string | null): string {
-  const agentLabelLookup = buildAgentLabelLookup();
+function getAgentLabel(agentId: string, instanceId: string | null, agentLabelLookup: Map<string, AgentLabelProfile>): string {
   const rosterEntry = agentLabelLookup.get(agentId) ?? agentLabelLookup.get(agentId.toLowerCase());
 
   if (rosterEntry) {
@@ -477,31 +488,33 @@ function deriveGuardrailObservationSeverity(args: {
   return 'info';
 }
 
-function inferGuardrailIdentity(receiptFile: string): {
+export function inferGuardrailIdentity(receiptFile: string, rosterAgentIds: readonly string[]): {
   agentId: string;
   instanceId: string | null;
   sessionId: string | null;
 } {
   const stem = receiptFile.replace(/\.json$/u, '');
-  const parallelMatch = /^software-engineer-(.+)$/u.exec(stem);
-  if (parallelMatch?.[1]) {
-    return {
-      agentId: 'software-engineer',
-      instanceId: parallelMatch[1],
-      sessionId: `parallel:${parallelMatch[1]}`,
-    };
+  const sortedAgentIds = [...rosterAgentIds].sort((left, right) => right.length - left.length);
+
+  for (const agentId of sortedAgentIds) {
+    const escapedAgentId = escapeRegExp(agentId);
+    if (new RegExp(`^${escapedAgentId}$`, 'u').test(stem)) {
+      return { agentId, instanceId: null, sessionId: `role:${agentId}` };
+    }
+    const instanceMatch = new RegExp(`^${escapedAgentId}-(.+)$`, 'u').exec(stem);
+    if (instanceMatch?.[1]) {
+      return { agentId, instanceId: instanceMatch[1], sessionId: `parallel:${instanceMatch[1]}` };
+    }
   }
 
-  return {
-    agentId: stem,
-    instanceId: null,
-    sessionId: `role:${stem}`,
-  };
+  return { agentId: stem, instanceId: null, sessionId: `role:${stem}` };
 }
 
 async function readGuardrailObservations(
   fsAdapter: ReadOnlyRepoFs,
   guardrailReceiptsDir: string,
+  rosterAgentIds: readonly string[],
+  agentLabelLookup: Map<string, AgentLabelProfile>,
 ): Promise<GuardrailObservation[]> {
   const receiptFiles = (await readDirIfPresent(guardrailReceiptsDir, fsAdapter))
     .filter((name) => name.endsWith('.json'))
@@ -515,7 +528,7 @@ async function readGuardrailObservations(
       receiptPath,
       fsAdapter,
     );
-    const inferredIdentity = inferGuardrailIdentity(receiptFile);
+    const inferredIdentity = inferGuardrailIdentity(receiptFile, rosterAgentIds);
     const status = parseGuardrailStatus(payload?.status);
     const agentId =
       stringOrNull(payload?.resolved_agent_id) ??
@@ -535,7 +548,7 @@ async function readGuardrailObservations(
         ? `parallel:${instanceId}`
         : inferredIdentity.sessionId,
       agentId,
-      agentLabel: getAgentLabel(agentId, instanceId),
+      agentLabel: getAgentLabel(agentId, instanceId, agentLabelLookup),
       instanceId,
       status: parseError ? 'malformed' : status,
       severity: deriveGuardrailObservationSeverity({
@@ -724,6 +737,7 @@ function getLatestTimestamp(...values: Array<string | null | undefined>): string
 function parseSessionEntry(
   payload: JsonObject | null,
   fallbackAgentId: string,
+  agentLabelLookup: Map<string, AgentLabelProfile>,
   taskIdFromRuntimeDir: string | null = null,
   parseError?: string | null,
 ): AgentTerminalSession {
@@ -746,14 +760,19 @@ function parseSessionEntry(
   });
   const latestOutputLines = stringArrayOrEmpty(payload?.latest_output_lines);
   const launchPhase = stringOrNull(payload?.launch_phase);
-  const sessionId = startedAt ? `role:${agentId}:${startedAt}` : `role:${agentId}`;
+  const launchId = stringOrNull(payload?.launch_id);
+  const sessionId = launchId
+    ? `role:${agentId}:${launchId}`
+    : startedAt
+      ? `role:${agentId}:${startedAt}`
+      : `role:${agentId}`;
 
   return {
     taskId: stringOrNull(payload?.task_id) ?? taskIdFromRuntimeDir,
     agentId,
     agentLabel: launchPhase
-      ? `${getAgentLabel(agentId, null)} — ${launchPhase}`
-      : getAgentLabel(agentId, null),
+      ? `${getAgentLabel(agentId, null, agentLabelLookup)} — ${launchPhase}`
+      : getAgentLabel(agentId, null, agentLabelLookup),
     sessionId,
     instanceId: null,
     launchPid,
@@ -778,6 +797,7 @@ function parseSessionEntry(
 async function readRoleAgentTerminalSessions(
   fsAdapter: ReadOnlyRepoFs,
   roleRuntimeSessionsDir: string,
+  agentLabelLookup: Map<string, AgentLabelProfile>,
   taskIdFromRuntimeDir: string | null = null,
 ): Promise<AgentTerminalSession[]> {
   const receiptFiles = (await readDirIfPresent(roleRuntimeSessionsDir, fsAdapter))
@@ -789,7 +809,7 @@ async function readRoleAgentTerminalSessions(
     const { payload, parseError } = await readJsonObjectIfPresent(receiptPath, fsAdapter);
     const fallbackAgentId = receiptFile.replace(/\.json$/u, '');
 
-    sessions.push(parseSessionEntry(payload, fallbackAgentId, taskIdFromRuntimeDir, parseError));
+    sessions.push(parseSessionEntry(payload, fallbackAgentId, agentLabelLookup, taskIdFromRuntimeDir, parseError));
   }
 
   return sessions;
@@ -1047,6 +1067,10 @@ export async function readObservabilitySnapshot(
   fsAdapter: ReadOnlyRepoFs = repoFs,
   runtimeTaskIdsOverride?: string[],
 ): Promise<ObservabilitySnapshotResponse> {
+  const providerDescriptor = getProviderFrontendDescriptor(REPO_ROOT);
+  const rosterAgentIds = providerDescriptor.roster.map((entry) => entry.agentId);
+  const agentLabelLookup = buildAgentLabelLookup(providerDescriptor.roster);
+
   async function readRuntimeReceipts(runtimeTaskIds: string[]): Promise<{
     agentTerminalSessions: AgentTerminalSession[];
     guardrails: GuardrailObservation[];
@@ -1069,8 +1093,8 @@ export async function readObservabilitySnapshot(
         'guardrails',
       );
       const [sessions, guardrailObservations] = await Promise.all([
-        readRoleAgentTerminalSessions(fsAdapter, roleSessionsDir, runtimeTaskId),
-        readGuardrailObservations(fsAdapter, guardrailReceiptsDir),
+        readRoleAgentTerminalSessions(fsAdapter, roleSessionsDir, agentLabelLookup, runtimeTaskId),
+        readGuardrailObservations(fsAdapter, guardrailReceiptsDir, rosterAgentIds, agentLabelLookup),
       ]);
       const sessionsById = new Set(sessions.map((session) => session.sessionId));
       const latestSessionByAgent = new Map<string, AgentTerminalSession>();

@@ -20,6 +20,7 @@ class BaseContainerRuntime implements ContainerRuntime {
   readonly backend: ContainerBackend;
   readonly engineHost: ContainerEngineHost;
   readonly wslDistro: string | null;
+  readonly requiresComposeFile = true;
 
   constructor(
     backend: ContainerBackend,

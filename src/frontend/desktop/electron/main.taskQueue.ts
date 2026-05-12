@@ -1,11 +1,12 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   type DesktopInvokeResult,
   type FollowUpDirectSubmissionDraft,
   type PlannerDirectSubmissionDraft,
 } from '../src/shared/desktopContract';
 import type { ContextPackDeepFocusTarget, ContextPackPrimaryFocusTarget } from '../src/shared/desktopContractDeepFocus';
+import type { PlannerStagingSidecar, PlannerTaskKind } from '../../../backend/platform/planner-history/types.js';
 import { emitStreamEvent } from './main.stream';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
@@ -20,7 +21,7 @@ import {
   resolveSelectedPrimaryRepoRoot,
 } from '../../../backend/platform/context-pack/focusedRepo.js';
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
-import { derivePlannerDraftTitle } from './main.staging';
+import { derivePlannerDraftTitle, derivePlannerScopeMode, isMonolithEstate } from './main.staging';
 import { REPO_ROOT } from './paths';
 import {
   parseMarkdownSections,
@@ -81,6 +82,8 @@ type ResolvedDirectSubmissionContext = {
   contextPackDir: string;
   contextPackId?: string;
   scopeMode?: string;
+  primaryRepoId?: string;
+  primaryFocusId?: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
@@ -101,6 +104,7 @@ type ArchivedParentMetadata = {
 type TaskArchiveDirEntry = {
   name: string;
   isDirectory: () => boolean;
+  isFile?: () => boolean;
 };
 
 type TaskArchiveReader = {
@@ -119,6 +123,12 @@ type FollowUpSubmissionDraft = FollowUpDirectSubmissionDraft & {
 function extractTaskId(head: string): string {
   const match = head.match(/^- Task ID:\s*(.+?)$/m);
   return match?.[1]?.trim() ?? '';
+}
+
+function archivedTaskJsonPath(markdownPath: string): string {
+  return basename(markdownPath) === 'archive.md'
+    ? join(dirname(markdownPath), 'archive.json')
+    : markdownPath.replace(/\.md$/u, '.json');
 }
 
 const defaultTaskArchiveReader: TaskArchiveReader = {
@@ -157,17 +167,29 @@ async function resolveDirectSubmissionContext(
     : syncState.deepFocusEnabled;
   const overlaySupportTargets = overlay?.selectedSupportTargets;
   const overlayFocusTargets = overlay?.selectedFocusTargets;
+  const monolithEstate = isMonolithEstate(focused.estateType);
+  const selectedRepoIds = monolithEstate
+    ? []
+    : syncState.selectedRepoIds.length > 0
+      ? syncState.selectedRepoIds
+      : focused.selectedRepoIds;
+  const selectedFocusIds = syncState.selectedFocusIds.length > 0
+    ? syncState.selectedFocusIds
+    : focused.selectedFocusIds;
   return {
     title,
     contextPackDir,
     contextPackId: syncState.activeContextPackId ?? undefined,
-    scopeMode: syncState.scopeMode ?? undefined,
-    selectedRepoIds: syncState.selectedRepoIds.length > 0
-      ? syncState.selectedRepoIds
-      : focused.selectedRepoIds,
-    selectedFocusIds: syncState.selectedFocusIds.length > 0
-      ? syncState.selectedFocusIds
-      : focused.selectedFocusIds,
+    scopeMode: derivePlannerScopeMode({
+      selectedRepoIds,
+      selectedFocusIds,
+    }, contextPackDir),
+    primaryRepoId: monolithEstate
+      ? undefined
+      : focused.primaryRepoId || undefined,
+    primaryFocusId: focused.primaryFocusId || undefined,
+    selectedRepoIds,
+    selectedFocusIds,
     deepFocusEnabled,
     selectedFocusPath: deepFocusEnabled
       ? overlay?.selectedFocusPath ?? syncState.selectedFocusPath
@@ -225,16 +247,37 @@ async function resolveArchivedParentMetadata(
 
   for (const yearDir of yearDirs) {
     const yearPath = join(archiveRoot, yearDir);
-    let files: string[];
+    let entries: TaskArchiveDirEntry[];
     try {
-      files = (await taskArchiveReader.readdir(yearPath) as string[]).filter((entry) => entry.endsWith('.md'));
+      entries = await taskArchiveReader.readdir(
+        yearPath,
+        { withFileTypes: true },
+      ) as TaskArchiveDirEntry[];
     } catch {
       continue;
     }
 
-    for (const file of files) {
-      const markdownPath = join(yearPath, file);
-      const jsonPath = markdownPath.replace(/\.md$/, '.json');
+    const candidates = entries.flatMap((entry) => {
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.')) {
+          return [];
+        }
+        return [{
+          fallbackTaskId: entry.name,
+          markdownPath: join(yearPath, entry.name, 'archive.md'),
+        }];
+      }
+      if (!entry.isFile?.() || !entry.name.endsWith('.md')) {
+        return [];
+      }
+      return [{
+        fallbackTaskId: entry.name.replace(/\.md$/u, ''),
+        markdownPath: join(yearPath, entry.name),
+      }];
+    });
+
+    for (const candidate of candidates) {
+      const jsonPath = archivedTaskJsonPath(candidate.markdownPath);
 
       let jsonSidecar: {
         record_id?: unknown;
@@ -257,13 +300,13 @@ async function resolveArchivedParentMetadata(
       let markdownTaskId = '';
       if (!sidecarTaskId) {
         try {
-          markdownTaskId = extractTaskId(await taskArchiveReader.readFile(markdownPath, 'utf-8'));
+          markdownTaskId = extractTaskId(await taskArchiveReader.readFile(candidate.markdownPath, 'utf-8'));
         } catch {
           markdownTaskId = '';
         }
       }
 
-      const effectiveTaskId = sidecarTaskId || markdownTaskId || file.replace(/\.md$/, '');
+      const effectiveTaskId = sidecarTaskId || markdownTaskId || candidate.fallbackTaskId;
       if (effectiveTaskId !== parentTaskId) {
         continue;
       }
@@ -330,6 +373,8 @@ export async function runDropboxTaskScript(options: {
         contextPackDir: context.contextPackDir,
         contextPackId: context.contextPackId,
         scopeMode: context.scopeMode,
+        primaryRepoId: context.primaryRepoId,
+        primaryFocusId: context.primaryFocusId,
         selectedRepoIds: context.selectedRepoIds,
         selectedFocusIds: context.selectedFocusIds,
         deepFocusEnabled: context.deepFocusEnabled,
@@ -387,6 +432,8 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
         contextPackDir: context.contextPackDir,
         contextPackId: context.contextPackId,
         scopeMode: context.scopeMode,
+        primaryRepoId: context.primaryRepoId,
+        primaryFocusId: context.primaryFocusId,
         selectedRepoIds: context.selectedRepoIds,
         selectedFocusIds: context.selectedFocusIds,
         deepFocusEnabled: context.deepFocusEnabled,
@@ -460,6 +507,7 @@ const PLATFORM_OWNED_SECTIONS = ['Task Lineage', 'Context Pack Binding', 'Source
 function validateUploadedSpecContent(
   content: string,
   sections: Map<string, string>,
+  taskKind: PlannerTaskKind,
 ): string | null {
   if (sections.size === 0) {
     return 'Uploaded file contains no markdown sections. The file must start from "## Request Summary" and follow the planning-intake template.';
@@ -474,14 +522,75 @@ function validateUploadedSpecContent(
     return 'Uploaded spec must not include a top-level title (# heading). The title is auto-generated from the active context pack focus. Remove it and re-upload.';
   }
 
-  return validatePlanningIntakeDraft(content, 'standard', sections);
+  return validatePlanningIntakeDraft(content, taskKind, sections);
+}
+
+function buildSidecarDropboxOptions(
+  sidecar: PlannerStagingSidecar,
+  editableDraft: PlannerEditableDraft,
+) {
+  return {
+    title: sidecar.title,
+    summary: editableDraft.summary,
+    desiredOutcome: editableDraft.desiredOutcome,
+    constraints: editableDraft.constraints,
+    acceptanceSignals: editableDraft.acceptanceSignals,
+    suggestedPath: editableDraft.suggestedPath,
+    planningNotes: editableDraft.planningNotes,
+    contextPackDir: sidecar.contextPackBinding.contextPackDir,
+    contextPackId: sidecar.contextPackBinding.contextPackId,
+    scopeMode: sidecar.contextPackBinding.scopeMode,
+    primaryRepoId: sidecar.contextPackBinding.primaryRepoId,
+    primaryFocusId: sidecar.contextPackBinding.primaryFocusId,
+    selectedRepoIds: sidecar.contextPackBinding.selectedRepoIds,
+    selectedFocusIds: sidecar.contextPackBinding.selectedFocusIds,
+    deepFocusEnabled: sidecar.deepFocusEnabled,
+    selectedFocusPath: sidecar.primaryFocusRelativePath,
+    selectedFocusTargetKind: sidecar.primaryFocusTargetKind,
+    selectedFocusTargets: sidecar.primaryFocusTargets,
+    selectedTestTarget: sidecar.selectedTestTarget,
+    selectedSupportTargets: sidecar.supportTargets,
+    repoRoot: REPO_ROOT,
+  };
+}
+
+async function submitUploadedSpecFromSidecar(
+  sidecar: PlannerStagingSidecar,
+  editableDraft: PlannerEditableDraft,
+): Promise<{ filePath: string; title: string }> {
+  const baseOptions = buildSidecarDropboxOptions(sidecar, editableDraft);
+  if (sidecar.lineage.taskKind === 'child-task') {
+    return {
+      filePath: await createFollowupTask({
+        ...baseOptions,
+        parentTaskId: sidecar.lineage.parentTaskId,
+        parentQmdRecordId: sidecar.lineage.parentQmdRecordId,
+        parentQmdScope: sidecar.lineage.parentQmdScope,
+        rootTaskId: sidecar.lineage.rootTaskId,
+        followupReason: sidecar.lineage.followUpReason,
+        carryForwardSummary: editableDraft.carryForwardSummary,
+      }),
+      title: sidecar.title,
+    };
+  }
+
+  return {
+    filePath: await createDropboxTask({
+      ...baseOptions,
+      kind: sidecar.lineage.taskKind,
+    }),
+    title: sidecar.title,
+  };
 }
 
 export async function submitUploadedSpecHelper(
   content: string,
+  options: { plannerSidecar?: PlannerStagingSidecar | null } = {},
 ): Promise<DesktopInvokeResult> {
   const sections = parseMarkdownSections(content);
-  const validationError = validateUploadedSpecContent(content, sections);
+  const plannerSidecar = options.plannerSidecar ?? null;
+  const taskKind = plannerSidecar?.lineage.taskKind ?? 'standard';
+  const validationError = validateUploadedSpecContent(content, sections, taskKind);
   if (validationError) {
     return {
       ok: false,
@@ -501,52 +610,15 @@ export async function submitUploadedSpecHelper(
     };
   }
 
-  let context: ResolvedDirectSubmissionContext;
   try {
-    const syncState = await readWorkspaceSyncStateSnapshot();
-    context = await resolveDirectSubmissionContext(syncState);
-  } catch (err: unknown) {
-    return {
-      ok: false,
-      action: 'planner.uploadSpec',
-      error: err instanceof Error ? err.message : 'Failed to resolve active context pack for spec upload.',
-    };
-  }
-
-  try {
-    const { destinationPath: filePath, activation } = await publishPendingItem({
-      publish: () =>
-        createDropboxTask({
-          title: context.title,
-          summary: editableDraft.summary,
-          desiredOutcome: editableDraft.desiredOutcome,
-          constraints: editableDraft.constraints,
-          acceptanceSignals: editableDraft.acceptanceSignals,
-          suggestedPath: editableDraft.suggestedPath,
-          planningNotes: editableDraft.planningNotes,
-          kind: 'standard',
-          contextPackDir: context.contextPackDir,
-          contextPackId: context.contextPackId,
-          scopeMode: context.scopeMode,
-          selectedRepoIds: context.selectedRepoIds,
-          selectedFocusIds: context.selectedFocusIds,
-          deepFocusEnabled: context.deepFocusEnabled,
-          selectedFocusPath: context.selectedFocusPath,
-          selectedFocusTargetKind: context.selectedFocusTargetKind,
-          selectedFocusTargets: context.selectedFocusTargets,
-          selectedTestTarget: context.selectedTestTarget,
-          selectedSupportTargets: context.selectedSupportTargets,
-        }),
-      repoRoot: REPO_ROOT,
-      contextPackDir: context.contextPackDir,
-      lockOperationName: 'planner.uploadSpec',
-    });
+    const submission = plannerSidecar
+      ? await submitUploadedSpecFromSidecar(plannerSidecar, editableDraft)
+      : await submitUploadedSpecFromActiveWorkspace(editableDraft);
     emitStreamEvent({
-      message: `Uploaded spec submitted to dropbox: ${filePath}`,
+      message: `Uploaded spec submitted to dropbox: ${submission.filePath}`,
       source: 'planner.uploadSpec',
       role: 'queue',
     });
-    emitPostPublishActivationEvent(activation, 'planner.uploadSpec');
     return {
       ok: true,
       response: {
@@ -554,8 +626,8 @@ export async function submitUploadedSpecHelper(
         mode: 'submitted',
         accepted: true,
         message: 'Uploaded spec validated and submitted to the dropbox queue.',
-        draftTitle: context.title,
-        submittedPath: filePath,
+        draftTitle: submission.title,
+        submittedPath: submission.filePath,
         observationMode: true,
       },
     };
@@ -566,6 +638,44 @@ export async function submitUploadedSpecHelper(
       error: err instanceof Error ? err.message : 'Failed to write uploaded spec to dropbox.',
     };
   }
+}
+
+async function submitUploadedSpecFromActiveWorkspace(
+  editableDraft: PlannerEditableDraft,
+): Promise<{ filePath: string; title: string }> {
+  let context: ResolvedDirectSubmissionContext;
+  try {
+    const syncState = await readWorkspaceSyncStateSnapshot();
+    context = await resolveDirectSubmissionContext(syncState);
+  } catch (err: unknown) {
+    throw new Error(err instanceof Error ? err.message : 'Failed to resolve active context pack for spec upload.');
+  }
+
+  const filePath = await createDropboxTask({
+    title: context.title,
+    summary: editableDraft.summary,
+    desiredOutcome: editableDraft.desiredOutcome,
+    constraints: editableDraft.constraints,
+    acceptanceSignals: editableDraft.acceptanceSignals,
+    suggestedPath: editableDraft.suggestedPath,
+    planningNotes: editableDraft.planningNotes,
+    kind: 'standard',
+    repoRoot: REPO_ROOT,
+    contextPackDir: context.contextPackDir,
+    contextPackId: context.contextPackId,
+    scopeMode: context.scopeMode,
+    primaryRepoId: context.primaryRepoId,
+    primaryFocusId: context.primaryFocusId,
+    selectedRepoIds: context.selectedRepoIds,
+    selectedFocusIds: context.selectedFocusIds,
+    deepFocusEnabled: context.deepFocusEnabled,
+    selectedFocusPath: context.selectedFocusPath,
+    selectedFocusTargetKind: context.selectedFocusTargetKind,
+    selectedFocusTargets: context.selectedFocusTargets,
+    selectedTestTarget: context.selectedTestTarget,
+    selectedSupportTargets: context.selectedSupportTargets,
+  });
+  return { filePath, title: context.title };
 }
 
 export async function submitDraftViaDropboxHelper(

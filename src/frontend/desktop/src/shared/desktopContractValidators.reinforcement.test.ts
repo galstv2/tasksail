@@ -260,4 +260,46 @@ describe('validateDesktopActionRequest — reinforcement actions', () => {
       expect(errors).toContainEqual('payload.triggerTaskId must be a non-empty string.');
     });
   });
+
+  describe('reinforcement.runRealignmentAnalysis', () => {
+    it('accepts valid payload', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.runRealignmentAnalysis',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          realignmentId: 'RA-1',
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects missing payload', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.runRealignmentAnalysis',
+      });
+      expect(errors).toEqual(['payload must be an object.']);
+    });
+
+    it('rejects relative contextPackDir', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.runRealignmentAnalysis',
+        payload: {
+          contextPackDir: 'relative/path',
+          realignmentId: 'RA-1',
+        },
+      });
+      expect(errors).toContainEqual('payload.contextPackDir must be an absolute path string.');
+    });
+
+    it('rejects empty realignmentId', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.runRealignmentAnalysis',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          realignmentId: '',
+        },
+      });
+      expect(errors).toContainEqual('payload.realignmentId must be a non-empty string.');
+    });
+  });
 });

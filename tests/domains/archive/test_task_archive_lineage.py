@@ -23,7 +23,16 @@ class TaskArchiveLineageTests(unittest.TestCase):
         cls.app = load_repo_context_app()
 
     def create_archive(self, context_pack_dir: Path, *, scope: str, file_name: str, record: dict[str, object]) -> Path:
-        path = context_pack_dir / scope / "archive" / "tasks" / "platform" / "2026" / file_name
+        path = (
+            context_pack_dir
+            / scope
+            / "archive"
+            / "tasks"
+            / "platform"
+            / "2026"
+            / Path(file_name).stem
+            / "archive.json"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         return path
@@ -136,6 +145,11 @@ class TaskArchiveLineageTests(unittest.TestCase):
             self.assertEqual(
                 [item["task_id"] for item in summary["root_lineage_records"]],
                 ["CAP-1000", "CAP-1001", "CAP-1002", "CAP-1003"],
+            )
+            self.assertTrue(
+                str(summary["root_archive"]["archive_path"]).endswith(
+                    "/archive/tasks/platform/2026/cap-1000/archive.json"
+                )
             )
             self.assertIn("Broader Root Lineage", summary["rendered_summary_markdown"])
 

@@ -26,7 +26,7 @@ function makeSession(
     realignmentId,
     triggerTaskId,
     triggerFeedbackId: `FB-${realignmentId}`,
-    participatingAgents: ['software-engineer'],
+    participatingAgents: ['provider-builder'],
     failureAnalysis: '',
     rootCause: '',
     correctiveActions: [],

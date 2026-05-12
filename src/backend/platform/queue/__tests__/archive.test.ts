@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PythonRunError } from '../../core/types.js';
 
 vi.mock('../policyValidation.js', () => ({
@@ -25,9 +25,19 @@ const mockRunPython = vi.mocked(runPython);
 const mockAssertPolicyPasses = vi.mocked(assertPolicyPasses);
 
 describe('fileTaskArchive', () => {
+  const originalTaskId = process.env.TASKSAIL_TASK_ID;
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockAssertPolicyPasses.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    if (originalTaskId === undefined) {
+      delete process.env.TASKSAIL_TASK_ID;
+    } else {
+      process.env.TASKSAIL_TASK_ID = originalTaskId;
+    }
   });
 
   it('runs pre-archive validation before invoking the Python archive script', async () => {
@@ -63,6 +73,36 @@ describe('fileTaskArchive', () => {
     expect(args).toContain('/fake/repo');
     expect(args).toContain('--format');
     expect(args).toContain('json');
+    expect(mockRunPython.mock.calls[0]![2]).toEqual({
+      cwd: '/fake/repo',
+      timeout: 60_000,
+      env: { TASKSAIL_TASK_ID: 'task-abc' },
+    });
+  });
+
+  it('passes archive task id explicitly instead of relying on stale parent env', async () => {
+    process.env.TASKSAIL_TASK_ID = 'stale-parent-task';
+    mockRunPython.mockResolvedValue({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    await fileTaskArchive({
+      contextPackDir: '/packs/pack-a',
+      taskId: 'task-abc',
+      repoRoot: '/fake/repo',
+    });
+
+    expect(mockRunPython).toHaveBeenCalledWith(
+      expect.stringContaining('file-task-archive.py'),
+      expect.any(Array),
+      expect.objectContaining({
+        cwd: '/fake/repo',
+        timeout: 60_000,
+        env: { TASKSAIL_TASK_ID: 'task-abc' },
+      }),
+    );
   });
 
   it('includes optional --qmd-scope and --resume', async () => {

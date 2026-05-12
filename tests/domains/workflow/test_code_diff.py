@@ -43,6 +43,10 @@ def _commit_base(repo_path: Path, filename: str = "tracked.txt") -> str:
     return _run_git(repo_path, "rev-parse", "HEAD").stdout.decode().strip()
 
 
+def _completed(args: list[str], returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 class CaptureCodeDiffTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = Path(tempfile.mkdtemp(prefix="code-diff-"))
@@ -52,17 +56,20 @@ class CaptureCodeDiffTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _write_sidecar(
-        self,
-        task_id: str,
-        bindings: list[dict[str, str]],
-        *,
-        platform_root: Path | None = None,
-    ) -> Path:
+    def _sidecar_path(self, task_id: str, *, platform_root: Path | None = None) -> Path:
         root = platform_root or self.platform_root
         task_dir = root / "AgentWorkSpace" / "tasks" / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        sidecar = task_dir / ".task.json"
+        return task_dir / ".task.json"
+
+    def _write_sidecar(
+        self,
+        task_id: str,
+        bindings: list[object],
+        *,
+        platform_root: Path | None = None,
+    ) -> Path:
+        sidecar = self._sidecar_path(task_id, platform_root=platform_root)
         sidecar.write_text(
             json.dumps({"contextPackBinding": {"repoBindings": bindings}}),
             encoding="utf-8",
@@ -75,17 +82,19 @@ class CaptureCodeDiffTests(unittest.TestCase):
         slug: str = "repo-root",
         *,
         original_slug: str | None = None,
+        worktree_parent: Path | None = None,
     ) -> tuple[Path, Path, dict[str, str]]:
         original = self.tmpdir / (original_slug or f"original-{slug}")
-        original.mkdir()
+        original.mkdir(parents=True)
         _init_git_repo(original)
         base_sha = _commit_base(original)
 
-        worktree = (
-            self.platform_root / "AgentWorkSpace" / "tasks" / task_id / "worktrees" / slug
+        parent = worktree_parent or (
+            self.platform_root / "AgentWorkSpace" / "tasks" / task_id / "worktrees"
         )
+        worktree = parent / slug
         worktree.parent.mkdir(parents=True, exist_ok=True)
-        branch = f"task/{task_id}-{slug}"
+        branch = f"task/{task_id}-{slug}-{len(list(parent.glob('*'))) if parent.exists() else 0}"
         _run_git(original, "worktree", "add", "-b", branch, str(worktree), "HEAD")
         binding = {
             "originalRoot": str(original),
@@ -95,13 +104,22 @@ class CaptureCodeDiffTests(unittest.TestCase):
         }
         return original, worktree, binding
 
+    def _capture(self, task_id: str, output_name: str = "code-changes.diff") -> tuple[int, list[str], str]:
+        output_path = self.tmpdir / output_name
+        exit_code, repo_names = code_diff.capture_code_diff(
+            repo_root=str(self.platform_root),
+            task_id=task_id,
+            output_path=str(output_path),
+        )
+        return exit_code, repo_names, output_path.read_text(encoding="utf-8")
+
     def test_helper_cli_uses_task_sidecar_worktree_bindings(self) -> None:
         task_id = "task-cli"
         _original, worktree, binding = self._create_worktree_binding(task_id)
         self._write_sidecar(task_id, [binding])
         (worktree / "tracked.txt").write_text("after\n", encoding="utf-8")
 
-        output_path = self.tmpdir / "code-changes.diff"
+        output_path = self.tmpdir / "cli.diff"
         completed = subprocess.run(
             [
                 "python3",
@@ -122,91 +140,11 @@ class CaptureCodeDiffTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, msg=completed.stderr)
         self.assertEqual(completed.stdout.strip(), worktree.name)
         content = output_path.read_text(encoding="utf-8")
-        self.assertIn(f"#   - {worktree.name}", content)
+        self.assertIn(f"#   - {worktree.name} | status=captured |", content)
         self.assertIn("# --- Worktree: repo-root", content)
-        self.assertIn("tracked.txt", content)
         self.assertIn("+after", content)
 
-    def test_diff_captures_worktree_edits_not_origin_edits(self) -> None:
-        task_id = "task-worktree-scope"
-        original, worktree, binding = self._create_worktree_binding(task_id)
-        self._write_sidecar(task_id, [binding])
-        (worktree / "tracked.txt").write_text("worktree edit\n", encoding="utf-8")
-        (original / "tracked.txt").write_text("origin edit\n", encoding="utf-8")
-        output_path = self.tmpdir / "scoped.diff"
-
-        exit_code, repo_names = code_diff.capture_code_diff(
-            repo_root=str(self.platform_root),
-            task_id=task_id,
-            output_path=str(output_path),
-        )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(repo_names, [worktree.name])
-        content = output_path.read_text(encoding="utf-8")
-        self.assertIn("+worktree edit", content)
-        self.assertNotIn("origin edit", content)
-
-    def test_diff_writes_sentinel_when_worktree_has_no_changes(self) -> None:
-        task_id = "task-empty-worktree"
-        _original, worktree, binding = self._create_worktree_binding(task_id)
-        self._write_sidecar(task_id, [binding])
-        output_path = self.tmpdir / "empty.diff"
-
-        exit_code, repo_names = code_diff.capture_code_diff(
-            repo_root=str(self.platform_root),
-            task_id=task_id,
-            output_path=str(output_path),
-        )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(repo_names, [worktree.name])
-        self.assertEqual(
-            output_path.read_text(encoding="utf-8"),
-            "# Active per-task worktrees in review scope:\n"
-            f"#   - {worktree.name}\n"
-            "#\n"
-            "# No git diff available. Skip this file and scope "
-            "your review to the files listed in the assigned slice.\n",
-        )
-
-    def test_diff_writes_sentinel_when_sidecar_missing(self) -> None:
-        output_path = self.tmpdir / "missing-sidecar.diff"
-
-        with self.assertLogs(code_diff.logger, level="WARNING") as logs:
-            exit_code, repo_names = code_diff.capture_code_diff(
-                repo_root=str(self.platform_root),
-                task_id="missing-sidecar",
-                output_path=str(output_path),
-            )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(repo_names, [])
-        self.assertIn("No git diff available", output_path.read_text(encoding="utf-8"))
-        self.assertIn("task sidecar missing", "\n".join(logs.output))
-
-    def test_diff_writes_sentinel_when_sidecar_has_no_bindings(self) -> None:
-        task_id = "task-no-bindings"
-        self._write_sidecar(task_id, [])
-        output_path = self.tmpdir / "no-bindings.diff"
-
-        exit_code, repo_names = code_diff.capture_code_diff(
-            repo_root=str(self.platform_root),
-            task_id=task_id,
-            output_path=str(output_path),
-        )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(repo_names, [])
-        self.assertEqual(
-            output_path.read_text(encoding="utf-8"),
-            "# Active per-task worktrees in review scope:\n"
-            "#\n"
-            "# No git diff available. Skip this file and scope "
-            "your review to the files listed in the assigned slice.\n",
-        )
-
-    def test_diff_captures_multiple_worktrees(self) -> None:
+    def test_two_changed_git_worktrees_aggregate_into_one_diff(self) -> None:
         task_id = "task-multiple"
         _original_one, worktree_one, binding_one = self._create_worktree_binding(
             task_id,
@@ -221,100 +159,229 @@ class CaptureCodeDiffTests(unittest.TestCase):
         self._write_sidecar(task_id, [binding_one, binding_two])
         (worktree_one / "tracked.txt").write_text("one edit\n", encoding="utf-8")
         (worktree_two / "tracked.txt").write_text("two edit\n", encoding="utf-8")
-        output_path = self.tmpdir / "multiple.diff"
 
-        exit_code, repo_names = code_diff.capture_code_diff(
-            repo_root=str(self.platform_root),
-            task_id=task_id,
-            output_path=str(output_path),
-        )
+        exit_code, repo_names, content = self._capture(task_id)
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(repo_names, ["repo-one", "repo-two"])
-        content = output_path.read_text(encoding="utf-8")
+        self.assertIn("#   - repo-one | status=captured |", content)
+        self.assertIn("#   - repo-two | status=captured |", content)
         self.assertIn("# --- Worktree: repo-one", content)
         self.assertIn("# --- Worktree: repo-two", content)
         self.assertIn("+one edit", content)
         self.assertIn("+two edit", content)
 
-    def test_diff_does_not_read_tasksail_code_workspace(self) -> None:
-        task_id = "task-ignore-workspace"
-        _original, worktree, binding = self._create_worktree_binding(task_id)
+    def test_diff_captures_worktree_edits_not_origin_edits(self) -> None:
+        task_id = "task-worktree-scope"
+        original, worktree, binding = self._create_worktree_binding(task_id)
         self._write_sidecar(task_id, [binding])
-        (self.platform_root / "tasksail.code-workspace").write_text(
-            json.dumps({"folders": [{"path": "/does/not/exist"}]}),
-            encoding="utf-8",
-        )
-        (worktree / "tracked.txt").write_text("workspace ignored\n", encoding="utf-8")
-        output_path = self.tmpdir / "ignored-workspace.diff"
+        (worktree / "tracked.txt").write_text("worktree edit\n", encoding="utf-8")
+        (original / "tracked.txt").write_text("origin edit\n", encoding="utf-8")
 
-        exit_code, repo_names = code_diff.capture_code_diff(
-            repo_root=str(self.platform_root),
-            task_id=task_id,
-            output_path=str(output_path),
-        )
+        exit_code, repo_names, content = self._capture(task_id)
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(repo_names, [worktree.name])
-        content = output_path.read_text(encoding="utf-8")
-        self.assertIn("+workspace ignored", content)
-        self.assertIn("# --- Worktree: repo-root", content)
+        self.assertIn("+worktree edit", content)
+        self.assertNotIn("origin edit", content)
 
-    def test_repo_failures_do_not_abort_aggregate_diff_generation(self) -> None:
-        output_path = self.tmpdir / "aggregate.diff"
-        good_repo = self.tmpdir / "good"
-        bad_repo = self.tmpdir / "bad"
-        good_repo.mkdir()
-        bad_repo.mkdir()
+    def test_clean_worktree_has_status_without_diff_section(self) -> None:
+        task_id = "task-empty-worktree"
+        _original, worktree, binding = self._create_worktree_binding(task_id)
+        self._write_sidecar(task_id, [binding])
 
-        def diff_side_effect(repo_path: Path) -> str:
-            if repo_path == bad_repo:
-                raise RuntimeError("boom")
-            return "diff --git a/a b/a\n"
-
-        with (
-            mock.patch.object(
-                code_diff,
-                "_load_repo_bindings",
-                return_value=[("good", good_repo), ("bad", bad_repo)],
-            ),
-            mock.patch.object(code_diff, "_git_diff", side_effect=diff_side_effect),
-        ):
-            exit_code, repo_names = code_diff.capture_code_diff(
-                repo_root=str(self.platform_root),
-                task_id="task-failure",
-                output_path=str(output_path),
-            )
+        exit_code, repo_names, content = self._capture(task_id)
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(repo_names, ["good", "bad"])
+        self.assertEqual(repo_names, [worktree.name])
+        self.assertIn(f"#   - {worktree.name} | status=clean |", content)
+        self.assertIn("# No git changes detected in bound worktrees.", content)
+        self.assertNotIn("# --- Worktree:", content)
+
+    def test_existing_non_git_worktree_is_skipped_without_failing_capture(self) -> None:
+        task_id = "task-non-git"
+        non_git = self.tmpdir / "non-git"
+        non_git.mkdir()
+        self._write_sidecar(task_id, [{
+            "originalRoot": "",
+            "worktreeRoot": str(non_git),
+            "worktreeBranch": "",
+            "baseCommitSha": "",
+        }])
+
+        exit_code, repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(repo_names, ["non-git"])
+        self.assertIn("#   - non-git | status=skipped-non-git | base=HEAD |", content)
+        self.assertIn("# No git changes detected in bound worktrees.", content)
+
+    def test_missing_worktree_writes_diagnostic_artifact_and_fails(self) -> None:
+        task_id = "task-missing-worktree"
+        missing = self.tmpdir / "missing"
+        self._write_sidecar(task_id, [{
+            "originalRoot": "",
+            "worktreeRoot": str(missing),
+            "worktreeBranch": "",
+            "baseCommitSha": "",
+        }])
+
+        exit_code, repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(repo_names, ["missing"])
+        self.assertIn("#   - missing | status=missing-worktree |", content)
+        self.assertIn("# ERROR missing: missing-worktree", content)
+        self.assertIn("Ron must not review this task", content)
+
+    def test_missing_sidecar_fails_and_overwrites_stale_output(self) -> None:
+        output_path = self.tmpdir / "missing-sidecar.diff"
+        output_path.write_text("stale diff", encoding="utf-8")
+
+        exit_code, repo_names = code_diff.capture_code_diff(
+            repo_root=str(self.platform_root),
+            task_id="missing-sidecar",
+            output_path=str(output_path),
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(repo_names, [])
         content = output_path.read_text(encoding="utf-8")
-        self.assertIn("# --- Worktree: good", content)
-        self.assertIn("diff --git a/a b/a", content)
-        self.assertNotIn("# --- Worktree: bad", content)
+        self.assertNotIn("stale diff", content)
+        self.assertIn("# ERROR sidecar: missing-sidecar", content)
+
+    def test_malformed_json_and_non_object_sidecars_fail_with_diagnostics(self) -> None:
+        cases = [
+            ("bad-json", "{", "malformed-json"),
+            ("non-object", "[]", "non-object-sidecar"),
+        ]
+        for task_id, raw, code in cases:
+            with self.subTest(task_id=task_id):
+                sidecar = self._sidecar_path(task_id)
+                sidecar.write_text(raw, encoding="utf-8")
+                exit_code, repo_names, content = self._capture(task_id, f"{task_id}.diff")
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(repo_names, [])
+                self.assertIn(f"# ERROR sidecar: {code}", content)
+
+    def test_invalid_repo_bindings_shapes_fail_with_diagnostics(self) -> None:
+        cases = [
+            ("missing-binding-root", {}, "missing-contextPackBinding"),
+            ("missing-repo-bindings", {"contextPackBinding": {}}, "invalid-repoBindings"),
+            ("non-array-repo-bindings", {"contextPackBinding": {"repoBindings": {}}}, "invalid-repoBindings"),
+            ("empty-repo-bindings", {"contextPackBinding": {"repoBindings": []}}, "empty-repoBindings"),
+            ("non-object-binding", {"contextPackBinding": {"repoBindings": ["bad"]}}, "malformed-binding"),
+            ("missing-worktree-root", {"contextPackBinding": {"repoBindings": [{}]}}, "malformed-binding"),
+            ("blank-worktree-root", {"contextPackBinding": {"repoBindings": [{"worktreeRoot": " "}]}}, "malformed-binding"),
+            ("non-string-worktree-root", {"contextPackBinding": {"repoBindings": [{"worktreeRoot": 3}]}}, "malformed-binding"),
+        ]
+        for task_id, payload, code in cases:
+            with self.subTest(task_id=task_id):
+                self._sidecar_path(task_id).write_text(json.dumps(payload), encoding="utf-8")
+                exit_code, repo_names, content = self._capture(task_id, f"{task_id}.diff")
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(repo_names, [])
+                self.assertIn(f"# ERROR sidecar: {code}", content)
+
+    def test_duplicate_display_slugs_are_retained_with_suffixes(self) -> None:
+        task_id = "task-duplicate-slugs"
+        bindings: list[dict[str, str]] = []
+        for index in range(3):
+            _original, worktree, binding = self._create_worktree_binding(
+                task_id,
+                "shared",
+                original_slug=f"original-duplicate-{index}",
+                worktree_parent=self.tmpdir / f"parent-{index}",
+            )
+            (worktree / "tracked.txt").write_text(f"edit {index}\n", encoding="utf-8")
+            bindings.append(binding)
+        self._write_sidecar(task_id, bindings)
+
+        exit_code, repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(repo_names, ["shared", "shared-2", "shared-3"])
+        self.assertIn("# --- Worktree: shared (", content)
+        self.assertIn("# --- Worktree: shared-2 (", content)
+        self.assertIn("# --- Worktree: shared-3 (", content)
+
+    def test_committed_changes_after_activation_are_captured_from_base_commit(self) -> None:
+        task_id = "task-committed-after-activation"
+        _original, worktree, binding = self._create_worktree_binding(task_id)
+        self._write_sidecar(task_id, [binding])
+        (worktree / "tracked.txt").write_text("committed after activation\n", encoding="utf-8")
+        _run_git(worktree, "add", "tracked.txt")
+        _run_git(worktree, "commit", "-m", "agent commit")
+
+        exit_code, repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(repo_names, [worktree.name])
+        self.assertIn("| status=captured |", content)
+        self.assertIn("committed after activation", content)
+
+    def test_invalid_non_empty_base_commit_is_fatal_and_visible(self) -> None:
+        task_id = "task-invalid-base"
+        _original, worktree, binding = self._create_worktree_binding(task_id)
+        binding["baseCommitSha"] = "not-a-real-commit"
+        self._write_sidecar(task_id, [binding])
+
+        exit_code, repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(repo_names, [worktree.name])
+        self.assertIn(f"#   - {worktree.name} | status=invalid-base-commit |", content)
+        self.assertIn(f"# ERROR {worktree.name}: invalid-base-commit", content)
+
+    def test_git_add_and_diff_failures_are_fatal_and_visible(self) -> None:
+        task_id = "task-git-failures"
+        _original, worktree, binding = self._create_worktree_binding(task_id)
+        self._write_sidecar(task_id, [binding])
+
+        def run_capture_with_failure(command_name: str, status: str) -> str:
+            def fake_git(args: list[str], *, timeout: int, text: bool = True) -> subprocess.CompletedProcess[str]:
+                if command_name in args:
+                    return _completed(args, 1, stderr=f"{command_name} failed")
+                return _completed(args, 0, stdout="true\n")
+
+            with mock.patch.object(code_diff, "_git_run", side_effect=fake_git):
+                exit_code, _repo_names, content = self._capture(task_id, f"{status}.diff")
+            self.assertEqual(exit_code, 1)
+            return content
+
+        self.assertIn("status=intent-to-add-failed", run_capture_with_failure("add", "add"))
+        self.assertIn("status=diff-failed", run_capture_with_failure("diff", "diff"))
+
+    def test_git_command_exceptions_are_fatal_and_visible(self) -> None:
+        task_id = "task-git-exception"
+        _original, _worktree, binding = self._create_worktree_binding(task_id)
+        self._write_sidecar(task_id, [binding])
+
+        with mock.patch.object(code_diff, "_git_run", side_effect=OSError("spawn failed")):
+            exit_code, _repo_names, content = self._capture(task_id)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("status=git-probe-failed", content)
+        self.assertIn("spawn failed", content)
 
     def test_write_failures_return_actionable_error_output(self) -> None:
-        output_path = self.tmpdir / "broken.diff"
+        task_id = "task-write-failure"
+        _original, _worktree, binding = self._create_worktree_binding(task_id)
+        self._write_sidecar(task_id, [binding])
         stderr = io.StringIO()
 
         with (
-            mock.patch.object(
-                code_diff,
-                "_load_repo_bindings",
-                return_value=[("repo", self.tmpdir / "repo")],
-            ),
-            mock.patch.object(code_diff, "_git_diff", return_value=""),
-            mock.patch.object(Path, "write_text", side_effect=OSError("disk full")),
+            mock.patch.object(code_diff, "_atomic_write_text", side_effect=OSError("disk full")),
             contextlib.redirect_stderr(stderr),
         ):
             exit_code, repo_names = code_diff.capture_code_diff(
                 repo_root=str(self.platform_root),
-                task_id="task-write-failure",
-                output_path=str(output_path),
+                task_id=task_id,
+                output_path=str(self.tmpdir / "broken.diff"),
             )
 
         self.assertEqual(exit_code, 1)
-        self.assertEqual(repo_names, ["repo"])
+        self.assertEqual(repo_names, [Path(binding["worktreeRoot"]).name])
         self.assertIn("Failed to write diff artifact", stderr.getvalue())
 
 

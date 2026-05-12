@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.backend.mcp.reinforcement.engine import ReinforcementEngine
+from src.backend.mcp.reinforcement.models import AgentRewardMemory
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 
 
@@ -66,6 +67,30 @@ class TestAutoSettlement:
         )
         assert "settlement" not in result
         assert len(engine.get_unrewarded_tasks()) == 9
+
+    def test_settlement_refreshes_existing_role_multiplier(
+        self, tmp_path: Path,
+    ) -> None:
+        store = ReinforcementStore(tmp_path)
+        store.update_agent_reward(AgentRewardMemory(
+            agent_id="planning-agent",
+            role="Planning Specialist",
+            multiplier=0.5,
+            lifetime_reward=7500,
+            unrewarded_task_count=0,
+            unrewarded_reward_total=0,
+        ))
+        engine = ReinforcementEngine(store)
+
+        for i in range(10):
+            engine.record_task_completion(f"T-{i}", "easy")
+
+        planning_reward = next(
+            r for r in store.load_agent_rewards()
+            if r.agent_id == "planning-agent"
+        )
+        assert planning_reward.multiplier == 1.0
+        assert planning_reward.lifetime_reward == 17500
 
 
 class TestFeedback:

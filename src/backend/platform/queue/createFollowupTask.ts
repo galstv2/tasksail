@@ -27,6 +27,8 @@ export interface CreateFollowupTaskOptions {
   contextPackDir?: string;
   contextPackId?: string;
   scopeMode?: string;
+  primaryRepoId?: string | null;
+  primaryFocusId?: string | null;
   selectedRepoIds?: string[];
   selectedFocusIds?: string[];
   deepFocusEnabled?: boolean;
@@ -109,6 +111,8 @@ export async function createFollowupTask(
     contextPackDir: options.contextPackDir,
     contextPackId: options.contextPackId,
     scopeMode: options.scopeMode,
+    primaryRepoId: options.primaryRepoId,
+    primaryFocusId: options.primaryFocusId,
     selectedRepoIds: options.selectedRepoIds,
     selectedFocusIds: options.selectedFocusIds,
     deepFocusEnabled: options.deepFocusEnabled,

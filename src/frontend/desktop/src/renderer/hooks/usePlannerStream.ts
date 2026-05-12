@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { PlannerBrokerStatus, PlannerStreamEvent } from '../../shared/desktopContract';
@@ -12,20 +13,33 @@ export type ConversationMessage = {
   timestamp: string;
 };
 
-export function usePlannerStream(): {
+export type PlannerStreamOptions = {
+  expectedSessionIdRef?: RefObject<string | null>;
+};
+
+export function usePlannerStream(options: PlannerStreamOptions = {}): {
   messages: ConversationMessage[];
   isStreaming: boolean;
   brokerStatus: PlannerBrokerStatus;
   lastError: string;
   sendMessage: (text: string) => void;
   clearConversation: () => void;
+  hydrateMessages: (initial: ConversationMessage[]) => void;
 } {
+  const { expectedSessionIdRef } = options;
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [brokerStatus, setBrokerStatus] = useState<PlannerBrokerStatus>('idle');
   const [lastError, setLastError] = useState('');
 
   const applyPlannerEvent = useCallback((plannerEvent: PlannerStreamEvent) => {
+    if (expectedSessionIdRef) {
+      const expectedSessionId = expectedSessionIdRef.current;
+      if (!expectedSessionId || plannerEvent.sessionId !== expectedSessionId) {
+        return;
+      }
+    }
+
     setBrokerStatus(plannerEvent.brokerStatus);
     setIsStreaming(plannerEvent.brokerStatus === 'running');
 
@@ -84,7 +98,7 @@ export function usePlannerStream(): {
       next.push(newMsg);
       return next;
     });
-  }, []);
+  }, [expectedSessionIdRef]);
 
   useEffect(() => {
     if (!window.desktopShell?.onPlannerEvent) return;
@@ -115,5 +129,10 @@ export function usePlannerStream(): {
     setLastError('');
   }, []);
 
-  return { messages, isStreaming, brokerStatus, lastError, sendMessage, clearConversation };
+  const hydrateMessages = useCallback((initial: ConversationMessage[]) => {
+    setMessages(initial.slice(-MAX_MESSAGES).map((message) => ({ ...message, isStreaming: false })));
+    setIsStreaming(false);
+  }, []);
+
+  return { messages, isStreaming, brokerStatus, lastError, sendMessage, clearConversation, hydrateMessages };
 }

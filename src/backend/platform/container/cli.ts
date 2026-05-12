@@ -6,7 +6,9 @@ import { resolveDefaultComposeFile } from './types.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import { seedPlatformConfig } from '../platform-config/seed.js';
 import { createSharedMcpBootstrapEnv, sweepLegacyPortAllocationsOnce } from './sharedMcp.js';
+import { stopDirectMcp } from './directRuntimeProcess.js';
 import path from 'node:path';
 
 /**
@@ -23,6 +25,23 @@ async function main(): Promise<void> {
   }
 
   const repoRoot = findRepoRoot();
+
+  // Sync .platform-state/platform.json from config/platform.default.json
+  // BEFORE anything else reads it. createRuntimeFromConfig (below) and
+  // getPlatformConfig (in subcommand branches) both consume the runtime file
+  // to decide the container backend and shared-MCP port; seeding here
+  // guarantees those reads see the current default. The seed inside
+  // bootstrapServices is preserved as a self-contained safety net for
+  // direct callers of that API; on this path it becomes an idempotent no-op.
+  const platformSeed = await seedPlatformConfig(repoRoot);
+  if (platformSeed.action === 'failed') {
+    const messages = platformSeed.errors.map(
+      (e) => `  ${e.field}: ${e.message} (${e.fix})`,
+    );
+    console.error(`Platform config validation failed:\n${messages.join('\n')}`);
+    process.exit(1);
+  }
+
   const runtime = await createRuntimeFromConfig(repoRoot);
 
   switch (subcommand) {
@@ -111,10 +130,8 @@ async function main(): Promise<void> {
     }
 
     case 'up': {
-      const composeFile = path.resolve(
-        repoRoot,
-        resolveDefaultComposeFile(runtime.backend),
-      );
+      const composeFileRel = requireComposeRuntime(runtime);
+      const composeFile = path.resolve(repoRoot, composeFileRel);
       await runtime.composeUp({
         composeFile,
         detach: true,
@@ -125,11 +142,21 @@ async function main(): Promise<void> {
     }
 
     case 'down': {
-      const composeFile = path.resolve(
-        repoRoot,
-        resolveDefaultComposeFile(runtime.backend),
-      );
-      await runtime.composeDown({ composeFile });
+      // Always stop a direct-mode daemon if its PID file exists. This handles
+      // the mode-flip case: if the user bootstrapped under "direct" and then
+      // changed container_runtime in platform.json, the configured runtime's
+      // composeDown wouldn't know about the orphaned host-process daemon.
+      // stopDirectMcp is repo-scoped (PID file under .platform-state) and
+      // idempotent (no-op when the PID file is absent), so it's safe to call
+      // here regardless of the configured backend.
+      await stopDirectMcp(repoRoot);
+      if (runtime.requiresComposeFile) {
+        const composeFileRel = requireComposeRuntime(runtime);
+        const composeFile = path.resolve(repoRoot, composeFileRel);
+        await runtime.composeDown({ composeFile });
+      } else {
+        await runtime.composeDown({ env: { TASKSAIL_REPO_ROOT: repoRoot } });
+      }
       console.log('Services stopped.');
       break;
     }
@@ -139,6 +166,17 @@ async function main(): Promise<void> {
       printUsage();
       process.exit(1);
   }
+}
+
+function requireComposeRuntime(runtime: Awaited<ReturnType<typeof createRuntimeFromConfig>>): string {
+  const composeFile = resolveDefaultComposeFile(runtime.backend);
+  if (!runtime.requiresComposeFile || composeFile === undefined) {
+    process.stderr.write(
+      `This command requires a compose-bound runtime; container_runtime is "${runtime.backend}".\n`,
+    );
+    process.exit(1);
+  }
+  return composeFile;
 }
 
 function printUsage(): void {

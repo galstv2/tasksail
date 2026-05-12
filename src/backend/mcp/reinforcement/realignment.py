@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any
 
 from src.backend.scripts.python.lib.time import current_utc_timestamp
@@ -25,6 +26,18 @@ class RealignmentManager:
             if s.realignment_id == realignment_id:
                 return s
         return None
+
+    def find_session(
+        self,
+        realignment_id: str,
+    ) -> RealignmentSession | None:
+        """Look up a session by ID, returning ``None`` if not found."""
+        return self._find_session(realignment_id)
+
+    @staticmethod
+    def is_analyzable(session: RealignmentSession) -> bool:
+        """Return whether a session can run analysis; reviewed uses --archive-reviewed."""
+        return session.status in {"open", "error"}
 
     def start_session(
         self,
@@ -86,17 +99,29 @@ class RealignmentManager:
         if target is None:
             return {"status": "not_found"}
 
-        target.status = "archived"
-        self._store.save_realignment_session(target)
-
-        notes_md = self._build_meeting_notes_markdown(target)
-        notes_path = self._store.save_realignment_notes(
-            realignment_id, notes_md,
-        )
+        archived = replace(target, status="archived")
+        notes_md = self.build_archive_notes(archived)
+        notes_path = self._store.save_realignment_notes(realignment_id, notes_md)
+        self._store.save_realignment_session(archived)
         return {
             "status": "archived",
             "notes_path": str(notes_path),
-            "session": target.as_dict(),
+            "session": archived.as_dict(),
+        }
+
+    def archive_reviewed_session(self, session: RealignmentSession) -> dict[str, Any]:
+        """Archive a reviewed session by writing notes before final status."""
+        archived = replace(session, status="archived")
+        notes_md = self.build_archive_notes(archived)
+        notes_path = self._store.save_realignment_notes(
+            archived.realignment_id,
+            notes_md,
+        )
+        self._store.save_realignment_session(archived)
+        return {
+            "status": "archived",
+            "notes_path": str(notes_path),
+            "session": archived.as_dict(),
         }
 
     def list_sessions(
@@ -151,3 +176,7 @@ class RealignmentManager:
             "",
         ])
         return "\n".join(lines)
+
+    def build_archive_notes(self, session: RealignmentSession) -> str:
+        """Render archive notes without mutating persisted session state."""
+        return self._build_meeting_notes_markdown(session)

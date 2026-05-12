@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -291,6 +291,31 @@ describe('useContextPackSwitching', () => {
     expect(refreshCatalog).toHaveBeenCalled();
   });
 
+  it('warns and refreshes catalog when reseed is already in progress', async () => {
+    const client = createMockClient({
+      reseedContextPack: vi.fn().mockResolvedValue({
+        ok: false,
+        action: 'contextPack.reseed',
+        error: 'reseed_in_progress',
+        details: ['pid=1234', 'host=host-a'],
+      }),
+    });
+
+    const { result, refreshCatalog, setMessage } = renderSwitchingHook(client);
+
+    await act(async () => {
+      await result.current.runReseedAction();
+    });
+
+    expect(result.current.lastReseedResult).toBeNull();
+    expect(setMessage).toHaveBeenCalledWith('Context-pack reseed is already in progress.');
+    expect(refreshCatalog).toHaveBeenCalledWith({
+      preferredContextPackDir: '/tmp/pack',
+      preserveFeedback: true,
+    });
+    expect(screen.getByText('Another reseed is already in progress on PID 1234')).toBeInTheDocument();
+  });
+
   it('runAction resets actionPending when IPC throws', async () => {
     const client = createMockClient({
       previewContextPackSwitch: vi.fn().mockRejectedValue(new Error('Network failure')),
@@ -541,5 +566,131 @@ describe('useContextPackSwitching', () => {
 
     expect(result.current.showMultiPrimaryWarning).toBe(false);
     expect(client.applyContextPackSwitch).toHaveBeenCalled();
+  });
+
+  // Phase 5 G3: bootstrap-empty packs gate apply behind a confirm dialog.
+  // The dialog state is consumed by ContextPackSidebarExpanded; here we
+  // verify the hook surfaces the pending flag and that the two confirm
+  // callbacks resolve to the documented next-action.
+  describe('bootstrap-empty gate', () => {
+    function bootstrapEmptyPack() {
+      return createListContextPacksResponse([
+        {
+          contextPackId: 'empty',
+          displayName: 'Empty Pack',
+          contextPackDir: '/tmp/pack',
+          manifestPath: null,
+          bootstrapReady: true,
+          source: 'configured-path' as const,
+          isActive: false,
+          estateType: 'distributed-platform',
+          defaultScopeMode: 'focused' as const,
+          repoCount: 0,
+          primaryWorkingRepoIds: [],
+          focusTargets: [],
+          packSeedState: 'bootstrap-empty',
+          packSeedStateInfo: { state: 'bootstrap-empty', reason: 'new-flow-seed-skipped' },
+        },
+      ]);
+    }
+
+    it('apply on a bootstrap-empty pack opens the confirm dialog without calling IPC', async () => {
+      const client = createMockClient();
+      const { result } = renderSwitchingHook(client, () => ({
+        ...defaultSnapshot,
+        selectedRepoIds: [],
+        catalogResponse: bootstrapEmptyPack(),
+      }));
+
+      await act(async () => {
+        await result.current.runAction('apply');
+      });
+
+      expect(result.current.bootstrapEmptyConfirmPending).toBe(true);
+      expect(client.applyContextPackSwitch).not.toHaveBeenCalled();
+      expect(result.current.actionPending).toBeNull();
+    });
+
+    it('preview on a bootstrap-empty pack is NOT gated', async () => {
+      const previewResponse = createSwitchResponse('contextPack.previewSwitch', 'preview');
+      const client = createMockClient({
+        previewContextPackSwitch: vi.fn().mockResolvedValue({ ok: true, response: previewResponse }),
+      });
+      const { result } = renderSwitchingHook(client, () => ({
+        ...defaultSnapshot,
+        selectedRepoIds: [],
+        catalogResponse: bootstrapEmptyPack(),
+      }));
+
+      await act(async () => {
+        await result.current.runAction('preview');
+      });
+
+      expect(result.current.bootstrapEmptyConfirmPending).toBe(false);
+      expect(client.previewContextPackSwitch).toHaveBeenCalled();
+    });
+
+    it('confirmActivateAnyway dismisses the dialog and proceeds with apply', async () => {
+      const applyResponse = createSwitchResponse('contextPack.applySwitch', 'applied');
+      const client = createMockClient({
+        applyContextPackSwitch: vi.fn().mockResolvedValue({ ok: true, response: applyResponse }),
+      });
+      const { result } = renderSwitchingHook(client, () => ({
+        ...defaultSnapshot,
+        selectedRepoIds: [],
+        catalogResponse: bootstrapEmptyPack(),
+      }));
+
+      await act(async () => {
+        await result.current.runAction('apply');
+      });
+      expect(result.current.bootstrapEmptyConfirmPending).toBe(true);
+
+      await act(async () => {
+        await result.current.confirmActivateAnyway();
+      });
+
+      expect(result.current.bootstrapEmptyConfirmPending).toBe(false);
+      expect(client.applyContextPackSwitch).toHaveBeenCalledTimes(1);
+    });
+
+    it('confirmPopulateAndSeed dismisses the dialog and triggers a reseed instead', async () => {
+      const reseedResponse = {
+        action: 'contextPack.reseed' as const,
+        mode: 'reseeded' as const,
+        message: 'Reseed complete.',
+        commandPath: 'src/backend/platform/context-pack/switch.ts',
+        result: {
+          contextPackDir: '/tmp/pack',
+          overallStatus: 'seeded',
+          reportPath: null,
+          seededRepoCount: 1,
+          blockedRepoCount: 0,
+          conventionsSummaryStatus: null,
+          conventionsPolicy: 'only-if-missing',
+          workspaceFolderCount: null,
+          workspaceFileCount: null,
+        },
+      };
+      const client = createMockClient({
+        reseedContextPack: vi.fn().mockResolvedValue({ ok: true, response: reseedResponse }),
+      });
+      const { result } = renderSwitchingHook(client, () => ({
+        ...defaultSnapshot,
+        selectedRepoIds: [],
+        catalogResponse: bootstrapEmptyPack(),
+      }));
+
+      await act(async () => {
+        await result.current.runAction('apply');
+      });
+      await act(async () => {
+        await result.current.confirmPopulateAndSeed();
+      });
+
+      expect(result.current.bootstrapEmptyConfirmPending).toBe(false);
+      expect(client.reseedContextPack).toHaveBeenCalledWith('/tmp/pack');
+      expect(client.applyContextPackSwitch).not.toHaveBeenCalled();
+    });
   });
 });

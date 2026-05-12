@@ -1,4 +1,5 @@
 import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
+import { isDistributedEstateMode, isMonolithEstateMode } from '../../contextPackModeUtils';
 import RepositoryCard from './RepositoryCard';
 import FocusAreaCard from './FocusAreaCard';
 
@@ -32,9 +33,9 @@ function ShapeStep({
     <div className="context-pack-modal__body">
       {draft.creationOrigin === 'new' ? (
         <div className="context-pack-modal__new-project-hint">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M8 5v4M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.1" />
+            <path d="M8 7.25v3.5M8 5.25v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
           <span>
             Your project is ready. Adjust advanced details below or go straight to Review.
@@ -45,12 +46,12 @@ function ShapeStep({
       <div className="panel__title-row context-pack-modal__section-header">
         <div>
           <p className="context-pack-modal__section-label">
-            {draft.mode === 'distributed'
+            {isDistributedEstateMode(draft.mode)
               ? 'Repository estate definition'
               : 'Monolith focus definition'}
           </p>
           <p className="panel__meta">
-            {draft.mode === 'distributed'
+            {isDistributedEstateMode(draft.mode)
               ? 'Discovery suggestions stay editable and extra repositories can be added manually.'
               : 'Define the main monolith repo, optional attached datapmse repos, and focus areas.'}
           </p>
@@ -61,7 +62,7 @@ function ShapeStep({
           disabled={busy}
           onClick={onAddRepository}
         >
-          {draft.mode === 'distributed' ? 'Add repository' : 'Add datapmse repo'}
+          {isDistributedEstateMode(draft.mode) ? 'Add repository' : 'Add datapmse repo'}
         </button>
       </div>
 
@@ -80,7 +81,7 @@ function ShapeStep({
         ))}
       </div>
 
-      {draft.mode === 'monolith' ? (
+      {isMonolithEstateMode(draft.mode) ? (
         <>
           <div className="panel__title-row context-pack-modal__section-header">
             <div>

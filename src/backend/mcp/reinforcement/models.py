@@ -27,8 +27,8 @@ DIFFICULTY_REWARDS: dict[str, int] = {
 # Agent role multipliers (keyed by agent_id from registry.json)
 # ---------------------------------------------------------------------------
 ROLE_MULTIPLIERS: dict[str, float] = {
-    "planning-agent": 0.50,
-    "product-manager": 1.00,
+    "planning-agent": 1.00,
+    "product-manager": 1.50,
     "software-engineer": 1.50,
     "qa": 1.00,
 }
@@ -137,7 +137,7 @@ class RealignmentSession:
     failure_analysis: str
     root_cause: str
     corrective_actions: list[str]
-    status: str  # "open" | "reviewed" | "archived"
+    status: str  # "open" | "reviewed" | "archived" | "error"
     meeting_notes: str
     created_at: str
 

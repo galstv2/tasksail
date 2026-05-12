@@ -9,6 +9,7 @@ import type {
   PlannerUsage,
 } from '../../types.js';
 import { REPO_EXECUTOR_DENY_FLOOR } from './denyRules.js';
+import { buildCopilotEnv } from './envMapper.js';
 
 const PLANNER_ALLOW_TOOLS = ['write'];
 // Planner runs as artifact-author with the repo-executor destructive-shell
@@ -326,13 +327,15 @@ function dedupe(values: string[]): string[] {
   });
 }
 
+export const COPILOT_PLANNER_AGENT_ID = 'planning-agent';
+
 export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): PlannerLaunchSpec {
   const launchCwd = options.workingDirectory ?? process.cwd();
   const allowedRoots = dedupe(options.allowedRoots ?? ['.'])
     .map((root) => (path.isAbsolute(root) ? root : path.join(launchCwd, root)));
 
   const args = [
-    '--agent', 'planning-agent',
+    '--agent', COPILOT_PLANNER_AGENT_ID,
     '--model', options.model,
     '--no-ask-user',
     ...PLANNER_ALLOW_TOOLS.flatMap((tool) => ['--allow-tool', tool]),
@@ -352,11 +355,17 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
     }
   }
 
+  const providerEnv = buildCopilotEnv({
+    ...options.focusEnv,
+    model: options.model,
+    agentId: COPILOT_PLANNER_AGENT_ID,
+    platformRepoRoot: options.focusEnv?.platformRepoRoot ?? launchCwd,
+  });
+
   return {
+    agentId: COPILOT_PLANNER_AGENT_ID,
     args,
     launchCwd,
-    env: {
-      COPILOT_MODEL: options.model,
-    },
+    env: providerEnv,
   };
 }

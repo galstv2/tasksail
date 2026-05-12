@@ -28,7 +28,7 @@ const completedTaskEntries: CompletedTaskEntry[] = [
   {
     id: 'CAP-CUSTOM-TERMINAL-06',
     title: 'Older completed task',
-    owner: 'product-manager',
+    owner: 'provider-pm',
     status: 'completed',
     summary: 'Completed task without eligible follow-up.',
     followUpEligible: false,
@@ -37,7 +37,7 @@ const completedTaskEntries: CompletedTaskEntry[] = [
   {
     id: 'CAP-CUSTOM-TERMINAL-08',
     title: 'Most recent completed task',
-    owner: 'product-manager',
+    owner: 'provider-pm',
     status: 'completed',
     summary: 'Completed task with eligible follow-up.',
     followUpEligible: true,
@@ -77,7 +77,7 @@ describe('appViewModel selectors', () => {
     expect(selectFollowUpTask(completedTaskEntries, 'missing')).toBeNull();
   });
 
-  it('derives planning enablement for idle, queued, complete, and follow-up-active states', () => {
+  it('derives planning enablement for idle, queued, active, blocked, complete, and follow-up-active states', () => {
     expect(derivePlanningEnabled({ workflowState: 'idle', followUpPlanningActive: false, hasActiveContextPack: true })).toBe(
       true,
     );
@@ -86,10 +86,10 @@ describe('appViewModel selectors', () => {
     ).toBe(true);
     expect(
       derivePlanningEnabled({ workflowState: 'active', followUpPlanningActive: false, hasActiveContextPack: true }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       derivePlanningEnabled({ workflowState: 'blocked', followUpPlanningActive: false, hasActiveContextPack: true }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       derivePlanningEnabled({ workflowState: 'complete', followUpPlanningActive: false, hasActiveContextPack: true }),
     ).toBe(false);
@@ -113,7 +113,7 @@ describe('appViewModel selectors', () => {
     );
   });
 
-  it('derives planning lock reasons for locked, follow-up, closed, and default states', () => {
+  it('derives planning lock reasons for concurrent, follow-up, closed, and default states', () => {
     expect(
       derivePlanningLockReason({
         taskLocked: true,
@@ -121,7 +121,7 @@ describe('appViewModel selectors', () => {
         followUpPlanningActive: false,
         hasActiveContextPack: true,
       }),
-    ).toContain('locked while repo workflow execution is active');
+    ).toContain('available while repo workflow execution continues independently');
     expect(
       derivePlanningLockReason({
         taskLocked: false,
@@ -172,7 +172,7 @@ describe('appViewModel selectors', () => {
         followUpPlanningActive: false,
         hasActiveContextPack: true,
       }).kind,
-    ).toBe('locked-active-work');
+    ).toBe('unlocked-concurrent-work');
     expect(
       derivePlannerAccessState({
         taskLocked: false,
@@ -241,6 +241,25 @@ describe('appViewModel selectors', () => {
     expect(viewModel.planningEnabled).toBe(true);
     expect(viewModel.primaryActionLabel).toBe('Create follow-up task');
     expect(viewModel.selectedFollowUpTask?.id).toBe('CAP-CUSTOM-TERMINAL-08');
+  });
+
+  it('keeps planner actions enabled while workflow execution is active', () => {
+    const standardDraft = createLocalDraft(EMPTY_DRAFT_SEED);
+
+    const viewModel = buildAppViewModel({
+      workflowState: 'active',
+      completedTasks: completedTaskEntries,
+      followUpSourceTaskId: null,
+      draft: standardDraft,
+      composerStage: 'compose',
+      hasActiveContextPack: true,
+    });
+
+    expect(viewModel.workflowMode).toBe('in-flight observation');
+    expect(viewModel.taskLocked).toBe(true);
+    expect(viewModel.plannerAccessState.kind).toBe('unlocked-concurrent-work');
+    expect(viewModel.planningEnabled).toBe(true);
+    expect(viewModel.planningLockReason).toContain('continues independently');
   });
 
   it('keeps complete-state standard drafts locked until follow-up planning is activated', () => {

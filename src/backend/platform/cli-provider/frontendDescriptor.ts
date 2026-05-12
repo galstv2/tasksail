@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { isRecord, safeJsonParse } from '../core/index.js';
-import type { AgentConfigPaths } from './types.js';
+import type { AgentConfigPaths, RoleKind } from './types.js';
 import { getActiveProvider } from './registry.js';
+
+export type { RoleKind } from './types.js';
 
 interface RegistryAgentEntry {
   agent_id?: unknown;
@@ -28,7 +30,9 @@ export interface ProviderFrontendDescriptor {
     roleName: string;
     humanName: string;
     workflowOrder: number;
+    roleKind: RoleKind | null;
   }>;
+  plannerAgentId: string | null;
 }
 
 // Roster is parsed from a static registry JSON file; the long-running
@@ -36,7 +40,7 @@ export interface ProviderFrontendDescriptor {
 // Memoize per registryPath so the disk read+parse runs once per path.
 const rosterCache = new Map<string, ProviderFrontendDescriptor['roster']>();
 
-function loadRoster(registryPath: string): ProviderFrontendDescriptor['roster'] {
+function loadRoster(registryPath: string, roleKindForAgent: (agentId: string) => RoleKind | null): ProviderFrontendDescriptor['roster'] {
   const cached = rosterCache.get(registryPath);
   if (cached) {
     return cached;
@@ -66,6 +70,7 @@ function loadRoster(registryPath: string): ProviderFrontendDescriptor['roster'] 
         roleName: item.role_name,
         humanName: item.human_name,
         workflowOrder: item.workflow_order as number,
+        roleKind: roleKindForAgent(item.agent_id),
       };
     })
     .filter((entry): entry is ProviderFrontendDescriptor['roster'][number] => entry !== null)
@@ -87,7 +92,8 @@ export function getProviderFrontendDescriptor(repoRoot: string): ProviderFronten
     agentConfigPaths,
     promptPathEnvVars: provider.promptPathEnvVars(),
     contextPackEnvVars: provider.contextPackEnvVars(),
-    roster: loadRoster(registryPath),
+    roster: loadRoster(registryPath, (agentId) => provider.roleKindForAgent(agentId)),
+    plannerAgentId: provider.plannerAgentId(),
   };
 }
 

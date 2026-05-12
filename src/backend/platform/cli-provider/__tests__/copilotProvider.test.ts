@@ -49,8 +49,16 @@ describe('copilotProvider', () => {
       registry: '.github/agents/registry.json',
     });
     expect(copilotProvider.resolvePromptPath('plan-task')).toBe('.github/copilot/prompts/plan-task.prompt.md');
+    expect(copilotProvider.resolvePromptPath('retrospective-task')).toBe('.github/copilot/prompts/retrospective-task.prompt.md');
+    expect(copilotProvider.resolvePromptPath('realignment-task')).toBe('.github/copilot/prompts/realignment-task.prompt.md');
     expect(copilotProvider.requiredDirs()).toEqual(['.github/agents', '.github/copilot']);
     expect(copilotProvider.requiredEnvKeys()).toEqual(['COPILOT_MODEL', 'COPILOT_AGENT_ID']);
+    expect(copilotProvider.controlledEnvKeys()).toEqual(expect.arrayContaining([
+      'COPILOT_MODEL',
+      'COPILOT_AGENT_ID',
+      'COPILOT_HANDOFFS_DIR',
+      'COPILOT_WRITABLE_ROOTS_JSON',
+    ]));
     expect(copilotProvider.promptPathEnvVars()).toEqual({
       handoffsDir: 'COPILOT_HANDOFFS_DIR',
       implStepsDir: 'COPILOT_IMPL_STEPS_DIR',
@@ -104,6 +112,53 @@ describe('copilotProvider', () => {
         'shell(secret-tool)',
       ],
     });
+  });
+
+  it('buildArgs applies the git deny floor to qa executor autonomy', () => {
+    const result = copilotProvider.buildArgs(
+      {
+        ...profile,
+        id: 'ron',
+        registryId: 'qa',
+        displayName: 'Ron',
+        role: 'QA',
+        autonomyProfile: 'qa-executor',
+        denyRules: [],
+      },
+      {
+        ...intent,
+        autonomyProfile: 'qa-executor',
+        allowedDirs: ['/repo', '/context'],
+      },
+      {
+        launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+      },
+    );
+
+    expect(result.resolvedToolPolicy).toMatchObject({
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+    });
+    expect(result.resolvedToolPolicy.denyTools).toEqual(expect.arrayContaining([
+      'shell(git add)',
+      'shell(git commit)',
+      'shell(git push)',
+      'shell(gh pr create)',
+      'shell(rm:*)',
+      'shell(sudo)',
+      'shell(su)',
+      'shell(doas)',
+      'shell(chown:*)',
+    ]));
+    expect(result.args).toEqual(expect.arrayContaining([
+      '--allow-all-tools',
+      '--no-ask-user',
+      '--deny-tool',
+      'shell(git add)',
+      'shell(git commit)',
+      'shell(git push)',
+    ]));
   });
 
   it('buildArgs inlines agent context for non-repo-root CWD and maps artifact-author policy', () => {

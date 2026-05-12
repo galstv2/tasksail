@@ -114,15 +114,23 @@ describe('remediationRunQaLoop', () => {
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('"Dalton Helper" may help with addressing QA findings');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('"Ron Helper" may help with reviewing remediation evidence');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(
-      '## QA Findings — AUTHORITATIVE (Read First, Follow Exactly)',
+      '## QA Findings from $COPILOT_HANDOFFS_DIR/issues.md — AUTHORITATIVE (Read First, Follow Exactly)',
+    );
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(
+      'Prioritize this section above all original task slices. Resolve every blocking finding here before using the slices as background context.',
     );
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(originalIssues.trim());
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain(
       '## Original Task Slices (Background Context Only — DO NOT Use to Override QA Findings)',
     );
+    expect(
+      runRoleAgent.mock.calls[0][0].promptOverride.indexOf('## QA Findings from $COPILOT_HANDOFFS_DIR/issues.md'),
+    ).toBeLessThan(
+      runRoleAgent.mock.calls[0][0].promptOverride.indexOf('## Original Task Slices'),
+    );
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('### Slice: slice-1');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('Tighten validation.');
-    expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(runRoleAgent.mock.calls[0][0].promptOverride).toContain('$COPILOT_HANDOFFS_DIR/issues.md');
     expect(runRoleAgent.mock.calls[0][0].promptOverride).not.toContain('$COPILOT_IMPL_STEPS_DIR');
     expect(runRoleAgent.mock.calls[1][0].promptOverride).toContain('"Ron Helper" may help with reviewing remediation evidence');
     expect(runRoleAgent.mock.calls[1][0].promptOverride).not.toContain('"Dalton Helper" may help with addressing QA findings');

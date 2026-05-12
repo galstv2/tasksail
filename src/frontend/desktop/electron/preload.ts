@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import {
   DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL,
+  CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
   DESKTOP_SHELL_INVOKE_CHANNEL,
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   DESKTOP_SHELL_STREAM_CHANNEL,
@@ -23,6 +24,8 @@ import {
   type ReinforcementCheckActiveWorkGuardResponse,
   type ReinforcementStartRealignmentRequest,
   type ReinforcementStartRealignmentResponse,
+  type ReinforcementRunRealignmentAnalysisRequest,
+  type ReinforcementRunRealignmentAnalysisResponse,
   type AgentConfigAddModelResponse,
   type AgentConfigLoadAgentsResponse,
   type AgentConfigLoadModelCatalogResponse,
@@ -52,6 +55,8 @@ import {
   type PlannerSaveDraftResponse,
   type PlannerReadStagedDraftResponse,
   type PlannerFinalizeSpecResponse,
+  type PlannerHydrateConversationResponse,
+  type PlannerListConversationHistoryResponse,
   type PlannerStreamEvent,
   type ProviderFrontendDescriptor,
   type QueueStatusResponse,
@@ -68,6 +73,7 @@ import {
   type PlannerDirectSubmissionDraft,
   type FollowUpDirectSubmissionDraft,
   type ContextPackDeepFocusState,
+  type ContextPackCatalogChangedEvent,
 } from '../src/shared/desktopContract';
 import { isRecord } from '../src/shared/desktopContractValidators';
 
@@ -242,6 +248,15 @@ export const desktopShellApi = {
       action: 'contextPack.setRepositoryType',
       payload: { contextPackDir, repoId, repositoryType },
     }),
+  setRepoCategory: async (
+    contextPackDir: string,
+    repoId: string,
+    repoCategory: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPack.setRepoCategory',
+      payload: { contextPackDir, repoId, repoCategory },
+    }),
   previewContextPackSwitch: async (
     contextPackDir: string,
     scopeMode: WorkspaceScopeMode = 'focused',
@@ -280,15 +295,30 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.clearActive',
     }),
-  startPlannerSession: async (contextPackDir?: string): Promise<DesktopInvokeResult> =>
+  startPlannerSession: async (
+    payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
+  ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.startSession',
-      ...(contextPackDir ? { payload: { contextPackDir } } : {}),
+      ...(payload ? { payload } : {}),
     }),
-  sendPlannerMessage: async (text: string): Promise<DesktopInvokeResult> =>
+  validateChildTaskFocus: async (
+    payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.validateChildTaskFocus',
+      payload,
+    }),
+  sendPlannerMessage: async (
+    text: string,
+    displayText?: string,
+  ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.sendMessage',
-      payload: { text },
+      payload: {
+        text,
+        ...(displayText !== undefined ? { displayText } : {}),
+      },
     }),
   endPlannerSession: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -313,16 +343,39 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.pickMarkdownFile',
     }),
-  uploadSpec: async (content: string): Promise<DesktopInvokeResult> =>
+  uploadSpec: async (
+    content: string,
+    options?: {
+      requirePlannerSidecar?: boolean;
+      expectedTaskKind?: 'standard' | 'child-task';
+    },
+  ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.uploadSpec',
-      payload: { content },
+      payload: {
+        content,
+        ...(options?.requirePlannerSidecar !== undefined
+          ? { requirePlannerSidecar: options.requirePlannerSidecar }
+          : {}),
+        ...(options?.expectedTaskKind ? { expectedTaskKind: options.expectedTaskKind } : {}),
+      },
     }),
   getBypassTemplate: async (): Promise<string> =>
     ipcRenderer.invoke(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL),
   listArchivedTasks: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listArchivedTasks',
+    }),
+  listPlannerConversationHistory: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.listConversationHistory',
+    }),
+  hydratePlannerConversation: async (
+    recordId: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.hydrateConversation',
+      payload: { recordId },
     }),
   submitReinforcementFeedback: async (
     payload: ReinforcementSubmitFeedbackRequest['payload'],
@@ -370,6 +423,13 @@ export const desktopShellApi = {
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'reinforcement.startRealignment',
+      payload,
+    }),
+  runRealignmentAnalysis: async (
+    payload: ReinforcementRunRealignmentAnalysisRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'reinforcement.runRealignmentAnalysis',
       payload,
     }),
   loadAgentConfig: async (): Promise<DesktopInvokeResult> =>
@@ -577,6 +637,7 @@ export const desktopShellApi = {
       if (
         isRecord(plannerEvent) &&
         typeof plannerEvent.eventType === 'string' &&
+        typeof plannerEvent.sessionId === 'string' &&
         typeof plannerEvent.brokerStatus === 'string'
       ) {
         callback(plannerEvent as PlannerStreamEvent);
@@ -600,6 +661,15 @@ export const desktopShellApi = {
     };
     ipcRenderer.on(DESKTOP_SHELL_TASK_BOARD_CHANNEL, handler);
     return () => ipcRenderer.removeListener(DESKTOP_SHELL_TASK_BOARD_CHANNEL, handler);
+  },
+  subscribeContextPackCatalogChanged: (
+    callback: (event: ContextPackCatalogChangedEvent) => void,
+  ): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      callback(data as ContextPackCatalogChangedEvent);
+    };
+    ipcRenderer.on(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, handler);
   },
 };
 
@@ -692,6 +762,11 @@ export type DesktopShellApi = {
     repoId: string,
     repositoryType: 'primary' | 'support',
   ) => Promise<DesktopInvokeResult>;
+  setRepoCategory: (
+    contextPackDir: string,
+    repoId: string,
+    repoCategory: string,
+  ) => Promise<DesktopInvokeResult>;
   previewContextPackSwitch: (
     contextPackDir: string,
     scopeMode?: WorkspaceScopeMode,
@@ -707,16 +782,32 @@ export type DesktopShellApi = {
     deepFocusSelection?: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection,
   ) => Promise<DesktopInvokeResult>;
   clearActiveContextPack: () => Promise<DesktopInvokeResult>;
-  startPlannerSession: (contextPackDir?: string) => Promise<DesktopInvokeResult>;
-  sendPlannerMessage: (text: string) => Promise<DesktopInvokeResult>;
+  startPlannerSession: (
+    payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
+  ) => Promise<DesktopInvokeResult>;
+  validateChildTaskFocus: (
+    payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  sendPlannerMessage: (
+    text: string,
+    displayText?: string,
+  ) => Promise<DesktopInvokeResult>;
   endPlannerSession: () => Promise<DesktopInvokeResult>;
   savePlannerDraft: () => Promise<DesktopInvokeResult>;
   readStagedDraft: () => Promise<DesktopInvokeResult>;
   finalizeSpec: (expectedTaskKind?: 'standard' | 'child-task') => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
-  uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
+  uploadSpec: (
+    content: string,
+    options?: {
+      requirePlannerSidecar?: boolean;
+      expectedTaskKind?: 'standard' | 'child-task';
+    },
+  ) => Promise<DesktopInvokeResult>;
   getBypassTemplate: () => Promise<string>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
+  listPlannerConversationHistory: () => Promise<DesktopInvokeResult>;
+  hydratePlannerConversation: (recordId: string) => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (
     payload: ReinforcementSubmitFeedbackRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
@@ -731,6 +822,9 @@ export type DesktopShellApi = {
   checkActiveWorkGuard: () => Promise<DesktopInvokeResult>;
   startRealignment: (
     payload: ReinforcementStartRealignmentRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  runRealignmentAnalysis: (
+    payload: ReinforcementRunRealignmentAnalysisRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   loadAgentConfig: () => Promise<DesktopInvokeResult>;
   loadModelCatalog: () => Promise<DesktopInvokeResult>;
@@ -784,6 +878,9 @@ export type DesktopShellApi = {
   onTaskBoardUpdate: (
     callback: (board: import('../src/shared/desktopContract').TaskBoardReadBoardResponse) => void,
   ) => () => void;
+  subscribeContextPackCatalogChanged: (
+    callback: (event: ContextPackCatalogChangedEvent) => void,
+  ) => () => void;
 };
 
 export type DesktopAllowedResponses =
@@ -794,6 +891,8 @@ export type DesktopAllowedResponses =
   | PlannerSaveDraftResponse
   | PlannerReadStagedDraftResponse
   | PlannerFinalizeSpecResponse
+  | PlannerListConversationHistoryResponse
+  | PlannerHydrateConversationResponse
   | QueueStatusResponse
   | EnvironmentStatusResponse
   | ObservabilitySnapshotResponse
@@ -818,6 +917,7 @@ export type DesktopAllowedResponses =
   | ReinforcementReadRealignmentDocResponse
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
+  | ReinforcementRunRealignmentAnalysisResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
   | AgentConfigSaveAgentModelsResponse

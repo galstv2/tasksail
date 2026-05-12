@@ -193,10 +193,24 @@ describe('resolveTestCaptureCwd', () => {
     })).resolves.toBe('/platform');
   });
 
-  it('returns undefined when context-pack targeting has no scoped or global test target', async () => {
+  it('uses the primary repo root when context-pack targeting has no scoped or global test target', async () => {
     resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
       primaryRepoRoot: '/target-repo',
     }));
+    existsSync.mockImplementation((candidate: string) => candidate === '/target-repo');
+
+    await expect(resolveTestCaptureCwd({
+      repoRoot: '/platform',
+      taskId: 'task-1',
+      contextPackDir: '/context-pack',
+    })).resolves.toBe('/target-repo');
+  });
+
+  it('returns undefined when context-pack targeting has no test target and the primary repo root is missing', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: '/missing-target-repo',
+    }));
+    existsSync.mockReturnValue(false);
 
     await expect(resolveTestCaptureCwd({
       repoRoot: '/platform',
@@ -318,6 +332,41 @@ describe('resolveTestCaptureCwd', () => {
       },
     }));
     existsSync.mockImplementation((candidate: string) => candidate === sidecarPath || candidate === worktreeRootReal);
+
+    const cwd = await resolveTestCaptureCwd({
+      repoRoot,
+      taskId,
+      contextPackDir: path.join(repoRoot, 'context-pack'),
+    });
+
+    expect(cwd).toBe(worktreeRootReal);
+    expect(cwd).toContain(worktreeRootReal);
+    expect(cwd).not.toContain(originalRootReal);
+  });
+
+  it('uses the injected primary worktree root when no explicit test target exists', async () => {
+    const repoRoot = await createTempDir();
+    const taskId = 'task-worktree-root-fallback';
+    const originalRoot = path.join(repoRoot, 'original');
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    await mkdir(originalRoot, { recursive: true });
+    await mkdir(worktreeRoot, { recursive: true });
+    const originalRootReal = await realpath(originalRoot);
+    const worktreeRootReal = await realpath(worktreeRoot);
+    const sidecarPath = await writeTaskSidecar({
+      repoRoot,
+      taskId,
+      originalRoot,
+      worktreeRoot,
+    });
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(makeFocused({
+      primaryRepoRoot: originalRootReal,
+      visibleRepoRoots: [originalRootReal],
+      declaredRepoRoots: [originalRootReal],
+    }));
+    existsSync.mockImplementation((candidate: string) => (
+      candidate === sidecarPath || candidate === worktreeRootReal
+    ));
 
     const cwd = await resolveTestCaptureCwd({
       repoRoot,
@@ -498,6 +547,38 @@ describe('extractValidationCommands', () => {
     );
 
     expect(commands).toEqual(['pnpm test', 'npm run smoke']);
+  });
+
+  it.each([
+    ['trailing fence whitespace', '## Validation Commands\n\n```bash \nmake build\n```\n', ['make build']],
+    ['tilde fence', '## Validation Commands\n\n~~~\nmake build\n~~~\n', ['make build']],
+    ['shebang line', '## Validation Commands\n\n```\n#!/usr/bin/env bash\nmake build\n```\n', ['#!/usr/bin/env bash', 'make build']],
+    ['comment line', '## Validation Commands\n\n```\n# comment\nmake build\n```\n', ['make build']],
+    ['continuation line', '## Validation Commands\n\n```\nmake build && \\\nmake test\n```\n', ['make build && make test']],
+    ['crlf endings', '## Validation Commands\r\n\r\n```\r\nmake build\r\n```\r\n', ['make build']],
+  ])('extracts commands from %s', (_name, markdown, expected) => {
+    expect(extractValidationCommands(markdown)).toEqual(expected);
+  });
+
+  it('ignores heading-like lines inside earlier fenced blocks while resolving the semantic section', () => {
+    const commands = extractValidationCommands(
+      [
+        '## Acceptance and Validation',
+        '',
+        '```',
+        '## Validation Commands',
+        'not a real validation section',
+        '```',
+        '',
+        '### Validation Commands',
+        '',
+        '```bash',
+        'make build',
+        '```',
+      ].join('\n'),
+    );
+
+    expect(commands).toEqual(['make build']);
   });
 });
 

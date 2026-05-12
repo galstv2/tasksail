@@ -34,6 +34,7 @@ export {
   slugify,
   jsonEscapeString,
   extractFrontmatter,
+  stripHtmlComments,
   extractMarkdownSection,
   escapeRegExp,
   nowIsoCompact,

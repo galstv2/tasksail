@@ -150,18 +150,30 @@ describe('applyWorktreeInjectionToFocused', () => {
     expect(out).toBe(focused);
   });
 
-  it('preserves writableRoots and readonlyContextRoots as repo-relative entries when primaryRepoRoot is rewritten', () => {
+  it('rewrites repo-local root metadata while preserving repo-relative entries', () => {
     // Contract (spec §2): worktree injection retargets the *root* — not the
     // repo-relative entries beneath it. Downstream consumers join
     // writableRoots[].path against the rewritten primaryRepoRoot to land
     // under the worktree, so these entries must stay repo-relative.
     const focused = makeFocused({
       writableRoots: [
-        { path: 'src', kind: 'directory', reason: 'selected-primary' },
-        { path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
+        {
+          repoLocalPath: '/repos/crud-app',
+          path: 'src',
+          kind: 'directory',
+          reason: 'selected-primary',
+          sourceTargets: [{ repoLocalPath: '/repos/crud-app', path: 'src', kind: 'directory' }],
+        },
+        { repoLocalPath: '/repos/crud-app', path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
       ],
       readonlyContextRoots: [
-        { path: 'docs', kind: 'directory', reason: 'support-target' },
+        {
+          repoLocalPath: '/repos/crud-app',
+          path: 'docs',
+          kind: 'directory',
+          reason: 'support-target',
+          sourceTargets: [{ repoLocalPath: '/repos/crud-app', path: 'docs', kind: 'directory' }],
+        },
       ],
     });
     const map = manualBindingMap([['/repos/crud-app', '/wt/crud-app']]);
@@ -170,11 +182,23 @@ describe('applyWorktreeInjectionToFocused', () => {
 
     expect(out.primaryRepoRoot).toBe('/wt/crud-app');
     expect(out.writableRoots).toEqual([
-      { path: 'src', kind: 'directory', reason: 'selected-primary' },
-      { path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
+      {
+        repoLocalPath: '/wt/crud-app',
+        path: 'src',
+        kind: 'directory',
+        reason: 'selected-primary',
+        sourceTargets: [{ repoLocalPath: '/wt/crud-app', path: 'src', kind: 'directory' }],
+      },
+      { repoLocalPath: '/wt/crud-app', path: 'tests/handler.test.ts', kind: 'file', reason: 'test-target' },
     ]);
     expect(out.readonlyContextRoots).toEqual([
-      { path: 'docs', kind: 'directory', reason: 'support-target' },
+      {
+        repoLocalPath: '/wt/crud-app',
+        path: 'docs',
+        kind: 'directory',
+        reason: 'support-target',
+        sourceTargets: [{ repoLocalPath: '/wt/crud-app', path: 'docs', kind: 'directory' }],
+      },
     ]);
     // No entry should have been absolutized into the worktree.
     for (const root of out.writableRoots ?? []) {
@@ -185,10 +209,11 @@ describe('applyWorktreeInjectionToFocused', () => {
     }
   });
 
-  it('preserves scoped primary target repo-relative paths when primaryRepoRoot is rewritten', () => {
+  it('rewrites scoped primary target repoLocalPath but preserves repo-relative paths', () => {
     const focused = makeFocused({
       primaryFocusTargets: [
         {
+          repoLocalPath: '/repos/crud-app',
           path: 'apps/api',
           kind: 'directory',
           role: 'anchor',
@@ -204,11 +229,70 @@ describe('applyWorktreeInjectionToFocused', () => {
     expect(out.primaryRepoRoot).toBe('/wt/crud-app');
     expect(out.primaryFocusTargets).toEqual([
       {
+        repoLocalPath: '/wt/crud-app',
         path: 'apps/api',
         kind: 'directory',
         role: 'anchor',
         testTarget: { path: 'apps/api/tests', kind: 'directory' },
         supportTargets: [{ path: 'shared/api-types.ts', kind: 'file' }],
+      },
+    ]);
+  });
+
+  it('rewrites incident-shaped selected writable roots without absolutizing root paths', () => {
+    const focused = makeFocused({
+      writableRoots: [
+        {
+          repoLocalPath: '/origin/platform',
+          path: 'libs/Acme.Models',
+          kind: 'directory',
+          reason: 'selected-primary',
+        },
+        {
+          repoLocalPath: '/origin/platform',
+          path: 'libs/Acme.Models.Tests',
+          kind: 'directory',
+          reason: 'scoped-test-target',
+        },
+      ],
+    });
+    const map = manualBindingMap([['/origin/platform', '/task/worktrees/platform']]);
+
+    const out = applyWorktreeInjectionToFocused(focused, map);
+
+    expect(out.writableRoots?.map((root) => root.repoLocalPath)).toEqual([
+      '/task/worktrees/platform',
+      '/task/worktrees/platform',
+    ]);
+    expect(out.writableRoots?.map((root) => root.path)).toEqual([
+      'libs/Acme.Models',
+      'libs/Acme.Models.Tests',
+    ]);
+  });
+
+  it('rewrites support-repo readonly root repoLocalPath', () => {
+    const focused = makeFocused({
+      visibleRepoRoots: ['/repos/crud-app', '/repos/tools'],
+      declaredRepoRoots: ['/repos/crud-app', '/repos/tools'],
+      readonlyContextRoots: [
+        {
+          repoLocalPath: '/repos/tools',
+          path: '',
+          kind: 'directory',
+          reason: 'support-repo',
+        },
+      ],
+    });
+    const map = manualBindingMap([['/repos/tools', '/repos/.worktrees/task-1/tools']]);
+
+    const out = applyWorktreeInjectionToFocused(focused, map);
+
+    expect(out.readonlyContextRoots).toEqual([
+      {
+        repoLocalPath: '/repos/.worktrees/task-1/tools',
+        path: '',
+        kind: 'directory',
+        reason: 'support-repo',
       },
     ]);
   });

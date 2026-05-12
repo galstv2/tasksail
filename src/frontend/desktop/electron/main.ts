@@ -3,9 +3,14 @@ import { readFile as fsReadFile, readdir as fsReaddir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock?.() ?? true;
+if (!HAS_SINGLE_INSTANCE_LOCK) {
+  app.exit?.(0);
+}
 
 import {
   DESKTOP_SHELL_INVOKE_CHANNEL,
+  CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
   ERROR_CODE_ACTIVE_WORK_BLOCKED,
   ERROR_CODE_VERSION_CONFLICT,
   PROVIDER_DESCRIBE_ACTIVE_CHANNEL,
@@ -25,13 +30,23 @@ import {
   readQueueStatusSnapshot as readQueueStatusSnapshotImpl,
 } from './repoObservability';
 import * as plannerSession from './plannerSession';
+import {
+  PLANNER_FOCUS_FALLBACK_MESSAGE,
+  PLANNER_FOCUS_VALID_MESSAGE,
+  validateChildTaskFocusSnapshot,
+} from './plannerFocusValidation';
+import {
+  commitPendingRecordToHistory,
+  hydrateConversationAction,
+  listConversationHistoryAction,
+} from './plannerHistory';
 import { repairTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 import {
   listActivePipelines,
   stopPipeline,
 } from '../../../backend/platform/agent-runner/pipelineSupervisor.js';
 import { REPO_ROOT, DESKTOP_ROOT } from './paths';
-import { toRepoRelativePath, parseStderrErrorCode } from './main.textUtils';
+import { toRepoRelativePath, parseStderrErrorCode, getNodeErrorCode } from './main.textUtils';
 import {
   parseMarkdownSections,
   parsePlannerEditableDraft,
@@ -40,11 +55,12 @@ import {
 } from './main.markdown';
 import { getPackageOutputDir, getPackageArtifactName, getPackageCommand } from './main.packaging';
 import { validateDesktopInvokeSender, validateDevServerUrl } from './main.senderAuth';
-import { readOwnedStagedDraft, readStagedDraft } from './main.staging';
+import { readOwnedStagedDraft, readPlannerStagingSidecar, readStagedDraft } from './main.staging';
 import {
   autoStartBackendServices,
   startBackendServices,
   stopBackendServices,
+  stopBackendServicesDetached,
   checkBackendHealth,
   readBackendServiceStatus,
 } from './main.services';
@@ -89,6 +105,7 @@ import { startTaskRecoveryController } from './main.recovery';
 import { startRuntimeStreamWatcher } from './main.runtimeStream';
 import { emitStreamEvent, withStreamEvent } from './main.stream';
 import { cleanupWorkspaceOnQuit } from './main.cleanup';
+import { TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE } from './devRestartProtocol';
 
 // Re-export task queue handlers so existing test imports from './main' continue to work.
 export {
@@ -126,6 +143,23 @@ export {
   pickMarkdownFileAction,
 } from './main.contextPack';
 
+let devGracefulRestartRequested = false;
+let devGracefulRestartHandlerRegistered = false;
+
+export function registerDevGracefulRestartHandler(): void {
+  if (!process.env.VITE_DEV_SERVER_URL || devGracefulRestartHandlerRegistered) {
+    return;
+  }
+  devGracefulRestartHandlerRegistered = true;
+  process.on('message', (message: unknown) => {
+    if (message !== TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE) {
+      return;
+    }
+    devGracefulRestartRequested = true;
+    app.quit();
+  });
+}
+
 // Import for internal use (default handlers)
 import {
   submitDraftViaDropboxHelper,
@@ -136,6 +170,7 @@ import {
 
 import {
   listAvailableContextPacks,
+  getContextPackCatalogRoots,
   executeContextPackListRepoTreeAction,
   pickContextPackDirectoryAction,
   pickMarkdownFileAction,
@@ -143,8 +178,13 @@ import {
   executeContextPackCreateAction,
   executeContextPackReseedAction,
   executeContextPackWorkspaceAction,
-  executeSetRepositoryTypeAction,
+  executeSetRepoFocusAction,
+  executeSetRepoCategoryAction,
 } from './main.contextPack';
+import {
+  startContextPackCatalogWatcher,
+  stopContextPackCatalogWatcher,
+} from './main.contextPackWatcher';
 
 import {
   saveDeepFocusSelections,
@@ -157,13 +197,11 @@ import {
   checkActiveWorkGuard,
   startRealignmentSession,
 } from '../../../backend/platform/agent-runner/reinforcementWrite';
+import { prewarmExternalMcpRegistry } from '../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache';
+import { startRealignmentAnalysisJob } from '../../../backend/platform/agent-runner/realignmentPhase/supervisor';
 import { activateContextPack as activateContextPackImpl } from '../../../backend/platform/context-pack/activate';
 import {
-  acquireDirLockOrThrow,
-  ACTIVATION_GATE_REASON,
   deletePendingItem as deletePendingItemImpl,
-  publishPendingItem,
-  resolveQueuePaths,
   getQueueStatus,
 } from '../../../backend/platform/queue';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
@@ -177,6 +215,16 @@ const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 // §5.3: PIPELINE_LOCK_DIR and ROLE_SESSIONS_DIR deleted — use per-task runtime paths.
 // Legacy singleton cleanup now delegates to pipelineSupervisor.recoverOnStartup.
 const RELEASE_DIR = join(DESKTOP_ROOT, 'release');
+const DEV_URL_MAX_ATTEMPTS = 20;
+const DEV_URL_RETRY_DELAY_MS = 250;
+const RETRYABLE_DEV_URL_ERROR_CODES = new Set([
+  'ERR_CONNECTION_REFUSED',
+  'ERR_CONNECTION_RESET',
+  'ERR_ABORTED',
+  'ERR_NETWORK_CHANGED',
+]);
+
+let mainWindow: BrowserWindow | null = null;
 
 const HELPER_STATUSES = [
   {
@@ -329,8 +377,13 @@ let recoveryController:
 type DesktopActionHandlers = {
   submitDraft: (draft: PlannerDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
   submitFollowUp: (draft: FollowUpDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
-  startPlannerSession: (payload?: { contextPackDir?: string }) => Promise<{ sessionId: string; created: boolean }>;
-  sendPlannerMessage: (text: string) => Promise<'sent' | 'no-session' | 'busy'>;
+  startPlannerSession: (
+    payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
+  ) => Promise<{ sessionId: string; created: boolean }>;
+  validateChildTaskFocus: (
+    payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
+  ) => Promise<import('../src/shared/desktopContract').PlannerFocusValidationIssue[]>;
+  sendPlannerMessage: (text: string, displayText?: string) => Promise<'sent' | 'no-session' | 'busy'>;
   endPlannerSession: () => Promise<{ ended: boolean }>;
   savePlannerDraft: () => Promise<'sent' | 'no-session' | 'busy'>;
   getPlannerSessionState: () => ReturnType<typeof plannerSession.getSessionState>;
@@ -365,6 +418,8 @@ type DesktopActionHandlers = {
   clearActiveContextPack: () => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
+  listConversationHistory: () => Promise<DesktopInvokeResult>;
+  hydrateConversation: (recordId: string) => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (
     payload: import('../src/shared/desktopContract').ReinforcementSubmitFeedbackRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
@@ -382,11 +437,17 @@ type DesktopActionHandlers = {
   startRealignment: (
     payload: import('../src/shared/desktopContract').ReinforcementStartRealignmentRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  runRealignmentAnalysis: (
+    payload: import('../src/shared/desktopContract').ReinforcementRunRealignmentAnalysisRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   activateContextPack: (
     payload: import('../src/shared/desktopContract').ContextPackActivationRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   setRepositoryType: (
     payload: import('../src/shared/desktopContract').ContextPackSetRepositoryTypeRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  setRepoCategory: (
+    payload: import('../src/shared/desktopContract').ContextPackSetRepoCategoryRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   listExternalMcpServers: () => Promise<DesktopInvokeResult>;
   addExternalMcpServer: (
@@ -452,7 +513,10 @@ type DesktopActionHandlers = {
   clearDeepFocusSelections: (
     payload: import('../src/shared/desktopContract').DeepFocusClearSelectionsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
-  uploadSpec: (content: string) => Promise<DesktopInvokeResult>;
+  uploadSpec: (
+    content: string,
+    options?: Parameters<typeof submitUploadedSpecHelper>[1],
+  ) => Promise<DesktopInvokeResult>;
   cancelTask: (taskId: string) => Promise<DesktopInvokeResult>;
 };
 
@@ -508,19 +572,6 @@ export async function readObservabilitySnapshot(
   };
 }
 
-async function withQueueMutationLock<T>(
-  operationName: string,
-  work: () => Promise<T>,
-): Promise<T> {
-  const { queueLockDir } = resolveQueuePaths(REPO_ROOT);
-  const release = await acquireDirLockOrThrow(queueLockDir, operationName);
-  try {
-    return await work();
-  } finally {
-    await release();
-  }
-}
-
 const defaultDesktopActionHandlers: DesktopActionHandlers = {
   submitDraft: submitDraftViaDropboxHelper,
   submitFollowUp: submitFollowUpViaHelper,
@@ -529,26 +580,36 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     if (!contextPackDir) {
       return Promise.reject(new Error('Planner session requires an active context pack.'));
     }
-    return plannerSession.startSession(contextPackDir);
+    return plannerSession.startSession(
+      contextPackDir,
+      payload?.deepFocusSelection,
+      payload?.replayConversationId,
+      payload?.childTaskFocusSnapshot,
+      payload?.childTaskLineage,
+    );
   },
-  sendPlannerMessage: (text) => plannerSession.sendMessage(text),
+  validateChildTaskFocus: (payload) => validateChildTaskFocusSnapshot({
+    repoRoot: REPO_ROOT,
+    contextPackDir: payload.contextPackDir,
+    snapshot: payload.snapshot,
+  }),
+  sendPlannerMessage: (text, displayText) => plannerSession.sendMessage(text, displayText),
   endPlannerSession: () => plannerSession.endSession(),
   savePlannerDraft: () => plannerSession.saveDraft(),
   getPlannerSessionState: () => plannerSession.getSessionState(),
   readQueueStatus: () => readQueueStatusSnapshot(),
-  deletePendingItem: async (payload) =>
-    withQueueMutationLock('queue.deletePendingItem', async () => {
-      await deletePendingItemImpl({ repoRoot: REPO_ROOT, queueName: payload.queueName });
-      return {
-        ok: true,
-        response: {
-          action: 'queue.deletePendingItem' as const,
-          mode: 'deleted' as const,
-          message: `Removed pending queue item ${payload.queueName}.`,
-          queueName: payload.queueName,
-        },
-      };
-    }),
+  deletePendingItem: async (payload) => {
+    await deletePendingItemImpl({ repoRoot: REPO_ROOT, queueName: payload.queueName });
+    return {
+      ok: true,
+      response: {
+        action: 'queue.deletePendingItem' as const,
+        mode: 'deleted' as const,
+        message: `Removed pending queue item ${payload.queueName}.`,
+        queueName: payload.queueName,
+      },
+    };
+  },
   readEnvironmentStatus: () => readEnvironmentStatus(),
   readObservability: () => readObservabilitySnapshot(),
   pickContextPackDirectory: (payload) => pickContextPackDirectoryAction(payload),
@@ -574,6 +635,8 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     executeContextPackWorkspaceAction('contextPack.clearActive', 'clear'),
   pickMarkdownFile: () => pickMarkdownFileAction(),
   listArchivedTasks: () => listArchivedTasksAction(listAvailableContextPacks),
+  listConversationHistory: () => listConversationHistoryAction(),
+  hydrateConversation: (recordId) => hydrateConversationAction(recordId),
   submitReinforcementFeedback: async (payload) => {
     const result = await submitReinforcementFeedback(payload);
     if (!result.passed) {
@@ -728,6 +791,26 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
       },
     };
   },
+  runRealignmentAnalysis: async (payload) => {
+    const externalMcpRegistry = await prewarmExternalMcpRegistry(REPO_ROOT);
+    const job = await startRealignmentAnalysisJob({
+      repoRoot: REPO_ROOT,
+      contextPackDir: payload.contextPackDir,
+      realignmentId: payload.realignmentId,
+      externalMcpRegistry,
+    });
+    return {
+      ok: true,
+      response: {
+        action: 'reinforcement.runRealignmentAnalysis' as const,
+        mode: job.status === 'failed' ? 'analysis-start-failed' as const : 'analysis-started' as const,
+        message: job.status === 'failed'
+          ? (job.reason ?? 'Realignment analysis job failed to start.')
+          : 'Realignment analysis job registered.',
+        job,
+      },
+    };
+  },
   listExternalMcpServers: () => listExternalMcpServers(),
   addExternalMcpServer: (payload) => addExternalMcpServer(payload),
   updateExternalMcpServer: (payload) => updateExternalMcpServer(payload),
@@ -744,13 +827,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   writeInstructionFile: (request) => writeInstructionFile(request),
   readTaskBoard: () => readTaskBoard(listAvailableContextPacks),
   readTaskContent: (payload) => readTaskContentImpl(payload, listAvailableContextPacks),
-  reorderPending: (payload) =>
-    withQueueMutationLock('taskBoard.reorderPending', () => reorderPendingImpl(payload)),
+  reorderPending: (payload) => reorderPendingImpl(payload),
   requeueErrorItem: async (payload) => {
-    const result = await withQueueMutationLock(
-      'taskBoard.requeueErrorItem',
-      () => requeueErrorItemAction(payload),
-    );
+    const result = await requeueErrorItemAction(payload);
     if (
       result.ok &&
       result.response.action === 'taskBoard.requeueErrorItem' &&
@@ -761,13 +840,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     }
     return result;
   },
-  deleteTask: (payload) =>
-    withQueueMutationLock('taskBoard.deleteTask', () => deleteTaskAction(payload)),
+  deleteTask: (payload) => deleteTaskAction(payload),
   moveToPending: async (payload) => {
-    const result = await withQueueMutationLock(
-      'taskBoard.moveToPending',
-      () => moveToPendingAction(payload),
-    );
+    const result = await moveToPendingAction(payload);
     if (
       result.ok &&
       result.response.action === 'taskBoard.moveToPending' &&
@@ -778,8 +853,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     }
     return result;
   },
-  moveToOpen: (payload) =>
-    withQueueMutationLock('taskBoard.moveToOpen', () => moveToOpenAction(payload)),
+  moveToOpen: (payload) => moveToOpenAction(payload),
   activateContextPack: async (payload) => {
     const catalog = await listAvailableContextPacks();
     const entry = catalog.contextPacks.find((p) => p.contextPackId === payload.packId);
@@ -811,7 +885,8 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
       },
     };
   },
-  setRepositoryType: (payload) => executeSetRepositoryTypeAction(payload),
+  setRepositoryType: (payload) => executeSetRepoFocusAction(payload),
+  setRepoCategory: (payload) => executeSetRepoCategoryAction(payload),
   saveDeepFocusSelections: (payload) => saveDeepFocusSelections(payload),
   loadDeepFocusSelections: (payload) => loadDeepFocusSelections(payload),
   clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
@@ -895,8 +970,31 @@ export async function handleDesktopAction(
         },
       };
     }
+    case 'planner.validateChildTaskFocus': {
+      try {
+        const issues = await resolvedHandlers.validateChildTaskFocus(request.payload);
+        return {
+          ok: true,
+          response: {
+            action: 'planner.validateChildTaskFocus',
+            mode: issues.length === 0 ? 'valid' : 'fallback',
+            message: issues.length === 0 ? PLANNER_FOCUS_VALID_MESSAGE : PLANNER_FOCUS_FALLBACK_MESSAGE,
+            issues,
+          },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          action: 'planner.validateChildTaskFocus',
+          error: error instanceof Error ? error.message : 'Validation failed.',
+        };
+      }
+    }
     case 'planner.sendMessage': {
-      const sendResult = await resolvedHandlers.sendPlannerMessage(request.payload.text);
+      const sendResult = await resolvedHandlers.sendPlannerMessage(
+        request.payload.text,
+        request.payload.displayText,
+      );
       if (sendResult === 'no-session') {
         return {
           ok: false,
@@ -1096,62 +1194,70 @@ export async function handleDesktopAction(
       try {
         const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
         const metadata = stagedDraft.metadata;
-        const { destinationPath, activation } = await publishPendingItem({
-          publish: () =>
-            metadata.lineage.taskKind === 'child-task'
-              ? createFollowupTask({
-                  title: metadata.title,
-                  summary: editableDraft.summary,
-                  desiredOutcome: editableDraft.desiredOutcome,
-                  constraints: editableDraft.constraints,
-                  acceptanceSignals: editableDraft.acceptanceSignals,
-                  parentTaskId: metadata.lineage.parentTaskId,
-                  parentQmdRecordId: metadata.lineage.parentQmdRecordId,
-                  parentQmdScope: metadata.lineage.parentQmdScope,
-                  rootTaskId: metadata.lineage.rootTaskId,
-                  followupReason: metadata.lineage.followUpReason,
-                  carryForwardSummary: editableDraft.carryForwardSummary,
-                  suggestedPath: editableDraft.suggestedPath,
-                  planningNotes: editableDraft.planningNotes,
-                  contextPackDir: metadata.contextPackBinding.contextPackDir,
-                  contextPackId: metadata.contextPackBinding.contextPackId,
-                  scopeMode: metadata.contextPackBinding.scopeMode,
-                  selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-                  selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-                  deepFocusEnabled: metadata.deepFocusEnabled,
-                  selectedFocusPath: metadata.primaryFocusRelativePath,
-                  selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-                  selectedFocusTargets: metadata.primaryFocusTargets,
-                  selectedTestTarget: metadata.selectedTestTarget,
-                  selectedSupportTargets: metadata.supportTargets,
-                  repoRoot: REPO_ROOT,
-                })
-              : createDropboxTask({
-                  title: metadata.title,
-                  summary: editableDraft.summary,
-                  desiredOutcome: editableDraft.desiredOutcome,
-                  constraints: editableDraft.constraints,
-                  acceptanceSignals: editableDraft.acceptanceSignals,
-                  suggestedPath: editableDraft.suggestedPath,
-                  planningNotes: editableDraft.planningNotes,
-                  kind: metadata.lineage.taskKind,
-                  contextPackDir: metadata.contextPackBinding.contextPackDir,
-                  contextPackId: metadata.contextPackBinding.contextPackId,
-                  scopeMode: metadata.contextPackBinding.scopeMode,
-                  selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-                  selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-                  deepFocusEnabled: metadata.deepFocusEnabled,
-                  selectedFocusPath: metadata.primaryFocusRelativePath,
-                  selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-                  selectedFocusTargets: metadata.primaryFocusTargets,
-                  selectedTestTarget: metadata.selectedTestTarget,
-                  selectedSupportTargets: metadata.supportTargets,
-                  repoRoot: REPO_ROOT,
-                }),
-          repoRoot: REPO_ROOT,
-          contextPackDir: metadata.contextPackBinding.contextPackDir,
-          lockOperationName: 'planner.finalizeSpec',
-        });
+        const destinationPath = metadata.lineage.taskKind === 'child-task'
+          ? await createFollowupTask({
+              title: metadata.title,
+              summary: editableDraft.summary,
+              desiredOutcome: editableDraft.desiredOutcome,
+              constraints: editableDraft.constraints,
+              acceptanceSignals: editableDraft.acceptanceSignals,
+              parentTaskId: metadata.lineage.parentTaskId,
+              parentQmdRecordId: metadata.lineage.parentQmdRecordId,
+              parentQmdScope: metadata.lineage.parentQmdScope,
+              rootTaskId: metadata.lineage.rootTaskId,
+              followupReason: metadata.lineage.followUpReason,
+              carryForwardSummary: editableDraft.carryForwardSummary,
+              suggestedPath: editableDraft.suggestedPath,
+              planningNotes: editableDraft.planningNotes,
+              contextPackDir: metadata.contextPackBinding.contextPackDir,
+              contextPackId: metadata.contextPackBinding.contextPackId,
+              scopeMode: metadata.contextPackBinding.scopeMode,
+              primaryRepoId: metadata.contextPackBinding.primaryRepoId,
+              primaryFocusId: metadata.contextPackBinding.primaryFocusId,
+              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+              deepFocusEnabled: metadata.deepFocusEnabled,
+              selectedFocusPath: metadata.primaryFocusRelativePath,
+              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+              selectedFocusTargets: metadata.primaryFocusTargets,
+              selectedTestTarget: metadata.selectedTestTarget,
+              selectedSupportTargets: metadata.supportTargets,
+              repoRoot: REPO_ROOT,
+            })
+          : await createDropboxTask({
+              title: metadata.title,
+              summary: editableDraft.summary,
+              desiredOutcome: editableDraft.desiredOutcome,
+              constraints: editableDraft.constraints,
+              acceptanceSignals: editableDraft.acceptanceSignals,
+              suggestedPath: editableDraft.suggestedPath,
+              planningNotes: editableDraft.planningNotes,
+              kind: metadata.lineage.taskKind,
+              contextPackDir: metadata.contextPackBinding.contextPackDir,
+              contextPackId: metadata.contextPackBinding.contextPackId,
+              scopeMode: metadata.contextPackBinding.scopeMode,
+              primaryRepoId: metadata.contextPackBinding.primaryRepoId,
+              primaryFocusId: metadata.contextPackBinding.primaryFocusId,
+              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+              deepFocusEnabled: metadata.deepFocusEnabled,
+              selectedFocusPath: metadata.primaryFocusRelativePath,
+              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
+              selectedFocusTargets: metadata.primaryFocusTargets,
+              selectedTestTarget: metadata.selectedTestTarget,
+              selectedSupportTargets: metadata.supportTargets,
+              repoRoot: REPO_ROOT,
+            });
+
+        try {
+          await commitPendingRecordToHistory(destinationPath);
+        } catch (historyError: unknown) {
+          console.error(
+            historyError instanceof Error
+              ? `Planner conversation history upsert failed after dropbox finalization: ${historyError.message}`
+              : 'Planner conversation history upsert failed after dropbox finalization.',
+          );
+        }
 
         try {
           await resolvedHandlers.endPlannerSession();
@@ -1163,29 +1269,6 @@ export async function handleDesktopAction(
           );
         }
         emitStreamEvent({ message: `Spec finalized to dropbox: ${basename(destinationPath)}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
-        if (activation.activated) {
-          emitStreamEvent({
-            message: `planner.finalizeSpec: activated next pending item.`,
-            source: 'planner.finalizeSpec',
-            role: 'workflow',
-            severity: 'info',
-          });
-          schedulePipelineAutoStart();
-        } else if (activation.reason === ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED) {
-          emitStreamEvent({
-            message: `planner.finalizeSpec: published; another task already active (cap reached). Will activate when cap frees up.`,
-            source: 'planner.finalizeSpec',
-            role: 'workflow',
-            severity: 'info',
-          });
-        } else {
-          emitStreamEvent({
-            message: `planner.finalizeSpec: published; activation gate did not pass on this attempt.`,
-            source: 'planner.finalizeSpec',
-            role: 'workflow',
-            severity: 'info',
-          });
-        }
         return {
           ok: true,
           response: {
@@ -1280,6 +1363,10 @@ export async function handleDesktopAction(
       return resolvedHandlers.pickMarkdownFile();
     case 'planner.listArchivedTasks':
       return resolvedHandlers.listArchivedTasks();
+    case 'planner.listConversationHistory':
+      return resolvedHandlers.listConversationHistory();
+    case 'planner.hydrateConversation':
+      return resolvedHandlers.hydrateConversation(request.payload.recordId);
     case 'reinforcement.submitFeedback':
       return withStreamEvent(resolvedHandlers.submitReinforcementFeedback(request.payload),
         { message: 'Feedback submitted.', source: 'reinforcement.submitFeedback', role: 'system' });
@@ -1300,11 +1387,15 @@ export async function handleDesktopAction(
     case 'reinforcement.startRealignment':
       return withStreamEvent(resolvedHandlers.startRealignment(request.payload),
         { message: 'Corrective realignment started.', source: 'reinforcement.startRealignment', role: 'system', severity: 'warning' });
+    case 'reinforcement.runRealignmentAnalysis':
+      return resolvedHandlers.runRealignmentAnalysis(request.payload);
     case 'contextPack.activate':
       return withStreamEvent(resolvedHandlers.activateContextPack(request.payload),
         { message: 'Activated context pack.', source: 'contextPack.activate', role: 'workflow' });
     case 'contextPack.setRepositoryType':
       return resolvedHandlers.setRepositoryType(request.payload);
+    case 'contextPack.setRepoCategory':
+      return resolvedHandlers.setRepoCategory(request.payload);
     case 'externalMcp.list':
       return resolvedHandlers.listExternalMcpServers();
     case 'externalMcp.add':
@@ -1384,7 +1475,42 @@ export async function handleDesktopAction(
     case 'deepFocus.clearSelections':
       return resolvedHandlers.clearDeepFocusSelections(request.payload);
     case 'planner.uploadSpec':
-      return resolvedHandlers.uploadSpec(request.payload.content);
+      {
+        const activePlannerSessionId = plannerSession.getObservability().sessionId;
+        if (
+          request.payload.expectedTaskKind &&
+          request.payload.requirePlannerSidecar !== true
+        ) {
+          return {
+            ok: false,
+            action: 'planner.uploadSpec',
+            error: 'planner.uploadSpec expectedTaskKind is only valid when requirePlannerSidecar is true.',
+          };
+        }
+        const sidecar = activePlannerSessionId ? await readPlannerStagingSidecar() : null;
+        const plannerSidecar = sidecar?.sessionId === activePlannerSessionId ? sidecar : null;
+        if (request.payload.requirePlannerSidecar === true && !plannerSidecar) {
+          return {
+            ok: false,
+            action: 'planner.uploadSpec',
+            error: 'Bypass Lily upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
+          };
+        }
+        if (
+          request.payload.expectedTaskKind &&
+          plannerSidecar &&
+          plannerSidecar.lineage.taskKind !== request.payload.expectedTaskKind
+        ) {
+          return {
+            ok: false,
+            action: 'planner.uploadSpec',
+            error: `Platform expected ${request.payload.expectedTaskKind} but active planner metadata declares ${plannerSidecar.lineage.taskKind}. Restart the planner session before uploading.`,
+          };
+        }
+        return resolvedHandlers.uploadSpec(request.payload.content, {
+          plannerSidecar,
+        });
+      }
     case 'cancel-task':
       return resolvedHandlers.cancelTask(request.payload.taskId);
     default:
@@ -1451,6 +1577,12 @@ export async function createWindow(): Promise<BrowserWindow> {
       sandbox: true,
     },
   });
+  mainWindow = window;
+  window.once('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
 
   const isDevMode = Boolean(process.env.VITE_DEV_SERVER_URL);
   if (!isDevMode && window.webContents?.session) {
@@ -1502,7 +1634,7 @@ export async function createWindow(): Promise<BrowserWindow> {
       throw new Error(validationError);
     }
 
-    await window.loadURL(viteDevServerUrl);
+    await loadDevServerUrlWithRetry(window, viteDevServerUrl);
     return window;
   }
 
@@ -1510,12 +1642,55 @@ export async function createWindow(): Promise<BrowserWindow> {
   return window;
 }
 
+export async function loadDevServerUrlWithRetry(window: BrowserWindow, url: string): Promise<void> {
+  for (let attempt = 1; attempt <= DEV_URL_MAX_ATTEMPTS; attempt++) {
+    try {
+      await window.loadURL(url);
+      return;
+    } catch (error) {
+      const code = getNodeErrorCode(error);
+      if (!code || !RETRYABLE_DEV_URL_ERROR_CODES.has(code)) {
+        throw error;
+      }
+      if (attempt === DEV_URL_MAX_ATTEMPTS) {
+        throw error;
+      }
+      if (window.isDestroyed()) {
+        return;
+      }
+      console.info(
+        `Vite dev server not ready, retrying... (attempt ${attempt}/${DEV_URL_MAX_ATTEMPTS})`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, DEV_URL_RETRY_DELAY_MS));
+      if (window.isDestroyed()) {
+        return;
+      }
+    }
+  }
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.focus();
+}
+
 export function registerAppLifecycle(): void {
+  if (!HAS_SINGLE_INSTANCE_LOCK) {
+    return;
+  }
   // Constrain V8 heap to 256 MB so GC runs more aggressively in long-lived sessions.
   // --expose-gc makes the global gc() function available for the idle GC nudge timer.
   if (typeof app.commandLine?.appendSwitch === 'function') {
     app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256 --expose-gc');
   }
+  registerDevGracefulRestartHandler();
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    console.info('TaskSail duplicate launch ignored.', { argv, workingDirectory });
+    focusMainWindow();
+  });
 
   let stopBoardWatcher: (() => void) | undefined;
   let stopRuntimeWatcher: (() => void) | undefined;
@@ -1536,6 +1711,14 @@ export function registerAppLifecycle(): void {
     await cleanupStalePipelineState();
 
     stopBoardWatcher = startTaskBoardWatcher(listAvailableContextPacks);
+    startContextPackCatalogWatcher({
+      catalogRoots: getContextPackCatalogRoots(),
+      onChange: (event) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.webContents.send(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, event);
+        }
+      },
+    });
     stopRuntimeWatcher = startRuntimeStreamWatcher();
     recoveryController = startTaskRecoveryController({
       schedulePipelineAutoStart,
@@ -1561,13 +1744,20 @@ export function registerAppLifecycle(): void {
     // open (dropbox), clear handoffs, reset pipeline state, and clean ephemeral
     // runtime directories. This prevents stale-state recovery messages on the
     // next launch and keeps the workspace ready for a fresh session.
-    cleanupWorkspaceOnQuit();
+    if (!devGracefulRestartRequested) {
+      cleanupWorkspaceOnQuit();
+    }
 
     stopBoardWatcher?.();
+    stopContextPackCatalogWatcher();
     stopRuntimeWatcher?.();
     recoveryController?.stop();
     recoveryController = null;
     void plannerSession.endSession();
+
+    if (!devGracefulRestartRequested) {
+      stopBackendServicesDetached(REPO_ROOT);
+    }
   });
 
   app.on('window-all-closed', () => {

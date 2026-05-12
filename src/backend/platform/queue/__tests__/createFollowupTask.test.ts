@@ -136,6 +136,10 @@ describe('createFollowupTask', () => {
   it('forwards Deep Focus metadata to the dropbox task creator', async () => {
     await createFollowupTask({
       ...PMSE_OPTIONS,
+      primaryRepoId: 'platform',
+      primaryFocusId: 'api',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api'],
       deepFocusEnabled: true,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
@@ -149,6 +153,23 @@ describe('createFollowupTask', () => {
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    }));
+  });
+
+  it('forwards standard-mode primary binding metadata to the dropbox task creator', async () => {
+    await createFollowupTask({
+      ...PMSE_OPTIONS,
+      primaryRepoId: 'platform',
+      primaryFocusId: 'api',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api'],
+    });
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      primaryRepoId: 'platform',
+      primaryFocusId: 'api',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api'],
     }));
   });
 });

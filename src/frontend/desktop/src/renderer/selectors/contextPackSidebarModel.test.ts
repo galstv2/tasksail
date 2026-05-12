@@ -111,7 +111,6 @@ describe('formatFocusLabel', () => {
 describe('formatRuntimeStatus', () => {
   it('maps known statuses', () => {
     expect(formatRuntimeStatus('active')).toBe('active');
-    expect(formatRuntimeStatus('active-dirty-workspace')).toBe('modified');
     expect(formatRuntimeStatus('activation-failed')).toBe('failed');
     expect(formatRuntimeStatus('workspace-sync-failed')).toBe('sync failed');
   });

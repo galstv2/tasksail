@@ -16,6 +16,20 @@ export function CloseIcon(): JSX.Element {
   );
 }
 
+export function BackIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M10 3.5L5.5 8 10 12.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function EditIcon(): JSX.Element {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -43,7 +57,6 @@ export function PlusIcon(): JSX.Element {
 export function PrimaryToggleLabel({ primary }: { primary: boolean }): JSX.Element {
   return (
     <>
-      <span className="context-pack-modal__toggle-dot" />
       {primary ? 'Primary' : 'Support'}
       <span className="context-pack-modal__toggle-hint">
         {primary ? 'Service or app' : 'Library, docs, or support'}

@@ -4,8 +4,14 @@ import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify, copyFileSafe } from '../core/index.js';
+import {
+  cleanupActivePlannerFocusSnapshot,
+  moveStagedPlannerFocusSnapshot,
+  transferStagedSnapshotToActiveTask,
+} from './plannerFocusSnapshotStaging.js';
 import { withOriginLock, materializeWorktreeDeps, preconditionsPass } from '../core/worktreeMaterialization.js';
 import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
+import { readReseedMarker } from '../context-pack/reseedMarker.js';
 import { resolveTaskMaterializationConfig } from '../context-pack/types.js';
 import { deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
 import type { QueuePaths } from './paths.js';
@@ -15,20 +21,37 @@ import {
   initializeTaskArtifacts,
   clearRuntimeReceipts,
 } from './lifecycle.js';
-import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
-import { extractTaskTitle, extractLineageValue, extractContextPackBinding } from './markdown.js';
+import {
+  stampRetrospectiveRequiredMetadata,
+  syncRetrospectiveRequiredMetadata,
+} from './retrospectiveFlag.js';
+import {
+  extractTaskTitle,
+  extractLineageValue,
+  extractContextPackBinding,
+  type TaskContextPackBinding,
+} from './markdown.js';
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
 import { ensureSharedMcpRunning } from '../container/sharedMcp.js';
+import { createRuntimeFromConfig } from '../container/runtime.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
-import { runMergeDetectionSweep } from './mergeDetectionSweep.js';
+import { resumeCloseoutFromSentinel } from './resumeCloseout.js';
+import {
+  deferredRetrospectiveMarkerPath,
+  mergeCompletingSentinelPayload,
+  type DeferredRetrospectiveMarker,
+} from './completePendingItem.js';
 import type { TaskRepoBinding } from './taskJson.js';
+import { acquireDirLockOrThrow, withDirLock } from './dirLock.js';
+import { writeTaskPackSnapshot } from './packSnapshot.js';
+import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
 
 const execFileAsync = promisify(execFile);
 
-export { acquireDirLock, acquireDirLockOrThrow } from './dirLock.js';
+export { acquireDirLock, acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 
 
 /**
@@ -53,6 +76,170 @@ export function getActiveTaskIds(paths: QueuePaths): string[] {
  */
 export function hasAnyActiveTask(paths: QueuePaths): boolean {
   return getActiveTaskIds(paths).length > 0;
+}
+
+function extractBindingOrWarn(content: string | undefined, taskId?: string): TaskContextPackBinding | null {
+  if (!content) {
+    return null;
+  }
+  const result = extractContextPackBinding(content);
+  if (result.kind === 'binding') {
+    return result.binding;
+  }
+  if (result.kind === 'invalid') {
+    console.warn(`[queue] ignoring invalid context-pack binding${taskId ? ` for ${taskId}` : ''}: ${result.reason}`);
+  }
+  return null;
+}
+
+export { cleanupStagedPlannerFocusSnapshot } from './plannerFocusSnapshotStaging.js';
+
+function resolveExistingRepoRootForActivation(
+  input: string,
+): string {
+  try {
+    return realpathSync(input);
+  } catch {
+    return path.resolve(input);
+  }
+}
+
+function materializationRootsFromBinding(options: {
+  visibleRepoRoots: readonly string[];
+  binding: TaskContextPackBinding | null;
+  taskId: string;
+}): string[] {
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  const append = (root: string): void => {
+    const resolved = resolveExistingRepoRootForActivation(root);
+    if (seen.has(resolved)) {
+      return;
+    }
+    seen.add(resolved);
+    roots.push(resolved);
+  };
+
+  for (const root of options.visibleRepoRoots) {
+    append(root);
+  }
+
+  for (const [index, target] of (options.binding?.selectedFocusTargets ?? []).entries()) {
+    const selectedRoot = target.repoLocalPath?.trim();
+    if (!selectedRoot) {
+      continue;
+    }
+    if (!existsSync(selectedRoot)) {
+      throw new Error(
+        `activation-selected-repo-missing: selectedFocusTargets[${index}].repoLocalPath "${selectedRoot}" does not exist for task "${options.taskId}"`,
+      );
+    }
+    append(selectedRoot);
+  }
+
+  return roots;
+}
+
+function isDeferredRetrospectiveMarker(value: unknown): value is DeferredRetrospectiveMarker {
+  if (!value || typeof value !== 'object') return false;
+  const marker = value as Partial<DeferredRetrospectiveMarker>;
+  return typeof marker.taskId === 'string'
+    && typeof marker.contextPackDir === 'string'
+    && typeof marker.handoffsDir === 'string'
+    && typeof marker.deferredAt === 'string';
+}
+
+async function readDeferredRetrospectiveMarkers(
+  repoRoot: string,
+): Promise<Array<DeferredRetrospectiveMarker & { markerPath: string }>> {
+  const tasksRuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks');
+  let taskIds: string[];
+  try {
+    taskIds = await readdir(tasksRuntimeDir);
+  } catch {
+    return [];
+  }
+
+  const markers: Array<DeferredRetrospectiveMarker & { markerPath: string }> = [];
+  for (const taskId of taskIds) {
+    const markerPath = deferredRetrospectiveMarkerPath(repoRoot, taskId);
+    try {
+      const parsed = JSON.parse(await readFile(markerPath, 'utf-8')) as unknown;
+      if (isDeferredRetrospectiveMarker(parsed)) {
+        markers.push({ ...parsed, markerPath });
+      }
+    } catch {
+      // Missing or corrupt markers are ignored; closeout-health reports filesystem state.
+    }
+  }
+  return markers.sort((a, b) => a.deferredAt.localeCompare(b.deferredAt));
+}
+
+async function unlinkDeferredMarker(markerPath: string): Promise<boolean> {
+  try {
+    await unlink(markerPath);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return true;
+    }
+    console.warn(`[closeout] failed to remove deferred retrospective marker ${markerPath}:`, err);
+    return false;
+  }
+}
+
+export async function retryDeferredRetrospectiveSyncs(repoRoot: string): Promise<{
+  attempted: boolean;
+  taskId?: string;
+  synced?: boolean;
+}> {
+  const marker = (await readDeferredRetrospectiveMarkers(repoRoot))[0];
+  if (!marker) {
+    return { attempted: false };
+  }
+
+  try {
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir: marker.handoffsDir,
+      contextPackDir: marker.contextPackDir,
+      taskId: marker.taskId,
+    });
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const sentinelPath = path.join(queuePaths.activeItemsDir, `${marker.taskId}.completing`);
+    if (existsSync(sentinelPath)) {
+      mergeCompletingSentinelPayload(sentinelPath, {
+        retrospectiveSynced: true,
+        retrospectiveSyncError: undefined,
+      });
+    }
+    await unlinkDeferredMarker(marker.markerPath);
+    return { attempted: true, taskId: marker.taskId, synced: true };
+  } catch (err) {
+    console.warn(`[closeout] deferred retrospective sync failed for ${marker.taskId}:`, err);
+    return { attempted: true, taskId: marker.taskId, synced: false };
+  }
+}
+
+async function resumeOrphanCompletingSentinels(
+  repoRoot: string,
+  paths: QueuePaths,
+): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(paths.activeItemsDir);
+  } catch {
+    return;
+  }
+  for (const entry of entries.filter((name) => name.endsWith('.completing'))) {
+    const taskId = entry.replace(/\.completing$/, '');
+    const result = await resumeCloseoutFromSentinel(taskId, repoRoot);
+    if (result.status === 'completed') {
+      process.stderr.write(
+        `[closeout] resumed stranded closeout for ${taskId}: ${result.drove.join(',')}\n`,
+      );
+    }
+  }
 }
 
 /**
@@ -110,6 +297,26 @@ export async function insertIntoQueueManifest(
   const idx = Math.max(0, Math.min(insertAtIndex, filtered.length));
   filtered.splice(idx, 0, fileName);
   await writeQueueOrderManifest(resolvedPath, filtered);
+}
+
+/**
+ * Remove a file name from queue-order.json. Deletes the manifest when the
+ * resulting list is empty. Best-effort: swallows read/write/unlink errors so
+ * callers can use it as a cleanup step in failure paths.
+ */
+export async function removeFromQueueOrderManifest(
+  queueOrderPath: string,
+  fileName: string,
+): Promise<void> {
+  try {
+    const order = await readQueueOrderManifest(queueOrderPath);
+    const filtered = order.filter((f) => f !== fileName);
+    if (filtered.length > 0) {
+      await writeQueueOrderManifest(queueOrderPath, filtered);
+    } else {
+      await unlink(queueOrderPath);
+    }
+  } catch { /* best-effort */ }
 }
 
 /**
@@ -210,10 +417,16 @@ export async function moveDropboxItemsOnce(
     // Register the task in the centralized registry.
     const finalFileName = path.basename(targetPath);
     const repoRoot = path.resolve(pendingDir, '..', '..');
+    await moveStagedPlannerFocusSnapshot({
+      repoRoot,
+      oldTaskId: path.basename(sourcePath, '.md'),
+      newTaskId: finalFileName.replace(/\.md$/, ''),
+      newMarkdownDestination: path.relative(repoRoot, targetPath),
+    });
     try {
       const head = await readTextFile(targetPath);
       const title = head ? extractTaskTitle(head) || null : null;
-      const binding = head ? extractContextPackBinding(head) : null;
+      const binding = extractBindingOrWarn(head, finalFileName.replace(/\.md$/, ''));
       await registerTask(repoRoot, {
         taskId: finalFileName.replace(/\.md$/, ''),
         fileName: finalFileName,
@@ -279,43 +492,56 @@ export async function moveDropboxItemToPending(options: {
     suffix++;
   }
 
-  await moveFile(sourcePath, targetPath);
+  const finalFileName = await withDirLock(
+    queuePaths.queueLockDir,
+    'Move dropbox item to pending',
+    async () => {
+      await moveFile(sourcePath, targetPath);
 
-  const finalFileName = path.basename(targetPath);
-  const oldTaskId = base.replace(/\.md$/, '');
+      const movedFileName = path.basename(targetPath);
+      const oldTaskId = base.replace(/\.md$/, '');
+      await moveStagedPlannerFocusSnapshot({
+        repoRoot: root,
+        oldTaskId,
+        newTaskId: movedFileName.replace(/\.md$/, ''),
+        newMarkdownDestination: path.relative(root, targetPath),
+      });
 
-  // Clear stale registry entry from prior repair (may not exist)
-  await removeTask(root, oldTaskId).catch(() => {});
+      // Clear stale registry entry from prior repair (may not exist)
+      await removeTask(root, oldTaskId).catch(() => {});
 
-  try {
-    const head = await readTextFile(targetPath);
-    const title = head ? extractTaskTitle(head) || null : null;
-    const binding = head ? extractContextPackBinding(head) : null;
-    await registerTask(root, {
-      taskId: finalFileName.replace(/\.md$/, ''),
-      fileName: finalFileName,
-      title,
-      state: 'pending',
-      contextPackId: binding?.contextPackId ?? null,
-      contextPackDir: binding?.contextPackDir ?? null,
-      scopeMode: binding?.scopeMode ?? null,
-      selectedRepoIds: binding?.selectedRepoIds ?? [],
-      selectedFocusIds: binding?.selectedFocusIds ?? [],
-      deepFocusEnabled: binding?.deepFocusEnabled,
-      selectedFocusPath: binding?.selectedFocusPath,
-      selectedFocusTargetKind: binding?.selectedFocusTargetKind,
-      selectedFocusTargets: binding?.selectedFocusTargets,
-      selectedTestTarget: binding?.selectedTestTarget,
-      selectedSupportTargets: binding?.selectedSupportTargets,
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-      archivePath: null,
-    });
-  } catch {
-    // Registry update is best-effort — file move is authoritative
-  }
+      try {
+        const head = await readTextFile(targetPath);
+        const title = head ? extractTaskTitle(head) || null : null;
+        const binding = extractBindingOrWarn(head, movedFileName.replace(/\.md$/, ''));
+        await registerTask(root, {
+          taskId: movedFileName.replace(/\.md$/, ''),
+          fileName: movedFileName,
+          title,
+          state: 'pending',
+          contextPackId: binding?.contextPackId ?? null,
+          contextPackDir: binding?.contextPackDir ?? null,
+          scopeMode: binding?.scopeMode ?? null,
+          selectedRepoIds: binding?.selectedRepoIds ?? [],
+          selectedFocusIds: binding?.selectedFocusIds ?? [],
+          deepFocusEnabled: binding?.deepFocusEnabled,
+          selectedFocusPath: binding?.selectedFocusPath,
+          selectedFocusTargetKind: binding?.selectedFocusTargetKind,
+          selectedFocusTargets: binding?.selectedFocusTargets,
+          selectedTestTarget: binding?.selectedTestTarget,
+          selectedSupportTargets: binding?.selectedSupportTargets,
+          createdAt: new Date().toISOString(),
+          completedAt: null,
+          archivePath: null,
+        });
+      } catch {
+        // Registry update is best-effort — file move is authoritative
+      }
 
-  await insertIntoQueueManifest(queuePaths.pendingDir, finalFileName, options.insertAtIndex);
+      await insertIntoQueueManifest(queuePaths.pendingDir, movedFileName, options.insertAtIndex);
+      return movedFileName;
+    },
+  );
 
   let activatedItem: string | null = null;
   const result = await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot: root });
@@ -395,61 +621,64 @@ export async function activateNextPendingItemIfReady(
   const { paths, repoRoot, contextPackDir } = options;
   const { pendingDir, templatesDir } = paths;
 
-  // §B7-sweep: detect merged task branches before scheduling new work.
-  // Cheap (≤2 git plumbing calls per binding), bounded by # completed-not-yet-
-  // merged tasks. Always best-effort — sweep failures must NEVER block queue
-  // activation.
+  await Promise.all([
+    retryDeferredRetrospectiveSyncs(repoRoot),
+    resumeOrphanCompletingSentinels(repoRoot, paths),
+  ]);
+
+  let nextItem: string | null = null;
+  let taskId = '';
+  let taskHandoffsDir = '';
+  let taskImplStepsDir = '';
+  let content: string | undefined;
+  let activeMarkerPath = '';
+  let repoBindings: Array<{
+    originalRoot: string;
+    worktreeRoot: string;
+    worktreeBranch: string;
+    baseCommitSha: string;
+  }> = [];
+  let packSnapshotPath = '';
+
+  const releaseActivation = await acquireDirLockOrThrow(paths.queueLockDir, 'Activation');
   try {
-    const sweep = await runMergeDetectionSweep(repoRoot);
-    if (sweep.tasksCleanedUp > 0) {
-      process.stderr.write(
-        `[mergeDetectionSweep] cleaned ${sweep.tasksCleanedUp} merged task(s); ` +
-        `${sweep.bindingsMarked} bindings newly stamped\n`,
-      );
+    // §4.2 cap check: compare active task count against platform config limit.
+    let cap = 1;
+    try {
+      const config = await getPlatformConfig(repoRoot);
+      cap = config.max_parallel_tasks;
+    } catch {
+      // Platform config absent (e.g., bare tmpdir in tests) — default to 1.
+      cap = 1;
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[mergeDetectionSweep] sweep failed (non-fatal): ${msg}\n`);
-  }
 
-  // §4.2 cap check: compare active task count against platform config limit.
-  let cap = 1;
-  try {
-    const config = await getPlatformConfig(repoRoot);
-    cap = config.max_parallel_tasks;
-  } catch {
-    // Platform config absent (e.g., bare tmpdir in tests) — default to 1.
-    cap = 1;
-  }
+    const currentActive = getActiveTaskIds(paths);
+    if (currentActive.length >= cap) {
+      return { activated: false, reason: ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED };
+    }
 
-  const currentActive = getActiveTaskIds(paths);
-  if (currentActive.length >= cap) {
-    return { activated: false, reason: ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED };
-  }
+    // Skip already-active task IDs so parallel activations pick the next
+    // unstarted pending item rather than re-selecting the already-active one.
+    const activeSet = new Set(currentActive);
+    nextItem = await nextPendingItemPath(pendingDir, undefined, activeSet);
+    if (!nextItem) return { activated: false };
 
-  // Skip already-active task IDs so parallel activations pick the next
-  // unstarted pending item rather than re-selecting the already-active one.
-  const activeSet = new Set(currentActive);
-  const nextItem = await nextPendingItemPath(pendingDir, undefined, activeSet);
-  if (!nextItem) return { activated: false };
+    // Resolve per-task paths early so readiness check uses the task-specific dir.
+    // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
+    // They are always "ready" (empty) for a new task since the directory won't exist yet.
+    taskId = path.basename(nextItem, '.md');
+    taskHandoffsDir = paths.taskHandoffs(taskId);
+    taskImplStepsDir = paths.taskImplementationSteps(taskId);
 
-  // Resolve per-task paths early so readiness check uses the task-specific dir.
-  // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
-  // They are always "ready" (empty) for a new task since the directory won't exist yet.
-  const taskId = path.basename(nextItem, '.md');
-  const taskHandoffsDir = paths.taskHandoffs(taskId);
-  const taskImplStepsDir = paths.taskImplementationSteps(taskId);
+    const isReady = await handoffWorkspaceIsReady(
+      taskHandoffsDir,
+      templatesDir,
+    );
+    if (!isReady) return { activated: false };
 
-  const isReady = await handoffWorkspaceIsReady(
-    taskHandoffsDir,
-    templatesDir,
-  );
-  if (!isReady) return { activated: false };
-
-  // Read the queue item and initialize handoffs from it
-  const content = await readTextFile(nextItem);
-  if (content === undefined) return { activated: false };
-
+    // Read the queue item and initialize handoffs from it
+    content = await readTextFile(nextItem);
+    if (content === undefined) return { activated: false };
   const taskTitle = extractTaskTitle(content) || path.basename(nextItem, '.md');
   const queueName = path.basename(nextItem);
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
@@ -460,7 +689,7 @@ export async function activateNextPendingItemIfReady(
   const parentQmdRecordId = extractLineageValue(content, 'Parent QMD Record ID');
   const parentQmdScope = extractLineageValue(content, 'Parent QMD Scope');
   const followupReason = extractLineageValue(content, 'Follow-Up Reason');
-  const contextPackBinding = extractContextPackBinding(content);
+  const contextPackBinding = extractBindingOrWarn(content, taskId);
 
   const metadata: Record<string, string> = {
     'Task ID': taskId,
@@ -485,20 +714,15 @@ export async function activateNextPendingItemIfReady(
   // handoff workspace have been materialized. If materialization fails, the
   // pending item remains pending and no active marker is leaked.
   await ensureDir(paths.activeItemsDir);
-  const activeMarkerPath = path.join(paths.activeItemsDir, taskId);
+  activeMarkerPath = path.join(paths.activeItemsDir, taskId);
 
-  // The legacy singleton active-context-pack sidecar is intentionally not
-  // written on per-task activation; the task-bound .task.json below is the
-  // authoritative source for pipeline launches.
-
-  // Lock precedence: 1 (queue lock; sidecar write is part of activation critical section)
+  // Lock precedence: 1 (queue lock; task sidecar write is part of activation critical section)
   // §4.14 — Worktree + dependency materialization.
   // For every visible repo root in the activating context pack: run `git worktree add`,
   // CoW-clone dependency directories, and write real worktreeRoot into .task.json.
   // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
 
   const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
-  await ensureDir(path.dirname(perTaskSidecarPath));
 
   // Resolve the set of repo roots to materialize worktrees for.
   // If a context pack is present, iterate its visibleRepoRoots.
@@ -508,8 +732,20 @@ export async function activateNextPendingItemIfReady(
   let visibleRepoRoots: string[] = [];
   const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
   if (cpDir) {
+    const reseed = await readReseedMarker(cpDir);
+    if (reseed) {
+      throw new Error(
+        `Refusing to activate task "${taskId}" against context pack "${cpDir}": ` +
+        `a reseed is in progress (started ${reseed.startedAt}, pid ${reseed.pid} on ${reseed.host}, ` +
+        `age ${Math.round(reseed.ageMs / 1000)}s). Retry once the reseed completes.`,
+      );
+    }
     const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
-    visibleRepoRoots = focused?.visibleRepoRoots ?? [];
+    visibleRepoRoots = materializationRootsFromBinding({
+      visibleRepoRoots: focused?.visibleRepoRoots ?? [],
+      binding: contextPackBinding,
+      taskId,
+    });
     if (visibleRepoRoots.length === 0) {
       throw new Error(
         `Unable to resolve visible repo roots for context pack "${cpDir}" while activating task "${taskId}". ` +
@@ -529,6 +765,8 @@ export async function activateNextPendingItemIfReady(
     visibleRepoRoots = [repoRoot];
   }
 
+  await ensureDir(path.dirname(perTaskSidecarPath));
+
   // Determine paths to clone from the context pack's taskMaterialization field.
   // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
   const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
@@ -544,12 +782,7 @@ export async function activateNextPendingItemIfReady(
   }
 
   // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
-  const repoBindings: Array<{
-    originalRoot: string;
-    worktreeRoot: string;
-    worktreeBranch: string;
-    baseCommitSha: string;
-  }> = [];
+  repoBindings = [];
   let combinedMat: { strategy: string; cloned: string[]; skipped: string[] } = {
     strategy: 'copy',
     cloned: [],
@@ -640,6 +873,31 @@ export async function activateNextPendingItemIfReady(
     });
   }
 
+  const selection = contextPackBinding
+    ? {
+        contextPackDir: contextPackBinding.contextPackDir,
+        contextPackId: contextPackBinding.contextPackId,
+        scopeMode: contextPackBinding.scopeMode,
+        selectedRepoIds: contextPackBinding.selectedRepoIds,
+        selectedFocusIds: contextPackBinding.selectedFocusIds,
+        deepFocusEnabled: contextPackBinding.deepFocusEnabled,
+        ...(contextPackBinding.deepFocusEnabled === true
+          ? {
+              deepFocusPrimaryRepoId: contextPackBinding.deepFocusPrimaryRepoId,
+              deepFocusPrimaryFocusId: contextPackBinding.deepFocusPrimaryFocusId,
+            }
+          : {
+              primaryRepoId: contextPackBinding.primaryRepoId,
+              primaryFocusId: contextPackBinding.primaryFocusId,
+            }),
+        selectedFocusPath: contextPackBinding.selectedFocusPath ?? null,
+        selectedFocusTargetKind: contextPackBinding.selectedFocusTargetKind ?? null,
+        selectedFocusTargets: contextPackBinding.selectedFocusTargets,
+        selectedTestTarget: contextPackBinding.selectedTestTarget ?? null,
+        selectedSupportTargets: contextPackBinding.selectedSupportTargets ?? [],
+      }
+    : undefined;
+
   const perTaskSidecar = {
     schema_version: 1,
     taskId,
@@ -650,21 +908,7 @@ export async function activateNextPendingItemIfReady(
       dataHostDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] ?? null,
       dataContainerDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] ?? null,
       repoBindings,
-      selection: contextPackBinding
-        ? {
-            contextPackDir: contextPackBinding.contextPackDir,
-            contextPackId: contextPackBinding.contextPackId,
-            scopeMode: contextPackBinding.scopeMode,
-            selectedRepoIds: contextPackBinding.selectedRepoIds,
-            selectedFocusIds: contextPackBinding.selectedFocusIds,
-            deepFocusEnabled: contextPackBinding.deepFocusEnabled,
-            selectedFocusPath: contextPackBinding.selectedFocusPath ?? null,
-            selectedFocusTargetKind: contextPackBinding.selectedFocusTargetKind ?? null,
-            selectedFocusTargets: contextPackBinding.selectedFocusTargets,
-            selectedTestTarget: contextPackBinding.selectedTestTarget ?? null,
-            selectedSupportTargets: contextPackBinding.selectedSupportTargets ?? [],
-          }
-        : undefined,
+      selection,
     },
     materialization: {
       strategy: combinedMat.strategy,
@@ -681,6 +925,21 @@ export async function activateNextPendingItemIfReady(
     JSON.stringify(perTaskSidecar, null, 2) + '\n',
     'utf-8',
   );
+  if (contextPackBinding && selection) {
+    // writeTaskPackSnapshot validates primary.repoRoot before writing and
+    // throws on any unresolvable identity, so we only need to record the path
+    // here for rollback.
+    await writeTaskPackSnapshot({
+      repoRoot,
+      taskId,
+      contextPackDir: contextPackBinding.contextPackDir,
+      contextPackId: contextPackBinding.contextPackId,
+      binding: contextPackBinding,
+      selection,
+    });
+    packSnapshotPath = resolveTaskPackSnapshotPath(repoRoot, taskId);
+  }
+  await transferStagedSnapshotToActiveTask(repoRoot, taskId);
 
   try {
     await initializeTaskArtifacts({
@@ -697,7 +956,7 @@ export async function activateNextPendingItemIfReady(
     // files in parallel mode. The canonical copy stays in pendingitems/ —
     // queue lifecycle code is the only authorized writer there.
     await copyFileSafe(nextItem, path.join(taskHandoffsDir, 'intake.md'));
-    await syncRetrospectiveRequiredMetadata({
+    await stampRetrospectiveRequiredMetadata({
       repoRoot,
       handoffsDir: taskHandoffsDir,
       contextPackDir: contextPackBinding?.contextPackDir ?? contextPackDir,
@@ -707,6 +966,10 @@ export async function activateNextPendingItemIfReady(
     // Roll back the claim and sidecar so queue returns to idle.
     try { await unlink(activeMarkerPath); } catch { /* best-effort */ }
     try { await unlink(perTaskSidecarPath); } catch { /* best-effort */ }
+    if (packSnapshotPath) {
+      try { await unlink(packSnapshotPath); } catch { /* best-effort */ }
+    }
+    await cleanupActivePlannerFocusSnapshot(repoRoot, taskId);
     throw err;
   }
 
@@ -715,22 +978,16 @@ export async function activateNextPendingItemIfReady(
   // so failed tasks can still be relocated to error-items/ and completed tasks
   // can be removed idempotently.
   await writeFile(activeMarkerPath, queueName, 'utf-8');
-  if (contextPackBinding) {
-    const legacyContextPackPath = deriveQueueStatePaths(pendingDir).activeContextPackPath;
-    await ensureDir(path.dirname(legacyContextPackPath)).catch(() => {});
-    await writeFile(
-      legacyContextPackPath,
-      JSON.stringify(contextPackBinding, null, 2) + '\n',
-      'utf-8',
-    ).catch(() => {});
-  }
 
   // Transition task from pending → active in the registry.
   try {
     await transitionTask(repoRoot, taskId, 'pending', 'active');
   } catch { /* best-effort */ }
+  } finally {
+    await releaseActivation();
+  }
 
-  if (hasContainerComposeFile(repoRoot)) {
+  if (await shouldBootstrapSharedMcp(repoRoot)) {
     try {
       const seedResult = await seedPlatformConfig(repoRoot);
       if (seedResult.action === 'failed') {
@@ -807,7 +1064,6 @@ export interface CompleteActiveItemOptions {
   taskId: string;
   skipValidation?: boolean;
   implementationStepsDir?: string;
-  activeContextPackPath?: string;
   queueOrderPath?: string;
 }
 
@@ -933,7 +1189,22 @@ async function rollbackActivationClaim(options: {
   await ensureDir(paths.activeItemsDir).catch(() => {});
 }
 
+async function shouldBootstrapSharedMcp(repoRoot: string): Promise<boolean> {
+  let runtime;
+  try {
+    runtime = await createRuntimeFromConfig(repoRoot);
+  } catch {
+    return hasContainerComposeFile(repoRoot);
+  }
+  if (!runtime.requiresComposeFile) {
+    return true;
+  }
+  return hasContainerComposeFile(repoRoot);
+}
+
 function hasContainerComposeFile(repoRoot: string): boolean {
-  return existsSync(path.join(repoRoot, resolveDefaultComposeFile('docker')))
-    || existsSync(path.join(repoRoot, resolveDefaultComposeFile('podman')));
+  const dockerCompose = resolveDefaultComposeFile('docker');
+  const podmanCompose = resolveDefaultComposeFile('podman');
+  return (dockerCompose !== undefined && existsSync(path.join(repoRoot, dockerCompose)))
+    || (podmanCompose !== undefined && existsSync(path.join(repoRoot, podmanCompose)));
 }

@@ -1,7 +1,7 @@
 """QMD-backed reinforcement state persistence.
 
 All reinforcement JSON files live under
-``{repo_root}/AgentWorkSpace/qmd/reinforcement/``.  Concurrent access is
+``{repo_root}/AgentWorkSpace/qmd/global/reinforcement/store/``.  Concurrent access is
 serialised with file locks via :mod:`scripts.python.lib.locking`.
 
 Storage is repo-global (not namespaced per context pack) because the task
@@ -10,13 +10,12 @@ time.  Lifetime rewards, settlement history, and the global realignment
 document intentionally span context-pack switches so that operator
 feedback accumulates across estate boundaries.
 
-Legacy context-pack-local data (``{context_pack_dir}/reinforcement/``) is
-migrated on first construction when the QMD root does not yet exist.
+Legacy QMD data (``{repo_root}/AgentWorkSpace/qmd/reinforcement/``) is
+migrated on first construction when canonical data does not yet exist.
 """
 from __future__ import annotations
 
 import contextlib
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
@@ -38,14 +37,11 @@ from .models import (
     SettlementRecord,
     TaskLedgerEntry,
 )
-
-# JSON filenames eligible for one-time legacy migration.
-_MIGRATABLE_FILES = (
-    "task-ledger.json",
-    "agent-rewards.json",
-    "settlements.json",
-    "feedback-events.json",
-    "global-realignment-doc.json",
+from .paths import (
+    migrate_legacy_reinforcement_store,
+    reinforcement_store_dir,
+    resolve_store_file_for_read,
+    store_file,
 )
 
 
@@ -58,31 +54,6 @@ def _read_json_or_empty(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _migrate_legacy_store(
-    legacy_root: Path,
-    qmd_root: Path,
-) -> None:
-    """One-time copy of legacy reinforcement JSON into the QMD root.
-
-    Only runs when *qmd_root* does not exist and *legacy_root* does.
-    Realignment sub-directory is copied recursively.
-    """
-    if qmd_root.exists() or not legacy_root.is_dir():
-        return
-    qmd_root.mkdir(parents=True, exist_ok=True)
-    for name in _MIGRATABLE_FILES:
-        src = legacy_root / name
-        if src.is_file():
-            shutil.copy2(str(src), str(qmd_root / name))
-    legacy_realignment = legacy_root / "realignment"
-    if legacy_realignment.is_dir():
-        shutil.copytree(
-            str(legacy_realignment),
-            str(qmd_root / "realignment"),
-            dirs_exist_ok=True,
-        )
-
-
 class ReinforcementStore:
     """Read/write reinforcement state under QMD.
 
@@ -90,11 +61,9 @@ class ReinforcementStore:
     ----------
     repo_root:
         Repository root directory.  Storage is rooted at
-        ``{repo_root}/AgentWorkSpace/qmd/reinforcement/``.
+        ``{repo_root}/AgentWorkSpace/qmd/global/reinforcement/store/``.
     legacy_context_pack_dir:
-        Optional path to a context pack whose ``reinforcement/`` directory
-        may contain pre-migration JSON.  If the QMD root does not exist but
-        this legacy directory does, a one-time copy migrates the data.
+        Deprecated and ignored. Retained for caller compatibility.
     """
 
     def __init__(
@@ -102,12 +71,9 @@ class ReinforcementStore:
         repo_root: Path,
         legacy_context_pack_dir: Path | None = None,
     ) -> None:
-        self._root = Path(repo_root) / "AgentWorkSpace" / "qmd" / "reinforcement"
-        if legacy_context_pack_dir is not None:
-            _migrate_legacy_store(
-                Path(legacy_context_pack_dir) / "reinforcement",
-                self._root,
-            )
+        self._repo_root = Path(repo_root)
+        self._root = reinforcement_store_dir(self._repo_root)
+        migrate_legacy_reinforcement_store(self._repo_root)
 
     @property
     def root(self) -> Path:
@@ -120,12 +86,13 @@ class ReinforcementStore:
         self,
         path: Path,
         modifier: Callable[[dict[str, Any]], dict[str, Any]],
+        read_path: Path | None = None,
     ) -> dict[str, Any]:
         """Acquire a file lock, read JSON, apply *modifier*, write back."""
         lock_path = path.with_suffix(".lock")
         fd = acquire_file_lock(lock_path)
         try:
-            payload = _read_json_or_empty(path)
+            payload = _read_json_or_empty(read_path or path)
             updated = modifier(payload)
             atomic_write_json(path, updated)
             return updated
@@ -145,12 +112,12 @@ class ReinforcementStore:
         finally:
             release_file_lock(fd)
 
-    def _locked_read(self, path: Path) -> dict[str, Any]:
+    def _locked_read(self, path: Path, read_path: Path | None = None) -> dict[str, Any]:
         """Acquire a file lock, read JSON, return data."""
         lock_path = path.with_suffix(".lock")
         fd = acquire_file_lock(lock_path)
         try:
-            return _read_json_or_empty(path)
+            return _read_json_or_empty(read_path or path)
         finally:
             release_file_lock(fd)
 
@@ -168,7 +135,10 @@ class ReinforcementStore:
     # Task ledger
     # ------------------------------------------------------------------
     def _task_ledger_path(self) -> Path:
-        return self._root / "task-ledger.json"
+        return store_file(self._repo_root, "task-ledger.json")
+
+    def _task_ledger_read_path(self) -> Path:
+        return resolve_store_file_for_read(self._repo_root, "task-ledger.json")
 
     @contextlib.contextmanager
     def ledger_lock(self) -> Iterator[None]:
@@ -189,7 +159,7 @@ class ReinforcementStore:
 
     def load_task_ledger_held(self) -> list[TaskLedgerEntry]:
         """Load ledger entries — caller must already hold ``ledger_lock``."""
-        data = _read_json_or_empty(self._task_ledger_path())
+        data = _read_json_or_empty(self._task_ledger_read_path())
         return [
             TaskLedgerEntry.from_dict(e)
             for e in data.get("entries", [])
@@ -198,7 +168,7 @@ class ReinforcementStore:
     def append_task_entry_held(self, entry: TaskLedgerEntry) -> None:
         """Append a ledger entry — caller must already hold ``ledger_lock``."""
         path = self._task_ledger_path()
-        data = _read_json_or_empty(path)
+        data = _read_json_or_empty(self._task_ledger_read_path())
         self._ensure_collection(data, SCHEMA_VERSION_TASK_LEDGER)
         data["entries"].append(entry.as_dict())
         atomic_write_json(path, data)
@@ -210,7 +180,7 @@ class ReinforcementStore:
     ) -> None:
         """Mark tasks rewarded — caller must already hold ``ledger_lock``."""
         path = self._task_ledger_path()
-        data = _read_json_or_empty(path)
+        data = _read_json_or_empty(self._task_ledger_read_path())
         self._ensure_collection(data, SCHEMA_VERSION_TASK_LEDGER)
         for e in data["entries"]:
             if e["task_id"] in task_ids:
@@ -240,10 +210,16 @@ class ReinforcementStore:
     # Agent rewards
     # ------------------------------------------------------------------
     def _agent_rewards_path(self) -> Path:
-        return self._root / "agent-rewards.json"
+        return store_file(self._repo_root, "agent-rewards.json")
+
+    def _agent_rewards_read_path(self) -> Path:
+        return resolve_store_file_for_read(self._repo_root, "agent-rewards.json")
 
     def load_agent_rewards(self) -> list[AgentRewardMemory]:
-        data = self._locked_read(self._agent_rewards_path())
+        data = self._locked_read(
+            self._agent_rewards_path(),
+            self._agent_rewards_read_path(),
+        )
         return [
             AgentRewardMemory.from_dict(e)
             for e in data.get("entries", [])
@@ -259,7 +235,9 @@ class ReinforcementStore:
             data["entries"].append(reward.as_dict())
             return data
 
-        self._locked_read_modify_write(self._agent_rewards_path(), _upsert)
+        self._locked_read_modify_write(
+            self._agent_rewards_path(), _upsert, self._agent_rewards_read_path(),
+        )
 
     def bulk_update_agent_rewards(
         self,
@@ -277,16 +255,26 @@ class ReinforcementStore:
                 data["entries"].append(remaining)
             return data
 
-        self._locked_read_modify_write(self._agent_rewards_path(), _bulk_upsert)
+        self._locked_read_modify_write(
+            self._agent_rewards_path(),
+            _bulk_upsert,
+            self._agent_rewards_read_path(),
+        )
 
     # ------------------------------------------------------------------
     # Settlements
     # ------------------------------------------------------------------
     def _settlements_path(self) -> Path:
-        return self._root / "settlements.json"
+        return store_file(self._repo_root, "settlements.json")
+
+    def _settlements_read_path(self) -> Path:
+        return resolve_store_file_for_read(self._repo_root, "settlements.json")
 
     def load_settlements(self) -> list[SettlementRecord]:
-        data = self._locked_read(self._settlements_path())
+        data = self._locked_read(
+            self._settlements_path(),
+            self._settlements_read_path(),
+        )
         return [
             SettlementRecord.from_dict(e)
             for e in data.get("entries", [])
@@ -298,16 +286,24 @@ class ReinforcementStore:
             data["entries"].append(record.as_dict())
             return data
 
-        self._locked_read_modify_write(self._settlements_path(), _append)
+        self._locked_read_modify_write(
+            self._settlements_path(), _append, self._settlements_read_path(),
+        )
 
     # ------------------------------------------------------------------
     # Feedback events
     # ------------------------------------------------------------------
     def _feedback_path(self) -> Path:
-        return self._root / "feedback-events.json"
+        return store_file(self._repo_root, "feedback-events.json")
+
+    def _feedback_read_path(self) -> Path:
+        return resolve_store_file_for_read(self._repo_root, "feedback-events.json")
 
     def load_feedback_events(self) -> list[FeedbackEvent]:
-        data = self._locked_read(self._feedback_path())
+        data = self._locked_read(
+            self._feedback_path(),
+            self._feedback_read_path(),
+        )
         return [
             FeedbackEvent.from_dict(e)
             for e in data.get("entries", [])
@@ -319,19 +315,37 @@ class ReinforcementStore:
             data["entries"].append(event.as_dict())
             return data
 
-        self._locked_read_modify_write(self._feedback_path(), _append)
+        self._locked_read_modify_write(
+            self._feedback_path(), _append, self._feedback_read_path(),
+        )
 
     # ------------------------------------------------------------------
     # Realignment sessions
     # ------------------------------------------------------------------
     def _realignment_sessions_path(self) -> Path:
-        return self._root / "realignment" / "sessions.json"
+        return store_file(self._repo_root, "realignment", "sessions.json")
+
+    def _realignment_sessions_read_path(self) -> Path:
+        return resolve_store_file_for_read(
+            self._repo_root, "realignment", "sessions.json",
+        )
 
     def _realignment_notes_dir(self) -> Path:
         return self._root / "realignment" / "notes"
 
+    def ensure_realignment_notes_dir_writable(self) -> Path:
+        """Create and return the canonical realignment notes directory."""
+        notes_dir = self._realignment_notes_dir()
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        if not notes_dir.is_dir():
+            raise NotADirectoryError(str(notes_dir))
+        return notes_dir
+
     def load_realignment_sessions(self) -> list[RealignmentSession]:
-        data = self._locked_read(self._realignment_sessions_path())
+        data = self._locked_read(
+            self._realignment_sessions_path(),
+            self._realignment_sessions_read_path(),
+        )
         return [
             RealignmentSession.from_dict(e)
             for e in data.get("entries", [])
@@ -348,7 +362,9 @@ class ReinforcementStore:
             return data
 
         self._locked_read_modify_write(
-            self._realignment_sessions_path(), _upsert,
+            self._realignment_sessions_path(),
+            _upsert,
+            self._realignment_sessions_read_path(),
         )
 
     def save_realignment_notes(
@@ -366,10 +382,18 @@ class ReinforcementStore:
     # Global Realignment Document
     # ------------------------------------------------------------------
     def _global_doc_path(self) -> Path:
-        return self._root / "global-realignment-doc.json"
+        return store_file(self._repo_root, "global-realignment-doc.json")
+
+    def _global_doc_read_path(self) -> Path:
+        return resolve_store_file_for_read(
+            self._repo_root, "global-realignment-doc.json",
+        )
 
     def load_global_realignment_document(self) -> GlobalRealignmentDocument:
-        data = self._locked_read(self._global_doc_path())
+        data = self._locked_read(
+            self._global_doc_path(),
+            self._global_doc_read_path(),
+        )
         if not data:
             return GlobalRealignmentDocument()
         return GlobalRealignmentDocument.from_dict(data)

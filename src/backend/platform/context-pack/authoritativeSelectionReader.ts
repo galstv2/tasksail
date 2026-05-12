@@ -41,8 +41,8 @@ export interface DeepFocusOverlayPayload {
 /**
  * Resolve the active selection from the highest-priority source available.
  *
- * Precedence: explicit task-id sidecar (when provided) → active-task sidecar →
- * workspace-sync state, optionally overlaid with the user's draft Deep Focus
+ * Precedence: explicit task-id sidecar (when provided) → workspace-sync state,
+ * optionally overlaid with the user's draft Deep Focus
  * selection so a fresh dropbox task picks up unsaved choices.
  */
 export async function resolveAuthoritativeSelection(
@@ -53,12 +53,11 @@ export async function resolveAuthoritativeSelection(
   const taskSelection = options?.taskId
     ? await readTaskJsonSelection(options.taskId, repoRoot, resolvedPackDir)
     : undefined;
+  if (options?.taskId && !taskSelection) {
+    throw new Error(`No authoritative .task.json context-pack selection for task "${options.taskId}". Re-activate or re-create the task.`);
+  }
   if (taskSelection) {
     return taskSelection;
-  }
-  const sidecarSelection = await readTaskSelectionSidecar(resolvedPackDir, repoRoot);
-  if (sidecarSelection) {
-    return sidecarSelection;
   }
   const workspaceSelection = await readWorkspaceSyncSelection(resolvedPackDir, repoRoot);
   if (!workspaceSelection) {
@@ -219,7 +218,7 @@ async function readSelectionFile(
   return hydrateLegacyPrimariesInAuthoritativeSelection(result, resolvedPackDir);
 }
 
-async function hydrateLegacyPrimariesInAuthoritativeSelection(
+export async function hydrateLegacyPrimariesInAuthoritativeSelection(
   sel: AuthoritativeSelection,
   resolvedPackDir: string,
 ): Promise<AuthoritativeSelection> {
@@ -332,27 +331,6 @@ async function resolveManifestRepoByFocusId(
   return repoLocalPath ? { repoLocalPath, area } : undefined;
 }
 
-function readTaskSelectionSidecar(
-  resolvedPackDir: string,
-  repoRoot: string,
-): Promise<AuthoritativeSelection | undefined> {
-  return readSelectionFile({
-    filePath: path.join(repoRoot, '.platform-state', 'queue', 'active-context-pack.json'),
-    contextPackDirField: 'contextPackDir',
-    repoIdsField: 'selectedRepoIds',
-    focusIdsField: 'selectedFocusIds',
-    deepFocusEnabledField: 'deepFocusEnabled',
-    deepFocusPrimaryRepoIdField: 'deepFocusPrimaryRepoId',
-    deepFocusPrimaryFocusIdField: 'deepFocusPrimaryFocusId',
-    focusPathField: 'selectedFocusPath',
-    focusTargetKindField: 'selectedFocusTargetKind',
-    primaryTargetsField: 'selectedFocusTargets',
-    testTargetField: 'selectedTestTarget',
-    supportTargetsField: 'selectedSupportTargets',
-    source: 'active-task-sidecar',
-  }, resolvedPackDir, repoRoot);
-}
-
 function readWorkspaceSyncSelection(
   resolvedPackDir: string,
   repoRoot: string,
@@ -391,9 +369,12 @@ async function readTaskJsonSelection(
     return undefined;
   }
   const rawSelection = selection as typeof selection & Record<string, unknown>;
-  return hydrateLegacyPrimariesInAuthoritativeSelection({
-    selectedRepoIds: [...(selection.selectedRepoIds ?? [])],
-    selectedFocusIds: [...(selection.selectedFocusIds ?? [])],
+  // Promote the explicit primary id to the head of its list when present, so
+  // downstream code that treats selectedRepoIds[0] / selectedFocusIds[0] as
+  // the primary stays consistent with the binding.
+  const authoritativeSelection: AuthoritativeSelection = {
+    selectedRepoIds: hoistPrimaryToHead(selection.selectedRepoIds, selection.primaryRepoId),
+    selectedFocusIds: hoistPrimaryToHead(selection.selectedFocusIds, selection.primaryFocusId),
     deepFocusEnabled: selection.deepFocusEnabled,
     deepFocusPrimaryRepoId: toOptionalString(rawSelection.deepFocusPrimaryRepoId) ?? null,
     deepFocusPrimaryFocusId: toOptionalString(rawSelection.deepFocusPrimaryFocusId) ?? null,
@@ -407,7 +388,16 @@ async function readTaskJsonSelection(
         : undefined,
     selectedSupportTargets: selection.selectedSupportTargets?.map((target) => ({ ...target })),
     source: 'active-task-sidecar',
-  }, resolvedPackDir);
+  };
+  return hydrateLegacyPrimariesInAuthoritativeSelection(authoritativeSelection, resolvedPackDir);
+}
+
+function hoistPrimaryToHead(ids: readonly string[] | undefined, primary: string | undefined): string[] {
+  const list = ids ?? [];
+  if (!primary) {
+    return [...list];
+  }
+  return [primary, ...list.filter((id) => id !== primary)];
 }
 
 function toStringArray(value: unknown): string[] {

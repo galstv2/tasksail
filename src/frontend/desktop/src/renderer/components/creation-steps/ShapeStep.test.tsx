@@ -52,6 +52,13 @@ describe('ShapeStep', () => {
     expect(screen.getByText('Repository estate definition')).toBeInTheDocument();
   });
 
+  it('treats distributed-platform as a distributed shape', () => {
+    render(<ShapeStep {...defaultProps} draft={{ ...distributedDraft, mode: 'distributed-platform' }} />);
+    expect(screen.getByText('Repository estate definition')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add repository' })).toBeInTheDocument();
+    expect(screen.queryByText('Focus areas')).not.toBeInTheDocument();
+  });
+
   it('add repository button calls onAddRepository', () => {
     const onAddRepository = vi.fn();
     render(<ShapeStep {...defaultProps} onAddRepository={onAddRepository} />);
@@ -64,6 +71,12 @@ describe('ShapeStep', () => {
     expect(screen.getByText('Monolith focus definition')).toBeInTheDocument();
     expect(screen.getByText('Focus areas')).toBeInTheDocument();
     expect(screen.getByText('Focus area 1')).toBeInTheDocument();
+  });
+
+  it('treats monolith-platform as a monolith shape', () => {
+    render(<ShapeStep {...defaultProps} draft={{ ...monolithDraft, mode: 'monolith-platform' }} />);
+    expect(screen.getByText('Monolith focus definition')).toBeInTheDocument();
+    expect(screen.getByText('Focus areas')).toBeInTheDocument();
   });
 
   it('hides focus areas in distributed mode', () => {

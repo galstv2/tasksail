@@ -97,7 +97,10 @@ export function buildFocusScopeBlock(
   parts.push('', 'Read-only context roots:');
   if ((options.readonlyContextRoots?.length ?? 0) > 0) {
     for (const root of options.readonlyContextRoots ?? []) {
-      parts.push(`- \`${formatTargetPath(root.path, root.kind)}\` (${formatRootReason(root.reason)})`);
+      const displayPath = root.reason === 'support-repo' && root.repoLocalPath
+        ? root.repoLocalPath
+        : root.path;
+      parts.push(`- \`${formatTargetPath(displayPath, root.kind)}\` (${formatRootReason(root.reason)})`);
     }
   } else if ((options.supportTargets?.length ?? 0) > 0) {
     for (const target of options.supportTargets ?? []) {

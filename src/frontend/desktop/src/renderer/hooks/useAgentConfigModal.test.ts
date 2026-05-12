@@ -19,28 +19,28 @@ function makeAgents(overrides?: Array<Partial<{
 }> | undefined>) {
   const agents = [
     {
-      agent_id: 'planning-agent',
+      agent_id: 'provider-planner',
       human_name: 'Lily',
       role_name: 'Planning Specialist',
       required_model: 'gpt-4.1',
       workflow_order: 0,
     },
     {
-      agent_id: 'product-manager',
+      agent_id: 'provider-pm',
       human_name: 'Alice',
       role_name: 'Product Manager',
       required_model: 'gpt-5.4',
       workflow_order: 1,
     },
     {
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       human_name: 'Dalton',
       role_name: 'Software Engineer',
       required_model: 'claude-sonnet-4.6',
       workflow_order: 2,
     },
     {
-      agent_id: 'qa',
+      agent_id: 'provider-qa',
       human_name: 'Ron',
       role_name: 'QA and Closeout',
       required_model: 'gpt-5.4',
@@ -80,12 +80,12 @@ describe('useAgentConfigModal', () => {
     await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
 
     act(() => {
-      result.current.agentConfigModalProps.onAgentModelChange('software-engineer', 'gpt-5.4');
+      result.current.agentConfigModalProps.onAgentModelChange('provider-builder', 'gpt-5.4');
       result.current.agentConfigModalProps.onSelectTab('models');
       result.current.agentConfigModalProps.onSelectTab('agents');
     });
 
-    const dalton = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'software-engineer');
+    const dalton = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-builder');
     expect(dalton?.selected_model).toBe('gpt-5.4');
     expect(result.current.agentConfigModalProps.isDirty).toBe(true);
   });
@@ -127,7 +127,7 @@ describe('useAgentConfigModal', () => {
 
     await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
 
-    const dalton = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'software-engineer');
+    const dalton = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-builder');
     expect(dalton?.currentModelMissing).toBe(true);
     expect(dalton?.options.some((option) => option.synthetic && option.model_id === 'claude-opus-legacy')).toBe(true);
   });
@@ -155,8 +155,8 @@ describe('useAgentConfigModal', () => {
     await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
 
     act(() => {
-      result.current.agentConfigModalProps.onAgentModelChange('planning-agent', 'gpt-5.4');
-      result.current.agentConfigModalProps.onAgentModelChange('software-engineer', 'gpt-5.4');
+      result.current.agentConfigModalProps.onAgentModelChange('provider-planner', 'gpt-5.4');
+      result.current.agentConfigModalProps.onAgentModelChange('provider-builder', 'gpt-5.4');
     });
 
     await act(async () => {
@@ -164,10 +164,10 @@ describe('useAgentConfigModal', () => {
     });
 
     expect(saveAgentModels).toHaveBeenCalledWith([
-      { agent_id: 'planning-agent', model_id: 'gpt-5.4' },
-      { agent_id: 'product-manager', model_id: 'gpt-5.4' },
-      { agent_id: 'software-engineer', model_id: 'gpt-5.4' },
-      { agent_id: 'qa', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-planner', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-pm', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-builder', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-qa', model_id: 'gpt-5.4' },
     ]);
     expect(result.current.agentConfigModalProps.isDirty).toBe(false);
     expect(result.current.agentConfigModalProps.showRestartNotice).toBe(true);
@@ -218,7 +218,7 @@ describe('useAgentConfigModal', () => {
     await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
 
     act(() => {
-      result.current.agentConfigModalProps.onAgentModelChange('planning-agent', 'gpt-5.4');
+      result.current.agentConfigModalProps.onAgentModelChange('provider-planner', 'gpt-5.4');
     });
 
     await act(async () => {

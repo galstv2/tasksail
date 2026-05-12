@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { isWindowsPlatform } from '../core/platform.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { RunSummary, TerminationReason } from '../cli-provider/types.js';
+import { buildTaskLaunchBaseEnv } from './launchEnv.js';
 
 /** Options for launching an agent CLI process. */
 export interface LaunchOptions {
@@ -46,13 +47,14 @@ export function launchAgent(
   args: string[],
   options: LaunchOptions = {},
 ): ChildProcess {
+  const repoRoot = options.repoRoot ?? options.cwd ?? process.cwd();
+  const provider = getActiveProvider(repoRoot);
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...buildTaskLaunchBaseEnv(process.env, provider.controlledEnvKeys()),
     ...options.env,
   };
 
-  const repoRoot = options.repoRoot ?? options.cwd ?? process.cwd();
-  const child = spawn(getActiveProvider(repoRoot).resolveCommand(), args, {
+  const child = spawn(provider.resolveCommand(), args, {
     cwd: options.cwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],

@@ -28,6 +28,8 @@ import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
 import {
   readQueueOrderManifest,
   writeQueueOrderManifest,
+  resolveQueuePaths,
+  withDirLock,
   requeueErrorItem as requeueErrorItemImpl,
   deletePendingItem,
   deleteDropboxItem,
@@ -257,6 +259,30 @@ function notFoundResult(fileName: string): { ok: true; response: import('../src/
   };
 }
 
+export function formatCompletedBranchHandoffText(task: ArchivedTaskEntry): string {
+  const handoffs = task.branchHandoffs;
+  if (!handoffs || handoffs.length === 0) {
+    return '';
+  }
+  const lines = ['## Operator Branch Handoff', ''];
+  for (const handoff of handoffs) {
+    if (handoff.autoMerge?.status === 'applied') {
+      lines.push(
+        `- Completed. Source branch \`${handoff.branch}\` in \`${handoff.repoLabel}\` ` +
+        `has been auto-merged into \`${handoff.autoMerge.targetBranch ?? 'the target branch'}\` ` +
+        'with `--no-commit --no-ff`; changes are staged for operator review.',
+      );
+    } else {
+      lines.push(
+        `- Completed. Review source branch \`${handoff.branch}\` in \`${handoff.repoLabel}\` ` +
+        'and merge manually if approved.',
+      );
+    }
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 export async function readTaskContent(
   payload: TaskBoardReadTaskContentRequest['payload'],
   listContextPacks?: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
@@ -273,27 +299,31 @@ export async function readTaskContent(
     }
 
     let filePath: string;
+    let archivedTask: ArchivedTaskEntry | null = null;
     if (column === 'completed') {
       const taskId = base.replace(/\.md$/, '');
       let archivePath: string | null = null;
-
-      const registry = await loadTaskRegistry(REPO_ROOT);
-      for (const taskSet of Object.values(registry.tasks)) {
-        const match = taskSet.completed.find((e) => e.taskId === taskId);
-        if (match?.archivePath) {
-          archivePath = match.archivePath;
-          break;
-        }
-      }
-
-      // Fall back to scanning the QMD archive when the registry has no match.
-      if (!archivePath && listContextPacks) {
+      if (listContextPacks) {
         const archivedResult = await listArchivedTasksAction(listContextPacks);
         if (archivedResult.ok && 'tasks' in archivedResult.response) {
           const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
           const match = tasks.find((t) => t.taskId === taskId);
           if (match?.archivePath) {
             archivePath = match.archivePath;
+            archivedTask = match;
+          }
+        }
+      }
+
+      // Registry completed entries are not durable, but older in-session
+      // records may still be the only source of an archive path.
+      if (!archivePath) {
+        const registry = await loadTaskRegistry(REPO_ROOT);
+        for (const taskSet of Object.values(registry.tasks)) {
+          const match = taskSet.completed.find((e) => e.taskId === taskId);
+          if (match?.archivePath) {
+            archivePath = match.archivePath;
+            break;
           }
         }
       }
@@ -314,6 +344,14 @@ export async function readTaskContent(
         return notFoundResult(base);
       }
       throw err;
+    }
+    const handoffText = archivedTask ? formatCompletedBranchHandoffText(archivedTask) : '';
+    if (
+      handoffText
+      && !content.includes('## Source Branches for Operator Review')
+      && !content.includes(handoffText.trim())
+    ) {
+      content = `${handoffText}\n${content}`;
     }
 
     return {
@@ -339,12 +377,14 @@ export async function reorderPending(
   payload: TaskBoardReorderPendingRequest['payload'],
 ): Promise<DesktopInvokeResult> {
   try {
-    const QUEUE_ORDER_PATH_REORDER = join(REPO_ROOT, '.platform-state', 'queue', 'queue-order.json');
-    if (payload.order.length > 0) {
-      await writeQueueOrderManifest(QUEUE_ORDER_PATH_REORDER, payload.order);
-    } else {
-      try { await fsUnlink(QUEUE_ORDER_PATH_REORDER); } catch { /* absent */ }
-    }
+    const queuePaths = resolveQueuePaths(REPO_ROOT);
+    await withDirLock(queuePaths.queueLockDir, 'Reorder pending', async () => {
+      if (payload.order.length > 0) {
+        await writeQueueOrderManifest(queuePaths.queueOrderPath, payload.order);
+      } else {
+        try { await fsUnlink(queuePaths.queueOrderPath); } catch { /* absent */ }
+      }
+    });
     return {
       ok: true,
       response: {

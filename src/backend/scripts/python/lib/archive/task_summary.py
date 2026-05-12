@@ -24,6 +24,7 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     lines.append(f"- Archived At: {payload.get('indexed_at', '')}")
     lines.append("")
 
+    _add_branch_handoffs_section(lines, payload.get("branch_handoffs"))
     _add_text_section(lines, "Business Goal", payload.get("business_goal"))
     _add_list_or_text_section(
         lines,
@@ -50,6 +51,46 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     _add_text_section(lines, "QA Advisory Finding", payload.get("advisory_finding"))
 
     return "\n".join(lines)
+
+
+def _add_branch_handoffs_section(
+    lines: list[str], handoffs: Any,
+) -> None:
+    if not isinstance(handoffs, list) or not handoffs:
+        return
+    lines.append("## Source Branches for Operator Review")
+    lines.append("")
+    for item in handoffs:
+        if not isinstance(item, dict):
+            continue
+        repo_label = item.get("repo_label", "")
+        branch = item.get("branch", "")
+        head_sha = item.get("head_commit_sha", "")
+        commits_ahead = item.get("commits_ahead", "")
+        base_sha = item.get("base_commit_sha", "")
+        repo_root = item.get("repo_root", "")
+        auto_merge = item.get("auto_merge")
+        if isinstance(auto_merge, dict) and auto_merge.get("status") == "applied":
+            target_branch = auto_merge.get("target_branch", "")
+            lines.append(
+                f"- `{repo_label}`: `{branch}` has been merged into `{target_branch}` "
+                "with `--no-commit --no-ff`; changes are staged for operator review. "
+                f"Source branch head: `{head_sha}` ({commits_ahead} commit(s) ahead of `{base_sha}`) — repo: `{repo_root}`"
+            )
+            continue
+        if isinstance(auto_merge, dict) and auto_merge.get("enabled") is True:
+            detail = auto_merge.get("detail", "auto-merge skipped")
+            lines.append(
+                f"- `{repo_label}`: `{branch}` is ready for manual review; "
+                f"auto-merge skipped because {detail} "
+                f"Head: `{head_sha}` ({commits_ahead} commit(s) ahead of `{base_sha}`) — repo: `{repo_root}`"
+            )
+            continue
+        lines.append(
+            f"- `{repo_label}`: `{branch}` at `{head_sha}` "
+            f"({commits_ahead} commit(s) ahead of `{base_sha}`) — repo: `{repo_root}`"
+        )
+    lines.append("")
 
 
 def _add_text_section(

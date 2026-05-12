@@ -3,7 +3,7 @@ import { useCallback, useEffect } from 'react';
 import type { AgentConfigModalProps } from '../hooks/useAgentConfigModal';
 import ConfirmOverlay from './ConfirmOverlay';
 import { CloseIcon } from './creation-steps/icons';
-import { agentSpriteMap } from './sprites';
+import { roleKindSpriteMap } from './sprites';
 
 function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
   const {
@@ -20,6 +20,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     isDirty,
     showRestartNotice,
     pendingModelChange,
+    descriptor,
     onClose,
     onSelectTab,
     onAgentModelChange,
@@ -71,7 +72,14 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
       >
         <header className="mcp-modal__header">
           <div className="agent-config__header-main">
-            <h2 className="mcp-modal__title">Agent Configuration</h2>
+            <div>
+              <h2 className="mcp-modal__title">Agent Configuration</h2>
+              {descriptor && (
+                <div className="agent-config__provider-subtitle">
+                  Provider: {descriptor.providerId} · Registry: {descriptor.agentConfigPaths.registry}
+                </div>
+              )}
+            </div>
             <div className="agent-config__tabs" role="tablist" aria-label="Agent configuration tabs">
               <button
                 type="button"
@@ -109,7 +117,8 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
           ) : activeTab === 'agents' ? (
             <ul className="agent-config__agent-list">
               {agents.map((agent) => {
-                const SpriteComponent = agentSpriteMap[agent.agent_id as keyof typeof agentSpriteMap];
+                const roleKind = descriptor?.roster.find((entry) => entry.agentId === agent.agent_id)?.roleKind ?? null;
+                const SpriteComponent = roleKind ? roleKindSpriteMap[roleKind] ?? null : null;
                 return (
                 <li key={agent.agent_id} className="agent-config__agent-row">
                   {SpriteComponent && (

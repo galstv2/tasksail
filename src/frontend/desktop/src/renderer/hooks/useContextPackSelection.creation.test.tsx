@@ -187,6 +187,7 @@ describe('useContextPackSelection', () => {
               repoName: 'payments-api',
               path: '/tmp/payments-root/payments-api',
               highSignalPaths: ['src'],
+              repositoryType: 'primary',
             },
           ],
           candidateFocusAreas: [],

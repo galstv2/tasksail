@@ -1,9 +1,15 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
+import type { ExternalMcpRegistry } from '../external-mcp-registry/index.js';
+import { readStoreJsonSafe } from './reinforcementPaths.js';
+import { prewarmExternalMcpRegistry } from './pipeline/externalMcpRegistryCache.js';
+import {
+  executeRealignmentSession,
+  type RealignmentExecutionResult,
+} from './realignmentPhase/driver.js';
 
 export interface SubmitReinforcementFeedbackOptions {
   contextPackDir: string;
@@ -201,30 +207,17 @@ export interface ActiveWorkGuardResult {
   hasUnprocessedFeedback: boolean;
 }
 
-function reinforcementDir(repoRoot: string): string {
-  return path.join(repoRoot, 'AgentWorkSpace', 'qmd', 'reinforcement');
-}
-
-async function readJsonSafe<T>(filePath: string): Promise<T | null> {
-  try {
-    const raw = await readFile(filePath, 'utf-8');
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
 type TimestampedEntry = { created_at?: string };
 type EntriesFile = { entries?: TimestampedEntry[] };
 
 async function computeHasUnprocessedFeedback(repoRoot: string): Promise<boolean> {
-  const rDir = reinforcementDir(repoRoot);
-
-  const feedbackFile = await readJsonSafe<EntriesFile>(path.join(rDir, 'feedback-events.json'));
+  const feedbackFile = await readStoreJsonSafe<EntriesFile>(repoRoot, 'feedback-events.json');
   const feedbackEvents = feedbackFile?.entries ?? [];
   if (feedbackEvents.length === 0) return false;
 
-  const sessionsFile = await readJsonSafe<EntriesFile>(path.join(rDir, 'realignment', 'sessions.json'));
+  const sessionsFile = await readStoreJsonSafe<EntriesFile>(
+    repoRoot, 'realignment', 'sessions.json',
+  );
   const sessions = sessionsFile?.entries ?? [];
   if (sessions.length === 0) return true;
 
@@ -361,4 +354,28 @@ export async function startRealignmentSession(
     }
     throw err;
   }
+}
+
+export async function runRealignmentAnalysis(options: {
+  contextPackDir: string;
+  realignmentId: string;
+  repoRoot?: string;
+  abortSignal?: AbortSignal;
+  externalMcpRegistry?: ExternalMcpRegistry;
+}): Promise<RealignmentExecutionResult> {
+  const repoRoot = options.repoRoot ?? findRepoRoot();
+  const contextPackDir = await requireAuthorizedActiveContextPack({
+    repoRoot,
+    requestedContextPackDir: options.contextPackDir,
+  });
+  const externalMcpRegistry = options.externalMcpRegistry
+    ?? await prewarmExternalMcpRegistry(repoRoot);
+
+  return executeRealignmentSession({
+    repoRoot,
+    contextPackDir,
+    realignmentId: options.realignmentId,
+    abortSignal: options.abortSignal,
+    externalMcpRegistry,
+  });
 }

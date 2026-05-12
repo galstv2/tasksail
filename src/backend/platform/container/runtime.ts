@@ -3,6 +3,7 @@ import { resolveContainerEngineHost, resolveContainerRuntime } from '../platform
 import type { ContainerRuntime } from './types.js';
 import { DockerRuntime } from './docker.js';
 import { PodmanRuntime } from './podman.js';
+import { DirectRuntime } from './directRuntime.js';
 
 /**
  * Create a container runtime instance.
@@ -22,6 +23,8 @@ export function createRuntime(
       return new DockerRuntime(engineHost, wslDistro);
     case 'podman':
       return new PodmanRuntime(engineHost, wslDistro);
+    case 'direct':
+      return new DirectRuntime();
     default:
       throw new Error(`Unsupported container backend: ${resolved as string}`);
   }

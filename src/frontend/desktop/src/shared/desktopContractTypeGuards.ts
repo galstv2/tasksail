@@ -3,13 +3,31 @@ import type {
   ContextPackClearResponse,
   ContextPackCreateResponse,
   ContextPackDiscoverPrefillResponse,
+  ContextPackCatalogChangedEvent,
   ContextPackListResponse,
   ContextPackPickDirectoryResponse,
   ContextPackPreviewResponse,
   ContextPackReseedResponse,
   DeepFocusLoadSelectionsResponse,
+  PackSeedState,
   TaskBoardReadBoardResponse,
 } from './desktopContract';
+import { isRecord } from './desktopContractValidators';
+
+export function isContextPackCatalogChangedEvent(
+  event: unknown,
+): event is ContextPackCatalogChangedEvent {
+  if (!isRecord(event)) return false;
+  return (
+    typeof event.changedRoot === 'string' &&
+    (
+      event.reason === 'mkdir' ||
+      event.reason === 'rmdir' ||
+      event.reason === 'rename' ||
+      event.reason === 'unknown'
+    )
+  );
+}
 
 export function isContextPackListResponse(
   response: unknown,
@@ -91,6 +109,16 @@ export function isDeepFocusLoadSelectionsResponse(
     'action' in response &&
     response.action === 'deepFocus.loadSelections'
   );
+}
+
+/**
+ * Narrow an unknown value to the {@link PackSeedState} string union.
+ * Renderer code that constructs catalog entries (e.g. session-created entries
+ * in ``useContextPackSelection``) and tests that build mock catalog responses
+ * use this to avoid stringly-typed assignments.
+ */
+export function isPackSeedState(value: unknown): value is PackSeedState {
+  return value === 'seeded' || value === 'bootstrap-empty';
 }
 
 export function isTaskBoardReadBoardResponse(

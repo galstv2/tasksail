@@ -26,7 +26,7 @@ function makeObservation(overrides: Partial<GuardrailObservation> = {}): Guardra
   return {
     receiptPath: '/receipts/r1.json',
     sessionId: 'sess-1',
-    agentId: 'software-engineer',
+    agentId: 'provider-builder',
     agentLabel: 'Dalton (Software Engineer)',
     instanceId: null,
     status: 'allowed',

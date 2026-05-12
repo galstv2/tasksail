@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 
+import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
 import { PlannerEventParser } from './plannerEventParser';
 import {
   spawnPlannerCliProcess,
@@ -40,6 +41,7 @@ type PlannerSessionRecord = {
   contextPackDir: string | null;
   contextPackRoots: string[] | null;
   workingDirectory: string | null;
+  focusEnv: Omit<GenericAgentEnv, 'model' | 'agentId'> | null;
 };
 
 type PendingTurn = {
@@ -98,7 +100,12 @@ export class PlannerSessionBroker {
     this.now = dependencies.now ?? Date.now;
   }
 
-  startSession(options?: { contextPackDir?: string; allowedRoots?: string[]; workingDirectory?: string }): { sessionId: string; created: boolean } {
+  startSession(options?: {
+    contextPackDir?: string;
+    allowedRoots?: string[];
+    workingDirectory?: string;
+    focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
+  }): { sessionId: string; created: boolean } {
     if (this.session && this.session.state.brokerStatus !== 'failed') {
       this.session.endingSession = false;
       this.observation = {
@@ -125,6 +132,8 @@ export class PlannerSessionBroker {
       contextPackDir: options?.contextPackDir ?? null,
       contextPackRoots: options?.allowedRoots ?? null,
       workingDirectory: options?.workingDirectory ?? null,
+      // Captured once at session start; planner sessions are stable scopes.
+      focusEnv: options?.focusEnv ?? null,
     };
     this.observation = {
       ...createPlannerBrokerObservation(),
@@ -225,6 +234,19 @@ export class PlannerSessionBroker {
     return { ...this.observation };
   }
 
+  private emitSessionEvent(
+    session: PlannerSessionRecord,
+    event: Omit<PlannerStreamEvent, 'sessionId'>,
+  ): void {
+    if (this.session !== session || session.endingSession) {
+      return;
+    }
+    this.emitEvent({
+      ...event,
+      sessionId: session.sessionId,
+    });
+  }
+
   private ensureTurnProcessing(session: PlannerSessionRecord): void {
     if (session.activeTurnPromise) {
       return;
@@ -287,6 +309,7 @@ export class PlannerSessionBroker {
       workingDirectory: session.workingDirectory ?? undefined,
       contextPackBoundaryEnforced: session.contextPackRoots !== null,
       additionalEnv: session.contextPackDir ? { ACTIVE_CONTEXT_PACK_DIR: session.contextPackDir } : undefined,
+      focusEnv: session.focusEnv ?? undefined,
     });
     session.activeProcess = child;
     this.observation = {
@@ -345,7 +368,7 @@ export class PlannerSessionBroker {
           lastExitCode: session.state.exitCode,
           error: message,
         };
-        this.emitEvent({
+        this.emitSessionEvent(session, {
           eventType: 'planner.turn.failed',
           brokerStatus: session.state.brokerStatus,
           turnId: session.state.turnId,
@@ -372,7 +395,7 @@ export class PlannerSessionBroker {
               ...this.observation,
               lastTurnHadContent: true,
             };
-            this.emitEvent({
+        this.emitSessionEvent(session, {
               eventType: event.type,
               brokerStatus: session.state.brokerStatus,
               turnId: session.state.turnId,
@@ -388,7 +411,7 @@ export class PlannerSessionBroker {
               ...this.observation,
               cliSessionId: event.cliSessionId,
             };
-            this.emitEvent({
+            this.emitSessionEvent(session, {
               eventType: event.type,
               brokerStatus: session.state.brokerStatus,
               turnId: session.state.turnId,
@@ -415,7 +438,7 @@ export class PlannerSessionBroker {
               lastExitCode: event.exitCode,
               error: null,
             };
-            this.emitEvent({
+            this.emitSessionEvent(session, {
               eventType: event.type,
               brokerStatus: session.state.brokerStatus,
               turnId: session.state.turnId,
@@ -433,7 +456,7 @@ export class PlannerSessionBroker {
         }
       };
 
-      this.emitEvent({
+      this.emitSessionEvent(session, {
         eventType: 'planner.turn.started',
         brokerStatus: 'running',
         turnId: session.state.turnId,

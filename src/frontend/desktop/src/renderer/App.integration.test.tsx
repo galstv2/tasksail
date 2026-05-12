@@ -177,6 +177,7 @@ describe("App", () => {
             repoName: 'catalog-api',
             path: '/tmp/catalog-root/catalog-api',
             highSignalPaths: ['src'],
+            repositoryType: 'primary',
           },
         ],
         candidateFocusAreas: [],
@@ -296,78 +297,6 @@ describe("App", () => {
       [],
       {},
     );
-  });
-
-  it('renders drift guardrails and reconcile actions for restore-ready context packs', async () => {
-    window.desktopShell.listContextPacks = vi.fn().mockResolvedValue({
-      ok: true,
-      response: {
-        action: 'contextPack.list',
-        mode: 'read-only',
-        message: 'Discovered 1 context pack(s) from approved local sources.',
-        activeContextPackDir: '/tmp/context-packs/orders-estate',
-        configuredPaths: [],
-        searchRoots: [],
-        recentContextPackDirs: ['/tmp/context-packs/orders-estate'],
-        contextPacks: [
-          {
-            contextPackId: 'orders-estate',
-            displayName: 'Orders Estate',
-            contextPackDir: '/tmp/context-packs/orders-estate',
-            manifestPath: '/tmp/context-packs/orders-estate/qmd/repo-sources.json',
-            bootstrapReady: true,
-            source: 'recent-state',
-            isActive: true,
-            estateType: 'distributed-platform',
-            defaultScopeMode: 'focused',
-            repoCount: 1,
-            primaryWorkingRepoIds: ['orders-api'],
-            status: 'active-dirty-workspace',
-            statusMessage:
-              'Managed workspace folders drifted from the last successful sync. Reconcile before continuing.',
-            driftDetected: true,
-            restoreAvailable: true,
-            lastSyncedAt: '2026-03-08T12:00:00Z',
-            lastAppliedScopeMode: 'focused',
-            lastAppliedSelectedRepoIds: ['orders-api'],
-            lastAppliedSelectedFocusIds: [],
-            focusTargets: [
-              {
-                focusId: 'orders-api',
-                displayName: 'Orders API',
-                kind: 'repository',
-                repoId: 'orders-api',
-                serviceName: 'Orders API',
-                systemLayer: 'backend',
-                repoRole: 'backend-service',
-                repositoryType: null,
-                relativePath: null,
-                focusType: null,
-                group: null,
-                defaultFocusable: true,
-                activationPriority: 10,
-                adjacentRepoIds: [],
-                adjacentFocusIds: [],
-              },
-            ],
-          },
-        ],
-      },
-    });
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('context-pack-status-message')).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId('context-pack-status-message')).toHaveTextContent(
-      'Managed workspace folders drifted from the last successful sync. Reconcile before continuing.',
-    );
-    expect(
-      screen.getByRole('button', { name: 'Reconcile pack' }),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('context-pack-restore-hint')).toBeInTheDocument();
   });
 
   it('surfaces apply failures and clears active state through the sidebar', async () => {
@@ -550,28 +479,28 @@ describe("App", () => {
           message: '',
           agents: [
             {
-              agent_id: 'planning-agent',
+              agent_id: 'provider-planner',
               human_name: 'Lily',
               role_name: 'Planning Specialist',
               required_model: 'gpt-4.1',
               workflow_order: 0,
             },
             {
-              agent_id: 'product-manager',
+              agent_id: 'provider-pm',
               human_name: 'Alice',
               role_name: 'Product Manager',
               required_model: 'gpt-5.4',
               workflow_order: 1,
             },
             {
-              agent_id: 'software-engineer',
+              agent_id: 'provider-builder',
               human_name: 'Dalton',
               role_name: 'Software Engineer',
               required_model: 'claude-sonnet-4.6',
               workflow_order: 2,
             },
             {
-              agent_id: 'qa',
+              agent_id: 'provider-qa',
               human_name: 'Ron',
               role_name: 'QA and Closeout',
               required_model: 'gpt-5.4',
@@ -588,28 +517,28 @@ describe("App", () => {
           message: '',
           agents: [
             {
-              agent_id: 'planning-agent',
+              agent_id: 'provider-planner',
               human_name: 'Lily',
               role_name: 'Planning Specialist',
               required_model: 'gpt-4.1',
               workflow_order: 0,
             },
             {
-              agent_id: 'product-manager',
+              agent_id: 'provider-pm',
               human_name: 'Alice',
               role_name: 'Product Manager',
               required_model: 'gpt-5.4',
               workflow_order: 1,
             },
             {
-              agent_id: 'software-engineer',
+              agent_id: 'provider-builder',
               human_name: 'Dalton',
               role_name: 'Software Engineer',
               required_model: 'claude-sonnet-4.6',
               workflow_order: 2,
             },
             {
-              agent_id: 'qa',
+              agent_id: 'provider-qa',
               human_name: 'Ron',
               role_name: 'QA and Closeout',
               required_model: 'gpt-5.4',
@@ -643,28 +572,28 @@ describe("App", () => {
           message: 'Agent assignments saved.',
           agents: [
             {
-              agent_id: 'planning-agent',
+              agent_id: 'provider-planner',
               human_name: 'Lily',
               role_name: 'Planning Specialist',
               required_model: 'gpt-5.4',
               workflow_order: 0,
             },
             {
-              agent_id: 'product-manager',
+              agent_id: 'provider-pm',
               human_name: 'Alice',
               role_name: 'Product Manager',
               required_model: 'gpt-5.4',
               workflow_order: 1,
             },
             {
-              agent_id: 'software-engineer',
+              agent_id: 'provider-builder',
               human_name: 'Dalton',
               role_name: 'Software Engineer',
               required_model: 'claude-sonnet-4.6',
               workflow_order: 2,
             },
             {
-              agent_id: 'qa',
+              agent_id: 'provider-qa',
               human_name: 'Ron',
               role_name: 'QA and Closeout',
               required_model: 'gpt-5.4',
@@ -696,10 +625,10 @@ describe("App", () => {
     });
 
     expect(desktopShell.saveAgentModels).toHaveBeenCalledWith([
-      { agent_id: 'planning-agent', model_id: 'gpt-5.4' },
-      { agent_id: 'product-manager', model_id: 'gpt-5.4' },
-      { agent_id: 'software-engineer', model_id: 'claude-sonnet-4.6' },
-      { agent_id: 'qa', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-planner', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-pm', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+      { agent_id: 'provider-qa', model_id: 'gpt-5.4' },
     ]);
   });
 
@@ -711,7 +640,7 @@ describe("App", () => {
       enabled: true,
       transport: 'sse' as const,
       url: 'https://mcp.test.example/sse',
-      agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
+      agent_scope: { mode: 'allowlist' as const, agent_ids: ['provider-builder'] },
     };
 
     // Track list call count to return empty first, then with server after add.
@@ -797,7 +726,7 @@ describe("App", () => {
       target: { value: 'https://mcp.test.example/sse' },
     });
 
-    // Check agent scope checkbox for software-engineer.
+    // Check agent scope checkbox for provider-builder.
     const agentCheckboxes = screen.getAllByRole('checkbox');
     const sweCheckbox = agentCheckboxes.find(
       (cb) => cb.closest('label')?.textContent?.includes('Software Engineer'),

@@ -14,7 +14,10 @@ export type ProviderFrontendRosterEntry = {
   roleName: string;
   humanName: string;
   workflowOrder: number;
+  roleKind: RoleKind | null;
 };
+
+export type RoleKind = 'planner' | 'pm' | 'builder' | 'verifier' | 'qa';
 
 export type ProviderFrontendDescriptor = {
   providerId: string;
@@ -24,4 +27,5 @@ export type ProviderFrontendDescriptor = {
   promptPathEnvVars: { handoffsDir: string; implStepsDir: string };
   contextPackEnvVars: { paths: string; searchRoots: string };
   roster: ProviderFrontendRosterEntry[];
+  plannerAgentId: string | null;
 };

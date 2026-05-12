@@ -5,6 +5,7 @@ import {
   upsertEnvVar,
   resolvePath,
   findRepoRoot,
+  runPython,
 } from '../core/index.js';
 import {
   type ActivateOptions,
@@ -94,6 +95,26 @@ export async function activateContextPack(
   }
 
   if (!options.dryRun) {
+    // Lazy v1→v2 manifest upgrade (idempotent for v2 packs).
+    // Runs before setActiveContextPackEnv so the agent mirror is rebuilt
+    // from the upgraded manifest, not the old v1 one.
+    const upgradeScript = path.join(
+      repoRoot,
+      'src',
+      'backend',
+      'scripts',
+      'python',
+      'upgrade-pack-on-activate.py',
+    );
+    await runPython(
+      upgradeScript,
+      ['--context-pack-dir', contextPackDir, '--repo-root', repoRoot],
+      { cwd: repoRoot },
+    ).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Context pack manifest upgrade failed: ${msg}`);
+    });
+
     await setActiveContextPackEnv(repoRoot, contextPackDir);
 
     // Activation is the moment when agents start reading from this pack, so

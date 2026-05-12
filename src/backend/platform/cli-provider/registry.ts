@@ -5,10 +5,10 @@ import type { CliProvider } from './types.js';
 import { copilotProvider } from './providers/copilot/index.js';
 
 const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
-const DEFAULT_PROVIDER_ID = 'copilot';
+export const DEFAULT_CLI_PROVIDER_ID = copilotProvider.id;
 
 const providers: Record<string, CliProvider> = {
-  copilot: copilotProvider,
+  [copilotProvider.id]: copilotProvider,
 };
 
 const cache = new Map<string, CliProvider>();
@@ -61,7 +61,7 @@ export function resolveCliProviderId(repoRoot: string, id?: string): string {
     normalizeProviderId(id, 'CLI provider id')
     ?? normalizeProviderId(process.env['TASKSAIL_CLI_PROVIDER'], 'TASKSAIL_CLI_PROVIDER')
     ?? readRuntimeProviderId(repoRoot)
-    ?? DEFAULT_PROVIDER_ID;
+    ?? DEFAULT_CLI_PROVIDER_ID;
 
   if (!providers[resolvedId]) {
     throw new Error(

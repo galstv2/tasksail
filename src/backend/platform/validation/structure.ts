@@ -11,8 +11,8 @@ export const GENERIC_REQUIRED_DIRS: string[] = [
   'AgentWorkSpace/templates',
   'src/backend/scripts/python',
   'src/backend',
-  'docker',
-  'podman',
+  'runtime/docker',
+  'runtime/podman',
   'tests',
 ];
 

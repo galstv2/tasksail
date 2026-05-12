@@ -14,8 +14,7 @@ type PromptAuditMetadata = {
  *
  * Path: <taskRuntime>/role-sessions/<agentId>-<launchId>.json
  *
- * `launchId` is `${epochMs}-${pid}` — caller-supplied, derived at runRoleAgent
- * invocation time. The pair is collision-resistant within any single host
+ * `launchId` is caller-supplied and collision-resistant within any single host
  * process lifetime.
  *
  * Fleet-mode note (§4.12): multiple concurrent sub-Daltons share the same
@@ -42,6 +41,8 @@ export async function writeSessionStartReceipt(options: {
   promptAudit?: PromptAuditMetadata;
   /** Optional launch phase label (e.g. "Verification") shown in the terminal UI. */
   launchPhase?: string;
+  /** Launch id of the previous runtime session when this receipt is for a retry. */
+  retryOfLaunchId?: string;
 }): Promise<string> {
   const receiptPath = sessionReceiptPath(options.taskRuntime, options.agentId, options.launchId);
 
@@ -51,6 +52,7 @@ export async function writeSessionStartReceipt(options: {
     role_name: options.roleName,
     session_kind: 'task-role',
     ...(options.launchPhase != null ? { launch_phase: options.launchPhase } : {}),
+    ...(options.retryOfLaunchId != null ? { retry_of_launch_id: options.retryOfLaunchId } : {}),
     launch: {
       status: 'started',
       started_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
@@ -65,7 +67,9 @@ export async function writeSessionStartReceipt(options: {
         }
         : undefined,
     },
-    latest_output_lines: [`Started ${options.displayName} runtime.`],
+    latest_output_lines: [
+      `Started ${options.displayName}${options.launchPhase ? ` ${options.launchPhase}` : ''} runtime.`,
+    ],
   };
   await writeTextFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   return receiptPath;

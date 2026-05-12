@@ -4,53 +4,163 @@ import { classNames } from '../../utils/classNames';
 type WizardProjectTypeProps = {
   busy: boolean;
   mode: ContextPackCreationDraft['mode'];
-  onSelect: (mode: ContextPackCreationDraft['mode']) => void;
+  onModeChange: (mode: ContextPackCreationDraft['mode']) => void;
+  onContinue: () => void;
 };
+
+type ApplicationShape = 'monolith' | 'distributed';
+type InfrastructureRepoChoice = 'none' | 'with-infrastructure';
+
+function modeToProjectTypeSelection(mode: ContextPackCreationDraft['mode']): {
+  applicationShape: ApplicationShape;
+  infrastructureRepos: InfrastructureRepoChoice;
+} {
+  return {
+    applicationShape:
+      mode === 'monolith' || mode === 'monolith-platform' ? 'monolith' : 'distributed',
+    infrastructureRepos:
+      mode === 'monolith-platform' || mode === 'distributed-platform'
+        ? 'with-infrastructure'
+        : 'none',
+  };
+}
+
+function projectTypeSelectionToMode(
+  applicationShape: ApplicationShape,
+  infrastructureRepos: InfrastructureRepoChoice,
+): ContextPackCreationDraft['mode'] {
+  if (applicationShape === 'monolith') {
+    return infrastructureRepos === 'with-infrastructure' ? 'monolith-platform' : 'monolith';
+  }
+  return infrastructureRepos === 'with-infrastructure' ? 'distributed-platform' : 'distributed';
+}
+
+function modeSummaryLabel(mode: ContextPackCreationDraft['mode']): string {
+  switch (mode) {
+    case 'monolith':
+      return 'Monolith';
+    case 'monolith-platform':
+      return 'Monolith + infrastructure repos';
+    case 'distributed':
+      return 'Distributed';
+    case 'distributed-platform':
+      return 'Distributed + infrastructure repos';
+  }
+}
 
 function WizardProjectType({
   busy,
   mode,
-  onSelect,
+  onModeChange,
+  onContinue,
 }: WizardProjectTypeProps): JSX.Element {
+  const { applicationShape, infrastructureRepos } = modeToProjectTypeSelection(mode);
+
   return (
-    <section className="context-pack-modal__wizard-section">
+    <section className="context-pack-modal__wizard-section context-pack-modal__project-type">
+      <p className="context-pack-modal__project-type-header">How is this project organized?</p>
       <p className="context-pack-modal__wizard-heading">
-        What kind of project are you building?
+        Pick the shape. Details come next.
       </p>
 
-      <div className="context-pack-modal__wizard-type-grid">
-        <button
-          type="button"
-          className={classNames(
-            'context-pack-modal__editor-card',
-            'context-pack-modal__wizard-choice-card',
-            mode === 'monolith' && 'context-pack-modal__editor-card--active',
-          )}
-          disabled={busy}
-          onClick={() => onSelect('monolith')}
-        >
-          <span className="context-pack-modal__wizard-choice-kicker">Single repo</span>
-          <strong>Monolith</strong>
-          <p className="panel__meta">
-            All components share the same repository, organized into folders.
-          </p>
-        </button>
+      <fieldset className="context-pack-modal__project-type-group">
+        <legend className="context-pack-modal__project-type-label">Application shape</legend>
+        <div className="context-pack-modal__seg-control">
+          <label
+            className={classNames(
+              'context-pack-modal__seg-option',
+              applicationShape === 'monolith' && 'context-pack-modal__seg-option--active',
+            )}
+          >
+            <input
+              type="radio"
+              name="application-shape"
+              value="monolith"
+              checked={applicationShape === 'monolith'}
+              onChange={() =>
+                onModeChange(projectTypeSelectionToMode('monolith', infrastructureRepos))
+              }
+            />
+            Monolith
+          </label>
+          <label
+            className={classNames(
+              'context-pack-modal__seg-option',
+              applicationShape === 'distributed' &&
+                'context-pack-modal__seg-option--active',
+            )}
+          >
+            <input
+              type="radio"
+              name="application-shape"
+              value="distributed"
+              checked={applicationShape === 'distributed'}
+              onChange={() =>
+                onModeChange(projectTypeSelectionToMode('distributed', infrastructureRepos))
+              }
+            />
+            Distributed
+          </label>
+        </div>
+      </fieldset>
 
+      <fieldset className="context-pack-modal__project-type-group">
+        <legend className="context-pack-modal__project-type-label">Infrastructure repos</legend>
+        <p className="context-pack-modal__project-type-help">
+          Repos that support your application but ship separately — like
+          deployment, CI/CD, IaC, or database schema repos.
+        </p>
+        <div className="context-pack-modal__seg-control">
+          <label
+            className={classNames(
+              'context-pack-modal__seg-option',
+              infrastructureRepos === 'none' && 'context-pack-modal__seg-option--active',
+            )}
+          >
+            <input
+              type="radio"
+              name="infrastructure-repos"
+              value="none"
+              checked={infrastructureRepos === 'none'}
+              onChange={() =>
+                onModeChange(projectTypeSelectionToMode(applicationShape, 'none'))
+              }
+            />
+            No
+          </label>
+          <label
+            className={classNames(
+              'context-pack-modal__seg-option',
+              infrastructureRepos === 'with-infrastructure' &&
+                'context-pack-modal__seg-option--active',
+            )}
+          >
+            <input
+              type="radio"
+              name="infrastructure-repos"
+              value="with-infrastructure"
+              checked={infrastructureRepos === 'with-infrastructure'}
+              onChange={() =>
+                onModeChange(projectTypeSelectionToMode(applicationShape, 'with-infrastructure'))
+              }
+            />
+            Yes
+          </label>
+        </div>
+      </fieldset>
+
+      <p className="context-pack-modal__project-type-summary">
+        Selected: <strong>{modeSummaryLabel(mode)}</strong>
+      </p>
+
+      <div className="context-pack-modal__project-type-actions">
         <button
           type="button"
-          className={classNames(
-            'context-pack-modal__editor-card',
-            'context-pack-modal__wizard-choice-card',
-            mode === 'distributed' && 'context-pack-modal__editor-card--active',
-          )}
+          className="action-button"
           disabled={busy}
-          onClick={() => onSelect('distributed')}
+          onClick={onContinue}
         >
-          <span className="context-pack-modal__wizard-choice-kicker">Multi-repo</span>
-          <strong>Distributed</strong>
-          <p className="panel__meta">
-            Each component has its own repository. They may interact with each other.
-          </p>
+          Continue
         </button>
       </div>
     </section>

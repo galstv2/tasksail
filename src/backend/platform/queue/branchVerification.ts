@@ -2,13 +2,13 @@
  * §B5 Post-completion branch verification.
  *
  * Runs between Step 0 (commitTaskSnapshot) and Step 2 (archival) in
- * completePendingItem. For every repoBinding declared in `.task.json`,
+ * completePendingItem. For every writable repoBinding declared in `.task.json`,
  * verifies:
  *   1. `refs/heads/<worktreeBranch>` exists in the originalRoot's `.git`.
  *   2. `git rev-list --count <baseCommitSha>..<worktreeBranch>` ≥ 1 — i.e.
  *      the task branch advanced past its baseline.
  *
- * If any binding fails either check, returns `ok: false` with a structured
+ * If any required binding fails either check, returns `ok: false` with a structured
  * failure list. The caller MUST throw on failure (no try/catch); the thrown
  * error routes through `moveFailedItemToErrorItems` which sets
  * `outcome='failed'` and retains the branch for operator post-mortem.
@@ -23,8 +23,10 @@
  * task-slug shape.
  */
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { promisify } from 'node:util';
-import { readTaskJsonSafe } from './taskJson.js';
+import { loadTaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
+import { readTaskJsonSafe, type TaskRepoBinding } from './taskJson.js';
 
 const execFileP = promisify(execFile);
 
@@ -59,10 +61,11 @@ export async function verifyTaskBranches(
   if (bindings.length === 0) {
     return { ok: true, failures: [] };
   }
+  const bindingsToVerify = await filterWritableBindings(repoRoot, taskId, bindings);
 
   const failures: BranchVerificationFailure[] = [];
 
-  for (const binding of bindings) {
+  for (const binding of bindingsToVerify) {
     // Check 1: branch ref exists in the originalRoot's .git.
     try {
       await execFileP('git', [
@@ -106,4 +109,26 @@ export async function verifyTaskBranches(
   }
 
   return { ok: failures.length === 0, failures };
+}
+
+async function filterWritableBindings(
+  repoRoot: string,
+  taskId: string,
+  bindings: TaskRepoBinding[],
+): Promise<TaskRepoBinding[]> {
+  try {
+    const snapshot = await loadTaskPackSnapshot(repoRoot, taskId);
+    // Support repos are materialized for read-only context and may legitimately
+    // have zero task commits; the primary/non-support bindings are the writable
+    // branches this safety gate must verify.
+    const supportRoots = new Set(
+      snapshot.support.map((repo) => path.resolve(repo.repoRoot)),
+    );
+    const writableBindings = bindings.filter(
+      (binding) => !supportRoots.has(path.resolve(binding.originalRoot)),
+    );
+    return writableBindings.length > 0 ? writableBindings : bindings;
+  } catch {
+    return bindings;
+  }
 }

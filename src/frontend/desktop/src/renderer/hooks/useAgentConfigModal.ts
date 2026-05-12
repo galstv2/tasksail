@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 import { useToastContext } from '../contexts/ToastContext';
+import type { ProviderFrontendDescriptor } from '../../shared/desktopContractProvider';
 
 export type AgentConfigTab = 'agents' | 'models';
 
@@ -58,6 +59,7 @@ export type AgentConfigModalProps = {
   isDirty: boolean;
   showRestartNotice: boolean;
   pendingModelChange: PendingModelChange | null;
+  descriptor: ProviderFrontendDescriptor | null;
   onClose: () => void;
   onSelectTab: (tab: AgentConfigTab) => void;
   onAgentModelChange: (agentId: string, modelId: string) => void;
@@ -124,15 +126,17 @@ type AgentConfigResponse =
     };
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
-const LILY_AGENT_ID = 'planning-agent';
-
 function findPlannerModel(
   agents: Array<{
     agent_id: string;
     required_model: string;
   }>,
+  plannerAgentId: string | null,
 ): string | null {
-  return agents.find((agent) => agent.agent_id === LILY_AGENT_ID)?.required_model ?? null;
+  if (!plannerAgentId) {
+    return null;
+  }
+  return agents.find((agent) => agent.agent_id === plannerAgentId)?.required_model ?? null;
 }
 
 function toAgentRows(
@@ -162,10 +166,15 @@ function asAgentConfigResponse(value: unknown): AgentConfigResponse {
 
 function applyPlannerRestartCheck(
   agents: Array<{ agent_id: string; required_model: string }>,
+  plannerAgentId: string | null,
   plannerStartupModelRef: React.RefObject<string | null>,
   setShowRestartNotice: (value: boolean) => void,
 ): void {
-  const nextPlannerModel = findPlannerModel(agents);
+  if (!plannerAgentId) {
+    setShowRestartNotice(false);
+    return;
+  }
+  const nextPlannerModel = findPlannerModel(agents, plannerAgentId);
   if (plannerStartupModelRef.current === null && nextPlannerModel !== null) {
     (plannerStartupModelRef as React.MutableRefObject<string | null>).current = nextPlannerModel;
   }
@@ -191,24 +200,32 @@ export function useAgentConfigModal(
   const [error, setError] = useState<string | null>(null);
   const [showRestartNotice, setShowRestartNotice] = useState(false);
   const [pendingModelChange, setPendingModelChange] = useState<PendingModelChange | null>(null);
+  const [descriptor, setDescriptor] = useState<ProviderFrontendDescriptor | null>(null);
   const plannerStartupModelRef = useRef<string | null>(null);
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const [agentResultRaw, modelResultRaw] = await Promise.all([
+      const [agentResultRaw, modelResultRaw, descriptorResult] = await Promise.all([
         client.loadAgentConfig(),
         client.loadModelCatalog(),
+        client.describeActiveProvider(),
       ]);
       const agentResult = asAgentConfigResponse(agentResultRaw);
       const modelResult = asAgentConfigResponse(modelResultRaw);
+      setDescriptor(descriptorResult);
 
       let nextError: string | null = null;
 
       if (agentResult.ok && agentResult.response.action === 'agentConfig.loadAgents') {
         setAgents(toAgentRows(agentResult.response.agents));
-        applyPlannerRestartCheck(agentResult.response.agents, plannerStartupModelRef, setShowRestartNotice);
+        applyPlannerRestartCheck(
+          agentResult.response.agents,
+          descriptorResult.plannerAgentId,
+          plannerStartupModelRef,
+          setShowRestartNotice,
+        );
       } else if (!agentResult.ok) {
         nextError = agentResult.error;
       }
@@ -333,7 +350,7 @@ export function useAgentConfigModal(
 
       if (result.ok && result.response.action === 'agentConfig.saveAgentModels') {
         setAgents(toAgentRows(result.response.agents));
-        applyPlannerRestartCheck(result.response.agents, plannerStartupModelRef, setShowRestartNotice);
+        applyPlannerRestartCheck(result.response.agents, descriptor?.plannerAgentId ?? null, plannerStartupModelRef, setShowRestartNotice);
         addToast({
           severity: 'success',
           message: result.response.message,
@@ -350,7 +367,7 @@ export function useAgentConfigModal(
     } finally {
       setSaving(false);
     }
-  }, [addToast, agents, client, isDirty]);
+  }, [addToast, agents, client, descriptor?.plannerAgentId, isDirty]);
 
   const onAddModel = useCallback(async () => {
     const displayName = newModelDisplayName.trim();
@@ -495,6 +512,7 @@ export function useAgentConfigModal(
       isDirty,
       showRestartNotice,
       pendingModelChange,
+      descriptor,
       onClose,
       onSelectTab,
       onAgentModelChange,

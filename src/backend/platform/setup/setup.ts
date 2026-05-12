@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
@@ -9,6 +9,7 @@ import { sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
 import { seedMcpRegistry } from '../mcp-registry/index.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
+import { resolveContainerRuntime } from '../platform-config/resolve.js';
 import { seedDeepFocusIgnoreConfig } from '../deep-focus-ignore/seed.js';
 
 const execFileAsync = promisify(execFile);
@@ -70,13 +71,36 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
   }
 }
 
-async function startContainerServices(repoRoot: string): Promise<string> {
+export async function assertPythonOnPath(): Promise<void> {
+  const ok = await new Promise<boolean>((resolve) => {
+    const child = spawn('python3', ['--version'], { stdio: 'ignore' });
+    child.once('error', () => resolve(false));
+    child.once('exit', (code) => resolve(code === 0));
+  });
+  if (ok) return;
+
+  process.stderr.write(
+    'container_runtime is set to "direct", but `python3` was not found on PATH.\n'
+      + 'Install Python 3.13+ and ensure `python3` is discoverable, or set container_runtime\n'
+      + 'to "docker" or "podman" in config/platform.default.json.\n',
+  );
+  process.exit(1);
+}
+
+export async function startContainerServices(repoRoot: string): Promise<string> {
   try {
     const runtime = await createRuntimeFromConfig(repoRoot);
-    const composeFile = path.join(
-      repoRoot,
-      resolveDefaultComposeFile(runtime.backend),
-    );
+    if (!runtime.requiresComposeFile) {
+      const { ensureSharedMcpRunning } = await import('../container/sharedMcp.js');
+      await ensureSharedMcpRunning(repoRoot);
+      return 'ok';
+    }
+
+    const composeFileRel = resolveDefaultComposeFile(runtime.backend);
+    if (composeFileRel === undefined) {
+      return 'skipped';
+    }
+    const composeFile = path.join(repoRoot, composeFileRel);
     if (!fs.existsSync(composeFile)) {
       return 'skipped';
     }
@@ -89,7 +113,8 @@ async function startContainerServices(repoRoot: string): Promise<string> {
     });
 
     return 'ok';
-  } catch {
+  } catch (err: unknown) {
+    process.stderr.write(`Warning: container service startup failed: ${getErrorMessage(err)}\n`);
     return 'failed';
   }
 }
@@ -118,6 +143,9 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
   // 3. Seed platform config
   try {
     const platformSeedResult = await seedPlatformConfig(root);
+    if (platformSeedResult.action !== 'failed' && await resolveContainerRuntime(root) === 'direct') {
+      await assertPythonOnPath();
+    }
     steps.push({
       name: 'platform-config-seed',
       status: platformSeedResult.action === 'failed' ? 'failed' : 'ok',

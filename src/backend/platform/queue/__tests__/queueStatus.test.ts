@@ -273,4 +273,24 @@ describe('queue status CLI stuck-mid-completion warning', () => {
     expect(stdout).toContain('stale worktree metadata can pin the branch');
     expect(stdout).toContain('Recover with: pnpm run repair -- --auto-fix');
   });
+
+  it('prints closeout health JSON with failed receipts, orphan sentinels, and deferred retro markers', async () => {
+    const runtimeTaskDir = path.join(tmpRoot, '.platform-state', 'runtime', 'tasks', 'task-a');
+    mkdirSync(runtimeTaskDir, { recursive: true });
+    writeFileSync(
+      path.join(runtimeTaskDir, 'pipeline-receipt.json'),
+      JSON.stringify({ status: 'closeout-failed' }),
+    );
+    writeFileSync(path.join(runtimeTaskDir, 'closeout-deferred-retro.json'), '{}');
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    writeFileSync(path.join(activeItemsDir, 'task-a.completing'), '{}');
+
+    await main(['status', '--repo-root', tmpRoot, '--closeout-health']);
+
+    expect(JSON.parse(stdout)).toEqual({
+      closeoutFailedReceipts: ['task-a'],
+      orphanSentinels: ['task-a'],
+      deferredRetroMarkers: ['task-a'],
+    });
+  });
 });

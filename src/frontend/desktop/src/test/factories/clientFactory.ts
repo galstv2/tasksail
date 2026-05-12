@@ -25,6 +25,25 @@ type MockClientOverrides = {
   [K in keyof DesktopShellClient]?: DesktopShellClient[K];
 };
 
+const agentModelOverrides = new Map([
+  ['provider-planner', 'gpt-4.1'],
+  ['provider-pm', 'gpt-5.4'],
+  ['provider-builder', 'claude-sonnet-4.6'],
+  ['provider-qa', 'gpt-5.4'],
+]);
+
+function createAgentConfigFixtureAgents() {
+  return createProviderFrontendDescriptor().roster
+    .filter((entry) => agentModelOverrides.has(entry.agentId))
+    .map((entry) => ({
+      agent_id: entry.agentId,
+      human_name: entry.humanName,
+      role_name: entry.roleName,
+      required_model: agentModelOverrides.get(entry.agentId) ?? 'gpt-4.1',
+      workflow_order: entry.workflowOrder - 1,
+    }));
+}
+
 export function createMockClient(
   overrides: MockClientOverrides = {},
 ): DesktopShellClient {
@@ -98,6 +117,9 @@ export function createMockClient(
     setRepositoryType: vi
       .fn()
       .mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepositoryType', mode: 'updated', message: 'Updated.' } }),
+    setRepoCategory: vi
+      .fn()
+      .mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepoCategory', mode: 'updated', message: 'Updated.' } }),
     previewContextPackSwitch: vi
       .fn()
       .mockResolvedValue({
@@ -127,6 +149,17 @@ export function createMockClient(
       .mockResolvedValue({
         ok: true,
         response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'planner-mock-1', brokerStatus: 'idle' },
+      }),
+    validateChildTaskFocus: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.validateChildTaskFocus',
+          mode: 'valid',
+          message: 'Parent task focus is still valid.',
+          issues: [],
+        },
       }),
     sendPlannerMessage: vi
       .fn()
@@ -194,6 +227,28 @@ export function createMockClient(
           mode: 'empty',
           message: 'No archived tasks.',
           tasks: [],
+        },
+      }),
+    listPlannerConversationHistory: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.listConversationHistory',
+          mode: 'empty',
+          message: 'No planner conversation history.',
+          conversations: [],
+        },
+      }),
+    hydratePlannerConversation: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'not-found',
+          message: 'Planner conversation not found.',
+          record: null,
         },
       }),
     listExternalMcpServers: vi
@@ -270,36 +325,7 @@ export function createMockClient(
           action: 'agentConfig.loadAgents',
           mode: 'read-only',
           message: 'Loaded 4 agent assignments.',
-          agents: [
-            {
-              agent_id: 'planning-agent',
-              human_name: 'Lily',
-              role_name: 'Planning Specialist',
-              required_model: 'gpt-4.1',
-              workflow_order: 0,
-            },
-            {
-              agent_id: 'product-manager',
-              human_name: 'Alice',
-              role_name: 'Product Manager',
-              required_model: 'gpt-5.4',
-              workflow_order: 1,
-            },
-            {
-              agent_id: 'software-engineer',
-              human_name: 'Dalton',
-              role_name: 'Software Engineer',
-              required_model: 'claude-sonnet-4.6',
-              workflow_order: 2,
-            },
-            {
-              agent_id: 'qa',
-              human_name: 'Ron',
-              role_name: 'QA and Closeout',
-              required_model: 'gpt-5.4',
-              workflow_order: 3,
-            },
-          ],
+          agents: createAgentConfigFixtureAgents(),
         },
       }),
     loadModelCatalog: vi
@@ -325,36 +351,7 @@ export function createMockClient(
           action: 'agentConfig.saveAgentModels',
           mode: 'mutated',
           message: 'Agent assignments saved.',
-          agents: [
-            {
-              agent_id: 'planning-agent',
-              human_name: 'Lily',
-              role_name: 'Planning Specialist',
-              required_model: 'gpt-4.1',
-              workflow_order: 0,
-            },
-            {
-              agent_id: 'product-manager',
-              human_name: 'Alice',
-              role_name: 'Product Manager',
-              required_model: 'gpt-5.4',
-              workflow_order: 1,
-            },
-            {
-              agent_id: 'software-engineer',
-              human_name: 'Dalton',
-              role_name: 'Software Engineer',
-              required_model: 'claude-sonnet-4.6',
-              workflow_order: 2,
-            },
-            {
-              agent_id: 'qa',
-              human_name: 'Ron',
-              role_name: 'QA and Closeout',
-              required_model: 'gpt-5.4',
-              workflow_order: 3,
-            },
-          ],
+          agents: createAgentConfigFixtureAgents(),
         },
       }),
     addModel: vi
@@ -511,6 +508,21 @@ export function createMockClient(
           },
         },
       }),
+    runRealignmentAnalysis: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'reinforcement.runRealignmentAnalysis',
+          mode: 'analysis-started',
+          message: 'Realignment analysis job registered.',
+          job: {
+            jobId: 'realignment:RA-mock',
+            realignmentId: 'RA-mock',
+            status: 'started',
+          },
+        },
+      }),
     readTaskContent: vi
       .fn()
       .mockResolvedValue({
@@ -620,6 +632,7 @@ export function createMockClient(
       ok: true,
       response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Deep focus selections cleared.' },
     }),
+    subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
     listInstructionFiles: vi.fn().mockResolvedValue({
       ok: true,
       response: {

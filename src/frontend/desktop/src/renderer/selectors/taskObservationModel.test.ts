@@ -7,7 +7,7 @@ import { buildTaskObservationModel } from './taskObservationModel';
 function makeSession(overrides: Partial<AgentTerminalSession> = {}): AgentTerminalSession {
   return {
     taskId: 'TASK-1',
-    agentId: 'software-engineer',
+    agentId: 'provider-builder',
     agentLabel: 'Dalton (Software Engineer)',
     sessionId: 'sess-1',
     instanceId: null,
@@ -62,6 +62,7 @@ const defaultArgs = {
   visibleActivityStream: [] as StreamEvent[],
   taskLocked: false,
   closedTask: false,
+  plannerAgentId: 'provider-planner',
 };
 
 describe('buildTaskObservationModel', () => {
@@ -158,9 +159,9 @@ describe('buildTaskObservationModel', () => {
 
   it('selects top 2 sessions as primarySessions by ranking score', () => {
     const sessions = [
-      makeSession({ sessionId: 's1', agentId: 'software-engineer', terminalState: 'completed' }),
-      makeSession({ sessionId: 's2', agentId: 'planning-agent', terminalState: 'running' }),
-      makeSession({ sessionId: 's3', agentId: 'qa', terminalState: 'pending' }),
+      makeSession({ sessionId: 's1', agentId: 'provider-builder', terminalState: 'completed' }),
+      makeSession({ sessionId: 's2', agentId: 'provider-planner', terminalState: 'running' }),
+      makeSession({ sessionId: 's3', agentId: 'provider-qa', terminalState: 'pending' }),
     ];
     const model = buildTaskObservationModel({
       ...defaultArgs,
@@ -168,16 +169,16 @@ describe('buildTaskObservationModel', () => {
       agentTerminalSessions: sessions,
     });
     expect(model.primarySessions).toHaveLength(2);
-    expect(model.primarySessions[0].agentId).toBe('planning-agent');
+    expect(model.primarySessions[0].agentId).toBe('provider-planner');
   });
 
   it('groups remaining sessions into relatedThreads by taskId', () => {
     const sessions = [
-      makeSession({ sessionId: 's1', taskId: 'TASK-1', agentId: 'planning-agent' }),
-      makeSession({ sessionId: 's2', taskId: 'TASK-1', agentId: 'software-engineer' }),
-      makeSession({ sessionId: 's3', taskId: 'TASK-2', agentId: 'qa', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
-      makeSession({ sessionId: 's4', taskId: 'TASK-2', agentId: 'qa', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
-      makeSession({ sessionId: 's5', taskId: 'TASK-2', agentId: 'product-manager', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
+      makeSession({ sessionId: 's1', taskId: 'TASK-1', agentId: 'provider-planner' }),
+      makeSession({ sessionId: 's2', taskId: 'TASK-1', agentId: 'provider-builder' }),
+      makeSession({ sessionId: 's3', taskId: 'TASK-2', agentId: 'provider-qa', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
+      makeSession({ sessionId: 's4', taskId: 'TASK-2', agentId: 'provider-qa', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
+      makeSession({ sessionId: 's5', taskId: 'TASK-2', agentId: 'provider-pm', terminalState: 'pending', launchState: 'queued', liveness: 'unknown', stuckState: 'none', severity: 'info' }),
     ];
     const model = buildTaskObservationModel({
       ...defaultArgs,
@@ -192,9 +193,9 @@ describe('buildTaskObservationModel', () => {
 
   it('builds thread chips with running and warning counts', () => {
     const sessions = [
-      makeSession({ sessionId: 's1', agentId: 'planning-agent' }),
-      makeSession({ sessionId: 's2', agentId: 'software-engineer' }),
-      makeSession({ sessionId: 's3', taskId: 'TASK-2', terminalState: 'running', severity: 'warning', agentId: 'qa', launchState: 'queued', liveness: 'unknown', stuckState: 'none' }),
+      makeSession({ sessionId: 's1', agentId: 'provider-planner' }),
+      makeSession({ sessionId: 's2', agentId: 'provider-builder' }),
+      makeSession({ sessionId: 's3', taskId: 'TASK-2', terminalState: 'running', severity: 'warning', agentId: 'provider-qa', launchState: 'queued', liveness: 'unknown', stuckState: 'none' }),
     ];
     const model = buildTaskObservationModel({
       ...defaultArgs,

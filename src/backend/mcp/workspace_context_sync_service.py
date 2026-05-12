@@ -209,7 +209,7 @@ class WorkspaceContextSyncService:
                 if isinstance(local_paths, list) and local_paths:
                     resolved_root = resolve_manifest_target_path(
                         resolved_context_pack_dir,
-                        str(local_paths[0]),
+                        local_paths[0],
                     )
                     if resolved_root is not None:
                         for focus_id in effective_selected_focus_ids:
@@ -250,7 +250,7 @@ class WorkspaceContextSyncService:
                 for local_path in local_paths:
                     resolved_target = resolve_manifest_target_path(
                         resolved_context_pack_dir,
-                        str(local_path),
+                        local_path,
                     )
                     if resolved_target is None:
                         warnings.append(
@@ -358,84 +358,49 @@ class WorkspaceContextSyncService:
         scope_mode: str = "focused",
         deep_focus: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview = self.preview_sync(
+        target_info = self.resolve_context_pack_targets(
             context_pack_dir,
             selected_repo_ids=selected_repo_ids,
             selected_focus_ids=selected_focus_ids,
             scope_mode=scope_mode,
             deep_focus=deep_focus,
         )
-        workspace_payload = self.load_workspace()
-        workspace_entries = load_workspace_entries(
-            workspace_payload, self.workspace_file
-        )
-        state = self.load_sync_state()
-        preview_model = build_sync_preview(
-            workspace_entries=workspace_entries,
-            state=state,
-            target_folder_paths=[
-                Path(path) for path in preview["target_folders"]
-            ],
-        )
-
-        updated_payload = dict(workspace_payload)
-        updated_payload["folders"] = preview_model["result_folders"]
-        write_json_atomic(self.workspace_file, updated_payload)
 
         next_state = {
             "version": SYNC_STATE_VERSION,
             "workspace_file": str(self.workspace_file),
             "active_context_pack_dir": str(context_pack_dir.resolve()),
-            "active_context_pack_id": preview["context_pack_id"],
-            "scope_mode": preview["scope_mode"],
-            "selected_repo_ids": preview["selected_repo_ids"],
-            "selected_focus_ids": preview["selected_focus_ids"],
-            **extract_deep_focus_fields(preview),
-            "managed_folders": preview_model["managed_folders"],
+            "active_context_pack_id": target_info["context_pack_id"],
+            "scope_mode": target_info["scope_mode"],
+            "selected_repo_ids": target_info["selected_repo_ids"],
+            "selected_focus_ids": target_info["selected_focus_ids"],
+            **extract_deep_focus_fields(target_info),
+            "managed_folders": [],
             "last_synced_at": self.now(),
             "status": "success",
         }
         write_json_atomic(self.state_file, next_state)
 
         return {
-            **preview,
             "action": "apply",
+            "workspace_file": str(self.workspace_file),
+            "state_file": str(self.state_file),
+            "context_pack_id": target_info["context_pack_id"],
+            "context_pack_dir": str(context_pack_dir.resolve()),
+            "scope_mode": target_info["scope_mode"],
+            "selected_repo_ids": target_info["selected_repo_ids"],
+            "selected_focus_ids": target_info["selected_focus_ids"],
+            "target_folders": target_info["target_folders"],
+            "folders_to_add": [],
+            "folders_to_remove": [],
+            "managed_folders": [],
+            "warnings": target_info["warnings"],
+            **extract_deep_focus_fields(target_info),
             "last_synced_at": next_state["last_synced_at"],
             "status": next_state["status"],
         }
 
     def clear_context_pack_workspace(self) -> dict[str, Any]:
-        workspace_payload = self.load_workspace()
-        workspace_entries = load_workspace_entries(
-            workspace_payload, self.workspace_file
-        )
-        state = self.load_sync_state()
-
-        # When managed_folders tracking is empty but the workspace has entries
-        # beyond the repo root, the state was lost (reset, manual delete, etc.).
-        # Fall back to treating all non-root entries as managed so clear actually
-        # removes them instead of silently preserving orphaned folders.
-        managed_folders = list(state.get("managed_folders", []))
-        if not managed_folders and len(workspace_entries) > 1:
-            workspace_root_posix = normalize_any_path(
-                self.workspace_root
-            ).as_posix()
-            managed_folders = [
-                entry.normalized_path
-                for entry in workspace_entries
-                if entry.normalized_path != workspace_root_posix
-            ]
-            state = {**state, "managed_folders": managed_folders}
-
-        preview_model = build_sync_preview(
-            workspace_entries=workspace_entries,
-            state=state,
-            target_folder_paths=[],
-        )
-        updated_payload = dict(workspace_payload)
-        updated_payload["folders"] = preview_model["result_folders"]
-        write_json_atomic(self.workspace_file, updated_payload)
-
         next_state = {
             "version": SYNC_STATE_VERSION,
             "workspace_file": str(self.workspace_file),
@@ -460,7 +425,7 @@ class WorkspaceContextSyncService:
             "selected_focus_ids": [],
             **normalize_deep_focus_selection(),
             "folders_to_add": [],
-            "folders_to_remove": preview_model["folders_to_remove"],
+            "folders_to_remove": [],
             "managed_folders": [],
             "last_synced_at": next_state["last_synced_at"],
             "status": next_state["status"],
@@ -475,31 +440,11 @@ class WorkspaceContextSyncService:
         return resolve_manifest_target_path(context_pack_dir, raw_path)
 
     def inspect_sync_health(self) -> dict[str, Any]:
-        workspace_payload = self.load_workspace()
-        workspace_entries = load_workspace_entries(
-            workspace_payload, self.workspace_file
-        )
         state = self.load_sync_state()
-        workspace_paths = {
-            entry.normalized_path for entry in workspace_entries
-        }
-        managed_folders = unique_preserving_order(
-            [str(item) for item in state.get("managed_folders", [])]
-        )
-        attached_managed_folders = [
-            path for path in managed_folders if path in workspace_paths
-        ]
-        missing_managed_folders = [
-            path for path in managed_folders if path not in workspace_paths
-        ]
-
         state_status = normalize_optional_string(state.get("status")) or "idle"
         has_active_pack = bool(state.get("active_context_pack_dir"))
-        drift_detected = has_active_pack and bool(missing_managed_folders)
         if state_status in {"workspace-sync-failed", "activation-failed"}:
             effective_status = state_status
-        elif has_active_pack and drift_detected:
-            effective_status = "active-dirty-workspace"
         elif has_active_pack:
             effective_status = "active"
         elif state_status == "cleared":
@@ -515,12 +460,12 @@ class WorkspaceContextSyncService:
             "scope_mode": state.get("scope_mode") or "",
             "selected_repo_ids": state.get("selected_repo_ids") or [],
             "selected_focus_ids": state.get("selected_focus_ids") or [],
-            "managed_folders": managed_folders,
-            "attached_managed_folders": attached_managed_folders,
-            "missing_managed_folders": missing_managed_folders,
+            "managed_folders": [],
+            "attached_managed_folders": [],
+            "missing_managed_folders": [],
             "status": effective_status,
             "state_status": state_status,
-            "drift_detected": drift_detected,
+            "drift_detected": False,
             "restore_available": (
                 has_active_pack and effective_status != "active"
             ),

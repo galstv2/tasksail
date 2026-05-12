@@ -3,10 +3,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DESKTOP_SHELL_INVOKE_CHANNEL } from '../src/shared/desktopContract';
+import { TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE } from './devRestartProtocol';
 
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
 const show = vi.fn();
+const focus = vi.fn();
+const restore = vi.fn();
+const isMinimized = vi.fn(() => false);
+const isDestroyed = vi.fn(() => false);
 const once = vi.fn((event: string, callback: () => void) => {
   if (event === 'ready-to-show') {
     callback();
@@ -16,6 +21,10 @@ const once = vi.fn((event: string, callback: () => void) => {
 const browserWindowInstance = {
   loadFile,
   loadURL,
+  focus,
+  restore,
+  isMinimized,
+  isDestroyed,
   once,
   show,
 };
@@ -36,7 +45,9 @@ function browserWindowCallCount(): number {
 
 const appMock = {
   on: vi.fn(),
+  exit: vi.fn(),
   quit: vi.fn(),
+  requestSingleInstanceLock: vi.fn(() => true),
   whenReady: vi.fn(() => Promise.resolve()),
   dock: { setIcon: vi.fn() },
 };
@@ -48,6 +59,9 @@ const dialogMock = {
 const ipcMainMock = {
   handle: vi.fn(),
 };
+
+const stopBackendServicesDetachedMock = vi.fn();
+const cleanupWorkspaceOnQuitMock = vi.fn();
 
 vi.mock('electron', () => ({
   app: appMock,
@@ -68,6 +82,7 @@ vi.mock('./main.services', () => ({
   })),
   checkContainerRuntimeAvailable: vi.fn(async () => ({ ok: true })),
   stopBackendServices: vi.fn(async () => undefined),
+  stopBackendServicesDetached: stopBackendServicesDetachedMock,
   checkBackendHealth: vi.fn(async () => undefined),
   readBackendServiceStatus: vi.fn(() => ({
     status: 'idle',
@@ -76,15 +91,33 @@ vi.mock('./main.services', () => ({
   })),
 }));
 
+vi.mock('./main.cleanup', () => ({
+  cleanupWorkspaceOnQuit: cleanupWorkspaceOnQuitMock,
+}));
+
 describe('electron main bootstrap', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    appMock.requestSingleInstanceLock.mockReturnValue(true);
+    isMinimized.mockReturnValue(false);
+    isDestroyed.mockReturnValue(false);
     BrowserWindowMock.getAllWindows.mockReturnValue([]);
     dialogMock.showOpenDialog.mockResolvedValue({
       canceled: false,
       filePaths: ['/tmp/selected-directory'],
     });
+  });
+
+  it('exits at module load when another TaskSail instance owns the lock', async () => {
+    appMock.requestSingleInstanceLock.mockReturnValue(false);
+
+    await import('./main');
+
+    expect(appMock.requestSingleInstanceLock).toHaveBeenCalledOnce();
+    expect(appMock.exit).toHaveBeenCalledWith(0);
+    expect(appMock.whenReady).not.toHaveBeenCalled();
   });
 
   it('creates a secure browser window and loads the dev server when configured', async () => {
@@ -109,6 +142,48 @@ describe('electron main bootstrap', () => {
     expect(loadURL).toHaveBeenCalledWith('http://localhost:5173');
     expect(loadFile).not.toHaveBeenCalled();
     expect(show).toHaveBeenCalled();
+  });
+
+  it('retries connection-class dev server load failures before succeeding', async () => {
+    vi.useFakeTimers();
+    const loadFailure = Object.assign(new Error('not ready'), {
+      code: 'ERR_CONNECTION_REFUSED',
+    });
+    const retryWindow = {
+      loadURL: vi.fn()
+        .mockRejectedValueOnce(loadFailure)
+        .mockRejectedValueOnce(loadFailure)
+        .mockRejectedValueOnce(loadFailure)
+        .mockResolvedValueOnce(undefined),
+      isDestroyed: vi.fn(() => false),
+    };
+    const { loadDevServerUrlWithRetry } = await import('./main');
+
+    const loadPromise = loadDevServerUrlWithRetry(
+      retryWindow as never,
+      'http://localhost:5173',
+    );
+    await vi.advanceTimersByTimeAsync(750);
+    await loadPromise;
+
+    expect(retryWindow.loadURL).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+  });
+
+  it('does not retry non-connection dev server load failures', async () => {
+    const loadFailure = Object.assign(new Error('bad url'), {
+      code: 'ERR_FAILED',
+    });
+    const retryWindow = {
+      loadURL: vi.fn().mockRejectedValueOnce(loadFailure),
+      isDestroyed: vi.fn(() => false),
+    };
+    const { loadDevServerUrlWithRetry } = await import('./main');
+
+    await expect(
+      loadDevServerUrlWithRetry(retryWindow as never, 'http://localhost:5173'),
+    ).rejects.toThrow('bad url');
+    expect(retryWindow.loadURL).toHaveBeenCalledOnce();
   });
 
   it('loads the built renderer when no dev server URL is present', async () => {
@@ -136,6 +211,8 @@ describe('electron main bootstrap', () => {
     registerAppLifecycle();
 
     expect(appMock.whenReady).toHaveBeenCalled();
+    expect(appMock.requestSingleInstanceLock).toHaveBeenCalledOnce();
+    expect(appMock.on).toHaveBeenCalledWith('second-instance', expect.any(Function));
     expect(appMock.on).toHaveBeenCalledWith('window-all-closed', expect.any(Function));
     await vi.waitFor(() => {
       expect(appMock.on).toHaveBeenCalledWith('activate', expect.any(Function));
@@ -144,6 +221,36 @@ describe('electron main bootstrap', () => {
       DESKTOP_SHELL_INVOKE_CHANNEL,
       expect.any(Function),
     );
+  });
+
+  it('focuses the existing main window when a second instance is launched', async () => {
+    isMinimized.mockReturnValue(true);
+    const { registerAppLifecycle, createWindow } = await import('./main');
+
+    await createWindow();
+    registerAppLifecycle();
+    const secondInstanceHandler = appMock.on.mock.calls.find(([event]) => event === 'second-instance')?.[1] as
+      | ((event: unknown, argv: string[], workingDirectory: string, additionalData: unknown) => void)
+      | undefined;
+
+    expect(secondInstanceHandler).toBeTypeOf('function');
+    secondInstanceHandler?.({}, ['tasksail'], '/repo', {});
+
+    expect(restore).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a second-instance event when no main window exists yet', async () => {
+    const { registerAppLifecycle } = await import('./main');
+
+    registerAppLifecycle();
+    const secondInstanceHandler = appMock.on.mock.calls.find(([event]) => event === 'second-instance')?.[1] as
+      | ((event: unknown, argv: string[], workingDirectory: string, additionalData: unknown) => void)
+      | undefined;
+
+    expect(() => secondInstanceHandler?.({}, ['tasksail'], '/repo', {})).not.toThrow();
+    expect(focus).not.toHaveBeenCalled();
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it('rejects IPC requests from unauthorized renderer senders', async () => {
@@ -260,6 +367,44 @@ describe('electron main bootstrap', () => {
     await vi.waitFor(() => {
       expect(endSession).toHaveBeenCalledOnce();
     });
+    expect(cleanupWorkspaceOnQuitMock).toHaveBeenCalledOnce();
+    expect(stopBackendServicesDetachedMock).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('handles dev graceful restart without full workspace cleanup', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_DEV_SERVER_URL', 'http://localhost:5173');
+    const existingMessageListeners = new Set(process.listeners('message'));
+
+    try {
+      const { registerAppLifecycle } = await import('./main');
+      registerAppLifecycle();
+
+      const addedMessageListeners = process.listeners('message')
+        .filter((listener) => !existingMessageListeners.has(listener));
+      expect(addedMessageListeners).toHaveLength(1);
+      (addedMessageListeners[0] as (message: unknown) => void)(
+        TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE,
+      );
+
+      expect(appMock.quit).toHaveBeenCalledOnce();
+
+      const beforeQuitHandler = appMock.on.mock.calls.find(([event]) => event === 'before-quit')?.[1] as
+        | (() => void)
+        | undefined;
+      expect(beforeQuitHandler).toBeTypeOf('function');
+
+      beforeQuitHandler?.();
+
+      expect(cleanupWorkspaceOnQuitMock).not.toHaveBeenCalled();
+      expect(stopBackendServicesDetachedMock).not.toHaveBeenCalled();
+    } finally {
+      for (const listener of process.listeners('message')) {
+        if (!existingMessageListeners.has(listener)) {
+          process.off('message', listener as (...args: unknown[]) => void);
+        }
+      }
+    }
   });
 
   it('fails clearly for unsupported desktop actions', async () => {
@@ -464,6 +609,257 @@ describe('electron main bootstrap', () => {
 
     await Promise.resolve();
     expect(runPipelineSequence).not.toHaveBeenCalled();
+  });
+
+  describe('planner.uploadSpec dispatch — immutable sidecar wiring', () => {
+    const uploadedContent = '## Request Summary\n\nUpload immutable scope through dispatch.\n';
+
+    function buildSidecar(
+      sessionId: string,
+      taskKind: 'standard' | 'child-task' = 'standard',
+    ) {
+      return {
+        version: 1 as const,
+        ownership: 'planner-session' as const,
+        sessionId,
+        draftFilename: 'draft.md',
+        draftPath: '/repo/AgentWorkSpace/dropbox/.staging/draft.md',
+        createdAt: '2026-03-07T18:20:00Z',
+        title: 'pack / focus',
+        primaryRepoId: 'repo',
+        primaryRepoRoot: '/repo',
+        primaryFocusRelativePath: 'focus',
+        deepFocusEnabled: false,
+        primaryFocusTargetKind: null,
+        primaryFocusTargets: [],
+        selectedTestTarget: null,
+        supportTargets: [],
+        lineage: {
+          taskKind,
+          parentTaskId: '',
+          rootTaskId: '',
+          parentQmdRecordId: '',
+          parentQmdScope: '',
+          followUpReason: '',
+        },
+        contextPackBinding: {
+          contextPackDir: '/context-pack',
+          contextPackId: 'pack',
+          scopeMode: 'focus-selection',
+          selectedRepoIds: ['repo'],
+          selectedFocusIds: ['focus'],
+          deepFocusEnabled: false,
+          selectedFocusPath: 'focus',
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      };
+    }
+
+    async function loadHandlerWithMocks(
+      sessionId: string | undefined,
+      sidecarSessionId: string | null,
+    ) {
+      vi.resetModules();
+      const sidecar = sidecarSessionId === null ? null : buildSidecar(sidecarSessionId);
+      const readPlannerStagingSidecar = vi.fn(async () => sidecar);
+      const getObservability = vi.fn(() => ({ sessionId }));
+
+      vi.doMock('./main.staging', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./main.staging')>();
+        return { ...actual, readPlannerStagingSidecar };
+      });
+      vi.doMock('./plannerSession', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./plannerSession')>();
+        return { ...actual, getObservability };
+      });
+
+      const { handleDesktopAction } = await import('./main');
+      return { handleDesktopAction, sidecar, readPlannerStagingSidecar };
+    }
+
+    it('forwards the active planner sidecar to uploadSpec when the session id matches', async () => {
+      const { handleDesktopAction, sidecar, readPlannerStagingSidecar } =
+        await loadHandlerWithMocks('planner-active', 'planner-active');
+      const uploadSpec = vi.fn(async () => ({
+        ok: true as const,
+        response: {
+          action: 'planner.uploadSpec' as const,
+          mode: 'submitted' as const,
+          accepted: true as const,
+          message: 'ok',
+          draftTitle: 'pack / focus',
+          submittedPath: '/repo/AgentWorkSpace/dropbox/test.md',
+          observationMode: true as const,
+        },
+      }));
+
+      await handleDesktopAction(
+        { action: 'planner.uploadSpec', payload: { content: uploadedContent } },
+        { uploadSpec },
+      );
+
+      expect(readPlannerStagingSidecar).toHaveBeenCalledTimes(1);
+      expect(uploadSpec).toHaveBeenCalledWith(uploadedContent, { plannerSidecar: sidecar });
+    });
+
+    it('passes a null sidecar when the staged sidecar belongs to a stale planner session', async () => {
+      const { handleDesktopAction } = await loadHandlerWithMocks('planner-active', 'planner-stale');
+      const uploadSpec = vi.fn(async () => ({
+        ok: true as const,
+        response: {
+          action: 'planner.uploadSpec' as const,
+          mode: 'submitted' as const,
+          accepted: true as const,
+          message: 'ok',
+          draftTitle: 'pack / focus',
+          submittedPath: '/repo/AgentWorkSpace/dropbox/test.md',
+          observationMode: true as const,
+        },
+      }));
+
+      await handleDesktopAction(
+        { action: 'planner.uploadSpec', payload: { content: uploadedContent } },
+        { uploadSpec },
+      );
+
+      expect(uploadSpec).toHaveBeenCalledWith(uploadedContent, { plannerSidecar: null });
+    });
+
+    it('rejects child-task or recent uploads when the selected task sidecar is not active', async () => {
+      const { handleDesktopAction } = await loadHandlerWithMocks('planner-active', 'planner-stale');
+      const uploadSpec = vi.fn();
+
+      await expect(
+        handleDesktopAction(
+          {
+            action: 'planner.uploadSpec',
+            payload: {
+              content: uploadedContent,
+              requirePlannerSidecar: true,
+              expectedTaskKind: 'child-task',
+            },
+          },
+          { uploadSpec },
+        ),
+      ).resolves.toEqual({
+        ok: false,
+        action: 'planner.uploadSpec',
+        error: 'Bypass Lily upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
+      });
+      expect(uploadSpec).not.toHaveBeenCalled();
+    });
+
+    it('rejects child-task or recent uploads when no planner session is active', async () => {
+      const { handleDesktopAction, readPlannerStagingSidecar } =
+        await loadHandlerWithMocks(undefined, 'planner-stale');
+      const uploadSpec = vi.fn();
+
+      await expect(
+        handleDesktopAction(
+          {
+            action: 'planner.uploadSpec',
+            payload: {
+              content: uploadedContent,
+              requirePlannerSidecar: true,
+              expectedTaskKind: 'standard',
+            },
+          },
+          { uploadSpec },
+        ),
+      ).resolves.toEqual({
+        ok: false,
+        action: 'planner.uploadSpec',
+        error: 'Bypass Lily upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
+      });
+      expect(readPlannerStagingSidecar).not.toHaveBeenCalled();
+      expect(uploadSpec).not.toHaveBeenCalled();
+    });
+
+    it('rejects task-kind assertions without sidecar authority', async () => {
+      const { handleDesktopAction } = await loadHandlerWithMocks('planner-active', 'planner-active');
+      const uploadSpec = vi.fn();
+
+      await expect(
+        handleDesktopAction(
+          {
+            action: 'planner.uploadSpec',
+            payload: {
+              content: uploadedContent,
+              expectedTaskKind: 'child-task',
+            },
+          },
+          { uploadSpec },
+        ),
+      ).resolves.toEqual({
+        ok: false,
+        action: 'planner.uploadSpec',
+        error: 'Desktop action request failed runtime validation.',
+        details: ['payload.expectedTaskKind requires payload.requirePlannerSidecar to be true.'],
+      });
+      expect(uploadSpec).not.toHaveBeenCalled();
+    });
+
+    it('rejects uploads when the active sidecar task kind does not match the selected bypass mode', async () => {
+      vi.resetModules();
+      const sidecar = buildSidecar('planner-active', 'standard');
+      vi.doMock('./main.staging', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./main.staging')>();
+        return { ...actual, readPlannerStagingSidecar: vi.fn(async () => sidecar) };
+      });
+      vi.doMock('./plannerSession', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./plannerSession')>();
+        return { ...actual, getObservability: vi.fn(() => ({ sessionId: 'planner-active' })) };
+      });
+      const { handleDesktopAction } = await import('./main');
+      const uploadSpec = vi.fn();
+
+      await expect(
+        handleDesktopAction(
+          {
+            action: 'planner.uploadSpec',
+            payload: {
+              content: uploadedContent,
+              requirePlannerSidecar: true,
+              expectedTaskKind: 'child-task',
+            },
+          },
+          { uploadSpec },
+        ),
+      ).resolves.toEqual({
+        ok: false,
+        action: 'planner.uploadSpec',
+        error: 'Platform expected child-task but active planner metadata declares standard. Restart the planner session before uploading.',
+      });
+      expect(uploadSpec).not.toHaveBeenCalled();
+    });
+
+    it('skips reading the sidecar and forwards a null sidecar when no planner session is active', async () => {
+      const { handleDesktopAction, readPlannerStagingSidecar } =
+        await loadHandlerWithMocks(undefined, 'planner-stale');
+      const uploadSpec = vi.fn(async () => ({
+        ok: true as const,
+        response: {
+          action: 'planner.uploadSpec' as const,
+          mode: 'submitted' as const,
+          accepted: true as const,
+          message: 'ok',
+          draftTitle: 'pack / focus',
+          submittedPath: '/repo/AgentWorkSpace/dropbox/test.md',
+          observationMode: true as const,
+        },
+      }));
+
+      await handleDesktopAction(
+        { action: 'planner.uploadSpec', payload: { content: uploadedContent } },
+        { uploadSpec },
+      );
+
+      expect(readPlannerStagingSidecar).not.toHaveBeenCalled();
+      expect(uploadSpec).toHaveBeenCalledWith(uploadedContent, { plannerSidecar: null });
+    });
   });
 
 });

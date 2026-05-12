@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react
 import { createPortal } from 'react-dom';
 
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
+import type { OpenContextPackCreationModal } from '../contextPackCreationTypes';
 import {
   formatRuntimeStatus,
   mapRuntimeStatusTone,
@@ -13,7 +14,8 @@ type SidebarPackSelectorProps = {
   selectedContextPackDir: string;
   isBusy: boolean;
   onSelectContextPack: (contextPackDir: string) => void;
-  onOpenCreateModal: () => void;
+  onOpenCreateModal: OpenContextPackCreationModal;
+  repoRoot?: string;
 };
 
 type TooltipPosition = { top: number; left: number; flipped: boolean };
@@ -51,6 +53,7 @@ function SidebarPackSelector({
   isBusy,
   onSelectContextPack,
   onOpenCreateModal,
+  repoRoot,
 }: SidebarPackSelectorProps): JSX.Element {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -129,18 +132,36 @@ function SidebarPackSelector({
   }, [dropdownOpen, clearTooltipTimer]);
 
   if (contextPacks.length === 0) {
+    const canUseRepo = Boolean(repoRoot?.trim());
     return (
       <div className="sidebar-section sidebar-pack-selector">
-        <div className="sidebar-empty">
+        <div className="sidebar-empty sidebar-empty--onboarding">
           <p className="sidebar-meta">No context packs discovered yet.</p>
+          <p className="sidebar-meta">
+            Context packs bind this workspace to the repositories, focus areas,
+            and QMD state an agent should use.
+          </p>
           <button
             type="button"
             className="action-button"
             disabled={isBusy}
             aria-label="Create context pack"
-            onClick={onOpenCreateModal}
+            onClick={() => onOpenCreateModal({ kind: 'fresh' })}
           >
-            Create context pack
+            Create your first pack
+          </button>
+          <button
+            type="button"
+            className="action-button action-button--secondary"
+            disabled={isBusy || !canUseRepo}
+            title={canUseRepo ? 'Use the current repository as the discovery root' : 'No repository root is available'}
+            onClick={() => {
+              if (repoRoot) {
+                onOpenCreateModal({ kind: 'prefill-from-repo', repoRoot });
+              }
+            }}
+          >
+            Use this repository
           </button>
         </div>
       </div>
@@ -195,6 +216,10 @@ function SidebarPackSelector({
                 : entry.bootstrapReady
                   ? 'ready'
                   : 'incomplete';
+              const isBootstrapEmpty = entry.packSeedStateInfo?.state === 'bootstrap-empty';
+              const isReseeding = entry.packSeedStateInfo?.inProgress === true;
+              const isNeedsReview =
+                isBootstrapEmpty && entry.packSeedStateInfo?.reason === 'new-flow-needs-review';
               return (
                 <button
                   key={entry.contextPackDir}
@@ -207,6 +232,23 @@ function SidebarPackSelector({
                   onMouseLeave={hideTooltip}
                 >
                   <span className="ts-select__option-name">{entry.displayName}</span>
+                  {/* Reseeding wins over bootstrap-empty: an in-progress reseed is the more recent state. */}
+                  {isReseeding ? (
+                    <span className="ts-select__status ts-select__status--warning" title="This pack is currently being reseeded.">
+                      Reseeding...
+                    </span>
+                  ) : isBootstrapEmpty && (
+                    <span
+                      className="ts-select__status ts-select__status--warning"
+                      title={
+                        isNeedsReview
+                          ? 'Review the generated plan before seeding this pack.'
+                          : "This pack hasn't been seeded yet. Populate the underlying repos and run a reseed."
+                      }
+                    >
+                      {isNeedsReview ? 'needs review' : 'needs population'}
+                    </span>
+                  )}
                   <span className={classNames('ts-select__status', statusToneClass(entry))}>
                     {statusLabel}
                   </span>

@@ -63,6 +63,9 @@ export function applyWorktreeInjectionToFocused(
     primaryRepoRoot: rewritePath(focused.primaryRepoRoot, bindingMap),
     visibleRepoRoots: focused.visibleRepoRoots.map((r) => rewritePath(r, bindingMap)),
     declaredRepoRoots: focused.declaredRepoRoots.map((r) => rewritePath(r, bindingMap)),
+    primaryFocusTargets: rewritePrimaryFocusTargets(focused.primaryFocusTargets, bindingMap),
+    writableRoots: rewriteRepoLocalRoots(focused.writableRoots, bindingMap),
+    readonlyContextRoots: rewriteRepoLocalRoots(focused.readonlyContextRoots, bindingMap),
   };
   if (focused.testTarget) {
     next.testTarget = {
@@ -71,6 +74,34 @@ export function applyWorktreeInjectionToFocused(
     };
   }
   return next;
+}
+
+function rewritePrimaryFocusTargets<T extends { repoLocalPath?: string }>(
+  targets: readonly T[] | undefined,
+  bindingMap: WorktreeBindingMap,
+): T[] | undefined {
+  return targets?.map((target) => rewriteRepoLocalPath(target, bindingMap));
+}
+
+function rewriteRepoLocalRoots<
+  T extends { repoLocalPath?: string; sourceTargets?: Array<{ repoLocalPath?: string }> },
+>(
+  roots: readonly T[] | undefined,
+  bindingMap: WorktreeBindingMap,
+): T[] | undefined {
+  return roots?.map((root) => ({
+    ...rewriteRepoLocalPath(root, bindingMap),
+    sourceTargets: rewritePrimaryFocusTargets(root.sourceTargets, bindingMap),
+  }));
+}
+
+function rewriteRepoLocalPath<T extends { repoLocalPath?: string }>(
+  value: T,
+  bindingMap: WorktreeBindingMap,
+): T {
+  return value.repoLocalPath
+    ? { ...value, repoLocalPath: rewritePath(value.repoLocalPath, bindingMap) }
+    : { ...value };
 }
 
 export function applyWorktreeInjectionToAllowedDirs(

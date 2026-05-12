@@ -26,9 +26,9 @@ export type PlannerAccessState =
       lockReason: 'Planning agent chat is locked until a context pack is active. Activate an existing pack or create one from the sidebar first.';
     }
   | {
-      kind: 'locked-active-work';
-      planningEnabled: false;
-      lockReason: 'Planner input is locked while repo workflow execution is active.';
+      kind: 'unlocked-concurrent-work';
+      planningEnabled: true;
+      lockReason: 'Planner input is available while repo workflow execution continues independently.';
     }
   | {
       kind: 'unlocked-follow-up-reentry';
@@ -159,9 +159,9 @@ export function derivePlannerAccessState(args: {
 
   if (args.taskLocked) {
     return {
-      kind: 'locked-active-work',
-      planningEnabled: false,
-      lockReason: 'Planner input is locked while repo workflow execution is active.',
+      kind: 'unlocked-concurrent-work',
+      planningEnabled: true,
+      lockReason: 'Planner input is available while repo workflow execution continues independently.',
     };
   }
 

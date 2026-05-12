@@ -41,12 +41,106 @@ def archive_storage_path(
     year: str,
 ) -> Path:
     """Return the storage path for a task archive JSON file."""
+    del repo_name
+    return task_archive_json_path(context_pack_dir, qmd_scope, year, task_id)
+
+
+def task_archive_dir(
+    context_pack_dir: Path,
+    qmd_scope: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the canonical task archive directory for a task/year pair."""
     return (
         resolve_scope_path(context_pack_dir, qmd_scope)
         / "archive"
         / "tasks"
         / year
-        / f"{slugify(task_id)}.json"
+        / slugify(task_id)
+    )
+
+
+def task_archive_json_path(
+    context_pack_dir: Path,
+    qmd_scope: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the canonical task archive JSON path."""
+    return task_archive_dir(context_pack_dir, qmd_scope, year, task_id) / "archive.json"
+
+
+def task_archive_markdown_path(
+    context_pack_dir: Path,
+    qmd_scope: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the canonical task archive markdown path."""
+    return task_archive_dir(context_pack_dir, qmd_scope, year, task_id) / "archive.md"
+
+
+def task_archive_planner_focus_snapshot_path(
+    context_pack_dir: Path,
+    qmd_scope: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the canonical task archive planner-focus snapshot path."""
+    return task_archive_dir(context_pack_dir, qmd_scope, year, task_id) / "planner-focus-snapshot.json"
+
+
+def agent_mirror_task_archive_dir(
+    repo_root: Path,
+    context_pack_name: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the AgentWorkSpace mirror task archive directory."""
+    return (
+        repo_root
+        / "AgentWorkSpace"
+        / "qmd"
+        / "context-packs"
+        / context_pack_name
+        / "archive"
+        / "tasks"
+        / year
+        / slugify(task_id)
+    )
+
+
+def agent_mirror_task_archive_json_path(
+    repo_root: Path,
+    context_pack_name: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the AgentWorkSpace mirror task archive JSON path."""
+    return agent_mirror_task_archive_dir(repo_root, context_pack_name, year, task_id) / "archive.json"
+
+
+def agent_mirror_task_archive_markdown_path(
+    repo_root: Path,
+    context_pack_name: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the AgentWorkSpace mirror task archive markdown path."""
+    return agent_mirror_task_archive_dir(repo_root, context_pack_name, year, task_id) / "archive.md"
+
+
+def agent_mirror_task_archive_planner_focus_snapshot_path(
+    repo_root: Path,
+    context_pack_name: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the AgentWorkSpace mirror planner-focus snapshot path."""
+    return (
+        agent_mirror_task_archive_dir(repo_root, context_pack_name, year, task_id)
+        / "planner-focus-snapshot.json"
     )
 
 

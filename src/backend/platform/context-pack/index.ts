@@ -32,7 +32,7 @@ export {
   activateContextPackHelper,
 } from './pythonHelpers.js';
 
-export { deriveWritableRootsFromFocusedSelection, resolveFocusedRepoRoot, resolveWorkspaceRepoRoots } from './focusedRepo.js';
+export { deriveWritableRootsFromFocusedSelection, resolveFocusedRepoRoot } from './focusedRepo.js';
 export type { FocusedRepoResult } from './focusedRepo.js';
 export {
   normalizeRelativePath,
@@ -43,8 +43,6 @@ export {
   hasTraversal,
 } from './deepFocusNormalization.js';
 export type { NormalizedSupportTarget, ReadonlyContextRoot, WritableRoot } from './deepFocusNormalization.js';
-
-export { main as cli } from './cli.js';
 
 export type {
   ActivateOptions,

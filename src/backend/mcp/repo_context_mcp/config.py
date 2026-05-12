@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from typing import FrozenSet, Literal
 
+from src.backend.mcp.pack_constants import ALLOWED_LAYERS
+
 DEFAULT_EXCLUDED_DIRS: FrozenSet[str] = frozenset(
     {
         ".git",
@@ -34,17 +36,6 @@ DEFAULT_ALLOWED_SUFFIXES: FrozenSet[str] = frozenset(
         ".toml",
         ".ini",
         ".cfg",
-    }
-)
-ALLOWED_LAYERS: FrozenSet[str] = frozenset(
-    {
-        "backend",
-        "frontend",
-        "test",
-        "infrastructure",
-        "database",
-        "documents",
-        "shared",
     }
 )
 REQUEST_ID_HEADER = "X-Request-ID"

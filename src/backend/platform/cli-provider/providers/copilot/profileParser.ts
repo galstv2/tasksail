@@ -1,3 +1,4 @@
+import { stripWrappingQuotes } from '../../../core/index.js';
 import type { AgentProfileParseResult } from '../../types.js';
 
 const FRONTMATTER_LINE = /^([A-Za-z0-9_-]+):\s*(.*)$/;
@@ -71,7 +72,14 @@ export function parseChatagentProfile(text: string): AgentProfileParseResult {
       errors.push(`Unsupported frontmatter line: ${stripped}`);
       continue;
     }
-    frontmatter[match[1]] = (match[2] ?? '').trim();
+    const rawValue = (match[2] ?? '').trim();
+    const quote = rawValue[0];
+    if ((quote === '"' || quote === "'") && !rawValue.endsWith(quote)) {
+      errors.push(`Unmatched quote in frontmatter line: ${stripped}`);
+      frontmatter[match[1]] = rawValue;
+      continue;
+    }
+    frontmatter[match[1]] = rawValue.length >= 2 ? stripWrappingQuotes(rawValue) : rawValue;
   }
 
   return {

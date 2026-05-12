@@ -6,7 +6,7 @@
  * 1. 2-parallel-task SIGKILL-restart (worktrees torn down, dropbox restored)
  * 2. Sync-contract (void return type, no Promise)
  * 3. Retention-ignored (retain_failed_task_worktrees=true still tears down)
- * 4. No task/* branches remain after cleanup
+ * 4. Active task branches are removed while legacy completed branches survive
  * 5. Corrupt-sidecar resilience
  */
 import {
@@ -73,6 +73,7 @@ function writeTaskJson(
   originalRoot: string,
   worktreeRoot: string,
   worktreeBranch: string,
+  state = 'active',
 ): void {
   const taskDir = join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(taskDir, { recursive: true });
@@ -92,7 +93,7 @@ function writeTaskJson(
         },
       ],
     },
-    state: 'active',
+    state,
     frozenAt: new Date().toISOString(),
     finalizedAt: null,
   };
@@ -144,7 +145,7 @@ function setupWorkspaceScaffold(repoRoot: string): void {
   mkdirSync(join(repoRoot, 'AgentWorkSpace', 'tasks'), { recursive: true });
   mkdirSync(join(repoRoot, '.platform-state', 'queue'), { recursive: true });
   mkdirSync(join(repoRoot, '.platform-state', 'runtime', 'role-sessions'), { recursive: true });
-  mkdirSync(join(repoRoot, '.platform-state', 'runtime', 'copilot-home'), { recursive: true });
+  mkdirSync(join(repoRoot, '.platform-state', 'runtime', 'test-provider-home'), { recursive: true });
   // Write a starter queue-order.json
   writeFileSync(
     join(repoRoot, '.platform-state', 'queue', 'queue-order.json'),
@@ -270,37 +271,63 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     expect(branches).not.toContain(branch);
   });
 
-  // ── Test 4: No task/* branches remain ───────────────────────────────────
+  // ── Test 4: Legacy completed sidecar safety ─────────────────────────────
 
-  it('no task/* branches remain after cleanup', async () => {
+  it('preserves legacy completed sidecars and completed task branches', async () => {
     const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
 
     setupWorkspaceScaffold(TEST_REPO_ROOT);
     const gitRepoRoot = createGitRepo(tmpRoot);
 
-    const taskAId = 'task-alpha';
-    const taskABranch = `task/${taskAId}`;
-    const taskAWorktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskAId, 'worktrees', 'repo');
-    createWorktree(gitRepoRoot, taskAWorktree, taskABranch);
-    writeTaskJson(TEST_REPO_ROOT, taskAId, gitRepoRoot, taskAWorktree, taskABranch);
+    const taskId = 'task-completed';
+    const branch = `task/${taskId}`;
+    const worktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    createWorktree(gitRepoRoot, worktree, branch);
+    writeTaskJson(TEST_REPO_ROOT, taskId, gitRepoRoot, worktree, branch, 'completed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const taskBId = 'task-beta';
-    const taskBBranch = `task/${taskBId}`;
-    const taskBWorktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskBId, 'worktrees', 'repo');
-    createWorktree(gitRepoRoot, taskBWorktree, taskBBranch);
-    writeTaskJson(TEST_REPO_ROOT, taskBId, gitRepoRoot, taskBWorktree, taskBBranch);
-
-    writeTaskRegistry(TEST_REPO_ROOT, [taskAId, taskBId]);
+    writeTaskRegistry(TEST_REPO_ROOT, [taskId]);
 
     cleanupWorkspaceOnQuit();
 
-    // No task/* branches remain
-    const taskBranchList = execFileSync(
-      'git',
-      ['-C', gitRepoRoot, 'branch', '--list', 'task/*'],
-      { encoding: 'utf-8' },
+    expect(existsSync(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, '.task.json'))).toBe(true);
+    const branches = execFileSync('git', ['-C', gitRepoRoot, 'branch', '--list'], { encoding: 'utf-8' });
+    expect(branches).toContain(branch);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`cleanup-preserved-completed-sidecar taskId=${taskId}`),
     );
-    expect(taskBranchList.trim()).toBe('');
+    warnSpy.mockRestore();
+  });
+
+  it('removes active branches while preserving completed branches in mixed cleanup', async () => {
+    const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
+
+    setupWorkspaceScaffold(TEST_REPO_ROOT);
+    const gitRepoRoot = createGitRepo(tmpRoot);
+
+    const activeTaskId = 'task-active';
+    const activeBranch = `task/${activeTaskId}`;
+    const activeWorktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', activeTaskId, 'worktrees', 'repo');
+    createWorktree(gitRepoRoot, activeWorktree, activeBranch);
+    writeTaskJson(TEST_REPO_ROOT, activeTaskId, gitRepoRoot, activeWorktree, activeBranch);
+
+    const completedTaskId = 'task-completed';
+    const completedBranch = `task/${completedTaskId}`;
+    const completedWorktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', completedTaskId, 'worktrees', 'repo');
+    createWorktree(gitRepoRoot, completedWorktree, completedBranch);
+    writeTaskJson(TEST_REPO_ROOT, completedTaskId, gitRepoRoot, completedWorktree, completedBranch, 'completed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    writeTaskRegistry(TEST_REPO_ROOT, [activeTaskId, completedTaskId]);
+
+    cleanupWorkspaceOnQuit();
+
+    const branches = execFileSync('git', ['-C', gitRepoRoot, 'branch', '--list'], { encoding: 'utf-8' });
+    expect(branches).not.toContain(activeBranch);
+    expect(branches).toContain(completedBranch);
+    expect(existsSync(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', activeTaskId))).toBe(false);
+    expect(existsSync(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', completedTaskId, '.task.json'))).toBe(true);
+    warnSpy.mockRestore();
   });
 
   // ── Test 5: Corrupt-sidecar resilience ──────────────────────────────────

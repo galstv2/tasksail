@@ -116,6 +116,28 @@ export function formatRelativeTime(iso: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+const startOfLocalDayUtc = (d: Date): number =>
+  Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+
+export function formatRecentsTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const dayDiff = Math.floor((startOfLocalDayUtc(now) - startOfLocalDayUtc(date)) / 86_400_000);
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff >= 2 && dayDiff <= 6) {
+    return date.toLocaleDateString(undefined, { weekday: 'short' });
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function normalizeRelativePath(path: string | null | undefined): string {
   return path ?? '';
 }

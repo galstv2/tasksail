@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   getRetrospectiveRequiredForNextTask,
   isRetrospectiveRequiredForCompletedCount,
+  stampRetrospectiveRequiredMetadata,
   syncRetrospectiveRequiredMetadata,
 } from '../retrospectiveFlag.js';
 
@@ -79,6 +80,40 @@ describe('retrospectiveFlag', () => {
     ));
     expect(content).toContain('- Retrospective Required: false');
     expect(content).not.toContain('\n  true');
+  });
+
+  it('stamps Retrospective Required from the counter without mutating counter state', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    const counterPath = path.join(counterDir, 'pack-stamp.json');
+    const originalCounter = {
+      schema_version: 'task-counter/v1',
+      context_pack_id: 'pack-stamp',
+      completed_count: 9,
+      cycle_count: 3,
+      last_archived_task_id: 'task-previous',
+      last_archived_at: '2026-01-01T00:00:00.000Z',
+      last_retrospective_at: '',
+      cycle_task_ids: ['task-previous'],
+    };
+    writeFileSync(counterPath, JSON.stringify(originalCounter, null, 2) + '\n', 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Task Metadata\n\n- Retrospective Required: false\n',
+      'utf-8',
+    );
+
+    await stampRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir,
+      contextPackDir: '/packs/pack-stamp',
+    });
+
+    const content = await readFile(path.join(handoffsDir, 'retrospective-input.md'), 'utf-8');
+    const rawCounter = await readFile(counterPath, 'utf-8');
+
+    expect(content).toContain('- Retrospective Required: true');
+    expect(JSON.parse(rawCounter)).toEqual(originalCounter);
   });
 
   it('increments once when the same taskId is synchronized twice', async () => {
@@ -480,6 +515,38 @@ describe('retrospectiveFlag', () => {
 
       expect(warnSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('reclaiming stale counter lock'),
+      );
+    });
+
+    it('reclaims a stale counter lock that exists as a regular file (not a directory)', async () => {
+      // Regression: an earlier code version (or a partial write) can leave a
+      // zero-byte FILE at the lock path. The acquire loop's mkdir fails with
+      // EEXIST and reclaim's rmdir fails with ENOTDIR, trapping the process
+      // in an infinite "reclaiming" log. `rm({recursive,force})` handles
+      // both shapes, so a stale file gets cleaned up the same way as a dir.
+      writeFileSync(lockDir, '');
+      const tenMinutesAgoSeconds = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
+      utimesSync(lockDir, tenMinutesAgoSeconds, tenMinutesAgoSeconds);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const handoffsDir = path.join(tmpRoot, 'handoffs');
+      mkdirSync(handoffsDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffsDir, 'retrospective-input.md'),
+        '- Retrospective Required: false\n',
+      );
+
+      await expect(
+        syncRetrospectiveRequiredMetadata({
+          repoRoot: tmpRoot,
+          handoffsDir,
+          contextPackDir: path.join(tmpRoot, 'contextpacks', contextPackId),
+          taskId: 'task-file-lock-test',
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`[retrospectiveFlag] reclaiming stale counter lock: ${lockDir}`),
       );
     });
   });

@@ -51,7 +51,7 @@ import {
   getTasksForContextPack,
 } from '../../../backend/platform/queue/taskRegistry.js';
 import { listArchivedTasksAction } from './main.archivedTasks';
-import { readTaskBoard } from './main.taskBoard';
+import { formatCompletedBranchHandoffText, readTaskBoard } from './main.taskBoard';
 import type {
   ArchivedTaskEntry,
   ContextPackListResponse,
@@ -72,7 +72,7 @@ function archivedTask(taskId: string): ArchivedTaskEntry {
     qmdRecordId: `qmd-${taskId}`,
     followupReason: '',
     year: '2026',
-    archivePath: `/repo/AgentWorkSpace/qmd/context-packs/pack-a/archive/tasks/2026/${taskId}.md`,
+    archivePath: `/repo/AgentWorkSpace/qmd/context-packs/pack-a/archive/tasks/2026/${taskId}/archive.md`,
     contextPackName: 'pack-a',
   };
 }
@@ -220,5 +220,40 @@ describe('readTaskBoard — completed column reads QMD as system of record', () 
     const response = result.response as TaskBoardReadBoardResponse;
     expect(response.completedItems).toEqual([]);
     expect(mockListArchivedTasksAction).not.toHaveBeenCalled();
+  });
+
+  it('formats completed task branch handoff text for manual operator review', () => {
+    const text = formatCompletedBranchHandoffText({
+      ...archivedTask('task-one'),
+      branchHandoffs: [
+        {
+          repoRoot: '/repos/platform',
+          repoLabel: 'platform',
+          branch: 'task/task-one',
+          baseCommitSha: 'base',
+          headCommitSha: 'head',
+          commitsAhead: 1,
+          status: 'ready-for-operator-review',
+        },
+        {
+          repoRoot: '/repos/tools',
+          repoLabel: 'tools',
+          branch: 'task/task-one',
+          baseCommitSha: 'base',
+          headCommitSha: 'head',
+          commitsAhead: 2,
+          status: 'auto-merged-to-target',
+          autoMerge: {
+            enabled: true,
+            status: 'applied',
+            targetBranch: 'main',
+            detail: 'Merged with --no-commit --no-ff; changes are staged for operator review.',
+          },
+        },
+      ],
+    });
+
+    expect(text).toContain('Completed. Review source branch `task/task-one` in `platform` and merge manually if approved.');
+    expect(text).toContain('Completed. Source branch `task/task-one` in `tools` has been auto-merged into `main` with `--no-commit --no-ff`; changes are staged for operator review.');
   });
 });

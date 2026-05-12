@@ -101,6 +101,7 @@
   --ts-z-dropdown: 20;
   --ts-z-modal: 100;
   --ts-z-toast: 200;
+  --ts-z-popover: 210;
 
   /* ── Terminal tokens (untouched) ───────────────────────────────────── */
   --terminal-bg:         #0f1419;
@@ -138,6 +139,7 @@
 
   /* ── Transitions ─────────────────────────────────────────────────────── */
   --ts-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ts-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ts-duration: 200ms;
 
   /* ── Button sizing ─────────────────────────────────────────────────── */

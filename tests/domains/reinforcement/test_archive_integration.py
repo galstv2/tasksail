@@ -84,12 +84,12 @@ class TestArchiveIntegration:
 
 
 class TestLegacyMigration:
-    """Tests that legacy context-pack-local data migrates to QMD root."""
+    """Tests that legacy QMD data migrates to canonical QMD root."""
 
     def test_migrate_from_legacy_path(self, tmp_path: Path) -> None:
-        """When QMD root is empty but legacy exists, data migrates."""
-        legacy_cp = tmp_path / "context-pack"
-        legacy_reinf = legacy_cp / "reinforcement"
+        """When canonical root is empty but legacy QMD exists, data migrates."""
+        repo_root = tmp_path / "repo"
+        legacy_reinf = repo_root / "AgentWorkSpace" / "qmd" / "reinforcement"
         legacy_reinf.mkdir(parents=True)
 
         from src.backend.scripts.python.lib.io import atomic_write_json
@@ -106,22 +106,27 @@ class TestLegacyMigration:
             ]},
         )
 
-        repo_root = tmp_path / "repo"
-        repo_root.mkdir()
-        store = ReinforcementStore(repo_root, legacy_context_pack_dir=legacy_cp)
+        store = ReinforcementStore(repo_root)
         ledger = store.load_task_ledger()
         assert len(ledger) == 1
         assert ledger[0].task_id == "LEGACY-1"
+        assert (
+            repo_root / "AgentWorkSpace" / "qmd" / "global"
+            / "reinforcement" / "store" / "task-ledger.json"
+        ).is_file()
 
     def test_no_migration_when_qmd_exists(self, tmp_path: Path) -> None:
-        """If QMD root already has data, legacy is ignored."""
+        """If canonical QMD root already has data, legacy is ignored."""
         repo_root = tmp_path / "repo"
-        qmd_reinf = repo_root / "AgentWorkSpace" / "qmd" / "reinforcement"
-        qmd_reinf.mkdir(parents=True)
+        canonical_reinf = (
+            repo_root / "AgentWorkSpace" / "qmd" / "global"
+            / "reinforcement" / "store"
+        )
+        canonical_reinf.mkdir(parents=True)
 
         from src.backend.scripts.python.lib.io import atomic_write_json
         atomic_write_json(
-            qmd_reinf / "task-ledger.json",
+            canonical_reinf / "task-ledger.json",
             {"schema_version": "1.0", "entries": [
                 {"task_id": "QMD-1", "parent_task_id": "",
                  "is_child": False, "difficulty": "medium",
@@ -133,8 +138,7 @@ class TestLegacyMigration:
             ]},
         )
 
-        legacy_cp = tmp_path / "context-pack"
-        legacy_reinf = legacy_cp / "reinforcement"
+        legacy_reinf = repo_root / "AgentWorkSpace" / "qmd" / "reinforcement"
         legacy_reinf.mkdir(parents=True)
         atomic_write_json(
             legacy_reinf / "task-ledger.json",
@@ -149,7 +153,7 @@ class TestLegacyMigration:
             ]},
         )
 
-        store = ReinforcementStore(repo_root, legacy_context_pack_dir=legacy_cp)
+        store = ReinforcementStore(repo_root)
         ledger = store.load_task_ledger()
         assert len(ledger) == 1
         assert ledger[0].task_id == "QMD-1"
@@ -159,7 +163,7 @@ class TestQmdRewardWriter:
     """Tests for per-agent reward markdown emission."""
 
     def test_write_agent_reward_md(self, tmp_path: Path) -> None:
-        """Per-agent .md and JSON sidecar emitted to QMD global agent-rewards."""
+        """Per-agent .md and JSON sidecar emitted to canonical agent-rewards."""
         from src.backend.mcp.reinforcement.models import AgentRewardMemory
         writer = QmdRewardWriter(tmp_path)
         reward = AgentRewardMemory(
@@ -176,7 +180,10 @@ class TestQmdRewardWriter:
         assert "software-engineer" in content
         assert "5,000" in content
         assert md_path.name == "software-engineer.md"
-        assert "agent-rewards" in str(md_path.parent)
+        assert (
+            "AgentWorkSpace/qmd/global/reinforcement/agent-rewards"
+            in str(md_path.parent)
+        )
 
         # JSON sidecar contains full structured data for launch-time reading.
         import json

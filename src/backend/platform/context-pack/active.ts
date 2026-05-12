@@ -18,11 +18,10 @@ export type TaskContextPackBindingFromSidecar = TaskContextPackBinding;
 /**
  * Require the authorized active context pack and return the full
  * TaskContextPackBinding. When taskId (or TASKSAIL_TASK_ID) is set, reads the
- * .task.json sidecar. When neither is set, falls back to the singleton
- * .platform-state/queue/active-context-pack.json / .env path.
+ * .task.json sidecar. When neither is set, falls back to the .env path.
  *
  * Throws TaskSidecarError (from taskJson.ts) on sidecar errors.
- * Throws Error on singleton misconfiguration.
+ * Throws Error on .env misconfiguration.
  */
 export async function requireAuthorizedActiveContextPackBinding(
   options: RequireAuthorizedActiveContextPackOptions = {},
@@ -33,13 +32,13 @@ export async function requireAuthorizedActiveContextPackBinding(
   const taskId = options.taskId ?? process.env['TASKSAIL_TASK_ID'];
 
   if (taskId) {
-    // Task-launch path: read the sidecar, fail-closed (no fallback to singleton).
+    // Task-launch path: read the sidecar, fail-closed.
     // readTaskJson throws TaskSidecarError on missing/corrupt/stale-schema.
     const taskJson = readTaskJson(taskId, repoRoot);
     return taskJson.contextPackBinding;
   }
 
-  // Legacy singleton path: read .env / process.env (no sidecar).
+  // Non-task path: read .env / process.env (no sidecar).
   const envPath = path.join(repoRoot, '.env');
   const fileValue = (await readEnvAssignment(
     envPath,
@@ -88,7 +87,7 @@ export async function requireAuthorizedActiveContextPackBinding(
 
   // Return a binding shape consistent with the sidecar schema.
   // contextPackPath is the sentinel pack JSON inside the dir (not the dir itself).
-  // For singleton, contextPackPath is null (dir-only resolution).
+  // For .env resolution, contextPackPath is null (dir-only resolution).
   return {
     contextPackPath: null,
     dataHostDir: null,
@@ -103,7 +102,7 @@ export async function requireAuthorizedActiveContextPackBinding(
  *
  * When taskId (or TASKSAIL_TASK_ID) is set, reads the .task.json sidecar and
  * returns path.dirname(contextPackPath) when contextPackPath is non-null.
- * Falls back to the singleton .env resolution when no task is active.
+ * Falls back to .env resolution when no task is active.
  */
 export async function requireAuthorizedActiveContextPack(
   options: RequireAuthorizedActiveContextPackOptions = {},
@@ -121,14 +120,14 @@ export async function requireAuthorizedActiveContextPack(
     }
     // contextPackPath is null (e.g., L0 fixture without a real context pack).
     // Return empty string to signal "no context pack configured" without silently
-    // falling through to the singleton, which would break task isolation.
+    // falling through to .env, which would break task isolation.
     throw new Error(
       `Task sidecar for task "${taskId}" has a null contextPackPath. ` +
       'No context pack is bound to this task.',
     );
   }
 
-  // Legacy singleton path: delegate to the full binding helper then extract dir.
+  // Non-task path: delegate to .env resolution.
   const envPath = path.join(repoRoot, '.env');
   const fileValue = (await readEnvAssignment(
     envPath,

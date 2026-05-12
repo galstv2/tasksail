@@ -46,6 +46,7 @@ export {
   roleRequiresReinforcement,
   resolveReinforcementContext,
 } from './reinforcement.js';
+export { buildReinforcementOverlay } from './reinforcementOverlay.js';
 
 // Guardrails
 export {
@@ -116,11 +117,17 @@ export {
 
 // Role agent entrypoint
 export { runRoleAgent } from './roleAgent.js';
+export { runStandaloneRoleAgent } from './standaloneRoleAgent.js';
+export type {
+  StandaloneRoleAgentOptions,
+  StandaloneRoleAgentResult,
+} from './standaloneRoleAgent.js';
 
 // Reinforcement write operations
 export {
   submitReinforcementFeedback,
   updateGlobalRealignmentDoc,
+  runRealignmentAnalysis,
 } from './reinforcementWrite.js';
 
 export type {
@@ -133,5 +140,14 @@ export type {
   RealignmentDocResult,
 } from './reinforcementWrite.js';
 
-// CLI
-export { main as cli } from './cli.js';
+export {
+  startRealignmentAnalysisJob,
+} from './realignmentPhase/supervisor.js';
+
+export type {
+  RealignmentJobStartResult,
+} from './realignmentPhase/supervisor.js';
+
+export type {
+  RealignmentExecutionResult,
+} from './realignmentPhase/driver.js';

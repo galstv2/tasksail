@@ -23,7 +23,16 @@ class ParentArchiveRetrievalTests(unittest.TestCase):
         cls.app = load_repo_context_app()
 
     def create_archive(self, context_pack_dir: Path, *, scope: str, file_name: str, record: dict[str, object]) -> Path:
-        path = context_pack_dir / scope / "archive" / "tasks" / "platform" / "2026" / file_name
+        path = (
+            context_pack_dir
+            / scope
+            / "archive"
+            / "tasks"
+            / "platform"
+            / "2026"
+            / Path(file_name).stem
+            / "archive.json"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         return path
@@ -93,6 +102,11 @@ class ParentArchiveRetrievalTests(unittest.TestCase):
             self.assertEqual(summary["parent_task_id"], "CAP-1000")
             self.assertEqual(summary["root_task_id"], "CAP-1000")
             self.assertEqual(summary["parent_qmd_record_id"], "task:platform:CAP-1000")
+            self.assertTrue(
+                str(summary["parent_archive_path"]).endswith(
+                    "/archive/tasks/platform/2026/cap-1000/archive.json"
+                )
+            )
             self.assertIn("Stabilize queue intake", summary["business_goal"])
             self.assertIn("Preserve queue ordering during closeout", summary["key_decisions"])
             self.assertIn("Do not bypass pendingitems sequencing", summary["inherited_constraints"])

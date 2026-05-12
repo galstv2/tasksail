@@ -1,6 +1,12 @@
 import path from 'node:path';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { findRepoRoot } from '../core/index.js';
+import {
+  agentRewardsDir,
+  legacyAgentRewardsDir,
+  readJsonSafe,
+  readStoreJsonSafe,
+} from './reinforcementPaths.js';
 
 export interface ReinforcementOverview {
   totalTasks: number;
@@ -53,39 +59,23 @@ export interface GlobalRealignmentDocData {
   updatedAt: string;
 }
 
-// ── JSON helpers ───────────────────────────────────────────────────────────
-
-async function readJsonSafe<T>(filePath: string): Promise<T | null> {
-  try {
-    const raw = await readFile(filePath, 'utf-8');
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
 type JsonRecord = Record<string, unknown>;
 
-function reinforcementDir(repoRoot: string): string {
-  return path.join(repoRoot, 'AgentWorkSpace', 'qmd', 'reinforcement');
-}
-
-function agentRewardsDir(repoRoot: string): string {
-  return path.join(repoRoot, 'AgentWorkSpace', 'qmd', 'global', 'agent-rewards');
-}
-
-// ── Read functions ─────────────────────────────────────────────────────────
+const CURRENT_ROLE_MULTIPLIERS: Record<string, number> = {
+  'planning-agent': 1.0,
+  'product-manager': 1.5,
+  'software-engineer': 1.5,
+  qa: 1.0,
+};
 
 const SETTLEMENT_STREAK_THRESHOLD = 10;
 
 export async function readReinforcementOverview(
   repoRoot: string = findRepoRoot(),
 ): Promise<ReinforcementOverview> {
-  const rDir = reinforcementDir(repoRoot);
-
   const [ledgerData, settlementsData, agents] = await Promise.all([
-    readJsonSafe<JsonRecord>(path.join(rDir, 'task-ledger.json')),
-    readJsonSafe<JsonRecord>(path.join(rDir, 'settlements.json')),
+    readStoreJsonSafe<JsonRecord>(repoRoot, 'task-ledger.json'),
+    readStoreJsonSafe<JsonRecord>(repoRoot, 'settlements.json'),
     readAgentRewards(repoRoot),
   ]);
 
@@ -132,20 +122,32 @@ export async function readReinforcementOverview(
 export async function readAgentRewards(
   repoRoot: string = findRepoRoot(),
 ): Promise<AgentRewardSummary[]> {
-  const aDir = agentRewardsDir(repoRoot);
-  const files = await readdir(aDir).catch(() => [] as string[]);
+  const canonicalDir = agentRewardsDir(repoRoot);
+  let aDir = canonicalDir;
+  let files = await readdir(canonicalDir).catch(() => [] as string[]);
   const jsonFiles = files.filter((f) => f.endsWith('.json'));
+  if (jsonFiles.length === 0) {
+    const legacyDir = legacyAgentRewardsDir(repoRoot);
+    const legacyFiles = await readdir(legacyDir).catch(() => [] as string[]);
+    const legacyJsonFiles = legacyFiles.filter((f) => f.endsWith('.json'));
+    if (legacyJsonFiles.length > 0) {
+      aDir = legacyDir;
+      files = legacyFiles;
+    }
+  }
+  const selectedJsonFiles = files.filter((f) => f.endsWith('.json'));
   const loaded = await Promise.all(
-    jsonFiles.map((file) => readJsonSafe<JsonRecord>(path.join(aDir, file))),
+    selectedJsonFiles.map((file) => readJsonSafe<JsonRecord>(path.join(aDir, file))),
   );
   return loaded.filter((d): d is JsonRecord => d !== null).map(mapAgentReward);
 }
 
 function mapAgentReward(e: JsonRecord): AgentRewardSummary {
+  const agentId = String(e.agent_id ?? '');
   return {
-    agentId: String(e.agent_id ?? ''),
+    agentId,
     role: String(e.role ?? ''),
-    multiplier: typeof e.multiplier === 'number' ? e.multiplier : 0,
+    multiplier: CURRENT_ROLE_MULTIPLIERS[agentId] ?? (typeof e.multiplier === 'number' ? e.multiplier : 0),
     lifetimeReward: typeof e.lifetime_reward === 'number' ? e.lifetime_reward : 0,
     unrewardedTaskCount: typeof e.unrewarded_task_count === 'number' ? e.unrewarded_task_count : 0,
     unrewardedRewardTotal: typeof e.unrewarded_reward_total === 'number' ? e.unrewarded_reward_total : 0,
@@ -159,7 +161,7 @@ function mapAgentReward(e: JsonRecord): AgentRewardSummary {
  *
  * Each JSON sidecar contains task metadata including difficulty and reward
  * fields set during archival.  The task ledger
- * (``AgentWorkSpace/qmd/reinforcement/task-ledger.json``) is consulted for
+ * (``AgentWorkSpace/qmd/global/reinforcement/store/task-ledger.json``) is consulted for
  * settlement status since the archive sidecar does not carry it.
  */
 export async function listReinforcementTasks(
@@ -190,8 +192,7 @@ export async function listReinforcementTasks(
   const targetYears = year ? yearDirs.filter((y) => y === year) : yearDirs;
 
   // Load settlement status and effective reward from the task ledger.
-  const rDir = reinforcementDir(repoRoot);
-  const ledgerData = await readJsonSafe<JsonRecord>(path.join(rDir, 'task-ledger.json'));
+  const ledgerData = await readStoreJsonSafe<JsonRecord>(repoRoot, 'task-ledger.json');
   const ledgerEntries = Array.isArray(ledgerData?.entries) ? ledgerData.entries as JsonRecord[] : [];
   const ledgerMap = new Map<string, { status: string; reward: number }>();
   for (const le of ledgerEntries) {
@@ -239,9 +240,9 @@ export async function listReinforcementTasks(
 export async function listRealignmentSessions(
   repoRoot: string = findRepoRoot(),
 ): Promise<RealignmentSessionEntry[]> {
-  const rDir = reinforcementDir(repoRoot);
-  const sessionsDir = path.join(rDir, 'realignment');
-  const data = await readJsonSafe<JsonRecord>(path.join(sessionsDir, 'sessions.json'));
+  const data = await readStoreJsonSafe<JsonRecord>(
+    repoRoot, 'realignment', 'sessions.json',
+  );
   if (!data || !Array.isArray(data.entries)) return [];
   const sessions = (data.entries as JsonRecord[]).map((e) => ({
     realignmentId: String(e.realignment_id ?? ''),
@@ -263,8 +264,9 @@ export async function listRealignmentSessions(
 export async function readGlobalRealignmentDoc(
   repoRoot: string = findRepoRoot(),
 ): Promise<GlobalRealignmentDocData> {
-  const rDir = reinforcementDir(repoRoot);
-  const data = await readJsonSafe<JsonRecord>(path.join(rDir, 'global-realignment-doc.json'));
+  const data = await readStoreJsonSafe<JsonRecord>(
+    repoRoot, 'global-realignment-doc.json',
+  );
   if (!data) {
     return {
       standingExpectations: [],

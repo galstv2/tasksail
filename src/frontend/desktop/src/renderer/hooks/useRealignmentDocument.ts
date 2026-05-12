@@ -31,7 +31,7 @@ export type UseRealignmentDocumentResult = {
   onFieldChange: (field: keyof DocumentDraft, value: string) => void;
   onSave: (contextPackDir: string) => Promise<void>;
   onDiscard: () => void;
-  reload: () => void;
+  reload: () => Promise<void>;
 };
 
 const EMPTY_DRAFT: DocumentDraft = {

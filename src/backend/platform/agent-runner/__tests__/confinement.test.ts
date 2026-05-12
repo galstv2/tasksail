@@ -7,6 +7,9 @@ import {
   DaltonConfinementError,
   validateDaltonBoundaryChanges,
 } from '../confinement.js';
+import { buildDaltonConfinementRetryPrompt } from '../daltonLaunchPrep.js';
+import { applyWorktreeInjectionToFocused, type WorktreeBindingMap } from '../worktreeInjection.js';
+import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
 
 function createTempWorkspace(): {
   root: string;
@@ -91,6 +94,87 @@ describe('validateDaltonBoundaryChanges', () => {
             [workspace.platformRepoRoot]: ['AgentWorkSpace/tasks/task-test-001/handoffs/issues.md'],
             [workspace.primaryRepoRoot]: ['src/app.ts'],
             [workspace.sharedRepoRoot]: [],
+          },
+        },
+      })).rejects.toThrow(DaltonConfinementError);
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts incident-shaped worktree edits after injection and rejects siblings outside writable roots', async () => {
+    const workspace = createTempWorkspace();
+    try {
+      const originRoot = path.join(workspace.root, 'origin', 'platform');
+      const worktreeRoot = path.join(workspace.root, 'task', 'worktrees', 'platform');
+      mkdirSync(originRoot, { recursive: true });
+      mkdirSync(worktreeRoot, { recursive: true });
+      writeChangedFile(worktreeRoot, 'libs/Acme.Models/Order.cs');
+      writeChangedFile(worktreeRoot, 'libs/Acme.Models.Tests/OrderTests.cs');
+      writeChangedFile(worktreeRoot, 'libs/Acme.Sibling/Leak.cs');
+
+      const bindingMap: WorktreeBindingMap = {
+        applied: true,
+        substitutions: new Map([[originRoot, worktreeRoot]]),
+      };
+      const focused = applyWorktreeInjectionToFocused({
+        primaryRepoRoot: originRoot,
+        visibleRepoRoots: [originRoot],
+        declaredRepoRoots: [originRoot],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'platform',
+        writableRoots: [
+          {
+            repoLocalPath: originRoot,
+            path: 'libs/Acme.Models',
+            kind: 'directory',
+            reason: 'selected-primary',
+          },
+          {
+            repoLocalPath: originRoot,
+            path: 'libs/Acme.Models.Tests',
+            kind: 'directory',
+            reason: 'scoped-test-target',
+          },
+        ],
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+      }, bindingMap);
+
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused,
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [worktreeRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [worktreeRoot]: [
+              'libs/Acme.Models/Order.cs',
+              'libs/Acme.Models.Tests/OrderTests.cs',
+            ],
+          },
+        },
+      })).resolves.toBeUndefined();
+
+      await expect(validateDaltonBoundaryChanges({
+        platformRepoRoot: workspace.platformRepoRoot,
+        focused,
+        before: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [worktreeRoot]: [],
+          },
+        },
+        after: {
+          byRepoRoot: {
+            [workspace.platformRepoRoot]: [],
+            [worktreeRoot]: ['libs/Acme.Sibling/Leak.cs'],
           },
         },
       })).rejects.toThrow(DaltonConfinementError);
@@ -787,5 +871,65 @@ describe('validateDaltonBoundaryChanges', () => {
     } finally {
       await rm(workspace.root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildDaltonConfinementRetryPrompt', () => {
+  const focused: FocusedRepoResult = {
+    primaryRepoRoot: '/repo/worktree',
+    visibleRepoRoots: ['/repo/worktree'],
+    declaredRepoRoots: ['/repo/worktree'],
+    estateType: 'distributed-platform',
+    primaryRepoId: 'platform',
+    selectedRepoIds: ['platform'],
+    selectedFocusIds: [],
+    authoritySource: 'active-task-sidecar',
+    writableRoots: [
+      {
+        repoLocalPath: '/repo/worktree',
+        path: 'libs/Acme.Models',
+        kind: 'directory',
+        reason: 'selected-primary',
+      },
+    ],
+    readonlyContextRoots: [
+      {
+        repoLocalPath: '/repo/worktree',
+        path: 'libs/Acme.Shared',
+        kind: 'directory',
+        reason: 'support-target',
+      },
+    ],
+  };
+
+  it('includes retry repair instructions and the original assignment context', () => {
+    const prompt = buildDaltonConfinementRetryPrompt({
+      basePrompt: 'Base retry prompt.',
+      originalAssignmentPrompt: '## Implementation Spec\n\nDo the assigned work.\n\n### Slice: slice-1\n\nAcceptance Criteria.',
+      violation: new DaltonConfinementError('outside boundary', [
+        '/repo/worktree/libs/Acme.Sibling/Leak.cs',
+      ]),
+      focused,
+    });
+
+    expect(prompt).toContain('Base retry prompt.');
+    expect(prompt).toContain('Out-of-bound changed paths detected:');
+    expect(prompt).toContain('- /repo/worktree/libs/Acme.Sibling/Leak.cs');
+    expect(prompt).toContain('You are a fresh independent Dalton process.');
+    expect(prompt).toContain('Compare the current codebase state to the original assignment context below.');
+    expect(prompt).toContain(`Writable roots: ${JSON.stringify(focused.writableRoots ?? [])}`);
+    expect(prompt).toContain(`Read-only context roots: ${JSON.stringify(focused.readonlyContextRoots ?? [])}`);
+    expect(prompt).toContain('## Original Assignment Context');
+    expect(prompt).toContain('## Implementation Spec');
+    expect(prompt).toContain('### Slice: slice-1');
+  });
+
+  it('fails closed when the original assignment prompt is blank', () => {
+    expect(() => buildDaltonConfinementRetryPrompt({
+      basePrompt: 'Base retry prompt.',
+      originalAssignmentPrompt: '   ',
+      violation: new DaltonConfinementError('outside boundary', []),
+      focused,
+    })).toThrow('original assignment prompt is empty');
   });
 });

@@ -15,6 +15,11 @@ from ..config import (
     TASKSAIL_TASK_ID_HEADER,
     RequestScope,
 )
+from ..services import (
+    RESEED_IN_PROGRESS_ERROR_CODE,
+    RESEED_MARKER_STALE_AFTER_SECONDS,
+    ReseedAlreadyInProgressError,
+)
 from ..utils import (
     attach_request_id,
     ensure_non_empty_string,
@@ -542,7 +547,17 @@ class RepoContextHttpHandler:
                     if not runtime.runtime_state.acquire_seed_run(seed_scope_key):
                         self._write_json(
                             409,
-                            {"error": "a seed run is already in progress"},
+                            {
+                                "error": RESEED_IN_PROGRESS_ERROR_CODE,
+                                "message": "a seed run is already in progress",
+                                "pid": None,
+                                "host": None,
+                                "started_at": None,
+                                "same_host": False,
+                                "stale_after_seconds": (
+                                    RESEED_MARKER_STALE_AFTER_SECONDS
+                                ),
+                            },
                             request_id,
                         )
                         return
@@ -554,6 +569,22 @@ class RepoContextHttpHandler:
                         plan_mode=plan_mode,
                         write_report=bool(payload.get("write_report", True)),
                     )
+                except ReseedAlreadyInProgressError as exc:
+                    logger.info("Seed conflict: %s — %s", request_id, exc)
+                    self._write_json(
+                        409,
+                        {
+                            "error": RESEED_IN_PROGRESS_ERROR_CODE,
+                            "message": str(exc),
+                            "pid": exc.pid,
+                            "host": exc.host,
+                            "started_at": exc.started_at,
+                            "same_host": exc.same_host,
+                            "stale_after_seconds": exc.stale_after_seconds,
+                        },
+                        request_id,
+                    )
+                    return
                 except ValueError as exc:
                     logger.error("Seed failed: %s — %s", request_id, exc)
                     self._write_json(400, {"error": str(exc)}, request_id)

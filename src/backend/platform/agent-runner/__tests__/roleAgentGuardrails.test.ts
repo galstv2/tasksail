@@ -88,6 +88,7 @@ vi.mock('../sessionReceipts.js', () => ({
 vi.mock('../../container/sharedMcp.js', () => ({
   getSharedMcpUrl: vi.fn(async () => 'http://localhost:8811/sse'),
   resolveContextPackContainerPath: vi.fn(() => '/workspace/context-pack'),
+  runtimeRequiresContainerPaths: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../platform-config/get.js', () => ({
@@ -117,6 +118,7 @@ const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfin
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
+const { runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
 
 const mockedLoadAgentRegistry = vi.mocked(loadAgentRegistry);
 const mockedResolveAgentProfile = vi.mocked(resolveAgentProfile);
@@ -126,6 +128,7 @@ const mockedBuildAgentArgs = vi.mocked(buildAgentArgs);
 const mockedFormatAgentCommand = vi.mocked(formatAgentCommand);
 const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
+const mockedRuntimeRequiresContainerPaths = vi.mocked(runtimeRequiresContainerPaths);
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
@@ -146,6 +149,7 @@ const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChan
 const mockedExistsSync = vi.mocked(existsSync);
 
 function setupCommonMocks(): void {
+  mockedRuntimeRequiresContainerPaths.mockResolvedValue(true);
   mockedResolvePaths.mockReturnValue({
     repoRoot: '/repo',
     agentWorkSpace: '/repo/AgentWorkSpace',
@@ -874,6 +878,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
   });
 
   it('reruns Dalton once with the retry prompt after a confinement violation', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
     const autonomyArgs = {
@@ -932,6 +937,21 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     });
 
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedWriteSessionStartReceipt).toHaveBeenCalledTimes(2);
+    const initialReceipt = mockedWriteSessionStartReceipt.mock.calls[0]?.[0] as {
+      launchId: string;
+    };
+    const retryReceipt = mockedWriteSessionStartReceipt.mock.calls[1]?.[0] as {
+      launchId: string;
+      launchPhase?: string;
+      retryOfLaunchId?: string;
+    };
+    expect(retryReceipt.launchId).not.toBe(initialReceipt.launchId);
+    expect(retryReceipt.launchPhase).toBe('Confinement retry');
+    expect(retryReceipt.retryOfLaunchId).toBe(initialReceipt.launchId);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[roleAgent] Dalton confinement retry launching after boundary violation: 1 path(s)',
+    );
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
@@ -947,7 +967,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
-        expect.stringContaining('COPILOT_WRITABLE_ROOTS_JSON writable roots'),
+        expect.stringContaining('writable roots listed below'),
       ]),
     );
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(

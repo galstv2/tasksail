@@ -5,6 +5,7 @@ import { classNames } from '../utils/classNames';
 import {
   filterActivityStream,
   formatStreamMessage,
+  messageEmbedsActorName,
   streamRoleAppearance,
 } from '../activityStream';
 import type {
@@ -43,13 +44,14 @@ function formatTime(timestamp: string): string {
 }
 
 function TerminalLine({ event }: { event: StreamEvent }): JSX.Element {
+  const actorEmbeddedInMessage = messageEmbedsActorName(event);
   return (
     <div className={classNames('terminal-line', event.sessionContext && 'terminal-line--runtime')}>
       <span className="terminal-timestamp">[{formatTime(event.timestamp)}]</span>
       <span className={classNames('terminal-role', `terminal-role--${event.role}`)}>
         [{streamRoleAppearance[event.role].label}]
       </span>
-      {event.actorName && (
+      {event.actorName && !actorEmbeddedInMessage && (
         <span className="terminal-actor">{event.actorName}</span>
       )}
       <span className={classNames(
@@ -58,7 +60,7 @@ function TerminalLine({ event }: { event: StreamEvent }): JSX.Element {
         event.severity === 'error' && 'terminal-message--error',
         event.severity === 'warning' && 'terminal-message--warning',
       )}>
-        {event.actorName ? event.message : formatStreamMessage(event)}
+        {actorEmbeddedInMessage || event.actorName ? event.message : formatStreamMessage(event)}
       </span>
     </div>
   );

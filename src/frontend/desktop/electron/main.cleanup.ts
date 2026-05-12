@@ -54,7 +54,7 @@ const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}T\d{6}Z[-_]/;
  * Full workspace reset. Designed to be called synchronously from `before-quit`.
  *
  * 1. Kill active agent PIDs (from role-session receipts — legacy singleton + per-task)
- * 2. Tear down every worktree unconditionally
+ * 2. Tear down active/recoverable worktrees; preserve legacy completed sidecars
  * 3. Move pending task files back to dropbox
  * 4. Update task registry: pending/active → open
  * 5. Reset .active-items/ directory
@@ -123,11 +123,12 @@ function killAgentPids(): void {
 }
 
 /**
- * Tear down every git worktree unconditionally.
- * Walks task-registry.json and AgentWorkSpace/tasks/<taskId>/.task.json.
- * Every JSON parse is individually try/catch guarded.
- * Unconditional — does NOT consult retain_failed_task_worktrees.
- */
+  * Tear down every active/recoverable git worktree.
+  * Walks task-registry.json and AgentWorkSpace/tasks/<taskId>/.task.json.
+  * Every JSON parse is individually try/catch guarded.
+  * Does NOT consult retain_failed_task_worktrees. Legacy completed sidecars are
+  * preserved because completed source branches are operator handoffs.
+  */
 function tearDownAllWorktrees(): void {
   const seenTaskIds = new Set<string>();
   const uniqueOriginalRoots = new Set<string>();
@@ -177,6 +178,7 @@ function tearDownAllWorktrees(): void {
 
     // Parse .task.json — individually guarded
     let bindings: Array<{ originalRoot: string; worktreeRoot: string; worktreeBranch: string }> = [];
+    let sidecarState: string | null = null;
     if (existsSync(taskJsonPath)) {
       try {
         const raw = readFileSync(taskJsonPath, 'utf-8');
@@ -187,6 +189,7 @@ function tearDownAllWorktrees(): void {
           console.warn('cleanup-json-parse-failed', taskJsonPath);
           sidecar = {};
         }
+        sidecarState = typeof sidecar.state === 'string' ? sidecar.state : null;
         const rawBindings = (sidecar?.contextPackBinding as Record<string, unknown> | undefined)?.repoBindings;
         if (Array.isArray(rawBindings)) {
           for (const b of rawBindings) {
@@ -205,6 +208,13 @@ function tearDownAllWorktrees(): void {
           }
         }
       } catch { /* IO error — skip bindings for this task, still rmSync below */ }
+    }
+
+    if (sidecarState === 'completed') {
+      console.warn(
+        `cleanup-preserved-completed-sidecar taskId=${taskId} sidecar=${taskJsonPath}`,
+      );
+      continue;
     }
 
     // Git teardown per binding

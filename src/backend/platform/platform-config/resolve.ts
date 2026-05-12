@@ -30,7 +30,7 @@ export async function resolveContainerRuntime(
   repoRoot: string,
 ): Promise<ContainerBackend> {
   const envOverride = process.env['CONTAINER_RUNTIME'];
-  if (envOverride === 'docker' || envOverride === 'podman') {
+  if (envOverride === 'docker' || envOverride === 'podman' || envOverride === 'direct') {
     return envOverride;
   }
 

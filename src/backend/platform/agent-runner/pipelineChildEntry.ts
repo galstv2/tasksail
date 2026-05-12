@@ -1,4 +1,5 @@
-import { runPipelineSequence } from './pipeline/sequencer.js';
+import { CLOSEOUT_FAILURE_EXIT_CODE, runPipelineSequence } from './pipeline/sequencer.js';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Pipeline child entrypoint. Invoked by spawnPipelineForTask via child_process.fork.
@@ -30,6 +31,19 @@ function parseArgv(argv: string[]): { taskId: string | undefined; repoRoot: stri
   }
 
   return { taskId, repoRoot };
+}
+
+const CONFINEMENT_BOUNDARY_FAILURE_SIGNAL = 'Dalton edited files outside the enforced writable roots';
+
+export function formatPipelineChildEntryError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes(CONFINEMENT_BOUNDARY_FAILURE_SIGNAL)) {
+    return [
+      '[pipelineChildEntry] Confinement blocked task safely: Dalton changed files outside the selected writable scope.',
+      '[pipelineChildEntry] Review the Dalton guardrail receipt for the affected paths.',
+    ].join('\n') + '\n';
+  }
+  return `[pipelineChildEntry] Fatal error: ${message}\n`;
 }
 
 async function main(): Promise<void> {
@@ -66,9 +80,15 @@ async function main(): Promise<void> {
   process.exit(exitCode);
 }
 
-main().catch((err: unknown) => {
-  process.stderr.write(
-    `[pipelineChildEntry] Fatal error: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
-  process.exit(1);
-});
+function isDirectEntryPoint(): boolean {
+  const entryPath = process.argv[1];
+  return entryPath ? import.meta.url === pathToFileURL(entryPath).href : false;
+}
+
+if (isDirectEntryPoint()) {
+  main().catch((err: unknown) => {
+    process.stderr.write(formatPipelineChildEntryError(err));
+    const isCloseoutFailure = (err as { _isCloseoutFailure?: boolean })?._isCloseoutFailure === true;
+    process.exit(isCloseoutFailure ? CLOSEOUT_FAILURE_EXIT_CODE : 1);
+  });
+}

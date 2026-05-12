@@ -61,6 +61,9 @@ const defaultProps = {
   onOpenPlannerModal: vi.fn(),
   showMultiPrimaryWarning: false,
   onDismissMultiPrimaryWarning: vi.fn(),
+  bootstrapEmptyConfirmPending: false,
+  onConfirmActivateAnyway: vi.fn(),
+  onConfirmPopulateAndSeed: vi.fn(),
 };
 
 describe('ContextPackSidebarExpanded', () => {

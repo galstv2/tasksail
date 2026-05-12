@@ -10,7 +10,11 @@ import type {
   ContextPackDeepFocusTarget,
   ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
-import { isContextPackListResponse, isDeepFocusLoadSelectionsResponse } from '../../shared/desktopContractTypeGuards';
+import {
+  isContextPackCatalogChangedEvent,
+  isContextPackListResponse,
+  isDeepFocusLoadSelectionsResponse,
+} from '../../shared/desktopContractTypeGuards';
 import { hydrateLegacyPrimaries, migrateSupportScopes } from '../components/SidebarDeepFocusUtils';
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
 import type { ContextPackSidebarProps } from '../components/ContextPackSidebar';
@@ -25,6 +29,7 @@ import {
   toggleFocusSelection,
 } from '../selectors/contextPackPreferences';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
+import { isMonolithEstateMode } from '../contextPackModeUtils';
 import { useContextPackCreation } from './useContextPackCreation';
 import { useIpcCall } from './useIpcCall';
 import { useContextPackSwitching, type SwitchingStateSnapshot } from './useContextPackSwitching';
@@ -53,6 +58,9 @@ export type UseContextPackSelectionResult = {
 function buildSessionCreatedCatalogEntry(
   createdContextPack: ContextPackCreateExecutionResult,
 ): ContextPackCatalogEntry {
+  // 'not-run' is the sentinel set only by the new-flow stub-tree branch in
+  // executeContextPackCreateAction; any live seed overwrites it.
+  const isBootstrapEmpty = createdContextPack.seedStatus === 'not-run';
   return {
     contextPackId: createdContextPack.contextPackId,
     displayName: createdContextPack.displayName,
@@ -65,14 +73,15 @@ function buildSessionCreatedCatalogEntry(
     defaultScopeMode: createdContextPack.defaultScopeMode,
     repoCount: createdContextPack.repositoryCount,
     primaryWorkingRepoIds:
-      createdContextPack.estateType === 'monolith'
+      isMonolithEstateMode(createdContextPack.estateType)
         ? createdContextPack.primaryFocusAreaIds
         : createdContextPack.primaryWorkingRepoIds,
     focusTargets: [],
+    packSeedState: isBootstrapEmpty ? 'bootstrap-empty' : 'seeded',
+    packSeedStateInfo: { state: isBootstrapEmpty ? 'bootstrap-empty' : 'seeded' },
     status: 'inactive',
     statusMessage:
       'Created in the current desktop session. Preview or apply to activate it.',
-    driftDetected: false,
     restoreAvailable: false,
     lastSyncedAt: null,
     lastAppliedScopeMode: null,
@@ -267,9 +276,12 @@ export function useContextPackSelection(
     lastResult,
     lastReseedResult,
     showMultiPrimaryWarning,
+    bootstrapEmptyConfirmPending,
     setLastResult,
     setLastReseedResult,
     dismissMultiPrimaryWarning,
+    confirmActivateAnyway,
+    confirmPopulateAndSeed,
     runAction,
     runReseedAction,
   } = useContextPackSwitching(client, getSwitchingState, setError, setMessage, refreshCatalog);
@@ -300,6 +312,14 @@ export function useContextPackSelection(
   useEffect(() => {
     void refreshCatalog();
   }, [refreshCatalog]);
+
+  useEffect(() => client.subscribeContextPackCatalogChanged((event) => {
+    if (!isContextPackCatalogChangedEvent(event)) {
+      console.warn('Dropped malformed context-pack catalog event:', event);
+      return;
+    }
+    void refreshCatalog({ preserveFeedback: true });
+  }), [client, refreshCatalog]);
 
   const handleSelectContextPack = useCallback(
     (contextPackDir: string) => {
@@ -415,6 +435,7 @@ export function useContextPackSelection(
       contextPacks: catalogResponse?.contextPacks ?? [],
       activeContextPackDir: catalogResponse?.activeContextPackDir ?? null,
       selectedContextPackDir,
+      repoRoot,
       selectedRepoIds,
       selectedFocusIds,
       deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
@@ -446,6 +467,9 @@ export function useContextPackSelection(
       onClearActive: () => runAction('clear'),
       showMultiPrimaryWarning,
       onDismissMultiPrimaryWarning: dismissMultiPrimaryWarning,
+      bootstrapEmptyConfirmPending,
+      onConfirmActivateAnyway: confirmActivateAnyway,
+      onConfirmPopulateAndSeed: confirmPopulateAndSeed,
       onToggleRepositoryType: (repoId: string, currentType: 'primary' | 'support') => {
         const packDir = selectedContextPackDirRef.current;
         if (!packDir) return;

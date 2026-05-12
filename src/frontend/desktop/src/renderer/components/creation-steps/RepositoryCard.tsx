@@ -7,6 +7,7 @@ import type {
   ContextPackCreationModalProps,
   RepositoryEntryDraft,
 } from '../../contextPackCreationTypes';
+import { isMonolithEstateMode } from '../../contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import { toTitleCase } from '../../utils/toTitleCase';
 
@@ -53,7 +54,7 @@ function RepositoryCard({
       <div className="panel__title-row context-pack-modal__card-header">
         <div>
           <span className="context-pack-modal__card-label">
-            {mode === 'monolith' && index === 0
+            {isMonolithEstateMode(mode) && index === 0
               ? 'Main repository'
               : `Repository ${index + 1}`}
           </span>

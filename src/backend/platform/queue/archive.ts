@@ -57,6 +57,7 @@ export async function fileTaskArchive(
     const result = await runPython(scriptPath, args, {
       cwd: repoRoot,
       timeout: 60_000,
+      env: { TASKSAIL_TASK_ID: options.taskId },
     });
     let data: Record<string, unknown> | undefined;
     try {

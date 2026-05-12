@@ -5,6 +5,7 @@
  *   pnpm run agent          -- runs the "run" subcommand
  *   pnpm run agent:pipeline -- runs the unattended active-task pipeline
  */
+import { pathToFileURL } from 'node:url';
 import type { AgentId } from '../core/index.js';
 import { ALL_AGENT_IDS, getErrorMessage } from '../core/index.js';
 import { runRoleAgent } from './roleAgent.js';
@@ -314,7 +315,13 @@ async function handleClearKill(args: string[]): Promise<void> {
   process.stdout.write(cleared ? 'Cleared pipeline kill request.\n' : 'No pipeline kill request was present.\n');
 }
 
-main(process.argv).catch((err: unknown) => {
-  process.stderr.write(`${getErrorMessage(err)}\n`);
-  process.exitCode = 1;
-});
+const isCliEntrypoint = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isCliEntrypoint) {
+  main(process.argv).catch((err: unknown) => {
+    process.stderr.write(`${getErrorMessage(err)}\n`);
+    process.exitCode = 1;
+  });
+}

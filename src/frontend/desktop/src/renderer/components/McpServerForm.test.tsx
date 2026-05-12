@@ -20,9 +20,9 @@ type FormProps = Pick<
 >;
 
 const TEST_AGENT_ROSTER = {
-  'software-engineer': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
-  qa: { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
-  'product-manager': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
+  'provider-builder': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
+  'provider-qa': { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
+  'provider-pm': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
 };
 
 function defaultProps(overrides: Partial<FormProps> = {}): FormProps {

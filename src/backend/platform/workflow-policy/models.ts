@@ -8,9 +8,12 @@ import type {
   WorkspaceArtifact,
 } from './types.js';
 import { getActiveProvider } from '../cli-provider/index.js';
+import { loadMarkdownContract } from './contracts/markdownContract.js';
+import { SECTION_NAMES } from './contracts/sectionNames.js';
 
-export const SECTION_HEADING = /^##\s+(.*\S)\s*$/;
-export const METADATA_LINE = /^-\s+([^:]+):\s*(.*)$/;
+const MARKDOWN_CONTRACT = loadMarkdownContract();
+export const SECTION_HEADING = MARKDOWN_CONTRACT.compiled.heading;
+export const METADATA_LINE = MARKDOWN_CONTRACT.compiled.label;
 export const FRONTMATTER_LINE = /^([A-Za-z0-9_-]+):\s*(.*)$/;
 export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 
@@ -64,8 +67,8 @@ export const HANDOFF_RELATIVE_PATHS = [
 ] as const;
 
 export const CONTENT_SECTION_EXCLUSIONS = new Set([
-  'Task Metadata',
-  'Task Lineage',
+  SECTION_NAMES.TASK_METADATA,
+  SECTION_NAMES.TASK_LINEAGE,
   'Difficulty Assessment',
 ]);
 

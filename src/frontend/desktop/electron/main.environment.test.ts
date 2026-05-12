@@ -254,7 +254,7 @@ describe('electron main bootstrap — environment and observability', () => {
 describe('buildAgentEnvironment — per-task path threading', () => {
   const profile: AgentProfile = {
     id: 'dalton',
-    registryId: 'software-engineer',
+    registryId: 'provider-builder',
     displayName: 'Dalton',
     role: 'Software Engineer',
     requiredModel: 'gpt-4.1',

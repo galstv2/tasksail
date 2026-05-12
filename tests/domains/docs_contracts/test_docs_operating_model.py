@@ -91,8 +91,9 @@ class DocsOperatingModelTests(unittest.TestCase):
         # Onboarding starter-task walkthrough
         ("onboarding", "## Starter-task walkthrough"),
         ("onboarding", "pnpm run validate"),
-        ("onboarding", "pnpm run watch-dropbox"),
         ("onboarding", "pnpm run plan-dropbox-task"),
+        ("onboarding", "Confirm the publish path moves it into `AgentWorkSpace/pendingitems/`"),
+        ("onboarding", "pnpm run queue-status"),
         (
             "onboarding",
             "tsx src/backend/platform/context-pack/cli.ts --context-pack-dir "

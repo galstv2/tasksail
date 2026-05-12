@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
@@ -129,131 +128,13 @@ describe('electron main bootstrap — context pack operations', () => {
     });
   });
 
-
-  it('lists context packs from approved configured sources', async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-packs-'));
-    try {
-      const configuredPack = join(tempRoot, 'configured-pack');
-      const searchRoot = join(tempRoot, 'search-root');
-      const discoveredPack = join(searchRoot, 'orders-estate');
-
-      await mkdir(join(configuredPack, 'qmd'), { recursive: true });
-      await mkdir(join(discoveredPack, 'qmd'), { recursive: true });
-      await writeFile(
-        join(configuredPack, 'qmd', 'repo-sources.json'),
-        JSON.stringify({
-          context_pack_id: 'configured-pack',
-          display_name: 'Configured Pack',
-          repositories: [
-            {
-              repo_id: 'orders-api',
-              repo_name: 'Orders API',
-              repository_type: 'primary',
-              service_name: 'orders-api',
-            },
-          ],
-          primary_working_repo_ids: ['orders-api'],
-        }),
-      );
-        await writeFile(
-          join(discoveredPack, 'qmd', 'repo-sources.json'),
-          JSON.stringify({
-            context_pack_id: 'orders-estate',
-            display_name: 'Orders Estate',
-          repositories: [
-            {
-              repo_id: 'orders-web',
-              repo_name: 'Orders Web',
-              repository_type: 'support',
-            },
-          ],
-          }),
-        );
-        const monolithPack = join(searchRoot, 'monolith-estate');
-        await mkdir(join(monolithPack, 'qmd'), { recursive: true });
-        await writeFile(
-          join(monolithPack, 'qmd', 'repo-sources.json'),
-          JSON.stringify({
-            context_pack_id: 'monolith-estate',
-            display_name: 'Monolith Estate',
-            estate_type: 'monolith',
-            focusable_areas: [
-              {
-                focus_id: 'core',
-                focus_name: 'Core Module',
-                relative_path: 'src/core',
-                focus_type: 'service',
-                repository_type: 'primary',
-              },
-            ],
-            primary_focus_area_ids: ['core'],
-          }),
-        );
-
-        const contextPackEnvVars = getActiveProvider(process.cwd()).contextPackEnvVars();
-        vi.stubEnv(contextPackEnvVars.paths, configuredPack);
-        vi.stubEnv(contextPackEnvVars.searchRoots, searchRoot);
-        vi.stubEnv('ACTIVE_CONTEXT_PACK_DIR', configuredPack);
-
-      const { listAvailableContextPacks } = await import('./main');
-      const response = await listAvailableContextPacks();
-
-      expect(response.action).toBe('contextPack.list');
-      expect(response.contextPacks).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            contextPackId: 'configured-pack',
-            contextPackDir: configuredPack,
-            isActive: true,
-            source: 'configured-path',
-            primaryWorkingRepoIds: ['orders-api'],
-            focusTargets: [
-              expect.objectContaining({
-                repoId: 'orders-api',
-                repositoryType: 'primary',
-              }),
-            ],
-          }),
-          expect.objectContaining({
-            contextPackId: 'orders-estate',
-            contextPackDir: discoveredPack,
-            source: 'search-root',
-            focusTargets: [
-              expect.objectContaining({
-                repoId: 'orders-web',
-                repositoryType: 'support',
-              }),
-            ],
-          }),
-          expect.objectContaining({
-            contextPackId: 'monolith-estate',
-            contextPackDir: monolithPack,
-            source: 'search-root',
-            primaryWorkingRepoIds: ['core'],
-            focusTargets: [
-              expect.objectContaining({
-                focusId: 'core',
-                kind: 'focus-area',
-                repositoryType: 'primary',
-              }),
-            ],
-          }),
-        ]),
-      );
-    } finally {
-      await rm(tempRoot, { recursive: true, force: true });
-    }
-  });
-
-  it('adds repo-local default context-pack search roots', async () => {
+  it('adds the repo-local default context-pack search root', async () => {
     const { getDefaultContextPackSearchRoots } = await import('./main');
 
     expect(
       getDefaultContextPackSearchRoots('/tmp/workspaces/tasksail'),
     ).toEqual([
       '/tmp/workspaces/tasksail/contextpacks',
-      '/tmp/workspaces/tasksail/context-packs',
-      '/tmp/workspaces/context-packs',
     ]);
   });
 
@@ -489,6 +370,10 @@ describe('electron main bootstrap — context pack operations', () => {
       });
       const planRunner = vi.fn().mockResolvedValue({ stdout: '{}', stderr: '' });
       const seedRunner = vi.fn();
+      const preflightRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ ok: true, errors: [], warnings: [] }),
+        stderr: '',
+      });
 
       const { executeContextPackCreateAction } = await import('./main');
       const result = await executeContextPackCreateAction(
@@ -523,6 +408,7 @@ describe('electron main bootstrap — context pack operations', () => {
         bootstrapRunner,
         planRunner,
         seedRunner,
+        preflightRunner,
       );
 
       expect(result).toEqual({
@@ -556,7 +442,7 @@ describe('electron main bootstrap — context pack operations', () => {
           display_name: 'Orders Estate',
           discovery_root: discoveryRoot,
           discovery_mode: 'distributed',
-          estate_type: 'distributed-platform',
+          estate_type: 'distributed',
           bootstrap_answers_path: join(contextPackDir, 'qmd/bootstrap/bootstrap-answers.json'),
           draft_path: join(contextPackDir, 'qmd/bootstrap/discovery-structure.json'),
           manifest_path: join(contextPackDir, 'qmd/repo-sources.json'),
@@ -571,6 +457,10 @@ describe('electron main bootstrap — context pack operations', () => {
       const planRunner = vi.fn().mockResolvedValue({ stdout: '{}', stderr: '' });
       const seedRunner = vi.fn().mockResolvedValue({
         stdout: JSON.stringify({ overall_status: 'success' }),
+        stderr: '',
+      });
+      const preflightRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ ok: true, errors: [], warnings: [] }),
         stderr: '',
       });
 
@@ -596,6 +486,7 @@ describe('electron main bootstrap — context pack operations', () => {
         bootstrapRunner,
         planRunner,
         seedRunner,
+        preflightRunner,
       );
 
       expect(result).toEqual({
@@ -604,13 +495,86 @@ describe('electron main bootstrap — context pack operations', () => {
           action: 'contextPack.create',
           result: expect.objectContaining({
             contextPackId: 'orders-estate',
-            estateType: 'distributed-platform',
+            estateType: 'distributed',
             seedStatus: 'success',
             primaryWorkingRepoIds: ['orders-api'],
           }),
         }),
       });
       expect(seedRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects creation before any disk write when preflight returns ok=false', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-preflight-'));
+    try {
+      const contextPackDir = join(tempRoot, 'context-packs', 'rejected-pack');
+      const discoveryRoot = join(tempRoot, 'rejected-pack-root');
+      const bootstrapRunner = vi.fn();
+      const planRunner = vi.fn();
+      const seedRunner = vi.fn();
+      const preflightRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({
+          ok: false,
+          errors: [
+            {
+              code: 'path-not-found',
+              field: 'bootstrapAnswers.repositories[0].repoRoot',
+              message: 'repoRoot does not exist or is not a directory: /no/such/path',
+              details: { path: '/no/such/path' },
+            },
+            {
+              code: 'scary-path',
+              field: 'contextPackDir',
+              message: 'Refusing to create a context pack at a system-critical location.',
+              details: { path: contextPackDir, reason: 'shallow /tmp' },
+            },
+          ],
+          warnings: [],
+        }),
+        stderr: '',
+      });
+
+      const { executeContextPackCreateAction } = await import('./main');
+      const result = await executeContextPackCreateAction(
+        {
+          contextPackDir,
+          discoveryRoot,
+          mode: 'distributed',
+          bootstrapAnswers: {
+            contextPackId: 'rejected-pack',
+            estateName: 'Rejected Pack',
+            repositories: [
+              {
+                repoRoot: '/no/such/path',
+                repoName: 'Phantom',
+                repoId: 'phantom',
+                systemLayer: 'backend',
+              },
+            ],
+          },
+        },
+        bootstrapRunner,
+        planRunner,
+        seedRunner,
+        preflightRunner,
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        return;
+      }
+      expect(result.errorCode).toBe('preflight-failed');
+      expect(result.preflightErrors).toHaveLength(2);
+      expect(result.details).toEqual([
+        'repoRoot does not exist or is not a directory: /no/such/path',
+        'Refusing to create a context pack at a system-critical location.',
+      ]);
+      expect(bootstrapRunner).not.toHaveBeenCalled();
+      expect(planRunner).not.toHaveBeenCalled();
+      expect(seedRunner).not.toHaveBeenCalled();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -631,7 +595,6 @@ describe('electron main bootstrap — context pack operations', () => {
       '/tmp/custom-context-packs',
       '/tmp/workspaces/context-packs',
       '/tmp/workspaces/tasksail/contextpacks',
-      '/tmp/workspaces/tasksail/context-packs',
     ]);
   });
 
@@ -666,11 +629,6 @@ describe('electron main bootstrap — context pack operations', () => {
           '/tmp/context-packs/orders-estate',
           '/tmp/estate-root/orders-api',
         ],
-        attachedManagedFolders: [],
-        missingManagedFolders: [
-          '/tmp/context-packs/orders-estate',
-          '/tmp/estate-root/orders-api',
-        ],
         status: 'success',
         lastSyncedAt: '2026-03-08T12:00:00Z',
         workspaceFolderCount: null,
@@ -681,9 +639,8 @@ describe('electron main bootstrap — context pack operations', () => {
     expect(state).toEqual(
       expect.objectContaining({
         isActive: true,
-        status: 'active-dirty-workspace',
-        restoreAvailable: true,
-        driftDetected: true,
+        status: 'active',
+        restoreAvailable: false,
         lastAppliedScopeMode: 'focused',
         lastAppliedSelectedRepoIds: ['orders-api'],
         lastAppliedDeepFocusEnabled: true,
@@ -978,36 +935,20 @@ describe('electron main bootstrap — context pack operations', () => {
     });
   });
 
-  it('updates monolith focus area repository type and primary focus ids together', async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-mutation-'));
-    const contextPackDir = join(tempRoot, 'monolith-estate');
-    const manifestPath = join(contextPackDir, 'qmd', 'repo-sources.json');
-    try {
-      await mkdir(join(contextPackDir, 'qmd'), { recursive: true });
-      await writeFile(
-        manifestPath,
-        JSON.stringify({
-          context_pack_id: 'monolith-estate',
-          estate_type: 'monolith',
-          focusable_areas: [
-            {
-              focus_id: 'core',
-              focus_name: 'Core',
-              repository_type: 'support',
-            },
-            {
-              focus_id: 'docs',
-              focus_name: 'Docs',
-              repository_type: 'primary',
-            },
-          ],
-          primary_focus_area_ids: ['docs'],
-        }),
-      );
+  it('delegates repository type update to update-pack-manifest.py and returns ok response', async () => {
+    vi.resetModules();
+    // Mock node:child_process so the Python subprocess is not actually invoked.
+    vi.doMock('node:child_process', () => ({
+      execFile: vi.fn((_bin: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
+        cb(null, { stdout: JSON.stringify({ status: 'ok', repo_id: 'core', field: 'repo_focus' }), stderr: '' });
+      }),
+      spawn: vi.fn(),
+    }));
 
-      const { executeSetRepositoryTypeAction } = await import('./main.contextPack');
-      const result = await executeSetRepositoryTypeAction({
-        contextPackDir,
+    try {
+      const { executeSetRepoFocusAction } = await import('./main.contextPack');
+      const result = await executeSetRepoFocusAction({
+        contextPackDir: '/tmp/monolith-estate',
         repoId: 'core',
         repositoryType: 'primary',
       });
@@ -1019,18 +960,60 @@ describe('electron main bootstrap — context pack operations', () => {
           mode: 'updated',
         }),
       });
-
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as {
-        focusable_areas: Array<{ focus_id: string; repository_type: string }>;
-        primary_focus_area_ids: string[];
-      };
-      expect(manifest.focusable_areas).toEqual([
-        expect.objectContaining({ focus_id: 'core', repository_type: 'primary' }),
-        expect.objectContaining({ focus_id: 'docs', repository_type: 'primary' }),
-      ]);
-      expect(manifest.primary_focus_area_ids).toEqual(['core', 'docs']);
     } finally {
-      await rm(tempRoot, { recursive: true, force: true });
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('runPythonScriptCommand passes stdin to the child process via spawn', async () => {
+    vi.resetModules();
+
+    // Capture what was written to stdin
+    let capturedStdin = '';
+    const stdinWrite = vi.fn((data: string) => { capturedStdin += data; });
+    const stdinEnd = vi.fn();
+    const mockChild = {
+      stdout: { on: vi.fn((event: string, cb: (d: Buffer) => void) => { if (event === 'data') cb(Buffer.from('{"status":"ok"}')); }) },
+      stderr: { on: vi.fn() },
+      stdin: { write: stdinWrite, end: stdinEnd },
+      on: vi.fn((event: string, cb: () => void) => { if (event === 'close') cb(); }),
+    };
+    vi.doMock('node:child_process', () => ({
+      execFile: vi.fn(),
+      spawn: vi.fn(() => mockChild),
+    }));
+
+    try {
+      const { runPythonScriptCommand } = await import('./main.contextPackActions');
+      const result = await runPythonScriptCommand(['echo'], { stdin: 'hello-stdin' });
+      expect(result.stdout).toBe('{"status":"ok"}');
+      expect(stdinWrite).toHaveBeenCalledWith('hello-stdin');
+      expect(stdinEnd).toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('runPythonScriptCommand without options uses execFile (legacy no-stdin path)', async () => {
+    vi.resetModules();
+
+    const execFileMock = vi.fn((_bin: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
+      cb(null, { stdout: 'legacy-output', stderr: '' });
+    });
+    vi.doMock('node:child_process', () => ({
+      execFile: execFileMock,
+      spawn: vi.fn(),
+    }));
+
+    try {
+      const { runPythonScriptCommand } = await import('./main.contextPackActions');
+      const result = await runPythonScriptCommand(['echo', 'hi']);
+      expect(result.stdout).toBe('legacy-output');
+      // spawn must NOT have been called — only execFile for the no-stdin path
+      const { spawn } = await import('node:child_process');
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 

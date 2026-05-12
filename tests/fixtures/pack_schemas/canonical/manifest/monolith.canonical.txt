@@ -1,0 +1,47 @@
+{
+  "approved_at": "2026-05-01T12:00:00Z",
+  "context_pack_id": "monolith-demo",
+  "default_scope_mode": "focused",
+  "display_name": "Monolith Demo",
+  "estate_type": "monolith",
+  "focusable_areas": [
+    {
+      "activation_priority": 100,
+      "default_focusable": true,
+      "focus_id": "api",
+      "focus_name": "API",
+      "focus_type": "service",
+      "relative_path": "src/api"
+    },
+    {
+      "activation_priority": 50,
+      "default_focusable": false,
+      "focus_id": "core",
+      "focus_name": "Core",
+      "focus_type": "library",
+      "relative_path": "src/core"
+    }
+  ],
+  "manifest_status": "approved",
+  "manifest_version": "qmd-repo-sources/v1",
+  "primary_focus_area_ids": [
+    "api"
+  ],
+  "primary_working_repo_ids": [],
+  "qmd_scope_root": "qmd/context-packs/monolith-demo",
+  "repository": {
+    "activation_priority": 100,
+    "default_focusable": true,
+    "languages": [
+      "typescript"
+    ],
+    "local_paths": [
+      "/Users/example/monolith"
+    ],
+    "repo_id": "monolith",
+    "repo_name": "Monolith",
+    "repo_role": "backend-service",
+    "repository_type": "primary",
+    "system_layer": "backend"
+  }
+}

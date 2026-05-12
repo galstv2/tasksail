@@ -176,7 +176,9 @@ tasksail/
     agents/              # Agent profiles and roster
     copilot/             # Copilot provider instructions and prompts
   AgentWorkSpace/        # Task artifacts (handoffs, slices, queue)
-  docker/                # Docker Compose services
+  runtime/
+    docker/              # Docker Compose and image assets
+    podman/              # Podman Compose and image assets
   docs/                  # Documentation
 ```
 

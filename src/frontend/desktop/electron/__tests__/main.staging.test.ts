@@ -3,6 +3,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,7 +18,7 @@ async function getReapedPid(): Promise<number> {
   return pid;
 }
 
-const TEST_REPO_ROOT = join(process.cwd(), 'scratchspace', 'vitest-planner-staging');
+const TEST_REPO_ROOT = join(tmpdir(), `tasksail-vitest-planner-staging-${process.pid}`);
 
 vi.mock('../paths', () => ({
   REPO_ROOT: TEST_REPO_ROOT,
@@ -67,6 +68,7 @@ describe('planner staging helpers', () => {
       sessionId: 'planner-101',
       contextPackDir: '/contextpacks/orders',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'services/orders',
@@ -100,6 +102,32 @@ describe('planner staging helpers', () => {
     }));
   });
 
+  it('suppresses Primary Repo ID for monolith packs and surfaces only Primary Focus ID', async () => {
+    const { initializeStagedPlanningDraft, readOwnedStagedDraft } = await import('../main.staging');
+
+    await initializeStagedPlanningDraft({
+      sessionId: 'planner-monolith',
+      contextPackDir: '/contextpacks/monorepo',
+      focusedRepo: {
+        estateType: 'monolith',
+        primaryRepoId: 'monorepo',
+        primaryRepoRoot: '/repos/monorepo',
+        primaryFocusId: 'platform-service',
+        primaryFocusRelativePath: 'platform',
+        selectedRepoIds: ['monorepo'],
+        selectedFocusIds: ['platform-service'],
+      },
+      now: new Date('2026-03-04T05:06:07.000Z'),
+    });
+
+    const { draft } = await readOwnedStagedDraft('planner-monolith');
+    expect(draft?.content).not.toContain('- Primary Repo ID:');
+    // Monolith has no repo-selection concept; the line would just echo Context
+    // Pack ID. Staging passes [] and the emitter skips the line entirely.
+    expect(draft?.content).not.toContain('- Selected Repo IDs:');
+    expect(draft?.content).toContain('- Primary Focus ID: platform-service');
+  });
+
   it('persists Deep Focus staging metadata for planner-originated drafts', async () => {
     const {
       initializeStagedPlanningDraft,
@@ -110,6 +138,7 @@ describe('planner staging helpers', () => {
       sessionId: 'planner-109',
       contextPackDir: '/contextpacks/orders',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'src/handler.ts',
@@ -127,6 +156,11 @@ describe('planner staging helpers', () => {
     expect(draft?.content).toContain('- Deep Focus Enabled: true');
     expect(draft?.content).toContain('- Selected Focus Path: src/handler.ts');
     expect(draft?.content).toContain('- Selected Test Target: {"path":"tests/handler.test.ts","kind":"file"}');
+    // Deep focus encodes the operator's selection in Selected Focus Targets;
+    // these two labels are duplicate/empty noise in this mode and should be
+    // suppressed.
+    expect(draft?.content).not.toContain('- Primary Repo ID:');
+    expect(draft?.content).not.toContain('- Selected Focus IDs:');
 
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-109',
@@ -148,6 +182,7 @@ describe('planner staging helpers', () => {
       sessionId: 'planner-110',
       contextPackDir: '/contextpacks/orders',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'src/orders',
@@ -204,6 +239,7 @@ describe('planner staging helpers', () => {
       sessionId: 'planner-104',
       contextPackDir: '/contextpacks/platform',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'platform',
         primaryRepoRoot: '/repos/platform',
         primaryFocusRelativePath: 'ops',
@@ -245,6 +281,7 @@ describe('planner staging helpers', () => {
     await initializeStagedPlanningDraft({
       sessionId: 'planner-102',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'frontend',
         primaryRepoRoot: '/repos/frontend',
         primaryFocusRelativePath: undefined,
@@ -274,6 +311,7 @@ describe('planner staging helpers', () => {
     await initializeStagedPlanningDraft({
       sessionId: 'planner-150',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'frontend',
         primaryRepoRoot: '/repos/frontend',
         primaryFocusRelativePath: 'desktop',
@@ -300,6 +338,7 @@ describe('planner staging helpers', () => {
     const metadata = await initializeStagedPlanningDraft({
       sessionId: 'planner-152',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'backend',
         primaryRepoRoot: '/repos/backend',
         primaryFocusRelativePath: 'services/api',
@@ -332,6 +371,7 @@ describe('planner staging helpers', () => {
     await initializeStagedPlanningDraft({
       sessionId: 'planner-103',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'platform',
         primaryRepoRoot: '/repos/platform',
         primaryFocusRelativePath: undefined,
@@ -362,6 +402,7 @@ describe('planner staging helpers', () => {
     await initializeStagedPlanningDraft({
       sessionId: 'planner-180',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'platform',
         primaryRepoRoot: '/repos/platform',
         primaryFocusRelativePath: undefined,
@@ -395,6 +436,7 @@ describe('planner staging helpers', () => {
     await initializeStagedPlanningDraft({
       sessionId: 'planner-181',
       focusedRepo: {
+        estateType: 'distributed',
         primaryRepoId: 'platform',
         primaryRepoRoot: '/repos/platform',
         primaryFocusRelativePath: 'ops',

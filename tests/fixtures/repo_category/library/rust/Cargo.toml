@@ -1,0 +1,5 @@
+[package]
+name = "my-lib"
+
+[lib]
+name = "my_lib"

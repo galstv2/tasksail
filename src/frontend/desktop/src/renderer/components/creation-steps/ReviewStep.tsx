@@ -1,4 +1,5 @@
 import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
+import { contextPackModeLabel, isMonolithEstateMode } from '../../contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import { toTitleCase } from '../../utils/toTitleCase';
 
@@ -38,7 +39,7 @@ function ValidationIcon({ state }: { state: ValidationState }): JSX.Element {
 }
 
 function isMonolithMode(mode: ReviewStepProps['draft']['mode']): boolean {
-  return mode === 'monolith';
+  return isMonolithEstateMode(mode);
 }
 
 function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
@@ -103,7 +104,7 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
             </div>
             <div>
               <dt>Mode</dt>
-              <dd>{draft.mode === 'distributed' ? 'Distributed estate' : 'Monolith'}</dd>
+              <dd>{contextPackModeLabel(draft.mode)}</dd>
             </div>
             <div>
               <dt>Display name</dt>

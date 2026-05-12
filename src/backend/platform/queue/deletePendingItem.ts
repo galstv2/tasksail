@@ -6,7 +6,9 @@ import { existsSync } from 'node:fs';
 import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
-import { readQueueOrderManifest, writeQueueOrderManifest } from './operations.js';
+import { removeFromQueueOrderManifest } from './operations.js';
+import { cleanupStagedPlannerFocusSnapshot } from './plannerFocusSnapshotStaging.js';
+import { withDirLock } from './dirLock.js';
 import { removeTask } from './taskRegistry.js';
 
 export interface DeletePendingItemOptions {
@@ -54,21 +56,12 @@ export async function deletePendingItem(
     );
   }
 
-  await unlink(targetPath);
-
-  // Remove from the task registry (deletedTaskId declared above)
-  try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
-
-  // Remove from the queue-order manifest; delete the file when empty
-  try {
-    const order = await readQueueOrderManifest(queuePaths.queueOrderPath);
-    const filtered = order.filter((f) => f !== queueName);
-    if (filtered.length > 0) {
-      await writeQueueOrderManifest(queuePaths.queueOrderPath, filtered);
-    } else {
-      await unlink(queuePaths.queueOrderPath);
-    }
-  } catch { /* best-effort */ }
+  await withDirLock(queuePaths.queueLockDir, 'Delete pending item', async () => {
+    await unlink(targetPath);
+    await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+    try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+    await removeFromQueueOrderManifest(queuePaths.queueOrderPath, queueName);
+  });
 
   // Defense in depth: a pending item that is not the active task should not
   // have a materialized worktree (worktree creation happens at activation,

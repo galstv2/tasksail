@@ -74,6 +74,18 @@
   min-width: 52px;
 }
 
+.context-pack-modal__part-picker-note {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--ts-text-soft);
+  background: var(--ts-surface-alt);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+}
+
 /* ── Footer ─────────────────────────────────────────────────────────── */
 
 .context-pack-modal__footer {
@@ -242,24 +254,11 @@
 }
 
 @media (max-width: 720px) {
-  .context-pack-modal__wizard {
-    grid-template-columns: 1fr;
-  }
-
   .context-pack-modal__wizard-progress {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
     overflow-x: auto;
-  }
-
-  .context-pack-modal__wizard-progress-step {
-    justify-content: center;
-    padding: 0.3rem 0.5rem;
-  }
-
-  .context-pack-modal__wizard-progress-step::after {
-    left: 12%;
-    right: 12%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    padding-bottom: 0.3rem;
   }
 }
 

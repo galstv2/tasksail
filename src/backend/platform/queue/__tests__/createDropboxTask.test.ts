@@ -86,7 +86,7 @@ describe('createDropboxTask', () => {
 
     expect(extractHeadings(content)).toEqual(extractHeadings(template));
     expect(content).toContain('- Task Kind: standard');
-    expect(content).toContain('- Recommended Execution: sequential');
+    expect(content).toContain('- Recommended Execution: Simple');
     expect(content).toContain('- Planner Notes: Planner note');
     expect(content).toContain('- Created By: Planning Agent');
   });
@@ -103,6 +103,27 @@ describe('createDropboxTask', () => {
     // Empty sections should still have the heading
     expect(content).toContain('## Request Summary');
     expect(content).toContain('## Desired Outcome');
+  });
+
+  it('persists standard-mode primary repo and focus metadata in queue markdown', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Repo Selection Task',
+      repoRoot: tmpRoot,
+      contextPackDir: '/packs/platform',
+      contextPackId: 'platform-pack',
+      scopeMode: 'repo-selection',
+      primaryRepoId: 'platform',
+      primaryFocusId: 'api',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: ['api'],
+    });
+
+    const content = readFileSync(outputPath, 'utf-8');
+    expect(content).toContain('- Scope Mode: repo-selection');
+    expect(content).toContain('- Primary Repo ID: platform');
+    expect(content).toContain('- Selected Repo IDs: platform, tools');
+    expect(content).toContain('- Primary Focus ID: api');
+    expect(content).toContain('- Selected Focus IDs: api');
   });
 
   it('generates a timestamped filename', async () => {

@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ContextPackCreateExecutionResult } from '../../shared/desktopContract';
+import type {
+  ContextPackCreateExecutionResult,
+  ContextPackPreflightError,
+  DesktopActionError,
+  DesktopInvokeResult,
+} from '../../shared/desktopContract';
 import { isCreateResponse } from '../../shared/desktopContractTypeGuards';
 import type {
   BuildWizardStep,
   ContextPackCreationDraft,
   ContextPackCreationModalProps,
   ContextPackCreationModalStep,
+  OpenModalIntent,
+  PersistedContextPackCreation,
   PartDraft,
 } from '../contextPackCreationTypes';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
-import { formatIpcError, normalizeIpcThrownError, withIpcTimeout, DEFAULT_IPC_TIMEOUT_MS } from '../services/ipcErrorHelpers';
+import { normalizeIpcThrownError, withIpcTimeout, DEFAULT_IPC_TIMEOUT_MS } from '../services/ipcErrorHelpers';
 import {
   INITIAL_DRAFT,
   buildValidationErrors,
@@ -25,6 +32,35 @@ import {
 } from './useContextPackDraft';
 import { useContextPackDraft } from './useContextPackDraft';
 import { useContextPackDiscovery, type DiscoveryState } from './useContextPackDiscovery';
+import { isDistributedEstateMode, isMonolithEstateMode } from '../contextPackModeUtils';
+import {
+  clearPersistedContextPackCreationDraft,
+  loadPersistedContextPackCreationDraft,
+  savePersistedContextPackCreationDraft,
+} from './useContextPackCreationDraftPersistence';
+
+/**
+ * Format a context-pack creation error into a multi-line display string.
+ * When the main process returned `preflightErrors[]` (errorCode === 'preflight-failed'),
+ * each error is rendered on its own line with optional field scoping so the
+ * operator can see every blocking precondition in a single glance.
+ */
+function formatContextPackCreationError(result: DesktopInvokeResult & { ok: false }): string {
+  const preflightErrors = (result as DesktopActionError).preflightErrors;
+  if (preflightErrors && preflightErrors.length > 0) {
+    return formatPreflightErrors(preflightErrors);
+  }
+  if (result.details && result.details.length > 0) {
+    return [result.error, ...result.details].join('\n');
+  }
+  return result.error;
+}
+
+function formatPreflightErrors(errors: ContextPackPreflightError[]): string {
+  return errors
+    .map((e) => (e.field ? `${e.field}: ${e.message}` : e.message))
+    .join('\n');
+}
 
 type ClosedModalState = {
   kind: 'closed';
@@ -61,6 +97,34 @@ export type UseContextPackCreationOptions = {
   defaultContextPackParentDir?: string;
 };
 
+type StepGuardResult = { ok: true } | { ok: false; reason: string };
+
+type StepGuardFn = (draft: ContextPackCreationDraft) => StepGuardResult;
+
+const STEP_GUARDS: Record<ContextPackCreationModalStep, StepGuardFn> = {
+  setup: () => ({ ok: true }),
+  shape: (draft) => {
+    if (
+      isDistributedEstateMode(draft.mode)
+      && !draft.repositories.some((r) => r.primary)
+    ) {
+      return { ok: false, reason: 'Mark at least one repository as primary to continue.' };
+    }
+    if (isMonolithEstateMode(draft.mode) && draft.focusAreas.length === 0) {
+      return { ok: false, reason: 'Add at least one focus area to continue.' };
+    }
+    return { ok: true };
+  },
+  review: () => ({ ok: true }),
+};
+
+function checkStepGuard(
+  step: ContextPackCreationModalStep,
+  draft: ContextPackCreationDraft,
+): StepGuardResult {
+  return STEP_GUARDS[step](draft);
+}
+
 export function useContextPackCreation(
   client: DesktopShellClient = desktopShellClient,
   options: UseContextPackCreationOptions,
@@ -71,6 +135,7 @@ export function useContextPackCreation(
   const stateRef = useRef(state);
   stateRef.current = state;
   const creationOriginRef = useRef<ContextPackCreationDraft['creationOrigin'] | null>(null);
+  const pendingPrefillRootRef = useRef<string | null>(null);
 
   const deriveContextPackDir = useCallback(
     (discoveryRoot: string, contextPackId: string): string => {
@@ -88,7 +153,10 @@ export function useContextPackCreation(
     [options.defaultContextPackParentDir],
   );
 
-  const openModal = useCallback(() => {
+  const openFreshDraft = useCallback((intent?: OpenModalIntent) => {
+    const prefillRoot = intent?.kind === 'prefill-from-repo' ? intent.repoRoot : null;
+    pendingPrefillRootRef.current = prefillRoot;
+    creationOriginRef.current = INITIAL_DRAFT.creationOrigin;
     setWizardStep('project-type');
     setWizardParts([]);
     setState({
@@ -96,6 +164,7 @@ export function useContextPackCreation(
       step: 'setup',
       draft: {
         ...INITIAL_DRAFT,
+        discoveryRoot: prefillRoot ?? '',
         contextPackDir: options.defaultContextPackParentDir ?? '',
         repositories: createInitialDistributedRepositories(),
       },
@@ -105,9 +174,47 @@ export function useContextPackCreation(
     });
   }, [options.defaultContextPackParentDir]);
 
+  const openModal = useCallback((intent?: OpenModalIntent) => {
+    const persisted = loadPersistedContextPackCreationDraft();
+    if (persisted) {
+      pendingPrefillRootRef.current = null;
+      creationOriginRef.current = persisted.creationOrigin;
+      setWizardStep(persisted.wizardStep ?? 'project-type');
+      setWizardParts(persisted.wizardParts);
+      setState({
+        kind: 'open',
+        step: persisted.modalStep,
+        draft: persisted.draft,
+        discovery: { status: 'idle' },
+        error: '',
+        message: '',
+      });
+      return;
+    }
+    openFreshDraft(intent);
+  }, [openFreshDraft]);
+
   const closeModal = useCallback(() => {
+    const current = stateRef.current;
+    if (current.kind !== 'closed') {
+      const envelope: PersistedContextPackCreation = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        draft: current.draft,
+        modalStep: current.step,
+        wizardStep: current.draft.creationOrigin === 'new' ? wizardStep : null,
+        wizardParts,
+        creationOrigin: current.draft.creationOrigin,
+      };
+      savePersistedContextPackCreationDraft(envelope);
+    }
     setState({ kind: 'closed' });
-  }, []);
+  }, [wizardParts, wizardStep]);
+
+  const discardDraft = useCallback(() => {
+    clearPersistedContextPackCreationDraft();
+    openFreshDraft();
+  }, [openFreshDraft]);
 
   const handleUpdateDraft = useCallback(
     (updater: (draft: ContextPackCreationDraft) => ContextPackCreationDraft) => {
@@ -287,6 +394,14 @@ export function useContextPackCreation(
     setState as (updater: (current: unknown) => unknown) => void,
   );
 
+  useEffect(() => {
+    if (state.kind !== 'open' || pendingPrefillRootRef.current === null) {
+      return;
+    }
+    pendingPrefillRootRef.current = null;
+    void discoverPrefill();
+  }, [discoverPrefill, state.kind]);
+
   const goNext = useCallback(() => {
     setState((current) => {
       if (current.kind !== 'open') {
@@ -300,6 +415,10 @@ export function useContextPackCreation(
         return { ...current, step: 'shape', draft: nextDraft, error: '' };
       }
       if (current.step === 'shape') {
+        const guard = checkStepGuard(current.step, current.draft);
+        if (!guard.ok) {
+          return { ...current, error: guard.reason, message: 'Complete the estate shape before continuing.' };
+        }
         return { ...current, step: 'review', error: '' };
       }
       return current;
@@ -412,7 +531,7 @@ export function useContextPackCreation(
             activationPriority: r.activationPriority,
           })),
           focusableAreas:
-            normalizedDraft.mode === 'monolith'
+            isMonolithEstateMode(normalizedDraft.mode)
               ? normalizedDraft.focusAreas.map((f) => ({
                   focusId: f.focusId || undefined,
                   focusName: f.focusName || undefined,
@@ -430,12 +549,13 @@ export function useContextPackCreation(
 
       if (!result.ok || !isCreateResponse(result.response)) {
         applyCreationError(
-          result.ok ? 'Creation returned an unexpected response.' : formatIpcError(result),
+          result.ok ? 'Creation returned an unexpected response.' : formatContextPackCreationError(result),
         );
         return;
       }
 
       await options.onCreated(result.response.result, result.response.message);
+      clearPersistedContextPackCreationDraft();
       setState({ kind: 'closed' });
     } catch (error: unknown) {
       applyCreationError(
@@ -458,6 +578,7 @@ export function useContextPackCreation(
         canGoBack: false,
         canGoNext: false,
         onClose: closeModal,
+        onDiscardDraft: discardDraft,
         onBrowseContextPackDir: () => Promise.resolve(),
         onBrowseDiscoveryRoot: () => Promise.resolve(),
         onChangeMode: () => undefined,
@@ -485,7 +606,7 @@ export function useContextPackCreation(
 
     const discoverySummary =
       state.discovery.status === 'ready'
-        ? state.discovery.response.estateType === 'distributed'
+        ? isDistributedEstateMode(state.discovery.response.estateType)
           ? `${state.discovery.response.candidateRepos.length} repo suggestion(s) discovered.`
           : `${state.discovery.response.candidateFocusAreas.length} focus area suggestion(s) discovered.`
         : state.discovery.status === 'error'
@@ -493,6 +614,8 @@ export function useContextPackCreation(
           : state.discovery.status === 'loading'
             ? 'Scanning selected root…'
             : 'No discovery results loaded yet.';
+
+    const stepGuard = checkStepGuard(state.step, state.draft);
 
     return {
       isOpen: true,
@@ -504,8 +627,12 @@ export function useContextPackCreation(
       error: state.error,
       message: state.message,
       canGoBack: state.kind === 'open' && state.step !== 'setup',
-      canGoNext: state.kind === 'open' && state.step !== 'review',
+      canGoNext: state.kind === 'open' && state.step !== 'review' && stepGuard.ok,
+      canGoNextReason: state.kind === 'open' && !stepGuard.ok
+        ? stepGuard.reason
+        : undefined,
       onClose: closeModal,
+      onDiscardDraft: discardDraft,
       onBrowseContextPackDir: () => browsePath('context-pack-destination'),
       onBrowseDiscoveryRoot: () => browsePath('discovery-root'),
       onChangeMode: draftHandlers.setMode,
@@ -532,6 +659,7 @@ export function useContextPackCreation(
   }, [
     browsePath,
     closeModal,
+    discardDraft,
     discoverPrefill,
     draftHandlers,
     handleDraftFieldChange,

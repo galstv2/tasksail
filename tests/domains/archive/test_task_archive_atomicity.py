@@ -115,8 +115,8 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
                 # Archive JSON must NOT exist in the final location
                 archive_path = (
                     context_pack_dir
-                    / "qmd/context-packs/sample-org/archive/tasks/2026"
-                    / "cap-2001.json"
+                    / "qmd/context-packs/sample-org/archive/tasks/2026/cap-2001"
+                    / "archive.json"
                 )
                 self.assertFalse(
                     archive_path.exists(),

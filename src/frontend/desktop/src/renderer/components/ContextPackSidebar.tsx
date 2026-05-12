@@ -7,6 +7,7 @@ import type {
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
 } from '../../shared/desktopContract';
+import type { OpenContextPackCreationModal } from '../contextPackCreationTypes';
 import ContextPackSidebarCompact from './ContextPackSidebarCompact';
 import ContextPackSidebarExpanded from './ContextPackSidebarExpanded';
 
@@ -14,6 +15,7 @@ export type ContextPackSidebarProps = {
   contextPacks: ContextPackCatalogEntry[];
   activeContextPackDir: string | null;
   selectedContextPackDir: string;
+  repoRoot?: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
@@ -34,13 +36,19 @@ export type ContextPackSidebarProps = {
   onSelectContextPack: (contextPackDir: string) => void;
   onSelectWorkingFocus: (repoId: string) => void;
   onRefreshCatalog: () => void | Promise<void>;
-  onOpenCreateModal: () => void;
+  onOpenCreateModal: OpenContextPackCreationModal;
   onReseedContextPack: () => void | Promise<void>;
   onPreviewSwitch: () => void | Promise<void>;
   onApplySwitch: () => void | Promise<void>;
   onClearActive: () => void | Promise<void>;
   showMultiPrimaryWarning: boolean;
   onDismissMultiPrimaryWarning: () => void;
+  /** True when an apply was blocked because the selected pack is bootstrap-empty. */
+  bootstrapEmptyConfirmPending: boolean;
+  /** Continue the apply as if the pack were seeded. */
+  onConfirmActivateAnyway: () => void | Promise<void>;
+  /** Cancel the apply and trigger a reseed instead. */
+  onConfirmPopulateAndSeed: () => void | Promise<void>;
   onToggleRepositoryType?: (repoId: string, currentType: 'primary' | 'support') => void;
   onCommitDeepFocusSelection: (selection: {
     deepFocusEnabled: boolean;

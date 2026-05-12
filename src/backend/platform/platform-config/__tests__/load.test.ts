@@ -34,6 +34,7 @@ const FULL_DEFAULT = {
   max_retained_failed_task_worktrees: 10,
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
+  auto_merge: false,
   mcp_port: 8811,
   repo_context_mcp_external_mount_roots: [],
 };
@@ -134,6 +135,7 @@ describe('loadPlatformConfig', () => {
         max_retained_failed_task_worktrees: 10,
         max_retry_generations_per_slug: 5,
         completed_task_runtime_retention_ms: 3600000,
+        auto_merge: false,
         mcp_port: 8811,
         repo_context_mcp_external_mount_roots: [],
       });
@@ -157,8 +159,29 @@ describe('loadPlatformConfig', () => {
       expect(result.config.max_retained_failed_task_worktrees).toBe(10);
       expect(result.config.max_retry_generations_per_slug).toBe(5);
       expect(result.config.completed_task_runtime_retention_ms).toBe(3600000);
+      expect(result.config.auto_merge).toBe(false);
       expect(result.config.mcp_port).toBe(8811);
       expect(result.config.repo_context_mcp_external_mount_roots).toEqual([]);
+    }
+  });
+
+  it('accepts boolean auto_merge and rejects non-boolean auto_merge', async () => {
+    const accepted = await loadPlatformConfig(writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      auto_merge: true,
+    })));
+    expect(accepted.valid).toBe(true);
+    if (accepted.valid) {
+      expect(accepted.config.auto_merge).toBe(true);
+    }
+
+    const rejected = await loadPlatformConfig(writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      auto_merge: 'true',
+    })));
+    expect(rejected.valid).toBe(false);
+    if (!rejected.valid) {
+      expect(rejected.errors.some((e) => e.field === 'auto_merge')).toBe(true);
     }
   });
 

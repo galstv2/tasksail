@@ -1,5 +1,6 @@
 import type { ContextPackDiscoveryMode } from '../../../shared/desktopContract';
 import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
+import { isDistributedEstateMode } from '../../contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import BuildWizard from './BuildWizard';
 
@@ -135,8 +136,10 @@ function SetupStep({
                   )
                 }
               >
-                <option value="distributed">Distributed estate</option>
+                <option value="distributed">Distributed</option>
+                <option value="distributed-platform">Distributed + infrastructure</option>
                 <option value="monolith">Monolith</option>
+                <option value="monolith-platform">Monolith + infrastructure</option>
               </select>
             </label>
             <label className="composer-field">
@@ -180,7 +183,7 @@ function SetupStep({
                 >
                   {discoveryStatus === 'loading'
                     ? 'Scanning\u2026'
-                    : draft.mode === 'distributed'
+                    : isDistributedEstateMode(draft.mode)
                       ? 'Scan for repositories'
                       : 'Scan for focus areas'}
                 </button>

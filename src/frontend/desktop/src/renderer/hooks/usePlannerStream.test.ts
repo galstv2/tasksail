@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlannerStreamEvent } from '../../shared/desktopContract';
 import { usePlannerStream } from './usePlannerStream';
 
+function plannerEvent(event: Omit<PlannerStreamEvent, 'sessionId'>): PlannerStreamEvent {
+  return { sessionId: 'planner-test', ...event };
+}
+
 describe('usePlannerStream', () => {
   let subscribedCallback: ((plannerEvent: PlannerStreamEvent) => void) | null;
   let unsubscribe: ReturnType<typeof vi.fn>;
@@ -13,6 +17,7 @@ describe('usePlannerStream', () => {
     unsubscribe = vi.fn();
     window.desktopShell = {
       ...window.desktopShell,
+      sendPlannerMessage: vi.fn(),
       onPlannerEvent: vi.fn((cb) => {
         subscribedCallback = cb;
         return unsubscribe;
@@ -39,10 +44,10 @@ describe('usePlannerStream', () => {
     const { result } = renderHook(() => usePlannerStream());
 
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'Hello', messageKind: 'delta' });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'Hello', messageKind: 'delta' }));
     });
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: ' world', messageKind: 'delta' });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: ' world', messageKind: 'delta' }));
     });
 
     expect(result.current.messages).toHaveLength(1);
@@ -55,7 +60,7 @@ describe('usePlannerStream', () => {
     const { result } = renderHook(() => usePlannerStream());
 
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false }));
     });
 
     expect(result.current.isStreaming).toBe(true);
@@ -66,10 +71,10 @@ describe('usePlannerStream', () => {
     const { result } = renderHook(() => usePlannerStream());
 
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'Hello', messageKind: 'delta' });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'Hello', messageKind: 'delta' }));
     });
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true }));
     });
 
     expect(result.current.isStreaming).toBe(false);
@@ -82,9 +87,9 @@ describe('usePlannerStream', () => {
     const { result } = renderHook(() => usePlannerStream());
 
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false });
-      subscribedCallback!({ eventType: 'planner.session.updated', brokerStatus: 'completed', turnId: 'turn-1', done: false, cliSessionId: 'session-1' });
-      subscribedCallback!({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.started', brokerStatus: 'running', turnId: 'turn-1', done: false }));
+      subscribedCallback!(plannerEvent({ eventType: 'planner.session.updated', brokerStatus: 'completed', turnId: 'turn-1', done: false, cliSessionId: 'session-1' }));
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.completed', brokerStatus: 'completed', turnId: 'turn-1', done: true }));
     });
 
     expect(result.current.messages).toEqual([]);
@@ -108,7 +113,7 @@ describe('usePlannerStream', () => {
 
     act(() => {
         for (let i = 0; i < 210; i++) {
-          subscribedCallback!({ eventType: 'planner.turn.message', brokerStatus: 'completed', turnId: `turn-${i}`, done: true, content: `msg-${i}`, messageKind: 'final' });
+          subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'completed', turnId: `turn-${i}`, done: true, content: `msg-${i}`, messageKind: 'final' }));
         }
       });
 
@@ -135,7 +140,7 @@ describe('usePlannerStream', () => {
     const { result } = renderHook(() => usePlannerStream());
 
     act(() => {
-      subscribedCallback!({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'token', messageKind: 'delta' });
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'token', messageKind: 'delta' }));
     });
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.isStreaming).toBe(true);
@@ -147,5 +152,68 @@ describe('usePlannerStream', () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.brokerStatus).toBe('idle');
     expect(result.current.lastError).toBe('');
+  });
+
+  it('hydrateMessages replaces messages without streaming state or broker IPC', () => {
+    const { result } = renderHook(() => usePlannerStream());
+
+    act(() => {
+      result.current.sendMessage('Live message');
+      result.current.hydrateMessages([
+        {
+          id: 'history-1',
+          role: 'operator',
+          text: 'Historical operator message',
+          isStreaming: true,
+          timestamp: '2026-03-20T00:00:00.000Z',
+        },
+        {
+          id: 'history-2',
+          role: 'planner',
+          text: 'Historical planner message',
+          isStreaming: false,
+          timestamp: '2026-03-20T00:01:00.000Z',
+        },
+      ]);
+    });
+
+    expect(result.current.messages).toEqual([
+      {
+        id: 'history-1',
+        role: 'operator',
+        text: 'Historical operator message',
+        isStreaming: false,
+        timestamp: '2026-03-20T00:00:00.000Z',
+      },
+      {
+        id: 'history-2',
+        role: 'planner',
+        text: 'Historical planner message',
+        isStreaming: false,
+        timestamp: '2026-03-20T00:01:00.000Z',
+      },
+    ]);
+    expect(result.current.isStreaming).toBe(false);
+    expect(window.desktopShell.sendPlannerMessage).not.toHaveBeenCalled();
+  });
+
+  it('drops planner events whose session id does not match the expected session id', () => {
+    const expectedSessionIdRef: { current: string | null } = { current: 'expected-session' };
+    const { result } = renderHook(() => usePlannerStream({ expectedSessionIdRef }));
+
+    act(() => {
+      subscribedCallback!(plannerEvent({ eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-1', done: false, content: 'stale', messageKind: 'delta' }));
+      subscribedCallback!({ sessionId: 'expected-session', eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-2', done: false, content: 'fresh', messageKind: 'delta' });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].text).toBe('fresh');
+
+    act(() => {
+      expectedSessionIdRef.current = null;
+      subscribedCallback!({ sessionId: 'expected-session', eventType: 'planner.turn.message', brokerStatus: 'running', turnId: 'turn-3', done: false, content: 'while-resetting', messageKind: 'delta' });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
   });
 });

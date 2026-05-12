@@ -21,6 +21,13 @@
   min-width: 0;
 }
 
+.instructions-browser__provider-subtitle {
+  color: var(--ts-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .instructions-browser__tabs {
   display: flex;
   flex-wrap: nowrap;

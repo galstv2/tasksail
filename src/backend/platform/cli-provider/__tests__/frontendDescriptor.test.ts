@@ -47,18 +47,21 @@ describe('getProviderFrontendDescriptor', () => {
     expect(descriptor.agentConfigPaths.registry).toBe('.github/agents/registry.json');
     expect(descriptor.promptPathEnvVars.handoffsDir).toBe('COPILOT_HANDOFFS_DIR');
     expect(descriptor.contextPackEnvVars.paths).toBe('COPILOT_CONTEXT_PACK_PATHS');
+    expect(descriptor.plannerAgentId).toBe('planning-agent');
     expect(descriptor.roster).toEqual([
       {
         agentId: 'planning-agent',
         roleName: 'Planning Intake',
         humanName: 'Lily',
         workflowOrder: 1,
+        roleKind: 'planner',
       },
       {
         agentId: 'qa',
         roleName: 'QA',
         humanName: 'Ron',
         workflowOrder: 5,
+        roleKind: 'qa',
       },
     ]);
   });

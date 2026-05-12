@@ -1,10 +1,26 @@
 """Shared constants for context estate discovery, manifest, and bootstrap."""
 from __future__ import annotations
 
+from src.backend.mcp.pack_constants import (  # noqa: F401 – re-export for backward compat
+    ALLOWED_ESTATE_TYPES,
+    ALLOWED_LAYERS,
+    DISTRIBUTED_ESTATE_TYPES,
+    MONOLITH_ESTATE_TYPES,
+    REPOSITORY_TYPES,
+)
+
 # ---------------------------------------------------------------------------
 # Discovery constants
 # ---------------------------------------------------------------------------
 ESTATE_TYPES = ("distributed", "monolith")
+
+ALLOWED_DISCOVERY_MODES = (
+    "auto",
+    "distributed",
+    "distributed-platform",
+    "monolith",
+    "monolith-platform",
+)
 
 SKIP_DIR_NAMES = {
     ".git", ".hg", ".svn", ".idea", ".vscode", ".venv",
@@ -55,10 +71,6 @@ DEFAULT_DISTRIBUTED_SCAN_DEPTH = 4
 # ---------------------------------------------------------------------------
 # Manifest constants
 # ---------------------------------------------------------------------------
-DISTRIBUTED_ESTATE_TYPES = {"distributed", "distributed-platform"}
-MONOLITH_ESTATE_TYPES = {"monolith", "monolith-platform"}
-ALLOWED_ESTATE_TYPES = DISTRIBUTED_ESTATE_TYPES | MONOLITH_ESTATE_TYPES
-
 ALLOWED_REPO_ROLES = {
     "frontend", "backend-service", "shared-lib", "infra",
     "database", "service", "application", "library", "shared",
@@ -72,16 +84,11 @@ ALLOWED_FOCUS_TYPES = {
     "package-group", "service", "service-group", "shared", "source",
 }
 
-REPOSITORY_TYPES = {"primary", "support"}
 DEFAULT_REPOSITORY_TYPE = "support"
 
 # ---------------------------------------------------------------------------
 # Bootstrap constants
 # ---------------------------------------------------------------------------
-ALLOWED_LAYERS = {
-    "backend", "frontend", "test", "infrastructure",
-    "database", "documents", "shared",
-}
 DEFAULT_SCOPE_MODE = "focused"
 
 EXTENSION_LANGUAGE_MAP: dict[str, str] = {

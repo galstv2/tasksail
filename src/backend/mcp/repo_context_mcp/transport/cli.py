@@ -5,6 +5,10 @@ import json
 import os
 from typing import Any, Callable
 
+from ..services import (
+    RESEED_IN_PROGRESS_ERROR_CODE,
+    ReseedAlreadyInProgressError,
+)
 from ..utils import ensure_non_empty_string
 
 
@@ -75,6 +79,13 @@ class RepoContextCli:
         seed_parser = subparsers.add_parser(
             "seed",
             help="Run live QMD seeding once",
+            epilog=(
+                "Exit codes: 0 = success or completed-with-blocked-repos; "
+                "1 = seed run produced overall_status=failed; "
+                "2 = another reseed is already in progress (structured "
+                "JSON conflict on stdout)."
+            ),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         seed_parser.add_argument(
             "--context-pack-dir",
@@ -244,13 +255,25 @@ class RepoContextCli:
             args.context_pack_dir,
             "context_pack_dir",
         )
-        report = self.execute_seed_run(
-            context_pack_dir=context_pack_dir,
-            manifest=args.manifest,
-            plan_file=args.plan_file,
-            plan_mode=args.plan_mode,
-            write_report=not args.no_write_report,
-        )
+        try:
+            report = self.execute_seed_run(
+                context_pack_dir=context_pack_dir,
+                manifest=args.manifest,
+                plan_file=args.plan_file,
+                plan_mode=args.plan_mode,
+                write_report=not args.no_write_report,
+            )
+        except ReseedAlreadyInProgressError as exc:
+            print(json.dumps({
+                "error": RESEED_IN_PROGRESS_ERROR_CODE,
+                "message": str(exc),
+                "pid": exc.pid,
+                "host": exc.host,
+                "started_at": exc.started_at,
+                "same_host": exc.same_host,
+                "stale_after_seconds": exc.stale_after_seconds,
+            }, indent=2, sort_keys=False))
+            return 2
         if args.format == "json":
             print(json.dumps(report, indent=2, sort_keys=False))
         else:

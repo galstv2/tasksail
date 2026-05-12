@@ -1,0 +1,32 @@
+{
+  "blocked_count": 0,
+  "context_pack_dir": "/tmp/test-pack",
+  "context_pack_id": "test-pack",
+  "manifest_path": "/tmp/test-pack/qmd/repo-sources.json",
+  "manifest_version": "qmd-repo-sources/v1",
+  "next_steps": [],
+  "overall_status": "ready",
+  "plan_type": "qmd-seeding-dry-run",
+  "plan_version": "qmd-seeding-dry-run/v1",
+  "qmd_scope_root": "qmd/context-packs/test-pack",
+  "ready_count": 1,
+  "repositories": [
+    {
+      "bounded_context": null,
+      "existing_roots": [],
+      "languages": [],
+      "missing_roots": [],
+      "owner": null,
+      "qmd_targets": {},
+      "repo_id": "main",
+      "repo_name": "Main",
+      "scan_targets": [],
+      "status": "ready",
+      "system_layer": "backend",
+      "tags": [],
+      "warnings": []
+    }
+  ],
+  "repository_count": 1,
+  "warning_count": 0
+}

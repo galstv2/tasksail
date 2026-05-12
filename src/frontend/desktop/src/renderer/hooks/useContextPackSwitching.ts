@@ -14,6 +14,7 @@ import {
   isContextPackSwitchResponse,
   isContextPackReseedResponse,
 } from '../../shared/desktopContractTypeGuards';
+import { RESEED_IN_PROGRESS_ERROR_CODE } from '../../shared/desktopContractContextPack';
 import { useToastContext } from '../contexts/ToastContext';
 import { summarizeSwitchResult, summarizeReseedResult } from '../selectors/contextPackSidebarModel';
 import type { DesktopShellClient } from '../services/desktopShellClient';
@@ -46,9 +47,15 @@ export type UseContextPackSwitchingResult = {
   lastResult: ContextPackSwitchExecutionResult | null;
   lastReseedResult: ContextPackReseedExecutionResult | null;
   showMultiPrimaryWarning: boolean;
+  /** True when the apply action was blocked because the selected pack is bootstrap-empty. */
+  bootstrapEmptyConfirmPending: boolean;
   setLastResult: (result: ContextPackSwitchExecutionResult | null) => void;
   setLastReseedResult: (result: ContextPackReseedExecutionResult | null) => void;
   dismissMultiPrimaryWarning: () => void;
+  /** Dismiss the bootstrap-empty confirm dialog and continue the apply anyway. */
+  confirmActivateAnyway: () => Promise<void>;
+  /** Dismiss the bootstrap-empty confirm dialog and trigger a reseed instead. */
+  confirmPopulateAndSeed: () => Promise<void>;
   runAction: (action: 'preview' | 'apply' | 'clear') => Promise<void>;
   runReseedAction: () => Promise<void>;
 };
@@ -68,6 +75,10 @@ export function useContextPackSwitching(
   const [lastReseedResult, setLastReseedResult] =
     useState<ContextPackReseedExecutionResult | null>(null);
   const [showMultiPrimaryWarning, setShowMultiPrimaryWarning] = useState(false);
+  const [bootstrapEmptyConfirmPending, setBootstrapEmptyConfirmPending] = useState(false);
+  // Ref used to bypass the bootstrap-empty gate when the operator explicitly
+  // chose "Activate anyway" from the confirm dialog.
+  const bypassBootstrapCheckRef = useRef(false);
   const { addToast } = useToastContext();
   const { call } = useIpcCall(setError);
 
@@ -103,6 +114,20 @@ export function useContextPackSwitching(
         (entry: ContextPackCatalogEntry) =>
           entry.contextPackDir === selectedContextPackDir,
       );
+
+      // Gate: if the selected pack hasn't been seeded yet, show a confirm
+      // dialog before continuing with 'apply'.  'preview' is not gated.
+      if (
+        action === 'apply' &&
+        selectedPack?.packSeedState === 'bootstrap-empty' &&
+        !bypassBootstrapCheckRef.current
+      ) {
+        setBootstrapEmptyConfirmPending(true);
+        return;
+      }
+      // Clear the bypass flag now that we've passed (or bypassed) the gate.
+      bypassBootstrapCheckRef.current = false;
+
       if (
         action !== 'clear' &&
         selectedPack?.estateType === 'distributed-platform' &&
@@ -237,6 +262,26 @@ export function useContextPackSwitching(
       );
 
       if (!callResult.ok) {
+        if (callResult.error === RESEED_IN_PROGRESS_ERROR_CODE) {
+          const detailValue = (key: string): string | null => {
+            const prefix = `${key}=`;
+            return callResult.details?.find((detail) => detail.startsWith(prefix))?.slice(prefix.length) ?? null;
+          };
+          const pid = detailValue('pid');
+          const message = pid && pid !== 'unknown' && pid !== 'null'
+            ? `Another reseed is already in progress on PID ${pid}`
+            : 'Another reseed is already in progress.';
+          setMessage('Context-pack reseed is already in progress.');
+          addToast({
+            message,
+            severity: 'warning',
+          });
+          await refreshCatalog({
+            preferredContextPackDir: selectedContextPackDir,
+            preserveFeedback: true,
+          });
+          return;
+        }
         setMessage('Context-pack reseed failed.');
         return;
       }
@@ -254,7 +299,7 @@ export function useContextPackSwitching(
     } finally {
       setActionPending(null);
     }
-  }, [client, getState, setMessage, refreshCatalog, call]);
+  }, [client, getState, setMessage, refreshCatalog, call, addToast]);
 
   const prevLastResultRef = useRef(lastResult);
   const prevLastReseedResultRef = useRef(lastReseedResult);
@@ -284,14 +329,28 @@ export function useContextPackSwitching(
     prevLastReseedResultRef.current = lastReseedResult;
   }, [lastReseedResult, addToast]);
 
+  const confirmActivateAnyway = useCallback(async (): Promise<void> => {
+    setBootstrapEmptyConfirmPending(false);
+    bypassBootstrapCheckRef.current = true;
+    await runAction('apply');
+  }, [runAction]);
+
+  const confirmPopulateAndSeed = useCallback(async (): Promise<void> => {
+    setBootstrapEmptyConfirmPending(false);
+    await runReseedAction();
+  }, [runReseedAction]);
+
   return {
     actionPending,
     lastResult,
     lastReseedResult,
     showMultiPrimaryWarning,
+    bootstrapEmptyConfirmPending,
     setLastResult,
     setLastReseedResult,
     dismissMultiPrimaryWarning: () => setShowMultiPrimaryWarning(false),
+    confirmActivateAnyway,
+    confirmPopulateAndSeed,
     runAction,
     runReseedAction,
   };

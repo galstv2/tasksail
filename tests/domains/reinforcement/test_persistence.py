@@ -13,8 +13,14 @@ from src.backend.mcp.reinforcement.models import (
     SettlementRecord,
 )
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
+from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
 
 from .conftest import make_entry
+
+CANONICAL_STORE = Path("AgentWorkSpace/qmd/global/reinforcement/store")
+CANONICAL_SIDECARS = Path("AgentWorkSpace/qmd/global/reinforcement/agent-rewards")
+LEGACY_STORE = Path("AgentWorkSpace/qmd/reinforcement")
+LEGACY_SIDECARS = Path("AgentWorkSpace/qmd/global/agent-rewards")
 
 
 @pytest.fixture()
@@ -109,6 +115,83 @@ class TestPersistence:
             loaded = ops["read"]()
             assert ops["check"](loaded), f"Round-trip failed for {label}"
 
+    def test_writes_use_canonical_store_only(self, tmp_path: Path) -> None:
+        store = ReinforcementStore(tmp_path)
+        store.append_task_entry(make_entry("T-CANONICAL"))
+
+        assert (tmp_path / CANONICAL_STORE / "task-ledger.json").is_file()
+        assert not (tmp_path / LEGACY_STORE / "task-ledger.json").exists()
+
+    def test_migrates_legacy_store_when_canonical_absent(self, tmp_path: Path) -> None:
+        legacy_file = tmp_path / LEGACY_STORE / "task-ledger.json"
+        legacy_file.parent.mkdir(parents=True, exist_ok=True)
+        legacy_file.write_text(
+            '{"schema_version": "1.0", "entries": ['
+            '{"task_id": "T-LEGACY", "parent_task_id": "", "is_child": false,'
+            '"difficulty": "medium", "base_reward": 2000,'
+            '"effective_reward": 2000, "settlement_status": "unrewarded",'
+            '"quality_outcome": "success", "feedback_id": "",'
+            '"settlement_id": "", "realignment_id": "",'
+            '"created_at": "2026-01-01T00:00:00Z"}]}',
+            encoding="utf-8",
+        )
+
+        store = ReinforcementStore(tmp_path)
+
+        assert (tmp_path / CANONICAL_STORE / "task-ledger.json").is_file()
+        assert store.load_task_ledger()[0].task_id == "T-LEGACY"
+        assert legacy_file.is_file()
+
+    def test_does_not_overwrite_existing_canonical_store(
+        self, tmp_path: Path,
+    ) -> None:
+        canonical_file = tmp_path / CANONICAL_STORE / "task-ledger.json"
+        legacy_file = tmp_path / LEGACY_STORE / "task-ledger.json"
+        canonical_file.parent.mkdir(parents=True, exist_ok=True)
+        legacy_file.parent.mkdir(parents=True, exist_ok=True)
+        canonical_file.write_text(
+            '{"schema_version": "1.0", "entries": []}',
+            encoding="utf-8",
+        )
+        legacy_file.write_text(
+            '{"schema_version": "1.0", "entries": ['
+            '{"task_id": "T-LEGACY"}]}',
+            encoding="utf-8",
+        )
+
+        store = ReinforcementStore(tmp_path)
+
+        assert store.load_task_ledger() == []
+
+    def test_agent_sidecar_writer_uses_canonical_dir_only(
+        self, tmp_path: Path,
+    ) -> None:
+        writer = QmdRewardWriter(tmp_path)
+        md_path = writer.write_agent_reward(AgentRewardMemory(
+            agent_id="software-engineer", role="Software Engineer",
+            multiplier=1.5, lifetime_reward=0,
+            unrewarded_task_count=0, unrewarded_reward_total=0,
+        ))
+
+        assert md_path == tmp_path / CANONICAL_SIDECARS / "software-engineer.md"
+        assert (tmp_path / CANONICAL_SIDECARS / "software-engineer.json").is_file()
+        assert not (tmp_path / LEGACY_SIDECARS).exists()
+
+    def test_migrates_legacy_agent_sidecars_when_canonical_absent(
+        self, tmp_path: Path,
+    ) -> None:
+        legacy_json = tmp_path / LEGACY_SIDECARS / "software-engineer.json"
+        legacy_md = tmp_path / LEGACY_SIDECARS / "software-engineer.md"
+        legacy_json.parent.mkdir(parents=True, exist_ok=True)
+        legacy_json.write_text('{"agent_id": "software-engineer"}', encoding="utf-8")
+        legacy_md.write_text("# Legacy", encoding="utf-8")
+
+        QmdRewardWriter(tmp_path)
+
+        assert (tmp_path / CANONICAL_SIDECARS / "software-engineer.json").is_file()
+        assert (tmp_path / CANONICAL_SIDECARS / "software-engineer.md").is_file()
+        assert legacy_json.is_file()
+
     def test_missing_file_returns_empty(self, store: ReinforcementStore) -> None:
         """All collection-returning loaders return empty on missing file."""
         cases = {
@@ -158,3 +241,18 @@ class TestPersistence:
         loaded = store.load_realignment_sessions()
         assert len(loaded) == 1
         assert loaded[0].status == "reviewed"
+
+    def test_error_status_round_trips(self, store: ReinforcementStore) -> None:
+        session = RealignmentSession(
+            realignment_id="RA-ERROR", trigger_task_id="T-1",
+            trigger_feedback_id="FB-1",
+            participating_agents=["software-engineer"],
+            failure_analysis="", root_cause="", corrective_actions=[],
+            status="error", meeting_notes="failed analysis",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        store.save_realignment_session(session)
+        loaded = store.load_realignment_sessions()
+        assert len(loaded) == 1
+        assert loaded[0].status == "error"
+        assert loaded[0].meeting_notes == "failed analysis"

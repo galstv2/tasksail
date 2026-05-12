@@ -32,6 +32,7 @@ function makeProps(overrides: Partial<ContextPackCreationModalProps> = {}): Cont
     canGoNext: true,
     onOpen: vi.fn(),
     onClose: vi.fn(),
+    onDiscardDraft: vi.fn(),
     onBrowseContextPackDir: vi.fn(),
     onBrowseDiscoveryRoot: vi.fn(),
     onChangeMode: vi.fn(),
@@ -86,15 +87,39 @@ describe('ContextPackCreationModal', () => {
   });
 
   it('shows Create button when canGoNext is false', () => {
-    render(<ContextPackCreationModal {...makeProps({ canGoNext: false })} />);
+    render(<ContextPackCreationModal {...makeProps({ step: 'review', canGoNext: false })} />);
     const buttons = screen.getAllByText('Create context pack');
     // One is the h2 heading, one is the button
     expect(buttons.length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows Creating… when busy and canGoNext is false', () => {
-    render(<ContextPackCreationModal {...makeProps({ canGoNext: false, busy: true })} />);
+    render(<ContextPackCreationModal {...makeProps({ step: 'review', canGoNext: false, busy: true })} />);
     expect(screen.getByText('Creating…')).toBeInTheDocument();
+  });
+
+  it('keeps Next disabled with an accessible reason when shape gating fails', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          step: 'shape',
+          canGoNext: false,
+          canGoNextReason: 'Mark at least one repository as primary to continue.',
+        })}
+      />,
+    );
+
+    const nextButton = screen.getByRole('button', { name: 'Next' });
+    expect(nextButton).toBeDisabled();
+    expect(nextButton).toHaveAttribute('aria-disabled', 'true');
+    expect(nextButton).toHaveAttribute(
+      'title',
+      'Mark at least one repository as primary to continue.',
+    );
+    expect(
+      screen.getByText('Mark at least one repository as primary to continue.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create context pack' })).not.toBeInTheDocument();
   });
 
   it('shows Back button when canGoBack is true', () => {

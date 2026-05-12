@@ -152,11 +152,20 @@ async function resolveConfinementRetryPrompt(
   };
 }
 
-function buildDaltonConfinementRetryPrompt(options: {
+export function buildDaltonConfinementRetryPrompt(options: {
   basePrompt: string;
+  originalAssignmentPrompt: string;
   violation: DaltonConfinementError;
   focused: FocusedRepoResult;
 }): string {
+  const originalAssignmentPrompt = options.originalAssignmentPrompt.trim();
+  if (!originalAssignmentPrompt) {
+    throw new Error(
+      'Cannot launch Dalton confinement retry: original assignment prompt is empty. ' +
+      'Retry requires the original implementation context because each Dalton launch is independent.',
+    );
+  }
+
   const sections = [options.basePrompt.trim()];
   if (options.violation.violationPaths.length > 0) {
     sections.push(
@@ -168,9 +177,18 @@ function buildDaltonConfinementRetryPrompt(options: {
   sections.push(
     '',
     'Your previous run violated the enforced implementation boundary.',
-    'Remove or repair every out-of-bound change, keep all remaining code edits inside COPILOT_WRITABLE_ROOTS_JSON writable roots, then finish the originally assigned slice.',
+    'First remove or repair every out-of-bound change. Keep all remaining code edits inside the writable roots listed below.',
+    '',
+    'You are a fresh independent Dalton process. You do not have memory of the prior launch. The prior process may have completed some implementation work before the boundary violation was detected.',
+    '',
+    'Compare the current codebase state to the original assignment context below. Continue from the current repo state. Do not restart blindly, do not duplicate already-correct work, and do not undo valid in-bound changes unless they are wrong. Finish the original acceptance criteria and validation commands.',
+    '',
     `Writable roots: ${JSON.stringify(options.focused.writableRoots ?? [])}`,
     `Read-only context roots: ${JSON.stringify(options.focused.readonlyContextRoots ?? [])}`,
+    '',
+    '## Original Assignment Context',
+    '',
+    originalAssignmentPrompt,
   );
   return sections.join('\n');
 }
@@ -197,6 +215,7 @@ export interface ConfinementValidationDeps {
   preRunBoundarySnapshot: ChangedPathsSnapshot;
   agentSpawnedAtMs?: number;
   runSummary: RunSummary;
+  originalAssignmentPrompt: string;
   writeLaunchGuardrailReceipt: (data: Record<string, unknown>) => Promise<void>;
   resetArtifactCompletionCache: () => void;
   /** Build the retry agent CLI args from a prompt string. */
@@ -215,6 +234,15 @@ export interface ConfinementValidationDeps {
     greedyStopTriggered: boolean;
     sessionReceiptFile: string | null;
   }>;
+  runAgentSessionForConfinementRetry?: (args: string[], promptAudit: Record<string, unknown>, metadata: {
+    launchPhase: 'Confinement retry';
+    retryOfLaunchId: string;
+  }) => Promise<{
+    runSummary: RunSummary;
+    greedyStopTriggered: boolean;
+    sessionReceiptFile: string | null;
+  }>;
+  initialLaunchId?: string;
   /** Update the lastPromptAudit tracking variable. */
   setLastPromptAudit: (audit: {
     promptPath: string | null;
@@ -261,14 +289,27 @@ export async function handleDaltonConfinementValidation(
     const retryPrompt = await resolveConfinementRetryPrompt(deps.repoRoot, deps.agentId);
     const retryBuilt = deps.buildRetryArgs(buildDaltonConfinementRetryPrompt({
       basePrompt: retryPrompt.prompt,
+      originalAssignmentPrompt: deps.originalAssignmentPrompt,
       violation: error,
       focused: deps.focused,
     }));
     deps.setLastPromptAudit(retryBuilt.promptAudit);
-    const retrySession = await deps.runAgentSessionForRetry(
-      retryBuilt.cliArgs,
-      retryBuilt.promptAudit,
+    console.warn(
+      `[roleAgent] Dalton confinement retry launching after boundary violation: ${error.violationPaths.length} path(s)`,
     );
+    const retrySession = deps.runAgentSessionForConfinementRetry && deps.initialLaunchId
+      ? await deps.runAgentSessionForConfinementRetry(
+          retryBuilt.cliArgs,
+          retryBuilt.promptAudit,
+          {
+            launchPhase: 'Confinement retry',
+            retryOfLaunchId: deps.initialLaunchId,
+          },
+        )
+      : await deps.runAgentSessionForRetry(
+          retryBuilt.cliArgs,
+          retryBuilt.promptAudit,
+        );
     const retryRunSummary = retrySession.runSummary;
     deps.resetArtifactCompletionCache();
     if (retryRunSummary.exitCode !== 0) {

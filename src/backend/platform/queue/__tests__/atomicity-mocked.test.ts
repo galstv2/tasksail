@@ -125,4 +125,24 @@ describe('activateNextPendingItemIfReady claim rollback', () => {
     const handoffFiles = readdirSync(handoffsDir);
     expect(handoffFiles).toEqual([]);
   });
+
+  it('cleans the active-dir planner focus snapshot when initialization fails after stage-3 transfer', async () => {
+    mockInit.mockRejectedValue(new Error('Simulated init failure'));
+    writeFileSync(path.join(pendingDir, 'task-002.md'), '# Task');
+    const stagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-002', 'planner-focus-snapshot.json');
+    mkdirSync(path.dirname(stagingPath), { recursive: true });
+    writeFileSync(stagingPath, JSON.stringify({
+      schemaVersion: 1,
+      bindingKey: 'task-002',
+      stagedAt: '2026-05-01T00:00:00.000Z',
+      markdownDestination: 'AgentWorkSpace/pendingitems/task-002.md',
+      snapshot: { version: 1 },
+    }));
+
+    await expect(
+      activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }),
+    ).rejects.toThrow('Simulated init failure');
+
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-002', '.planner-focus-snapshot.json'))).toBe(false);
+  });
 });

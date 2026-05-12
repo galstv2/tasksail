@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import AgentConfigModal from './AgentConfigModal';
 import type { AgentConfigModalProps } from '../hooks/useAgentConfigModal';
+import { createProviderFrontendDescriptor } from '../../test/factories/fixtureFactory';
 
 afterEach(cleanup);
 
@@ -13,7 +14,7 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
     activeTab: 'agents',
     agents: [
       {
-        agent_id: 'planning-agent',
+        agent_id: 'provider-planner',
         human_name: 'Lily',
         role_name: 'Planning Specialist',
         current_model: 'gpt-4.1',
@@ -26,7 +27,7 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
         currentModelMissing: false,
       },
       {
-        agent_id: 'software-engineer',
+        agent_id: 'provider-builder',
         human_name: 'Dalton',
         role_name: 'Software Engineer',
         current_model: 'claude-opus-legacy',
@@ -65,6 +66,13 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
     isDirty: false,
     showRestartNotice: false,
     pendingModelChange: null,
+    descriptor: createProviderFrontendDescriptor({
+      roster: [
+        { agentId: 'provider-planner', roleName: 'Planning Specialist', humanName: 'Lily', workflowOrder: 1, roleKind: 'planner' },
+        { agentId: 'provider-builder', roleName: 'Software Engineer', humanName: 'Dalton', workflowOrder: 2, roleKind: 'builder' },
+      ],
+      plannerAgentId: 'provider-planner',
+    }),
     onClose: vi.fn(),
     onSelectTab: vi.fn(),
     onAgentModelChange: vi.fn(),

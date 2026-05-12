@@ -13,9 +13,11 @@ import { ensureDir, readTextFile } from '../core/index.js';
 import {
   extractTaskTitle,
   extractContextPackBinding,
+  type TaskContextPackBinding,
   type TaskContextPackTarget,
 } from './markdown.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
+import { acquireRegistryLock } from './registryLock.js';
 
 const REGISTRY_RELATIVE_PATH = '.platform-state/task-registry.json';
 const SCHEMA_VERSION = 2;
@@ -74,6 +76,26 @@ function acquireRegistryMutex(): Promise<() => void> {
   return gate;
 }
 
+async function withRegistryWrite<T>(
+  repoRoot: string,
+  mutator: (registry: TaskRegistry) => T | Promise<T>,
+): Promise<T> {
+  const releaseMutex = await acquireRegistryMutex();
+  try {
+    const releaseFile = await acquireRegistryLock(repoRoot);
+    try {
+      const registry = await loadTaskRegistry(repoRoot);
+      const result = await mutator(registry);
+      await saveTaskRegistry(repoRoot, registry);
+      return result;
+    } finally {
+      await releaseFile();
+    }
+  } finally {
+    releaseMutex();
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function emptyTaskSet(): ContextPackTaskSet {
@@ -99,6 +121,14 @@ export function getRegistryPath(repoRoot: string): string {
 
 function contextPackKey(entry: Pick<TaskRegistryEntry, 'contextPackId'>): string {
   return entry.contextPackId || '_unbound';
+}
+
+function extractBinding(content: string | undefined): TaskContextPackBinding | null {
+  if (!content) {
+    return null;
+  }
+  const result = extractContextPackBinding(content);
+  return result.kind === 'binding' ? result.binding : null;
 }
 
 function ensurePackSet(registry: TaskRegistry, key: string): ContextPackTaskSet {
@@ -259,9 +289,7 @@ export async function registerTask(
   repoRoot: string,
   entry: TaskRegistryEntry,
 ): Promise<void> {
-  const release = await acquireRegistryMutex();
-  try {
-    const registry = await loadTaskRegistry(repoRoot);
+  await withRegistryWrite(repoRoot, (registry) => {
     const normalizedEntry = ensureTaskGuid(entry);
     const key = contextPackKey(normalizedEntry);
     const set = ensurePackSet(registry, key);
@@ -275,10 +303,7 @@ export async function registerTask(
         list.push(normalizedEntry);
       }
     }
-    await saveTaskRegistry(repoRoot, registry);
-  } finally {
-    release();
-  }
+  });
 }
 
 export async function transitionTask(
@@ -288,9 +313,7 @@ export async function transitionTask(
   toState: TaskState,
   updates?: Partial<TaskRegistryEntry>,
 ): Promise<void> {
-  const release = await acquireRegistryMutex();
-  try {
-    const registry = await loadTaskRegistry(repoRoot);
+  await withRegistryWrite(repoRoot, (registry) => {
     const entry = findAndRemove(registry, taskId, fromState);
     if (!entry) return;
 
@@ -305,25 +328,22 @@ export async function transitionTask(
       const list = stateList(set, toState);
       if (list) list.push(updated);
     }
-    await saveTaskRegistry(repoRoot, registry);
-  } finally {
-    release();
-  }
+  });
 }
 
 export async function removeTask(
   repoRoot: string,
   taskId: string,
 ): Promise<void> {
-  const registry = await loadTaskRegistry(repoRoot);
-  for (const key of Object.keys(registry.tasks)) {
-    const set = registry.tasks[key];
-    for (const state of ['open', 'pending', 'failed', 'completed'] as const) {
-      set[state] = set[state].filter((e) => e.taskId !== taskId);
+  await withRegistryWrite(repoRoot, (registry) => {
+    for (const key of Object.keys(registry.tasks)) {
+      const set = registry.tasks[key];
+      for (const state of ['open', 'pending', 'failed', 'completed'] as const) {
+        set[state] = set[state].filter((e) => e.taskId !== taskId);
+      }
+      set.active = set.active.filter((e) => e.taskId !== taskId);
     }
-    set.active = set.active.filter((e) => e.taskId !== taskId);
-  }
-  await saveTaskRegistry(repoRoot, registry);
+  });
 }
 
 export function getTasksForContextPack(
@@ -351,15 +371,15 @@ export function getAllTasks(registry: TaskRegistry): ContextPackTaskSet {
  * markdown.
  */
 export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry> {
-  const previousTaskGuids = await loadTaskRegistry(repoRoot)
-    .then(collectTaskGuids)
-    .catch(() => new Map<string, string>());
-  const registry = emptyRegistry();
-  const dirs: { dir: string; state: TaskState }[] = [
-    { dir: path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), state: 'open' },
-    { dir: path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), state: 'pending' },
-    { dir: path.join(repoRoot, 'AgentWorkSpace', 'error-items'), state: 'failed' },
-  ];
+  return withRegistryWrite(repoRoot, async (registry) => {
+    const previousTaskGuids = collectTaskGuids(registry);
+    registry.schema_version = SCHEMA_VERSION;
+    registry.tasks = {};
+    const dirs: { dir: string; state: TaskState }[] = [
+      { dir: path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), state: 'open' },
+      { dir: path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), state: 'pending' },
+      { dir: path.join(repoRoot, 'AgentWorkSpace', 'error-items'), state: 'failed' },
+    ];
 
   // Check for active items via .active-items/ directory (§4.5)
   const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
@@ -383,7 +403,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
       const filePath = path.join(dir, fileName);
       const content = await readTextFile(filePath);
       const title = content ? extractTaskTitle(content) || null : null;
-      const binding = content ? extractContextPackBinding(content) : null;
+      const binding = extractBinding(content);
       const taskId = fileName.replace(/\.md$/, '');
 
       const effectiveState: TaskState =
@@ -424,8 +444,8 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
     }
   }
 
-  await saveTaskRegistry(repoRoot, registry);
-  return registry;
+    return registry;
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

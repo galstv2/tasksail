@@ -71,6 +71,24 @@ export async function acquireDirLockOrThrow(
   return release;
 }
 
+/**
+ * Run `fn` while holding the directory lock at `lockDir`. Releases the lock
+ * even if `fn` throws. Use for the standard acquire → try → finally → release
+ * pattern around queue-mutating operations.
+ */
+export async function withDirLock<T>(
+  lockDir: string,
+  operationName: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const release = await acquireDirLockOrThrow(lockDir, operationName);
+  try {
+    return await fn();
+  } finally {
+    await release();
+  }
+}
+
 function makeRelease(
   lockDir: string,
   ownerPath: string,

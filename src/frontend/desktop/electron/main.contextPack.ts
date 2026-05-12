@@ -8,6 +8,7 @@ export {
   getDefaultContextPackSearchRoots,
   resolveContextPackSearchRoots,
   deriveContextPackRuntimeState,
+  getContextPackCatalogRoots,
   listAvailableContextPacks,
 } from './main.contextPackCatalog';
 
@@ -32,5 +33,6 @@ export {
   executeContextPackReseedAction,
   executeContextPackWorkspaceAction,
   pickMarkdownFileAction,
-  executeSetRepositoryTypeAction,
+  executeSetRepoFocusAction,
+  executeSetRepoCategoryAction,
 } from './main.contextPackActions';

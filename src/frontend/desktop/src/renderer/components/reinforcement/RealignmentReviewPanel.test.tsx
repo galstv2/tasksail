@@ -17,7 +17,7 @@ function makeSession(
     realignmentId: 'RA-1',
     triggerTaskId: 'T-1',
     triggerFeedbackId: 'FB-1',
-    participatingAgents: ['software-engineer', 'qa'],
+    participatingAgents: ['provider-builder', 'provider-qa'],
     failureAnalysis: 'Test gap',
     rootCause: 'Missing edge case',
     correctiveActions: ['Add coverage'],
@@ -39,6 +39,8 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onSelectSession: vi.fn(),
     activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true } as ActiveWorkGuardState,
     onStartRealignment: vi.fn(),
+    analysisRun: { status: 'idle' as const },
+    onRunAnalysis: vi.fn(),
     ...overrides,
   };
 }
@@ -193,5 +195,98 @@ describe('RealignmentReviewPanel', () => {
       />,
     );
     expect(screen.queryByTestId('realignment-guard')).toBeNull();
+  });
+
+  it('renders Run analysis for open sessions and calls onRunAnalysis', () => {
+    const onRunAnalysis = vi.fn();
+    render(<RealignmentReviewPanel {...defaultProps({ onRunAnalysis })} />);
+
+    const btn = screen.getByTestId('realignment-run-RA-1');
+    expect(btn.textContent).toBe('Run analysis');
+
+    fireEvent.click(btn);
+
+    expect(onRunAnalysis).toHaveBeenCalledWith('RA-1');
+  });
+
+  it('renders Re-run analysis for error sessions', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          sessions: [makeSession({ status: 'error' })],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('realignment-run-RA-1').textContent).toBe('Re-run analysis');
+  });
+
+  it('does not render analysis action for archived sessions', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          sessions: [makeSession({ status: 'archived' })],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('realignment-run-RA-1')).toBeNull();
+  });
+
+  it('renders the same analysis action in detail view', () => {
+    const session = makeSession({ status: 'error' });
+    const onRunAnalysis = vi.fn();
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          selectedSession: session,
+          selectedSessionId: session.realignmentId,
+          onRunAnalysis,
+        })}
+      />,
+    );
+
+    const btn = screen.getByTestId('realignment-detail-run-RA-1');
+    expect(btn.textContent).toBe('Re-run analysis');
+
+    fireEvent.click(btn);
+
+    expect(onRunAnalysis).toHaveBeenCalledWith('RA-1');
+  });
+
+  it('shows skipped lock contention message without changing session rendering', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          analysisRun: {
+            status: 'skipped',
+            realignmentId: 'RA-1',
+            message: 'Realignment analysis is already running for this session.',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('realignment-run-RA-1').textContent).toBe('Run analysis');
+    expect(screen.getByTestId('realignment-run-message-RA-1').textContent).toContain(
+      'already running',
+    );
+  });
+
+  it('does not gate session analysis actions on active-work guard state', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          activeWorkGuard: {
+            status: 'blocked',
+            message: 'Active work exists',
+            activeTaskId: 'T-1',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('realignment-start')).toBeDisabled();
+    expect(screen.getByTestId('realignment-run-RA-1')).not.toBeDisabled();
   });
 });

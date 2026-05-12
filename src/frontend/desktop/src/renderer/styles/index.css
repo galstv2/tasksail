@@ -14,6 +14,7 @@
 @import './sidebar/deep-focus/deep-focus-animations.css';
 @import './terminal.css';
 @import './planner.css';
+@import './recents.css';
 @import './context-pack/context-pack-modal-shell.css';
 @import './context-pack/context-pack-modal-controls.css';
 @import './context-pack/context-pack-wizard.css';

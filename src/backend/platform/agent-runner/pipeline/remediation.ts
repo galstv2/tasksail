@@ -12,6 +12,7 @@ import {
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import { getActiveProvider } from '../../cli-provider/index.js';
 
 export const ADVISORY_FINDING_HEADING = '## QA Advisory Finding';
 
@@ -175,6 +176,7 @@ export async function remediationClearCloseoutArtifacts(
 }
 
 async function buildRemediationDaltonPrompt(
+  repoRoot: string,
   issuesContent: string | undefined,
   implStepsDir: string,
   focusScope?: FocusScopePromptOptions,
@@ -197,7 +199,12 @@ async function buildRemediationDaltonPrompt(
   appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
 
   if (issuesContent?.trim()) {
-    parts.push('## QA Findings — AUTHORITATIVE (Read First, Follow Exactly)\n');
+    const handoffsEnvVar = getActiveProvider(repoRoot).promptPathEnvVars().handoffsDir;
+    parts.push(`## QA Findings from $${handoffsEnvVar}/issues.md — AUTHORITATIVE (Read First, Follow Exactly)\n`);
+    parts.push(
+      'Prioritize this section above all original task slices. Resolve every blocking finding here before using the slices as background context.',
+    );
+    parts.push('');
     parts.push(issuesContent.trim());
     parts.push('');
   }
@@ -245,6 +252,7 @@ export async function remediationRunQaLoop(options: {
     const priorFindings = await readTextFile(issuesFile);
 
     const remediationPrompt = await buildRemediationDaltonPrompt(
+      paths.repoRoot,
       priorFindings,
       paths.implementationSteps,
       options.focusScope,

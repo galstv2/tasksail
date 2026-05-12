@@ -447,6 +447,56 @@ describe('runPipelineSequence', () => {
     ))).toBe(false);
   });
 
+  it('does not stage a stale verification diff after pre-verification capture fails', async () => {
+    readTextFile.mockImplementation(async () => null);
+    const staleDir = path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'tasks',
+      'test-task-id',
+      'verification',
+      '2026-03-26T00-00-00Z',
+    );
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(path.join(staleDir, 'code-changes.diff'), 'stale diff', 'utf-8');
+    captureCodeDiff.mockImplementation(async ({ outputPath }: { outputPath: string }) => {
+      mkdirSync(path.dirname(outputPath), { recursive: true });
+      writeFileSync(outputPath, '# Diff capture failed for one or more bound worktrees.\n', 'utf-8');
+      return { stdout: 'repo-a', stderr: 'missing worktree', exitCode: 1 };
+    });
+    resolveVerificationDaltonPrompt.mockImplementation(async (
+      _handoffsDir: string,
+      _implementationStepsDir: string,
+      _primaryFocusRelativePath: string | undefined,
+      _externalMcpRegistry: unknown,
+      verificationDiffAbsolutePath?: string,
+      verificationDiffWarning?: string,
+    ) => {
+      expect(verificationDiffAbsolutePath).toBeUndefined();
+      expect(verificationDiffWarning).toContain('pre-verification verification diff warning');
+      expect(verificationDiffWarning).toContain('missing worktree');
+      return 'verify without stale diff';
+    });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
+
+    expect(existsSync(path.join(staleDir, 'code-changes.diff'))).toBe(false);
+    expect(existsSync(staleDir)).toBe(false);
+    expect(readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs', 'code-changes.diff'),
+      'utf-8',
+    )).toContain('Diff capture failed');
+    expect(runRoleAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'dalton-verify',
+      launchPhase: 'Verification',
+      promptOverride: 'verify without stale diff',
+      verificationTempAllowedDir: undefined,
+      skipWorkflowValidation: true,
+    }));
+  });
+
   it('cleans stale verification temp state before staging and removes it after verification failures', async () => {
     readTextFile.mockImplementation(async () => null);
     const staleDir = path.join(

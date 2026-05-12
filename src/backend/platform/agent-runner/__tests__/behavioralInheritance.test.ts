@@ -1,10 +1,39 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentId } from '../../core/types.js';
+
+const { runPython, readFile } = vi.hoisted(() => ({
+  runPython: vi.fn(),
+  readFile: vi.fn(),
+}));
+
+vi.mock('../../core/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../core/index.js')>('../../core/index.js');
+  return {
+    ...actual,
+    runPython,
+  };
+});
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return {
+    ...actual,
+    readFile,
+  };
+});
+
+vi.mock('../../cli-provider/index.js', () => ({
+  getActiveProvider: () => ({
+    homeDirName: () => '.copilot',
+    agentConfigPaths: () => ({ registry: '.github/copilot/agents/registry.json' }),
+  }),
+}));
+
 import {
   resolveBehavioralBaseRegistryId,
   roleRequiresConventions,
@@ -17,6 +46,12 @@ import {
 
 describe('Dalton-family behavioral inheritance', () => {
   const createdRoots: string[] = [];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    runPython.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+    readFile.mockResolvedValue('# Reinforcement Context\n\n- Status: available\n');
+  });
 
   afterEach(async () => {
     await Promise.all(createdRoots.splice(0).map((repoRoot) => rm(repoRoot, { recursive: true, force: true })));
@@ -34,20 +69,9 @@ describe('Dalton-family behavioral inheritance', () => {
     expect(roleRequiresReinforcement('dalton-verify' as AgentId)).toBe(true);
   });
 
-  it('reuses the software-engineer reinforcement memo for dalton-verify', async () => {
+  it('reuses the software-engineer rendered reinforcement context for dalton-verify', async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'dalton-verify-reinforcement-'));
     createdRoots.push(repoRoot);
-
-    const rewardDir = path.join(
-      repoRoot,
-      'AgentWorkSpace',
-      'qmd',
-      'global',
-      'agent-rewards',
-    );
-    mkdirSync(rewardDir, { recursive: true });
-    const rewardPath = path.join(rewardDir, 'software-engineer.md');
-    writeFileSync(rewardPath, '# Dalton reinforcement', 'utf-8');
 
     const result = await resolveReinforcementContext(
       'dalton-verify' as AgentId,
@@ -57,6 +81,12 @@ describe('Dalton-family behavioral inheritance', () => {
 
     expect(result.status).toBe('available');
     expect(result.injectionEnabled).toBe(true);
-    expect(result.contextFile).toBe(rewardPath);
+    expect(result.contextFile).toBe(path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'reinforcement',
+      'software-engineer.md',
+    ));
   });
 });

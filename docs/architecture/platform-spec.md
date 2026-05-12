@@ -7,7 +7,7 @@ The platform is a repo-local workflow control plane with six main layers:
 1. provider-owned repo instructions and prompts in `.github/copilot/` for the shipped `copilot` provider
 2. workflow agent registry and profiles in `.github/agents/`
 3. workflow state in `AgentWorkSpace/tasks/<taskId>/handoffs/` and `AgentWorkSpace/tasks/<taskId>/ImplementationSteps/`
-4. support services in `docker/`
+4. support services in `runtime/docker/` and `runtime/podman/`
 5. queue-based intake in `AgentWorkSpace/dropbox/` and `AgentWorkSpace/pendingitems/`
 
 The operator works from the host workstation. Support services may run in

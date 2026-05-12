@@ -49,6 +49,10 @@ describe('deleteErrorItem retained-state disposal', () => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'delete-error-item-'));
     errorItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'error-items');
     mkdirSync(errorItemsDir, { recursive: true });
+    // queueLockDir lives under pendingitems/.queue-lock.d; acquireDirLock uses
+    // a non-recursive mkdir, so the parent must exist or every acquire attempt
+    // fails ENOENT and the retry loop burns through the test timeout.
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
   });
 
   afterEach(() => {

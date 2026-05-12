@@ -39,6 +39,14 @@ vi.mock('../../../backend/platform/agent-runner/reinforcementRead', () => ({
   readGlobalRealignmentDoc: vi.fn(),
 }));
 
+vi.mock('../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache', () => ({
+  prewarmExternalMcpRegistry: vi.fn(),
+}));
+
+vi.mock('../../../backend/platform/agent-runner/realignmentPhase/supervisor', () => ({
+  startRealignmentAnalysisJob: vi.fn(),
+}));
+
 import { handleDesktopAction } from './main';
 import {
   submitReinforcementFeedback,
@@ -53,6 +61,8 @@ import {
   listRealignmentSessions,
   readGlobalRealignmentDoc,
 } from '../../../backend/platform/agent-runner/reinforcementRead';
+import { prewarmExternalMcpRegistry } from '../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache';
+import { startRealignmentAnalysisJob } from '../../../backend/platform/agent-runner/realignmentPhase/supervisor';
 
 const mockSubmit = vi.mocked(submitReinforcementFeedback);
 const mockUpdate = vi.mocked(updateGlobalRealignmentDoc);
@@ -63,10 +73,16 @@ const mockReadAgentRewards = vi.mocked(readAgentRewards);
 const mockListTasks = vi.mocked(listReinforcementTasks);
 const mockListSessions = vi.mocked(listRealignmentSessions);
 const mockReadDoc = vi.mocked(readGlobalRealignmentDoc);
+const mockPrewarmExternalMcpRegistry = vi.mocked(prewarmExternalMcpRegistry);
+const mockStartRealignmentAnalysisJob = vi.mocked(startRealignmentAnalysisJob);
 
 describe('reinforcement IPC actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrewarmExternalMcpRegistry.mockResolvedValue({
+      schema_version: 1,
+      external_servers: [],
+    });
   });
 
   describe('reinforcement.submitFeedback', () => {
@@ -304,7 +320,7 @@ describe('reinforcement IPC actions', () => {
     it('returns per-agent reward data', async () => {
       mockReadAgentRewards.mockResolvedValue([
         {
-          agentId: 'software-engineer',
+          agentId: 'provider-builder',
           role: 'Software Engineer',
           multiplier: 1.5,
           lifetimeReward: 5000,
@@ -323,7 +339,7 @@ describe('reinforcement IPC actions', () => {
           expect.objectContaining({
             action: 'reinforcement.readAgentRewards',
             agents: expect.arrayContaining([
-              expect.objectContaining({ agentId: 'software-engineer' }),
+              expect.objectContaining({ agentId: 'provider-builder' }),
             ]),
           }),
         );
@@ -465,6 +481,41 @@ describe('reinforcement IPC actions', () => {
       if (!result.ok) {
         expect(result.errorCode).toBe('active_work_blocked');
       }
+    });
+  });
+
+  describe('reinforcement.runRealignmentAnalysis', () => {
+    it('loads and forwards the external MCP registry to the supervisor job', async () => {
+      const externalMcpRegistry = {
+        schema_version: 1,
+        external_servers: [{
+          id: 'docs',
+          display_name: 'Docs',
+          enabled: true,
+          purpose: 'reference checks',
+          transport: 'http' as const,
+          url: 'https://example.invalid',
+          agent_scope: { mode: 'allowlist' as const, agent_ids: ['ron'] },
+        }],
+      };
+      mockPrewarmExternalMcpRegistry.mockResolvedValue(externalMcpRegistry);
+      mockStartRealignmentAnalysisJob.mockResolvedValue({
+        jobId: 'realignment:RA-1',
+        realignmentId: 'RA-1',
+        status: 'started',
+      });
+
+      const result = await handleDesktopAction({
+        action: 'reinforcement.runRealignmentAnalysis',
+        payload: { contextPackDir: '/ctx', realignmentId: 'RA-1' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockStartRealignmentAnalysisJob).toHaveBeenCalledWith(expect.objectContaining({
+        contextPackDir: '/ctx',
+        realignmentId: 'RA-1',
+        externalMcpRegistry,
+      }));
     });
   });
 });

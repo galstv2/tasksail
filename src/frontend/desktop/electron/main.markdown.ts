@@ -148,16 +148,19 @@ export function validatePlannerProtectedMetadata(
   return null;
 }
 
-// Lily's staged template hint suggests "Simple"/"Complex"; the Bypass Lily
-// download template uses "Sequential"/"Parallel". Both vocabularies are
-// accepted. Unrecognized values fall back to "sequential" rather than
-// throwing — sequential is the safer default and finalize should not fail
-// over a routing-vocabulary mismatch.
+// Canonical user-facing vocabulary is "Simple"/"Complex" — the staging shell
+// (main.staging.ts), the planning-intake template, Lily's and Alice's
+// instructions, and the workflow-policy validator (rules/intake.ts) all use
+// those tokens. The "sequential"/"parallel" keys are kept as defensive
+// tolerance: legacy dropbox files written by older code carried those raw
+// queue-discriminator values, and re-loading them must still parse cleanly.
+// Unrecognized values fall back to "sequential" rather than throwing —
+// finalize should not fail over a routing-vocabulary mismatch.
 const SUGGESTED_PATH_MAP: Record<string, 'sequential' | 'parallel'> = {
-  sequential: 'sequential',
-  parallel: 'parallel',
   simple: 'sequential',
   complex: 'parallel',
+  sequential: 'sequential',
+  parallel: 'parallel',
 };
 
 function resolveSuggestedPath(rawValue: string): 'sequential' | 'parallel' {
@@ -166,7 +169,7 @@ function resolveSuggestedPath(rawValue: string): 'sequential' | 'parallel' {
     return SUGGESTED_PATH_MAP[normalized];
   }
   // Try the leading word, in case Lily wrote something like
-  // "Sequential (one slice)" or "Simple — one coherent ask".
+  // "Simple — one coherent ask" or "Complex (multi-slice)".
   const leadingWord = normalized.split(/[\s(–—\-]/)[0] ?? '';
   return SUGGESTED_PATH_MAP[leadingWord] ?? 'sequential';
 }

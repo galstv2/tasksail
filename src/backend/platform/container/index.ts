@@ -24,6 +24,7 @@ export {
   getSharedMcpPort,
   getSharedMcpUrl,
   resolveContextPackContainerPath,
+  runtimeRequiresContainerPaths,
   sweepLegacyPortAllocationsOnce,
 } from './sharedMcp.js';
 
@@ -34,6 +35,7 @@ export { seedIndex } from './seedIndex.js';
 export { DockerRuntime } from './docker.js';
 
 export { PodmanRuntime } from './podman.js';
+export { DirectRuntime } from './directRuntime.js';
 
 export { createRuntime } from './runtime.js';
 export { createRuntimeFromConfig } from './runtime.js';

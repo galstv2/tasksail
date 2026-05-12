@@ -27,11 +27,14 @@
     "new-task": "tsx src/backend/platform/queue/cli.ts init",
     "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",
     "queue-status": "tsx src/backend/platform/queue/cli.ts status",
+    "repair-stuck-closeout": "tsx src/backend/platform/queue/cli-repair-closeout.ts",
     "repair": "tsx src/backend/platform/queue/cli.ts repair",
     "complete-pending-item": "tsx src/backend/platform/queue/cli.ts complete",
     "qmd:seed-dry-run": "tsx src/backend/platform/context-pack/qmdSeedDryRun.ts",
     "agent": "tsx src/backend/platform/agent-runner/cli.ts run",
-    "agent:pipeline": "tsx src/backend/platform/agent-runner/cli.ts pipeline"
+    "agent:pipeline": "tsx src/backend/platform/agent-runner/cli.ts pipeline",
+    "upgrade-pack-schema": "python3 src/backend/scripts/python/upgrade-pack-schema.py",
+    "update-pack-manifest": "python3 src/backend/scripts/python/update-pack-manifest.py"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -82,6 +82,124 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
             "shared-retrospective-memory.md.record.json"
         )
 
+    def task_archive_dir(
+        self,
+        context_pack_dir: Path,
+        *,
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return (
+            context_pack_dir
+            / "qmd/context-packs/sample-org/archive/tasks"
+            / year
+            / task_slug
+        )
+
+    def task_archive_json_path(
+        self,
+        context_pack_dir: Path,
+        *,
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.task_archive_dir(
+            context_pack_dir,
+            task_slug=task_slug,
+            year=year,
+        ) / "archive.json"
+
+    def task_archive_markdown_path(
+        self,
+        context_pack_dir: Path,
+        *,
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.task_archive_dir(
+            context_pack_dir,
+            task_slug=task_slug,
+            year=year,
+        ) / "archive.md"
+
+    def task_archive_snapshot_path(
+        self,
+        context_pack_dir: Path,
+        *,
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.task_archive_dir(
+            context_pack_dir,
+            task_slug=task_slug,
+            year=year,
+        ) / "planner-focus-snapshot.json"
+
+    def mirror_task_archive_dir(
+        self,
+        repo_root: Path,
+        *,
+        context_pack_name: str = "sample-org",
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return (
+            repo_root
+            / "AgentWorkSpace"
+            / "qmd"
+            / "context-packs"
+            / context_pack_name
+            / "archive"
+            / "tasks"
+            / year
+            / task_slug
+        )
+
+    def mirror_task_archive_json_path(
+        self,
+        repo_root: Path,
+        *,
+        context_pack_name: str = "sample-org",
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.mirror_task_archive_dir(
+            repo_root,
+            context_pack_name=context_pack_name,
+            task_slug=task_slug,
+            year=year,
+        ) / "archive.json"
+
+    def mirror_task_archive_markdown_path(
+        self,
+        repo_root: Path,
+        *,
+        context_pack_name: str = "sample-org",
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.mirror_task_archive_dir(
+            repo_root,
+            context_pack_name=context_pack_name,
+            task_slug=task_slug,
+            year=year,
+        ) / "archive.md"
+
+    def mirror_task_archive_snapshot_path(
+        self,
+        repo_root: Path,
+        *,
+        context_pack_name: str = "sample-org",
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.mirror_task_archive_dir(
+            repo_root,
+            context_pack_name=context_pack_name,
+            task_slug=task_slug,
+            year=year,
+        ) / "planner-focus-snapshot.json"
+
     def load_index_service(self, context_pack_dir: Path):
         service_cls = import_module(
             "src.backend.mcp.repo_context_mcp.services.qmd_index_service"

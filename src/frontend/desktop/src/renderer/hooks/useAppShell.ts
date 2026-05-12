@@ -19,6 +19,7 @@ import { useReinforcementModal, type ReinforcementModalProps } from './useReinfo
 import { useTaskBoard } from './useTaskBoard';
 import type { TaskBoardProps } from '../components/taskboard/TaskBoard';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
+import type { PlannerStartSessionDeepFocusSelection } from '../../shared/desktopContract';
 
 const AUTO_COLLAPSE_SIDEBAR_BREAKPOINT_PX = 1080;
 
@@ -101,6 +102,34 @@ export function useAppShell(
     hasActiveContextPack,
     contextPackSidebarProps.activeContextPackDir,
   );
+  const plannerDeepFocusSelection: PlannerStartSessionDeepFocusSelection | undefined = useMemo(
+    () => contextPackSidebarProps.deepFocusEnabled
+      ? {
+          deepFocusEnabled: contextPackSidebarProps.deepFocusEnabled,
+          deepFocusPrimaryRepoId: contextPackSidebarProps.deepFocusPrimaryRepoId ?? null,
+          deepFocusPrimaryFocusId: contextPackSidebarProps.deepFocusPrimaryFocusId ?? null,
+          selectedFocusPath: contextPackSidebarProps.selectedFocusPath ?? null,
+          selectedFocusTargetKind: contextPackSidebarProps.selectedFocusTargetKind ?? null,
+          selectedFocusTargets: contextPackSidebarProps.selectedFocusTargets ?? [],
+          selectedTestTarget: contextPackSidebarProps.selectedTestTarget,
+          selectedSupportTargets: contextPackSidebarProps.selectedSupportTargets ?? [],
+          selectedRepoIds: contextPackSidebarProps.selectedRepoIds,
+          selectedFocusIds: contextPackSidebarProps.selectedFocusIds,
+        }
+      : undefined,
+    [
+      contextPackSidebarProps.deepFocusEnabled,
+      contextPackSidebarProps.deepFocusPrimaryRepoId,
+      contextPackSidebarProps.deepFocusPrimaryFocusId,
+      contextPackSidebarProps.selectedFocusPath,
+      contextPackSidebarProps.selectedFocusTargetKind,
+      contextPackSidebarProps.selectedFocusTargets,
+      contextPackSidebarProps.selectedTestTarget,
+      contextPackSidebarProps.selectedSupportTargets,
+      contextPackSidebarProps.selectedRepoIds,
+      contextPackSidebarProps.selectedFocusIds,
+    ],
+  );
 
   const { plannerModalProps, openPlannerModal } = usePlannerModal(
     client,
@@ -109,6 +138,7 @@ export function useAppShell(
     contractError,
     setContractError,
     contextPackSidebarProps.activeContextPackDir ?? null,
+    plannerDeepFocusSelection,
   );
 
   const mergedSidebarProps = useMemo(

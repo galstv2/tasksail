@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_detection import _detect_system_layer
+from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath
+from src.backend.mcp.path_resolution import pick_local_path
 
 from .config import (
     DEFAULT_ALLOWED_SUFFIXES,
@@ -23,6 +25,20 @@ from .utils import (
 )
 
 _DEFAULT_MAX_FILES_PER_REPO = RepoContextConfig.from_env().max_files_per_repo
+
+
+def _coerce_local_path(value: Any) -> LocalPath:
+    if isinstance(value, str):
+        return LocalPath(host=value.replace("\\", "/"))
+    if isinstance(value, dict) and isinstance(value.get("host"), str):
+        container = value.get("container")
+        if container is not None and not isinstance(container, str):
+            raise ValueError("local_paths[].container must be a string or null")
+        return LocalPath(
+            host=value["host"].replace("\\", "/"),
+            container=container.replace("\\", "/") if isinstance(container, str) else None,
+        )
+    raise ValueError("local_paths entries must be strings or objects with host")
 
 
 def run_git_command(repo_root: Path, *args: str) -> str | None:
@@ -187,7 +203,10 @@ def normalize_repo_entry(
     if not repo_name:
         repo_name = repo_id
 
-    local_paths = ensure_list_of_strings(entry.get("local_paths"), "local_paths")
+    raw_local_paths = entry.get("local_paths") or []
+    if not isinstance(raw_local_paths, list):
+        raise ValueError("Field 'local_paths' must be a list")
+    local_paths = [_coerce_local_path(item) for item in raw_local_paths]
     if not local_paths:
         raise ValueError(f"Repository '{repo_id}' requires at least one local path")
 
@@ -212,7 +231,8 @@ def normalize_repo_entry(
     warnings: list[str] = []
 
     for local_path in local_paths:
-        resolved_root = resolve_path(context_pack_dir, local_path)
+        picked_path = pick_local_path(local_path)
+        resolved_root = resolve_path(context_pack_dir, picked_path)
         root_str = str(resolved_root)
         if resolved_root.exists():
             existing_roots.append(root_str)

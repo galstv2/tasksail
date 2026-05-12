@@ -183,6 +183,12 @@ def _normalize_distributed_repositories(
             repo_entry["repository_type"] = repository_type
             repo_entry["_authored_repository_type"] = True
 
+        # v2 fields — pass through when provided by the review payload
+        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+            value = raw_repo.get(v2_field)
+            if value is not None:
+                repo_entry[v2_field] = value
+
         approved_entries.append(repo_entry)
 
     from src.backend.mcp.context_estate.helpers import _normalize_repo_id_list
@@ -252,7 +258,88 @@ def _normalize_monolith_repository(
     if repository_type is not None:
         repo_entry["repository_type"] = repository_type
         repo_entry["_authored_repository_type"] = True
+
+    # v2 fields — pass through when provided by the review payload
+    for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+        value = repository.get(v2_field)
+        if value is not None:
+            repo_entry[v2_field] = value
+
     return [repo_entry]
+
+
+def _normalize_monolith_extra_repositories(
+    repositories: Any,
+    seen_repo_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Normalize infrastructure repos accompanying a monolith.
+
+    These repos are created brand-new at context-pack creation time (via
+    `git init` at sibling paths) and have no discovery candidate to resolve
+    against, so the entry is shaped directly from the review payload.
+    """
+    if not repositories:
+        return []
+    if not isinstance(repositories, list):
+        raise ValueError(
+            "Approved monolith manifest 'repositories' must be a list"
+        )
+
+    normalized: list[dict[str, Any]] = []
+    for raw_repo in repositories:
+        if not isinstance(raw_repo, dict):
+            raise ValueError(
+                "Monolith infrastructure repository entries must be JSON objects"
+            )
+        repo_id = ensure_non_empty_string(raw_repo.get("repo_id"), "repo_id")
+        if repo_id in seen_repo_ids:
+            raise ValueError(f"Duplicate approved repo_id: {repo_id}")
+        seen_repo_ids.add(repo_id)
+
+        repo_name = ensure_non_empty_string(raw_repo.get("repo_name"), "repo_name")
+        local_path = ensure_non_empty_string(raw_repo.get("path"), "path")
+
+        repo_entry: dict[str, Any] = {
+            "repo_id": repo_id,
+            "repo_name": repo_name,
+            "local_paths": [local_path],
+            "system_layer": normalize_layer(raw_repo.get("system_layer")),
+        }
+
+        list_fields = {
+            "languages": normalize_string_list(raw_repo.get("languages")),
+            "artifact_roots": normalize_string_list(raw_repo.get("artifact_roots")),
+            "document_paths": normalize_string_list(raw_repo.get("document_paths")),
+            "depends_on_repo_ids": normalize_string_list(raw_repo.get("depends_on_repo_ids")),
+            "used_by_repo_ids": normalize_string_list(raw_repo.get("used_by_repo_ids")),
+            "adjacent_repo_ids": normalize_string_list(raw_repo.get("adjacent_repo_ids")),
+        }
+        for field_name, values in list_fields.items():
+            if values:
+                repo_entry[field_name] = unique_preserving_order(values)
+
+        for field_name in ("owner", "bounded_context", "service_name", "workspace_activation_group"):
+            value = normalize_optional_string(raw_repo.get(field_name))
+            if value:
+                repo_entry[field_name] = value
+
+        repo_entry["default_focusable"] = bool(raw_repo.get("default_focusable", False))
+        repo_entry["activation_priority"] = normalize_activation_priority(
+            raw_repo.get("activation_priority")
+        )
+
+        repository_type = _normalize_repository_type(raw_repo.get("repository_type"))
+        if repository_type is None:
+            repository_type = "support"
+        repo_entry["repository_type"] = repository_type
+
+        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+            value = raw_repo.get(v2_field)
+            if value is not None:
+                repo_entry[v2_field] = value
+
+        normalized.append(repo_entry)
+    return normalized
 
 
 # ---------------------------------------------------------------------------

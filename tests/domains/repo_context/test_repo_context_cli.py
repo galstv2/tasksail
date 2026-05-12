@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.backend.mcp.repo_context_mcp.services import ReseedAlreadyInProgressError  # noqa: E402
 from src.backend.mcp.repo_context_mcp.transport.cli import RepoContextCli  # noqa: E402
 
 
@@ -132,6 +133,39 @@ class RepoContextCliTests(unittest.TestCase):
             plan_mode="prefer-plan",
             write_report=False,
         )
+
+    def test_seed_command_returns_structured_conflict_for_active_reseed(self) -> None:
+        execute_seed_run = mock.Mock(
+            side_effect=ReseedAlreadyInProgressError(
+                pid=1234,
+                host="host-a",
+                started_at="2026-05-10T12:00:00+00:00",
+                same_host=True,
+                stale_after_seconds=3600,
+            )
+        )
+        cli = self.make_cli(execute_seed_run=execute_seed_run)
+
+        with mock.patch("builtins.print") as fake_print:
+            exit_code = cli.run(
+                [
+                    "seed",
+                    "--context-pack-dir",
+                    "/tmp/context-pack",
+                    "--format",
+                    "markdown",
+                ],
+                run_server=mock.Mock(),
+            )
+
+        self.assertEqual(exit_code, 2)
+        payload = json.loads(fake_print.call_args.args[0])
+        self.assertEqual(payload["error"], "reseed_in_progress")
+        self.assertEqual(payload["pid"], 1234)
+        self.assertEqual(payload["host"], "host-a")
+        self.assertEqual(payload["started_at"], "2026-05-10T12:00:00+00:00")
+        self.assertTrue(payload["same_host"])
+        self.assertEqual(payload["stale_after_seconds"], 3600)
 
     def test_conventions_command_supports_json_and_markdown_output(
         self,

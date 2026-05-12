@@ -50,6 +50,10 @@ export interface TaskContextPackSelection {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
+  deepFocusPrimaryRepoId?: string;
+  deepFocusPrimaryFocusId?: string;
+  primaryRepoId?: string;
+  primaryFocusId?: string;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: 'directory' | 'file' | null;
   selectedFocusTargets?: PrimaryFocusTarget[];

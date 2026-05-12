@@ -3,11 +3,15 @@
  * Owns .context-pack-modal__* control selectors that layer on top of the shell and include the original tail overrides.
  * Preserve this file between shell and wizard imports to match the source cascade.
  */
-/* ── Segmented control (origin toggle, replaces radio inputs) ─────── */
+/* ── Segmented control (canonical Apple-style: one primitive for all radio
+       groups in this modal — origin toggle, application shape, infrastructure
+       repos, etc.). Active option = neutral white pill with theme-aware
+       elevation. Single visual signal for selection. ────────────────── */
 
 .context-pack-modal__seg-control {
   display: inline-flex;
   justify-self: start;
+  width: fit-content;
   gap: 2px;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
@@ -16,12 +20,13 @@
 }
 
 .context-pack-modal__seg-option {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.3rem 0.65rem;
+  padding: 0.3rem 0.75rem;
   border: none;
-  border-radius: var(--ts-radius-md);
+  border-radius: calc(var(--ts-radius-md) - 2px);
   background: transparent;
   color: var(--ts-text-muted);
   font-family: var(--ts-font-sans);
@@ -34,30 +39,48 @@
     box-shadow var(--ts-duration) var(--ts-ease);
 }
 
+.context-pack-modal__seg-option input[type='radio'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
 .context-pack-modal__seg-option:hover {
   color: var(--ts-text);
+}
+
+.context-pack-modal__seg-option:has(input[type='radio']:focus-visible) {
+  outline: 2px solid var(--ts-accent-subtle);
+  outline-offset: 2px;
 }
 
 .context-pack-modal__seg-option--active {
   background: var(--ts-surface);
   color: var(--ts-text);
   font-weight: 600;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--ts-shadow-sm);
 }
 
-/* ── Toggle pill (primary toggle, replaces radio/checkbox inputs) ─── */
+/* ── Primary toggle pill ────────────────────────────────────────────
+   Chip-style toggle that mirrors `__repo-chip--primary` aesthetics so
+   the interactive control and its read-only chip counterpart share one
+   visual language. Inactive: outlined neutral pill. Active: filled
+   accent-tinted chip. Selection state rides on fill, not border + color
+   + glow. */
 
 .context-pack-modal__toggle-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.5rem;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-pill);
   background: transparent;
-  color: var(--ts-text-soft);
+  color: var(--ts-text-muted);
   font-family: var(--ts-font-sans);
   font-size: 0.72rem;
   font-weight: 500;
@@ -74,59 +97,44 @@
   color: var(--ts-text);
 }
 
+.context-pack-modal__toggle-pill:focus-visible {
+  outline: 2px solid var(--ts-accent-subtle);
+  outline-offset: 2px;
+}
+
 .context-pack-modal__toggle-pill--active {
-  border-color: var(--ts-accent);
+  border-color: color-mix(in srgb, var(--ts-accent) 35%, var(--ts-border));
   background: var(--ts-accent-tint);
   color: var(--ts-accent);
-}
-
-.context-pack-modal__toggle-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--ts-radius-pill);
-  border: 1.5px solid var(--ts-text-soft);
-  flex-shrink: 0;
-  transition:
-    border-color var(--ts-duration) var(--ts-ease),
-    background var(--ts-duration) var(--ts-ease);
-}
-
-.context-pack-modal__toggle-pill--active .context-pack-modal__toggle-dot {
-  border-color: var(--ts-accent);
-  background: var(--ts-accent);
+  font-weight: 600;
 }
 
 .context-pack-modal__toggle-hint {
-  font-size: 0.62rem;
+  font-size: 0.66rem;
   font-weight: 400;
-  opacity: 0.6;
-  margin-left: 0.15rem;
+  color: var(--ts-text-soft);
+  margin-left: 0.1rem;
+}
+
+.context-pack-modal__toggle-pill--active .context-pack-modal__toggle-hint {
+  color: color-mix(in srgb, var(--ts-accent) 70%, var(--ts-text-muted));
 }
 
 .context-pack-modal__wizard {
-  display: grid;
-  grid-template-columns: minmax(90px, 128px) minmax(0, 1fr);
-  gap: 0.7rem;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .context-pack-modal__wizard-progress {
-  display: grid;
-  gap: 0.45rem;
-  align-content: start;
-  position: sticky;
-  top: 0;
-}
-
-.context-pack-modal__wizard-progress-step {
-  justify-content: flex-start;
-  padding-left: 0;
-  padding-right: 0.2rem;
-}
-
-.context-pack-modal__wizard-progress-step::after {
-  left: 0;
-  right: 20%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--ts-border);
 }
 
 .context-pack-modal__wizard-content,
@@ -136,32 +144,66 @@
   min-width: 0;
 }
 
-.context-pack-modal__wizard-type-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.5rem;
-}
-
-.context-pack-modal__wizard-choice-card {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-}
-
 .context-pack-modal__editor-card--active {
   border-color: var(--ts-accent);
   background: var(--ts-accent-tint);
 }
 
-.context-pack-modal__wizard-choice-kicker {
-  display: inline-flex;
-  margin-bottom: 0.4rem;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--ts-radius-pill);
-  background: var(--ts-surface);
+/* ── Project type: two-question layout ───────────────────────────── */
+
+.context-pack-modal__project-type {
+  gap: 0.8rem;
+  max-width: 27rem;
+}
+
+.context-pack-modal__project-type-header {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: -0.02em;
+}
+
+.context-pack-modal__project-type-group {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.context-pack-modal__project-type-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: -0.01em;
+}
+
+.context-pack-modal__project-type-help {
+  margin: 0;
+  font-size: 0.74rem;
   color: var(--ts-text-soft);
-  font-size: 0.64rem;
-  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* Wizard segmented controls reuse the canonical `__seg-control` /
+   `__seg-option` primitive defined at the top of this file. */
+
+.context-pack-modal__project-type-summary {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ts-text-muted);
+}
+
+.context-pack-modal__project-type-summary strong {
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.context-pack-modal__project-type-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 0.25rem;
 }
 
 .context-pack-modal__wizard-part-card {
@@ -183,18 +225,25 @@
   font-size: 0.74rem;
   font-weight: 500;
   color: var(--ts-text);
-  background: var(--ts-surface-alt);
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-md);
-  padding: 0.3rem 1.6rem 0.3rem 0.5rem;
-  cursor: pointer;
+  background-color: var(--ts-surface-alt);
+  /* Light-mode chevron uses light-mode --ts-text-soft (#8292a8). */
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='10' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%238292a8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.45rem center;
   background-size: 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 0.3rem 1.6rem 0.3rem 0.5rem;
+  cursor: pointer;
   transition:
     border-color var(--ts-duration) var(--ts-ease),
     box-shadow var(--ts-duration) var(--ts-ease);
+}
+
+/* Dark-mode chevron uses dark-mode --ts-text-soft (#6e7681) so the
+   dropdown indicator tracks theme instead of locking to light. */
+:root.theme-dark .context-pack-modal__inline-select {
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='10' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%236e7681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .context-pack-modal__inline-select:hover {
@@ -265,12 +314,12 @@
 }
 
 .context-pack-modal__wizard-heading {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--ts-text);
-  line-height: 1.35;
-  letter-spacing: -0.01em;
+  margin: -0.15rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--ts-text-soft);
+  line-height: 1.45;
+  letter-spacing: -0.005em;
 }
 
 /* ── Icon buttons (edit, remove) ─────────────────────────────────── */
@@ -349,11 +398,11 @@
 .context-pack-modal__new-project-hint {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid color-mix(in srgb, var(--ts-accent) 12%, var(--ts-border));
+  gap: 0.45rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
-  background: color-mix(in srgb, var(--ts-accent-tint) 50%, var(--ts-surface));
+  background: var(--ts-surface-alt);
   color: var(--ts-text-muted);
   font-size: 0.73rem;
   line-height: 1.4;
@@ -361,7 +410,7 @@
 
 .context-pack-modal__new-project-hint svg {
   flex-shrink: 0;
-  color: var(--ts-accent);
+  color: var(--ts-text-soft);
 }
 
 /* ── Advanced fields disclosure ──────────────────────────────────────── */

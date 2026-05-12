@@ -128,5 +128,5 @@ export interface ExternalMcpRegistryHealth {
 
 export interface PipelineExternalMcpReceipt {
   registry: ExternalMcpRegistryHealth;
-  agents: Partial<Record<AgentId | 'dalton-verify', AgentMcpLaunchStatus>>;
+  agents: Partial<Record<AgentId | 'dalton-verify' | 'ron-retrospective', AgentMcpLaunchStatus>>;
 }

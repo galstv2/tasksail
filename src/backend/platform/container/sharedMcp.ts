@@ -2,13 +2,15 @@ import path from 'node:path';
 import { rm, stat } from 'node:fs/promises';
 
 import { isRecord } from '../core/guards.js';
-import { readTextFile, safeJsonParse, writeTextFile } from '../core/io.js';
+import { readTextFile, safeJsonParse, writeTextFileAtomic } from '../core/io.js';
 import { isPathWithinBoundary } from '../core/paths.js';
 import { toContainerPath } from '../core/platform.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import type { PlatformConfig } from '../platform-config/types.js';
 import { checkServiceHealth } from './healthcheck.js';
 import { createRuntimeFromConfig } from './runtime.js';
 import { resolveDefaultComposeFile } from './types.js';
+import { isDirectMcpHealthy } from './directRuntimeProcess.js';
 
 const SHARED_MCP_COMPOSE_OVERRIDE_PATH = '.platform-state/runtime/shared-mcp-compose.override.yml';
 const SHARED_MCP_HEALTH_SPEC = 'repo-context-mcp';
@@ -24,6 +26,7 @@ const SCRUBBED_SHARED_MCP_ENV_KEYS = [
 ] as const;
 const SCRUBBED_SHARED_MCP_ENV_KEY_SET = new Set<string>(SCRUBBED_SHARED_MCP_ENV_KEYS);
 const legacyPortAllocationSweepByRepoRoot = new Map<string, Promise<void>>();
+const sharedMcpBootstrapInFlight = new Map<string, Promise<void>>();
 
 export class ContextPackNotMountedError extends Error {
   readonly code = 'context-pack-not-mounted';
@@ -54,34 +57,72 @@ export async function getSharedMcpHealthUrl(repoRoot: string): Promise<string> {
 export async function ensureSharedMcpRunning(repoRoot: string): Promise<void> {
   await sweepLegacyPortAllocationsOnce(repoRoot);
 
-  const healthUrl = await getSharedMcpHealthUrl(repoRoot);
+  const config = await getPlatformConfig(repoRoot);
+  const healthUrl = `http://localhost:${config.mcp_port}/health`;
+  if (await isAlreadyHealthy(config, healthUrl, repoRoot)) {
+    return;
+  }
+
+  const resolvedRepoRoot = path.resolve(repoRoot);
+  const existing = sharedMcpBootstrapInFlight.get(resolvedRepoRoot);
+  if (existing) {
+    return existing;
+  }
+
+  const bootstrap = runSharedMcpBootstrap(repoRoot, config, healthUrl)
+    .finally(() => {
+      sharedMcpBootstrapInFlight.delete(resolvedRepoRoot);
+    });
+  sharedMcpBootstrapInFlight.set(resolvedRepoRoot, bootstrap);
+  return bootstrap;
+}
+
+async function isAlreadyHealthy(
+  config: PlatformConfig,
+  healthUrl: string,
+  repoRoot: string,
+): Promise<boolean> {
   const initialHealth = await checkServiceHealth({
     name: SHARED_MCP_HEALTH_SPEC,
     url: healthUrl,
     maxRetries: 1,
     retryIntervalMs: 0,
   });
-  if (initialHealth.healthy) {
-    return;
-  }
-
-  const [runtime, config] = await Promise.all([
-    createRuntimeFromConfig(repoRoot),
-    getPlatformConfig(repoRoot),
-  ]);
-  const overrideFile = await generateSharedMcpComposeOverride(
-    repoRoot,
-    config.repo_context_mcp_external_mount_roots,
+  return (
+    initialHealth.healthy
+    && (config.container_runtime !== 'direct' || await isDirectMcpHealthy(repoRoot, config.mcp_port))
   );
+}
+
+async function runSharedMcpBootstrap(
+  repoRoot: string,
+  config: PlatformConfig,
+  healthUrl: string,
+): Promise<void> {
+  const runtime = await createRuntimeFromConfig(repoRoot);
   const env = createSharedMcpBootstrapEnv(config.mcp_port);
-  await runtime.bootstrap({
-    repoRoot,
-    composeFiles: [
-      path.resolve(repoRoot, resolveDefaultComposeFile(runtime.backend)),
-      overrideFile,
-    ],
-    env,
-  });
+  if (runtime.requiresComposeFile) {
+    const composeFile = resolveDefaultComposeFile(runtime.backend);
+    if (composeFile === undefined) {
+      throw new Error(
+        `requiresComposeFile=true but no default compose file is registered for backend "${runtime.backend}". This is an internal invariant violation.`,
+      );
+    }
+    const overrideFile = await generateSharedMcpComposeOverride(
+      repoRoot,
+      config.repo_context_mcp_external_mount_roots,
+    );
+    await runtime.bootstrap({
+      repoRoot,
+      composeFiles: [
+        path.resolve(repoRoot, composeFile),
+        overrideFile,
+      ],
+      env,
+    });
+  } else {
+    await runtime.bootstrap({ repoRoot, env });
+  }
 
   const bootstrapHealth = await checkServiceHealth({
     name: SHARED_MCP_HEALTH_SPEC,
@@ -111,13 +152,18 @@ export function sweepLegacyPortAllocationsOnce(repoRoot: string): Promise<void> 
   return sweep;
 }
 
+export async function runtimeRequiresContainerPaths(repoRoot: string): Promise<boolean> {
+  const runtime = await createRuntimeFromConfig(repoRoot);
+  return runtime.requiresComposeFile;
+}
+
 export async function generateSharedMcpComposeOverride(
   repoRoot: string,
   externalRoots: string[],
 ): Promise<string> {
   const overridePath = path.join(repoRoot, SHARED_MCP_COMPOSE_OVERRIDE_PATH);
   await validateExternalMountRoots(externalRoots);
-  await writeTextFile(overridePath, renderSharedMcpComposeOverride(externalRoots));
+  await writeTextFileAtomic(overridePath, renderSharedMcpComposeOverride(externalRoots));
   return overridePath;
 }
 
@@ -275,7 +321,18 @@ async function composeDownLegacyProjects(
     return;
   }
 
-  const composeFile = path.resolve(repoRoot, resolveDefaultComposeFile(runtime.backend));
+  if (!runtime.requiresComposeFile) {
+    return;
+  }
+  const composeFileRel = resolveDefaultComposeFile(runtime.backend);
+  if (composeFileRel === undefined) {
+    logLegacySweepFailure(
+      `no default compose file for ${runtime.backend}; ${projectNames.length} legacy compose project(s) not swept`,
+      new Error('missing compose file mapping'),
+    );
+    return;
+  }
+  const composeFile = path.resolve(repoRoot, composeFileRel);
   for (const projectName of projectNames) {
     try {
       await runtime.composeDown({

@@ -87,6 +87,7 @@ export type AgentInstructionsBrowserProps = {
   isLoading: boolean;
   files: Record<InstructionsTab, InstructionFileEntry[]>;
   draftsByPath: Record<string, FileState>;
+  descriptor: ProviderFrontendDescriptor | null;
   error: string | null;
   /** Path currently loading content (for card pulse indicator) */
   loadingPath: string | null;
@@ -136,6 +137,7 @@ export function useAgentInstructionsModal(
   const [error, setError] = useState<string | null>(null);
   const [directoryLabels, setDirectoryLabels] =
     useState<Record<InstructionsTab, string>>(DEFAULT_DIRECTORY_LABELS);
+  const [descriptor, setDescriptor] = useState<ProviderFrontendDescriptor | null>(null);
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
   const [confirmSaveVisible, setConfirmSaveVisible] = useState(false);
 
@@ -188,6 +190,7 @@ export function useAgentInstructionsModal(
       const descriptorPromise = client.describeActiveProvider();
       const fileListPromise = Promise.all(TAB_ORDER.map((dir) => client.listInstructionFiles(dir)));
       const [descriptor, results] = await Promise.all([descriptorPromise, fileListPromise]);
+      setDescriptor(descriptor);
       setDirectoryLabels(createDirectoryLabels(descriptor));
 
       const newFiles: Record<InstructionsTab, InstructionFileEntry[]> = {
@@ -373,11 +376,12 @@ export function useAgentInstructionsModal(
     isLoading,
     files,
     draftsByPath,
+    descriptor,
     error,
     loadingPath,
     onClose: onBrowserClose,
     onSelectFile,
-  }), [isOpen, isLoading, files, draftsByPath, error, loadingPath, onBrowserClose, onSelectFile]);
+  }), [isOpen, isLoading, files, draftsByPath, descriptor, error, loadingPath, onBrowserClose, onSelectFile]);
 
   const editorIsOpen = editingRelativePath !== null && editingDraft?.loaded === true;
   const activeDirectory = resolveDirectoryForPath(editingRelativePath, directoryLabels);

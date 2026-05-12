@@ -150,6 +150,108 @@ describe('desktopShellClient', () => {
     expect(shell.initiateFollowUp).toHaveBeenCalledWith(submissionDraft, 'preview');
   });
 
+  it('forwards planner history and replay message arguments unchanged', async () => {
+    const shell = {
+      startPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.startSession' } }),
+      sendPlannerMessage: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.sendMessage' } }),
+      listPlannerConversationHistory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listConversationHistory' } }),
+      hydratePlannerConversation: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.hydrateConversation' } }),
+    } as unknown as Window['desktopShell'];
+
+    const client = createDesktopShellClient(() => shell);
+
+    await client.startPlannerSession({
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      replayConversationId: 'conversation-1',
+    });
+    await client.sendPlannerMessage('Message sent to Lily.', 'Message shown in transcript.');
+    await client.sendPlannerMessage('Plain message only.');
+    await client.listPlannerConversationHistory();
+    await client.hydratePlannerConversation('conversation-1');
+
+    expect(shell.startPlannerSession).toHaveBeenCalledWith({
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      replayConversationId: 'conversation-1',
+    });
+    expect(shell.sendPlannerMessage).toHaveBeenNthCalledWith(
+      1,
+      'Message sent to Lily.',
+      'Message shown in transcript.',
+    );
+    expect(shell.sendPlannerMessage).toHaveBeenNthCalledWith(
+      2,
+      'Plain message only.',
+      undefined,
+    );
+    expect(shell.listPlannerConversationHistory).toHaveBeenCalledTimes(1);
+    expect(shell.hydratePlannerConversation).toHaveBeenCalledWith('conversation-1');
+  });
+
+  it('forwards validateChildTaskFocus payload unchanged through the shell seam', async () => {
+    const validateChildTaskFocus = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.validateChildTaskFocus',
+        mode: 'valid',
+        message: 'Parent task focus is still valid.',
+        issues: [],
+      },
+    });
+
+    const shell = {
+      validateChildTaskFocus,
+    } as unknown as Window['desktopShell'];
+
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      snapshot: {
+        version: 1 as const,
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+        title: 'Parent task',
+        primaryRepoId: 'platform',
+        primaryRepoRoot: '/tmp/repo',
+        primaryFocusRelativePath: 'src/planner',
+        primaryFocusTargetKind: 'directory' as const,
+        primaryFocusTargets: [{
+          path: 'src/planner',
+          kind: 'directory' as const,
+          repoId: 'platform',
+          focusId: 'planner',
+          role: 'anchor' as const,
+        }],
+        selectedTestTarget: { path: 'tests/planner.test.ts', kind: 'file' as const },
+        supportTargets: [],
+        deepFocusEnabled: true,
+        contextPackBinding: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          contextPackId: 'orders-estate',
+          scopeMode: 'selected' as const,
+          selectedRepoIds: ['platform'],
+          selectedFocusIds: ['planner'],
+          deepFocusEnabled: true,
+          selectedFocusPath: 'src/planner',
+          selectedFocusTargetKind: 'directory' as const,
+          selectedFocusTargets: [{
+            path: 'src/planner',
+            kind: 'directory' as const,
+            repoId: 'platform',
+            focusId: 'planner',
+            role: 'anchor' as const,
+          }],
+          selectedTestTarget: { path: 'tests/planner.test.ts', kind: 'file' as const },
+          selectedSupportTargets: [],
+        },
+      },
+    };
+
+    await client.validateChildTaskFocus(payload);
+
+    expect(validateChildTaskFocus).toHaveBeenCalledTimes(1);
+    expect(validateChildTaskFocus).toHaveBeenCalledWith(payload);
+  });
+
   it('forwards context-pack activation and bootstrap info calls unchanged', async () => {
     const shell = {
       getBootstrapInfo: vi.fn().mockResolvedValue({ appName: 'TaskSail' }),
@@ -317,6 +419,7 @@ describe('desktopShellClient', () => {
         .mockResolvedValue({ ok: true, response: { action: 'contextPack.clearActive' } }),
       activateContextPack: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.activate' } }),
       startPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.startSession' } }),
+      validateChildTaskFocus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] } }),
       sendPlannerMessage: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.sendMessage' } }),
       endPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.endSession' } }),
       savePlannerDraft: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.saveDraft' } }),
@@ -326,6 +429,8 @@ describe('desktopShellClient', () => {
       uploadSpec: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: '', draftTitle: '', submittedPath: '', observationMode: true } }),
       getBypassTemplate: vi.fn().mockResolvedValue(''),
       listArchivedTasks: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listArchivedTasks', mode: 'empty', tasks: [] } }),
+      listPlannerConversationHistory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listConversationHistory', mode: 'empty', conversations: [] } }),
+      hydratePlannerConversation: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.hydrateConversation', mode: 'not-found', record: null } }),
       submitReinforcementFeedback: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.submitFeedback' } }),
       updateRealignmentDoc: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.updateRealignmentDoc' } }),
       readReinforcementOverview: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.readOverview' } }),
@@ -335,6 +440,7 @@ describe('desktopShellClient', () => {
       readRealignmentDoc: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.readRealignmentDoc' } }),
       checkActiveWorkGuard: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.checkActiveWorkGuard', allowed: true } }),
       startRealignment: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.startRealignment', mode: 'started' } }),
+      runRealignmentAnalysis: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.runRealignmentAnalysis', mode: 'analysis-started' } }),
       listExternalMcpServers: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.list', servers: [] } }),
       addExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.add', servers: [] } }),
       updateExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.update', servers: [] } }),
@@ -354,6 +460,7 @@ describe('desktopShellClient', () => {
       moveToPending: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.moveToPending', mode: 'moved', message: 'Moved.', movedItem: 'task.md' } }),
       moveToOpen: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.moveToOpen', mode: 'moved', message: 'Moved.', movedItem: 'task.md' } }),
       setRepositoryType: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepositoryType', mode: 'updated', message: 'Updated.' } }),
+      setRepoCategory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepoCategory', mode: 'updated', message: 'Updated.' } }),
       getBackendServiceStatus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'services.readStatus', mode: 'observed', status: 'idle', lastCheckedAt: null, error: null, message: 'Idle.' } }),
       startBackendServices: vi.fn().mockResolvedValue({ ok: true, response: { action: 'services.readStatus', mode: 'observed', status: 'healthy', lastCheckedAt: null, error: null, message: 'Running.' } }),
       stopBackendServices: vi.fn().mockResolvedValue({ ok: true, response: { action: 'services.readStatus', mode: 'observed', status: 'idle', lastCheckedAt: null, error: null, message: 'Stopped.' } }),
@@ -368,6 +475,7 @@ describe('desktopShellClient', () => {
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),
+      subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
     } as Window['desktopShell'];
 
     await desktopShellClient.getQueueStatus();
@@ -440,7 +548,7 @@ describe('desktopShellClient', () => {
     await desktopShellClient.updateExternalMcpServer({
       id: 'test', display_name: 'Updated', purpose: 'Updated',
       transport: 'http', url: 'https://y.com', enabled: false,
-      agent_scope: { mode: 'allowlist', agent_ids: ['qa'] },
+      agent_scope: { mode: 'allowlist', agent_ids: ['provider-qa'] },
     });
     await desktopShellClient.removeExternalMcpServer('test');
     await desktopShellClient.toggleExternalMcpServer('test');
@@ -463,14 +571,14 @@ describe('desktopShellClient', () => {
 
     await desktopShellClient.loadAgentConfig();
     await desktopShellClient.loadModelCatalog();
-    await desktopShellClient.saveAgentModels([{ agent_id: 'planning-agent', model_id: 'gpt-4.1' }]);
+    await desktopShellClient.saveAgentModels([{ agent_id: 'provider-planner', model_id: 'gpt-4.1' }]);
     await desktopShellClient.addModel('GPT 4.1', 'gpt-4.1');
     await desktopShellClient.removeModel('gpt-4.1');
 
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadAgentConfig).toHaveBeenCalledTimes(1);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadModelCatalog).toHaveBeenCalledTimes(1);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveAgentModels).toHaveBeenCalledWith([
-      { agent_id: 'planning-agent', model_id: 'gpt-4.1' },
+      { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
     ]);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).addModel).toHaveBeenCalledWith('GPT 4.1', 'gpt-4.1');
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).removeModel).toHaveBeenCalledWith('gpt-4.1');
@@ -508,12 +616,20 @@ describe('desktopShellClient', () => {
     await desktopShellClient.readAgentRewards();
     await desktopShellClient.listRealignmentSessions();
     await desktopShellClient.readRealignmentDoc();
+    await desktopShellClient.runRealignmentAnalysis({
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
 
     expect(window.desktopShell.readReinforcementOverview).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.listReinforcementTasks).toHaveBeenCalledWith('2026');
     expect(window.desktopShell.readAgentRewards).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.listRealignmentSessions).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.readRealignmentDoc).toHaveBeenCalledTimes(1);
+    expect(window.desktopShell.runRealignmentAnalysis).toHaveBeenCalledWith({
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
   });
 
   it('clientFactory mock returns cancelled response for pickMarkdownFile by default', async () => {

@@ -46,4 +46,16 @@ describe('deletePendingItem', () => {
 
     expect(existsSync(path.join(pendingDir, 'task-002.md'))).toBe(false);
   });
+
+  it('removes the staged planner focus snapshot when present', async () => {
+    writeFileSync(path.join(pendingDir, 'task-002.md'), '# Pending\n', 'utf-8');
+    const stagingPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-002', 'planner-focus-snapshot.json');
+    mkdirSync(path.dirname(stagingPath), { recursive: true });
+    writeFileSync(stagingPath, '{}\n', 'utf-8');
+
+    await deletePendingItem({ repoRoot, queueName: 'task-002.md' });
+
+    expect(existsSync(path.join(pendingDir, 'task-002.md'))).toBe(false);
+    expect(existsSync(stagingPath)).toBe(false);
+  });
 });

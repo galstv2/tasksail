@@ -77,13 +77,16 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
   if (containsProviderHomeEnvKey(envExports)) {
     throw new Error('Invalid external MCP launch context output: envExports must not contain provider-specific home variables.');
   }
-  if (launchDir !== undefined && typeof launchDir !== 'string') {
+  // JSON cannot transmit `undefined`; the Python helper emits `null` for
+  // optional fields that are not applicable (e.g. when no external servers
+  // are selected). Accept both null and undefined as "absent."
+  if (launchDir != null && typeof launchDir !== 'string') {
     throw new Error('Invalid external MCP launch context output: launchDir must be a string when present.');
   }
-  if (contextFile !== undefined && typeof contextFile !== 'string') {
+  if (contextFile != null && typeof contextFile !== 'string') {
     throw new Error('Invalid external MCP launch context output: contextFile must be a string when present.');
   }
-  if (resolvedServers !== undefined && !isResolvedMcpServerArray(resolvedServers)) {
+  if (resolvedServers != null && !isResolvedMcpServerArray(resolvedServers)) {
     throw new Error('Invalid external MCP launch context output: resolvedServers must be an MCP server array.');
   }
   if (injectionEnabled && (typeof launchDir !== 'string' || !isResolvedMcpServerArray(resolvedServers))) {
@@ -101,9 +104,9 @@ function parseExternalMcpLaunchContext(stdout: string): ExternalMcpLaunchContext
     reason,
     injectionEnabled,
     envExports,
-    launchDir: launchDir as string | undefined,
-    contextFile: contextFile as string | undefined,
-    resolvedServers: resolvedServers ?? [],
+    launchDir: typeof launchDir === 'string' ? launchDir : undefined,
+    contextFile: typeof contextFile === 'string' ? contextFile : undefined,
+    resolvedServers: isResolvedMcpServerArray(resolvedServers) ? resolvedServers : [],
     selectedServerIds,
     excludedServerIds,
   };

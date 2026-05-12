@@ -42,13 +42,112 @@ const { readWorkspaceSyncStateSnapshot } = await import('../main.contextPackCata
 const { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } = await import('../../../../backend/platform/context-pack/focusedRepo.js');
 const { createDropboxTask } = await import('../../../../backend/platform/queue/createDropboxTask.js');
 const { createFollowupTask } = await import('../../../../backend/platform/queue/createFollowupTask.js');
+const { publishPendingItem } = await import('../../../../backend/platform/queue/publishPendingItem.js');
 const { readdir } = await import('node:fs/promises');
 const {
   runDropboxTaskScript,
   runFollowUpTaskScript,
+  submitUploadedSpecHelper,
   validatePlannerDraftForSubmission,
   validateFollowUpDraftForSubmission,
 } = await import('../main.taskQueue');
+
+function buildUploadedSpec(extraSections = ''): string {
+  return `
+## Request Summary
+
+Queue a completed bypass spec through the same dropbox intake boundary used by planner finalization.
+
+## Desired Outcome
+
+The uploaded spec is written to AgentWorkSpace/dropbox with platform-owned metadata.
+
+## Constraints
+
+- Preserve immutable planner scope.
+
+## Acceptance Signals
+
+- The task appears in dropbox.
+
+${extraSections}
+## Suggested Routing
+
+- Recommended Execution: sequential
+- Planner Notes: Operator supplied the planning intake directly.
+`;
+}
+
+function buildPlannerSidecar(overrides: Record<string, unknown> = {}) {
+  const sidecar = {
+    version: 1 as const,
+    ownership: 'planner-session' as const,
+    sessionId: 'planner-active',
+    draftFilename: 'draft.md',
+    draftPath: '/repo/AgentWorkSpace/dropbox/.staging/draft.md',
+    createdAt: '2026-03-07T18:20:00Z',
+    title: 'immutable-pack / immutable-focus',
+    primaryRepoId: 'immutable-repo',
+    primaryRepoRoot: '/immutable/repo',
+    primaryFocusRelativePath: 'immutable/focus',
+    deepFocusEnabled: true,
+    primaryFocusTargetKind: 'directory' as const,
+    primaryFocusTargets: [
+      {
+        path: 'immutable/focus',
+        kind: 'directory' as const,
+        role: 'anchor' as const,
+        repoId: 'immutable-repo',
+        repoLocalPath: '/immutable/repo',
+      },
+    ],
+    selectedTestTarget: { path: 'immutable/tests', kind: 'directory' as const },
+    supportTargets: [{ path: 'immutable/docs.md', kind: 'file' as const, effectiveScope: 'full-directory' as const }],
+    lineage: {
+      taskKind: 'standard' as const,
+      parentTaskId: '',
+      rootTaskId: '',
+      parentQmdRecordId: '',
+      parentQmdScope: '',
+      followUpReason: '',
+    },
+      contextPackBinding: {
+        contextPackDir: '/immutable/context-pack',
+        contextPackId: 'immutable-pack',
+        scopeMode: 'focus-selection',
+        primaryRepoId: 'immutable-repo',
+        primaryFocusId: 'immutable-focus',
+        selectedRepoIds: ['immutable-repo'],
+        selectedFocusIds: ['immutable-focus'],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'immutable/focus',
+      selectedFocusTargetKind: 'directory' as const,
+      selectedFocusTargets: [
+        {
+          path: 'immutable/focus',
+          kind: 'directory' as const,
+          role: 'anchor' as const,
+          repoId: 'immutable-repo',
+          repoLocalPath: '/immutable/repo',
+        },
+      ],
+      selectedTestTarget: { path: 'immutable/tests', kind: 'directory' as const },
+      selectedSupportTargets: [{ path: 'immutable/docs.md', kind: 'file' as const, effectiveScope: 'full-directory' as const }],
+    },
+  };
+  return {
+    ...sidecar,
+    ...overrides,
+    lineage: {
+      ...sidecar.lineage,
+      ...((overrides.lineage as Record<string, unknown> | undefined) ?? {}),
+    },
+    contextPackBinding: {
+      ...sidecar.contextPackBinding,
+      ...((overrides.contextPackBinding as Record<string, unknown> | undefined) ?? {}),
+    },
+  };
+}
 
 describe('main.taskQueue direct submission hardening', () => {
   beforeEach(() => {
@@ -67,8 +166,6 @@ describe('main.taskQueue direct submission hardening', () => {
       selectedTestTarget: null,
       selectedSupportTargets: [],
       managedFolders: [],
-      attachedManagedFolders: [],
-      missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
       workspaceFolderCount: null,
@@ -104,8 +201,6 @@ describe('main.taskQueue direct submission hardening', () => {
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
       managedFolders: [],
-      attachedManagedFolders: [],
-      missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
       workspaceFolderCount: null,
@@ -129,8 +224,9 @@ describe('main.taskQueue direct submission hardening', () => {
       title: 'backend / apps/api',
       contextPackDir: '/context-packs/sample-pack',
       contextPackId: 'sample-pack-id',
-      scopeMode: 'focused',
-      selectedRepoIds: ['backend'],
+      scopeMode: 'focus-selection',
+      primaryFocusId: 'api',
+      selectedRepoIds: [],
       selectedFocusIds: ['api'],
       deepFocusEnabled: true,
       selectedFocusPath: 'src/orders',
@@ -159,8 +255,6 @@ describe('main.taskQueue direct submission hardening', () => {
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
       managedFolders: [],
-      attachedManagedFolders: [],
-      missingManagedFolders: [],
       status: 'active',
       lastSyncedAt: '2026-03-07T18:30:00Z',
       workspaceFolderCount: null,
@@ -172,13 +266,16 @@ describe('main.taskQueue direct submission hardening', () => {
     const archiveReader = {
       readdir: vi.fn(async (_targetPath, options) => {
         if (options && typeof options === 'object' && 'withFileTypes' in options && options.withFileTypes) {
-          return [{ name: '2026', isDirectory: () => true }] as unknown as Awaited<ReturnType<typeof readdir>>;
+          if (String(_targetPath).endsWith('/archive/tasks')) {
+            return [{ name: '2026', isDirectory: () => true, isFile: () => false }] as unknown as Awaited<ReturnType<typeof readdir>>;
+          }
+          return [{ name: 'parent-task', isDirectory: () => true, isFile: () => false }] as unknown as Awaited<ReturnType<typeof readdir>>;
         }
-        return ['parent-task.md'] as unknown as Awaited<ReturnType<typeof readdir>>;
+        return [] as unknown as Awaited<ReturnType<typeof readdir>>;
       }),
       readFile: vi.fn(async (targetPath) => {
         const normalizedPath = String(targetPath);
-        if (normalizedPath.endsWith('/AgentWorkSpace/qmd/context-packs/sample-pack/archive/tasks/2026/parent-task.json')) {
+        if (normalizedPath.endsWith('/AgentWorkSpace/qmd/context-packs/sample-pack/archive/tasks/2026/parent-task/archive.json')) {
           return JSON.stringify({
             task_id: 'PARENT-123',
             record_id: 'qmd://implementation-summary/PARENT-123/final',
@@ -220,6 +317,274 @@ describe('main.taskQueue direct submission hardening', () => {
       title: 'backend / apps/api',
       rootTaskId: 'ROOT-001',
     });
+  });
+
+  it('submits Bypass Lily uploads to dropbox without publishing directly to pendingitems', async () => {
+    vi.mocked(createDropboxTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
+    );
+
+    const result = await submitUploadedSpecHelper(`
+## Request Summary
+
+Queue a completed bypass spec through the same dropbox intake boundary used by planner finalization.
+
+## Desired Outcome
+
+The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly into pendingitems.
+
+## Constraints
+
+- Preserve the normal queue intake boundary.
+
+## Acceptance Signals
+
+- The task appears in dropbox.
+
+## Suggested Routing
+
+- Recommended Execution: sequential
+- Planner Notes: Operator supplied the planning intake directly.
+`);
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.uploadSpec',
+        mode: 'submitted',
+        submittedPath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
+      }),
+    });
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'backend / apps/api',
+      repoRoot: expect.any(String),
+      summary: 'Queue a completed bypass spec through the same dropbox intake boundary used by planner finalization.',
+      desiredOutcome: 'The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly into pendingitems.',
+      acceptanceSignals: '- The task appears in dropbox.',
+    }));
+    expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('submits child-task Bypass Lily uploads from immutable sidecar lineage and focus instead of live workspace state', async () => {
+    vi.mocked(createFollowupTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_immutable-child.md',
+    );
+    const sidecar = buildPlannerSidecar({
+      lineage: {
+        taskKind: 'child-task' as const,
+        parentTaskId: 'PARENT-123',
+        rootTaskId: 'ROOT-001',
+        parentQmdRecordId: 'qmd://implementation-summary/PARENT-123/final',
+        parentQmdScope: 'qmd/context-packs/immutable-pack',
+        followUpReason: 'Continue from the archived parent task.',
+      },
+    });
+
+    const result = await submitUploadedSpecHelper(
+      buildUploadedSpec(`
+## Parent Task Carry-Forward Summary
+
+- Carry forward the immutable parent findings.
+
+`),
+      { plannerSidecar: sidecar },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'immutable-pack / immutable-focus',
+      parentTaskId: 'PARENT-123',
+      rootTaskId: 'ROOT-001',
+      parentQmdRecordId: 'qmd://implementation-summary/PARENT-123/final',
+      parentQmdScope: 'qmd/context-packs/immutable-pack',
+      followupReason: 'Continue from the archived parent task.',
+      carryForwardSummary: '- Carry forward the immutable parent findings.',
+      contextPackDir: '/immutable/context-pack',
+      contextPackId: 'immutable-pack',
+      selectedRepoIds: ['immutable-repo'],
+      selectedFocusIds: ['immutable-focus'],
+      primaryRepoId: 'immutable-repo',
+      primaryFocusId: 'immutable-focus',
+      deepFocusEnabled: true,
+      selectedFocusPath: 'immutable/focus',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: sidecar.primaryFocusTargets,
+      selectedTestTarget: { path: 'immutable/tests', kind: 'directory' },
+      selectedSupportTargets: [{ path: 'immutable/docs.md', kind: 'file', effectiveScope: 'full-directory' }],
+    }));
+    expect(createDropboxTask).not.toHaveBeenCalled();
+    expect(readWorkspaceSyncStateSnapshot).not.toHaveBeenCalled();
+    expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('submits recent standard Bypass Lily uploads from immutable sidecar context binding instead of live workspace state', async () => {
+    vi.mocked(createDropboxTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_recent-standard.md',
+    );
+
+    const result = await submitUploadedSpecHelper(
+      buildUploadedSpec(),
+      { plannerSidecar: buildPlannerSidecar({ sessionId: 'planner-replay' }) },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.uploadSpec',
+        draftTitle: 'immutable-pack / immutable-focus',
+        submittedPath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_recent-standard.md',
+      }),
+    });
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'immutable-pack / immutable-focus',
+      kind: 'standard',
+      contextPackDir: '/immutable/context-pack',
+      contextPackId: 'immutable-pack',
+      scopeMode: 'focus-selection',
+      primaryRepoId: 'immutable-repo',
+      primaryFocusId: 'immutable-focus',
+      selectedRepoIds: ['immutable-repo'],
+      selectedFocusIds: ['immutable-focus'],
+      selectedFocusPath: 'immutable/focus',
+    }));
+    expect(createFollowupTask).not.toHaveBeenCalled();
+    expect(readWorkspaceSyncStateSnapshot).not.toHaveBeenCalled();
+    expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('submits Bypass Lily uploads with the same repo-selection binding shape as Lily staging', async () => {
+    vi.mocked(readWorkspaceSyncStateSnapshot).mockResolvedValue({
+      activeContextPackDir: '/context-packs/platform-pack',
+      activeContextPackId: 'platform-pack',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      managedFolders: [],
+      status: 'active',
+      lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
+    });
+    vi.mocked(resolveSelectedPrimaryRepoRoot).mockResolvedValue({
+      primaryRepoRoot: '/repos/platform',
+      visibleRepoRoots: ['/repos/platform', '/repos/tools'],
+      declaredRepoRoots: ['/repos/platform', '/repos/tools'],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      authoritySource: 'workspace-sync-state',
+    });
+    vi.mocked(createDropboxTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_platform.md',
+    );
+
+    await submitUploadedSpecHelper(buildUploadedSpec());
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'platform',
+      contextPackDir: '/context-packs/platform-pack',
+      contextPackId: 'platform-pack',
+      scopeMode: 'repo-selection',
+      primaryRepoId: 'platform',
+      primaryFocusId: undefined,
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    }));
+  });
+
+  it('routes recent child-task Bypass Lily uploads through createFollowupTask', async () => {
+    vi.mocked(createFollowupTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_recent-child.md',
+    );
+
+    await submitUploadedSpecHelper(
+      buildUploadedSpec(`
+## Parent Task Carry-Forward Summary
+
+- Continue the recent child task.
+
+`),
+      {
+        plannerSidecar: buildPlannerSidecar({
+          lineage: {
+            taskKind: 'child-task' as const,
+            parentTaskId: 'RECENT-PARENT',
+            rootTaskId: 'RECENT-ROOT',
+            parentQmdRecordId: 'qmd://recent-parent',
+            parentQmdScope: 'qmd/context-packs/recent-pack',
+            followUpReason: 'Replay child task planning context.',
+          },
+        }),
+      },
+    );
+
+    expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
+      parentTaskId: 'RECENT-PARENT',
+      rootTaskId: 'RECENT-ROOT',
+      parentQmdRecordId: 'qmd://recent-parent',
+      parentQmdScope: 'qmd/context-packs/recent-pack',
+      followupReason: 'Replay child task planning context.',
+    }));
+    expect(createDropboxTask).not.toHaveBeenCalled();
+    expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects child-task Bypass Lily uploads without a carry-forward summary before writing a dropbox file', async () => {
+    const result = await submitUploadedSpecHelper(
+      buildUploadedSpec(),
+      {
+        plannerSidecar: buildPlannerSidecar({
+          lineage: {
+            taskKind: 'child-task' as const,
+            parentTaskId: 'PARENT-123',
+            rootTaskId: 'ROOT-001',
+            parentQmdRecordId: 'qmd://parent',
+            parentQmdScope: 'qmd/context-packs/immutable-pack',
+            followUpReason: 'Continue from parent.',
+          },
+        }),
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      action: 'planner.uploadSpec',
+      error: 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask Lily to complete the intake before finalizing.',
+    });
+    expect(createDropboxTask).not.toHaveBeenCalled();
+    expect(createFollowupTask).not.toHaveBeenCalled();
+    expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('continues rejecting platform-owned sections and top-level uploaded headings', async () => {
+    const sidecar = buildPlannerSidecar();
+
+    await expect(submitUploadedSpecHelper(`${buildUploadedSpec()}
+## Task Lineage
+
+- Task Kind: standard
+`, { plannerSidecar: sidecar })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      error: expect.stringContaining('Task Lineage'),
+    }));
+
+    await expect(submitUploadedSpecHelper(`# Uploaded Title
+${buildUploadedSpec()}`, { plannerSidecar: sidecar })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      error: expect.stringContaining('top-level title'),
+    }));
+
+    expect(createDropboxTask).not.toHaveBeenCalled();
+    expect(createFollowupTask).not.toHaveBeenCalled();
+    expect(publishPendingItem).not.toHaveBeenCalled();
   });
 
   it('no longer requires renderer-owned titles or parent qmd scope during direct-submission validation', () => {

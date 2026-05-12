@@ -8,7 +8,7 @@ vi.mock('node:child_process', () => ({
 
 import { execSync } from 'node:child_process';
 
-import { probePidLiveness } from './repoObservability';
+import { probePidLiveness, readObservabilitySnapshot } from './repoObservability';
 
 const execSyncMock = vi.mocked(execSync);
 
@@ -39,5 +39,70 @@ describe('probePidLiveness', () => {
         env: expect.objectContaining({ LC_TIME: 'C' }),
       }),
     );
+  });
+});
+
+describe('role session receipt parsing', () => {
+  it('uses launch_id for runtime session identity and launch_phase for labels', async () => {
+    const receipts: Record<string, string> = {
+      'dalton-initial.json': JSON.stringify({
+        agent_id: 'dalton',
+        launch_id: 'initial-launch',
+        role_name: 'Software Engineer',
+        session_kind: 'task-role',
+        launch: {
+          status: 'started',
+          started_at: '2026-05-04T20:16:17Z',
+          pid: null,
+        },
+        latest_output_lines: ['Started Dalton runtime.'],
+      }),
+      'dalton-retry.json': JSON.stringify({
+        agent_id: 'dalton',
+        launch_id: 'retry-launch',
+        launch_phase: 'Confinement retry',
+        retry_of_launch_id: 'initial-launch',
+        role_name: 'Software Engineer',
+        session_kind: 'task-role',
+        launch: {
+          status: 'started',
+          started_at: '2026-05-04T20:16:17Z',
+          pid: null,
+        },
+        latest_output_lines: ['Started Dalton Confinement retry runtime.'],
+      }),
+    };
+    const fsAdapter = {
+      access: vi.fn(async (targetPath: string) => {
+        if (targetPath.includes('.platform-state/runtime/tasks/TASK-A/role-sessions')) {
+          return;
+        }
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      }),
+      readdir: vi.fn(async (targetPath: string) => {
+        if (targetPath.includes('.platform-state/runtime/tasks/TASK-A/role-sessions')) {
+          return Object.keys(receipts);
+        }
+        return [];
+      }),
+      readFile: vi.fn(async (targetPath: string) => {
+        const filename = targetPath.split(/[\\/]/).at(-1) ?? '';
+        return receipts[filename] ?? '';
+      }),
+    };
+
+    const snapshot = await readObservabilitySnapshot(fsAdapter, ['TASK-A']);
+    const sessions = snapshot.agentTerminalSessions ?? [];
+
+    expect(sessions.map((session) => session.sessionId).sort()).toEqual([
+      'role:dalton:initial-launch',
+      'role:dalton:retry-launch',
+    ]);
+    expect(sessions.find((session) =>
+      session.sessionId === 'role:dalton:retry-launch',
+    )).toEqual(expect.objectContaining({
+      agentLabel: 'Dalton (Software Engineer) — Confinement retry',
+      latestOutputLines: ['Started Dalton Confinement retry runtime.'],
+    }));
   });
 });

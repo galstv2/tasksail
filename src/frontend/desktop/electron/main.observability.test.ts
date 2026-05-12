@@ -191,7 +191,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const roleReceiptPayload = JSON.stringify({
       task_id: 'CAP-CUSTOM-TERMINAL-04',
       task_title: 'Observe queue artifacts',
-      agent_id: 'qa',
+      agent_id: 'provider-qa',
       role_name: 'QA and Closeout',
       session_kind: 'task-role',
       launch: {
@@ -215,7 +215,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/qa.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/provider-qa.json')) {
           return roleReceiptPayload;
         }
 
@@ -226,7 +226,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           return ['CAP-CUSTOM-TERMINAL-04'];
         }
         if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
-          return ['qa.json'];
+          return ['provider-qa.json'];
         }
         return [];
       }),
@@ -236,9 +236,9 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       expect.objectContaining({
         agentTerminalSessions: expect.arrayContaining([
           expect.objectContaining({
-            sessionId: 'role:qa:2026-03-07T21:07:29Z',
+            sessionId: 'role:provider-qa:2026-03-07T21:07:29Z',
             taskId: 'CAP-CUSTOM-TERMINAL-04',
-            agentId: 'qa',
+            agentId: 'provider-qa',
             instanceId: null,
             sliceId: null,
             launchPid: null,
@@ -255,7 +255,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptPayload = JSON.stringify({
       task_id: 'CAP-CUSTOM-TERMINAL-04',
       task_title: 'Observe queue artifacts',
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       launch: {
         status: 'started',
         started_at: '2026-03-07T21:07:29Z',
@@ -271,9 +271,9 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       schema_version: 1,
       receipt_kind: 'guardrail',
       status: 'internal-bypass',
-      requested_agent_id: 'software-engineer',
-      resolved_agent_id: 'software-engineer',
-      expected_agent_id: 'software-engineer',
+      requested_agent_id: 'provider-builder',
+      resolved_agent_id: 'provider-builder',
+      expected_agent_id: 'provider-builder',
       validator_mode: 'runtime',
       launch_seam: 'src/backend/platform/agent-runner/roleAgent.ts',
       required_model: 'gpt-5.4',
@@ -290,12 +290,12 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/provider-builder.json')) {
           return receiptPayload;
         }
         if (
           path.endsWith(
-            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           )
         ) {
           return guardrailPayload;
@@ -309,10 +309,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           return ['CAP-CUSTOM-TERMINAL-04'];
         }
         if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails')) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         return [];
       }),
@@ -336,15 +336,15 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           expect.objectContaining({
             status: 'internal-bypass',
             receiptPath:
-              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           }),
         ]),
         agentTerminalSessions: expect.arrayContaining([
           expect.objectContaining({
-            sessionId: 'role:software-engineer:2026-03-07T21:07:29Z',
+            sessionId: 'role:provider-builder:2026-03-07T21:07:29Z',
             guardrailStatus: 'internal-bypass',
             guardrailReceiptPath:
-              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           }),
         ]),
       }),
@@ -359,7 +359,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const receiptPayload = JSON.stringify({
       task_id: 'CAP-CUSTOM-TERMINAL-04',
       task_title: 'Observe queue artifacts',
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       launch: {
         status: 'started',
         started_at: '2026-03-07T21:07:29Z',
@@ -375,9 +375,9 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       schema_version: 1,
       receipt_kind: 'guardrail',
       status: 'passed',
-      requested_agent_id: 'software-engineer',
-      resolved_agent_id: 'software-engineer',
-      expected_agent_id: 'software-engineer',
+      requested_agent_id: 'provider-builder',
+      resolved_agent_id: 'provider-builder',
+      expected_agent_id: 'provider-builder',
       validator_mode: 'runtime',
       launch_seam: 'src/backend/platform/agent-runner/roleAgent.ts',
       required_model: 'gpt-5.4',
@@ -394,12 +394,12 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         if (path.includes('/handoffs/retrospective-input.md')) {
           return '# Retrospective\n';
         }
-        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/provider-builder.json')) {
           return receiptPayload;
         }
         if (
           path.endsWith(
-            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           )
         ) {
           return guardrailPayload;
@@ -413,10 +413,10 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           return ['CAP-CUSTOM-TERMINAL-04'];
         }
         if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails')) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         return [];
       }),
@@ -441,15 +441,15 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           expect.objectContaining({
             status: 'allowed',
             receiptPath:
-              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           }),
         ]),
         agentTerminalSessions: expect.arrayContaining([
           expect.objectContaining({
-            sessionId: 'role:software-engineer:2026-03-07T21:07:29Z',
+            sessionId: 'role:provider-builder:2026-03-07T21:07:29Z',
             guardrailStatus: 'allowed',
             guardrailReceiptPath:
-              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/software-engineer.json',
+              '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
           }),
         ]),
       }),
@@ -462,7 +462,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const { readObservabilitySnapshot } = await import('./main');
 
     const receiptPayload = JSON.stringify({
-      agent_id: 'qa',
+      agent_id: 'provider-qa',
       launch: {
         status: 'started',
         started_at: '2026-03-07T21:07:29Z',
@@ -497,7 +497,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       expect.objectContaining({
         agentTerminalSessions: expect.arrayContaining([
           expect.objectContaining({
-            sessionId: 'role:qa:2026-03-07T21:07:29Z',
+            sessionId: 'role:provider-qa:2026-03-07T21:07:29Z',
             taskId: 'TASK-A',
           }),
         ]),
@@ -565,7 +565,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
 
     expect(daltonSessions).toHaveLength(1);
     expect(daltonSessions[0]).toEqual(expect.objectContaining({
-      sessionId: 'role:dalton:2026-03-07T21:09:00Z',
+      sessionId: 'role:dalton:1777258826099-97600',
       launchPid: 1933,
       taskId: 'TASK-A',
     }));
@@ -575,7 +575,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const { readObservabilitySnapshot } = await import('./main');
 
     const taskAReceiptPayload = JSON.stringify({
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       launch: {
         status: 'started',
         started_at: '2026-03-07T21:07:29Z',
@@ -588,7 +588,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       },
     });
     const taskBReceiptPayload = JSON.stringify({
-      agent_id: 'software-engineer',
+      agent_id: 'provider-builder',
       launch: {
         status: 'started',
         started_at: '2026-03-07T22:07:29Z',
@@ -604,9 +604,9 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       schema_version: 1,
       receipt_kind: 'guardrail',
       status: 'internal-bypass',
-      requested_agent_id: 'software-engineer',
-      resolved_agent_id: 'software-engineer',
-      expected_agent_id: 'software-engineer',
+      requested_agent_id: 'provider-builder',
+      resolved_agent_id: 'provider-builder',
+      expected_agent_id: 'provider-builder',
       validator_mode: 'runtime',
       launch_seam: 'task-a-seam',
       required_model: 'gpt-5.4',
@@ -617,24 +617,24 @@ describe('electron main bootstrap — sessions and guardrails', () => {
       schema_version: 1,
       receipt_kind: 'guardrail',
       status: 'passed',
-      requested_agent_id: 'software-engineer',
-      resolved_agent_id: 'software-engineer',
-      expected_agent_id: 'software-engineer',
+      requested_agent_id: 'provider-builder',
+      resolved_agent_id: 'provider-builder',
+      expected_agent_id: 'provider-builder',
       validator_mode: 'runtime',
       required_model: 'gpt-5.4',
       active_model: 'gpt-5.4',
       violations: [],
     });
-    const taskAGuardrailPath = '.platform-state/runtime/tasks/TASK-A/guardrails/software-engineer.json';
-    const taskBGuardrailPath = '.platform-state/runtime/tasks/TASK-B/guardrails/software-engineer.json';
+    const taskAGuardrailPath = '.platform-state/runtime/tasks/TASK-A/guardrails/provider-builder.json';
+    const taskBGuardrailPath = '.platform-state/runtime/tasks/TASK-B/guardrails/provider-builder.json';
 
     const receiptFs = {
       access: vi.fn(async () => undefined),
       readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions/provider-builder.json')) {
           return taskAReceiptPayload;
         }
-        if (path.endsWith('.platform-state/runtime/tasks/TASK-B/role-sessions/software-engineer.json')) {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-B/role-sessions/provider-builder.json')) {
           return taskBReceiptPayload;
         }
         if (path.endsWith(taskAGuardrailPath)) {
@@ -653,13 +653,13 @@ describe('electron main bootstrap — sessions and guardrails', () => {
           path.endsWith('.platform-state/runtime/tasks/TASK-A/role-sessions') ||
           path.endsWith('.platform-state/runtime/tasks/TASK-B/role-sessions')
         ) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         if (
           path.endsWith('.platform-state/runtime/tasks/TASK-A/guardrails') ||
           path.endsWith('.platform-state/runtime/tasks/TASK-B/guardrails')
         ) {
-          return ['software-engineer.json'];
+          return ['provider-builder.json'];
         }
         return [];
       }),

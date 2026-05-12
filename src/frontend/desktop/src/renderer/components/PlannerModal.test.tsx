@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import PlannerModal from './PlannerModal';
 import type { PlannerModalProps } from './PlannerModal';
+import type { PlannerFocusSnapshot } from '../../shared/desktopContract';
+import { PLANNER_FOCUS_FALLBACK_MESSAGE } from '../../shared/desktopContractPlanner';
 import { createLocalDraft } from '../plannerComposer';
 import type { PlannerConversationMessage } from '../plannerComposer';
 
@@ -34,6 +36,36 @@ function makeProps(overrides: Partial<PlannerModalProps> = {}): PlannerModalProp
     messages: [],
     onSendMessage: vi.fn(),
     ...overrides,
+  };
+}
+
+function makeFocusSnapshot(): PlannerFocusSnapshot {
+  return {
+    version: 1,
+    contextPackDir: '/tmp/test-context-pack',
+    contextPackId: 'test-pack',
+    title: 'Add search',
+    primaryRepoId: 'platform',
+    primaryRepoRoot: '/repo',
+    primaryFocusRelativePath: 'src/features/planner',
+    primaryFocusTargetKind: 'directory',
+    primaryFocusTargets: [],
+    selectedTestTarget: null,
+    supportTargets: [],
+    deepFocusEnabled: true,
+    contextPackBinding: {
+      contextPackDir: '/tmp/test-context-pack',
+      contextPackId: 'test-pack',
+      scopeMode: 'selected',
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src/features/planner',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    },
   };
 }
 
@@ -191,6 +223,133 @@ describe('PlannerModal', () => {
     expect(plannerMsg).toBeInTheDocument();
   });
 
+  it('does not render the recents trigger when there are zero records', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          recentConversations: [],
+          loadingRecentConversations: false,
+        })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Recent conversations/i })).toBeNull();
+  });
+
+  it('renders the recents trigger with the count, opens the popover, and selects a row', () => {
+    const onSelectConversation = vi.fn();
+    const records = [1, 2, 3].map((i) => ({
+      id: `conversation-${i}`,
+      title: `Historical plan ${i}`,
+      createdAt: new Date().toISOString(),
+      finalizedDestinationPath: `/repo/AgentWorkSpace/dropbox/spec-${i}.md`,
+      messageCount: 2 + i,
+      taskKind: 'standard' as const,
+      scopeMode: 'selected',
+      primaryRepoId: 'platform',
+      primaryFocusRelativePath: 'src/features/planner/replay-flow',
+    }));
+    render(
+      <PlannerModal
+        {...makeProps({
+          recentConversations: records,
+          onSelectConversation,
+        })}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: /Recent conversations, 3 available/ });
+    expect(trigger.textContent).toContain('Recent · 3');
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    const row2 = screen.getByTestId('recents-row-conversation-2');
+    fireEvent.click(row2);
+
+    expect(onSelectConversation).toHaveBeenCalledOnce();
+    expect(onSelectConversation).toHaveBeenCalledWith('conversation-2');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows the replay-aware label and goes non-interactive during replayInFlight', () => {
+    const records = [
+      {
+        id: 'conversation-1',
+        title: 'Refactor queue advancement gating',
+        createdAt: new Date().toISOString(),
+        finalizedDestinationPath: '/repo/AgentWorkSpace/dropbox/spec.md',
+        messageCount: 6,
+        taskKind: 'child-task' as const,
+        scopeMode: 'selected',
+        primaryRepoId: 'platform',
+        primaryFocusRelativePath: 'src/features/planner',
+      },
+    ];
+    const onSelectConversation = vi.fn();
+
+    const { rerender } = render(
+      <PlannerModal
+        {...makeProps({
+          recentConversations: records,
+          onSelectConversation,
+        })}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: /Recent conversations/ });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('recents-row-conversation-1'));
+
+    rerender(
+      <PlannerModal
+        {...makeProps({
+          recentConversations: records,
+          replayInFlight: true,
+          onSelectConversation,
+        })}
+      />,
+    );
+
+    const replayingTrigger = screen.getByRole('button', { name: /Replaying Refactor queue advancement gating/ });
+    expect(replayingTrigger).toHaveAttribute('aria-busy', 'true');
+    expect(replayingTrigger).toHaveAttribute('tabindex', '-1');
+    expect(replayingTrigger.className).toContain('recents-trigger--replaying');
+  });
+
+  it('hides the return-to-blank button in blank state', () => {
+    render(<PlannerModal {...makeProps({ childTaskMode: false, replaySourceRecordId: null })} />);
+    expect(screen.queryByRole('button', { name: /return to blank planner/i })).toBeNull();
+  });
+
+  it('shows the return-to-blank button in child-task mode', () => {
+    const onReturnToBlank = vi.fn();
+    render(<PlannerModal {...makeProps({ childTaskMode: true, onReturnToBlank })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /return to blank planner/i }));
+
+    expect(onReturnToBlank).toHaveBeenCalledOnce();
+  });
+
+  it('shows the return-to-blank button for replay context', () => {
+    const onReturnToBlank = vi.fn();
+    render(<PlannerModal {...makeProps({ childTaskMode: false, replaySourceRecordId: 'rec-7', onReturnToBlank })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /return to blank planner/i }));
+
+    expect(onReturnToBlank).toHaveBeenCalledOnce();
+  });
+
+  it('disables the return-to-blank button during replayInFlight', () => {
+    const onReturnToBlank = vi.fn();
+    render(<PlannerModal {...makeProps({ childTaskMode: true, replayInFlight: true, onReturnToBlank })} />);
+
+    const button = screen.getByRole('button', { name: /return to blank planner/i });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+
+    expect(onReturnToBlank).not.toHaveBeenCalled();
+  });
+
   it('renders child-task toggle in header', () => {
     render(<PlannerModal {...makeProps()} />);
     expect(screen.getByLabelText('Toggle child-task mode')).toBeInTheDocument();
@@ -207,13 +366,63 @@ describe('PlannerModal', () => {
         {...makeProps({
           childTaskMode: true,
           archivedTasks: [
-            { taskId: 'TASK-001', title: 'Add search', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack' },
+            { taskId: 'TASK-001', title: 'Add search', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
           ],
         })}
       />,
     );
     expect(screen.getByLabelText('Parent task selection')).toBeInTheDocument();
     expect(screen.getByText('Add search (2026)')).toBeInTheDocument();
+  });
+
+  it('renders only the archived tasks it is given (filtering is owned by the hook)', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          childTaskMode: true,
+          archivedTasks: [
+            { taskId: 'TASK-001', title: 'Modern parent', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Modern parent (2026)')).toBeInTheDocument();
+  });
+
+  it('shows an ineligible-archives placeholder when archives exist but none have planner focus snapshots', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          childTaskMode: true,
+          archivedTasks: [],
+          archivedTaskTotalCount: 9,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('9 archived tasks found, but none have a saved planner focus')).toBeInTheDocument();
+  });
+
+  it('shows the empty-archive placeholder when no archives exist at all', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          childTaskMode: true,
+          archivedTasks: [],
+          archivedTaskTotalCount: 0,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('No completed tasks found in archive')).toBeInTheDocument();
+  });
+
+  it('shows Loading parent task while child-task restart is in flight', () => {
+    render(<PlannerModal {...makeProps({ childTaskMode: true, loadingChildTaskParent: true })} />);
+
+    expect(screen.getByText('Loading parent task...')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeDisabled();
   });
 
   it('does not show parent task dropdown in standard mode', () => {
@@ -282,5 +491,70 @@ describe('PlannerModal', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Finalize Spec' })).toBeEnabled();
+  });
+
+  it('does not import useToast (warnings flow through draftError, not toasts)', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, 'PlannerModal.tsx'),
+      'utf-8',
+    );
+    expect(source).not.toMatch(/useToast/);
+  });
+
+  it('renders the exact fallback message text when parent focus validation fails', () => {
+    render(<PlannerModal {...makeProps({ draftError: PLANNER_FOCUS_FALLBACK_MESSAGE })} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(PLANNER_FOCUS_FALLBACK_MESSAGE);
+  });
+
+  it('renders path-bearing validation issues as "<label>: <path>"', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          draftError: 'Parent focus invalid.',
+          plannerFocusValidationIssues: [
+            { code: 'primary-focus-path-missing', label: 'Primary focus path', path: '/repo/src/missing' },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Primary focus path: /repo/src/missing');
+  });
+
+  it('renders id-bearing validation issues as "<label>: <id>"', () => {
+    render(
+      <PlannerModal
+        {...makeProps({
+          draftError: 'Parent focus invalid.',
+          plannerFocusValidationIssues: [
+            { code: 'selected-focus-id-missing', label: 'Selected focus ID', id: 'legacy-focus' },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Selected focus ID: legacy-focus');
+  });
+
+  it('clears validation issue details when the issue list is reset', () => {
+    const { rerender } = render(
+      <PlannerModal
+        {...makeProps({
+          draftError: 'Parent focus invalid.',
+          plannerFocusValidationIssues: [
+            { code: 'selected-repo-id-missing', label: 'Selected repo ID', id: 'old-repo' },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Selected repo ID: old-repo');
+
+    rerender(<PlannerModal {...makeProps({ plannerFocusValidationIssues: [] })} />);
+
+    expect(screen.queryByText('Selected repo ID: old-repo')).not.toBeInTheDocument();
   });
 });

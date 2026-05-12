@@ -94,7 +94,7 @@ describe('useReinforcementOverview', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     // The hook passes the IPC response agents array through without transformation.
-    // On the backend this data is read from AgentWorkSpace/qmd/global/agent-rewards/,
+    // On the backend this data is read from AgentWorkSpace/qmd/global/reinforcement/agent-rewards/,
     // so the renderer must not re-source or reshape it.
     expect(result.current.overview!.agents).toEqual(MOCK_OVERVIEW.agents);
     expect(result.current.overview!.agents[0]).toStrictEqual({

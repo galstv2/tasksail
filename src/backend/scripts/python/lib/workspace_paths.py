@@ -40,7 +40,7 @@ def cli_home_root(repo_root: Path) -> Path:
     With ``TASKSAIL_TASK_ID=t1``: ``<repo_root>/.platform-state/runtime/tasks/t1/<home-dir>``
     """
     task_id = os.environ.get("TASKSAIL_TASK_ID", "").strip()
-    home_dir_name = os.environ.get("TASKSAIL_CLI_HOME_DIR_NAME", "").strip() or "copilot-home"
+    home_dir_name = os.environ.get("TASKSAIL_CLI_HOME_DIR_NAME", "").strip() or "cli-home"
     base = repo_root / ".platform-state" / "runtime"
     if task_id:
         return base / "tasks" / task_id / home_dir_name

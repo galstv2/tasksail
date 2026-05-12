@@ -39,6 +39,10 @@ import {
   utimes,
   stat,
 } from 'node:fs/promises';
+import {
+  assertSnapshotMatchesContextPack,
+  loadTaskPackSnapshot,
+} from './taskPackSnapshot.js';
 
 export interface RebuildAgentMirrorResult {
   contextPackName: string;
@@ -66,9 +70,12 @@ const MIRRORED_SUBTREES: readonly (readonly string[])[] = [
 export async function rebuildAgentMirror(
   repoRoot: string,
   contextPackDir: string,
+  options?: { taskId?: string },
 ): Promise<RebuildAgentMirrorResult> {
   const contextPackName = path.basename(contextPackDir);
-  const qmdScopeRoot = await resolveQmdScopeRoot(contextPackDir, contextPackName);
+  const qmdScopeRoot = options?.taskId
+    ? await resolveTaskQmdScopeRoot(repoRoot, contextPackDir, options.taskId)
+    : await resolveQmdScopeRoot(contextPackDir, contextPackName);
 
   const canonicalRoot = path.join(contextPackDir, qmdScopeRoot);
   const mirrorRoot = path.join(
@@ -98,6 +105,16 @@ export async function rebuildAgentMirror(
   }
 
   return { contextPackName, mirrorRoot, filesCopied, filesSkipped, subtreesMissing };
+}
+
+async function resolveTaskQmdScopeRoot(
+  repoRoot: string,
+  contextPackDir: string,
+  taskId: string,
+): Promise<string> {
+  const snapshot = await loadTaskPackSnapshot(repoRoot, taskId);
+  assertSnapshotMatchesContextPack(snapshot, contextPackDir, repoRoot, taskId);
+  return snapshot.qmdScopeRoot;
 }
 
 /**

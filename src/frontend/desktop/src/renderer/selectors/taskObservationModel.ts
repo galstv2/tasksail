@@ -55,10 +55,14 @@ function compareIsoDatesDesc(left: string | null, right: string | null): number 
   return (right ?? '').localeCompare(left ?? '');
 }
 
-function rankSession(session: AgentTerminalSession, activeTaskId: string | null): number {
+function rankSession(
+  session: AgentTerminalSession,
+  activeTaskId: string | null,
+  plannerAgentId: string | null,
+): number {
   let score = 0;
 
-  if (session.agentId === 'planning-agent') {
+  if (plannerAgentId !== null && session.agentId === plannerAgentId) {
     score += 100;
   }
 
@@ -193,8 +197,9 @@ export function buildTaskObservationModel(args: {
   visibleActivityStream: StreamEvent[];
   taskLocked: boolean;
   closedTask: boolean;
+  plannerAgentId: string | null;
 }): TaskObservationModel {
-  const { activeTask, agentTerminalSessions, visibleActivityStream, taskLocked, closedTask } = args;
+  const { activeTask, agentTerminalSessions, visibleActivityStream, taskLocked, closedTask, plannerAgentId } = args;
   const activeTaskId = activeTask?.taskId ?? null;
   const plannerContextEvent =
     [...visibleActivityStream]
@@ -202,7 +207,7 @@ export function buildTaskObservationModel(args: {
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0] ?? null;
 
   const prioritizedSessions = [...agentTerminalSessions].sort((left, right) => {
-    const scoreDelta = rankSession(right, activeTaskId) - rankSession(left, activeTaskId);
+    const scoreDelta = rankSession(right, activeTaskId, plannerAgentId) - rankSession(left, activeTaskId, plannerAgentId);
     if (scoreDelta !== 0) {
       return scoreDelta;
     }

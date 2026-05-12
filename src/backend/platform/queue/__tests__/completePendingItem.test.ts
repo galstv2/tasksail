@@ -7,6 +7,7 @@ import {
   readFileSync,
   existsSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -38,6 +39,11 @@ vi.mock('../../context-pack/index.js', () => ({
 
 vi.mock('../retrospectiveFlag.js', () => ({
   syncRetrospectiveRequiredMetadata: vi.fn(),
+  stampRetrospectiveRequiredMetadata: vi.fn(),
+  getRetrospectiveRequiredForNextTask: vi.fn().mockResolvedValue(false),
+  isRetrospectiveRequiredForCompletedCount: vi.fn().mockReturnValue(false),
+  RETROSPECTIVE_CYCLE_LENGTH: 10,
+  RETROSPECTIVE_REQUIRED_LABEL: 'Retrospective Required',
 }));
 
 vi.mock('../errorItems.js', () => ({
@@ -50,6 +56,24 @@ vi.mock('../taskRegistry.js', () => ({
 
 vi.mock('../../core/worktreeFinalize.js', () => ({
   finalizeTaskWorktrees: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../platform-config/get.js', () => ({
+  getPlatformConfig: vi.fn().mockResolvedValue({
+    schema_version: 1,
+    cli_provider: 'copilot',
+    container_runtime: 'direct',
+    container_engine_host: 'auto',
+    container_engine_wsl_distro: null,
+    max_parallel_tasks: 10,
+    retain_failed_task_worktrees: true,
+    max_retained_failed_task_worktrees: 10,
+    max_retry_generations_per_slug: 5,
+    completed_task_runtime_retention_ms: 3600000,
+    auto_merge: false,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
+  }),
 }));
 
 vi.mock('../../agent-runner/pipeline/remediation.js', () => ({
@@ -73,6 +97,7 @@ import { syncRetrospectiveRequiredMetadata } from '../retrospectiveFlag.js';
 import { commitTaskSnapshot } from '../errorItems.js';
 import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { transitionTask } from '../taskRegistry.js';
+import { getPlatformConfig } from '../../platform-config/get.js';
 
 // ---------------------------------------------------------------------------
 // Typed mocks
@@ -87,6 +112,7 @@ const mockSyncRetrospectiveRequiredMetadata = vi.mocked(syncRetrospectiveRequire
 const mockCommitTaskSnapshot = vi.mocked(commitTaskSnapshot);
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
 const mockTransitionTask = vi.mocked(transitionTask);
+const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
 
 const FAKE_TASK_ID = 'test-task-001';
 
@@ -112,6 +138,58 @@ function seedSentinelFixture(repoRoot: string, taskId: string) {
 
 function readSentinelPayload(sentinelPath: string) {
   return JSON.parse(readFileSync(sentinelPath, 'utf8'));
+}
+
+function createSourceRepo(parentDir: string, label: string): {
+  repoRoot: string;
+  branch: string;
+  baseCommitSha: string;
+  headCommitSha: string;
+} {
+  const repo = mkdtempSync(path.join(parentDir, `${label}-`));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo, stdio: 'pipe' });
+  writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, stdio: 'pipe' });
+  const baseCommitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
+  const branch = `task/${FAKE_TASK_ID}`;
+  execFileSync('git', ['checkout', '-b', branch], { cwd: repo, stdio: 'pipe' });
+  writeFileSync(path.join(repo, `${label}.txt`), 'change\n');
+  execFileSync('git', ['add', `${label}.txt`], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', 'task change'], { cwd: repo, stdio: 'pipe' });
+  const headCommitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
+  execFileSync('git', ['checkout', 'main'], { cwd: repo, stdio: 'pipe' });
+  return { repoRoot: repo, branch, baseCommitSha, headCommitSha };
+}
+
+function writeTaskSidecar(repoRoot: string, taskId: string, bindings: Array<{
+  originalRoot: string;
+  worktreeRoot: string;
+  worktreeBranch: string;
+  baseCommitSha: string;
+}>): void {
+  const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+    schema_version: 1,
+    taskId,
+    contextPackBinding: {
+      contextPackPath: null,
+      dataHostDir: null,
+      dataContainerDir: null,
+      repoBindings: bindings,
+    },
+    materialization: {
+      strategy: 'copy',
+      cloned: [],
+      skipped: [],
+    },
+    frozenAt: new Date().toISOString(),
+    finalizedAt: null,
+    state: 'active',
+  }, null, 2) + '\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +246,141 @@ describe('completePendingItem archive integration', () => {
       }),
     );
     expect(mockCompleteActiveItem).toHaveBeenCalled();
+  });
+
+  it('writes one branch handoff per repo binding before archiving when a task sidecar exists', async () => {
+    const platform = createSourceRepo(repoRoot, 'platform');
+    const tools = createSourceRepo(repoRoot, 'tools');
+    writeTaskSidecar(repoRoot, FAKE_TASK_ID, [
+      {
+        originalRoot: platform.repoRoot,
+        worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'platform'),
+        worktreeBranch: platform.branch,
+        baseCommitSha: platform.baseCommitSha,
+      },
+      {
+        originalRoot: tools.repoRoot,
+        worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'tools'),
+        worktreeBranch: tools.branch,
+        baseCommitSha: tools.baseCommitSha,
+      },
+    ]);
+
+    mockFileTaskArchive.mockImplementation(async () => {
+      const ledgerPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'handoffs', 'branch-handoffs.json');
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
+      expect(ledger).toEqual([
+        expect.objectContaining({
+          repo_root: platform.repoRoot,
+          repo_label: path.basename(platform.repoRoot),
+          branch: platform.branch,
+          base_commit_sha: platform.baseCommitSha,
+          head_commit_sha: platform.headCommitSha,
+          commits_ahead: 1,
+          status: 'ready-for-operator-review',
+          auto_merge: {
+            enabled: false,
+            status: 'disabled',
+            target_branch: null,
+            detail: 'Auto-merge is disabled.',
+          },
+        }),
+        expect.objectContaining({
+          repo_root: tools.repoRoot,
+          repo_label: path.basename(tools.repoRoot),
+          branch: tools.branch,
+          base_commit_sha: tools.baseCommitSha,
+          head_commit_sha: tools.headCommitSha,
+          commits_ahead: 1,
+          status: 'ready-for-operator-review',
+          auto_merge: {
+            enabled: false,
+            status: 'disabled',
+            target_branch: null,
+            detail: 'Auto-merge is disabled.',
+          },
+        }),
+      ]);
+      return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(mockFileTaskArchive).toHaveBeenCalled();
+  });
+
+  it('archives applied auto-merge metadata before finalization', async () => {
+    const platform = createSourceRepo(repoRoot, 'platform');
+    writeTaskSidecar(repoRoot, FAKE_TASK_ID, [{
+      originalRoot: platform.repoRoot,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'platform'),
+      worktreeBranch: platform.branch,
+      baseCommitSha: platform.baseCommitSha,
+    }]);
+    mockGetPlatformConfig.mockResolvedValueOnce({
+      schema_version: 1,
+      cli_provider: 'copilot',
+      container_runtime: 'direct',
+      container_engine_host: 'auto',
+      container_engine_wsl_distro: null,
+      max_parallel_tasks: 10,
+      retain_failed_task_worktrees: true,
+      max_retained_failed_task_worktrees: 10,
+      max_retry_generations_per_slug: 5,
+      completed_task_runtime_retention_ms: 3600000,
+      auto_merge: true,
+      mcp_port: 8811,
+      repo_context_mcp_external_mount_roots: [],
+    });
+
+    mockFileTaskArchive.mockImplementation(async () => {
+      const ledgerPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'handoffs', 'branch-handoffs.json');
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
+      expect(ledger[0]).toEqual(expect.objectContaining({
+        status: 'auto-merged-to-target',
+        auto_merge: {
+          enabled: true,
+          status: 'applied',
+          target_branch: 'main',
+          detail: 'Applied task branch patch to the target index; changes are staged for operator review.',
+        },
+      }));
+      return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
+    });
+
+    await completePendingItem({ taskId: FAKE_TASK_ID, skipValidation: true, repoRoot });
+
+    const status = execFileSync('git', ['status', '--porcelain=v1'], {
+      cwd: platform.repoRoot,
+      encoding: 'utf-8',
+    });
+    expect(status).toContain('A  platform.txt');
+    expect(existsSync(path.join(platform.repoRoot, '.git', 'MERGE_HEAD'))).toBe(false);
+    expect(existsSync(path.join(platform.repoRoot, '.git', 'MERGE_MSG'))).toBe(false);
+    expect(existsSync(path.join(platform.repoRoot, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
+    expect(mockFinalizeTaskWorktrees).toHaveBeenCalled();
+  });
+
+  it('fails closed before archive/finalize when branch handoff metadata cannot be built', async () => {
+    writeTaskSidecar(repoRoot, FAKE_TASK_ID, [{
+      originalRoot: path.join(repoRoot, 'missing-repo'),
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'missing'),
+      worktreeBranch: `task/${FAKE_TASK_ID}`,
+      baseCommitSha: 'abc123',
+    }]);
+
+    await expect(completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    })).rejects.toThrow('Completion blocked');
+
+    expect(mockFileTaskArchive).not.toHaveBeenCalled();
+    expect(mockFinalizeTaskWorktrees).not.toHaveBeenCalled();
   });
 
   it('writes archive and retrospective checkpoints on the normal archive path', async () => {
@@ -238,6 +451,14 @@ describe('completePendingItem archive integration', () => {
       'completed',
       expect.objectContaining({ archivePath: null }),
     );
+  });
+
+  it('does not depend on queue context-pack singleton state during completion', async () => {
+    await expect(completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    })).resolves.toBeUndefined();
   });
 
   it('skips archive for recovery callers when skipArchive is true', async () => {
@@ -341,6 +562,57 @@ describe('completePendingItem archive integration', () => {
     ).rejects.toThrow('Completion blocked: task archival failed');
 
     expect(mockFinalizeTaskWorktrees).not.toHaveBeenCalled();
+  });
+
+  it('continues finalization and records deferred marker when retrospective sync fails', async () => {
+    const sentinelPath = path.join(
+      repoRoot,
+      'AgentWorkSpace',
+      'pendingitems',
+      '.active-items',
+      `${FAKE_TASK_ID}.completing`,
+    );
+    mockFileTaskArchive.mockResolvedValue({
+      passed: true,
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+      data: { record_md_path: '/archives/test-task-001.md' },
+    });
+    mockSyncRetrospectiveRequiredMetadata.mockRejectedValue(new Error('counter lock failed'));
+    mockCompleteActiveItem.mockImplementation(async () => {
+      expect(readSentinelPayload(sentinelPath)).toEqual(expect.objectContaining({
+        archiveSucceeded: true,
+        retrospectiveSynced: false,
+        retrospectiveSyncError: 'counter lock failed',
+      }));
+      return { status: 'completed', taskId: FAKE_TASK_ID };
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(mockFinalizeTaskWorktrees).toHaveBeenCalledWith(FAKE_TASK_ID, 'completed', repoRoot);
+    expect(mockActivateNextPendingItemIfReady).toHaveBeenCalled();
+    expect(existsSync(sentinelPath)).toBe(false);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items', FAKE_TASK_ID))).toBe(false);
+    const markerPath = path.join(
+      repoRoot,
+      '.platform-state',
+      'runtime',
+      'tasks',
+      FAKE_TASK_ID,
+      'closeout-deferred-retro.json',
+    );
+    const marker = JSON.parse(readFileSync(markerPath, 'utf-8'));
+    expect(marker).toEqual(expect.objectContaining({
+      taskId: FAKE_TASK_ID,
+      contextPackDir: '/packs/pack-a',
+      handoffsDir: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'handoffs'),
+    }));
   });
 
   it('throws when queue lock cannot be acquired', async () => {

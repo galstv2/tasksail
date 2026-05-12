@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.reinforcement.models import SETTLEMENT_STREAK_THRESHOLD
+from src.backend.mcp.reinforcement.paths import (
+    migrate_legacy_agent_reward_sidecars,
+    migrate_legacy_reinforcement_store,
+    resolve_agent_reward_file_for_read,
+    resolve_store_file_for_read,
+)
 from src.backend.scripts.python.lib.io import load_json_safe
 from src.backend.scripts.python.lib.registry import agent_names as _load_agent_names
 
@@ -20,15 +26,6 @@ def _load_json_file(path: Path) -> dict[str, Any] | None:
         return payload
     except (FileNotFoundError, OSError):
         return None
-
-
-def _find_agent_entry(
-    entries: list[dict[str, Any]], agent_id: str,
-) -> dict[str, Any] | None:
-    for entry in entries:
-        if entry.get("agent_id") == agent_id:
-            return entry
-    return None
 
 
 def _count_unrewarded_successes(entries: list[dict[str, Any]]) -> int:
@@ -52,29 +49,14 @@ def _format_number(n: int) -> str:
 def _render_reward_standing(
     agent_entry: dict[str, Any],
     streak_progress: int,
-    last_settlement: dict[str, Any] | None,
 ) -> list[str]:
     lines = [
         "## Your Reward Standing",
         "",
         f"- Lifetime Reward: {_format_number(agent_entry.get('lifetime_reward', 0))}",
         f"- Streak Progress: {streak_progress} of {SETTLEMENT_STREAK_THRESHOLD}"
-        " tasks toward next settlement",
-        f"- Unrewarded Reward Pool:"
-        f" {_format_number(agent_entry.get('unrewarded_reward_total', 0))}",
+        " successful tasks toward your next reward checkpoint",
     ]
-    if last_settlement:
-        sid = last_settlement.get("settlement_id", "unknown")
-        trigger = last_settlement.get("trigger", "unknown")
-        settled_at = last_settlement.get("settled_at", "unknown")
-        agent_id = agent_entry.get("agent_id", "")
-        earned = last_settlement.get("per_agent_rewards", {}).get(
-            agent_id, 0,
-        )
-        lines.append(
-            f"- Last Settlement: {sid} ({trigger}, {settled_at})"
-            f" \u2014 you earned {_format_number(earned)}",
-        )
     lines.append("")
     return lines
 
@@ -114,51 +96,34 @@ def _render_list_section(
 
 
 def cmd_render_reinforcement_context(args: argparse.Namespace) -> int:
-    context_pack_dir = Path(args.context_pack_dir)
     repo_root = Path(args.repo_root)
     agent_id: str = args.agent_id
     output_path = Path(args.output_path)
     export_path = Path(args.export_path)
 
-    # QMD-backed reinforcement root (authoritative).
-    reinforcement_dir = repo_root / "AgentWorkSpace" / "qmd" / "reinforcement"
-
-    # Fall back to legacy context-pack-local path for pre-migration data.
-    if not reinforcement_dir.is_dir():
-        reinforcement_dir = context_pack_dir / "reinforcement"
+    migrate_legacy_reinforcement_store(repo_root)
+    migrate_legacy_agent_reward_sidecars(repo_root)
 
     # Prefer per-agent JSON sidecar (one file per agent, no peer data).
-    per_agent_json = (
-        repo_root / "AgentWorkSpace" / "qmd" / "global"
-        / "agent-rewards" / f"{agent_id}.json"
+    per_agent_json = resolve_agent_reward_file_for_read(
+        repo_root, f"{agent_id}.json",
     )
     agent_entry = _load_json_file(per_agent_json)
 
     if agent_entry is None:
-        # Fall back to shared agent-rewards.json for pre-settlement data.
-        rewards_data = _load_json_file(reinforcement_dir / "agent-rewards.json")
-        if rewards_data is None:
-            return _write_unavailable(
-                output_path, export_path,
-                "Reinforcement data is malformed.", "malformed",
-            )
-        agent_entry = _find_agent_entry(
-            rewards_data.get("entries", []), agent_id,
-        )
-
-    if agent_entry is None:
         return _write_unavailable(
             output_path, export_path,
-            "No reinforcement data has been generated yet.",
+            "No private per-agent reinforcement data has been generated yet.",
         )
 
-    ledger_data = _load_json_file(reinforcement_dir / "task-ledger.json")
-    global_doc_data = _load_json_file(
-        reinforcement_dir / "global-realignment-doc.json",
+    ledger_data = _load_json_file(
+        resolve_store_file_for_read(repo_root, "task-ledger.json"),
     )
-    settlements_data = _load_json_file(reinforcement_dir / "settlements.json")
+    global_doc_data = _load_json_file(
+        resolve_store_file_for_read(repo_root, "global-realignment-doc.json"),
+    )
     feedback_data = _load_json_file(
-        reinforcement_dir / "feedback-events.json",
+        resolve_store_file_for_read(repo_root, "feedback-events.json"),
     )
 
     streak_progress = 0
@@ -166,13 +131,6 @@ def cmd_render_reinforcement_context(args: argparse.Namespace) -> int:
         streak_progress = _count_unrewarded_successes(
             ledger_data.get("entries", []),
         )
-
-    last_settlement = None
-    if settlements_data:
-        for entry in reversed(settlements_data.get("entries", [])):
-            if agent_id in entry.get("per_agent_rewards", {}):
-                last_settlement = entry
-                break
 
     display_name = _load_agent_names().get(agent_id, agent_id)
     multiplier = agent_entry.get("multiplier", 1.0)
@@ -187,7 +145,7 @@ def cmd_render_reinforcement_context(args: argparse.Namespace) -> int:
     ]
 
     md_lines.extend(
-        _render_reward_standing(agent_entry, streak_progress, last_settlement),
+        _render_reward_standing(agent_entry, streak_progress),
     )
 
     if feedback_data:

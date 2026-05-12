@@ -57,6 +57,9 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       onOpenPlannerModal={noop}
       showMultiPrimaryWarning={false}
       onDismissMultiPrimaryWarning={noop}
+      bootstrapEmptyConfirmPending={false}
+      onConfirmActivateAnyway={noop}
+      onConfirmPopulateAndSeed={noop}
     />,
   );
 }

@@ -11,12 +11,14 @@ import {
   parseArtifactMetadata,
   parallelOkHasActiveApproval,
   resolveSemanticSection,
+  parseSections,
 } from '../index.js';
 import {
   SLICE_REQUIRED_SECTION_SPECS,
   SPEC_REQUIRED_SECTION_SPECS,
 } from '../models.js';
 import { resolvePaths } from '../../core/index.js';
+import { validateMarkdownContract } from '../contracts/markdownContract.js';
 
 const TEST_TASK_ID = 'task-test-001';
 
@@ -267,6 +269,35 @@ describe('workflow-policy artifacts and formatting', () => {
       source: 'nested-heading',
       content: [''],
     });
+  });
+
+  it('does not split sections on heading-shaped lines inside fenced code blocks', () => {
+    expect(parseSections([
+      '## Parent',
+      '```markdown',
+      '## Not A Section',
+      '```',
+      'after',
+      '## Next',
+      'done',
+    ].join('\n'))).toEqual({
+      Parent: ['```markdown', '## Not A Section', '```', 'after'],
+      Next: ['done'],
+    });
+  });
+
+  it.each([
+    ['invalid JSON', '{'],
+    ['invalid regex', JSON.stringify({ version: 1, headingRegex: '(', labelRegex: '^-[ \\t]+([^:]+):[ \\t]*(.*)$', titleRegex: '^#[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$', fenceOpenRegex: '^(```|~~~)(\\w*)[ \\t]*$', groups: { headingName: 1, labelName: 1, labelValue: 2, title: 1, fenceMarker: 1, fenceLanguage: 2 }, stripHtmlComments: true, warnOnDuplicateLabel: true, opaqueFences: true, sectionNames: { TASK_LINEAGE: 'Task Lineage', TASK_METADATA: 'Task Metadata', CONTEXT_PACK_BINDING: 'Context Pack Binding', REVIEW_OUTCOME: 'Review Outcome', DECISION: 'Decision', DIFFICULTY_LEVEL: 'Difficulty Level', RECOMMENDED_EXECUTION: 'Recommended Execution', CLOSEOUT_OWNER_AGENT_ID: 'Closeout Owner Agent ID', RETROSPECTIVE_REQUIRED: 'Retrospective Required' } })],
+    ['wrong group index', JSON.stringify({ version: 1, headingRegex: '^##[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$', labelRegex: '^-[ \\t]+([^:]+):[ \\t]*(.*)$', titleRegex: '^#[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$', fenceOpenRegex: '^(```|~~~)(\\w*)[ \\t]*$', groups: { headingName: 0, labelName: 1, labelValue: 2, title: 1, fenceMarker: 1, fenceLanguage: 2 }, stripHtmlComments: true, warnOnDuplicateLabel: true, opaqueFences: true, sectionNames: { TASK_LINEAGE: 'Task Lineage', TASK_METADATA: 'Task Metadata', CONTEXT_PACK_BINDING: 'Context Pack Binding', REVIEW_OUTCOME: 'Review Outcome', DECISION: 'Decision', DIFFICULTY_LEVEL: 'Difficulty Level', RECOMMENDED_EXECUTION: 'Recommended Execution', CLOSEOUT_OWNER_AGENT_ID: 'Closeout Owner Agent ID', RETROSPECTIVE_REQUIRED: 'Retrospective Required' } })],
+    ['missing section name', JSON.stringify({ version: 1, headingRegex: '^##[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$', labelRegex: '^-[ \\t]+([^:]+):[ \\t]*(.*)$', titleRegex: '^#[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$', fenceOpenRegex: '^(```|~~~)(\\w*)[ \\t]*$', groups: { headingName: 1, labelName: 1, labelValue: 2, title: 1, fenceMarker: 1, fenceLanguage: 2 }, stripHtmlComments: true, warnOnDuplicateLabel: true, opaqueFences: true, sectionNames: { TASK_METADATA: 'Task Metadata' } })],
+  ])('rejects %s markdown contracts', (_name, payload) => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'markdown-contract-'));
+    createdRoots.push(repoRoot);
+    const contractPath = path.join(repoRoot, 'contract.json');
+    writeFileSync(contractPath, payload, 'utf-8');
+
+    expect(() => validateMarkdownContract(contractPath)).toThrow(contractPath);
   });
 
   it('parses nested Task Lineage under Task Metadata without polluting metadata labels', () => {

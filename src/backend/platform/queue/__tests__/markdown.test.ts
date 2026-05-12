@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   extractTaskTitle,
   templateMetadataLine,
@@ -9,6 +9,12 @@ import {
   extractContextPackBinding,
   formatContextPackBindingSection,
 } from '../markdown.js';
+
+function expectBinding(content: string) {
+  const result = extractContextPackBinding(content);
+  expect(result.kind).toBe('binding');
+  return result.kind === 'binding' ? result.binding : null;
+}
 
 describe('extractTaskTitle', () => {
   it('extracts the H1 heading text', () => {
@@ -24,6 +30,10 @@ describe('extractTaskTitle', () => {
   it('trims surrounding whitespace from the heading', () => {
     const content = '#   Spaced Title  \n\nBody.';
     expect(extractTaskTitle(content)).toBe('Spaced Title');
+  });
+
+  it('accepts tab spacing and removes a trailing ATX close run', () => {
+    expect(extractTaskTitle('#\tSpaced Title ##\n\nBody.')).toBe('Spaced Title');
   });
 });
 
@@ -60,6 +70,38 @@ Some content.
 
   it('extracts Task Kind from the lineage section', () => {
     expect(extractLineageValue(content, 'Task Kind')).toBe('child-task');
+  });
+
+  it('accepts tolerant section headings and strips HTML comments from values', () => {
+    const tolerant = `# Task
+
+##\tTask Lineage ##
+
+- Task Kind: child-task <!-- old -->
+
+## Other Section
+`;
+    expect(extractLineageValue(tolerant, 'Task Kind')).toBe('child-task');
+  });
+
+  it('returns the first duplicate label value and warns once per call', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const duplicate = `# Task
+
+## Task Lineage
+
+- Task Kind: child-task
+- Task Kind: standard
+- Task Kind: follow-up
+`;
+      expect(extractLineageValue(duplicate, 'Task Kind')).toBe('child-task');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('Task Kind');
+      expect(warn.mock.calls[0]?.[0]).toContain('Task Lineage');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('extracts Parent Task ID', () => {
@@ -113,16 +155,66 @@ describe('printTaskLineageBlock', () => {
 });
 
 describe('context pack binding markdown', () => {
+  it('returns absent when the Context Pack Binding section is missing or blank', () => {
+    expect(extractContextPackBinding('# Task\n\nBody')).toEqual({ kind: 'absent' });
+    expect(extractContextPackBinding('# Task\n\n## Context Pack Binding\n\n## Request Summary\n')).toEqual({ kind: 'absent' });
+  });
+
+  it('returns invalid when Context Pack Dir is missing', () => {
+    expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir:
+`)).toMatchObject({
+      kind: 'invalid',
+      reason: 'missing-context-pack-dir',
+    });
+  });
+
+  it('returns invalid when selected focus targets are malformed', () => {
+    expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+- Deep Focus Enabled: true
+- Selected Focus Targets: {"path":"src"}
+`)).toMatchObject({
+      kind: 'invalid',
+      reason: 'malformed-deep-focus',
+    });
+  });
+
   it('formats and extracts Deep Focus binding metadata', () => {
     const section = formatContextPackBindingSection({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
-      selectedFocusIds: ['api'],
+      selectedFocusIds: [],
       deepFocusEnabled: true,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        {
+          path: 'src/orders',
+          kind: 'directory',
+          repoLocalPath: '/repos/backend',
+          repoId: 'backend',
+          role: 'anchor',
+          testTarget: { path: 'tests/orders', kind: 'directory' },
+          supportTargets: [],
+        },
+        {
+          path: 'Acme.Seed',
+          kind: 'directory',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'primary',
+          supportTargets: [{ path: 'docs/seed.md', kind: 'file' }],
+        },
+      ],
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     });
@@ -138,17 +230,89 @@ Body
     expect(section).toContain('- Deep Focus Enabled: true');
     expect(section).toContain('- Selected Test Target: {"path":"tests/orders","kind":"directory"}');
     expect(section).toContain('- Selected Support Targets: [{"path":"docs/orders.md","kind":"file"}]');
-    expect(extractContextPackBinding(content)).toEqual({
+    // Deep focus suppresses these; the operator's selection is fully encoded in
+    // Selected Focus Targets with role markers.
+    expect(section).not.toContain('- Primary Repo ID:');
+    expect(section).not.toContain('- Selected Focus IDs:');
+    expect(expectBinding(content)).toEqual({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
-      selectedFocusIds: ['api'],
+      selectedFocusIds: [],
       deepFocusEnabled: true,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        {
+          path: 'src/orders',
+          kind: 'directory',
+          repoLocalPath: '/repos/backend',
+          repoId: 'backend',
+          role: 'anchor',
+          testTarget: { path: 'tests/orders', kind: 'directory' },
+          supportTargets: [],
+        },
+        {
+          path: 'Acme.Seed',
+          kind: 'directory',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'primary',
+          supportTargets: [{ path: 'docs/seed.md', kind: 'file' }],
+        },
+      ],
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
+    });
+  });
+
+  it('skips Selected Repo IDs when empty (monolith case) and round-trips back to []', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/crud-app-repo-dotnet',
+      contextPackId: 'crud-app-repo-dotnet',
+      scopeMode: 'standard',
+      selectedRepoIds: [],
+      selectedFocusIds: ['platform-service'],
+      primaryFocusId: 'platform-service',
+    });
+
+    expect(section).not.toContain('- Selected Repo IDs:');
+    expect(section).toContain('- Primary Focus ID: platform-service');
+    expect(section).toContain('- Selected Focus IDs: platform-service');
+
+    const content = `# Task\n\n${section}\n\n## Request Summary\n\nBody\n`;
+    expect(expectBinding(content)).toMatchObject({
+      contextPackId: 'crud-app-repo-dotnet',
+      selectedRepoIds: [],
+      selectedFocusIds: ['platform-service'],
+      primaryFocusId: 'platform-service',
+    });
+  });
+
+  it('round-trips Deep Focus Primary identifiers', () => {
+    const formatted = formatContextPackBindingSection({
+      contextPackDir: '/abs/pack',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      deepFocusPrimaryFocusId: 'orders-api',
+      selectedFocusPath: '',
+      selectedFocusTargets: [],
+      selectedSupportTargets: [],
+    });
+
+    const parsed = extractContextPackBinding(formatted);
+    expect(parsed).toMatchObject({
+      kind: 'binding',
+      binding: {
+        deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'platform',
+        deepFocusPrimaryFocusId: 'orders-api',
+      },
     });
   });
 
@@ -170,7 +334,7 @@ Body
 `;
 
     expect(section).not.toContain('Deep Focus Enabled');
-    expect(extractContextPackBinding(content)).toEqual({
+    expect(expectBinding(content)).toEqual({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',
       scopeMode: 'focused',
@@ -179,13 +343,59 @@ Body
     });
   });
 
+  it('round-trips distributed primary repo binding metadata', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    });
+
+    expect(section).toContain('- Primary Repo ID: platform\n- Selected Repo IDs: platform, tools');
+    expect(expectBinding(`# Task\n\n${section}\n`)).toEqual({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    });
+  });
+
+  it('parses empty and missing primary fields as absent', () => {
+    expect(expectBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+- Context Pack ID: orders
+- Scope Mode: focused
+- Primary Repo ID:
+- Selected Repo IDs: platform
+- Selected Focus IDs:
+`)).not.toHaveProperty('primaryRepoId');
+
+    expect(expectBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+- Context Pack ID: orders
+- Scope Mode: focused
+- Selected Repo IDs: platform
+- Selected Focus IDs:
+`)).not.toHaveProperty('primaryRepoId');
+  });
+
   it('preserves repo-root Deep Focus binding metadata without fabricating a target kind', () => {
     const section = formatContextPackBindingSection({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
-      selectedFocusIds: ['api'],
+      selectedFocusIds: [],
       deepFocusEnabled: true,
       selectedFocusPath: '',
     });
@@ -198,15 +408,16 @@ ${section}
 Body
 `;
 
-    expect(extractContextPackBinding(content)).toEqual({
+    expect(expectBinding(content)).toEqual({
       contextPackDir: '/packs/orders',
       contextPackId: 'orders',
       scopeMode: 'focused',
       selectedRepoIds: ['backend'],
-      selectedFocusIds: ['api'],
+      selectedFocusIds: [],
       deepFocusEnabled: true,
       selectedFocusPath: '',
       selectedFocusTargetKind: undefined,
+      selectedFocusTargets: [],
       selectedTestTarget: null,
       selectedSupportTargets: [],
     });
@@ -233,17 +444,9 @@ Body
 Body
 `;
 
-    expect(extractContextPackBinding(content)).toEqual({
-      contextPackDir: '/packs/orders',
-      contextPackId: 'orders',
-      scopeMode: 'focused',
-      selectedRepoIds: ['backend'],
-      selectedFocusIds: ['api'],
-      deepFocusEnabled: true,
-      selectedFocusPath: 'src/orders',
-      selectedFocusTargetKind: 'directory',
-      selectedTestTarget: null,
-      selectedSupportTargets: [],
+    expect(extractContextPackBinding(content)).toMatchObject({
+      kind: 'invalid',
+      reason: 'malformed-targets',
     });
   });
 
@@ -270,7 +473,7 @@ Body
 
     expect(section).toContain('"testTarget":{"path":"tests/orders","kind":"directory"}');
     expect(section).toContain('"supportTargets":[{"path":"docs/orders.md","kind":"file"}]');
-    expect(extractContextPackBinding(`# Task\n\n${section}\n`)).toMatchObject({
+    expect(expectBinding(`# Task\n\n${section}\n`)).toMatchObject({
       selectedFocusTargets: [{
         path: 'src/orders',
         kind: 'directory',
@@ -302,7 +505,7 @@ Body
       }],
     });
 
-    expect(extractContextPackBinding(`# Task\n\n${section}\n`)).toMatchObject({
+    expect(expectBinding(`# Task\n\n${section}\n`)).toMatchObject({
       selectedFocusTargets: [{
         path: 'src/orders',
         kind: 'directory',
@@ -330,7 +533,7 @@ Body
       selectedSupportTargets: [{ path: 'docs/shared.md', kind: 'file' }],
     });
 
-    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    const binding = expectBinding(`# Task\n\n${section}\n`);
     expect(binding).toMatchObject({
       selectedFocusTargets: [{
         path: 'src/orders',
@@ -357,7 +560,7 @@ Body
       selectedFocusTargets: [{ path: 'src/orders', kind: 'directory', role: 'anchor' }],
     });
 
-    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    const binding = expectBinding(`# Task\n\n${section}\n`);
     expect(binding).toMatchObject({
       selectedFocusTargets: [{
         path: 'src/orders',
@@ -383,7 +586,7 @@ Body
       selectedFocusTargets: [{ path: '', kind: 'directory', role: 'anchor' }],
     });
 
-    const binding = extractContextPackBinding(`# Task\n\n${section}\n`);
+    const binding = expectBinding(`# Task\n\n${section}\n`);
     expect(binding).toMatchObject({
       selectedFocusPath: '',
       selectedFocusTargets: [{

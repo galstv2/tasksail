@@ -33,14 +33,21 @@ from lib.archive.global_history import build_global_history_entry, collect_recen
 from lib.archive.indexes import write_archive_indexes, write_global_retrospective_indexes
 from lib.archive.parent import update_parent_archive
 from lib.archive.payload import build_archive_payload
+from lib.archive.planner_focus_snapshot import load_or_build_planner_focus_snapshot
 from lib.archive.retrospective import build_retrospective_archive
 from lib.archive.shared_memory import build_shared_retrospective_memory
 from lib.archive.storage import (
+    agent_mirror_task_archive_dir,
+    agent_mirror_task_archive_json_path,
+    agent_mirror_task_archive_markdown_path,
+    agent_mirror_task_archive_planner_focus_snapshot_path,
     correction_memo_storage_path,
     previous_correction_memo_path,
     resolve_scope_path,
     shared_memory_storage_path,
     sidecar_record_path,
+    task_archive_markdown_path,
+    task_archive_planner_focus_snapshot_path,
 )
 from lib.archive.task_summary import build_task_archive_markdown
 from lib.counters.task_completion_counter import TaskCompletionCounter
@@ -75,7 +82,9 @@ def main(argv: list[str] | None = None) -> int:
         payload, record_path, parent_record_path = build_archive_payload(repo_root, context_pack_dir, qmd_scope)
 
         # --- Staging directory approach ---
-        staging_dir = record_path.parent / f".staging-{slugify(payload['task_id'])}"
+        archive_year_dir = record_path.parent.parent
+        archive_year_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir = archive_year_dir / f".staging-{slugify(payload['task_id'])}"
         staging_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = staging_dir / "manifest.json"
 
@@ -158,8 +167,8 @@ def main(argv: list[str] | None = None) -> int:
 
             # Agent-facing mirror: agents run with CWD confined to AgentWorkSpace/,
             # so they cannot read the canonical archive that lives under contextpacks/.
-            # We copy archive.json + archive.md into
-            # AgentWorkSpace/qmd/context-packs/<pack>/archive/tasks/<year>/ at closeout.
+            # We copy archive.json + archive.md into the matching nested task archive
+            # directory under AgentWorkSpace/qmd/context-packs/<pack>/archive/tasks/.
             #
             # This step (plus the global-history mirror above at lines ~124-133) is the
             # ONLY writer of AgentWorkSpace/qmd/context-packs/. Live seeding does not
@@ -169,19 +178,85 @@ def main(argv: list[str] | None = None) -> int:
             # mirrored; estate/, canonical/, indexes/, and operational/ stay
             # canonical-only under contextpacks/<pack>/qmd/context-packs/<pack>/.
             def _write_agent_mirrors() -> None:
-                agent_qmd_root = repo_root / "AgentWorkSpace" / "qmd" / "context-packs" / context_pack_dir.name
-                _agent_task_dir = (
-                    agent_qmd_root / "archive" / "tasks"
-                    / payload["indexed_at"][:4]
+                year = payload["indexed_at"][:4]
+                mirror_task_dir = agent_mirror_task_archive_dir(
+                    repo_root,
+                    context_pack_dir.name,
+                    year,
+                    payload["task_id"],
                 )
-                _agent_slug = slugify(payload["task_id"])
-                _agent_task_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(staging_dir / "archive.json"), str(_agent_task_dir / f"{_agent_slug}.json"))
+                mirror_task_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(
+                    str(staging_dir / "archive.json"),
+                    str(
+                        agent_mirror_task_archive_json_path(
+                            repo_root,
+                            context_pack_dir.name,
+                            year,
+                            payload["task_id"],
+                        )
+                    ),
+                )
                 staged_md = staging_dir / "archive.md"
                 if staged_md.exists():
-                    shutil.copy2(str(staged_md), str(_agent_task_dir / f"{_agent_slug}.md"))
+                    shutil.copy2(
+                        str(staged_md),
+                        str(
+                            agent_mirror_task_archive_markdown_path(
+                                repo_root,
+                                context_pack_dir.name,
+                                year,
+                                payload["task_id"],
+                            )
+                        ),
+                    )
 
             _step("agent_mirrors", _write_agent_mirrors)
+
+            def _write_planner_focus_snapshot() -> None:
+                try:
+                    snapshot_payload, _ = load_or_build_planner_focus_snapshot(
+                        repo_root=repo_root,
+                        context_pack_dir=context_pack_dir,
+                        payload=payload,
+                    )
+                except Exception as exc:
+                    print(
+                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=build-failed detail={exc}",
+                        file=sys.stderr,
+                    )
+                    return
+
+                year = payload["indexed_at"][:4]
+                canonical_snapshot_path = task_archive_planner_focus_snapshot_path(
+                    context_pack_dir,
+                    qmd_scope,
+                    year,
+                    payload["task_id"],
+                )
+                try:
+                    write_json_via_backend(canonical_snapshot_path, snapshot_payload)
+                except Exception:
+                    print(
+                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=canonical-write-failed",
+                        file=sys.stderr,
+                    )
+
+                mirror_snapshot_path = agent_mirror_task_archive_planner_focus_snapshot_path(
+                    repo_root,
+                    context_pack_dir.name,
+                    year,
+                    payload["task_id"],
+                )
+                try:
+                    write_json_via_backend(mirror_snapshot_path, snapshot_payload)
+                except Exception:
+                    print(
+                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=mirror-write-failed",
+                        file=sys.stderr,
+                    )
+
+            _step("planner_focus_snapshot", _write_planner_focus_snapshot)
 
             def _write_parent_update() -> None:
                 if parent_record_path is not None:
@@ -310,8 +385,14 @@ def main(argv: list[str] | None = None) -> int:
             ) from exc
 
         # --- Promotion: the atomic commit ---
+        record_path.parent.mkdir(parents=True, exist_ok=True)
         os.replace(str(staging_dir / "archive.json"), str(record_path))
-        record_md_path = record_path.with_suffix(".md")
+        record_md_path = task_archive_markdown_path(
+            context_pack_dir,
+            qmd_scope,
+            payload["indexed_at"][:4],
+            payload["task_id"],
+        )
         staged_md = staging_dir / "archive.md"
         if staged_md.exists():
             shutil.copy2(str(staged_md), str(record_md_path))

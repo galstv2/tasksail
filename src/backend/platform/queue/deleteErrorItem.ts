@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
+import { withDirLock } from './dirLock.js';
 import { removeTask } from './taskRegistry.js';
 
 export interface DeleteErrorItemOptions {
@@ -19,17 +20,18 @@ export async function deleteErrorItem(
   const queueName = normalizeQueueName(options.queueName);
   const targetPath = join(queuePaths.errorItemsDir, queueName);
 
-  try {
-    await unlink(targetPath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`Delete error item blocked: "${queueName}" does not exist in error-items/.`);
-    }
-    throw err;
-  }
-
   const deletedTaskId = queueName.replace(/\.md$/, '');
-  try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+  await withDirLock(queuePaths.queueLockDir, 'Delete error item', async () => {
+    try {
+      await unlink(targetPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Delete error item blocked: "${queueName}" does not exist in error-items/.`);
+      }
+      throw err;
+    }
+    try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
+  });
 
   // Failed tasks reach error-items via moveFailedItemToErrorItems, which calls
   // finalizeTaskWorktrees. With retain_failed_task_worktrees=true that helper

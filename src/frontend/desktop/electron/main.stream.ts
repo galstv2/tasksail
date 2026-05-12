@@ -74,13 +74,24 @@ function getTaskEventGuid(taskId: string | undefined): string | null {
   return guid;
 }
 
-function formatTaskScopedMessage(message: string, taskId: string | undefined): string {
+function formatTaskScopedMessage(
+  message: string,
+  taskId: string | undefined,
+  actorName: string | undefined,
+): string {
   if (TASK_MESSAGE_PREFIX_PATTERN.test(message)) {
     return message;
   }
 
   const taskGuid = getTaskEventGuid(taskId);
-  return taskGuid ? `Task [${taskGuid}] ${message}` : message;
+  if (!taskGuid) {
+    return message;
+  }
+
+  const normalizedActorName = actorName?.trim();
+  return normalizedActorName
+    ? `Task [${taskGuid}] ${normalizedActorName}: ${message}`
+    : `Task [${taskGuid}] ${message}`;
 }
 
 export function emitStreamEvent(options: StreamEventOptions): void {
@@ -93,7 +104,7 @@ export function emitStreamEvent(options: StreamEventOptions): void {
     source: options.source,
     taskId: options.taskId ?? 'N/A',
     severity: options.severity ?? 'info',
-    message: formatTaskScopedMessage(options.message, options.taskId),
+    message: formatTaskScopedMessage(options.message, options.taskId, options.actorName),
     actorName: options.actorName,
     sessionContext: options.sessionContext,
   };

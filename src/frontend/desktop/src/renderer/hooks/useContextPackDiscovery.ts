@@ -24,6 +24,7 @@ import {
   directoryName,
   normalizeDraftForMode,
 } from './useContextPackDraft';
+import { isDistributedEstateMode, isMonolithEstateMode } from '../contextPackModeUtils';
 
 export type DiscoveryState =
   | { status: 'idle' }
@@ -81,7 +82,7 @@ export function buildDraftFromDiscovery(
   const nextDraft: ContextPackCreationDraft = {
     ...draft,
     discoveryRoot: response.rootPath,
-    mode: response.estateType === 'distributed' ? 'distributed' : 'monolith',
+    mode: response.estateType,
     contextPackId: response.suggestedContextPackId,
     estateName: response.suggestedDisplayName,
   };
@@ -98,15 +99,15 @@ export function buildDraftFromDiscovery(
   };
 
   const hasZeroCandidates =
-    (response.estateType === 'distributed' && response.candidateRepos.length === 0)
-    || (response.estateType === 'monolith' && response.candidateFocusAreas.length === 0);
+    (isDistributedEstateMode(response.estateType) && response.candidateRepos.length === 0)
+    || (isMonolithEstateMode(response.estateType) && response.candidateFocusAreas.length === 0);
 
   if (hasZeroCandidates) {
     nextDraft.contextPackDir = resolveContextPackDir();
     return nextDraft;
   }
 
-  if (response.estateType === 'distributed') {
+  if (isDistributedEstateMode(response.estateType)) {
     nextDraft.repositories = response.candidateRepos.map(mapDiscoveredRepoToDraft);
     nextDraft.focusAreas = [];
     nextDraft.contextPackDir = resolveContextPackDir();
@@ -256,8 +257,8 @@ export function useContextPackDiscovery(
       }
       const response = result.response;
       const hasZeroCandidates =
-        (response.estateType === 'distributed' && response.candidateRepos.length === 0)
-        || (response.estateType === 'monolith' && response.candidateFocusAreas.length === 0);
+        (isDistributedEstateMode(response.estateType) && response.candidateRepos.length === 0)
+        || (isMonolithEstateMode(response.estateType) && response.candidateFocusAreas.length === 0);
 
       setState((s: unknown) => {
         const state = s as { kind: string; draft: ContextPackCreationDraft; step?: string };

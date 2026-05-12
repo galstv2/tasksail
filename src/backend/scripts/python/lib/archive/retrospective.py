@@ -7,6 +7,7 @@ from typing import Any
 
 from ..io import load_text
 from ..markdown import parse_metadata, parse_sections
+from ..markdown_contracts import TASK_LINEAGE, TASK_METADATA
 from ..text import compact_text, extract_list, normalize_text
 from ..time import current_utc_timestamp
 from ..workspace_paths import handoffs_dir
@@ -101,8 +102,8 @@ def build_retrospective_archive(
         raise ValueError("Retrospective handoff is missing or empty")
 
     sections = parse_sections(markdown)
-    metadata = parse_metadata(sections.get("Task Metadata", []))
-    lineage = parse_metadata(sections.get("Task Lineage", []))
+    metadata = parse_metadata(sections.get(TASK_METADATA, []), TASK_METADATA)
+    lineage = parse_metadata(sections.get(TASK_LINEAGE, []), TASK_LINEAGE)
 
     task_id = str(task_archive_payload.get("task_id") or "").strip()
     task_title = str(task_archive_payload.get("task_title") or "").strip()

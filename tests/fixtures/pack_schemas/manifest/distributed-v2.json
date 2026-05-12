@@ -1,0 +1,54 @@
+{
+  "manifest_version": "qmd-repo-sources/v2",
+  "manifest_status": "approved",
+  "approved_at": "2026-05-08T00:00:00Z",
+  "context_pack_id": "platform-demo-v2",
+  "display_name": "Platform Demo V2",
+  "estate_type": "distributed-platform",
+  "qmd_scope_root": "qmd/context-packs/platform-demo-v2",
+  "default_scope_mode": "focused",
+  "repositories": [
+    {
+      "repo_id": "api",
+      "repo_name": "Api",
+      "local_paths": [
+        {
+          "host": "/Users/example/platform/api",
+          "container": null
+        }
+      ],
+      "system_layer": "backend",
+      "languages": ["python"],
+      "repo_role": "backend-service",
+      "default_focusable": true,
+      "activation_priority": 100,
+      "repository_type": "primary",
+      "repo_focus": "primary",
+      "repo_focus_authored": false,
+      "repo_category": "service",
+      "repo_category_authored": false
+    },
+    {
+      "repo_id": "web",
+      "repo_name": "Web",
+      "local_paths": [
+        {
+          "host": "/Users/example/platform/web",
+          "container": null
+        }
+      ],
+      "system_layer": "frontend",
+      "languages": ["typescript"],
+      "repo_role": "frontend",
+      "default_focusable": false,
+      "activation_priority": 90,
+      "repository_type": "primary",
+      "repo_focus": "primary",
+      "repo_focus_authored": false,
+      "repo_category": "frontend",
+      "repo_category_authored": false
+    }
+  ],
+  "primary_working_repo_ids": ["api"],
+  "primary_focus_area_ids": []
+}

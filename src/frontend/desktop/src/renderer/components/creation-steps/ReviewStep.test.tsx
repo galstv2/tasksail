@@ -20,7 +20,7 @@ describe('ReviewStep', () => {
     };
     render(<ReviewStep draft={draft} />);
     expect(screen.getByText('/tmp/pack')).toBeInTheDocument();
-    expect(screen.getByText('Distributed estate')).toBeInTheDocument();
+    expect(screen.getByText('Distributed')).toBeInTheDocument();
     expect(screen.getByText('Orders Estate')).toBeInTheDocument();
   });
 

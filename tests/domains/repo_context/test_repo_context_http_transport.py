@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from src.backend.mcp.repo_context_mcp.services import ReseedAlreadyInProgressError
 from src.backend.mcp.repo_context_mcp.transport.http import RepoContextHttpHandler
 from src.backend.mcp.repo_context_mcp.utils import compact_list
 from tests.support.http_handler_harness import Response, call
@@ -444,7 +445,14 @@ class RepoContextHttpTransportTests(unittest.TestCase):
             "POST", "/seed", body=b"{}", headers=self.post_headers()
         )
         self.assertEqual(conflict.status, 409)
-
+        conflict_body = conflict.json()
+        self.assertEqual(conflict_body["error"], "reseed_in_progress")
+        self.assertIsNone(conflict_body["pid"])
+        self.assertIsNone(conflict_body["host"])
+        self.assertIsNone(conflict_body["started_at"])
+        self.assertFalse(conflict_body["same_host"])
+        self.assertEqual(conflict_body["stale_after_seconds"], 3600)
+        self.assertEqual(conflict_body["message"], "a seed run is already in progress")
         # Part 2: Unlock, swap in a failing callback, verify 500 + release.
         self._runtime.locked = False
         self._runtime.released = 0
@@ -462,6 +470,41 @@ class RepoContextHttpTransportTests(unittest.TestCase):
         )
         self.assertEqual(error_resp.status, 500)
         self.assertIn("seed exploded", error_resp.text())
+        self.assertEqual(self._runtime.released, 1)
+
+    def test_seed_route_translates_reseed_in_progress_exception_to_structured_409(
+        self,
+    ) -> None:
+        self._callbacks.execute_seed_run = lambda **_: (
+            _ for _ in ()
+        ).throw(
+            ReseedAlreadyInProgressError(
+                pid=1234,
+                host="host-a",
+                started_at="2026-05-10T12:00:00+00:00",
+                same_host=True,
+                stale_after_seconds=3600,
+            )
+        )
+
+        response = self._request(
+            "POST",
+            "/seed",
+            body=json.dumps(
+                {"context_pack_dir": "/workspace/context-pack"}
+            ).encode("utf-8"),
+            headers=self.post_headers(),
+        )
+
+        self.assertEqual(response.status, 409)
+        body = response.json()
+        self.assertEqual(body["error"], "reseed_in_progress")
+        self.assertEqual(body["pid"], 1234)
+        self.assertEqual(body["host"], "host-a")
+        self.assertEqual(body["started_at"], "2026-05-10T12:00:00+00:00")
+        self.assertTrue(body["same_host"])
+        self.assertEqual(body["stale_after_seconds"], 3600)
+        self.assertTrue(body["message"])
         self.assertEqual(self._runtime.released, 1)
 
     def test_lineage_and_carry_forward_routes_cover_validation(self) -> None:

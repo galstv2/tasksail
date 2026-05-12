@@ -16,6 +16,7 @@ const moveFailedItemToErrorItemsMock = vi.fn();
 const finalizeTaskWorktreesMock = vi.fn();
 const sweepRuntimeGCMock = vi.fn();
 const verifyTaskBranchesMock = vi.fn();
+const resumeCloseoutFromSentinelMock = vi.fn();
 
 vi.mock('../spawnPipeline.js', () => ({
   spawnPipelineForTask: spawnPipelineForTaskMock,
@@ -37,6 +38,14 @@ vi.mock('../../core/worktreeFinalize.js', () => ({
   finalizeTaskWorktrees: finalizeTaskWorktreesMock,
   sweepRuntimeGC: sweepRuntimeGCMock,
 }));
+
+vi.mock('../../queue/resumeCloseout.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../queue/resumeCloseout.js')>();
+  return {
+    ...actual,
+    resumeCloseoutFromSentinel: resumeCloseoutFromSentinelMock,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +126,16 @@ describe('pipelineSupervisor', () => {
     finalizeTaskWorktreesMock.mockResolvedValue(undefined);
     sweepRuntimeGCMock.mockReturnValue(undefined);
     verifyTaskBranchesMock.mockResolvedValue({ ok: true, failures: [] });
+    // Default: pass through to the real implementation so recoverOnStartup
+    // branch tests exercise actual sentinel/marker unlinks. Tests that need to
+    // assert the mock was called (e.g. code-78 routing) override with
+    // mockResolvedValue to short-circuit.
+    resumeCloseoutFromSentinelMock.mockImplementation(async (taskId: string, root: string) => {
+      const actual = await vi.importActual<typeof import('../../queue/resumeCloseout.js')>(
+        '../../queue/resumeCloseout.js',
+      );
+      return actual.resumeCloseoutFromSentinel(taskId, root);
+    });
     repoRoot = await mkdtemp(path.join(os.tmpdir(), 'supervisor-test-'));
   });
 
@@ -324,6 +343,49 @@ describe('pipelineSupervisor', () => {
     expect(remaining.some((e) => e.taskId === 'task-ok')).toBe(true);
 
     childB.triggerExit(0);
+  });
+
+  it('child exit with closeout-failure code routes to resumeCloseoutFromSentinel when completion is provable', async () => {
+    const child = makeChildStub({ pid: 66661, exitCode: 78 });
+    spawnPipelineForTaskMock.mockResolvedValue(child);
+    // Short-circuit the real impl: this test only proves the routing decision,
+    // not the resume side-effects (those are covered in resumeCloseout.test.ts).
+    resumeCloseoutFromSentinelMock.mockResolvedValue({ status: 'completed', drove: [] });
+
+    const { startPipeline } = await import('../pipelineSupervisor.js');
+    await startPipeline('task-closeout-failed', repoRoot);
+
+    child.triggerExit(78);
+    await child.exit;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(moveFailedItemToErrorItemsMock).not.toHaveBeenCalled();
+    expect(resumeCloseoutFromSentinelMock).toHaveBeenCalledTimes(1);
+    expect(resumeCloseoutFromSentinelMock).toHaveBeenCalledWith('task-closeout-failed', repoRoot);
+  });
+
+  it('child exit with closeout-failure code moves to error-items when completion is not provable', async () => {
+    const child = makeChildStub({ pid: 66662, exitCode: 78 });
+    spawnPipelineForTaskMock.mockResolvedValue(child);
+    resumeCloseoutFromSentinelMock.mockResolvedValue({ status: 'no-sentinel', drove: [] });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { startPipeline } = await import('../pipelineSupervisor.js');
+    await startPipeline('task-closeout-no-sentinel', repoRoot);
+
+    child.triggerExit(78);
+    await child.exit;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(resumeCloseoutFromSentinelMock).toHaveBeenCalledTimes(1);
+    expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith({
+      repoRoot,
+      taskId: 'task-closeout-no-sentinel',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('closeout recovery for task-closeout-no-sentinel returned no-sentinel'),
+    );
+    warnSpy.mockRestore();
   });
 
   describe('_recoverOnStartupImpl completed-sentinel branch', () => {

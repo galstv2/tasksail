@@ -88,6 +88,7 @@ vi.mock('../sessionReceipts.js', () => ({
 vi.mock('../../container/sharedMcp.js', () => ({
   getSharedMcpUrl: vi.fn(async () => 'http://localhost:8811/sse'),
   resolveContextPackContainerPath: vi.fn(() => '/workspace/context-pack'),
+  runtimeRequiresContainerPaths: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../platform-config/get.js', () => ({
@@ -117,6 +118,7 @@ const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfin
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
+const { runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
 
 // Shared typed references to mocked functions.
 const mockedLoadAgentRegistry = vi.mocked(loadAgentRegistry);
@@ -127,6 +129,7 @@ const mockedBuildAgentArgs = vi.mocked(buildAgentArgs);
 const mockedFormatAgentCommand = vi.mocked(formatAgentCommand);
 const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
+const mockedRuntimeRequiresContainerPaths = vi.mocked(runtimeRequiresContainerPaths);
 const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
@@ -148,6 +151,7 @@ const mockedExistsSync = vi.mocked(existsSync);
 
 /** Shared mock setup used by all describe blocks. */
 function setupCommonMocks(): void {
+  mockedRuntimeRequiresContainerPaths.mockResolvedValue(true);
   mockedResolvePaths.mockReturnValue({
     repoRoot: '/repo',
     agentWorkSpace: '/repo/AgentWorkSpace',
@@ -313,6 +317,80 @@ describe('runRoleAgent autonomy env var export', () => {
     expect(mockedLaunchAgent).toHaveBeenCalledWith(
       ['--agent', 'software-engineer', '-p', 'Execute the assigned implementation slice now.'],
       expect.anything(),
+    );
+  });
+
+  it('includes the original unmaterialized assignment prompt in Dalton confinement retries', async () => {
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      });
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoRoot: '/repo/worktree',
+      visibleRepoRoots: ['/repo/worktree'],
+      declaredRepoRoots: ['/repo/worktree'],
+      estateType: 'distributed-platform',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+      writableRoots: [
+        {
+          repoLocalPath: '/repo/worktree',
+          path: 'src',
+          kind: 'directory',
+          reason: 'selected-primary',
+        },
+      ],
+    });
+    mockedValidateDaltonBoundaryChanges
+      .mockRejectedValueOnce(new DaltonConfinementError('outside boundary', ['/repo/worktree/leak.ts']))
+      .mockResolvedValueOnce(undefined);
+    mockedExistsSync.mockReturnValue(true);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const originalAssignmentPrompt = [
+      '## Implementation Spec',
+      '',
+      'Original assignment body.',
+      '',
+      '### Slice: slice-1',
+      '',
+      'Implement the slice.',
+    ].join('\n');
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      taskId: 't1',
+      contextPackDir: '/repo/context-pack',
+      skipWorkflowValidation: true,
+      promptOverride: originalAssignmentPrompt,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      agentId: 'dalton',
+    });
+
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    const retryPrompt = mockedLaunchAgent.mock.calls[1]?.[0].at(-1);
+    expect(retryPrompt).toContain('## Original Assignment Context');
+    expect(retryPrompt).toContain('Original assignment body.');
+    expect(retryPrompt).toContain('### Slice: slice-1');
+    expect(retryPrompt?.match(/Original assignment body\./g)).toHaveLength(1);
+    expect(retryPrompt).toContain('You are a fresh independent Dalton process.');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[roleAgent] Dalton confinement retry launching after boundary violation: 1 path(s)',
     );
   });
 
@@ -842,7 +920,7 @@ describe('runRoleAgent autonomy env var export', () => {
     }));
   });
 
-  it('warns and still launches Ron when code diff refresh fails', async () => {
+  it('throws before launching Ron when code diff refresh fails', async () => {
     mockedResolveAgentProfile.mockReturnValue({
       id: 'ron',
       registryId: 'qa',
@@ -861,7 +939,6 @@ describe('runRoleAgent autonomy env var export', () => {
       stderr: 'git diff failed',
       exitCode: 1,
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed.mockResolvedValue({
@@ -872,26 +949,27 @@ describe('runRoleAgent autonomy env var export', () => {
       signalCode: null,
     });
 
-    await expect(
-      runRoleAgent({
+    let thrown: unknown;
+    try {
+      await runRoleAgent({
         agentId: 'ron',
         taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
-      }),
-    ).resolves.toMatchObject({
-      exitCode: 0,
-      agentId: 'ron',
-    });
+      });
+    } catch (error) {
+      thrown = error;
+    }
 
-    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
-      'git diff failed',
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(
+      'QA code diff generation failed for task t1; refusing to launch Ron with a stale or incomplete code-changes.diff.',
     );
+    expect((thrown as Error).message).toContain('stderr: git diff failed');
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
-  it('warns and still reruns Ron for QA cleanup when code diff refresh fails', async () => {
+  it('throws before Ron cleanup rerun when code diff refresh fails', async () => {
     mockedResolveAgentProfile.mockReturnValue({
       id: 'ron',
       registryId: 'qa',
@@ -910,7 +988,6 @@ describe('runRoleAgent autonomy env var export', () => {
       stderr: '',
       exitCode: 1,
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed
@@ -935,29 +1012,24 @@ describe('runRoleAgent autonomy env var export', () => {
       'Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md and AgentWorkSpace/tasks/t1/handoffs/retrospective-input.md.',
     );
 
-    await expect(
-      runRoleAgent({
+    let thrown: unknown;
+    try {
+      await runRoleAgent({
         agentId: 'ron',
         taskId: 't1',
         contextPackDir: '/repo/context-pack',
         skipWorkflowValidation: true,
-      }),
-    ).resolves.toMatchObject({
-      exitCode: 0,
-      agentId: 'ron',
-    });
+      });
+    } catch (error) {
+      thrown = error;
+    }
 
-    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] failed to generate QA code diff at /repo/AgentWorkSpace/tasks/task-test-001/handoffs/code-changes.diff; continuing without refreshed diff:',
-      'warning output',
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(
+      'QA code diff generation failed for task t1; refusing to launch Ron with a stale or incomplete code-changes.diff.',
     );
-    expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
-      expect.arrayContaining([
-        '-p',
-        expect.stringContaining('Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md'),
-      ]),
-    );
+    expect((thrown as Error).message).toContain('stdout: warning output');
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
   });
 
   it('does not generate code-changes.diff for non-QA agents', async () => {
@@ -983,6 +1055,45 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedCaptureCodeDiff).not.toHaveBeenCalled();
+  });
+
+  it('does not generate code-changes.diff for Ron without an active context pack', async () => {
+    mockedResolveAgentProfile.mockReturnValue({
+      id: 'ron',
+      registryId: 'qa',
+      displayName: 'Ron',
+      role: 'QA',
+      requiredModel: 'gpt-5.4',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 3,
+      wallClockTimeoutS: 300,
+    } as never);
+    mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
+    mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    await expect(
+      runRoleAgent({
+        agentId: 'ron',
+        taskId: 't1',
+        skipWorkflowValidation: true,
+      }),
+    ).resolves.toMatchObject({
+      exitCode: 0,
+      agentId: 'ron',
+    });
+
+    expect(mockedCaptureCodeDiff).not.toHaveBeenCalled();
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
   it('does not rerun Ron when QA artifacts are incomplete but no concrete missing artifacts are proven', async () => {

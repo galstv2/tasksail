@@ -37,6 +37,7 @@ import {
   applyWorktreeInjectionToFocused,
   applyWorktreeInjectionToAllowedDirs,
 } from './worktreeInjection.js';
+import { buildReinforcementOverlay } from './reinforcementOverlay.js';
 import {
   agentErrorWithTails,
   extractPolicyFailureDetails,
@@ -47,7 +48,7 @@ import {
 } from './recoveryPasses.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { ProviderPromptKind, ResolvedMcpServer } from '../cli-provider/index.js';
-import { resolveContextPackContainerPath } from '../container/sharedMcp.js';
+import { resolveContextPackContainerPath, runtimeRequiresContainerPaths } from '../container/sharedMcp.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 
 function launchPromptKind(agentId: RunRoleAgentOptions['agentId']): ProviderPromptKind {
@@ -91,7 +92,7 @@ async function resolveLaunchPrompt(
   };
 }
 
-function sha256Hex(value: string): string {
+export function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
@@ -118,6 +119,13 @@ const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunR
   alice: 'dalton',
   dalton: 'ron',
 };
+
+let roleLaunchCounter = 0;
+
+export function createRoleLaunchId(): string {
+  roleLaunchCounter += 1;
+  return `${Date.now()}-${process.pid}-${roleLaunchCounter}`;
+}
 
 /**
  * Run a role agent through the full workflow:
@@ -241,8 +249,8 @@ export async function runRoleAgent(
       // declared on any per-profile `allowed_dirs` either. The platform's
       // queue/ module is the only authorized writer. Alice — the only agent
       // that ever needed to read intake — now reads it from the per-task
-      // workspace at `$COPILOT_HANDOFFS_DIR/intake.md`, which queue/operations.ts
-      // stages via copyFileSafe at activation time.
+      // workspace through the active provider's handoffs env var, which
+      // queue/operations.ts stages via copyFileSafe at activation time.
       const dirsToAdd = options.taskId
         ? [
             path.join(ws, 'tasks', options.taskId),
@@ -267,6 +275,7 @@ export async function runRoleAgent(
         ? await resolveFocusedRepoRoot(
             options.contextPackDir,
             paths.repoRoot,
+            { taskId: options.taskId },
           )
         : undefined;
 
@@ -306,6 +315,7 @@ export async function runRoleAgent(
           const diagnostic = await explainSelectedPrimaryBoundaryFailure(
             options.contextPackDir,
             paths.repoRoot,
+            { taskId: options.taskId },
           );
           throw new Error(
             `Cannot resolve the selected primary boundary for ${daltonFamilyRuntimeLabel(options.agentId)} ` +
@@ -348,12 +358,22 @@ export async function runRoleAgent(
   // workflow/artifact context is noise for a pure code agent.
   const includeGlobalInstructions = profile.autonomyProfile !== 'repo-executor';
   const launchPrompt = await resolveLaunchPrompt(paths.repoRoot, options.agentId, options.promptOverride);
+  const reinforcementOverlay = await buildReinforcementOverlay({
+    agentId: options.agentId,
+    contextPackDir: options.contextPackDir,
+    repoRoot: paths.repoRoot,
+  });
+  const appendReinforcementOverlay = (prompt: string): string => (
+    reinforcementOverlay
+      ? `${prompt.trim()}\n\n${reinforcementOverlay}`
+      : prompt
+  );
   const materializePrompt = (
     prompt: string,
     promptPath: string | null,
     promptSource: 'file' | 'override',
   ) => provider.materializePrompt({
-    prompt,
+    prompt: appendReinforcementOverlay(prompt),
     promptPath,
     promptSource,
     profile,
@@ -411,11 +431,13 @@ export async function runRoleAgent(
     const sharedMcpPort = platformConfig.mcp_port;
     const sharedMcpUrl = `http://localhost:${sharedMcpPort}/sse`;
     sharedMcp = { url: sharedMcpUrl, port: sharedMcpPort };
-    containerContextPackDir = resolveContextPackContainerPath(
-      paths.repoRoot,
-      options.contextPackDir,
-      platformConfig.repo_context_mcp_external_mount_roots,
-    );
+    containerContextPackDir = (await runtimeRequiresContainerPaths(paths.repoRoot))
+      ? resolveContextPackContainerPath(
+          paths.repoRoot,
+          options.contextPackDir,
+          platformConfig.repo_context_mcp_external_mount_roots,
+        )
+      : options.contextPackDir;
     internalMcpServer = {
       id: 'repo-context-mcp',
       transport: 'sse',
@@ -577,12 +599,12 @@ export async function runRoleAgent(
     return artifactCompletionInFlight;
   };
 
-  // Compute launchId at invocation time: epochMs-pid pair is collision-resistant
+  // Compute launchId at invocation time: epochMs-pid-counter is collision-resistant
   // within any single host process lifetime. Fleet-mode (§4.12) launches multiple
   // concurrent sub-Daltons with the same agentId — each must get its own launchId
   // so their receipts do not overwrite each other and §5.2 recoverOnStartup can
   // enumerate all pids per task and detect which are still alive.
-  const launchId = `${Date.now()}-${process.pid}`;
+  const launchId = createRoleLaunchId();
   const sessionInfo = {
     taskRuntime: paths.taskRuntime,
     launchId,
@@ -739,8 +761,10 @@ export async function runRoleAgent(
       preRunBoundarySnapshot,
       agentSpawnedAtMs: daltonAgentSpawnedAtMs,
       runSummary,
+      originalAssignmentPrompt: launchPrompt.prompt,
       writeLaunchGuardrailReceipt,
       resetArtifactCompletionCache,
+      initialLaunchId: launchId,
       buildRetryArgs: (prompt: string) => {
         const retryPromptResult = materializePrompt(prompt, null, 'override');
         const retryEffectivePrompt = retryPromptResult.effectivePrompt;
@@ -764,6 +788,29 @@ export async function runRoleAgent(
           abortSignal: options.abortSignal,
           session: {
             ...sessionInfo,
+            promptAudit: promptAudit as {
+              promptPath: string | null;
+              promptSource: 'file' | 'override';
+              inlineAgentContext: boolean;
+              effectivePromptSha256: string;
+            },
+          },
+        });
+      },
+      runAgentSessionForConfinementRetry: async (args, promptAudit, metadata) => {
+        return runAgentSession({
+          repoRoot: paths.repoRoot,
+          cliArgs: args,
+          cwd: agentCwd,
+          env: agentEnv,
+          wallClockTimeoutS,
+          idleTimeoutS,
+          abortSignal: options.abortSignal,
+          session: {
+            ...sessionInfo,
+            launchId: createRoleLaunchId(),
+            launchPhase: metadata.launchPhase,
+            retryOfLaunchId: metadata.retryOfLaunchId,
             promptAudit: promptAudit as {
               promptPath: string | null;
               promptSource: 'file' | 'override';

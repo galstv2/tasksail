@@ -14,6 +14,8 @@ describe('getRequiredDirs contents', () => {
   it('contains AgentWorkSpace/tasks and AgentWorkSpace/error-items', () => {
     expect(GENERIC_REQUIRED_DIRS).toContain('AgentWorkSpace/tasks');
     expect(GENERIC_REQUIRED_DIRS).toContain('AgentWorkSpace/error-items');
+    expect(GENERIC_REQUIRED_DIRS).toContain('runtime/docker');
+    expect(GENERIC_REQUIRED_DIRS).toContain('runtime/podman');
   });
 
   it('does not contain legacy singleton dirs AgentWorkSpace/handoffs or the old hyphen-free error dir', () => {

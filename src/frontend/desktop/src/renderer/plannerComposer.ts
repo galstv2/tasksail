@@ -224,7 +224,7 @@ export function formatDraftMarkdown(
 
   if (metadata.source) {
     const defaultCreatedBy = providerDescriptor
-      ? getPlanningAgentDisplayName(providerDescriptor)
+      ? getPlanningAgentDisplayName(providerDescriptor, providerDescriptor.plannerAgentId)
       : 'Planning Agent';
     sections.push(
       '',

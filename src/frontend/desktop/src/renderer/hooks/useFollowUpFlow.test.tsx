@@ -17,7 +17,7 @@ const testCompletedTasks: CompletedTaskEntry[] = [
   {
     id: 'CAP-CUSTOM-TERMINAL-06',
     title: 'Older completed task',
-    owner: 'product-manager',
+    owner: 'provider-pm',
     status: 'completed',
     summary: 'Completed task without eligible follow-up.',
     followUpEligible: false,
@@ -26,7 +26,7 @@ const testCompletedTasks: CompletedTaskEntry[] = [
   {
     id: 'CAP-CUSTOM-TERMINAL-08',
     title: 'Most recent completed task',
-    owner: 'product-manager',
+    owner: 'provider-pm',
     status: 'completed',
     summary: 'Completed task with eligible follow-up.',
     followUpEligible: true,

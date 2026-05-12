@@ -15,8 +15,13 @@ logger = logging.getLogger(__name__)
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
+_REPO_ROOT = SCRIPT_DIR.parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from lib.text import normalize_string_list  # noqa: E402
+
+from src.backend.mcp.pack_constants import ALLOWED_LAYERS  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Subcommand: infer-git-remote-owner
@@ -44,16 +49,6 @@ def cmd_infer_git_remote_owner(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # Subcommand: collect-bootstrap-answers — helper definitions
 # ---------------------------------------------------------------------------
-
-ALLOWED_LAYERS = {
-    "backend",
-    "frontend",
-    "test",
-    "infrastructure",
-    "database",
-    "documents",
-    "shared",
-}
 
 
 def slugify(value: str) -> str:

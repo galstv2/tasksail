@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.constants import (
+    ALLOWED_DISCOVERY_MODES,
     DEFAULT_DISTRIBUTED_SCAN_DEPTH,
     DEFAULT_REPOSITORY_TYPE,
     DIRECT_FOCUS_TYPES,
-    ESTATE_TYPES,
     GROUP_CHILD_TYPES,
     HIGH_SIGNAL_TYPE_ALIASES,
     SKIP_DIR_NAMES,
@@ -22,21 +22,34 @@ from src.backend.mcp.repo_context_mcp.utils import (
 )
 from src.backend.mcp.repo_type_probe import classify_repository_type
 
-_FOCUS_TYPE_TO_REPOSITORY_TYPE: dict[str, str] = {
+_FOCUS_TYPE_TO_REPO_CATEGORY: dict[str, str] = {
+    "service": "service",
+    "application": "application",
+    "backend": "service",
+    "frontend": "frontend",
+    "source": "service",
+    "library": "library",
+    "package": "library",
+    "docs": "documentation",
+    "infrastructure": "infrastructure",
+    "shared": "library",
+    "general": "unknown",
+    "module": "library",
+    "domain": "service",
+    "component": "frontend",
+}
+
+# Backward-compat mapping: repo_category → repo_focus (primary/support)
+_REPO_CATEGORY_TO_REPO_FOCUS: dict[str, str] = {
     "service": "primary",
     "application": "primary",
-    "backend": "primary",
     "frontend": "primary",
-    "source": "primary",
     "library": "support",
-    "package": "support",
-    "docs": "support",
+    "data": "support",
+    "documentation": "support",
     "infrastructure": "support",
-    "shared": "support",
-    "general": "support",
-    "module": "support",
-    "domain": "support",
-    "component": "support",
+    "tool": "support",
+    "unknown": "support",
 }
 
 
@@ -216,11 +229,20 @@ def discover_candidate_repos(
     return repos
 
 
+def classify_focus_area_repo_category(focus_type: str) -> str:
+    """Return the repo_category for a given focus_type (v2 field)."""
+    return _FOCUS_TYPE_TO_REPO_CATEGORY.get(focus_type, "unknown")
+
+
 def classify_focus_area_repository_type(focus_type: str) -> str:
-    return _FOCUS_TYPE_TO_REPOSITORY_TYPE.get(
-        focus_type,
-        DEFAULT_REPOSITORY_TYPE,
-    )
+    """Return the legacy repository_type for a given focus_type.
+
+    Deprecated: prefer classify_focus_area_repo_category for v2 data.
+    Kept for backward compat with callers that still read repository_type.
+    """
+    category = classify_focus_area_repo_category(focus_type)
+    # dict.get with a str default returns str; explicit fallback guards Pyright.
+    return _REPO_CATEGORY_TO_REPO_FOCUS.get(category) or DEFAULT_REPOSITORY_TYPE
 
 
 def build_focus_area(
@@ -231,13 +253,17 @@ def build_focus_area(
     group: str | None = None,
 ) -> dict[str, str]:
     relative_path = focus_root.relative_to(root).as_posix()
+    repo_category = classify_focus_area_repo_category(focus_type)
+    # Keep repository_type for backward compat with v1 readers
+    repo_focus = _REPO_CATEGORY_TO_REPO_FOCUS.get(repo_category) or DEFAULT_REPOSITORY_TYPE
     entry = {
         "focus_id": slugify(relative_path.replace("/", "-")),
         "focus_name": titleize_segment(focus_root.name),
         "focus_type": focus_type,
         "path": str(focus_root),
         "relative_path": relative_path,
-        "repository_type": classify_focus_area_repository_type(focus_type),
+        "repo_category": repo_category,
+        "repository_type": repo_focus,
     }
     if group:
         entry["group"] = group
@@ -318,13 +344,20 @@ def discover_candidate_focus_areas(
     return focus_areas
 
 
+def _canonical_scan_kind(mode: str) -> str:
+    """Strip -platform suffix to get the binary scan branch ('distributed' | 'monolith')."""
+    if mode.startswith("distributed"):
+        return "distributed"
+    return "monolith"
+
+
 def discover_estate(
     root: Path | str,
     mode: str = "auto",
     *,
     allow_missing: bool = False,
 ) -> dict[str, Any]:
-    if mode not in {"auto", *ESTATE_TYPES}:
+    if mode not in ALLOWED_DISCOVERY_MODES:
         raise ValueError(f"Unsupported discovery mode: {mode}")
 
     resolved_root = resolve_existing_root(root, allow_missing=allow_missing)
@@ -356,7 +389,7 @@ def discover_estate(
     candidate_repos: list[dict[str, Any]] = []
     candidate_focus_areas: list[dict[str, str]] = []
 
-    if estate_type == "distributed":
+    if _canonical_scan_kind(estate_type) == "distributed":
         warnings.extend(auto_scan_warnings)
         candidate_repos = distributed_candidates or discover_candidate_repos(
             resolved_root,

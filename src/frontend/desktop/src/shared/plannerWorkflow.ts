@@ -1,3 +1,5 @@
+import type { ArchivedParentTaskContent } from './desktopContractPlanner';
+
 function wrapAttachedFile(content: string): string {
   return (
     `--- BEGIN ATTACHED FILE ---\n` +
@@ -35,23 +37,49 @@ export function buildChildTaskStarterPrompt(args: {
   parentTaskTitle: string;
   rootTaskId: string;
   parentQmdScope: string;
-  carryForwardSummary: string;
+  parentTaskContent?: ArchivedParentTaskContent;
 }): string {
+  const contentSections = formatParentTaskContent(args.parentTaskContent);
   return (
-    'This is a child-task workflow. The staged planning document already contains the platform-owned title and lineage shell.\n\n' +
+    'This is a child-task correction workflow against an archived parent task. The staged planning document already contains the platform-owned title, lineage, context, and source shell.\n\n' +
+    `Parent Task ID: ${args.parentTaskId}\n` +
     `Parent task title: ${args.parentTaskTitle}\n` +
-    (args.carryForwardSummary ? `Known carry-forward context: ${args.carryForwardSummary}\n` : '') +
-    '\n' +
-    'The parent task was selected by the Guide from the active context pack archive. ' +
-    'You are creating a child-task intake that continues from this parent.\n\n' +
+    `Root Task ID: ${args.rootTaskId}\n` +
+    `Parent QMD Scope: ${args.parentQmdScope}\n\n` +
+    "The parent task's planner focus snapshot has been restored for this session.\n\n" +
+    (contentSections ? `${contentSections}\n\n` : '') +
+    'Ask the operator what specifically needs correction and why before finalizing the child-task intake.\n\n' +
     'Rules:\n' +
     '- Fill or refine only the editable sections in the staged document.\n' +
-    '- Do NOT change the generated title or any platform-owned sections.\n' +
+    '- Do NOT change the platform-owned title, Task Lineage, Context Pack Binding, or Source metadata.\n' +
     '- The Guide will provide or you should ask for: Request Summary, Desired Outcome, ' +
     'Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
     '- Ask follow-up questions for any missing required content. Do not guess or fabricate.\n' +
     `- ${DRAFT_WRITE_CAUTION}`
   );
+}
+
+function formatParentTaskContent(content?: ArchivedParentTaskContent): string {
+  if (!content) return '';
+  const sections: string[] = [];
+  const addText = (heading: string, value?: string): void => {
+    const trimmed = value?.trim();
+    if (trimmed) sections.push(`${heading}:\n${trimmed}`);
+  };
+  const addList = (heading: string, values?: string[]): void => {
+    const items = values?.map((value) => value.trim()).filter(Boolean) ?? [];
+    if (items.length > 0) {
+      sections.push(`${heading}:\n${items.map((item) => `- ${item}`).join('\n')}`);
+    }
+  };
+  addText('Parent archive task title', content.taskTitle);
+  addText('Parent archive task summary', content.taskSummary);
+  addText('Completed work summary', content.completedWorkSummary);
+  addList('Key decisions', content.keyDecisions);
+  addList('Known limitations', content.knownLimitations);
+  addList('Parent constraints', content.constraints);
+  addText('Implementation summary', content.implementationSummary);
+  return sections.join('\n\n');
 }
 
 export function buildMarkdownReviewPrompt(filename: string, content: string): string {

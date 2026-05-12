@@ -12,9 +12,9 @@ from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordC
 
 
 def _write_archive(scope_dir: Path, file_name: str, record: dict) -> Path:
-    archive_dir = scope_dir / "archive" / "tasks" / "platform" / "2026"
+    archive_dir = scope_dir / "archive" / "tasks" / "platform" / "2026" / Path(file_name).stem
     archive_dir.mkdir(parents=True, exist_ok=True)
-    path = archive_dir / file_name
+    path = archive_dir / "archive.json"
     path.write_text(json.dumps(record), encoding="utf-8")
     return path
 

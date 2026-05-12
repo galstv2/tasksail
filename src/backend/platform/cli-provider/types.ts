@@ -61,7 +61,9 @@ export type ProviderPromptKind =
   | 'start-task'
   | 'execute-task'
   | 'continue-task'
-  | 'execute-task-retry';
+  | 'execute-task-retry'
+  | 'retrospective-task'
+  | 'realignment-task';
 
 export interface AgentLaunchContext {
   repoRoot: string;
@@ -231,9 +233,16 @@ export interface PlannerLaunchOptions {
   contextPackBoundaryEnforced: boolean;
   workingDirectory?: string;
   additionalEnv?: Record<string, string>;
+  /**
+   * Structured focus and path metadata, identical to the shape passed to
+   * provider.buildEnv for role agents. The planner launch-spec implementation
+   * owns model and agentId.
+   */
+  focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
 }
 
 export interface PlannerLaunchSpec {
+  agentId: string;
   args: string[];
   launchCwd: string;
   env?: Record<string, string>;
@@ -243,6 +252,8 @@ export interface PlannerChunkParser {
   parseChunk(chunk: string): PlannerEventParseResult[];
   flush(): PlannerEventParseResult[];
 }
+
+export type RoleKind = 'planner' | 'pm' | 'builder' | 'verifier' | 'qa';
 
 export interface CliProvider {
   readonly id: string;
@@ -258,10 +269,13 @@ export interface CliProvider {
   requiredDirs(): string[];
   requiredFiles(): string[];
   requiredEnvKeys(): string[];
+  controlledEnvKeys(): string[];
   promptPathEnvVars(): { handoffsDir: string; implStepsDir: string };
   contextPackEnvVars(): { paths: string; searchRoots: string };
   mcpConfigArgs(configFilePath: string): string[];
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string;
+  plannerAgentId(): string | null;
+  roleKindForAgent(agentId: string): RoleKind | null;
   createPlannerParser?(): PlannerChunkParser | null;
   buildPlannerLaunchSpec?(options: PlannerLaunchOptions): PlannerLaunchSpec | null;
 }

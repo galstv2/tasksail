@@ -13,7 +13,46 @@ interface PolicyCacheEntry {
   result: PythonResult;
 }
 
-const policyResultCache = new Map<string, PolicyCacheEntry>();
+class PolicyResultCache {
+  private readonly entries = new Map<string, PolicyCacheEntry>();
+  private readonly maxSize: number;
+
+  constructor(maxSize = 64) {
+    this.maxSize = maxSize;
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  get(key: string): PolicyCacheEntry | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, value: PolicyCacheEntry): void {
+    if (this.entries.size >= this.maxSize) {
+      const oldestKey = this.entries.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.entries.delete(oldestKey);
+      }
+    }
+    this.entries.set(key, value);
+  }
+
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}
+
+export const policyResultCache = new PolicyResultCache();
+
+function policyResultCacheKey(repoRoot: string, taskId: string): string {
+  return `${repoRoot}::${taskId}`;
+}
 
 async function stamp(filePath: string): Promise<string> {
   try {
@@ -129,7 +168,7 @@ export async function runRuntimePolicyCheck(
     agentId,
     mode,
   });
-  const cacheKey = `${repoRoot}::${taskId}`;
+  const cacheKey = policyResultCacheKey(repoRoot, taskId);
   const cached = policyResultCache.get(cacheKey);
   if (cached?.key === stateKey) {
     return cached.result;
@@ -153,4 +192,12 @@ export async function runRuntimePolicyCheck(
     result: cachedResult,
   });
   return cachedResult;
+}
+
+/**
+ * Drop any cached policy result for a given task. Call this when a task
+ * reaches a terminal state so cache entries do not outlive completed work.
+ */
+export function evictPolicyResultCache(repoRoot: string, taskId: string): void {
+  policyResultCache.delete(policyResultCacheKey(repoRoot, taskId));
 }

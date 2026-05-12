@@ -21,19 +21,23 @@ export async function bootstrapServices(
 ): Promise<void> {
   const engineHost = options.engineHost ?? runtime.engineHost;
   const wslDistro = 'wslDistro' in options ? options.wslDistro : runtime.wslDistro;
-  const composeFile = options.composeFile
-    ? path.resolve(options.repoRoot, options.composeFile)
-    : path.resolve(
-        options.repoRoot,
-        resolveDefaultComposeFile(runtime.backend),
-      );
-  const composeFiles = options.composeFiles
-    ? options.composeFiles.map((file) => path.resolve(options.repoRoot, file))
-    : [composeFile];
+  let composeFile: string | undefined;
+  let composeFiles: string[] | undefined;
+  const requiresComposeFile = runtime.requiresComposeFile;
+  if (requiresComposeFile) {
+    const composeFileRel = options.composeFile ?? resolveDefaultComposeFile(runtime.backend);
+    if (composeFileRel === undefined) {
+      throw new Error(`No default compose file is registered for backend "${runtime.backend}".`);
+    }
+    composeFile = path.resolve(options.repoRoot, composeFileRel);
+    composeFiles = options.composeFiles
+      ? options.composeFiles.map((file) => path.resolve(options.repoRoot, file))
+      : [composeFile];
 
-  for (const file of composeFiles) {
-    if (!existsSync(file)) {
-      throw new Error(`Compose file not found at ${file}`);
+    for (const file of composeFiles) {
+      if (!existsSync(file)) {
+        throw new Error(`Compose file not found at ${file}`);
+      }
     }
   }
 
@@ -81,9 +85,10 @@ export async function bootstrapServices(
     wslDistro,
   };
 
-  await verifyRegistryComposeConsistency(seedResult.registry, runtime.backend, composeOptions);
-
-  await validateComposeConfig(runtime.backend, composeOptions);
+  if (requiresComposeFile) {
+    await verifyRegistryComposeConsistency(seedResult.registry, runtime.backend, composeOptions);
+    await validateComposeConfig(runtime.backend, composeOptions);
+  }
 
   await runtime.composeUp({
     ...composeOptions,

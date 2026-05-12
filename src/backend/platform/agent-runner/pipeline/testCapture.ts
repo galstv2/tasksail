@@ -18,6 +18,7 @@ import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
 import { SLICE_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
+import { loadMarkdownContract } from '../../workflow-policy/contracts/markdownContract.js';
 
 export interface TestCaptureResult {
   command: string;
@@ -42,7 +43,7 @@ export function resolveTestCaptureCwdFromFocused(
 
   const testTarget = resolveAnchorTestTarget(focused);
   if (!testTarget) {
-    return undefined;
+    return existsSync(focused.primaryRepoRoot) ? focused.primaryRepoRoot : undefined;
   }
 
   const focusCwd = testTarget.kind === 'file'
@@ -151,21 +152,68 @@ export function extractValidationCommands(sliceContent: string): string[] {
   if (!sectionContent) {
     return [];
   }
-  const commands: string[] = [];
+  return extractCommandsFromFences(sectionContent);
+}
 
-  const codeFenceRegex = /```(?:\w*)\n([\s\S]*?)```/g;
-  let match;
-  while ((match = codeFenceRegex.exec(sectionContent)) !== null) {
-    const fenceContent = match[1].trim();
-    for (const line of fenceContent.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        commands.push(trimmed);
+function extractCommandsFromFences(sectionContent: string): string[] {
+  const contract = loadMarkdownContract();
+  const commands: string[] = [];
+  let activeFence: string | null = null;
+  let pendingContinuation: string | null = null;
+
+  const flushPending = (): void => {
+    if (pendingContinuation?.trim()) {
+      commands.push(pendingContinuation.trim());
+    }
+    pendingContinuation = null;
+  };
+
+  for (const rawLine of sectionContent.split(/\r?\n/)) {
+    if (!activeFence) {
+      const openMatch = contract.compiled.fenceOpen.exec(rawLine);
+      if (openMatch?.[contract.groups.fenceMarker]) {
+        activeFence = openMatch[contract.groups.fenceMarker]!;
       }
+      continue;
+    }
+
+    if (rawLine.trim() === activeFence) {
+      flushPending();
+      activeFence = null;
+      continue;
+    }
+
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed.startsWith('#') && !trimmed.startsWith('#!')) {
+      continue;
+    }
+
+    const withoutContinuation = removeSingleContinuationBackslash(trimmed);
+    const hasContinuation = withoutContinuation !== null;
+    const fragment = hasContinuation ? withoutContinuation : trimmed;
+    if (pendingContinuation !== null) {
+      pendingContinuation = `${pendingContinuation} ${fragment}`.trim();
+    } else {
+      pendingContinuation = fragment;
+    }
+
+    if (!hasContinuation) {
+      flushPending();
     }
   }
 
   return commands;
+}
+
+function removeSingleContinuationBackslash(value: string): string | null {
+  let slashCount = 0;
+  for (let i = value.length - 1; i >= 0 && value[i] === '\\'; i--) {
+    slashCount++;
+  }
+  return slashCount === 1 ? value.slice(0, -1).trimEnd() : null;
 }
 
 /**

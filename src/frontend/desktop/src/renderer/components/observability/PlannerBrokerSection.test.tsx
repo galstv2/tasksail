@@ -25,7 +25,7 @@ describe('PlannerBrokerSection', () => {
           brokerStatus: 'completed',
           activeTurnId: null,
           queuedTurnCount: 0,
-          cliSessionId: 'copilot-session-1',
+          cliSessionId: 'provider-session-1',
           lastTurnSource: 'resumed-session',
           lastTurnOutcome: 'completed',
           lastTurnAt: '2026-03-20T00:45:00.000Z',

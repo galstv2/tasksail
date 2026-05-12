@@ -10,9 +10,13 @@ type DesktopShellSource = Window['desktopShell'] & {
   listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
   readInstructionFile: (relativePath: string) => Promise<unknown>;
   writeInstructionFile: (relativePath: string, content: string) => Promise<unknown>;
+  subscribeContextPackCatalogChanged: (
+    listener: (event: import('../../shared/desktopContract').ContextPackCatalogChangedEvent) => void,
+  ) => () => void;
 };
 
 type DirectPlannerDraft = import('../../shared/desktopContract').PlannerDirectSubmissionDraft;
+type PlannerStartSessionPayload = import('../../shared/desktopContract').PlannerStartSessionPayload;
 type DirectFollowUpDraft = import('../../shared/desktopContract').FollowUpDirectSubmissionDraft;
 type ComposerStage = import('../../shared/desktopContract').ComposerStage;
 
@@ -33,11 +37,13 @@ type DesktopShellClient = Pick<
   | 'listRepoTree'
   | 'reseedContextPack'
   | 'setRepositoryType'
+  | 'setRepoCategory'
   | 'previewContextPackSwitch'
   | 'applyContextPackSwitch'
   | 'clearActiveContextPack'
   | 'activateContextPack'
   | 'startPlannerSession'
+  | 'validateChildTaskFocus'
   | 'sendPlannerMessage'
   | 'endPlannerSession'
   | 'savePlannerDraft'
@@ -47,6 +53,8 @@ type DesktopShellClient = Pick<
   | 'uploadSpec'
   | 'getBypassTemplate'
   | 'listArchivedTasks'
+  | 'listPlannerConversationHistory'
+  | 'hydratePlannerConversation'
   | 'listExternalMcpServers'
   | 'addExternalMcpServer'
   | 'updateExternalMcpServer'
@@ -70,6 +78,7 @@ type DesktopShellClient = Pick<
   | 'readRealignmentDoc'
   | 'checkActiveWorkGuard'
   | 'startRealignment'
+  | 'runRealignmentAnalysis'
   | 'readTaskBoard'
   | 'readTaskContent'
   | 'reorderPending'
@@ -84,6 +93,7 @@ type DesktopShellClient = Pick<
   | 'saveDeepFocusSelections'
   | 'loadDeepFocusSelections'
   | 'clearDeepFocusSelections'
+  | 'subscribeContextPackCatalogChanged'
 >;
 
 type DesktopShellGetter = () => DesktopShellSource | Window['desktopShell'];
@@ -116,6 +126,8 @@ export function createDesktopShellClient(
       readShell().reseedContextPack(contextPackDir),
     setRepositoryType: (contextPackDir, repoId, repositoryType) =>
       readShell().setRepositoryType(contextPackDir, repoId, repositoryType),
+    setRepoCategory: (contextPackDir, repoId, repoCategory) =>
+      readShell().setRepoCategory(contextPackDir, repoId, repoCategory),
     previewContextPackSwitch: (
       contextPackDir,
       scopeMode,
@@ -146,16 +158,24 @@ export function createDesktopShellClient(
       ),
     clearActiveContextPack: () => readShell().clearActiveContextPack(),
     activateContextPack: (packId) => readShell().activateContextPack(packId),
-    startPlannerSession: (contextPackDir) => readShell().startPlannerSession(contextPackDir),
-    sendPlannerMessage: (text) => readShell().sendPlannerMessage(text),
+    startPlannerSession: (payload?: PlannerStartSessionPayload) =>
+      readShell().startPlannerSession(payload),
+    validateChildTaskFocus: (payload) =>
+      readShell().validateChildTaskFocus(payload),
+    sendPlannerMessage: (text, displayText) =>
+      readShell().sendPlannerMessage(text, displayText),
     endPlannerSession: () => readShell().endPlannerSession(),
     savePlannerDraft: () => readShell().savePlannerDraft(),
     readStagedDraft: () => readShell().readStagedDraft(),
     finalizeSpec: (expectedTaskKind) => readShell().finalizeSpec(expectedTaskKind),
     pickMarkdownFile: () => readShell().pickMarkdownFile(),
-    uploadSpec: (content: string) => readShell().uploadSpec(content),
+    uploadSpec: (content, options) => readShell().uploadSpec(content, options),
     getBypassTemplate: () => readShell().getBypassTemplate(),
     listArchivedTasks: () => readShell().listArchivedTasks(),
+    listPlannerConversationHistory: () =>
+      readShell().listPlannerConversationHistory(),
+    hydratePlannerConversation: (recordId) =>
+      readShell().hydratePlannerConversation(recordId),
     listExternalMcpServers: () => readShell().listExternalMcpServers(),
     addExternalMcpServer: (server) => readShell().addExternalMcpServer(server),
     updateExternalMcpServer: (server) => readShell().updateExternalMcpServer(server),
@@ -179,6 +199,7 @@ export function createDesktopShellClient(
     readRealignmentDoc: () => readShell().readRealignmentDoc(),
     checkActiveWorkGuard: () => readShell().checkActiveWorkGuard(),
     startRealignment: (payload) => readShell().startRealignment(payload),
+    runRealignmentAnalysis: (payload) => readShell().runRealignmentAnalysis(payload),
     readTaskBoard: () => readShell().readTaskBoard(),
     readTaskContent: (fileName, column) => readShell().readTaskContent(fileName, column),
     reorderPending: (order) => readShell().reorderPending(order),
@@ -198,6 +219,8 @@ export function createDesktopShellClient(
       readShell().loadDeepFocusSelections(contextPackDir),
     clearDeepFocusSelections: (contextPackDir) =>
       readShell().clearDeepFocusSelections(contextPackDir),
+    subscribeContextPackCatalogChanged: (listener) =>
+      readShell().subscribeContextPackCatalogChanged(listener),
   };
 }
 

@@ -12,6 +12,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.backend.mcp.context_pack_bootstrap import bootstrap_context_pack
 
+_MAX_INLINE_BYTES = 32 * 1024
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -21,7 +23,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument("--context-pack-dir", required=True)
-    parser.add_argument("--answers-file", required=True)
+    # answers source: one of --answers-file or --answers-json (mutually exclusive)
+    answers_group = parser.add_mutually_exclusive_group(required=True)
+    answers_group.add_argument(
+        "--answers-file",
+        help="Path to bootstrap-answers.json. Legacy operator CLI path.",
+    )
+    answers_group.add_argument(
+        "--answers-json",
+        help=(
+            "Bootstrap answers as inline JSON string, or '-' to read from stdin. "
+            "Use '-' (stdin) for IPC callers to avoid argv length limits."
+        ),
+    )
     parser.add_argument("--discovery-root", required=True)
     parser.add_argument(
         "--mode",
@@ -34,6 +48,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="json",
     )
     return parser.parse_args(argv)
+
+
+def load_answers(args: argparse.Namespace) -> dict:  # type: ignore[type-arg]
+    if args.answers_file:
+        answers_path = Path(args.answers_file)
+        return json.loads(answers_path.read_text(encoding="utf-8"))  # type: ignore[return-value]
+    # --answers-json path
+    raw = args.answers_json
+    if raw == "-":
+        raw = sys.stdin.read()
+    else:
+        if len(raw.encode("utf-8")) > _MAX_INLINE_BYTES:
+            print(
+                "Error: --answers-json inline payload exceeds 32 KiB. "
+                "Use '--answers-json -' to read from stdin instead.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+    return json.loads(raw)  # type: ignore[return-value]
 
 
 def render_markdown(payload: dict[str, object]) -> str:
@@ -60,19 +93,15 @@ def render_markdown(payload: dict[str, object]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    answers_path = Path(args.answers_file)
     try:
-        answers_payload = json.loads(answers_path.read_text(encoding="utf-8"))
+        answers_payload = load_answers(args)
         payload = bootstrap_context_pack(
             Path(args.context_pack_dir),
             answers_payload,
             Path(args.discovery_root),
             requested_mode=args.mode,
         )
-    except ValueError as exc:
-        print(f"Context-pack bootstrap failed: {exc}", file=sys.stderr)
-        return 1
-    except FileNotFoundError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(f"Context-pack bootstrap failed: {exc}", file=sys.stderr)
         return 1
 

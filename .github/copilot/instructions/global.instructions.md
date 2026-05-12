@@ -26,7 +26,6 @@ Dalton Verify (`software-engineer-verify`) is an out-of-band verification instan
 |---|---|---|
 | `CONTEXT_PACK_CONVENTIONS_STATUS` | Load `CONTEXT_PACK_CONVENTIONS_CONTEXT_FILE` and follow it as style guidance | Continue without conventions; do not invent them |
 | `CONTEXT_PACK_CORRECTIONS_STATUS` | Load `CONTEXT_PACK_CORRECTIONS_CONTEXT_FILE` and follow the corrections | Continue without corrections |
-| `CONTEXT_PACK_REINFORCEMENT_STATUS` | Load `CONTEXT_PACK_REINFORCEMENT_CONTEXT_FILE` and follow standing expectations | Continue without reinforcement |
 | `EXTERNAL_MCP_CONTEXT_STATUS` | If injection is enabled, read `EXTERNAL_MCP_CONTEXT_FILE`, use available MCPs first for their covered domains, and honor degraded/excluded status | Do not assume external MCP availability |
 
 - Do not claim a context-pack memo was loaded unless runtime state says it is available and the file exists.

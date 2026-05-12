@@ -5,6 +5,7 @@ import { findRepoRoot, isWindowsPlatform, runPython } from '../core/index.js';
 import { validateStructure } from './structure.js';
 import { checkFileSizes } from './fileSizes.js';
 import { checkExternalMcpRegistry } from './externalMcpCheck.js';
+import { validateMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,6 +68,15 @@ async function runRuff(repoRoot: string): Promise<void> {
     return;
   }
   await execFileAsync('ruff', ['check', '.'], { cwd: repoRoot, timeout: 60_000 });
+}
+
+export async function runMarkdownContractValidation(repoRoot: string): Promise<void> {
+  validateMarkdownContract(path.join(repoRoot, 'config', 'markdown-contract.default.json'));
+  await runPython(
+    '-c',
+    ['import sys, pathlib; sys.path.insert(0, str(pathlib.Path.cwd() / "src" / "backend" / "scripts" / "python")); from lib.markdown_contract import validate_markdown_contract; validate_markdown_contract()'],
+    { cwd: repoRoot, timeout: 30_000 },
+  );
 }
 
 async function runPytest(
@@ -143,6 +153,8 @@ export async function runLocalChecks(
     const r = await validateStructure(root);
     if (!r.valid) throw new Error(r.errors.join('\n'));
   }));
+
+  results.push(await timedCheck('markdown-contract', () => runMarkdownContractValidation(root)));
 
   // File size check runs for all profiles
   results.push(await timedCheck('file-sizes', async () => {

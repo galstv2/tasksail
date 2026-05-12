@@ -57,10 +57,9 @@ describe('resolveQueuePaths — back-compat existing fields', () => {
     )).toBe(true);
   });
 
-  it('activeContextPackPath is present and ends with active-context-pack.json', () => {
+  it('does not expose removed queue singleton state paths', () => {
     const qp = resolveQueuePaths(FAKE_ROOT);
-    expect(qp.activeContextPackPath).toBeDefined();
-    expect(qp.activeContextPackPath.endsWith('active-context-pack.json')).toBe(true);
+    expect(Object.keys(qp)).not.toContain(['active', 'Context', 'Pack', 'Path'].join(''));
   });
 });
 

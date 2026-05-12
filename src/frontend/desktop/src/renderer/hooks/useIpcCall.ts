@@ -17,7 +17,7 @@ export type IpcCallOptions<TResponse> = {
 
 export type IpcCallResult<TResponse> =
   | { ok: true; response: TResponse }
-  | { ok: false; error: string };
+  | { ok: false; error: string; details?: string[] };
 
 export function useIpcCall(
   onError: (message: string) => void,
@@ -47,7 +47,11 @@ export function useIpcCall(
       if (!result.ok) {
         const message = formatIpcError(result);
         onError(message);
-        return { ok: false, error: message };
+        return {
+          ok: false,
+          error: result.error,
+          details: result.details,
+        };
       }
 
       if (options?.validate && !options.validate(result.response)) {

@@ -7,6 +7,8 @@ import type {
   ContextPackSwitchDeepFocusSelection,
 } from './desktopContractDeepFocus';
 
+export const RESEED_IN_PROGRESS_ERROR_CODE = 'reseed_in_progress' as const;
+
 export type ContextPackActivationRequest = {
   action: 'contextPack.activate';
   payload: {
@@ -46,9 +48,34 @@ export type ContextPackPickDirectoryResponse = {
   selectedPath: string | null;
 };
 
-export type ContextPackDiscoveryMode = 'auto' | 'distributed' | 'monolith';
+export type ContextPackEstateType =
+  | 'distributed'
+  | 'distributed-platform'
+  | 'monolith'
+  | 'monolith-platform';
+
+// Discovery still allows 'auto' (the operator may not have decided yet).
+export type ContextPackDiscoveryMode = 'auto' | ContextPackEstateType;
+
+// Create requires a deterministic estate type — 'auto' is rejected.
+export type ContextPackCreateMode = ContextPackEstateType;
 export type ContextPackRepositoryType = 'primary' | 'support';
 export type WorkspaceScopeMode = 'focused';
+
+/** v2 repo category values (the 9 categories introduced in qmd-repo-sources/v2). */
+export type ContextPackRepoCategory =
+  | 'service'
+  | 'application'
+  | 'frontend'
+  | 'library'
+  | 'infrastructure'
+  | 'data'
+  | 'documentation'
+  | 'tool'
+  | 'unknown';
+
+/** Deprecated alias — kept for one transition cycle. Use ContextPackRepositoryType instead. */
+export type ContextPackRepoFocus = ContextPackRepositoryType;
 
 export type ContextPackClassificationConfidence = 'high' | 'medium' | 'low';
 
@@ -92,7 +119,7 @@ export type ContextPackDiscoverPrefillResponse = {
   message: string;
   rootPath: string;
   discoveryMode: ContextPackDiscoveryMode;
-  estateType: 'distributed' | 'monolith';
+  estateType: ContextPackEstateType;
   suggestedContextPackId: string;
   suggestedDisplayName: string;
   warnings: string[];
@@ -119,8 +146,16 @@ export type ContextPackBootstrapRepositoryInput = {
   documentPaths?: string[];
   boundedContext?: string;
   serviceName?: string;
+  /** @deprecated Superseded by repositoryType/repoFocus; removal deferred (Phase 6 Gate G7). */
   repoRole?: string;
+  /** @deprecated Use repoFocus instead. Kept for backward compat. */
   repositoryType?: ContextPackRepositoryType;
+  /** v2: replaces repositoryType as the primary focus field (primary | support). */
+  repoFocus?: ContextPackRepositoryType;
+  repoFocusAuthored?: boolean;
+  /** v2: category classification for this repository. */
+  repoCategory?: ContextPackRepoCategory;
+  repoCategoryAuthored?: boolean;
   workspaceActivationGroup?: string;
   defaultFocusable?: boolean;
   activationPriority?: number;
@@ -147,10 +182,12 @@ export type ContextPackCreateRequest = {
   payload: {
     contextPackDir: string;
     discoveryRoot: string;
-    mode: ContextPackDiscoveryMode;
+    mode: ContextPackCreateMode;
     writePlan?: boolean;
     seedOnCreate?: boolean;
     initGitRepos?: boolean;
+    confirmOverwrite?: boolean;
+    allowScaryPath?: boolean;
     bootstrapAnswers: {
       contextPackId: string;
       estateName: string;
@@ -163,13 +200,25 @@ export type ContextPackCreateRequest = {
   };
 };
 
+/**
+ * Structured preflight error surfaced by run-pack-preflight.py before any disk write.
+ * `field` uses renderer-facing camelCase form-paths (e.g. "bootstrapAnswers.repositories[0].repoRoot")
+ * so the modal can scope the error message to the offending input.
+ */
+export type ContextPackPreflightError = {
+  code: string;
+  field: string | null;
+  message: string;
+  details: Record<string, unknown>;
+};
+
 export type ContextPackCreateExecutionResult = {
   contextPackId: string;
   displayName: string;
   contextPackDir: string;
   discoveryRoot: string;
-  discoveryMode: ContextPackDiscoveryMode;
-  estateType: 'distributed-platform' | 'monolith';
+  discoveryMode: ContextPackEstateType;
+  estateType: ContextPackEstateType;
   defaultScopeMode: WorkspaceScopeMode;
   bootstrapAnswersPath: string;
   discoveryDraftPath: string;
@@ -200,7 +249,6 @@ export type ContextPackCatalogSource =
 export type ContextPackRuntimeStatus =
   | 'inactive'
   | 'active'
-  | 'active-dirty-workspace'
   | 'activation-failed'
   | 'workspace-sync-failed';
 
@@ -212,6 +260,7 @@ export type ContextPackFocusTarget = {
   repoLocalPath?: string | null;
   serviceName: string | null;
   systemLayer: string | null;
+  /** @deprecated Superseded by repositoryType; removal deferred (Phase 6 Gate G7). */
   repoRole: string | null;
   repositoryType: ContextPackRepositoryType | null;
   relativePath: string | null;
@@ -221,6 +270,32 @@ export type ContextPackFocusTarget = {
   activationPriority: number;
   adjacentRepoIds: string[];
   adjacentFocusIds: string[];
+};
+
+/** Whether a pack has been seeded or is an empty new-flow stub awaiting population. */
+export type PackSeedState = 'seeded' | 'bootstrap-empty';
+
+/**
+ * Camel-cased translation of the on-disk ``seed-state.json`` record (defined
+ * in ``packSchemas.PackSeedStateRecord`` with snake_case keys).  The catalog
+ * reader (``main.contextPackCatalog.ts``) is responsible for the snake→camel
+ * translation; renderer code consumes only this shape.
+ *
+ * ``details`` is preserved as an opaque dict so future inner keys (today
+ * ``plan_overall_status``, ``plan_repo_statuses``, ``plan_parsed`` from G1)
+ * flow through without a contract change.
+ */
+export type PackSeedStateInfo = {
+  state: PackSeedState;
+  createdAt?: string | null;
+  reason?: string | null;
+  lastSeedAt?: string | null;
+  lastSeedRunId?: string | null;
+  lastFailureAt?: string | null;
+  lastFailureReason?: string | null;
+  lastFailureRunId?: string | null;
+  inProgress?: boolean;
+  details?: Record<string, unknown> | null;
 };
 
 export type ContextPackCatalogEntry = {
@@ -236,9 +311,18 @@ export type ContextPackCatalogEntry = {
   repoCount: number;
   primaryWorkingRepoIds: string[];
   focusTargets: ContextPackFocusTarget[];
+  /** Absent means the pack was created before Phase 5 and is treated as seeded. */
+  packSeedState?: PackSeedState;
+  /**
+   * Full pack seed-state record (camel-cased from on-disk ``seed-state.json``).
+   * Carries the diagnostic fields written by Phase 5 G1 (``createdAt``,
+   * ``reason``, ``details``) and G2 (``lastSeedAt``, ``lastSeedRunId``) so the
+   * UI can render a richer "needs population" message without re-reading
+   * the marker file.  Absent for pre-Phase-5 packs.
+   */
+  packSeedStateInfo?: PackSeedStateInfo;
   status?: ContextPackRuntimeStatus;
   statusMessage?: string | null;
-  driftDetected?: boolean;
   restoreAvailable?: boolean;
   lastSyncedAt?: string | null;
   workspaceFolderCount?: number | null;
@@ -314,6 +398,21 @@ export type ContextPackSetRepositoryTypeRequest = {
 
 export type ContextPackSetRepositoryTypeResponse = {
   action: 'contextPack.setRepositoryType';
+  mode: 'updated';
+  message: string;
+};
+
+export type ContextPackSetRepoCategoryRequest = {
+  action: 'contextPack.setRepoCategory';
+  payload: {
+    contextPackDir: string;
+    repoId: string;
+    repoCategory: string;
+  };
+};
+
+export type ContextPackSetRepoCategoryResponse = {
+  action: 'contextPack.setRepoCategory';
   mode: 'updated';
   message: string;
 };

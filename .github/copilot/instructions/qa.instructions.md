@@ -26,9 +26,42 @@ Verify delivered code against slice acceptance criteria and recorded evidence; c
 - **Completed Work**, **Key Design Decisions**, and **Known Limitations** — substantive closeout content; metadata-only summaries fail completeness checks.
 
 `retrospective-input.md` must include:
-- `Action Items`: 1–5 concrete bullets when retrospective is required.
-- Lily's Contribution, Alice's Contribution, Dalton's Contribution, Ron's Contribution: bullet lists when retrospective is required.
-- What Went Well / What Could Have Gone Better: substantive content when retrospective is required.
+- Retrospective Summary, Meeting Context, Lily's Contribution, Alice's Contribution,
+  Dalton's Contribution, and Ron's Contribution populated with current-task-only content.
+- Cycle-level sections governed by Retrospective Section Gating below.
+
+### Retrospective Section Gating
+
+`retrospective-input.md` has two distinct kinds of sections:
+
+- **Per-task sections** (always populated): Retrospective Summary, Meeting Context,
+  Lily's Contribution, Alice's Contribution, Dalton's Contribution, Ron's Contribution.
+  These describe the current task only.
+
+- **Cycle-level sections** (populated ONLY when `Retrospective Required: true`):
+  What Went Well, What Could Have Gone Better, Action Items, Reusable Team Learnings,
+  Anti-Patterns To Avoid.
+
+When `Retrospective Required: false`, leave every cycle-level section completely empty.
+No placeholder text. No "N/A". No single-bullet summaries. Empty.
+
+When `Retrospective Required: true`, your QA launch writes per-task sections only and
+leaves cycle-level sections empty. A separate retrospective launch (with
+`launchPhase: Retrospective`) will fill the cycle-level sections using context from
+the previous nine tasks.
+
+### Retrospective Abstraction Rule
+
+When you are launched in the retrospective phase, you receive a `## Cycle Context
+(Last 10 Tasks)` block with structured data on each task in the cycle. Your output
+must satisfy these rules:
+
+- Bullets must describe patterns, principles, or themes — never task-specific incidents.
+- Do not name files, symbols, functions, line numbers, task IDs, or repo paths.
+- Do not quote code.
+- Every bullet must be reusable on an unrelated future task.
+- Rewrite the five cycle-level sections only. Do not modify any per-task section.
+  Do not modify `issues.md` or `final-summary.md`.
 
 When a finding is blocking, `Finding Type` must be one of: `code-review`, `test-gap`, `security`, `hygiene`, `release-risk`.
 
@@ -78,11 +111,12 @@ Do not downgrade an unmet acceptance criterion to advisory. Do not rationalize p
 - Naming, readability, style, and hygiene observations.
 - Missing edge case handling that does not affect acceptance criteria.
 - Pattern preferences and abstraction suggestions.
+- Minor deviations from Alice's Engineering Quality Requirements when acceptance criteria pass and no concrete correctness, security, regression, data-loss, or release-risk issue is present.
 - Test coverage gaps beyond what the slice requires.
 - Missing broad regression evidence when slice-local validation passed and no concrete failure is observed.
 - Documentation or comment improvements.
 
-**When in doubt:** check the acceptance criteria. If the finding means a criterion is not met, it is blocking. If every criterion is met and the finding is about how the code could be better, it is advisory.
+**When in doubt:** check the acceptance criteria. If the finding means a criterion is not met, or there is a verified correctness, security, regression, data-loss, or release-risk defect, it is blocking. If every criterion is met and the finding is about maintainability, style, structure, comments, naming, or implementation quality, it is advisory.
 
 ### Remediation Return Rules
 
@@ -137,6 +171,7 @@ Do not declare review complete until every item is satisfied.
 - [ ] final-summary.md Difficulty Level set to `Easy`/`Medium`/`Hard`
 - [ ] final-summary.md Task branches section populated from `TASKSAIL_TASK_BRANCHES`
 - [ ] final-summary.md Completed Work / Key Design Decisions / Known Limitations populated
-- [ ] retrospective-input.md Action Items contains 1–5 concrete bullets
-- [ ] retrospective-input.md per-role contribution sections populated
+- [ ] retrospective-input.md per-task sections populated with current-task-only content
+- [ ] retrospective-input.md cycle-level sections empty when Retrospective Required is false
+- [ ] retrospective-input.md cycle-level sections (in retrospective phase only) contain abstracted patterns with no file/symbol/task-id references
 - [ ] Every blocking finding's Finding Type is one of `code-review` / `test-gap` / `security` / `hygiene` / `release-risk`

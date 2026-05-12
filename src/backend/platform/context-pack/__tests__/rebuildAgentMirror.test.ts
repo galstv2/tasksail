@@ -78,8 +78,8 @@ describe('rebuildAgentMirror', () => {
   it('copies canonical archive and retrospective history files into the mirror', async () => {
     const scopeRoot = `qmd/context-packs/${packName}`;
     seedManifest(scopeRoot);
-    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001.json', '{"taskId":"task-001"}');
-    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001.md', '# Task 001');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.md', '# Task 001');
     seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md', '# History');
     seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md.record.json', '{}');
 
@@ -90,20 +90,20 @@ describe('rebuildAgentMirror', () => {
     expect(result.filesSkipped).toBe(0);
     expect(result.subtreesMissing).toBe(0);
 
-    expect(existsSync(mirrorPath('archive/tasks/2026/task-001.json'))).toBe(true);
-    expect(existsSync(mirrorPath('archive/tasks/2026/task-001.md'))).toBe(true);
+    expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.json'))).toBe(true);
+    expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.md'))).toBe(true);
     expect(existsSync(mirrorPath('retrospectives/history/2026/task-001.md'))).toBe(true);
     expect(existsSync(mirrorPath('retrospectives/history/2026/task-001.md.record.json'))).toBe(true);
 
     // Content matches canonical.
-    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001.json'), 'utf-8'))
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/archive.json'), 'utf-8'))
       .toBe('{"taskId":"task-001"}');
   });
 
   it('is idempotent — a second run copies nothing new', async () => {
     const scopeRoot = `qmd/context-packs/${packName}`;
     seedManifest(scopeRoot);
-    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001.json', '{"taskId":"task-001"}');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
     seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md', '# History');
 
     const first = await rebuildAgentMirror(repoRoot, contextPackDir);
@@ -117,17 +117,17 @@ describe('rebuildAgentMirror', () => {
   it('re-copies a file when canonical has been updated (size or mtime change)', async () => {
     const scopeRoot = `qmd/context-packs/${packName}`;
     seedManifest(scopeRoot);
-    const canonicalFile = seedCanonical(scopeRoot, 'archive/tasks/2026/task-001.json', '{"v":1}');
+    const canonicalFile = seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"v":1}');
 
     await rebuildAgentMirror(repoRoot, contextPackDir);
-    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001.json'), 'utf-8')).toBe('{"v":1}');
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/archive.json'), 'utf-8')).toBe('{"v":1}');
 
     // Update canonical with different content (different size guarantees re-copy).
     writeFileSync(canonicalFile, '{"v":2,"more":"data"}', 'utf-8');
 
     const result = await rebuildAgentMirror(repoRoot, contextPackDir);
     expect(result.filesCopied).toBe(1);
-    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001.json'), 'utf-8'))
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/archive.json'), 'utf-8'))
       .toBe('{"v":2,"more":"data"}');
   });
 
@@ -135,25 +135,25 @@ describe('rebuildAgentMirror', () => {
     // No manifest seeded — helper must use `qmd/context-packs/<packName>` default.
     seedCanonical(
       `qmd/context-packs/${packName}`,
-      'archive/tasks/2026/task-001.json',
+      'archive/tasks/2026/task-001/archive.json',
       '{"taskId":"task-001"}',
     );
 
     const result = await rebuildAgentMirror(repoRoot, contextPackDir);
 
     expect(result.filesCopied).toBe(1);
-    expect(existsSync(mirrorPath('archive/tasks/2026/task-001.json'))).toBe(true);
+    expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.json'))).toBe(true);
   });
 
   it('honors a non-default qmd_scope_root from the manifest', async () => {
     const scopeRoot = 'qmd/custom-scope';
     seedManifest(scopeRoot);
-    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001.json', '{"taskId":"task-001"}');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
 
     const result = await rebuildAgentMirror(repoRoot, contextPackDir);
 
     expect(result.filesCopied).toBe(1);
-    expect(existsSync(mirrorPath('archive/tasks/2026/task-001.json'))).toBe(true);
+    expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.json'))).toBe(true);
   });
 
   it('tolerates missing canonical subtrees (fresh pack, no completed tasks)', async () => {

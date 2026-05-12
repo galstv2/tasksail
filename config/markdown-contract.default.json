@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "headingRegex": "^##[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$",
+  "labelRegex": "^-[ \\t]+([^:]+):[ \\t]*(.*)$",
+  "titleRegex": "^#[ \\t]+(.+?)[ \\t]*(?:#+[ \\t]*)?$",
+  "fenceOpenRegex": "^(```|~~~)(\\w*)[ \\t]*$",
+  "groups": {
+    "headingName": 1,
+    "labelName": 1,
+    "labelValue": 2,
+    "title": 1,
+    "fenceMarker": 1,
+    "fenceLanguage": 2
+  },
+  "stripHtmlComments": true,
+  "warnOnDuplicateLabel": true,
+  "opaqueFences": true,
+  "sectionNames": {
+    "TASK_LINEAGE": "Task Lineage",
+    "TASK_METADATA": "Task Metadata",
+    "CONTEXT_PACK_BINDING": "Context Pack Binding",
+    "REVIEW_OUTCOME": "Review Outcome",
+    "DECISION": "Decision",
+    "DIFFICULTY_LEVEL": "Difficulty Level",
+    "RECOMMENDED_EXECUTION": "Recommended Execution",
+    "CLOSEOUT_OWNER_AGENT_ID": "Closeout Owner Agent ID",
+    "RETROSPECTIVE_REQUIRED": "Retrospective Required"
+  }
+}

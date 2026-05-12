@@ -35,7 +35,7 @@ from pathlib import Path
 from tests.support.crud_scaffold import create_context_pack_with_crud
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-COMPOSE_FILE = REPO_ROOT / "docker" / "compose" / "docker-compose.yml"
+COMPOSE_FILE = REPO_ROOT / 'runtime' / 'docker' / 'compose' / 'docker-compose.yml'
 HEALTHCHECK_CLI = REPO_ROOT / "src" / "backend" / "platform" / "container" / "cli.ts"
 CONTEXT_PACK_CLI = REPO_ROOT / "src" / "backend" / "platform" / "context-pack" / "cli.ts"
 AGENT_RUNNER_CLI = REPO_ROOT / "src" / "backend" / "platform" / "agent-runner" / "cli.ts"
@@ -54,7 +54,7 @@ _REPO_ROOT_SYMLINKS = (
     "pnpm-lock.yaml",
     "tsconfig.json",
     "tsconfig.base.json",
-    "docker",
+    "runtime",
     "config",
     ".github",
 )
@@ -136,7 +136,7 @@ def docker_compose(
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
+        ['docker', 'compose', '-f', str(COMPOSE_FILE), *args],
         cwd=REPO_ROOT,
         text=True,
         capture_output=True,
@@ -246,7 +246,7 @@ class BasePipelineTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        if not shutil.which("docker"):
+        if not shutil.which('docker'):
             raise unittest.SkipTest("docker not found in PATH")
         if not shutil.which("copilot"):
             raise unittest.SkipTest("copilot CLI not found in PATH")

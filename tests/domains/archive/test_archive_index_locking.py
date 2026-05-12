@@ -42,9 +42,9 @@ def _seed_archive_record(scope_dir: Path, task_id: str, repo_name: str = "repo")
     """Write a minimal archive JSON record so the index scanner finds it."""
     slug = task_id.lower().replace(" ", "-")
     year = "2026"
-    record_dir = scope_dir / "archive" / "tasks" / year
+    record_dir = scope_dir / "archive" / "tasks" / year / slug
     record_dir.mkdir(parents=True, exist_ok=True)
-    record_path = record_dir / f"{slug}.json"
+    record_path = record_dir / "archive.json"
     record_path.write_text(
         json.dumps(
             {
@@ -146,7 +146,7 @@ class TestArchiveIndexLocking(unittest.TestCase):
             record_path = _seed_archive_record(scope_dir, task_id)
 
             # Create the markdown file that patch_task_archive_md will modify.
-            archive_md_path = record_path.with_suffix(".md")
+            archive_md_path = record_path.parent / "archive.md"
             archive_md_path.write_text(
                 f"# Task Archive — {task_id}\n\nSENTINEL_INDEX_WRITER\n",
                 encoding="utf-8",

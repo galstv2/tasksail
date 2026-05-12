@@ -1,13 +1,31 @@
 import path from 'node:path';
-import { mkdir, rmdir, stat } from 'node:fs/promises';
+import { mkdir, rm, rmdir, stat } from 'node:fs/promises';
 import { readTextFile, safeJsonParse, writeTextFile, sleep } from '../core/index.js';
 import { setLabelValue } from './artifacts.js';
 
 const TASK_COUNTER_DIR_RELATIVE = '.platform-state/task-counters';
 const DEFAULT_CONTEXT_PACK_ID = 'platform-core';
-const RETROSPECTIVE_CYCLE_LENGTH = 10;
+export const RETROSPECTIVE_CYCLE_LENGTH = 10;
+export const RETROSPECTIVE_REQUIRED_LABEL = 'Retrospective Required';
 const SCHEMA_VERSION = 'task-counter/v1';
 const COUNTER_LOCK_STALE_MS = 5 * 60 * 1000;
+
+interface CounterLockDiagnostics {
+  lockDir: string;
+  attempts: number;
+  maxRetries: number;
+  initialBackoffMs: number;
+  maxBackoffMs: number;
+  estimatedWaitMs: number;
+  staleAfterMs: number;
+  lockExists: boolean;
+  lockAgeMs?: number;
+  lockMtime?: string;
+}
+
+type CounterLockAcquireResult =
+  | { release: () => Promise<void>; diagnostics: CounterLockDiagnostics }
+  | { release: null; diagnostics: CounterLockDiagnostics };
 
 function contextPackIdFromDir(contextPackDir?: string): string {
   const trimmed = contextPackDir?.trim();
@@ -35,27 +53,87 @@ async function acquireCounterLock(
   contextPackId: string,
   maxRetries = 50,
   backoffMs = 20,
-): Promise<(() => Promise<void>) | null> {
+): Promise<CounterLockAcquireResult> {
   const lockDir = path.join(counterDir, `${contextPackId}.lock`);
   let waitMs = backoffMs;
+  let estimatedWaitMs = 0;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       await mkdir(lockDir, { recursive: false });
-      return async () => {
-        try {
-          await rmdir(lockDir);
-        } catch {
-          // Already removed — safe to ignore
-        }
+      return {
+        release: async () => {
+          try {
+            await rmdir(lockDir);
+          } catch {
+            // Already removed — safe to ignore
+          }
+        },
+        diagnostics: {
+          lockDir,
+          attempts: attempt + 1,
+          maxRetries,
+          initialBackoffMs: backoffMs,
+          maxBackoffMs: 500,
+          estimatedWaitMs,
+          staleAfterMs: COUNTER_LOCK_STALE_MS,
+          lockExists: false,
+        },
       };
     } catch {
       // Lock held by another caller — check for staleness, then wait and retry
       await reclaimIfStale(lockDir);
     }
+    estimatedWaitMs += waitMs;
     await sleep(waitMs);
     waitMs = Math.min(waitMs * 2, 500);
   }
-  return null;
+  return {
+    release: null,
+    diagnostics: await readCounterLockDiagnostics({
+      lockDir,
+      attempts: maxRetries,
+      maxRetries,
+      initialBackoffMs: backoffMs,
+      maxBackoffMs: 500,
+      estimatedWaitMs,
+      staleAfterMs: COUNTER_LOCK_STALE_MS,
+    }),
+  };
+}
+
+async function readCounterLockDiagnostics(
+  options: Omit<CounterLockDiagnostics, 'lockExists' | 'lockAgeMs' | 'lockMtime'>,
+): Promise<CounterLockDiagnostics> {
+  try {
+    const info = await stat(options.lockDir);
+    const lockAgeMs = Math.max(0, Date.now() - info.mtimeMs);
+    return {
+      ...options,
+      lockExists: true,
+      lockAgeMs: Math.round(lockAgeMs),
+      lockMtime: info.mtime.toISOString(),
+    };
+  } catch {
+    return { ...options, lockExists: false };
+  }
+}
+
+function formatCounterLockDiagnostics(diagnostics: CounterLockDiagnostics): string {
+  const parts = [
+    `lockDir="${diagnostics.lockDir}"`,
+    `attempts=${diagnostics.attempts}/${diagnostics.maxRetries}`,
+    `estimatedWaitMs=${diagnostics.estimatedWaitMs}`,
+    `retryBackoffMs=${diagnostics.initialBackoffMs}-${diagnostics.maxBackoffMs}`,
+    `staleAfterMs=${diagnostics.staleAfterMs}`,
+    `lockExists=${diagnostics.lockExists}`,
+  ];
+  if (diagnostics.lockAgeMs !== undefined) {
+    parts.push(`lockAgeMs=${diagnostics.lockAgeMs}`);
+  }
+  if (diagnostics.lockMtime !== undefined) {
+    parts.push(`lockMtime="${diagnostics.lockMtime}"`);
+  }
+  return parts.join(' ');
 }
 
 async function reclaimIfStale(lockDir: string): Promise<void> {
@@ -66,7 +144,11 @@ async function reclaimIfStale(lockDir: string): Promise<void> {
       console.warn(
         `[retrospectiveFlag] reclaiming stale counter lock: ${lockDir} ageMs=${Math.round(ageMs)}`,
       );
-      await rmdir(lockDir);
+      // `rm` with recursive+force handles both directory locks (canonical
+      // shape) and stray regular files left over from earlier code versions
+      // or partial writes. `rmdir` would throw ENOTDIR on the file case and
+      // trap the acquire loop in an infinite "reclaiming" log.
+      await rm(lockDir, { recursive: true, force: true });
     }
   } catch {
     // Lock vanished between mkdir-failure and stat (race) — let next mkdir retry decide.
@@ -210,6 +292,48 @@ export async function getRetrospectiveRequiredForNextTask(options: {
   }
 }
 
+async function writeRetrospectiveRequiredLabel(
+  retrospectivePath: string,
+  content: string,
+  required: boolean,
+): Promise<void> {
+  const updated = setLabelValue(
+    content,
+    RETROSPECTIVE_REQUIRED_LABEL,
+    required ? 'true' : 'false',
+  );
+  if (updated !== content) {
+    await writeTextFile(retrospectivePath, updated);
+  }
+}
+
+/**
+ * Stamp the activation-time `Retrospective Required` label from the current
+ * counter position without mutating the completion counter. Archive/closeout
+ * remains the only path that increments, wraps, or appends task IDs.
+ */
+export async function stampRetrospectiveRequiredMetadata(options: {
+  repoRoot: string;
+  handoffsDir: string;
+  contextPackDir?: string;
+}): Promise<void> {
+  const retrospectivePath = path.join(options.handoffsDir, 'retrospective-input.md');
+  const content = await readTextFile(retrospectivePath);
+  if (content === undefined) {
+    return;
+  }
+
+  const contextPackId = contextPackIdFromDir(options.contextPackDir);
+  const counterPath = path.join(
+    options.repoRoot,
+    TASK_COUNTER_DIR_RELATIVE,
+    `${contextPackId}.json`,
+  );
+  const state = await readCounter(counterPath, contextPackId);
+  const required = isRetrospectiveRequiredForCompletedCount(state.completed_count);
+  await writeRetrospectiveRequiredLabel(retrospectivePath, content, required);
+}
+
 // ── Locked sync: read → decide → increment → write (F2 lock scope) ───────
 
 /**
@@ -246,10 +370,10 @@ export async function syncRetrospectiveRequiredMetadata(options: {
     // Already exists
   }
 
-  const release = await acquireCounterLock(counterDir, contextPackId);
-  if (!release) {
+  const lock = await acquireCounterLock(counterDir, contextPackId);
+  if (!lock.release) {
     throw new Error(
-      `syncRetrospectiveRequiredMetadata: could not acquire counter lock for context pack "${contextPackId}"`,
+      `syncRetrospectiveRequiredMetadata: could not acquire counter lock for context pack "${contextPackId}" (${formatCounterLockDiagnostics(lock.diagnostics)})`,
     );
   }
 
@@ -264,15 +388,8 @@ export async function syncRetrospectiveRequiredMetadata(options: {
       await writeCounter(counterPath, nextState);
     }
 
-    const updated = setLabelValue(
-      content,
-      'Retrospective Required',
-      required ? 'true' : 'false',
-    );
-    if (updated !== content) {
-      await writeTextFile(retrospectivePath, updated);
-    }
+    await writeRetrospectiveRequiredLabel(retrospectivePath, content, required);
   } finally {
-    await release();
+    await lock.release();
   }
 }

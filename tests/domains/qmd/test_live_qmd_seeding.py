@@ -137,6 +137,69 @@ class LiveQmdSeedingTests(unittest.TestCase):
                 context_pack_index_path.resolve(),
             )
 
+    def test_live_seed_marker_exists_during_seed_and_is_removed_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_dir = Path(temp_root)
+            repo_dir = temp_dir / "billing-api"
+            (repo_dir / "src").mkdir(parents=True)
+            (repo_dir / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
+            context_pack_dir = self.create_context_pack(
+                temp_dir,
+                [
+                    {
+                        "repo_id": "billing-api",
+                        "repo_name": "billing-api",
+                        "local_paths": [str(repo_dir)],
+                        "artifact_roots": ["src"],
+                    }
+                ],
+            )
+            marker_path = context_pack_dir / ".reseed-in-progress.json"
+            service = self.app.create_seeding_service(temp_dir)
+            original_seed_repository = service.seed_repository
+
+            def observing_seed_repository(**kwargs):
+                self.assertTrue(marker_path.exists())
+                payload = json.loads(marker_path.read_text(encoding="utf-8"))
+                self.assertIn("started_at", payload)
+                self.assertIn("pid", payload)
+                self.assertIn("host", payload)
+                return original_seed_repository(**kwargs)
+
+            service.seed_repository = mock.Mock(side_effect=observing_seed_repository)
+            self.app._SEEDING_SERVICE = service
+            self.app._ARCHIVE_SERVICE = None
+
+            report = self.app.execute_seed_run(
+                context_pack_dir=str(context_pack_dir),
+                plan_mode="manifest-only",
+            )
+
+            self.assertEqual(report["overall_status"], "success")
+            self.assertFalse(marker_path.exists())
+
+    def test_live_seed_marker_is_removed_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_dir = Path(temp_root)
+            context_pack_dir = self.create_context_pack(temp_dir, [])
+            marker_path = context_pack_dir / ".reseed-in-progress.json"
+            service = self.app.create_seeding_service(temp_dir)
+            self.app._SEEDING_SERVICE = service
+            self.app._ARCHIVE_SERVICE = None
+
+            with mock.patch.object(
+                service,
+                "get_live_plan",
+                side_effect=RuntimeError("seed failed"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    self.app.execute_seed_run(
+                        context_pack_dir=str(context_pack_dir),
+                        plan_mode="manifest-only",
+                    )
+
+            self.assertFalse(marker_path.exists())
+
     def test_live_seed_does_not_rewrite_existing_conventions_summary(
         self,
     ) -> None:

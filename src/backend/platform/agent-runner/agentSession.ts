@@ -41,11 +41,14 @@ export async function refreshQaCodeDiff(options: {
   });
 
   if (result.exitCode !== 0) {
-    console.warn(
-      `[roleAgent] failed to generate QA code diff at ${outputPath}; continuing without refreshed diff:`,
-      result.stderr || result.stdout || 'unknown error',
-    );
-    return;
+    const diagnostics = [
+      result.stdout.trim() ? `stdout: ${result.stdout.trim()}` : undefined,
+      result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : undefined,
+    ].filter((entry): entry is string => Boolean(entry));
+    throw new Error([
+      `QA code diff generation failed for task ${options.taskId}; refusing to launch Ron with a stale or incomplete code-changes.diff.`,
+      ...diagnostics,
+    ].join('\n'));
   }
 }
 
@@ -248,6 +251,8 @@ export async function runAgentSession(options: {
     agentId: string;
     roleName: string;
     displayName: string;
+    launchPhase?: string;
+    retryOfLaunchId?: string;
     promptAudit?: {
       promptPath: string | null;
       promptSource: 'file' | 'override';
@@ -352,6 +357,3 @@ export async function runAgentSession(options: {
     sessionReceiptFile: sessionReceiptFile ?? null,
   };
 }
-
-/** @deprecated Use runAgentSession. */
-export const runCopilotSession = runAgentSession;

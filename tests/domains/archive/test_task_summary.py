@@ -82,6 +82,37 @@ class CompletedWorkRenderingTests(unittest.TestCase):
         self.assertNotIn("; Extracted", output)
 
 
+class BranchHandoffRenderingTests(unittest.TestCase):
+    def test_branch_handoffs_render_after_task_metadata(self) -> None:
+        payload = _base_payload(
+            branch_handoffs=[
+                {
+                    "repo_root": "/repos/platform",
+                    "repo_label": "platform",
+                    "branch": "task/TEST-1",
+                    "base_commit_sha": "base123",
+                    "head_commit_sha": "head456",
+                    "commits_ahead": 2,
+                    "status": "ready-for-operator-review",
+                }
+            ],
+            completed_work_items=["X"],
+        )
+        output = build_task_archive_markdown(payload)
+        expected = (
+            "## Source Branches for Operator Review\n\n"
+            "- `platform`: `task/TEST-1` at `head456` "
+            "(2 commit(s) ahead of `base123`) — repo: `/repos/platform`"
+        )
+        self.assertIn(expected, output)
+        self.assertLess(output.index("## Task Metadata"), output.index("## Source Branches for Operator Review"))
+        self.assertLess(output.index("## Source Branches for Operator Review"), output.index("## Business Goal"))
+
+    def test_branch_handoffs_omitted_when_absent(self) -> None:
+        output = build_task_archive_markdown(_base_payload(completed_work_items=["X"]))
+        self.assertNotIn("## Source Branches for Operator Review", output)
+
+
 class AdvisoryFindingPlacementTests(unittest.TestCase):
     def test_advisory_finding_appears_last(self) -> None:
         payload = _base_payload(

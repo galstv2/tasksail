@@ -2,6 +2,10 @@ import { readTextFile, writeTextFile, copyFileSafe } from '../core/index.js';
 import { jsonEscapeString } from '../core/index.js';
 import { templateSourceFor } from './paths.js';
 
+function escapeLabel(label: string): string {
+  return label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Replace `- LABEL:` lines with `- LABEL: VALUE` for each non-empty value.
  * All substitutions are applied in a single pass.
@@ -13,8 +17,7 @@ export function injectLabelValues(
   let result = content;
   for (const [label, value] of Object.entries(labels)) {
     if (!value) continue;
-    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`^- ${escapedLabel}:$`, 'gm');
+    const regex = new RegExp(`^- ${escapeLabel(label)}:$`, 'gm');
     result = result.replace(regex, `- ${label}: ${value}`);
   }
   return result;
@@ -25,14 +28,14 @@ export function setLabelValue(
   label: string,
   value: string,
 ): string {
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const lineRegex = new RegExp(`^- ${escapeLabel(label)}:(?:\\s*.*)?$`);
   const lines = content.split('\n');
   const result: string[] = [];
   let replaced = false;
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
-    if (new RegExp(`^- ${escapedLabel}:(?:\\s*.*)?$`).test(line.trim())) {
+    if (lineRegex.test(line.trim())) {
       result.push(`- ${label}: ${value}`);
       replaced = true;
       while (index + 1 < lines.length) {
@@ -51,6 +54,21 @@ export function setLabelValue(
   }
 
   return replaced ? result.join('\n') : content;
+}
+
+export function getLabelValue(
+  content: string,
+  label: string,
+): string | undefined {
+  const regex = new RegExp(`^- ${escapeLabel(label)}:(?:\\s*(.*))?$`);
+
+  for (const line of content.split('\n')) {
+    const match = regex.exec(line.trim());
+    if (!match) continue;
+    return (match[1] ?? '').trim();
+  }
+
+  return undefined;
 }
 
 /**
