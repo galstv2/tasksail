@@ -18,12 +18,20 @@ function normalizeLocalPathEntry(value: unknown): { host: string; container?: st
   if (obj.container !== undefined && obj.container !== null && typeof obj.container !== 'string') {
     return null;
   }
+  if (obj.git_root !== undefined && obj.git_root !== null && typeof obj.git_root !== 'string') {
+    return null;
+  }
   return {
     host: obj.host.replace(/\\/g, '/'),
     ...(typeof obj.container === 'string'
       ? { container: obj.container.replace(/\\/g, '/') }
       : obj.container === null
         ? { container: null }
+        : {}),
+    ...(typeof obj.git_root === 'string'
+      ? { git_root: obj.git_root.replace(/\\/g, '/') }
+      : obj.git_root === null
+        ? { git_root: null }
         : {}),
   };
 }

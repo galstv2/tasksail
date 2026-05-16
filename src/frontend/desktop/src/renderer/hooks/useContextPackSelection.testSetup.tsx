@@ -354,6 +354,12 @@ export function ContextPackSelectionContent({
       </button>
       <button
         type="button"
+        onClick={() => contextPackSidebarProps.onToggleRepositoryType?.('orders-api', 'primary')}
+      >
+        Toggle repository type
+      </button>
+      <button
+        type="button"
         onClick={() => void contextPackSidebarProps.onReseedContextPack()}
       >
         Run reseed

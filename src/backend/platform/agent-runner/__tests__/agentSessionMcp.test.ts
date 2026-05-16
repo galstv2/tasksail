@@ -50,7 +50,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       throw new Error('render failed');
     });
     const agentEnv: Record<string, string> = {};
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const result = await mergeExternalMcpLaunchEnvironment({
       agentId: 'dalton',
@@ -69,10 +69,9 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       excludedServerIds: [],
     });
     expect(agentEnv).toEqual({});
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] external MCP config render failed, continuing without MCP:',
-      'render failed',
-    );
+    const warnings = String(warnSpy.mock.calls.flat().join('\n'));
+    expect(warnings).toContain('external_mcp.config_render.failed');
+    expect(warnings).toContain('render failed');
   });
 
   it('renders internal repo-context MCP without external injection', async () => {
@@ -89,7 +88,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
     });
     mocks.renderMcpConfig.mockReturnValue('/repo/.platform-state/runtime/copilot-home/dalton-1/mcp-config.json');
     const agentEnv: Record<string, string> = {};
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const result = await mergeExternalMcpLaunchEnvironment({
       agentId: 'dalton',
@@ -126,17 +125,14 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       injectionEnabled: true,
       configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-1/mcp-config.json',
     });
-    expect(warnSpy).not.toHaveBeenCalledWith(
-      '[roleAgent] external MCP unavailable, internal MCP wired up:',
-      expect.any(String),
-    );
+    expect(String(warnSpy.mock.calls.flat().join('\n'))).not.toContain('external_mcp.unavailable.internal_wired');
   });
 
   it('surfaces external MCP launch failure while rendering internal repo-context MCP', async () => {
     mocks.prepareExternalMcpLaunchContext.mockRejectedValue(new Error('mocked-python-error-XYZ'));
     mocks.renderMcpConfig.mockReturnValue('/repo/.platform-state/runtime/copilot-home/dalton-2/mcp-config.json');
     const agentEnv: Record<string, string> = {};
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const result = await mergeExternalMcpLaunchEnvironment({
       agentId: 'dalton',
@@ -155,15 +151,14 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
     });
 
     expect(result).toMatchObject({
-      status: 'available',
+      status: 'degraded',
       reason: expect.stringContaining('external MCP launch context failed: mocked-python-error-XYZ'),
       injectionEnabled: true,
       configFilePath: '/repo/.platform-state/runtime/copilot-home/dalton-2/mcp-config.json',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] external MCP unavailable, internal MCP wired up:',
-      expect.stringContaining('mocked-python-error-XYZ'),
-    );
+    const warnings = String(warnSpy.mock.calls.flat().join('\n'));
+    expect(warnings).toContain('external_mcp.unavailable.internal_wired');
+    expect(warnings).toContain('mocked-python-error-XYZ');
   });
 
   it('fails closed when required internal MCP config rendering fails', async () => {

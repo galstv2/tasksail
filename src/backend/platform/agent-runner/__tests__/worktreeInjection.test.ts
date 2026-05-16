@@ -332,4 +332,29 @@ describe('applyWorktreeInjectionToAllowedDirs', () => {
     expect(out).toEqual(['/a', '/b']);
     expect(out).not.toBe(input);
   });
+
+  it('preserves platform metadata roots when a monolith binding maps the platform repo root', () => {
+    const map = manualBindingMap([['/repo', '/repo/AgentWorkSpace/tasks/t1/worktrees/src']]);
+    const input = [
+      '/repo/src/backend',
+      '/repo/contextpacks/src',
+      '/repo/AgentWorkSpace/tasks/t1',
+      '/repo/.platform-state/runtime/verification/run-1',
+    ];
+
+    const out = applyWorktreeInjectionToAllowedDirs(input, map, {
+      preservePrefixes: [
+        '/repo/contextpacks/src',
+        '/repo/AgentWorkSpace',
+        '/repo/.platform-state',
+      ],
+    });
+
+    expect(out).toEqual([
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/src/src/backend',
+      '/repo/contextpacks/src',
+      '/repo/AgentWorkSpace/tasks/t1',
+      '/repo/.platform-state/runtime/verification/run-1',
+    ]);
+  });
 });

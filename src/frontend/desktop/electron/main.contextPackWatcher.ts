@@ -9,6 +9,9 @@ import { basename } from 'node:path';
 
 import type { ContextPackCatalogChangedEvent } from '../src/shared/desktopContract';
 import { getNodeErrorCode } from './main.textUtils';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/main.contextPackWatcher');
 
 type WatcherEntry = {
   watcher: FSWatcher | null;
@@ -74,16 +77,21 @@ export function startContextPackCatalogWatcher({
         scheduleChange(root, reasonFromEvent(eventType), onChange);
       });
       watcher.on('error', () => {
-        console.warn(`Context-pack catalog watcher stopped for unreadable root: ${root}`);
+        log.warn('context-pack.watcher.stopped', { root });
         watchers.get(root)?.watcher?.close();
         watchers.delete(root);
       });
       watchers.set(root, { watcher, timer: null });
     } catch (err: unknown) {
       if (getNodeErrorCode(err) === 'ENOENT') {
-        console.info(`Context-pack catalog watcher: skipping missing root "${root}"`);
+        log.info('context-pack.watcher.skipped', { root, reason: 'missing-root' });
         continue;
       }
+      log.error(
+        'context-pack.watcher.start.failed',
+        err instanceof Error ? err : { reason: String(err) },
+        { root },
+      );
       throw err;
     }
   }

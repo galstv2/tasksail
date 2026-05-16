@@ -69,10 +69,20 @@ class CopilotAgentProfilesTests(unittest.TestCase):
 
                 self.assertTrue(body)
                 self.assertIn("Act as ", body)
-                self.assertIn(
-                    f"Read `{instruction_path}` for your instructions.",
-                    body,
-                )
+                if agent_id == "software-engineer-verify":
+                    self.assertIn(
+                        "platform inlines your Software Engineer instructions",
+                        body,
+                    )
+                    self.assertNotIn(
+                        f"Read `{instruction_path}` for your instructions.",
+                        body,
+                    )
+                else:
+                    self.assertIn(
+                        f"Read `{instruction_path}` for your instructions.",
+                        body,
+                    )
 
 
 if __name__ == "__main__":

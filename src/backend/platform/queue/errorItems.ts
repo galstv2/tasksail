@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQueuePaths } from './paths.js';
-import { findRepoRoot } from '../core/index.js';
+import { RuntimeTerminalEvents, createLogger, findRepoRoot } from '../core/index.js';
 import {
   extractContextPackBinding,
   extractTaskMetadataValue,
@@ -30,6 +30,7 @@ import {
 } from './snapshotFilters.js';
 
 const execFileAsync = promisify(execFileCb);
+const log = createLogger('platform/queue/errorItems');
 
 async function readOptionalText(filePath: string): Promise<string | null> {
   try {
@@ -98,7 +99,7 @@ async function restoreContextPackBindingForRecoveredItem(
     return recoveredBody;
   }
   if (recoveredBinding.kind === 'invalid') {
-    console.warn(`[error-items] ignoring invalid context-pack binding for ${taskId}: ${recoveredBinding.reason}`);
+    log.warn('context_pack_binding.invalid.ignored', { taskId, reason: recoveredBinding.reason });
   }
 
   const intakePath = path.join(
@@ -115,7 +116,7 @@ async function restoreContextPackBindingForRecoveredItem(
       return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(intakeBinding.binding)}\n`;
     }
     if (intakeBinding.kind === 'invalid') {
-      console.warn(`[error-items] ignoring invalid context-pack binding for ${taskId}: ${intakeBinding.reason}`);
+      log.warn('context_pack_binding.invalid.ignored', { taskId, reason: intakeBinding.reason });
     }
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
@@ -229,7 +230,12 @@ export async function commitTaskSnapshot(
       const filterConfig = await resolveSnapshotFilterConfig(repoRoot, taskJson);
       const skipped = await listNoiseSkippedPaths(binding.worktreeRoot, filterConfig);
       if (skipped.length > 0) {
-        console.warn(formatSkippedNoiseWarning(binding.worktreeRoot, binding.originalRoot, skipped));
+        log.warn('snapshot.noise_skipped', {
+          message: formatSkippedNoiseWarning(binding.worktreeRoot, binding.originalRoot, skipped),
+          worktreeRoot: binding.worktreeRoot,
+          originalRoot: binding.originalRoot,
+          skipped,
+        });
       }
       await runGit(binding.worktreeRoot, ['add', '-A', '--', ...buildAddPathspec(filterConfig)]);
 
@@ -271,9 +277,10 @@ export async function commitTaskSnapshot(
       ]);
       // NOTE: resetHead behavior deleted — worktree will be finalized/torn down.
     } catch (err) {
-      process.stderr.write(
-        `Warning: task snapshot commit failed in ${binding.worktreeRoot}: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      log.warn('task_snapshot.commit.failed', {
+        worktreeRoot: binding.worktreeRoot,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }
@@ -428,6 +435,19 @@ export async function moveFailedItemToErrorItems(options: {
     }
 
     await removeFromQueueOrderManifest(queuePaths.queueOrderPath, activeItem);
+  });
+
+  const moveReason = 'task-failed';
+  log.child({ taskId }).progress({
+    level: 'info',
+    event: 'queue.error_items.moved',
+    extra: { error_path: destPath, reason: moveReason },
+    text: `[queue] moved to error-items ${taskId} - ${moveReason}`,
+  });
+  await RuntimeTerminalEvents.forTask(root, taskId).taskFailed();
+  await RuntimeTerminalEvents.forTask(root, taskId).errorItemsMoved({
+    errorPath: destPath,
+    reason: moveReason,
   });
 
   // Singleton-handoffs reset block DELETED (lines 260-262 in pre-§4.14A code).

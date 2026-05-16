@@ -280,4 +280,6 @@ def test_mark_error_rejects_non_analyzable_session(
         ])
 
     assert exc_info.value.code == 3
-    assert capsys.readouterr().err.strip() == "session not analyzable"
+    logged = json.loads(capsys.readouterr().err)
+    assert logged["msg"] == "realignment.ingest.session_not_analyzable"
+    assert logged["extra"]["realignment_id"] == realignment_id

@@ -199,6 +199,23 @@
   margin-top: 0.65rem;
 }
 
+.feedback-panel__reviewed {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--ts-success) 22%, var(--ts-border));
+  border-radius: var(--ts-radius-md);
+  background: color-mix(in srgb, var(--ts-success) 8%, transparent);
+}
+
+.feedback-panel__reviewed p {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--ts-text);
+}
+
 .feedback-panel__label {
   display: block;
   font-family: var(--ts-font-sans);
@@ -387,6 +404,15 @@
 
 .task-picker__item--selected {
   background: var(--ts-accent-subtle);
+  box-shadow: inset 0 0 0 1px var(--ts-accent);
+}
+
+.task-picker__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
 .task-picker__title {
@@ -657,14 +683,26 @@
   line-height: 1.4;
 }
 
-.realignment-panel__start-btn {
+.realignment-panel__hint {
+  margin: 0 0 0.6rem;
+  color: var(--ts-text-soft);
+  font-size: 0.76rem;
+}
+
+.realignment-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.realignment-panel__start-btn,
+.realignment-panel__dismiss-btn {
   display: inline-block;
   padding: 0.38rem 1rem;
   font-family: var(--ts-font-sans);
   font-size: 0.78rem;
   font-weight: 600;
-  background: var(--ts-accent);
-  color: var(--ts-text-inverse);
   border: none;
   border-radius: var(--ts-radius-md);
   cursor: pointer;
@@ -673,15 +711,32 @@
     opacity var(--ts-duration) var(--ts-ease);
 }
 
+.realignment-panel__start-btn {
+  background: var(--ts-accent);
+  color: var(--ts-text-inverse);
+}
+
+.realignment-panel__dismiss-btn {
+  background: var(--ts-surface);
+  color: var(--ts-danger);
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 35%, var(--ts-border));
+}
+
 .realignment-panel__start-btn:hover:not(:disabled) {
   background: var(--ts-accent-hover);
 }
 
-.realignment-panel__start-btn:active:not(:disabled) {
+.realignment-panel__dismiss-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ts-danger) 8%, var(--ts-surface));
+}
+
+.realignment-panel__start-btn:active:not(:disabled),
+.realignment-panel__dismiss-btn:active:not(:disabled) {
   opacity: 0.8;
 }
 
-.realignment-panel__start-btn:disabled {
+.realignment-panel__start-btn:disabled,
+.realignment-panel__dismiss-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

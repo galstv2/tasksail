@@ -27,6 +27,9 @@ import {
   runPythonScriptCommand,
   type PythonScriptRunner,
 } from './shared';
+import { createLogger } from '../log/logger';
+
+const log = createLogger('electron/contextPackActions/discovery');
 
 function normalizeRepositoryType(value: unknown): ContextPackRepositoryType | null {
   return value === 'primary' || value === 'support' ? value : null;
@@ -99,6 +102,10 @@ export async function pickContextPackDirectoryAction(
     };
     return { ok: true, response };
   } catch (error: unknown) {
+    log.warn('context-pack.pick-directory.failed', {
+      purpose: payload.purpose,
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return {
       ok: false,
       action: 'contextPack.pickDirectory',
@@ -163,6 +170,11 @@ export async function executeContextPackDiscoveryAction(
   } catch (error: unknown) {
     const stderr = typeof error === 'object' && error !== null && 'stderr' in error
       ? String((error as { stderr?: unknown }).stderr ?? '') : '';
+    log.warn('context-pack.discovery.failed', {
+      rootPath: normalizedRootPath,
+      mode: payload.mode,
+      reason: stderr || (error instanceof Error ? error.message : String(error)),
+    });
     return {
       ok: false,
       action: 'contextPack.discoverPrefill',

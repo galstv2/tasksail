@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -53,6 +54,10 @@ class LiveQmdSeedingTests(unittest.TestCase):
                 context_pack_dir=context_pack_dir,
                 plan_mode=plan_mode,
             )
+
+    def init_git_repo(self, repo_dir: Path) -> None:
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, stdout=subprocess.DEVNULL)
 
     def test_live_seed_writes_repo_summary_and_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
@@ -135,6 +140,98 @@ class LiveQmdSeedingTests(unittest.TestCase):
             self.assertEqual(
                 Path(report["index_outputs"]["context_pack_index"]).resolve(),
                 context_pack_index_path.resolve(),
+            )
+
+    def test_live_reseed_backfills_monolith_subtree_git_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_dir = Path(temp_root)
+            monolith_root = temp_dir / "monolith"
+            src_root = monolith_root / "src"
+            (src_root / "backend").mkdir(parents=True)
+            (src_root / "backend" / "app.py").write_text("print('hello')\n", encoding="utf-8")
+            self.init_git_repo(monolith_root)
+
+            context_pack_dir = self.create_context_pack(
+                temp_dir,
+                [
+                    {
+                        "repo_id": "src",
+                        "repo_name": "Src",
+                        "local_paths": [{"host": str(src_root)}],
+                        "system_layer": "backend",
+                        "languages": ["python"],
+                        "bounded_context": "platform",
+                        "artifact_roots": ["backend"],
+                    }
+                ],
+            )
+
+            self.run_seed(temp_dir, context_pack_dir=str(context_pack_dir))
+
+            manifest = json.loads(
+                (context_pack_dir / "qmd" / "repo-sources.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["repositories"][0]["local_paths"][0],
+                {
+                    "git_root": str(monolith_root.resolve()),
+                    "host": str(src_root),
+                },
+            )
+
+    def test_live_reseed_backfills_distributed_git_roots_without_overwriting_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_dir = Path(temp_root)
+            api_root = temp_dir / "api"
+            web_root = temp_dir / "web"
+            for repo_root in (api_root, web_root):
+                (repo_root / "src").mkdir(parents=True)
+                (repo_root / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
+                self.init_git_repo(repo_root)
+
+            context_pack_dir = self.create_context_pack(
+                temp_dir,
+                [
+                    {
+                        "repo_id": "api",
+                        "repo_name": "API",
+                        "local_paths": [{"host": str(api_root)}],
+                        "system_layer": "backend",
+                        "languages": ["python"],
+                        "bounded_context": "api",
+                        "artifact_roots": ["src"],
+                    },
+                    {
+                        "repo_id": "web",
+                        "repo_name": "Web",
+                        "local_paths": [{"host": str(web_root), "git_root": "/already/set"}],
+                        "system_layer": "frontend",
+                        "languages": ["python"],
+                        "bounded_context": "web",
+                        "artifact_roots": ["src"],
+                    },
+                ],
+            )
+
+            self.run_seed(temp_dir, context_pack_dir=str(context_pack_dir))
+
+            manifest = json.loads(
+                (context_pack_dir / "qmd" / "repo-sources.json").read_text(encoding="utf-8")
+            )
+            repos_by_id = {repo["repo_id"]: repo for repo in manifest["repositories"]}
+            self.assertEqual(
+                repos_by_id["api"]["local_paths"][0],
+                {
+                    "git_root": str(api_root.resolve()),
+                    "host": str(api_root),
+                },
+            )
+            self.assertEqual(
+                repos_by_id["web"]["local_paths"][0],
+                {
+                    "git_root": "/already/set",
+                    "host": str(web_root),
+                },
             )
 
     def test_live_seed_marker_exists_during_seed_and_is_removed_after_success(self) -> None:

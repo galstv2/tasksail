@@ -523,6 +523,17 @@ export function createMockClient(
           },
         },
       }),
+    dismissRealignment: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'reinforcement.dismissRealignment',
+          mode: 'dismissed',
+          message: 'Realignment dismissed.',
+          realignmentId: 'RA-mock',
+        },
+      }),
     readTaskContent: vi
       .fn()
       .mockResolvedValue({

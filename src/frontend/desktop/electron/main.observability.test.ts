@@ -458,6 +458,91 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     killSpy.mockRestore();
   });
 
+  it('does not summarize unknown guardrail statuses as allowed launches', async () => {
+    const { readObservabilitySnapshot } = await import('./main');
+
+    const receiptPayload = JSON.stringify({
+      task_id: 'CAP-CUSTOM-TERMINAL-04',
+      task_title: 'Observe queue artifacts',
+      agent_id: 'provider-builder',
+      launch: {
+        status: 'started',
+        started_at: '2026-03-07T21:07:29Z',
+        pid: 48217,
+      },
+      terminal: {
+        status: 'completed',
+        completed_at: '2026-03-07T21:09:00Z',
+        exit_code: 0,
+      },
+    });
+    const guardrailPayload = JSON.stringify({
+      schema_version: 1,
+      receipt_kind: 'guardrail',
+      status: 'failed',
+      requested_agent_id: 'provider-builder',
+      resolved_agent_id: 'provider-builder',
+      expected_agent_id: 'provider-builder',
+      validator_mode: 'runtime',
+      launch_seam: 'src/backend/platform/agent-runner/roleAgent.ts',
+      required_model: 'gpt-5.4',
+      active_model: 'gpt-5.4',
+      violations: [],
+    });
+
+    const receiptFs = {
+      access: vi.fn(async () => undefined),
+      readFile: vi.fn(async (path: string) => {
+        if (path.includes('/handoffs/professional-task.md')) {
+          return '# Professional Task\n\n- Task ID: CAP-CUSTOM-TERMINAL-04\n- Task Title: Observe queue artifacts\n- Task Kind: implementation\n';
+        }
+        if (path.includes('/handoffs/retrospective-input.md')) {
+          return '# Retrospective\n';
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions/provider-builder.json')) {
+          return receiptPayload;
+        }
+        if (
+          path.endsWith(
+            '.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails/provider-builder.json',
+          )
+        ) {
+          return guardrailPayload;
+        }
+
+        return '# Placeholder\n';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
+          return ['CAP-CUSTOM-TERMINAL-04'];
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/role-sessions')) {
+          return ['provider-builder.json'];
+        }
+        if (path.endsWith('.platform-state/runtime/tasks/CAP-CUSTOM-TERMINAL-04/guardrails')) {
+          return ['provider-builder.json'];
+        }
+        return [];
+      }),
+    };
+
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const snapshot = await readObservabilitySnapshot(receiptFs);
+
+    expect(snapshot.guardrails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'malformed',
+          severity: 'error',
+          summary: 'Produced a malformed guardrail receipt.',
+        }),
+      ]),
+    );
+
+    killSpy.mockRestore();
+  });
+
   it('injects taskId from per-task runtime receipt directory when payload omits task_id', async () => {
     const { readObservabilitySnapshot } = await import('./main');
 

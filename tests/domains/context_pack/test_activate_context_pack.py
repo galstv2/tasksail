@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -18,6 +19,14 @@ class ActivateContextPackTests(unittest.TestCase):
             / "platform"
             / "context-pack"
             / "cli.ts"
+        )
+        cls.helper_path = (
+            cls.repo_root
+            / "src"
+            / "backend"
+            / "scripts"
+            / "python"
+            / "activate-context-pack-helper.py"
         )
 
     def setUp(self) -> None:
@@ -41,6 +50,24 @@ class ActivateContextPackTests(unittest.TestCase):
             cwd=self.repo_root,
             text=True,
             capture_output=True,
+        )
+
+    def run_helper(
+        self,
+        *args: str,
+        input_text: str | None = None,
+        log_dir: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        if log_dir is not None:
+            env["LOG_DIR"] = str(log_dir)
+        return subprocess.run(
+            ["python3", str(self.helper_path), *args],
+            cwd=self.repo_root,
+            text=True,
+            input=input_text,
+            capture_output=True,
+            env=env,
         )
 
     def write_file(self, path: Path, content: str) -> None:
@@ -175,6 +202,67 @@ class ActivateContextPackTests(unittest.TestCase):
             )
 
             self.assertNotEqual(completed.returncode, 0)
+
+    def test_extract_json_field_logs_malformed_json_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            log_dir = temp_path / "logs"
+            payload_path = temp_path / "payload.json"
+            payload_path.write_text("{bad-json", encoding="utf-8")
+
+            completed = self.run_helper(
+                "extract-json-field",
+                str(payload_path),
+                "status",
+                log_dir=log_dir,
+            )
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertEqual(completed.stdout, "")
+            log_files = list((log_dir / "error").glob("backend-py-*.jsonl"))
+            self.assertEqual(len(log_files), 1)
+            rows = [
+                json.loads(line)
+                for line in log_files[0].read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                rows[-1]["msg"],
+                "context_pack_activation.extract_json_field.failed",
+            )
+            self.assertEqual(
+                rows[-1]["module"],
+                "scripts/python/activate-context-pack-helper",
+            )
+            self.assertEqual(rows[-1]["extra"]["field_name"], "status")
+
+    def test_extract_json_stdin_field_logs_malformed_json_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            log_dir = Path(temp_root) / "logs"
+
+            completed = self.run_helper(
+                "extract-json-stdin-field",
+                "status",
+                input_text="{bad-json",
+                log_dir=log_dir,
+            )
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertEqual(completed.stdout, "")
+            log_files = list((log_dir / "error").glob("backend-py-*.jsonl"))
+            self.assertEqual(len(log_files), 1)
+            rows = [
+                json.loads(line)
+                for line in log_files[0].read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                rows[-1]["msg"],
+                "context_pack_activation.extract_json_stdin_field.failed",
+            )
+            self.assertEqual(
+                rows[-1]["module"],
+                "scripts/python/activate-context-pack-helper",
+            )
+            self.assertEqual(rows[-1]["extra"]["field_name"], "status")
 
     @unittest.skip(
         "TS CLI activate does not support --write-plan; "

@@ -16,9 +16,13 @@
 import path from 'node:path';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { readFile } from 'node:fs/promises';
-import { describe, it, expect, afterEach } from 'vitest';
-import { writeSessionStartReceipt, writeSessionTerminalReceipt } from '../sessionReceipts.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import {
+  writeSessionMonitorHeartbeat,
+  writeSessionStartReceipt,
+  writeSessionTerminalReceipt,
+} from '../sessionReceipts.js';
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -58,6 +62,7 @@ function isAnyPidAlive(pids: (number | null)[]): boolean {
 const tmpDirs: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const dir of tmpDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -255,6 +260,151 @@ describe('writeSessionTerminalReceipt', () => {
     const terminal = receipt['terminal'] as Record<string, unknown>;
     expect(terminal['status']).toBe('completed');
     expect(terminal['exit_code']).toBe(0);
+  });
+});
+
+describe('writeSessionMonitorHeartbeat', () => {
+  it('adds monitor metadata without changing launch metadata or latest output lines', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T05:34:19Z'));
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+    const receiptPath = await writeSessionStartReceipt({
+      taskRuntime: path.join(baseDir, 'runtime', 'tasks', 'task-monitor'),
+      launchId: 'launch-monitor',
+      agentId: 'alice',
+      roleName: 'Product Manager',
+      displayName: 'Alice',
+      launchPid: 12345,
+    });
+    const before = await readReceipt(receiptPath);
+
+    await writeSessionMonitorHeartbeat({
+      receiptPath,
+      monitorPid: 67890,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    });
+
+    const after = await readReceipt(receiptPath);
+    expect(after['launch']).toEqual(before['launch']);
+    expect(after['latest_output_lines']).toEqual(before['latest_output_lines']);
+    expect(after['monitor']).toEqual({
+      status: 'watching',
+      pid: 67890,
+      started_at: '2026-05-16T05:33:19Z',
+      updated_at: '2026-05-16T05:34:19Z',
+      updated_by: 'src/backend/platform/agent-runner/agentSession.ts',
+    });
+  });
+
+  it('updates monitor.updated_at on repeated heartbeat calls', async () => {
+    vi.useFakeTimers();
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+    const receiptPath = await writeSessionStartReceipt({
+      taskRuntime: path.join(baseDir, 'runtime', 'tasks', 'task-monitor-repeat'),
+      launchId: 'launch-monitor-repeat',
+      agentId: 'dalton',
+      roleName: 'Software Engineer',
+      displayName: 'Dalton',
+      launchPid: 11111,
+    });
+
+    vi.setSystemTime(new Date('2026-05-16T05:34:19Z'));
+    await writeSessionMonitorHeartbeat({
+      receiptPath,
+      monitorPid: 22222,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    });
+    vi.setSystemTime(new Date('2026-05-16T05:35:19Z'));
+    await writeSessionMonitorHeartbeat({
+      receiptPath,
+      monitorPid: 22222,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    });
+
+    const receipt = await readReceipt(receiptPath);
+    expect((receipt['monitor'] as Record<string, unknown>)['updated_at']).toBe('2026-05-16T05:35:19Z');
+  });
+
+  it('returns without throwing for missing or invalid receipts', async () => {
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+    const missingPath = path.join(baseDir, 'missing.json');
+    const invalidPath = path.join(baseDir, 'invalid.json');
+    await writeFile(invalidPath, '{not-json', 'utf-8');
+
+    await expect(writeSessionMonitorHeartbeat({
+      receiptPath: missingPath,
+      monitorPid: process.pid,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    })).resolves.toBeUndefined();
+    await expect(writeSessionMonitorHeartbeat({
+      receiptPath: invalidPath,
+      monitorPid: process.pid,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    })).resolves.toBeUndefined();
+  });
+
+  it('does not overwrite completed or failed terminal receipts', async () => {
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+
+    for (const terminalStatus of ['completed', 'failed'] as const) {
+      const receiptPath = await writeSessionStartReceipt({
+        taskRuntime: path.join(baseDir, 'runtime', 'tasks', `task-${terminalStatus}`),
+        launchId: `launch-${terminalStatus}`,
+        agentId: 'ron',
+        roleName: 'QA Engineer',
+        displayName: 'Ron',
+        launchPid: 33333,
+      });
+      await writeSessionTerminalReceipt({
+        receiptPath,
+        agentId: 'ron',
+        terminalStatus,
+        exitCode: terminalStatus === 'completed' ? 0 : 1,
+      });
+      const before = await readFile(receiptPath, 'utf-8');
+
+      await writeSessionMonitorHeartbeat({
+        receiptPath,
+        monitorPid: process.pid,
+        monitorStartedAt: '2026-05-16T05:33:19Z',
+      });
+
+      expect(await readFile(receiptPath, 'utf-8')).toBe(before);
+    }
+  });
+
+  it('terminal receipt preserves an existing monitor object', async () => {
+    const baseDir = makeTmpDir();
+    tmpDirs.push(baseDir);
+    const receiptPath = await writeSessionStartReceipt({
+      taskRuntime: path.join(baseDir, 'runtime', 'tasks', 'task-terminal-monitor'),
+      launchId: 'launch-terminal-monitor',
+      agentId: 'alice',
+      roleName: 'Product Manager',
+      displayName: 'Alice',
+      launchPid: 12345,
+    });
+    await writeSessionMonitorHeartbeat({
+      receiptPath,
+      monitorPid: 67890,
+      monitorStartedAt: '2026-05-16T05:33:19Z',
+    });
+    const monitor = (await readReceipt(receiptPath))['monitor'];
+
+    await writeSessionTerminalReceipt({
+      receiptPath,
+      agentId: 'alice',
+      terminalStatus: 'completed',
+      exitCode: 0,
+    });
+
+    const receipt = await readReceipt(receiptPath);
+    expect(receipt['monitor']).toEqual(monitor);
+    expect((receipt['terminal'] as Record<string, unknown>)['status']).toBe('completed');
   });
 });
 

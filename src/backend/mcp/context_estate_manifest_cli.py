@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import logging
 from pathlib import Path
 
 from src.backend.mcp.context_estate_discovery import utc_now
@@ -10,6 +10,10 @@ from src.backend.mcp.context_estate_manifest import (
     DEFAULT_MANIFEST_FILE,
     approve_manifest_from_files,
 )
+from src.backend.scripts.python.lib.logging_config import configure_logging
+from src.backend.scripts.python.lib.protocol_output import write_protocol_stdout
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -87,6 +91,7 @@ def render_markdown(payload: dict[str, object]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="context-estate-manifest")
     args = parse_args(argv)
     try:
         manifest_path, manifest_payload = approve_manifest_from_files(
@@ -97,7 +102,10 @@ def main(argv: list[str] | None = None) -> int:
             manifest_file=args.manifest,
         )
     except ValueError as exc:
-        print(f"Manifest approval failed: {exc}", file=sys.stderr)
+        logger.error(
+            "context_estate.manifest.approval_failed",
+            extra={"error": str(exc), "context_pack_dir": args.context_pack_dir},
+        )
         return 1
 
     output_payload = {
@@ -111,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.format == "json":
-        print(json.dumps(output_payload, indent=2))
+        write_protocol_stdout(str(json.dumps(output_payload, indent=2)) + '\n')
     else:
-        print(render_markdown(output_payload), end="")
+        write_protocol_stdout(str(render_markdown(output_payload)))
     return 0

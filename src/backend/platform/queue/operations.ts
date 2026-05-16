@@ -3,14 +3,18 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify, copyFileSafe } from '../core/index.js';
+import { RuntimeTerminalEvents, createLogger, moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify, copyFileSafe, resolvePath } from '../core/index.js';
 import {
   cleanupActivePlannerFocusSnapshot,
   moveStagedPlannerFocusSnapshot,
   transferStagedSnapshotToActiveTask,
 } from './plannerFocusSnapshotStaging.js';
 import { withOriginLock, materializeWorktreeDeps, preconditionsPass } from '../core/worktreeMaterialization.js';
-import { resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
+import { readContextPackManifest, resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
+import {
+  resolveExistingManifestGitRoot,
+  resolveExistingManifestLocalPath,
+} from '../context-pack/localPaths.js';
 import { readReseedMarker } from '../context-pack/reseedMarker.js';
 import { resolveTaskMaterializationConfig } from '../context-pack/types.js';
 import { deriveQueueStatePaths, resolveQueuePaths, HANDOFF_FILES } from './paths.js';
@@ -50,6 +54,7 @@ import { writeTaskPackSnapshot } from './packSnapshot.js';
 import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
 
 const execFileAsync = promisify(execFile);
+const log = createLogger('platform/queue/operations');
 
 export { acquireDirLock, acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 
@@ -87,7 +92,7 @@ function extractBindingOrWarn(content: string | undefined, taskId?: string): Tas
     return result.binding;
   }
   if (result.kind === 'invalid') {
-    console.warn(`[queue] ignoring invalid context-pack binding${taskId ? ` for ${taskId}` : ''}: ${result.reason}`);
+    log.warn('context_pack_binding.invalid.ignored', { taskId, reason: result.reason });
   }
   return null;
 }
@@ -102,6 +107,79 @@ function resolveExistingRepoRootForActivation(
   } catch {
     return path.resolve(input);
   }
+}
+
+async function probeGitToplevel(dir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', dir, 'rev-parse', '--show-toplevel']);
+    return resolveExistingRepoRootForActivation(stdout.trim());
+  } catch {
+    return null;
+  }
+}
+
+async function resolveMaterializationOrigins(
+  roots: readonly string[],
+  persistedGitRoots: ReadonlyMap<string, string> = new Map(),
+): Promise<Array<{ contextRoot: string; gitRoot: string }>> {
+  const resolvedGitRoots = await Promise.all(roots.map(async (contextRoot) => {
+    const persistedGitRoot = persistedGitRoots.get(contextRoot);
+    if (persistedGitRoot) {
+      const verified = await probeGitToplevel(persistedGitRoot);
+      if (verified) {
+        return verified;
+      }
+    }
+    return (await probeGitToplevel(contextRoot)) ?? contextRoot;
+  }));
+
+  const origins: Array<{ contextRoot: string; gitRoot: string }> = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < roots.length; i++) {
+    const gitRoot = resolvedGitRoots[i]!;
+    if (seen.has(gitRoot)) {
+      continue;
+    }
+    seen.add(gitRoot);
+    origins.push({ contextRoot: roots[i]!, gitRoot });
+  }
+  return origins;
+}
+
+async function resolvePersistedGitRootsForActivation(
+  contextPackDir: string | undefined,
+  repoRoot: string,
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (!contextPackDir) {
+    return result;
+  }
+
+  const resolvedPackDir = resolvePath(repoRoot, contextPackDir);
+  const manifest = await readContextPackManifest(resolvedPackDir, repoRoot);
+  if (!manifest) {
+    return result;
+  }
+
+  const repos = [
+    ...(manifest.repository ? [manifest.repository] : []),
+    ...(Array.isArray(manifest.repositories) ? manifest.repositories : []),
+  ];
+
+  for (const repo of repos) {
+    if (!Array.isArray(repo.local_paths)) {
+      continue;
+    }
+    for (const rawPath of repo.local_paths) {
+      const localRoot = resolveExistingManifestLocalPath(rawPath, resolvedPackDir);
+      const gitRoot = resolveExistingManifestGitRoot(rawPath, resolvedPackDir);
+      if (localRoot && gitRoot) {
+        result.set(localRoot, gitRoot);
+      }
+    }
+  }
+
+  return result;
 }
 
 function materializationRootsFromBinding(options: {
@@ -183,7 +261,7 @@ async function unlinkDeferredMarker(markerPath: string): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return true;
     }
-    console.warn(`[closeout] failed to remove deferred retrospective marker ${markerPath}:`, err);
+    log.warn('deferred_retrospective.marker_remove.failed', { markerPath, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
@@ -216,7 +294,7 @@ export async function retryDeferredRetrospectiveSyncs(repoRoot: string): Promise
     await unlinkDeferredMarker(marker.markerPath);
     return { attempted: true, taskId: marker.taskId, synced: true };
   } catch (err) {
-    console.warn(`[closeout] deferred retrospective sync failed for ${marker.taskId}:`, err);
+    log.warn('deferred_retrospective.sync.failed', { taskId: marker.taskId, error: err instanceof Error ? err.message : String(err) });
     return { attempted: true, taskId: marker.taskId, synced: false };
   }
 }
@@ -235,9 +313,15 @@ async function resumeOrphanCompletingSentinels(
     const taskId = entry.replace(/\.completing$/, '');
     const result = await resumeCloseoutFromSentinel(taskId, repoRoot);
     if (result.status === 'completed') {
-      process.stderr.write(
-        `[closeout] resumed stranded closeout for ${taskId}: ${result.drove.join(',')}\n`,
-      );
+      log.child({ taskId }).progress({
+        level: 'warn',
+        event: 'closeout.stranded.resumed',
+        extra: { drove: result.drove },
+        text: `[pipeline] resumed stranded closeout for ${taskId}`,
+      });
+      await RuntimeTerminalEvents.forTask(repoRoot, taskId).strandedCloseoutResumed({
+        drove: result.drove,
+      });
     }
   }
 }
@@ -451,6 +535,12 @@ export async function moveDropboxItemsOnce(
       // Registry update is best-effort — file move is the authoritative operation
     }
 
+    const movedTaskId = finalFileName.replace(/\.md$/, '');
+    log.child({ taskId: movedTaskId }).progress({
+      level: 'info',
+      event: 'queue.pending.promoted',
+      text: `[queue] promoted to pending ${movedTaskId}`,
+    });
     moved++;
   }
 
@@ -654,6 +744,13 @@ export async function activateNextPendingItemIfReady(
 
     const currentActive = getActiveTaskIds(paths);
     if (currentActive.length >= cap) {
+      const reason = 'concurrency-cap-reached';
+      log.progress({
+        level: 'info',
+        event: 'queue.active.skipped',
+        extra: { reason },
+        text: `[queue] activation skipped - ${reason}`,
+      });
       return { activated: false, reason: ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED };
     }
 
@@ -771,10 +868,13 @@ export async function activateNextPendingItemIfReady(
   // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
   const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
 
+  const persistedGitRoots = await resolvePersistedGitRootsForActivation(cpDir, repoRoot);
+  const materializationOrigins = await resolveMaterializationOrigins(visibleRepoRoots, persistedGitRoots);
+
   // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
   // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
-  const basenames = visibleRepoRoots.map((r) => {
-    try { return path.basename(realpathSync(r)); } catch { return path.basename(r); }
+  const basenames = materializationOrigins.map((origin) => {
+    try { return path.basename(realpathSync(origin.contextRoot)); } catch { return path.basename(origin.contextRoot); }
   });
   const basenameCount: Record<string, number> = {};
   for (const b of basenames) {
@@ -789,8 +889,9 @@ export async function activateNextPendingItemIfReady(
     skipped: [],
   };
 
-  for (let i = 0; i < visibleRepoRoots.length; i++) {
-    const originalRoot = visibleRepoRoots[i]!;
+  for (let i = 0; i < materializationOrigins.length; i++) {
+    const origin = materializationOrigins[i]!;
+    const originalRoot = origin.gitRoot;
     const base = basenames[i]!;
 
     // Resolve base commit SHA.
@@ -857,6 +958,24 @@ export async function activateNextPendingItemIfReady(
         await unlink(path.join(paths.activeItemsDir, taskId)).catch(() => {});
         throw cloneErr;
       }
+    });
+
+    log.child({ taskId }).progress({
+      level: 'info',
+      event: 'queue.branch.created',
+      extra: {
+        branch: worktreeBranch,
+        repo: repoSlug,
+        worktree_root: worktreePath,
+        materialization_strategy: mat.strategy,
+      },
+      text: `[pipeline] worktree ${repoSlug} on ${worktreeBranch}`,
+    });
+    await RuntimeTerminalEvents.forTask(repoRoot, taskId).branchCreated({
+      repo: repoSlug,
+      branch: worktreeBranch,
+      worktreeRoot: worktreePath,
+      materializationStrategy: mat.strategy,
     });
 
     combinedMat = {
@@ -995,7 +1114,7 @@ export async function activateNextPendingItemIfReady(
       }
       await ensureSharedMcpRunning(repoRoot);
     } catch (bootstrapErr) {
-      console.error(`[operations] shared MCP bootstrap failed for ${taskId}:`, bootstrapErr);
+      log.error('shared_mcp.bootstrap.failed', bootstrapErr, { taskId });
       await rollbackActivationClaim({
         repoRoot,
         paths,
@@ -1003,21 +1122,35 @@ export async function activateNextPendingItemIfReady(
         activeMarkerPath,
         repoBindings,
       });
+      const reason = 'shared-mcp-bootstrap-failed';
+      log.child({ taskId }).progress({
+        level: 'info',
+        event: 'queue.active.skipped',
+        extra: { reason },
+        text: `[queue] activation skipped - ${reason}`,
+      });
       return { activated: false, reason: ACTIVATION_GATE_REASON.SHARED_MCP_BOOTSTRAP_FAILED };
     }
   } else {
-    process.stderr.write(
-      `[operations] shared MCP bootstrap skipped for ${taskId}: compose-file-missing\n`,
-    );
+    log.warn('shared_mcp.bootstrap.skipped', { taskId, reason: 'compose-file-missing' });
   }
+
+  log.child({ taskId }).progress({
+    level: 'info',
+    event: 'queue.active.activated',
+    extra: {
+      repo_count: repoBindings.length,
+      branches: repoBindings.map((binding) => binding.worktreeBranch),
+    },
+    text: `[queue] activated ${taskId}  repos=${repoBindings.length}`,
+  });
+  await RuntimeTerminalEvents.forTask(repoRoot, taskId).taskActivated();
 
   const disablePipelineAutostart = (
     process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] ?? ''
   ).trim().toLowerCase() === 'true';
   if (disablePipelineAutostart) {
-    process.stderr.write(
-      `[operations] pipeline autostart disabled for ${taskId}\n`,
-    );
+    log.warn('pipeline.autostart.disabled', { taskId });
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
     return { activated: true };
   }
@@ -1035,7 +1168,14 @@ export async function activateNextPendingItemIfReady(
       activeMarkerPath,
       repoBindings,
     });
-    console.error(`[operations] pipeline spawn failed for ${taskId}:`, err);
+    log.error('pipeline.spawn.failed', err, { taskId });
+    const reason = 'pipeline-spawn-failed';
+    log.child({ taskId }).progress({
+      level: 'info',
+      event: 'queue.active.skipped',
+      extra: { reason },
+      text: `[queue] activation skipped - ${reason}`,
+    });
     return { activated: false, reason: ACTIVATION_GATE_REASON.PIPELINE_SPAWN_FAILED };
   }
   if ('deferred' in pipelineResult && pipelineResult.deferred) {

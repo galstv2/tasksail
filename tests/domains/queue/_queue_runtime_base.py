@@ -439,7 +439,8 @@ None.
         return (
             workspace
             / "AgentWorkSpace/qmd/global/retrospectives/history/2026"
-            / f"{task_id.lower()}.md"
+            / task_id.lower()
+            / "retrospective.md"
         )
 
     def shared_memory_markdown_path(self, workspace: Path) -> Path:

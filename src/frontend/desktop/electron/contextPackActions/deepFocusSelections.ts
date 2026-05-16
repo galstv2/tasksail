@@ -14,6 +14,9 @@ import {
   mirrorSinglePrimaryScopedFields,
   toWorkspaceSyncPrimaryTarget,
 } from './shared';
+import { createLogger } from '../log/logger';
+
+const log = createLogger('electron/contextPackActions/deepFocusSelections');
 
 const DEEP_FOCUS_SELECTIONS_PATH = join(
   REPO_ROOT,
@@ -27,10 +30,29 @@ const WORKSPACE_CONTEXT_SYNC_PATH = join(
 type PersistedSelections = Record<string, ContextPackDeepFocusState>;
 
 async function readSelectionsFile(): Promise<PersistedSelections> {
+  let raw: string;
   try {
-    return JSON.parse(await fsReadFile(DEEP_FOCUS_SELECTIONS_PATH, 'utf-8')) as PersistedSelections;
-  } catch {
-    return {};
+    raw = await fsReadFile(DEEP_FOCUS_SELECTIONS_PATH, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return {};
+    }
+    log.error(
+      'deep-focus.selections.read.failed',
+      err instanceof Error ? err : { reason: String(err) },
+      { path: DEEP_FOCUS_SELECTIONS_PATH },
+    );
+    throw err;
+  }
+  try {
+    return JSON.parse(raw) as PersistedSelections;
+  } catch (err: unknown) {
+    log.error(
+      'deep-focus.selections.parse.failed',
+      err instanceof Error ? err : { reason: String(err) },
+      { path: DEEP_FOCUS_SELECTIONS_PATH },
+    );
+    throw err;
   }
 }
 

@@ -157,6 +157,10 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="planner-modal-open">{String(result.plannerModalProps.isOpen)}</div>
       <div data-testid="agent-config-modal-open">{String(result.agentConfigModalProps.isOpen)}</div>
       <div data-testid="terminal-feed-events">{result.terminalFeedProps.activityStream.length}</div>
+      <div data-testid="terminal-feed-replayed-events">{result.terminalFeedProps.replayedEventIds.size}</div>
+      <div data-testid="terminal-feed-task-scopes">{result.terminalFeedProps.taskScopes.length}</div>
+      <div data-testid="terminal-feed-selected-task">{result.terminalFeedProps.selectedTaskGuid ?? 'all'}</div>
+      <div data-testid="terminal-feed-select-handler">{String(typeof result.terminalFeedProps.onSelectTaskScope === 'function')}</div>
       <div data-testid="reinforcement-modal-open">{String(result.reinforcementModalProps.isOpen)}</div>
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
       <div data-testid="has-open-reinforcement">{String(typeof result.openReinforcementModal === 'function')}</div>
@@ -204,6 +208,10 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('planner-modal-open')).toHaveTextContent('false');
     expect(screen.getByTestId('agent-config-modal-open')).toHaveTextContent('false');
     expect(screen.getByTestId('terminal-feed-events')).toHaveTextContent('0');
+    expect(screen.getByTestId('terminal-feed-replayed-events')).toHaveTextContent('0');
+    expect(screen.getByTestId('terminal-feed-task-scopes')).toHaveTextContent('0');
+    expect(screen.getByTestId('terminal-feed-selected-task')).toHaveTextContent('all');
+    expect(screen.getByTestId('terminal-feed-select-handler')).toHaveTextContent('true');
     expect(screen.getByTestId('active-task-label')).toHaveTextContent('Observe queue artifacts');
     expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
   });

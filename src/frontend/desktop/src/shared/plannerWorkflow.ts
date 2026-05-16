@@ -25,6 +25,7 @@ export function wrapFreshSessionMessage(guideText: string): string {
 export const PLANNER_SAVE_DRAFT_WORKFLOW = {
   guideMessage: 'Lily, let\u2019s save what we have so far. Please draft the spec now.',
   prompt:
+    'This is the internal Draft Spec save prompt and authorizes you to write the staged planning document now. ' +
     'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
     'Edit the current staged file in place and preserve the existing shell structure. ' +
     'Only update the editable planning sections. ' +

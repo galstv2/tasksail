@@ -16,9 +16,29 @@ export function installAppTestHarness(): void {
     });
 
     window.desktopShell = {
-      getBootstrapInfo: vi.fn(),
+      log: {
+        emit: vi.fn().mockResolvedValue({ ok: true }),
+      },
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
       describeActiveProvider: vi.fn().mockResolvedValue(createProviderFrontendDescriptor()),
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
+      setTerminalTaskScope: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'terminal.setTaskScope',
+          mode: 'scoped',
+          selectedTaskGuid: null,
+          events: [],
+          taskScopes: [],
+          message: 'Terminal task scope reset to all tasks.',
+        },
+      }),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),
       subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
@@ -672,6 +692,15 @@ export function installAppTestHarness(): void {
             realignmentId: 'RA-mock',
             status: 'started',
           },
+        },
+      }),
+      dismissRealignment: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'reinforcement.dismissRealignment',
+          mode: 'dismissed',
+          message: 'Realignment dismissed.',
+          realignmentId: 'RA-mock',
         },
       }),
       listExternalMcpServers: vi.fn().mockResolvedValue({

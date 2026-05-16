@@ -1,5 +1,9 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
+import { createLogger } from '../log/logger';
+
+const logger = createLogger('src/renderer/components/ErrorBoundary');
+
 type ErrorBoundaryProps = {
   children: ReactNode;
   fallback?: ReactNode;
@@ -20,7 +24,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('ErrorBoundary caught:', error, info);
+    logger.error('react.error.boundary', error, {
+      componentStack: info.componentStack ?? undefined,
+    });
   }
 
   render(): ReactNode {

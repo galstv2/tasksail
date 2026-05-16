@@ -18,6 +18,9 @@ import {
 } from './main.recoveryState';
 import { emitStreamEvent } from './main.stream';
 import { pathExists, repoFs } from './utils';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/main.recovery');
 
 // §5.3B: Per-task runtime paths. Singleton constants deleted.
 // Active markers live in ACTIVE_ITEMS_DIR (one file per taskId, §4.1 parallel model).
@@ -481,6 +484,10 @@ export function startTaskRecoveryController(options: {
       }));
       await scheduleAutoStartForNext(result.nextActiveItem);
     } catch (error) {
+      log.error(
+        'recovery.reconcile.failed',
+        error instanceof Error ? error : { reason: String(error) },
+      );
       emitStreamEvent({
         message: `Recovery reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
         source: 'recovery.controller',
@@ -502,14 +509,20 @@ export function startTaskRecoveryController(options: {
 
   const noteActivatedPendingItem = (queueName: string): void => {
     const activationStartedAt = new Date().toISOString();
-    void persistRecoveryState(buildRecoveryState({
+    persistRecoveryState(buildRecoveryState({
       kind: 'activation-timeout',
       status: 'pending-start',
       summary: `Waiting for pipeline activity for ${queueName}.`,
       queueName,
       activationStartedAt,
       deadlineAt: new Date(Date.parse(activationStartedAt) + activationGraceMs).toISOString(),
-    }));
+    })).catch((error: unknown) => {
+      log.error(
+        'recovery.activation-marker.persist.failed',
+        error instanceof Error ? error : { reason: String(error) },
+        { queueName },
+      );
+    });
     reconcileNow();
   };
 

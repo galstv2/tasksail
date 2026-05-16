@@ -23,7 +23,9 @@ import { readReseedMarker } from '../../../backend/platform/context-pack/reseedM
 import { REPO_ROOT } from './paths';
 import { pathExists, numberOrNull, stringOrNull, repoFs } from './utils';
 import { portablePathBasename, readDeepFocusPath, stringArray } from './main.contextPackShared';
+import { createLogger } from './log/logger';
 
+const log = createLogger('electron/main.contextPackCatalog');
 const ENV_FILE_PATH = join(REPO_ROOT, '.env');
 export const WORKSPACE_SYNC_STATE_PATH = join(
   REPO_ROOT,
@@ -356,8 +358,9 @@ export async function readWorkspaceSyncStateSnapshot(): Promise<WorkspaceSyncSta
       workspaceFileCount: numberOrNull(state.workspace_file_count),
     };
   } catch (error: unknown) {
-    console.warn('readWorkspaceSyncStateSnapshot: failed to parse sync state:',
-      error instanceof Error ? error.message : error);
+    log.warn('context-pack.sync-state.parse.failed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return {
       activeContextPackDir: null,
       activeContextPackId: null,
@@ -488,13 +491,15 @@ async function readPackSeedState(
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { ...SEEDED_FALLBACK, inProgress };
     }
-    console.warn('readPackSeedState: failed to read seed-state.json:',
-      err instanceof Error ? err.message : err, '— defaulting to seeded');
+    log.warn('context-pack.seed-state.read.failed', {
+      markerPath,
+      reason: err instanceof Error ? err.message : String(err),
+    });
     return { ...SEEDED_FALLBACK, inProgress };
   }
   const parsed = parsePackSeedStateRecord(raw);
   if (parsed === null) {
-    console.warn('readPackSeedState: corrupt seed-state.json at', markerPath, '— defaulting to seeded');
+    log.warn('context-pack.seed-state.corrupt', { markerPath });
     return { ...SEEDED_FALLBACK, inProgress };
   }
   return {
@@ -659,7 +664,12 @@ async function inspectContextPackDir(
         return a.displayName.localeCompare(b.displayName);
       });
 
-    } catch {
+    } catch (err: unknown) {
+      log.warn('context-pack.catalog.manifest.parse-failed', {
+        contextPackDir: normalizedDir,
+        manifestPath,
+        reason: err instanceof Error ? err.message : String(err),
+      });
       displayName = contextPackId;
     }
   }

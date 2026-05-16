@@ -31,6 +31,7 @@ export interface ManifestRepository {
 export interface LocalPath {
   host: string;
   container?: string | null;
+  git_root?: string | null;
 }
 
 export type LocalPathInput = string | LocalPath;

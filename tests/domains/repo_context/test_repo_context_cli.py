@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import unittest
@@ -15,6 +17,16 @@ from src.backend.mcp.repo_context_mcp.transport.cli import RepoContextCli  # noq
 
 
 class RepoContextCliTests(unittest.TestCase):
+    def run_with_stdout(
+        self,
+        cli: RepoContextCli,
+        argv: list[str],
+    ) -> tuple[int, str]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exit_code = cli.run(argv, run_server=mock.Mock())
+        return exit_code, stdout.getvalue()
+
     def make_cli(
         self,
         *,
@@ -64,17 +76,16 @@ class RepoContextCliTests(unittest.TestCase):
         )
         cli = self.make_cli(execute_seed_run=execute_seed_run)
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "seed",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--format",
-                    "markdown",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "seed",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--format",
+                "markdown",
+            ],
+        )
 
         self.assertEqual(exit_code, 0)
         execute_seed_run.assert_called_once_with(
@@ -84,7 +95,7 @@ class RepoContextCliTests(unittest.TestCase):
             plan_mode="prefer-plan",
             write_report=True,
         )
-        fake_print.assert_called_once_with("rendered run")
+        self.assertEqual(stdout, "rendered run\n")
 
     def test_serve_command_dispatches_default_host_and_port(self) -> None:
         cli = self.make_cli()
@@ -107,23 +118,21 @@ class RepoContextCliTests(unittest.TestCase):
         )
         cli = self.make_cli(execute_seed_run=execute_seed_run)
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "seed",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--format",
-                    "json",
-                    "--no-write-report",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "seed",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--format",
+                "json",
+                "--no-write-report",
+            ],
+        )
 
         self.assertEqual(exit_code, 1)
-        printed_payload = fake_print.call_args.args[0]
         self.assertEqual(
-            json.loads(printed_payload)["overall_status"],
+            json.loads(stdout)["overall_status"],
             "failed",
         )
         execute_seed_run.assert_called_once_with(
@@ -146,20 +155,19 @@ class RepoContextCliTests(unittest.TestCase):
         )
         cli = self.make_cli(execute_seed_run=execute_seed_run)
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "seed",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--format",
-                    "markdown",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "seed",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--format",
+                "markdown",
+            ],
+        )
 
         self.assertEqual(exit_code, 2)
-        payload = json.loads(fake_print.call_args.args[0])
+        payload = json.loads(stdout)
         self.assertEqual(payload["error"], "reseed_in_progress")
         self.assertEqual(payload["pid"], 1234)
         self.assertEqual(payload["host"], "host-a")
@@ -188,40 +196,38 @@ class RepoContextCliTests(unittest.TestCase):
             ),
         )
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "conventions",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--format",
-                    "markdown",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "conventions",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--format",
+                "markdown",
+            ],
+        )
 
         self.assertEqual(exit_code, 0)
         load_context_pack_conventions_summary.assert_called_once_with(
             context_pack_dir="/tmp/context-pack",
         )
         render_context_pack_conventions_summary.assert_called_once()
-        fake_print.assert_called_once_with("# Context-Pack Conventions")
+        self.assertEqual(stdout, "# Context-Pack Conventions\n")
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "conventions",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--format",
-                    "json",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "conventions",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--format",
+                "json",
+            ],
+        )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(
-            json.loads(fake_print.call_args.args[0])[
+            json.loads(stdout)[
                 "conventions_summary_status"
             ],
             "available",
@@ -238,21 +244,20 @@ class RepoContextCliTests(unittest.TestCase):
             build_carry_forward_summary=build_carry_forward_summary,
         )
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "carry-forward",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--parent-qmd-scope",
-                    "qmd/context-packs/sample-org",
-                    "--parent-qmd-record-id",
-                    "   ",
-                    "--parent-task-id",
-                    " CAP-1001 ",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "carry-forward",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--parent-qmd-scope",
+                "qmd/context-packs/sample-org",
+                "--parent-qmd-record-id",
+                "   ",
+                "--parent-task-id",
+                " CAP-1001 ",
+            ],
+        )
 
         self.assertEqual(exit_code, 0)
         build_carry_forward_summary.assert_called_once_with(
@@ -261,7 +266,7 @@ class RepoContextCliTests(unittest.TestCase):
             parent_qmd_record_id=None,
             parent_task_id="CAP-1001",
         )
-        fake_print.assert_called_once_with("# Carry-Forward Summary")
+        self.assertEqual(stdout, "# Carry-Forward Summary\n")
 
     def test_lineage_command_supports_root_task_json_output(self) -> None:
         build_task_lineage_summary = mock.Mock(
@@ -274,21 +279,20 @@ class RepoContextCliTests(unittest.TestCase):
             build_task_lineage_summary=build_task_lineage_summary,
         )
 
-        with mock.patch("builtins.print") as fake_print:
-            exit_code = cli.run(
-                [
-                    "lineage",
-                    "--context-pack-dir",
-                    "/tmp/context-pack",
-                    "--qmd-scope",
-                    "qmd/context-packs/sample-org",
-                    "--root-task-id",
-                    " CAP-ROOT-1 ",
-                    "--format",
-                    "json",
-                ],
-                run_server=mock.Mock(),
-            )
+        exit_code, stdout = self.run_with_stdout(
+            cli,
+            [
+                "lineage",
+                "--context-pack-dir",
+                "/tmp/context-pack",
+                "--qmd-scope",
+                "qmd/context-packs/sample-org",
+                "--root-task-id",
+                " CAP-ROOT-1 ",
+                "--format",
+                "json",
+            ],
+        )
 
         self.assertEqual(exit_code, 0)
         build_task_lineage_summary.assert_called_once_with(
@@ -298,7 +302,7 @@ class RepoContextCliTests(unittest.TestCase):
             root_task_id="CAP-ROOT-1",
         )
         self.assertEqual(
-            json.loads(fake_print.call_args.args[0])["root_task_id"],
+            json.loads(stdout)["root_task_id"],
             "CAP-ROOT-1",
         )
 

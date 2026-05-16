@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
-import { isMissingPathError } from '../core/index.js';
+import { createLogger, isMissingPathError } from '../core/index.js';
 
 const RESEED_MARKER_FILENAME = '.reseed-in-progress.json';
 const STALE_MARKER_AGE_MS = 60 * 60 * 1000;
+const log = createLogger('platform/context-pack/reseedMarker');
 
 interface ReseedMarker {
   started_at: string;
@@ -36,7 +37,7 @@ export async function readReseedMarker(
   try {
     parsed = JSON.parse(raw) as ReseedMarker;
   } catch {
-    process.stderr.write(`[reseedMarker] ignoring corrupt marker at ${markerPath}\n`);
+    log.warn('reseed_marker.corrupt.ignored', { markerPath });
     return null;
   }
   if (
@@ -46,13 +47,13 @@ export async function readReseedMarker(
     || typeof parsed.host !== 'string'
     || parsed.host.trim().length === 0
   ) {
-    process.stderr.write(`[reseedMarker] ignoring corrupt marker at ${markerPath}\n`);
+    log.warn('reseed_marker.corrupt.ignored', { markerPath });
     return null;
   }
 
   const startedAtMs = Date.parse(parsed.started_at);
   if (Number.isNaN(startedAtMs)) {
-    process.stderr.write(`[reseedMarker] ignoring marker with unparseable started_at at ${markerPath}\n`);
+    log.warn('reseed_marker.started_at.invalid', { markerPath, startedAt: parsed.started_at });
     return null;
   }
 
@@ -72,9 +73,7 @@ export async function readReseedMarker(
     } catch {
       // Treat stat failure as stale; the marker already parsed as old.
     }
-    process.stderr.write(
-      `[reseedMarker] ignoring stale marker (age ${Math.round(ageMs / 1000)}s) at ${markerPath}\n`,
-    );
+    log.warn('reseed_marker.stale.ignored', { markerPath, ageSeconds: Math.round(ageMs / 1000) });
     return null;
   }
 

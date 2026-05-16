@@ -191,7 +191,7 @@ class ContextEstateManifestTests(unittest.TestCase):
             )
             self.assertEqual(
                 manifest["repositories"][0]["local_paths"],
-                [str(discovery_root.resolve())],
+                [{"host": str(discovery_root.resolve())}],
             )
             self.assertEqual(
                 manifest["repositories"][0]["repository_type"],
@@ -251,7 +251,7 @@ class ContextEstateManifestTests(unittest.TestCase):
             repos_by_id = {repo["repo_id"]: repo for repo in manifest["repositories"]}
             self.assertEqual(repos_by_id["mono-repo"]["repository_type"], "primary")
             self.assertEqual(repos_by_id["deploy"]["system_layer"], "infrastructure")
-            self.assertEqual(repos_by_id["deploy"]["local_paths"], [str(deploy_root.resolve())])
+            self.assertEqual(repos_by_id["deploy"]["local_paths"], [{"host": str(deploy_root.resolve())}])
             self.assertEqual(repos_by_id["deploy"]["repository_type"], "support")
             self.assertEqual(repos_by_id["deploy"]["languages"], ["yaml"])
 

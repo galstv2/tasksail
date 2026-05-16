@@ -1,5 +1,8 @@
+import { useMemo, useState } from 'react';
+
 import type { ReinforcementTaskEntry } from '../../../shared/desktopContract';
 import type { FeedbackDraft, FeedbackType, SubmitState } from '../../hooks/useFeedbackSubmission';
+import TaskDetailModal from '../taskboard/TaskDetailModal';
 import TaskPicker from './TaskPicker';
 
 type FeedbackPanelProps = {
@@ -47,6 +50,14 @@ function FeedbackPanel({
   onSubmit,
   onReset,
 }: FeedbackPanelProps): JSX.Element {
+  const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
+  const selectedTask = tasks.find((task) => task.taskId === draft.taskId) ?? null;
+  const previewTask = useMemo(
+    () => tasks.find((task) => task.taskId === previewTaskId) ?? null,
+    [previewTaskId, tasks],
+  );
+  const selectedTaskReviewed = selectedTask?.reviewStatus === 'reviewed';
+
   if (!hasActiveContextPack) {
     return (
       <div className="feedback-panel" data-testid="feedback-panel">
@@ -57,9 +68,9 @@ function FeedbackPanel({
     );
   }
 
-  if (submitState.status === 'success') {
-    return (
-      <div className="feedback-panel" data-testid="feedback-panel">
+  return (
+    <div className="feedback-panel" data-testid="feedback-panel">
+      {submitState.status === 'success' && (
         <div className="feedback-panel__success" data-testid="feedback-success">
           <p>{submitState.message}</p>
           <button
@@ -71,12 +82,7 @@ function FeedbackPanel({
             Submit another
           </button>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="feedback-panel" data-testid="feedback-panel">
+      )}
       {tasksError && (
         <p className="feedback-panel__error" data-testid="feedback-tasks-error">
           {tasksError}
@@ -90,88 +96,108 @@ function FeedbackPanel({
         loading={tasksLoading}
         onSelectYear={onSelectYear}
         onSelectTask={onSelectTask}
+        onOpenTask={setPreviewTaskId}
       />
 
       {draft.taskId && (
-        <div className="feedback-panel__form" data-testid="feedback-form">
-          <div className="feedback-panel__type-group">
-            <label className="feedback-panel__label">Feedback</label>
-            <div className="feedback-panel__type-buttons" role="radiogroup" aria-label="Feedback type">
-              {FEEDPMCK_TYPES.map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`feedback-type-btn ${draft.feedbackType === value ? 'feedback-type-btn--active' : ''}`}
-                  onClick={() => onSelectFeedbackType(value)}
-                  aria-pressed={draft.feedbackType === value}
-                  data-testid={`feedback-type-${value}`}
-                >
-                  {label}
-                </button>
-              ))}
+        <>
+          {selectedTaskReviewed ? (
+            <div className="feedback-panel__reviewed" data-testid="feedback-reviewed-readonly">
+              <span className="status-chip status-chip--sm status-chip--completed">Reviewed</span>
+              <p>This task already has reinforcement feedback and is read-only.</p>
             </div>
-          </div>
+          ) : (
+            <div className="feedback-panel__form" data-testid="feedback-form">
+              <div className="feedback-panel__type-group">
+                <label className="feedback-panel__label">Feedback</label>
+                <div className="feedback-panel__type-buttons" role="radiogroup" aria-label="Feedback type">
+                  {FEEDPMCK_TYPES.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`feedback-type-btn ${draft.feedbackType === value ? 'feedback-type-btn--active' : ''}`}
+                      onClick={() => onSelectFeedbackType(value)}
+                      aria-pressed={draft.feedbackType === value}
+                      data-testid={`feedback-type-${value}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="feedback-panel__stars">
-            <label className="feedback-panel__label">Rating (optional)</label>
-            <div className="feedback-panel__star-row" role="radiogroup" aria-label="Star rating">
-              {STAR_OPTIONS.map((n) => (
+              <div className="feedback-panel__stars">
+                <label className="feedback-panel__label">Rating (optional)</label>
+                <div className="feedback-panel__star-row" role="radiogroup" aria-label="Star rating">
+                  {STAR_OPTIONS.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`star-btn ${draft.starRating !== null && n <= draft.starRating ? 'star-btn--filled' : ''}`}
+                      onClick={() => onSelectStarRating(draft.starRating === n ? null : n)}
+                      aria-label={`${n} star${n !== 1 ? 's' : ''}`}
+                      aria-pressed={draft.starRating === n}
+                      data-testid={`star-${n}`}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path
+                          d="M8 1l2 4h4l-3.2 2.8L12 13 8 10.2 4 13l1.2-5.2L2 5h4l2-4z"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                          fill={draft.starRating !== null && n <= draft.starRating ? 'currentColor' : 'none'}
+                        />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="feedback-panel__comment">
+                <label className="feedback-panel__label" htmlFor="feedback-comment">
+                  Comment (optional)
+                </label>
+                <textarea
+                  id="feedback-comment"
+                  className="feedback-panel__textarea"
+                  rows={3}
+                  value={draft.comment}
+                  onChange={(e) => onChangeComment(e.target.value)}
+                  placeholder="What went well or what needs improvement?"
+                  data-testid="feedback-comment"
+                />
+              </div>
+
+              {submitState.status === 'error' && (
+                <p className="feedback-panel__error" data-testid="feedback-error">
+                  {submitState.message}
+                </p>
+              )}
+
+              <div className="feedback-panel__actions">
                 <button
-                  key={n}
                   type="button"
-                  className={`star-btn ${draft.starRating !== null && n <= draft.starRating ? 'star-btn--filled' : ''}`}
-                  onClick={() => onSelectStarRating(draft.starRating === n ? null : n)}
-                  aria-label={`${n} star${n !== 1 ? 's' : ''}`}
-                  aria-pressed={draft.starRating === n}
-                  data-testid={`star-${n}`}
+                  className="action-button action-button--primary"
+                  disabled={!canSubmit}
+                  onClick={onSubmit}
+                  data-testid="feedback-submit-btn"
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M8 1l2 4h4l-3.2 2.8L12 13 8 10.2 4 13l1.2-5.2L2 5h4l2-4z"
-                      stroke="currentColor"
-                      strokeWidth="1.2"
-                      strokeLinejoin="round"
-                      fill={draft.starRating !== null && n <= draft.starRating ? 'currentColor' : 'none'}
-                    />
-                  </svg>
+                  {submitState.status === 'submitting' ? 'Submitting\u2026' : 'Submit Feedback'}
                 </button>
-              ))}
+              </div>
             </div>
-          </div>
-
-          <div className="feedback-panel__comment">
-            <label className="feedback-panel__label" htmlFor="feedback-comment">
-              Comment (optional)
-            </label>
-            <textarea
-              id="feedback-comment"
-              className="feedback-panel__textarea"
-              rows={3}
-              value={draft.comment}
-              onChange={(e) => onChangeComment(e.target.value)}
-              placeholder="What went well or what needs improvement?"
-              data-testid="feedback-comment"
-            />
-          </div>
-
-          {submitState.status === 'error' && (
-            <p className="feedback-panel__error" data-testid="feedback-error">
-              {submitState.message}
-            </p>
           )}
-
-          <div className="feedback-panel__actions">
-            <button
-              type="button"
-              className="action-button action-button--primary"
-              disabled={!canSubmit}
-              onClick={onSubmit}
-              data-testid="feedback-submit-btn"
-            >
-              {submitState.status === 'submitting' ? 'Submitting\u2026' : 'Submit Feedback'}
-            </button>
-          </div>
-        </div>
+        </>
+      )}
+      {previewTask?.archiveMarkdown && (
+        <TaskDetailModal
+          title={previewTask.title}
+          content={previewTask.archiveMarkdown}
+          column="completed"
+          zIndex={130}
+          escPriority={10}
+          onClose={() => setPreviewTaskId(null)}
+        />
       )}
     </div>
   );

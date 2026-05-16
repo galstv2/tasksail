@@ -1,8 +1,28 @@
+// @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { useRealignmentSessions } from './useRealignmentSessions';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
 
 function mockClient(overrides: Partial<DesktopShellClient> = {}): DesktopShellClient {
   return {
@@ -46,6 +66,10 @@ function mockClient(overrides: Partial<DesktopShellClient> = {}): DesktopShellCl
 }
 
 describe('useRealignmentSessions', () => {
+  beforeEach(() => {
+    logEmit.mockClear();
+  });
+
   it('starts analysis by realignment id and keeps the job local to the session', async () => {
     const client = mockClient();
     const { result } = renderHook(() => useRealignmentSessions(true, client));
@@ -101,5 +125,35 @@ describe('useRealignmentSessions', () => {
       message: 'Realignment analysis is already running for this session.',
     });
     expect(client.listRealignmentSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs and surfaces dismiss rejections', async () => {
+    const client = mockClient({
+      dismissRealignment: vi.fn().mockRejectedValue(new Error('Dismiss failed.')),
+    });
+    const { result } = renderHook(() => useRealignmentSessions(true, client));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.dismissRealignment('/context-packs/test', 'RA-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.analysisRun).toEqual({
+        status: 'error',
+        realignmentId: 'RA-1',
+        message: 'Dismiss failed.',
+      });
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'realignment.dismiss.failed',
+        level: 'warn',
+        extra: {
+          contextPackDir: '/context-packs/test',
+          realignmentId: 'RA-1',
+          reason: 'Dismiss failed.',
+        },
+      }));
+    });
   });
 });

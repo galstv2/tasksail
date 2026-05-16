@@ -93,7 +93,7 @@ describe('prewarmPipelineContext', () => {
   });
 
   it('fails open with an empty cached registry when registry loading throws', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     loadExternalMcpRegistryWithFallback.mockRejectedValueOnce(new Error('registry unavailable'));
 
     await expect(prewarmPipelineContext(['alice'], undefined, '/repo')).resolves.toBeUndefined();
@@ -102,10 +102,9 @@ describe('prewarmPipelineContext', () => {
       schema_version: 1,
       external_servers: [],
     });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[pipeline] external MCP registry prewarm failed; continuing with empty registry:',
-      'registry unavailable',
-    );
+    const warnings = String(warnSpy.mock.calls.flat().join('\n'));
+    expect(warnings).toContain('external_mcp_registry.prewarm.failed');
+    expect(warnings).toContain('registry unavailable');
 
     warnSpy.mockRestore();
   });

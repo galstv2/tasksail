@@ -274,6 +274,16 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
   // ── Test 4: Legacy completed sidecar safety ─────────────────────────────
 
   it('preserves legacy completed sidecars and completed task branches', async () => {
+    const warnSpy = vi.fn();
+    vi.doMock('../log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+    }));
     const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
 
     setupWorkspaceScaffold(TEST_REPO_ROOT);
@@ -284,7 +294,6 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     const worktree = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
     createWorktree(gitRepoRoot, worktree, branch);
     writeTaskJson(TEST_REPO_ROOT, taskId, gitRepoRoot, worktree, branch, 'completed');
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     writeTaskRegistry(TEST_REPO_ROOT, [taskId]);
 
@@ -293,10 +302,11 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     expect(existsSync(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, '.task.json'))).toBe(true);
     const branches = execFileSync('git', ['-C', gitRepoRoot, 'branch', '--list'], { encoding: 'utf-8' });
     expect(branches).toContain(branch);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(`cleanup-preserved-completed-sidecar taskId=${taskId}`),
-    );
-    warnSpy.mockRestore();
+    expect(warnSpy).toHaveBeenCalledWith('cleanup.completed-sidecar.preserved', {
+      taskId,
+      sidecar: join(TEST_REPO_ROOT, 'AgentWorkSpace', 'tasks', taskId, '.task.json'),
+    });
+    vi.doUnmock('../log/logger');
   });
 
   it('removes active branches while preserving completed branches in mixed cleanup', async () => {
@@ -486,5 +496,42 @@ describe('§4.10 cleanupWorkspaceOnQuit', () => {
     // Dotfiles survive
     expect(existsSync(gitkeepPath)).toBe(true);
     expect(existsSync(dsStorePath)).toBe(true);
+  });
+
+  // ── Test 8: corrupt task-registry.json is logged, cleanup still completes ──
+
+  it('logs a structured warning when the task registry is corrupt and continues cleanup', async () => {
+    const warnSpy = vi.fn();
+    vi.doMock('../log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+    }));
+    const { cleanupWorkspaceOnQuit } = await import('../main.cleanup');
+
+    setupWorkspaceScaffold(TEST_REPO_ROOT);
+    // Corrupt task-registry.json — JSON.parse inside resetTaskRegistry throws.
+    writeFileSync(
+      join(TEST_REPO_ROOT, '.platform-state', 'task-registry.json'),
+      '{ "schema_version": 2, "tasks": truncated',
+    );
+
+    expect(() => cleanupWorkspaceOnQuit()).not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalledWith('cleanup.task-registry.reset.failed', {
+      reason: expect.any(String),
+    });
+
+    // Subsequent cleanup steps still ran — queue-order.json reset to empty.
+    const queueOrder = readFileSync(
+      join(TEST_REPO_ROOT, '.platform-state', 'queue', 'queue-order.json'),
+      'utf-8',
+    );
+    expect(JSON.parse(queueOrder)).toEqual({ order: [] });
+    vi.doUnmock('../log/logger');
   });
 });

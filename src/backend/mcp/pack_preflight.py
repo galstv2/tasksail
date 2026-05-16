@@ -4,8 +4,6 @@ Runs every precondition check against a `PackPreflightRequest` and returns a
 structured `PreflightResult` the renderer can use to surface field-scoped
 errors. The validator is non-short-circuiting: it accumulates all errors and
 warnings so the renderer can render aggregated UI in one pass.
-
-Phase 2 spec: scratchspace/context-pack-creation-hardening/phase-02-preflight-validation-gate.md
 """
 from __future__ import annotations
 

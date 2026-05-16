@@ -92,7 +92,13 @@ export function useAppShell(
 
   const effectiveSidebarCollapsed = autoSidebarCollapsed || sidebarCollapsed;
 
-  const { events: streamEvents } = useStreamEvents();
+  const {
+    events: streamEvents,
+    replayedEventIds,
+    taskScopes,
+    selectedTaskGuid,
+    setSelectedTaskGuid,
+  } = useStreamEvents();
 
   const taskBoard = useTaskBoard(client);
   const { agentConfigModalProps, openAgentConfigModal } = useAgentConfigModal(client);
@@ -154,6 +160,10 @@ export function useAppShell(
   const terminalFeedProps = useMemo(
     () => ({
       activityStream: streamEvents,
+      replayedEventIds,
+      taskScopes,
+      selectedTaskGuid,
+      onSelectTaskScope: setSelectedTaskGuid,
       observabilitySnapshot: observability ?? null,
       environmentStatus: environmentStatus ?? null,
       onDeletePendingItem: async (queueName: string) => {
@@ -166,7 +176,18 @@ export function useAppShell(
         await refreshObservedState();
       },
     }),
-    [streamEvents, observability, environmentStatus, client, addToast, refreshObservedState],
+    [
+      streamEvents,
+      replayedEventIds,
+      taskScopes,
+      selectedTaskGuid,
+      setSelectedTaskGuid,
+      observability,
+      environmentStatus,
+      client,
+      addToast,
+      refreshObservedState,
+    ],
   );
 
   const onRefreshRepoState = useCallback(async () => {

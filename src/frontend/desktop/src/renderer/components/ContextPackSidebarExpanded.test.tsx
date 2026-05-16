@@ -163,7 +163,7 @@ describe('ContextPackSidebarExpanded', () => {
 
     expect(screen.getByRole('alertdialog', { name: 'Primary selection required' })).toBeInTheDocument();
     expect(screen.getByText('Primary Selection Required')).toBeInTheDocument();
-    expect(screen.getByText(/Exactly one Primary must be selected/)).toBeInTheDocument();
+    expect(screen.getByText(/Select at least one Primary/)).toBeInTheDocument();
   });
 
   it('keeps expanded sidebar layering classes during editor close choreography', async () => {

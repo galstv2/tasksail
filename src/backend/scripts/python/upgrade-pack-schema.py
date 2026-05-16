@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
+
+from lib.protocol_output import write_protocol_stdout
 
 # Ensure repo root is on sys.path.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -29,12 +32,23 @@ from src.backend.mcp.pack_schemas.upgrade import (
     upgrade_manifest_file_atomic,
     upgrade_v1_to_v2,
 )
+from src.backend.scripts.python.lib.logging_config import bind, configure_logging
+
+logger = bind(logging.getLogger(__name__), module="scripts/python/upgrade-pack-schema")
 
 
 def _read_manifest(manifest_path: Path) -> dict | None:
     try:
         return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "pack_schema_upgrade.manifest.load.failed",
+            extra={
+                "manifest_path": str(manifest_path),
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
         return None
 
 
@@ -75,6 +89,18 @@ def _process_pack(
             if changed and not dry_run:
                 write_text_atomic(manifest_path, canonicalize(normalized) + "\n")
         except Exception as exc:
+            logger.error(
+                "pack_schema_upgrade.pack.failed",
+                extra={
+                    "context_pack_dir": str(context_pack_dir),
+                    "manifest_path": str(manifest_path),
+                    "phase": "normalize_v2",
+                    "current_version": current_version,
+                    "dry_run": dry_run,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             result["action"] = "skip"
             result["reason"] = f"error: {exc}"
             return result
@@ -97,6 +123,18 @@ def _process_pack(
                 manifest_path, repo_roots=repo_roots, raw=raw,
             )
     except Exception as exc:
+        logger.error(
+            "pack_schema_upgrade.pack.failed",
+            extra={
+                "context_pack_dir": str(context_pack_dir),
+                "manifest_path": str(manifest_path),
+                "phase": "upgrade_v1_to_v2",
+                "current_version": current_version,
+                "dry_run": dry_run,
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
         # Action stays in {upgrade,noop,skip}; failures are reported as skip
         # with a "error:"-prefixed reason so the exit-code logic can detect them.
         result["action"] = "skip"
@@ -118,6 +156,7 @@ def _find_packs_under(root: Path) -> list[Path]:
 
 
 def main() -> int:
+    configure_logging(stack="py", service="upgrade-pack-schema")
     parser = argparse.ArgumentParser(
         description="Upgrade context pack manifests from v1 to v2."
     )
@@ -156,13 +195,13 @@ def main() -> int:
                 packs = [root]
 
     if not packs:
-        print(json.dumps({"status": "no_packs_found", "searched": str(args.all_under)}))
+        write_protocol_stdout(str(json.dumps({"status": "no_packs_found", "searched": str(args.all_under)})) + '\n')
         return 0
 
     any_error = False
     for pack_dir in packs:
         result = _process_pack(pack_dir, dry_run=args.dry_run)
-        print(json.dumps(result))
+        write_protocol_stdout(str(json.dumps(result)) + '\n')
         reason = result.get("reason") or ""
         if isinstance(reason, str) and reason.startswith("error:"):
             any_error = True

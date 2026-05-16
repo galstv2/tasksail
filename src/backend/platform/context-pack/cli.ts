@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { findRepoRoot } from '../core/index.js';
+import {
+  findRepoRoot,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import { activateContextPack } from './activate.js';
 import { rebuildAgentMirror } from './rebuildAgentMirror.js';
 import { switchContextPackWorkspace } from './switch.js';
@@ -20,7 +25,7 @@ Global options:
 `;
 
 function printUsage(): void {
-  process.stdout.write(USAGE);
+  writeProtocolStdout(USAGE);
 }
 
 function parseArgs(argv: string[]): {
@@ -91,7 +96,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
 
   if (!args.command) {
-    process.stderr.write(USAGE);
+    writeProtocolStderr(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -101,7 +106,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   switch (args.command) {
     case 'activate': {
       if (!args.contextPackDir) {
-        process.stderr.write('Error: --context-pack-dir is required\n');
+        writeProtocolStderr('Error: --context-pack-dir is required\n');
         process.exitCode = 1;
         return;
       }
@@ -112,19 +117,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       });
       if (!result.validation.valid) {
         for (const err of result.validation.errors) {
-          process.stderr.write(`Error: ${err}\n`);
+          writeProtocolStderr(`Error: ${err}\n`);
         }
         process.exitCode = 1;
         return;
       }
-      process.stdout.write(
+      writeProtocolStdout(
         JSON.stringify({ activated: true }, null, 2) + '\n',
       );
       break;
     }
     case 'switch': {
       if (args.mode !== 'clear' && !args.contextPackDir) {
-        process.stderr.write(
+        writeProtocolStderr(
           'Error: --context-pack-dir is required for preview and apply\n',
         );
         process.exitCode = 1;
@@ -134,12 +139,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         contextPackDir: args.contextPackDir,
         mode: args.mode,
       });
-      process.stdout.write(result.output + '\n');
+      writeProtocolStdout(result.output + '\n');
       break;
     }
     case 'rebuild-mirror': {
       if (!args.contextPackDir) {
-        process.stderr.write('Error: --context-pack-dir is required\n');
+        writeProtocolStderr('Error: --context-pack-dir is required\n');
         process.exitCode = 1;
         return;
       }
@@ -148,11 +153,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         ? args.contextPackDir
         : path.resolve(repoRoot, args.contextPackDir);
       const result = await rebuildAgentMirror(repoRoot, contextPackDir);
-      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      writeProtocolStdout(JSON.stringify(result, null, 2) + '\n');
       break;
     }
     default:
-      process.stderr.write(`Unknown command: ${args.command}\n`);
+      writeProtocolStderr(`Unknown command: ${args.command}\n`);
       printUsage();
       process.exitCode = 1;
   }
@@ -163,10 +168,5 @@ const isCliEntrypoint = process.argv[1]
   : false;
 
 if (isCliEntrypoint) {
-  void main().catch((err: unknown) => {
-    process.stderr.write(
-      `Error: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    process.exitCode = 1;
-  });
+  runCliBoundary('platform/context-pack/cli', main);
 }

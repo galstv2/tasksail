@@ -16,6 +16,7 @@ import {
 } from '../../shared/desktopContractTypeGuards';
 import { RESEED_IN_PROGRESS_ERROR_CODE } from '../../shared/desktopContractContextPack';
 import { useToastContext } from '../contexts/ToastContext';
+import { createLogger } from '../log/logger';
 import { summarizeSwitchResult, summarizeReseedResult } from '../selectors/contextPackSidebarModel';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { formatIpcError, normalizeIpcThrownError, IpcTimeoutError } from '../services/ipcErrorHelpers';
@@ -41,6 +42,8 @@ type RefreshOptions = {
   preferredContextPackDir?: string;
   preserveFeedback?: boolean;
 };
+
+const log = createLogger('src/renderer/hooks/useContextPackSwitching');
 
 export type UseContextPackSwitchingResult = {
   actionPending: 'preview' | 'apply' | 'clear' | 'reseed' | null;
@@ -81,6 +84,20 @@ export function useContextPackSwitching(
   const bypassBootstrapCheckRef = useRef(false);
   const { addToast } = useToastContext();
   const { call } = useIpcCall(setError);
+
+  const refreshCatalogAfterFailedAction = useCallback(
+    async (stage: 'failed-result' | 'thrown-error') => {
+      try {
+        await refreshCatalog({ preserveFeedback: true });
+      } catch (err: unknown) {
+        log.warn('context-pack.switch.refresh-after-failure.failed', {
+          stage,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [refreshCatalog],
+  );
 
   const runAction = useCallback(
     async (action: 'preview' | 'apply' | 'clear'): Promise<void> => {
@@ -165,7 +182,7 @@ export function useContextPackSwitching(
             selectedPrimaryCount++;
           }
         }
-        if (hasTypedTargets && selectedPrimaryCount !== 1) {
+        if (hasTypedTargets && selectedPrimaryCount < 1) {
           setShowMultiPrimaryWarning(true);
           return;
         }
@@ -211,7 +228,7 @@ export function useContextPackSwitching(
           setError(formatIpcError(result));
           setLastResult(result.contextPackResult ?? null);
           setMessage('Context-pack workspace action failed.');
-          await refreshCatalog({ preserveFeedback: true }).catch(() => {});
+          await refreshCatalogAfterFailedAction('failed-result');
           return;
         }
 
@@ -238,12 +255,12 @@ export function useContextPackSwitching(
           : normalizeIpcThrownError(error, 'Context-pack workspace action failed unexpectedly.');
         setError(msg);
         setMessage('Context-pack workspace action failed.');
-        await refreshCatalog({ preserveFeedback: true }).catch(() => {});
+        await refreshCatalogAfterFailedAction('thrown-error');
       } finally {
         setActionPending(null);
       }
     },
-    [client, getState, setError, setMessage, refreshCatalog],
+    [client, getState, setError, setMessage, refreshCatalog, refreshCatalogAfterFailedAction],
   );
 
   const runReseedAction = useCallback(async (): Promise<void> => {

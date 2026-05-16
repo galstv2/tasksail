@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
-import type { ActiveWorkGuardState } from '../../hooks/useActiveWorkGuard';
 import RealignmentReviewPanel from './RealignmentReviewPanel';
 
 afterEach(() => {
@@ -37,10 +36,9 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     loading: false,
     error: null as string | null,
     onSelectSession: vi.fn(),
-    activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true } as ActiveWorkGuardState,
-    onStartRealignment: vi.fn(),
     analysisRun: { status: 'idle' as const },
     onRunAnalysis: vi.fn(),
+    onDismissRealignment: vi.fn(),
     ...overrides,
   };
 }
@@ -66,6 +64,9 @@ describe('RealignmentReviewPanel', () => {
   it('renders session list when sessions exist', () => {
     render(<RealignmentReviewPanel {...defaultProps()} />);
     expect(screen.getByTestId('session-list')).toBeTruthy();
+    expect(screen.getByTestId('realignment-source').textContent).toContain(
+      'Click an open task',
+    );
   });
 
   it('renders empty session list message when no sessions', () => {
@@ -115,76 +116,7 @@ describe('RealignmentReviewPanel', () => {
     expect(onSelectSession).toHaveBeenCalledWith(null);
   });
 
-  it('shows start button enabled when guard is allowed', () => {
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({ activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true } })}
-      />,
-    );
-    const btn = screen.getByTestId('realignment-start');
-    expect(btn).toBeTruthy();
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it('shows start button disabled when guard is blocked', () => {
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({
-          activeWorkGuard: {
-            status: 'blocked',
-            message: 'Active work exists',
-            activeTaskId: 'T-1',
-          },
-        })}
-      />,
-    );
-    const btn = screen.getByTestId('realignment-start');
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-    const blockedEl = screen.getByTestId('realignment-guard-blocked');
-    expect(blockedEl.textContent).toContain('Active work exists');
-  });
-
-  it('shows checking text when guard is loading', () => {
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({ activeWorkGuard: { status: 'loading' } })}
-      />,
-    );
-    const btn = screen.getByTestId('realignment-start');
-    expect(btn.textContent).toBe('Checking...');
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('shows confirmation dialog and calls onStartRealignment on confirm', () => {
-    const onStartRealignment = vi.fn();
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({
-          activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: true },
-          onStartRealignment,
-        })}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('realignment-start'));
-    expect(onStartRealignment).not.toHaveBeenCalled();
-    expect(screen.getByText('Start corrective realignment?')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Start realignment'));
-    expect(onStartRealignment).toHaveBeenCalled();
-  });
-
-  it('disables start button when no unprocessed feedback exists', () => {
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({
-          activeWorkGuard: { status: 'allowed', hasUnprocessedFeedback: false },
-        })}
-      />,
-    );
-    expect(screen.getByTestId('realignment-start')).toBeDisabled();
-  });
-
-  it('does not show guard section in detail view', () => {
+  it('shows start button enabled when a runnable session is selected', () => {
     const session = makeSession();
     render(
       <RealignmentReviewPanel
@@ -194,47 +126,41 @@ describe('RealignmentReviewPanel', () => {
         })}
       />,
     );
-    expect(screen.queryByTestId('realignment-guard')).toBeNull();
+    const btn = screen.getByTestId('realignment-start');
+    expect(btn).toBeTruthy();
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('renders Run analysis for open sessions and calls onRunAnalysis', () => {
-    const onRunAnalysis = vi.fn();
-    render(<RealignmentReviewPanel {...defaultProps({ onRunAnalysis })} />);
-
-    const btn = screen.getByTestId('realignment-run-RA-1');
-    expect(btn.textContent).toBe('Run analysis');
-
-    fireEvent.click(btn);
-
-    expect(onRunAnalysis).toHaveBeenCalledWith('RA-1');
-  });
-
-  it('renders Re-run analysis for error sessions', () => {
+  it('locks starting another realignment while one is running', () => {
+    const session = makeSession();
+    const running = makeSession({ realignmentId: 'RA-2', triggerTaskId: 'T-2', status: 'running' });
     render(
       <RealignmentReviewPanel
         {...defaultProps({
-          sessions: [makeSession({ status: 'error' })],
+          sessions: [session, running],
+          selectedSession: session,
+          selectedSessionId: session.realignmentId,
         })}
       />,
     );
-
-    expect(screen.getByTestId('realignment-run-RA-1').textContent).toBe('Re-run analysis');
+    const btn = screen.getByTestId('realignment-start');
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('realignment-lock-hint').textContent).toContain('in progress');
   });
 
-  it('does not render analysis action for archived sessions', () => {
+  it('labels running sessions as in progress', () => {
     render(
       <RealignmentReviewPanel
         {...defaultProps({
-          sessions: [makeSession({ status: 'archived' })],
+          sessions: [makeSession({ status: 'running' })],
         })}
       />,
     );
-
-    expect(screen.queryByTestId('realignment-run-RA-1')).toBeNull();
+    expect(screen.getByText('In Progress')).toBeTruthy();
   });
 
-  it('renders the same analysis action in detail view', () => {
-    const session = makeSession({ status: 'error' });
+  it('shows confirmation dialog and runs analysis for the selected session on confirm', () => {
+    const session = makeSession();
     const onRunAnalysis = vi.fn();
     render(
       <RealignmentReviewPanel
@@ -245,13 +171,83 @@ describe('RealignmentReviewPanel', () => {
         })}
       />,
     );
+    fireEvent.click(screen.getByTestId('realignment-start'));
+    expect(onRunAnalysis).not.toHaveBeenCalled();
+    expect(screen.getByText('Start corrective realignment?')).toBeTruthy();
 
-    const btn = screen.getByTestId('realignment-detail-run-RA-1');
-    expect(btn.textContent).toBe('Re-run analysis');
-
-    fireEvent.click(btn);
-
+    fireEvent.click(screen.getByText('Start realignment'));
     expect(onRunAnalysis).toHaveBeenCalledWith('RA-1');
+  });
+
+  it('does not show top-level start controls until a session is selected', () => {
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps()}
+      />,
+    );
+    expect(screen.queryByTestId('realignment-start')).toBeNull();
+    expect(screen.queryByTestId('realignment-select-hint')).toBeNull();
+  });
+
+  it('confirms before dismissing a selected realignment', () => {
+    const session = makeSession();
+    const onDismissRealignment = vi.fn();
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          selectedSession: session,
+          selectedSessionId: session.realignmentId,
+          onDismissRealignment,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('realignment-dismiss'));
+    expect(onDismissRealignment).not.toHaveBeenCalled();
+    expect(screen.getByText('Dismiss realignment?')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Dismiss'));
+    expect(onDismissRealignment).toHaveBeenCalledWith('RA-1');
+  });
+
+  it('shows retry copy for failed realignments', () => {
+    const session = makeSession({ status: 'error' });
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          selectedSession: session,
+          selectedSessionId: session.realignmentId,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('realignment-start').textContent).toBe('Retry Corrective Realignment');
+  });
+
+  it('shows the start control in detail view', () => {
+    const session = makeSession();
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          selectedSession: session,
+          selectedSessionId: session.realignmentId,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('realignment-guard')).toBeTruthy();
+  });
+
+  it('does not render per-row analysis buttons', () => {
+    const session = makeSession();
+    render(
+      <RealignmentReviewPanel
+        {...defaultProps({
+          sessions: [session],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('realignment-run-RA-1')).toBeNull();
   });
 
   it('shows skipped lock contention message without changing session rendering', () => {
@@ -267,26 +263,8 @@ describe('RealignmentReviewPanel', () => {
       />,
     );
 
-    expect(screen.getByTestId('realignment-run-RA-1').textContent).toBe('Run analysis');
     expect(screen.getByTestId('realignment-run-message-RA-1').textContent).toContain(
       'already running',
     );
-  });
-
-  it('does not gate session analysis actions on active-work guard state', () => {
-    render(
-      <RealignmentReviewPanel
-        {...defaultProps({
-          activeWorkGuard: {
-            status: 'blocked',
-            message: 'Active work exists',
-            activeTaskId: 'T-1',
-          },
-        })}
-      />,
-    );
-
-    expect(screen.getByTestId('realignment-start')).toBeDisabled();
-    expect(screen.getByTestId('realignment-run-RA-1')).not.toBeDisabled();
   });
 });

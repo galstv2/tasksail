@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import logging
 from pathlib import Path
 
 from src.backend.mcp.workspace_context_sync_deep_focus import (
@@ -11,8 +11,11 @@ from src.backend.mcp.workspace_context_sync_deep_focus import (
 from src.backend.mcp.workspace_context_sync_service import (
     WorkspaceContextSyncService,
 )
+from src.backend.scripts.python.lib.logging_config import configure_logging
+from src.backend.scripts.python.lib.protocol_output import write_protocol_stdout
 
 ACTIONS = ("preview", "apply", "clear")
+logger = logging.getLogger(__name__)
 
 
 def parse_json_argument(
@@ -141,11 +144,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="workspace-context-sync")
     args = parse_args(argv)
     if args.action in {"preview", "apply"} and not args.context_pack_dir:
-        print(
-            f"--action {args.action} requires --context-pack-dir",
-            file=sys.stderr,
+        logger.error(
+            "workspace_context_sync.missing_context_pack_dir",
+            extra={"action": args.action},
         )
         return 1
 
@@ -217,8 +221,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             payload = service.clear_context_pack_workspace()
     except ValueError as exc:
-        print(f"Workspace sync failed: {exc}", file=sys.stderr)
+        logger.error(
+            "workspace_context_sync.failed",
+            extra={"error": str(exc), "action": args.action},
+        )
         return 1
 
-    print(json.dumps(payload, indent=2))
+    write_protocol_stdout(str(json.dumps(payload, indent=2)) + '\n')
     return 0

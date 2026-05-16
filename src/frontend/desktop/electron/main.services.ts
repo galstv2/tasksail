@@ -13,6 +13,9 @@ import type {
   BackendServiceStatus,
   ServicesReadStatusResponse,
 } from '../src/shared/desktopContract';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/main.services');
 
 type BackendServiceState = {
   status: BackendServiceStatus;
@@ -385,7 +388,10 @@ export function readBackendServiceStatus(): ServicesReadStatusResponse {
 export async function autoStartBackendServices(repoRoot: string): Promise<void> {
   try {
     await startBackendServices(repoRoot);
-  } catch {
+  } catch (error: unknown) {
+    log.warn('services.auto-start.failed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
     // Fire-and-forget — never crash the app on service start failure.
     updateState({
       status: 'unhealthy',

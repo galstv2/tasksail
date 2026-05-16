@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 if TYPE_CHECKING:
     from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
 
@@ -53,6 +55,7 @@ from lib.archive.task_summary import build_task_archive_markdown
 from lib.counters.task_completion_counter import TaskCompletionCounter
 from lib.io import load_json
 from lib.locking import acquire_file_lock, release_file_lock
+from lib.logging_config import configure_logging
 from lib.text import slugify
 
 
@@ -67,6 +70,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="file-task-archive")
     try:
         args = parse_args(argv)
         repo_root = Path(args.repo_root).resolve()
@@ -132,9 +136,10 @@ def main(argv: list[str] | None = None) -> int:
 
                 # Mirror history entry into agent-facing QMD under context pack.
                 _cp_history_year = payload["indexed_at"][:4]
+                _cp_history_slug = slugify(payload["task_id"])
                 _cp_history_dir = (
                     repo_root / "AgentWorkSpace" / "qmd" / "context-packs"
-                    / context_pack_dir.name / "retrospectives" / "history" / _cp_history_year
+                    / context_pack_dir.name / "retrospectives" / "history" / _cp_history_year / _cp_history_slug
                 )
                 _cp_history_md = _cp_history_dir / global_history_markdown_path.name
                 _cp_history_record = _cp_history_dir / global_history_record_path.name
@@ -221,10 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                         payload=payload,
                     )
                 except Exception as exc:
-                    print(
-                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=build-failed detail={exc}",
-                        file=sys.stderr,
-                    )
+                    write_protocol_stderr(str(f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=build-failed detail={exc}") + '\n')
                     return
 
                 year = payload["indexed_at"][:4]
@@ -237,10 +239,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     write_json_via_backend(canonical_snapshot_path, snapshot_payload)
                 except Exception:
-                    print(
-                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=canonical-write-failed",
-                        file=sys.stderr,
-                    )
+                    write_protocol_stderr(str(f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=canonical-write-failed") + '\n')
 
                 mirror_snapshot_path = agent_mirror_task_archive_planner_focus_snapshot_path(
                     repo_root,
@@ -251,10 +250,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     write_json_via_backend(mirror_snapshot_path, snapshot_payload)
                 except Exception:
-                    print(
-                        f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=mirror-write-failed",
-                        file=sys.stderr,
-                    )
+                    write_protocol_stderr(str(f"planner-focus-snapshot: skipped for task={payload['task_id']} reason=mirror-write-failed") + '\n')
 
             _step("planner_focus_snapshot", _write_planner_focus_snapshot)
 
@@ -428,12 +424,12 @@ def main(argv: list[str] | None = None) -> int:
             "reinforcement_error": reinforcement_error,
         }
         if args.format == "json":
-            print(json.dumps(result, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(result, indent=2, sort_keys=False)) + '\n')
         else:
-            print(f"Filed task archive: {record_path}")
+            write_protocol_stdout(str(f"Filed task archive: {record_path}") + '\n')
         return 0
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
+        write_protocol_stderr(str(str(exc)) + '\n')
         return 1
 
 

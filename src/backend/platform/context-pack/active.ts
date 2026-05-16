@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { findRepoRoot, readEnvAssignment, resolvePath } from '../core/index.js';
 import { ACTIVE_CONTEXT_PACK_DIR_KEY, validatePackStructure } from './activate.js';
 import { readTaskJson, type TaskContextPackBinding } from '../queue/taskJson.js';
@@ -9,11 +10,49 @@ export interface RequireAuthorizedActiveContextPackOptions {
   taskId?: string;
 }
 
+type ActiveContextPackResolution = {
+  configuredContextPackDir: string | undefined;
+  fileValue: string | undefined;
+  processValue: string | undefined;
+};
+
 /**
  * Resolved binding returned when a task sidecar is active.
  * Mirrors the contextPackBinding shape from .task.json.
  */
 export type TaskContextPackBindingFromSidecar = TaskContextPackBinding;
+
+async function readWorkspaceSyncActiveContextPackDir(repoRoot: string): Promise<string | undefined> {
+  const statePath = path.join(repoRoot, '.platform-state', 'workspace-context-sync.json');
+  try {
+    const raw = await readFile(statePath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const rawDir = typeof parsed.active_context_pack_dir === 'string'
+      ? parsed.active_context_pack_dir.trim()
+      : '';
+    return rawDir || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveConfiguredActiveContextPackDir(
+  repoRoot: string,
+): Promise<ActiveContextPackResolution> {
+  const envPath = path.join(repoRoot, '.env');
+  const fileValue = (await readEnvAssignment(
+    envPath,
+    ACTIVE_CONTEXT_PACK_DIR_KEY,
+  ))?.trim() || undefined;
+  const processValue = process.env[ACTIVE_CONTEXT_PACK_DIR_KEY]?.trim() || undefined;
+  const workspaceSyncValue = await readWorkspaceSyncActiveContextPackDir(repoRoot);
+
+  return {
+    configuredContextPackDir: fileValue || processValue || workspaceSyncValue,
+    fileValue,
+    processValue,
+  };
+}
 
 /**
  * Require the authorized active context pack and return the full
@@ -38,21 +77,14 @@ export async function requireAuthorizedActiveContextPackBinding(
     return taskJson.contextPackBinding;
   }
 
-  // Non-task path: read .env / process.env (no sidecar).
-  const envPath = path.join(repoRoot, '.env');
-  const fileValue = (await readEnvAssignment(
-    envPath,
-    ACTIVE_CONTEXT_PACK_DIR_KEY,
-  ))?.trim();
-
-  const processValue = process.env[ACTIVE_CONTEXT_PACK_DIR_KEY]?.trim();
-
-  // .env is the persistent source of truth; process.env is the runtime fallback.
-  const configuredContextPackDir = fileValue || processValue;
+  // Non-task path: read .env / process.env, falling back to desktop workspace
+  // sync state when the env singleton is empty.
+  const { configuredContextPackDir, fileValue, processValue } =
+    await resolveConfiguredActiveContextPackDir(repoRoot);
 
   if (!configuredContextPackDir) {
     throw new Error(
-      'No active context pack is configured in repo .env or process environment. ' +
+      'No active context pack is configured in repo .env, process environment, or workspace state. ' +
       'Activate a context pack before running write operations.',
     );
   }
@@ -81,7 +113,7 @@ export async function requireAuthorizedActiveContextPackBinding(
     resolvePath(repoRoot, options.requestedContextPackDir) !== authorizedContextPackDir
   ) {
     throw new Error(
-      'Write operations are limited to the active context pack configured in repo .env.',
+      'Write operations are limited to the active context pack.',
     );
   }
 
@@ -127,20 +159,13 @@ export async function requireAuthorizedActiveContextPack(
     );
   }
 
-  // Non-task path: delegate to .env resolution.
-  const envPath = path.join(repoRoot, '.env');
-  const fileValue = (await readEnvAssignment(
-    envPath,
-    ACTIVE_CONTEXT_PACK_DIR_KEY,
-  ))?.trim();
-
-  const processValue = process.env[ACTIVE_CONTEXT_PACK_DIR_KEY]?.trim();
-
-  const configuredContextPackDir = fileValue || processValue;
+  // Non-task path: delegate to singleton/workspace-state resolution.
+  const { configuredContextPackDir, fileValue, processValue } =
+    await resolveConfiguredActiveContextPackDir(repoRoot);
 
   if (!configuredContextPackDir) {
     throw new Error(
-      'No active context pack is configured in repo .env or process environment. ' +
+      'No active context pack is configured in repo .env, process environment, or workspace state. ' +
       'Activate a context pack before running write operations.',
     );
   }
@@ -168,7 +193,7 @@ export async function requireAuthorizedActiveContextPack(
     resolvePath(repoRoot, options.requestedContextPackDir) !== authorizedContextPackDir
   ) {
     throw new Error(
-      'Write operations are limited to the active context pack configured in repo .env.',
+      'Write operations are limited to the active context pack.',
     );
   }
 

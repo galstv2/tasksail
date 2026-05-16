@@ -18,8 +18,10 @@ import { getPlatformConfig } from '../platform-config/get.js';
 import { readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
+import { createLogger } from './logger.js';
 
 const execFile = promisify(execFileCb);
+const log = createLogger('platform/core/worktreeFinalize');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,9 +120,10 @@ export async function finalizeWorktree(
     try {
       await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
     } catch (err) {
-      process.stderr.write(
-        `[worktreeFinalize] prune-failed: originalRoot=${binding.originalRoot} err=${errorMessage(err)}\n`,
-      );
+      log.warn('worktree.prune.failed', {
+        originalRoot: binding.originalRoot,
+        error: errorMessage(err),
+      });
     }
     return;
   }
@@ -157,9 +160,10 @@ async function removeWorktreeBindingHard(binding: TaskRepoBinding): Promise<void
   try {
     await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
   } catch (err) {
-    process.stderr.write(
-      `[worktreeFinalize] prune-failed: originalRoot=${binding.originalRoot} err=${errorMessage(err)}\n`,
-    );
+    log.warn('worktree.prune.failed', {
+      originalRoot: binding.originalRoot,
+      error: errorMessage(err),
+    });
   }
   try {
     await execFile('git', [
@@ -167,9 +171,10 @@ async function removeWorktreeBindingHard(binding: TaskRepoBinding): Promise<void
       'branch', '-D', binding.worktreeBranch,
     ]);
   } catch (err) {
-    process.stderr.write(
-      `[worktreeFinalize] branch-delete-failed: branch=${binding.worktreeBranch} err=${errorMessage(err)}\n`,
-    );
+    log.warn('worktree.branch_delete.failed', {
+      branch: binding.worktreeBranch,
+      error: errorMessage(err),
+    });
   }
 }
 
@@ -239,9 +244,7 @@ async function runRetentionEviction(
   if (!release) {
     // Best-effort: if we cannot acquire the lock within the timeout, skip
     // eviction. The next task finalization will re-try. Log for observability.
-    process.stderr.write(
-      `[worktreeFinalize] retention-eviction-lock-timeout: could not acquire ${lockPath} within timeout — skipping eviction\n`,
-    );
+    log.warn('retention_eviction.lock_timeout', { lockPath });
     return;
   }
 
@@ -291,10 +294,11 @@ async function runRetentionEviction(
           '-C', binding.originalRoot,
           'branch', '-D', binding.worktreeBranch,
         ]).catch((err: unknown) => {
-          const msg = errorMessage(err);
-          process.stderr.write(
-            `[worktreeFinalize] retention-eviction-failed: taskId=${victim.taskId} branch=${binding.worktreeBranch} err=${msg}\n`,
-          );
+          log.warn('retention_eviction.branch_delete.failed', {
+            taskId: victim.taskId,
+            branch: binding.worktreeBranch,
+            error: errorMessage(err),
+          });
         });
       }
       rmSync(
@@ -371,20 +375,20 @@ export async function finalizeTaskWorktrees(
     try {
       await runRetentionEviction(repoRoot, cfg.max_retained_failed_task_worktrees);
     } catch (err) {
-      const msg = errorMessage(err);
-      process.stderr.write(
-        `[worktreeFinalize] retention-eviction-error: taskId=${taskId} err=${msg}\n`,
-      );
+      log.warn('retention_eviction.failed', {
+        taskId,
+        error: errorMessage(err),
+      });
     }
   }
 
   try {
     await gcTaskRuntime(taskId, outcome, repoRoot);
   } catch (err) {
-    const msg = errorMessage(err);
-    process.stderr.write(
-      `[worktreeFinalize] gc-task-runtime-error: taskId=${taskId} err=${msg}\n`,
-    );
+    log.warn('runtime_gc.failed', {
+      taskId,
+      error: errorMessage(err),
+    });
   }
 }
 
@@ -453,10 +457,10 @@ export async function gcTaskRuntime(
     mkdirSync(path.dirname(sentinel), { recursive: true });
     writeFileSync(sentinel, String(deleteAfter), 'utf-8');
   } catch (err) {
-    const msg = errorMessage(err);
-    process.stderr.write(
-      `[worktreeFinalize] gc-sentinel-write-failed: taskId=${taskId} err=${msg}\n`,
-    );
+    log.warn('runtime_gc.sentinel_write.failed', {
+      taskId,
+      error: errorMessage(err),
+    });
     // Fall through — setTimeout still fires as best-effort.
   }
 

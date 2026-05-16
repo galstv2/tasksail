@@ -1,11 +1,14 @@
 import {
+  createLogger,
   resolvePaths,
   readTextFile,
   writeTextFile,
   ensureDir,
   nowIsoCompact,
   getErrorMessage,
+  newSpanId,
   STANDARD_AGENT_ORDER,
+  RuntimeTerminalEvents,
 } from '../../core/index.js';
 import type { AgentId } from '../../core/index.js';
 import path from 'node:path';
@@ -48,6 +51,7 @@ import type { AgentMcpLaunchStatus } from '../types.js';
 import { captureCodeDiff } from '../pythonHelpers.js';
 
 export const CLOSEOUT_FAILURE_EXIT_CODE = 78;
+const log = createLogger('platform/agent-runner/pipeline/sequencer');
 
 const MISSING_MCP_LAUNCH_STATUS: AgentMcpLaunchStatus = {
   status: 'unknown',
@@ -119,6 +123,7 @@ async function refreshVerificationQaDiffArtifact(options: {
   abortSignal?: AbortSignal;
   reason: 'pre-verification' | 'post-verification';
 }): Promise<string | undefined> {
+  const verificationLog = log.child({ taskId: options.taskId });
   const outputPath = path.join(options.handoffsDir, 'code-changes.diff');
   try {
     const result = await captureCodeDiff({
@@ -138,11 +143,11 @@ async function refreshVerificationQaDiffArtifact(options: {
       return undefined;
     }
     const warning = `The orchestrator reported a ${options.reason} verification diff warning: ${diagnostics.join(' ')}`;
-    console.warn(`[pipeline] ${warning}`);
+    verificationLog.warn('verification_diff.warning', { reason: options.reason, warning });
     return warning;
   } catch (error) {
     const warning = `The orchestrator could not refresh the ${options.reason} verification diff artifact: ${getErrorMessage(error)}`;
-    console.warn(`[pipeline] ${warning}`);
+    verificationLog.warn('verification_diff.refresh.failed', { reason: options.reason, warning });
     return warning;
   }
 }
@@ -154,17 +159,13 @@ async function cleanupVerificationDiffStage(
   try {
     await rm(verificationDiffStage.verificationDiffAbsolutePath, { force: true });
   } catch (error) {
-    console.warn(
-      `[pipeline] Failed ${reason} for verification diff file ${verificationDiffStage.verificationDiffAbsolutePath}: ${getErrorMessage(error)}`,
-    );
+    log.warn('verification_diff.cleanup_file.failed', { reason, path: verificationDiffStage.verificationDiffAbsolutePath, error: getErrorMessage(error) });
   }
 
   try {
     await rm(verificationDiffStage.verificationDiffDir, { recursive: true, force: true });
   } catch (error) {
-    console.warn(
-      `[pipeline] Failed ${reason} for verification diff directory ${verificationDiffStage.verificationDiffDir}: ${getErrorMessage(error)}`,
-    );
+    log.warn('verification_diff.cleanup_dir.failed', { reason, path: verificationDiffStage.verificationDiffDir, error: getErrorMessage(error) });
   }
 }
 
@@ -185,7 +186,7 @@ async function stageVerificationDiffArtifact(options: {
     const warning =
       `The orchestrator could not stage the verification diff file at ${options.verificationDiffStage.verificationDiffAbsolutePath}: ` +
       `${getErrorMessage(error)}. Inspect the changed repo files manually.`;
-    console.warn(`[pipeline] ${warning}`);
+    log.warn('verification_diff.stage.failed', { warning });
     return { staged: false, warning };
   }
 }
@@ -559,14 +560,33 @@ export async function runTestCaptureWithPhaseTracking(options: {
   implementationStepsDir: string;
   captureCwd: string | null | undefined;
   abortSignal?: AbortSignal;
+  pipelineTaskId?: string;
 }): Promise<{ results: TestCaptureResult[]; skipped: boolean }> {
+  const emitPipelinePhaseProgress = (
+    nextPhase: string,
+    priorPhase: string | null = null,
+  ): void => {
+    if (!options.pipelineTaskId) {
+      return;
+    }
+    log.child({ taskId: options.pipelineTaskId }).progress({
+      level: 'info',
+      event: 'pipeline.phase',
+      extra: { phase: nextPhase, prior_phase: priorPhase },
+      text: `[pipeline] ${priorPhase ? `${priorPhase} -> ${nextPhase}` : nextPhase}`,
+    });
+  };
+
   if (options.captureCwd) {
     await writePipelinePhase(options.taskRuntime, 'test-capture-started');
+    emitPipelinePhaseProgress('test-capture-started');
     const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal);
     await writePipelinePhase(options.taskRuntime, 'test-capture-completed');
+    emitPipelinePhaseProgress('test-capture-completed', 'test-capture-started');
     return { results, skipped: false };
   }
   await writePipelinePhase(options.taskRuntime, 'test-capture-skipped');
+  emitPipelinePhaseProgress('test-capture-skipped');
   return { results: [], skipped: true };
 }
 
@@ -581,9 +601,7 @@ async function handlePipelineFailure(
       taskId,
     });
   } catch (err) {
-    process.stderr.write(
-      `Warning: failed to move item to error-items/: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
+    log.warn('error_items.move.failed', { taskId, error: getErrorMessage(err) });
   }
 }
 
@@ -698,7 +716,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
     return;
   }
   if (!options.contextPackDir) {
-    console.warn('[pipeline] retrospective phase skipped: no active context pack.');
+    log.warn('retrospective_phase.skipped', { reason: 'no-active-context-pack' });
     return;
   }
 
@@ -709,7 +727,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
     currentTaskId: options.currentTaskId,
   });
   if (!bundle.some((entry) => !entry.isCurrentTask)) {
-    console.warn('[pipeline] retrospective phase skipped: no prior cycle context available.');
+    log.warn('retrospective_phase.skipped', { reason: 'no-prior-cycle-context' });
     return;
   }
 
@@ -723,6 +741,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
     agentId: 'ron',
     repoRoot: options.repoRoot,
     taskId: options.currentTaskId ?? '',
+    spanId: newSpanId(),
     skipWorkflowValidation: true,
     contextPackDir: options.contextPackDir,
     abortSignal: options.abortSignal,
@@ -743,8 +762,10 @@ export async function runPipelineSequence(
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const lock = await acquirePipelineLock(paths.taskRuntime);
   const pipelineStart = Date.now();
+  const pipelineSpanId = newSpanId();
   const abortController = new AbortController();
   const pipelineTaskId = options.taskId ?? '';
+  const pipelineLog = log.child({ taskId: pipelineTaskId, spanId: pipelineSpanId });
   const stopKillMonitor = startKillSwitchMonitor(paths.repoRoot, pipelineTaskId, abortController);
   let workflowPath: 'standard' = 'standard';
   let prewarmSeconds = 0;
@@ -773,10 +794,7 @@ export async function runPipelineSequence(
     prewarmSeconds = Math.round((Date.now() - prewarmStart) / 1000);
     const externalMcpRegistry = getCachedExternalMcpRegistry(paths.repoRoot);
     const externalMcpRegistryHealth = getCachedExternalMcpRegistryHealth(paths.repoRoot);
-    console.log(
-      '[pipeline] external MCP registry status:',
-      JSON.stringify(externalMcpRegistryHealth),
-    );
+    pipelineLog.info('external_mcp_registry.status', { health: externalMcpRegistryHealth });
 
     const maxRemediationCycles = 3;
 
@@ -831,12 +849,17 @@ export async function runPipelineSequence(
             joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
           );
           if (verificationPrompt) {
-            console.log('[pipeline] Launching Dalton verification pass.');
+            log.child({ taskId: pipelineTaskId }).progress({
+              level: 'info',
+              event: 'dalton_verification.launching',
+              text: '[pipeline] dalton verification launching',
+            });
             const verifyStart = Date.now();
             const verificationResult = await runRoleAgent({
               agentId: 'dalton-verify',
               repoRoot: paths.repoRoot,
               taskId: pipelineTaskId ?? '',
+              spanId: newSpanId(),
               skipWorkflowValidation: true,
               contextPackDir: effectiveContextPackDir,
               verificationTempAllowedDir: stagedVerificationDiff.staged
@@ -873,9 +896,10 @@ export async function runPipelineSequence(
         implementationStepsDir: paths.implementationSteps,
         captureCwd: testCaptureCwd,
         abortSignal: abortController.signal,
+        pipelineTaskId,
       });
       if (capture.skipped) {
-        console.warn('[pipeline] target repo resolution failed; skipping test capture.');
+        log.warn('test_capture.skipped', { reason: 'target-repo-resolution-failed' });
         testCaptureWarning = 'Orchestrator could not resolve the target repo for test capture. Run the validation commands from the slices yourself.';
       }
       return capture.results;
@@ -909,6 +933,7 @@ export async function runPipelineSequence(
             agentId: 'dalton',
             repoRoot: paths.repoRoot,
             taskId: pipelineTaskId ?? '',
+            spanId: newSpanId(),
             skipWorkflowValidation: false,
             contextPackDir: effectiveContextPackDir,
             abortSignal: abortController.signal,
@@ -934,6 +959,7 @@ export async function runPipelineSequence(
               agentId: 'dalton',
               repoRoot: paths.repoRoot,
               taskId: pipelineTaskId ?? '',
+              spanId: newSpanId(),
               skipWorkflowValidation: true,
               contextPackDir: effectiveContextPackDir,
               abortSignal: abortController.signal,
@@ -977,6 +1003,7 @@ export async function runPipelineSequence(
         agentId,
         repoRoot: paths.repoRoot,
         taskId: pipelineTaskId ?? '',
+        spanId: newSpanId(),
         skipWorkflowValidation,
         contextPackDir: effectiveContextPackDir,
         abortSignal: abortController.signal,
@@ -1049,12 +1076,23 @@ export async function runPipelineSequence(
     if (!preCloseoutCheck.passed) {
       const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
         .filter(Boolean).join('\n').trim();
-      console.log('[pipeline] Queue-advance policy blocked — launching closeout remediation.');
+      const reason = 'queue-advance-policy-blocked';
+      log.child({ taskId: pipelineTaskId }).progress({
+        level: 'info',
+        event: 'closeout_remediation.launching',
+        extra: { reason },
+        text: `[pipeline] closeout remediation — ${reason}`,
+      });
+      await RuntimeTerminalEvents.forTask(
+        paths.repoRoot,
+        pipelineTaskId,
+      ).closeoutRemediationLaunching({ reason });
       try {
         await runRoleAgent({
           agentId: 'ron',
           repoRoot: paths.repoRoot,
           taskId: pipelineTaskId ?? '',
+          spanId: newSpanId(),
           skipWorkflowValidation: true,
           contextPackDir: effectiveContextPackDir,
           abortSignal: abortController.signal,
@@ -1071,7 +1109,7 @@ export async function runPipelineSequence(
           launchPhase: 'Closeout Remediation',
         });
       } catch (remediationErr) {
-        console.warn('[pipeline] Closeout remediation failed:', remediationErr instanceof Error ? remediationErr.message : remediationErr);
+        log.warn('closeout_remediation.failed', { error: getErrorMessage(remediationErr) });
       }
     }
 
@@ -1079,7 +1117,7 @@ export async function runPipelineSequence(
       await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
     } catch (err) {
       const closeoutError = err instanceof Error ? err.message : String(err);
-      console.error('[pipeline] Post-pipeline closeout failed:', closeoutError);
+      log.error('post_pipeline_closeout.failed', err, { error: closeoutError });
       const closeoutFailedReceipt: PipelineReceipt = {
         ...receipt,
         status: 'closeout-failed',

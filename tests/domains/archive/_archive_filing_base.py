@@ -66,12 +66,12 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
     def global_history_markdown_path(self, repo_root: Path) -> Path:
         return (
             repo_root
-            / "AgentWorkSpace/qmd/global/retrospectives/history/2026/cap-2001.md"
+            / "AgentWorkSpace/qmd/global/retrospectives/history/2026/cap-2001/retrospective.md"
         )
 
     def global_history_record_path(self, repo_root: Path) -> Path:
         return self.global_history_markdown_path(repo_root).with_name(
-            "cap-2001.md.record.json"
+            "retrospective.md.record.json"
         )
 
     def shared_memory_markdown_path(self, repo_root: Path) -> Path:

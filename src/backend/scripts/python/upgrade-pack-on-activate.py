@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stdout
+
 # Ensure repo root is on sys.path so src.backend.* imports work.
 _SCRIPT_DIR = Path(__file__).resolve()
 _REPO_ROOT = _SCRIPT_DIR.parents[4]
@@ -25,9 +27,11 @@ from src.backend.mcp.pack_schemas.upgrade import (
     build_repo_roots_from_manifest,
     upgrade_manifest_file_atomic,
 )
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
 def main() -> int:
+    configure_logging(stack="py", service="upgrade-pack-on-activate")
     parser = argparse.ArgumentParser(
         description="Lazy v1→v2 manifest upgrade for context pack activation.",
     )
@@ -50,12 +54,12 @@ def main() -> int:
             manifest_path, repo_roots=repo_roots, raw=raw,
         )
         if upgraded:
-            print(json.dumps({"status": "upgraded", "path": str(manifest_path)}))
+            write_protocol_stdout(str(json.dumps({"status": "upgraded", "path": str(manifest_path)})) + '\n')
         else:
-            print(json.dumps({"status": "already_v2", "path": str(manifest_path)}))
+            write_protocol_stdout(str(json.dumps({"status": "already_v2", "path": str(manifest_path)})) + '\n')
         return 0
     except Exception as exc:
-        print(json.dumps({"status": "error", "error": str(exc)}))
+        write_protocol_stdout(str(json.dumps({"status": "error", "error": str(exc)})) + '\n')
         return 1
 
 

@@ -245,27 +245,27 @@ describe('runPipelineSequence retrospective phase', () => {
         warnings: [],
       },
     ]);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const { runPipelineSequence } = await import('../sequencer.js');
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'task-1', stopAfter: 'ron' })).resolves.toBeDefined();
 
     expect(runRoleAgent).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('[pipeline] retrospective phase skipped: no prior cycle context available.');
+    expect(String(warn.mock.calls.flat().join('\n'))).toContain('no-prior-cycle-context');
     warn.mockRestore();
   });
 
   it('skips retrospective mode without throwing when no active context pack exists', async () => {
     shouldRunRetrospectivePhase.mockResolvedValue(true);
     readTaskJsonSafe.mockReturnValue({ contextPackBinding: { contextPackPath: '' } });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const { runPipelineSequence } = await import('../sequencer.js');
 
     await expect(runPipelineSequence({ repoRoot, taskId: 'task-1', stopAfter: 'ron' })).resolves.toBeDefined();
 
     expect(runRoleAgent).toHaveBeenCalledTimes(1);
     expect(buildCycleContextBundle).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith('[pipeline] retrospective phase skipped: no active context pack.');
+    expect(String(warn.mock.calls.flat().join('\n'))).toContain('no-active-context-pack');
     warn.mockRestore();
   });
 });

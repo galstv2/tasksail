@@ -2,7 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DESKTOP_SHELL_INVOKE_CHANNEL } from '../src/shared/desktopContract';
+import {
+  CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
+  DESKTOP_SHELL_INVOKE_CHANNEL,
+} from '../src/shared/desktopContract';
 import { TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE } from './devRestartProtocol';
 
 const loadURL = vi.fn(async () => undefined);
@@ -12,6 +15,7 @@ const focus = vi.fn();
 const restore = vi.fn();
 const isMinimized = vi.fn(() => false);
 const isDestroyed = vi.fn(() => false);
+const webContentsOn = vi.fn();
 const once = vi.fn((event: string, callback: () => void) => {
   if (event === 'ready-to-show') {
     callback();
@@ -25,6 +29,7 @@ const browserWindowInstance = {
   restore,
   isMinimized,
   isDestroyed,
+  webContents: { id: 7, on: webContentsOn },
   once,
   show,
 };
@@ -142,6 +147,7 @@ describe('electron main bootstrap', () => {
     expect(loadURL).toHaveBeenCalledWith('http://localhost:5173');
     expect(loadFile).not.toHaveBeenCalled();
     expect(show).toHaveBeenCalled();
+    expect(webContentsOn).toHaveBeenCalledWith('destroyed', expect.any(Function));
   });
 
   it('retries connection-class dev server load failures before succeeding', async () => {
@@ -187,6 +193,7 @@ describe('electron main bootstrap', () => {
   });
 
   it('loads the built renderer when no dev server URL is present', async () => {
+    vi.stubEnv('VITE_DEV_SERVER_URL', '');
     const { createWindow } = await import('./main');
 
     await createWindow();
@@ -221,6 +228,271 @@ describe('electron main bootstrap', () => {
       DESKTOP_SHELL_INVOKE_CHANNEL,
       expect.any(Function),
     );
+  });
+
+  it('starts the runtime stream watcher with an active context-pack scope provider', async () => {
+    vi.resetModules();
+    const startRuntimeStreamWatcher = vi.fn(() => vi.fn());
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState: vi.fn(),
+      startRuntimeStreamWatcher,
+    }));
+    vi.doMock('./main.stream', () => ({
+      clearTerminalTaskScopeForWebContents: vi.fn(),
+      emitStreamEvent: vi.fn(),
+      refreshStreamTaskMetadataForScope: vi.fn(async () => undefined),
+      resetStreamState: vi.fn(),
+      setTerminalTaskScopeForWebContents: vi.fn(),
+      withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
+    }));
+    vi.doMock('./main.taskBoard', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+      return {
+        ...actual,
+        startTaskBoardWatcher: vi.fn(() => vi.fn()),
+      };
+    });
+    vi.doMock('./main.contextPackWatcher', () => ({
+      startContextPackCatalogWatcher: vi.fn(),
+      stopContextPackCatalogWatcher: vi.fn(),
+    }));
+    const { registerAppLifecycle } = await import('./main');
+
+    registerAppLifecycle();
+
+    await vi.waitFor(() => {
+      expect(startRuntimeStreamWatcher).toHaveBeenCalledWith({
+        scopeProvider: expect.any(Function),
+      });
+    });
+  });
+
+  it('resets terminal streams only when a catalog watcher refresh changes active context-pack identity', async () => {
+    vi.resetModules();
+    const resetStreamState = vi.fn();
+    const resetRuntimeStreamState = vi.fn();
+    const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
+    const refreshCurrentActiveContextPackTaskScope = vi.fn()
+      .mockResolvedValueOnce({
+        previous: null,
+        next: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        changed: true,
+      })
+      .mockResolvedValueOnce({
+        previous: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        next: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        changed: false,
+      })
+      .mockResolvedValueOnce({
+        previous: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        next: { contextPackId: 'pack-b', contextPackDir: '/packs/pack-b', contextPackName: 'pack-b' },
+        changed: true,
+      });
+    const startContextPackCatalogWatcher = vi.fn();
+    const windowSend = vi.fn();
+    BrowserWindowMock.getAllWindows.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: windowSend } },
+    ]);
+    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+      refreshCurrentActiveContextPackTaskScope,
+    }));
+    vi.doMock('./main.stream', () => ({
+      clearTerminalTaskScopeForWebContents: vi.fn(),
+      emitStreamEvent: vi.fn(),
+      refreshStreamTaskMetadataForScope,
+      resetStreamState,
+      setTerminalTaskScopeForWebContents: vi.fn(),
+      withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState,
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('./main.taskBoard', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+      return {
+        ...actual,
+        startTaskBoardWatcher: vi.fn(() => vi.fn()),
+      };
+    });
+    vi.doMock('./main.contextPackWatcher', () => ({
+      startContextPackCatalogWatcher,
+      stopContextPackCatalogWatcher: vi.fn(),
+    }));
+
+    const { registerAppLifecycle } = await import('./main');
+    registerAppLifecycle();
+
+    await vi.waitFor(() => {
+      expect(startContextPackCatalogWatcher).toHaveBeenCalledOnce();
+    });
+    const onChange = startContextPackCatalogWatcher.mock.calls[0]?.[0]?.onChange as
+      | ((event: { type: string }) => void)
+      | undefined;
+    expect(onChange).toBeTypeOf('function');
+
+    onChange?.({ type: 'refreshed' });
+    await vi.waitFor(() => {
+      expect(refreshCurrentActiveContextPackTaskScope).toHaveBeenCalledTimes(2);
+    });
+    expect(windowSend).toHaveBeenCalledWith(
+      CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
+      { type: 'refreshed' },
+    );
+    expect(resetStreamState).toHaveBeenCalledTimes(1);
+    expect(resetRuntimeStreamState).toHaveBeenCalledTimes(1);
+
+    onChange?.({ type: 'identity-changed' });
+    await vi.waitFor(() => {
+      expect(refreshCurrentActiveContextPackTaskScope).toHaveBeenCalledTimes(3);
+      expect(resetStreamState).toHaveBeenCalledTimes(2);
+      expect(resetRuntimeStreamState).toHaveBeenCalledTimes(2);
+    });
+    expect(windowSend).toHaveBeenCalledWith(
+      CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
+      { type: 'identity-changed' },
+    );
+
+    vi.doUnmock('./main.contextPackTaskVisibility');
+    vi.doUnmock('./main.stream');
+    vi.doUnmock('./main.runtimeStream');
+    vi.doUnmock('./main.taskBoard');
+    vi.doUnmock('./main.contextPackWatcher');
+  });
+
+  it('logs startup task-registry repair failures without blocking bootstrap', async () => {
+    vi.resetModules();
+    const warnSpy = vi.fn();
+    vi.doMock('./log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+      installProcessHandlers: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('../../../backend/platform/queue/taskRegistry.js', () => ({
+      loadTaskRegistry: vi.fn(async () => ({ schema_version: 2, tasks: {} })),
+      repairTaskRegistry: vi.fn(async () => {
+        throw new Error('registry repair denied');
+      }),
+    }));
+    vi.doMock('./main.taskBoard', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+      return {
+        ...actual,
+        startTaskBoardWatcher: vi.fn(() => vi.fn()),
+      };
+    });
+    vi.doMock('./main.contextPackWatcher', () => ({
+      startContextPackCatalogWatcher: vi.fn(),
+      stopContextPackCatalogWatcher: vi.fn(),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState: vi.fn(),
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('./main.recovery', () => ({
+      startTaskRecoveryController: vi.fn(() => ({ stop: vi.fn() })),
+    }));
+
+    const { registerAppLifecycle } = await import('./main');
+    registerAppLifecycle();
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith('task-registry.repair.failed', {
+        reason: 'registry repair denied',
+      });
+    });
+    expect(appMock.whenReady).toHaveBeenCalled();
+    vi.doUnmock('./log/logger');
+    vi.doUnmock('../../../backend/platform/queue/taskRegistry.js');
+    vi.doUnmock('./main.taskBoard');
+    vi.doUnmock('./main.contextPackWatcher');
+    vi.doUnmock('./main.runtimeStream');
+    vi.doUnmock('./main.recovery');
+  });
+
+  it('logs unreadable stale agent receipts during startup cleanup', async () => {
+    vi.resetModules();
+    const warnSpy = vi.fn();
+    const readdirMock = vi.fn(async (targetPath: string) => {
+      if (targetPath.endsWith('/.platform-state/runtime/tasks')) {
+        return ['task-1'];
+      }
+      if (targetPath.endsWith('/.platform-state/runtime/tasks/task-1/role-sessions')) {
+        return ['alice.json'];
+      }
+      return [];
+    });
+    const readFileMock = vi.fn(async () => '{ malformed');
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>();
+      return {
+        ...actual,
+        readdir: readdirMock,
+        readFile: readFileMock,
+      };
+    });
+    vi.doMock('./log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+      installProcessHandlers: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('../../../backend/platform/queue/taskRegistry.js', () => ({
+      loadTaskRegistry: vi.fn(async () => ({ schema_version: 2, tasks: {} })),
+      repairTaskRegistry: vi.fn(async () => ({})),
+    }));
+    vi.doMock('./main.taskBoard', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+      return {
+        ...actual,
+        startTaskBoardWatcher: vi.fn(() => vi.fn()),
+      };
+    });
+    vi.doMock('./main.contextPackWatcher', () => ({
+      startContextPackCatalogWatcher: vi.fn(),
+      stopContextPackCatalogWatcher: vi.fn(),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState: vi.fn(),
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('./main.recovery', () => ({
+      startTaskRecoveryController: vi.fn(() => ({ stop: vi.fn() })),
+    }));
+
+    const { registerAppLifecycle } = await import('./main');
+    registerAppLifecycle();
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        'startup.recovery.receipt.read.failed',
+        expect.objectContaining({
+          receiptPath: expect.stringContaining('alice.json'),
+          reason: expect.any(String),
+        }),
+      );
+    });
+    vi.doUnmock('node:fs/promises');
+    vi.doUnmock('./log/logger');
+    vi.doUnmock('../../../backend/platform/queue/taskRegistry.js');
+    vi.doUnmock('./main.taskBoard');
+    vi.doUnmock('./main.contextPackWatcher');
+    vi.doUnmock('./main.runtimeStream');
+    vi.doUnmock('./main.recovery');
   });
 
   it('focuses the existing main window when a second instance is launched', async () => {
@@ -459,6 +731,329 @@ describe('electron main bootstrap', () => {
     expect(handlers.submitFollowUp).not.toHaveBeenCalled();
   });
 
+  it('passes terminal.setTaskScope through with the IPC sender id', async () => {
+    const { handleDesktopAction } = await import('./main');
+    const setTerminalTaskScope = vi.fn(() => ({
+      action: 'terminal.setTaskScope' as const,
+      mode: 'scoped' as const,
+      selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+      events: [],
+      taskScopes: [],
+      message: 'Terminal task scope updated.',
+    }));
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'terminal.setTaskScope',
+          payload: { taskGuid: 'feedbeef-1234-4234-9234-123456789abc' },
+        },
+        { setTerminalTaskScope },
+        { webContentsId: 42 },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'terminal.setTaskScope',
+        selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+      }),
+    });
+    expect(setTerminalTaskScope).toHaveBeenCalledWith(
+      42,
+      'feedbeef-1234-4234-9234-123456789abc',
+    );
+  });
+
+  it('requires sender context for terminal.setTaskScope', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction({
+        action: 'terminal.setTaskScope',
+        payload: { taskGuid: null },
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      action: 'terminal.setTaskScope',
+      error: 'Terminal task scope requires an IPC sender.',
+    });
+  });
+
+  it('refreshes context-pack task scope before emitting a successful switch event', async () => {
+    vi.resetModules();
+    const refreshCurrentActiveContextPackTaskScope = vi.fn(async () => ({
+      previous: null,
+      next: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+      changed: true,
+    }));
+    const resetStreamState = vi.fn();
+    const resetRuntimeStreamState = vi.fn();
+    const emitStreamEvent = vi.fn();
+    const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
+    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+      refreshCurrentActiveContextPackTaskScope,
+    }));
+    vi.doMock('./main.stream', () => ({
+      clearTerminalTaskScopeForWebContents: vi.fn(),
+      emitStreamEvent,
+      refreshStreamTaskMetadataForScope,
+      resetStreamState,
+      setTerminalTaskScopeForWebContents: vi.fn(),
+      withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState,
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => []),
+      stopPipeline: vi.fn(async () => undefined),
+    }));
+
+    const { handleDesktopAction } = await import('./main');
+    const applyContextPackSwitch = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'contextPack.applySwitch' as const,
+        mode: 'applied' as const,
+        message: 'Applied.',
+        commandPath: '/repo/src/backend/scripts/python/activate-context-pack-helper.py',
+        result: {
+          ok: true,
+          wrapperAction: 'apply' as const,
+          stage: 'applied',
+          status: 'ok',
+          activation: { performed: true, exitCode: 0, output: '' },
+          envStateCleared: false,
+          error: null,
+          contextPackId: 'pack-a',
+          contextPackDir: '/packs/pack-a',
+          workspaceFile: null,
+          stateFile: null,
+          scopeMode: 'focused' as const,
+          selectedRepoIds: [],
+          selectedFocusIds: [],
+          warnings: [],
+          foldersToAdd: [],
+          foldersToRemove: [],
+          managedFolders: [],
+          targetFolders: [],
+          lastSyncedAt: null,
+          deepFocusEnabled: false,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      },
+    }));
+    const listContextPacks = vi.fn(async () => ({
+      action: 'contextPack.list' as const,
+      mode: 'read-only' as const,
+      message: 'listed',
+      activeContextPackDir: '/packs/pack-a',
+      configuredPaths: [],
+      searchRoots: [],
+      recentContextPackDirs: [],
+      contextPacks: [],
+    }));
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'contextPack.applySwitch',
+          payload: {
+            contextPackDir: '/packs/pack-a',
+            scopeMode: 'focused',
+            selectedRepoIds: [],
+            selectedFocusIds: [],
+          },
+        },
+        { applyContextPackSwitch, listContextPacks },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ ok: true }));
+
+    expect(refreshCurrentActiveContextPackTaskScope).toHaveBeenCalledWith(listContextPacks);
+    expect(resetStreamState).toHaveBeenCalledOnce();
+    expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledOnce();
+    expect(resetRuntimeStreamState).toHaveBeenCalledOnce();
+    expect(emitStreamEvent).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'contextPack.applySwitch',
+    }));
+    expect(refreshCurrentActiveContextPackTaskScope.mock.invocationCallOrder[0]).toBeLessThan(
+      emitStreamEvent.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('clears context-pack task scope before emitting a successful clear event', async () => {
+    vi.resetModules();
+    const refreshCurrentActiveContextPackTaskScope = vi.fn(async () => ({
+      previous: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+      next: null,
+      changed: true,
+    }));
+    const resetStreamState = vi.fn();
+    const resetRuntimeStreamState = vi.fn();
+    const emitStreamEvent = vi.fn();
+    const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
+    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+      refreshCurrentActiveContextPackTaskScope,
+    }));
+    vi.doMock('./main.stream', () => ({
+      clearTerminalTaskScopeForWebContents: vi.fn(),
+      emitStreamEvent,
+      refreshStreamTaskMetadataForScope,
+      resetStreamState,
+      setTerminalTaskScopeForWebContents: vi.fn(),
+      withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState,
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => []),
+      stopPipeline: vi.fn(async () => undefined),
+    }));
+
+    const { handleDesktopAction } = await import('./main');
+    const clearActiveContextPack = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'contextPack.clearActive' as const,
+        mode: 'cleared' as const,
+        message: 'Cleared.',
+        commandPath: '/repo/src/backend/scripts/python/activate-context-pack-helper.py',
+        result: {
+          ok: true,
+          wrapperAction: 'clear' as const,
+          stage: 'cleared',
+          status: 'ok',
+          activation: { performed: false, exitCode: null, output: '' },
+          envStateCleared: true,
+          error: null,
+          contextPackId: null,
+          contextPackDir: null,
+          workspaceFile: null,
+          stateFile: null,
+          scopeMode: null,
+          selectedRepoIds: [],
+          selectedFocusIds: [],
+          warnings: [],
+          foldersToAdd: [],
+          foldersToRemove: [],
+          managedFolders: [],
+          targetFolders: [],
+          lastSyncedAt: null,
+          deepFocusEnabled: false,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      },
+    }));
+    const listContextPacks = vi.fn(async () => ({
+      action: 'contextPack.list' as const,
+      mode: 'read-only' as const,
+      message: 'listed',
+      activeContextPackDir: null,
+      configuredPaths: [],
+      searchRoots: [],
+      recentContextPackDirs: [],
+      contextPacks: [],
+    }));
+
+    await expect(
+      handleDesktopAction(
+        { action: 'contextPack.clearActive' },
+        { clearActiveContextPack, listContextPacks },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ ok: true }));
+
+    expect(refreshCurrentActiveContextPackTaskScope).toHaveBeenCalledWith(listContextPacks);
+    expect(resetStreamState).toHaveBeenCalledOnce();
+    expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledOnce();
+    expect(resetRuntimeStreamState).toHaveBeenCalledOnce();
+    expect(emitStreamEvent).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'contextPack.clearActive',
+    }));
+    expect(resetStreamState.mock.invocationCallOrder[0]).toBeLessThan(
+      emitStreamEvent.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('keeps context-pack switch and clear guarded while pipelines are active', async () => {
+    vi.resetModules();
+    const refreshCurrentActiveContextPackTaskScope = vi.fn();
+    const resetStreamState = vi.fn();
+    const resetRuntimeStreamState = vi.fn();
+    const emitStreamEvent = vi.fn();
+    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+      refreshCurrentActiveContextPackTaskScope,
+    }));
+    vi.doMock('./main.stream', () => ({
+      clearTerminalTaskScopeForWebContents: vi.fn(),
+      emitStreamEvent,
+      refreshStreamTaskMetadataForScope: vi.fn(async () => undefined),
+      resetStreamState,
+      setTerminalTaskScopeForWebContents: vi.fn(),
+      withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState: vi.fn(async () => undefined),
+      resetRuntimeStreamState,
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
+      listActivePipelines: vi.fn(() => [{ taskId: 'TASK-A' }]),
+      stopPipeline: vi.fn(async () => undefined),
+    }));
+
+    const { handleDesktopAction } = await import('./main');
+    const applyContextPackSwitch = vi.fn();
+    const clearActiveContextPack = vi.fn();
+
+    await expect(
+      handleDesktopAction(
+        {
+          action: 'contextPack.applySwitch',
+          payload: {
+            contextPackDir: '/packs/pack-a',
+            scopeMode: 'focused',
+            selectedRepoIds: [],
+            selectedFocusIds: [],
+          },
+        },
+        { applyContextPackSwitch },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ ok: false }));
+    await expect(
+      handleDesktopAction(
+        { action: 'contextPack.clearActive' },
+        { clearActiveContextPack },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ ok: false }));
+
+    expect(applyContextPackSwitch).not.toHaveBeenCalled();
+    expect(clearActiveContextPack).not.toHaveBeenCalled();
+    expect(refreshCurrentActiveContextPackTaskScope).not.toHaveBeenCalled();
+    expect(resetStreamState).not.toHaveBeenCalled();
+    expect(resetRuntimeStreamState).not.toHaveBeenCalled();
+    expect(emitStreamEvent).not.toHaveBeenCalled();
+  });
+
   it('auto-starts the pipeline when moving to pending also activates the task', async () => {
     vi.resetModules();
     const runPipelineSequence = vi.fn(async () => ({
@@ -470,6 +1065,8 @@ describe('electron main bootstrap', () => {
       contextPackDir: null,
       status: 'completed',
     }));
+    const refreshRuntimeStreamState = vi.fn(async () => undefined);
+    const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
     const pathExists = vi.fn(async () => false);
     const moveToPending = vi.fn(async () => ({
       ok: true as const,
@@ -495,6 +1092,28 @@ describe('electron main bootstrap', () => {
       activeTaskWithBlankWorkspace: false,
       partialPublish: false,
       errorItemsCount: 0,
+    }));
+    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+      getCurrentActiveContextPackTaskScope: vi.fn(() => ({
+        contextPackId: 'pack-a',
+        contextPackDir: '/packs/pack-a',
+        contextPackName: 'pack-a',
+      })),
+      refreshCurrentActiveContextPackTaskScope: vi.fn(async () => ({
+        previous: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        next: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
+        changed: false,
+      })),
+    }));
+    vi.doMock('./main.runtimeStream', () => ({
+      refreshRuntimeStreamState,
+      resetRuntimeStreamState: vi.fn(),
+      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
+    }));
+    vi.doMock('./main.stream', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./main.stream')>()),
+      refreshStreamTaskMetadataForScope,
     }));
 
     vi.doMock('./utils', async (importOriginal) => {
@@ -553,6 +1172,8 @@ describe('electron main bootstrap', () => {
         taskId: '20260328-task',
       });
     });
+    expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledOnce();
+    expect(refreshRuntimeStreamState).toHaveBeenCalledOnce();
   });
 
   it('does not auto-start the pipeline when move to pending does not activate a task', async () => {

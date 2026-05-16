@@ -2,7 +2,7 @@ import { ensureDir, writeTextFile, resolvePaths, isMissingPathError } from '../c
 import type { AgentId, PythonResult } from '../core/index.js';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { computeRuntimeFactsSourceSignature, writeRuntimeWorkflowFacts } from './runtimeFacts.js';
 import { evaluateWorkflowPolicy } from '../workflow-policy/index.js';
 import type { PolicyValidationMode } from '../workflow-policy/index.js';
@@ -63,6 +63,21 @@ async function stamp(filePath: string): Promise<string> {
   }
 }
 
+async function roleSessionPolicyStamp(filePath: string): Promise<string> {
+  try {
+    const content = await readFile(filePath, 'utf-8');
+    const payload = JSON.parse(content) as unknown;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return stamp(filePath);
+    }
+    const normalized = { ...(payload as Record<string, unknown>) };
+    delete normalized.monitor;
+    return `${filePath}:normalized:${createHash('sha256').update(JSON.stringify(normalized)).digest('hex')}`;
+  } catch {
+    return stamp(filePath);
+  }
+}
+
 async function listJsonFiles(dirPath: string): Promise<string[]> {
   try {
     const entries = await readdir(dirPath);
@@ -105,9 +120,12 @@ async function computeRuntimePolicyStateKey(options: {
     ...conventionsFiles.filter((f) => !f.endsWith('/testing-infrastructure.json')),
     ...guardrailFiles.filter((f) => !f.endsWith('/testing-skip.json')),
   ];
+  const roleSessionFileSet = new Set(roleSessionFiles);
   const hasher = createHash('sha256');
   hasher.update(`agent=${options.agentId}\nmode=${options.mode}\nruntimeFacts=${runtimeFactsSignature}\n`);
-  for (const line of await Promise.all(tracked.map((trackedPath) => stamp(trackedPath)))) {
+  for (const line of await Promise.all(tracked.map((trackedPath) =>
+    roleSessionFileSet.has(trackedPath) ? roleSessionPolicyStamp(trackedPath) : stamp(trackedPath),
+  ))) {
     hasher.update(line);
     hasher.update('\n');
   }

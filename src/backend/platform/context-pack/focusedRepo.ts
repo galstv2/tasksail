@@ -277,13 +277,13 @@ export async function resolveSelectedPrimaryRepoRoot(
         manifest,
         resolvedPackDir,
         deepFocusPrimaryIds ?? selection.selectedFocusIds,
-        { allowMultiplePrimaries: selection.deepFocusEnabled === true },
+        { allowMultiplePrimaries: true },
       )
     : resolveSelectedDistributedPrimary(
         manifest,
         resolvedPackDir,
         deepFocusPrimaryIds ?? selection.selectedRepoIds,
-        { allowMultiplePrimaries: selection.deepFocusEnabled === true },
+        { allowMultiplePrimaries: true },
       );
 
   if (!primary) {
@@ -310,12 +310,16 @@ export async function resolveSelectedPrimaryRepoRoot(
           legacyPrimaryFocusRelativePath: primary.primaryFocusRelativePath,
         })
     : undefined;
+  const standardMonolithPrimaryTargets = selection.deepFocusEnabled !== true && isMonolith
+    ? buildStandardMonolithPrimaryTargets(manifest, deepFocusPrimaryIds ?? selection.selectedFocusIds, primary.repoRoot)
+    : undefined;
   const primaryFocusTargets = deepFocus?.primaryFocusTargets
     ? attachPrimaryTargetIdentities(deepFocus.primaryFocusTargets, selection.selectedFocusTargets)
-    : undefined;
+    : standardMonolithPrimaryTargets;
   const derivedRoots = deriveWritableRootsFromFocusedSelection({
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath,
-    primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
+    primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind
+      ?? (standardMonolithPrimaryTargets?.length ? 'directory' : undefined),
     primaryFocusTargets: (primaryFocusTargets?.length ?? 0) > 0
       ? primaryFocusTargets
       : undefined,
@@ -344,7 +348,8 @@ export async function resolveSelectedPrimaryRepoRoot(
     primaryFocusId: primary.primaryFocusId,
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath,
     deepFocusEnabled: deepFocus?.deepFocusEnabled,
-    primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
+    primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind
+      ?? (standardMonolithPrimaryTargets?.length ? 'directory' : undefined),
     primaryFocusTargets,
     selectedTestTarget: deepFocus?.selectedTestTarget,
     testTarget: deepFocus?.testTarget,
@@ -360,6 +365,47 @@ export async function resolveSelectedPrimaryRepoRoot(
         : [],
     authoritySource: selection.source,
   };
+}
+
+export function buildStandardMonolithPrimaryTargets(
+  manifest: Manifest,
+  selectedFocusIds: string[],
+  primaryRepoRoot: string,
+): PrimaryFocusTarget[] | undefined {
+  const focusableAreas = Array.isArray(manifest.focusable_areas) ? manifest.focusable_areas : [];
+  if (focusableAreas.length === 0) {
+    return undefined;
+  }
+  const areaById = new Map(focusableAreas
+    .filter((area) => typeof area.focus_id === 'string' && area.focus_id.trim())
+    .map((area) => [area.focus_id!.trim(), area]));
+  const targets: PrimaryFocusTarget[] = [];
+  const seen = new Set<string>();
+  for (const selectedFocusId of selectedFocusIds) {
+    const focusId = selectedFocusId.trim();
+    if (!focusId || seen.has(focusId)) {
+      continue;
+    }
+    seen.add(focusId);
+    const area = areaById.get(focusId);
+    if (area?.repository_type !== 'primary') {
+      continue;
+    }
+    const relativePath = typeof area.relative_path === 'string'
+      ? area.relative_path.trim()
+      : '';
+    if (!relativePath) {
+      throw new Error(`Selected primary focus area "${focusId}" is missing required relative_path.`);
+    }
+    targets.push({
+      path: relativePath,
+      kind: 'directory',
+      repoLocalPath: primaryRepoRoot,
+      focusId,
+      role: targets.length === 0 ? 'anchor' : 'primary',
+    });
+  }
+  return targets.length > 1 ? targets : undefined;
 }
 
 function attachPrimaryTargetIdentities(
@@ -549,7 +595,7 @@ function explainDistributedSelectionFailure(
   if (primaryRepos.length === 0) {
     return (
       `selectedRepoIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
-      'contains no repos with repository_type=primary in the manifest — exactly one required.'
+      'contains no repos with repository_type=primary in the manifest — at least one required.'
     );
   }
   if (primaryRepos.length > 1) {
@@ -618,7 +664,7 @@ function explainMonolithSelectionFailure(
   if (primaryAreas.length === 0) {
     return (
       `selectedFocusIds [${candidateIds.join(', ')}] (${sourceLabel}) ` +
-      'contains no focusable_areas with repository_type=primary in the manifest — exactly one required.'
+      'contains no focusable_areas with repository_type=primary in the manifest — at least one required.'
     );
   }
   if (primaryAreas.length > 1) {

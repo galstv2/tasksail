@@ -1,7 +1,9 @@
-import { extractMarkdownSection, stripHtmlComments } from '../core/index.js';
+import { createLogger, extractMarkdownSection, stripHtmlComments } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { loadMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
 import { SECTION_NAMES } from '../workflow-policy/contracts/sectionNames.js';
+
+const log = createLogger('platform/queue/markdown');
 
 /**
  * Extract the H1 heading text from markdown content.
@@ -378,7 +380,7 @@ function extractLabeledValue(text: string, label: string, sectionName = 'unknown
       continue;
     }
     if (!duplicateWarned) {
-      console.warn(`Duplicate label "${label}" in section "${sectionName}"; using first value.`);
+      log.warn('markdown.label.duplicate', { label, sectionName });
       duplicateWarned = true;
     }
   }

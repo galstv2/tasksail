@@ -24,6 +24,9 @@ import { join } from 'node:path';
 
 import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 import { REPO_ROOT } from './paths';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/main.cleanup');
 
 // ── Path constants ──────────────────────────────────────────────────────────
 
@@ -76,7 +79,14 @@ export function cleanupWorkspaceOnQuit(): void {
     clearEphemeralRuntime,       // step 8
   ];
   for (const step of steps) {
-    try { step(); } catch { /* best-effort */ }
+    try {
+      step();
+    } catch (err: unknown) {
+      log.warn('cleanup.step.failed', {
+        step: step.name || 'anonymous',
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
@@ -140,7 +150,7 @@ function tearDownAllWorktrees(): void {
     try {
       registry = JSON.parse(raw);
     } catch {
-      console.warn('cleanup-json-parse-failed', TASK_REGISTRY_PATH);
+      log.warn('cleanup.task-registry.parse.failed', { path: TASK_REGISTRY_PATH });
       registry = {};
     }
     // registry.tasks is a map of contextPackId → task-set; collect taskIds from active/pending entries
@@ -186,7 +196,7 @@ function tearDownAllWorktrees(): void {
         try {
           sidecar = JSON.parse(raw);
         } catch {
-          console.warn('cleanup-json-parse-failed', taskJsonPath);
+          log.warn('cleanup.task-json.parse.failed', { path: taskJsonPath });
           sidecar = {};
         }
         sidecarState = typeof sidecar.state === 'string' ? sidecar.state : null;
@@ -211,9 +221,7 @@ function tearDownAllWorktrees(): void {
     }
 
     if (sidecarState === 'completed') {
-      console.warn(
-        `cleanup-preserved-completed-sidecar taskId=${taskId} sidecar=${taskJsonPath}`,
-      );
+      log.warn('cleanup.completed-sidecar.preserved', { taskId, sidecar: taskJsonPath });
       continue;
     }
 
@@ -322,7 +330,11 @@ function resetTaskRegistry(): void {
     if (dirty) {
       writeFileSync(TASK_REGISTRY_PATH, JSON.stringify(registry, null, 2));
     }
-  } catch { /* best-effort */ }
+  } catch (err: unknown) {
+    log.warn('cleanup.task-registry.reset.failed', {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**

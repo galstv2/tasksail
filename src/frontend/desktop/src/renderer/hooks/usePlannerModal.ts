@@ -30,6 +30,7 @@ import {
 } from '../plannerComposer';
 import { buildAppViewModel } from '../selectors/appViewModel';
 import type { DesktopShellClient } from '../services/desktopShellClient';
+import { createLogger } from '../log/logger';
 import { normalizeIpcThrownError } from '../services/ipcErrorHelpers';
 import { useFollowUpFlow } from './useFollowUpFlow';
 import { usePlannerFlow } from './usePlannerFlow';
@@ -54,6 +55,7 @@ const EMPTY_DRAFT_SEED: PlannerDraftSeed = {
 const DRAFT_READ_POLL_INTERVAL_MS = 100;
 const DRAFT_READ_MAX_ATTEMPTS = 20;
 const MISSING_PARENT_FOCUS_ERROR = 'This archived parent task has no saved planner focus and cannot be used as a parent. Refresh the parent list and try again.';
+const log = createLogger('src/renderer/hooks/usePlannerModal');
 
 function toRendererMessage(message: PlannerConversationTranscriptMessage): ConversationMessage {
   return {
@@ -120,14 +122,21 @@ export function usePlannerModal(
         if (!result.ok || result.response.action !== 'planner.startSession') {
           expectedSessionIdRef.current = null;
           setSessionStatus('failed');
+          log.warn('planner.session.start.failed', {
+            contextPackDir: activeContextPackDir,
+            reason: result.ok ? 'Unexpected planner start response.' : result.error,
+          });
           return;
         }
         expectedSessionIdRef.current = result.response.sessionId;
         setSessionStatus('active');
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         expectedSessionIdRef.current = null;
         setSessionStatus('failed');
+        log.error('planner.session.start.failed', err, {
+          contextPackDir: activeContextPackDir,
+        });
       });
   }, [client, activeContextPackDir, deepFocusSelection]);
   const openPlannerModal = useCallback(() => {
@@ -155,7 +164,11 @@ export function usePlannerModal(
     setReplayInFlight(false);
     setReplaySourceRecordId(null);
     setLoadingChildTaskParent(false);
-    client.endPlannerSession().catch(() => {});
+    client.endPlannerSession().catch((err: unknown) => {
+      log.warn('planner.session.end.failed', {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    });
   }, [client, plannerStream.clearConversation]);
 
   const closePlannerModal = useCallback(() => {
@@ -317,7 +330,13 @@ export function usePlannerModal(
           setArchivedTasks(response.tasks);
         }
       })
-      .catch(() => { if (!cancelled) setArchivedTasks([]); })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = normalizeIpcThrownError(error, 'Failed to load archived tasks.');
+        log.warn('planner.archived-tasks.load.failed', { reason: message });
+        setArchivedTasks([]);
+        setDraftError(message);
+      })
       .finally(() => { if (!cancelled) setLoadingArchivedTasks(false); });
     return () => { cancelled = true; };
   }, [childTaskMode, client]);

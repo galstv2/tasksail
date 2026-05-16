@@ -6,7 +6,6 @@ import { useReinforcementOverview } from '../../hooks/useReinforcementOverview';
 import { useRealignmentSessions } from '../../hooks/useRealignmentSessions';
 import { useReinforcementTasks } from '../../hooks/useReinforcementTasks';
 import { useRealignmentDocument } from '../../hooks/useRealignmentDocument';
-import { useActiveWorkGuard } from '../../hooks/useActiveWorkGuard';
 import { useStreamEvents } from '../../hooks/useStreamEvents';
 import { filterSessionsForTasks, selectScopedSession } from '../../selectors/reinforcementSessionFilter';
 import { CloseIcon } from '../creation-steps/icons';
@@ -33,6 +32,7 @@ function ReinforcementModal({
   activeContextPackDir,
 }: ReinforcementModalProps): JSX.Element | null {
   const [activeTab, setActiveTab] = useState<ModalTab>('feedback');
+  const [optimisticReviewedTaskIds, setOptimisticReviewedTaskIds] = useState<Set<string>>(() => new Set());
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -49,17 +49,18 @@ function ReinforcementModal({
 
   const {
     tasks, availableYears, selectedYear, loading: tasksLoading,
-    error: tasksError, onSelectYear,
+    error: tasksError, onSelectYear, reload: reloadTasks,
   } = useReinforcementTasks(hasActiveContextPack);
 
   const {
     overview, loading: overviewLoading, error: overviewError,
+    reload: reloadOverview,
   } = useReinforcementOverview(hasActiveContextPack);
 
   const {
     sessions, selectedSessionId,
     loading: sessionsLoading, error: sessionsError, analysisRun,
-    onSelectSession, runAnalysis, completeAnalysisRun, reload: reloadSessions,
+    onSelectSession, runAnalysis, dismissRealignment, completeAnalysisRun, reload: reloadSessions,
   } = useRealignmentSessions(hasActiveContextPack);
   const { events: streamEvents } = useStreamEvents(50);
   const runStartEventId = useRef<string | null>(null);
@@ -73,8 +74,6 @@ function ReinforcementModal({
     () => selectScopedSession(contextPackSessions, selectedSessionId),
     [contextPackSessions, selectedSessionId],
   );
-
-  const { guard: activeWorkGuard, startRealignment } = useActiveWorkGuard(hasActiveContextPack);
 
   const doc = useRealignmentDocument(hasActiveContextPack);
   const { reload: reloadDocument } = doc;
@@ -94,14 +93,28 @@ function ReinforcementModal({
 
   const handleSubmit = useCallback(() => {
     if (activeContextPackDir) {
-      submitFeedback(activeContextPackDir).catch(() => {});
+      submitFeedback(activeContextPackDir).then((outcome) => {
+        if (!outcome) return;
+        setOptimisticReviewedTaskIds((current) => new Set(current).add(outcome.taskId));
+        reloadTasks();
+        reloadOverview();
+        reloadSessions().catch(() => {});
+      }).catch(() => {});
     }
-  }, [activeContextPackDir, submitFeedback]);
+  }, [activeContextPackDir, reloadOverview, reloadSessions, reloadTasks, submitFeedback]);
 
-  const handleStartRealignment = useCallback(() => {
-    if (!activeContextPackDir) return;
-    startRealignment(activeContextPackDir, 'operator-initiated');
-  }, [activeContextPackDir, startRealignment]);
+  const visibleTasks = useMemo(
+    () => tasks.map((task) => (
+      optimisticReviewedTaskIds.has(task.taskId)
+        ? {
+          ...task,
+          reviewStatus: 'reviewed' as const,
+          feedbackCount: Math.max(task.feedbackCount ?? 0, 1),
+        }
+        : task
+    )),
+    [optimisticReviewedTaskIds, tasks],
+  );
 
   const handleRunAnalysis = useCallback(
     (realignmentId: string) => {
@@ -112,6 +125,14 @@ function ReinforcementModal({
       runAnalysis(activeContextPackDir, realignmentId).catch(() => {});
     },
     [activeContextPackDir, runAnalysis, streamEvents.length],
+  );
+
+  const handleDismissRealignment = useCallback(
+    (realignmentId: string) => {
+      if (!activeContextPackDir) return;
+      dismissRealignment(activeContextPackDir, realignmentId).catch(() => {});
+    },
+    [activeContextPackDir, dismissRealignment],
   );
 
   useEffect(() => {
@@ -195,7 +216,7 @@ function ReinforcementModal({
           {activeTab === 'feedback' && (
             <FeedbackPanel
               hasActiveContextPack={hasActiveContextPack}
-              tasks={tasks}
+              tasks={visibleTasks}
               availableYears={availableYears}
               selectedYear={selectedYear}
               tasksLoading={tasksLoading}
@@ -223,7 +244,7 @@ function ReinforcementModal({
           {activeTab === 'ledger' && (
             <TaskLedgerTable
               hasActiveContextPack={hasActiveContextPack}
-              tasks={tasks}
+              tasks={visibleTasks}
               availableYears={availableYears}
               selectedYear={selectedYear}
               loading={tasksLoading}
@@ -240,10 +261,9 @@ function ReinforcementModal({
               loading={sessionsLoading || tasksLoading}
               error={sessionsError}
               onSelectSession={onSelectSession}
-              activeWorkGuard={activeWorkGuard}
-              onStartRealignment={handleStartRealignment}
               analysisRun={analysisRun}
               onRunAnalysis={handleRunAnalysis}
+              onDismissRealignment={handleDismissRealignment}
             />
           )}
           {activeTab === 'document' && (

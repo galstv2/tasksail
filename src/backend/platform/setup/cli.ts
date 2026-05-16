@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
 import { setupRepo } from './setup.js';
+import {
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 
 function usage(): void {
-  console.log(`Usage: platform-setup [options]
+  writeProtocolStdout(`Usage: platform-setup [options]
 
 Options:
   --skip-container-services  Skip starting container services
@@ -25,23 +30,20 @@ async function main(): Promise<void> {
 
   const result = await setupRepo({ skipContainerServices });
 
-  console.log(`Platform: ${result.os}`);
+  writeProtocolStdout(`Platform: ${result.os}\n`);
   for (const step of result.steps) {
     const icon = step.status === 'ok' ? 'ok' : step.status === 'skipped' ? 'skip' : 'FAIL';
     const msg = step.message ? ` — ${step.message}` : '';
-    console.log(`  [${icon}] ${step.name}${msg}`);
+    writeProtocolStdout(`  [${icon}] ${step.name}${msg}\n`);
   }
 
   const failed = result.steps.some(s => s.status === 'failed');
   if (failed) {
-    console.error('\nSetup completed with failures.');
+    writeProtocolStderr('\nSetup completed with failures.\n');
     process.exit(1);
   }
 
-  console.log('\nSetup completed successfully.');
+  writeProtocolStdout('\nSetup completed successfully.\n');
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+runCliBoundary('platform/setup/cli', main);

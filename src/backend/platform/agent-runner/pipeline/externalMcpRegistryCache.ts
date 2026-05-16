@@ -3,7 +3,10 @@ import {
   loadExternalMcpRegistryWithFallback,
   type ExternalMcpRegistry,
 } from '../../external-mcp-registry/index.js';
+import { createLogger } from '../../core/index.js';
 import type { ExternalMcpRegistryHealth } from '../types.js';
+
+const log = createLogger('platform/agent-runner/pipeline/externalMcpRegistryCache');
 
 // Exempt: read-only shared config, not per-task runtime state (§2.6 audit).
 // SAFE: header env resolution is process-global; per-task header values are not supported.
@@ -60,10 +63,10 @@ export async function prewarmExternalMcpRegistry(repoRoot: string): Promise<Exte
         reason: error instanceof Error ? error.message : String(error),
         serverCount: 0,
       });
-      console.warn(
-        '[pipeline] external MCP registry prewarm failed; continuing with empty registry:',
-        error instanceof Error ? error.message : error,
-      );
+      log.warn('external_mcp_registry.prewarm.failed', {
+        repoRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return registry;
     } finally {
       externalMcpRegistryLoads.delete(repoRoot);

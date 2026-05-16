@@ -6,12 +6,15 @@ import {
   resolvePath,
   findRepoRoot,
   runPython,
+  createLogger,
 } from '../core/index.js';
 import {
   type ActivateOptions,
   type ValidationResult,
 } from './types.js';
 import { rebuildAgentMirror } from './rebuildAgentMirror.js';
+
+const log = createLogger('platform/context-pack/activate');
 
 /** Env var key for the active context pack directory. */
 export const ACTIVE_CONTEXT_PACK_DIR_KEY = 'ACTIVE_CONTEXT_PACK_DIR';
@@ -126,9 +129,7 @@ export async function activateContextPack(
       await rebuildAgentMirror(repoRoot, contextPackDir);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(
-        `Warning: agent mirror rebuild failed during activation: ${message}\n`,
-      );
+      log.warn('agent_mirror.rebuild.failed', { contextPackDir, error: message });
     }
   }
 

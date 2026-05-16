@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { ensureEnvFile } from '../core/index.js';
+import { createLogger, ensureEnvFile } from '../core/index.js';
 import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
@@ -10,6 +10,8 @@ import type { ServiceHealthSpec } from './types.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { buildComposeCommand, validateComposeConfig, execCommand } from './compose.js';
 import { assertHealthSpecsConfigured } from './healthcheck.js';
+
+const log = createLogger('platform/container/bootstrap');
 
 /**
  * Bootstrap container services: seed registry, validate compose config,
@@ -170,8 +172,6 @@ async function verifyRegistryComposeConsistency(
   const registryServiceNames = new Set(enabledServices.map((s) => s.compose.serviceName));
   const extraCompose = composeServiceNames.filter((n) => !registryServiceNames.has(n));
   if (extraCompose.length > 0) {
-    process.stderr.write(
-      `Note: compose service(s) not in MCP registry (may be non-MCP infrastructure): ${extraCompose.join(', ')}\n`,
-    );
+    log.warn('compose_services.extra', { services: extraCompose });
   }
 }

@@ -2,10 +2,12 @@ import type {
   PersistedContextPackCreation,
 } from '../contextPackCreationTypes';
 import { isPersistedContextPackCreation } from '../contextPackCreationTypes';
+import { createLogger } from '../log/logger';
 
 export const CONTEXT_PACK_CREATION_DRAFT_KEY = 'context-pack-creation-draft.v1';
 
 const MAX_DRAFT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const log = createLogger('src/renderer/hooks/useContextPackCreationDraftPersistence');
 
 function getStorage(): Storage | null {
   try {
@@ -29,7 +31,7 @@ export function loadPersistedContextPackCreationDraft(): PersistedContextPackCre
     const savedAt = Date.parse(parsed.savedAt);
     if (!Number.isFinite(savedAt) || Date.now() - savedAt > MAX_DRAFT_AGE_MS) {
       storage.removeItem(CONTEXT_PACK_CREATION_DRAFT_KEY);
-      console.warn('Discarded stale context-pack creation draft.');
+      log.warn('context-pack.creation-draft.discarded');
       return null;
     }
     return parsed;

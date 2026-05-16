@@ -221,23 +221,26 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
             service = WorkspaceContextSyncService(
                 workspace_root=workspace_root
             )
-            service.apply_sync(
+            result = service.apply_sync(
                 context_pack_dir,
                 selected_focus_ids=["services-identity"],
                 scope_mode="focused",
             )
+            self.assertEqual(
+                result["target_folders"],
+                [
+                    (monolith_root / "services" / "identity").resolve().as_posix(),
+                ],
+            )
+            self.assertEqual(result["folders_to_add"], [])
+            self.assertEqual(result["managed_folders"], [])
 
             workspace_payload = json.loads(
                 workspace_path.read_text(encoding="utf-8")
             )
             self.assertEqual(
                 workspace_payload["folders"],
-                [
-                    {"path": "."},
-                    {"path": str(
-                        (monolith_root / "services" / "identity").resolve()
-                    )},
-                ],
+                [{"path": "."}],
             )
             state = service.load_sync_state()
             self.assertEqual(state["selected_repo_ids"], [])
@@ -334,7 +337,7 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
                 workspace_root=workspace_root,
                 now=lambda: "2026-03-08T02:00:00Z",
             )
-            service.apply_sync(context_pack_dir)
+            result = service.apply_sync(context_pack_dir)
             workspace_path.write_text(
                 json.dumps(
                     {"folders": [{"path": "."}], "settings": {}},
@@ -346,15 +349,14 @@ class WorkspaceContextSyncFocusedTests(WorkspaceContextSyncServiceTests):
 
             health = service.inspect_sync_health()
 
-            self.assertEqual(health["status"], "active-dirty-workspace")
-            self.assertTrue(health["drift_detected"])
-            self.assertTrue(health["restore_available"])
-            self.assertEqual(
-                health["missing_managed_folders"],
-                [
-                    str(repo_one.resolve()),
-                ],
-            )
+            self.assertEqual(result["target_folders"], [repo_one.resolve().as_posix()])
+            self.assertEqual(result["managed_folders"], [])
+            self.assertEqual(health["status"], "active")
+            self.assertFalse(health["drift_detected"])
+            self.assertFalse(health["restore_available"])
+            self.assertEqual(health["missing_managed_folders"], [])
+            self.assertEqual(health["attached_managed_folders"], [])
+            self.assertEqual(health["managed_folders"], [])
 
     def test_inspect_sync_health_reports_clean_active_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:

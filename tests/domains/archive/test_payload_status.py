@@ -1,10 +1,8 @@
 """Regression tests for structured Test Status / QA Status fields."""
 from __future__ import annotations
 
-import io
 import sys
 import unittest
-from contextlib import redirect_stderr
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -73,7 +71,7 @@ def _write_handoffs(
 class StructuredStatusTests(unittest.TestCase):
     TASK_ID = "TEST-1"
 
-    def _run(self, **handoff_kwargs) -> tuple[dict, str]:
+    def _run(self, **handoff_kwargs) -> dict:
         with TemporaryDirectory() as tmp:
             repo_root = Path(tmp) / "repo"
             handoffs_dir = (
@@ -82,75 +80,92 @@ class StructuredStatusTests(unittest.TestCase):
             _write_handoffs(handoffs_dir, **handoff_kwargs)
             context_pack_dir = repo_root / "contextpacks" / "fixture-pack"
             context_pack_dir.mkdir(parents=True, exist_ok=True)
-            stderr_buf = io.StringIO()
             # Production's workspace_paths.handoffs_dir reads TASKSAIL_TASK_ID
             # to choose per-task vs. legacy singleton layout. Pin it so the
             # archiver reads from the same per-task path the fixture writes,
             # matching the rest of the archive test suite.
             with patch.dict("os.environ", {"TASKSAIL_TASK_ID": self.TASK_ID}):
-                with redirect_stderr(stderr_buf):
-                    payload, _record_path, _parent = build_archive_payload(
-                        repo_root=repo_root,
-                        context_pack_dir=context_pack_dir,
-                        qmd_scope="qmd/context-packs/fixture-pack",
-                    )
-            return payload, stderr_buf.getvalue()
+                payload, _record_path, _parent = build_archive_payload(
+                    repo_root=repo_root,
+                    context_pack_dir=context_pack_dir,
+                    qmd_scope="qmd/context-packs/fixture-pack",
+                )
+            return payload
 
     def test_test_status_structured_passed_overrides_classifier(self) -> None:
-        payload, stderr = self._run(
+        payload = self._run(
             test_status_section="passed",
             qa_status_section="passed",
             test_result_summary="Two failures earlier; ultimately passed.",
         )
         self.assertEqual(payload["test_status"], "passed")
-        self.assertEqual(stderr, "")
 
     def test_test_status_structured_failed_overrides_passing_prose(self) -> None:
-        payload, _ = self._run(
+        payload = self._run(
             test_status_section="failed",
             test_result_summary="Tests passed eventually.",
         )
         self.assertEqual(payload["test_status"], "failed")
 
     def test_test_status_empty_falls_back_and_warns(self) -> None:
-        payload, stderr = self._run(
-            test_status_section="",
-            qa_status_section="passed",
-            test_result_summary="all passed",
-        )
+        with self.assertLogs("lib.archive.payload", level="WARNING") as captured:
+            payload = self._run(
+                test_status_section="",
+                qa_status_section="passed",
+                test_result_summary="all passed",
+            )
         self.assertEqual(payload["test_status"], "passed")
-        self.assertIn("TEST-1", stderr)
-        self.assertIn("Test Status", stderr)
+        self.assertTrue(any(
+            record.getMessage() == "archive.structured_status.empty"
+            and getattr(record, "task_id", None) == "TEST-1"
+            and getattr(record, "field_name", None) == "Test Status"
+            for record in captured.records
+        ))
 
     def test_test_status_unknown_value_falls_back_and_warns(self) -> None:
-        payload, stderr = self._run(
-            test_status_section="green",
-            qa_status_section="passed",
-            test_result_summary="all passed",
-        )
+        with self.assertLogs("lib.archive.payload", level="WARNING") as captured:
+            payload = self._run(
+                test_status_section="green",
+                qa_status_section="passed",
+                test_result_summary="all passed",
+            )
         self.assertEqual(payload["test_status"], "passed")
-        self.assertIn("green", stderr)
-        self.assertIn("TEST-1", stderr)
+        self.assertTrue(any(
+            record.getMessage() == "archive.structured_status.unrecognized"
+            and getattr(record, "task_id", None) == "TEST-1"
+            and getattr(record, "raw_value", None) == "green"
+            for record in captured.records
+        ))
 
     def test_qa_status_structured_passed_overrides_stale_issues(self) -> None:
-        payload, _ = self._run(
+        payload = self._run(
             qa_status_section="passed",
             issues_review_outcome="advisory",
         )
         self.assertEqual(payload["qa_status"], "passed")
 
     def test_qa_status_empty_falls_back_to_issues_scan(self) -> None:
-        payload, stderr = self._run(
-            qa_status_section="",
-            issues_review_outcome="advisory",
-        )
+        with self.assertLogs("lib.archive.payload", level="WARNING") as captured:
+            payload = self._run(
+                qa_status_section="",
+                issues_review_outcome="advisory",
+            )
         self.assertEqual(payload["qa_status"], "issues-found")
-        self.assertIn("QA Status", stderr)
+        self.assertTrue(any(
+            record.getMessage() == "archive.structured_status.empty"
+            and getattr(record, "field_name", None) == "QA Status"
+            for record in captured.records
+        ))
 
     def test_qa_status_structured_invalid_falls_back(self) -> None:
-        payload, stderr = self._run(qa_status_section="yes")
+        with self.assertLogs("lib.archive.payload", level="WARNING") as captured:
+            payload = self._run(qa_status_section="yes")
         self.assertIn(payload["qa_status"], {"passed", "issues-found"})
-        self.assertIn("yes", stderr)
+        self.assertTrue(any(
+            record.getMessage() == "archive.structured_status.unrecognized"
+            and getattr(record, "raw_value", None) == "yes"
+            for record in captured.records
+        ))
 
     def test_branch_handoffs_are_added_to_payload_and_provenance(self) -> None:
         handoffs = [
@@ -164,7 +179,7 @@ class StructuredStatusTests(unittest.TestCase):
                 "status": "ready-for-operator-review",
             }
         ]
-        payload, _ = self._run(branch_handoffs=handoffs)
+        payload = self._run(branch_handoffs=handoffs)
         self.assertEqual(payload["branch_handoffs"], handoffs)
         self.assertIn(
             f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs/branch-handoffs.json",

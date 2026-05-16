@@ -4,7 +4,7 @@ import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
 import type { ExternalMcpRegistry } from '../external-mcp-registry/index.js';
-import { readStoreJsonSafe } from './reinforcementPaths.js';
+import { readJsonSafe, readStoreJsonSafe } from './reinforcementPaths.js';
 import { prewarmExternalMcpRegistry } from './pipeline/externalMcpRegistryCache.js';
 import {
   executeRealignmentSession,
@@ -378,4 +378,86 @@ export async function runRealignmentAnalysis(options: {
     abortSignal: options.abortSignal,
     externalMcpRegistry,
   });
+}
+
+export interface DismissRealignmentOptions {
+  contextPackDir: string;
+  realignmentId: string;
+  repoRoot?: string;
+}
+
+export interface DismissRealignmentResult {
+  passed: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  data?: Record<string, unknown>;
+}
+
+export async function dismissRealignmentSession(
+  options: DismissRealignmentOptions,
+): Promise<DismissRealignmentResult> {
+  const repoRoot = options.repoRoot ?? findRepoRoot();
+  const contextPackDir = await requireAuthorizedActiveContextPack({
+    repoRoot,
+    requestedContextPackDir: options.contextPackDir,
+  });
+  const receipt = await readJsonSafe<{ status?: string }>(path.join(
+    repoRoot,
+    '.platform-state',
+    'runtime',
+    'realignment',
+    options.realignmentId,
+    'job.json',
+  ));
+  if (receipt?.status === 'running') {
+    return {
+      passed: false,
+      stdout: '',
+      stderr: JSON.stringify({
+        error: 'realignment_in_progress',
+        message: 'This realignment is currently in progress and cannot be dismissed.',
+      }),
+      exitCode: 1,
+    };
+  }
+  const scriptPath = path.join(
+    repoRoot,
+    'src', 'backend', 'scripts', 'python',
+    'dismiss-realignment-session.py',
+  );
+
+  try {
+    const result = await runPython(scriptPath, [
+      '--repo-root', repoRoot,
+      '--context-pack-dir', contextPackDir,
+      '--realignment-id', options.realignmentId,
+    ], {
+      cwd: repoRoot,
+      timeout: 30_000,
+    });
+    let data: Record<string, unknown> | undefined;
+    try {
+      data = JSON.parse(result.stdout);
+    } catch {
+      // stdout was not valid JSON — leave data undefined
+    }
+    return {
+      passed: true,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: 0,
+      data,
+    };
+  } catch (err: unknown) {
+    if (err instanceof PythonRunError) {
+      return {
+        passed: false,
+        stdout: err.stdout,
+        stderr: err.stderr,
+        exitCode: err.exitCode,
+      };
+    }
+    throw err;
+  }
 }

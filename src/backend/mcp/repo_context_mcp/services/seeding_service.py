@@ -5,7 +5,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.backend.mcp.context_estate.workspace_analysis import analyze_workspace_counts
-from src.backend.mcp.pack_io import NoExistingPathError, resolve_first_existing
+from src.backend.mcp.git_roots import enrich_manifest_missing_git_roots
+from src.backend.mcp.pack_io import (
+    NoExistingPathError,
+    resolve_first_existing,
+    write_text_atomic,
+)
+from src.backend.mcp.pack_schemas import canonicalize
 
 from ..models import RepoSeedResult
 from ..utils import (
@@ -205,6 +211,12 @@ class SeedingService:
             effective_plan_file,
             "plan_file",
         )
+        raw_manifest = load_json(manifest_path)
+        if enrich_manifest_missing_git_roots(
+            raw_manifest,
+            context_pack_dir=context_pack_path,
+        ):
+            write_text_atomic(manifest_path, canonicalize(raw_manifest) + "\n")
         plan, plan_source = self.get_live_plan(
             context_pack_dir=context_pack_path,
             manifest_path=manifest_path,

@@ -4,6 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 export interface ManifestLocalPath {
   host: string;
   container?: string | null;
+  git_root?: string | null;
 }
 
 export type ManifestLocalPathInput = string | ManifestLocalPath;
@@ -24,6 +25,18 @@ export function normalizeManifestLocalPath(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+export function normalizeManifestGitRoot(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const gitRoot = (value as Record<string, unknown>).git_root;
+  if (typeof gitRoot !== 'string') {
+    return null;
+  }
+  const normalized = gitRoot.replace(/\\/g, '/').trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function normalizeManifestLocalPaths(value: unknown): string[] {
   return Array.isArray(value)
     ? value
@@ -32,11 +45,10 @@ export function normalizeManifestLocalPaths(value: unknown): string[] {
     : [];
 }
 
-export function resolveExistingManifestLocalPath(
-  value: unknown,
+function resolveExistingNormalizedPath(
+  normalized: string | null,
   baseDir: string,
 ): string | undefined {
-  const normalized = normalizeManifestLocalPath(value);
   if (!normalized) {
     return undefined;
   }
@@ -51,4 +63,18 @@ export function resolveExistingManifestLocalPath(
   } catch {
     return undefined;
   }
+}
+
+export function resolveExistingManifestLocalPath(
+  value: unknown,
+  baseDir: string,
+): string | undefined {
+  return resolveExistingNormalizedPath(normalizeManifestLocalPath(value), baseDir);
+}
+
+export function resolveExistingManifestGitRoot(
+  value: unknown,
+  baseDir: string,
+): string | undefined {
+  return resolveExistingNormalizedPath(normalizeManifestGitRoot(value), baseDir);
 }

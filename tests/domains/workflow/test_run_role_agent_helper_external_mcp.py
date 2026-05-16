@@ -80,7 +80,7 @@ class RunRoleAgentHelperExternalMcpTests(unittest.TestCase):
         )
         self.assertNotIn("COPILOT_HOME", payload["envExports"])
         self.assertIn("EXTERNAL_MCP_CONTEXT_FILE", payload["envExports"])
-        self.assertTrue(payload["launchDir"].endswith("copilot-home/" + Path(payload["launchDir"]).name))
+        self.assertTrue(payload["launchDir"].endswith("cli-home/" + Path(payload["launchDir"]).name))
         self.assertEqual(payload["contextFile"], payload["envExports"]["EXTERNAL_MCP_CONTEXT_FILE"])
         self.assertEqual(payload["resolvedServers"], [{
             "id": "test-mcp",

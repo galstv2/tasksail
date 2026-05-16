@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { readTextFile, getErrorMessage } from '../../core/index.js';
+import { createLogger, readTextFile, getErrorMessage } from '../../core/index.js';
 import { isWindowsPlatform } from '../../core/platform.js';
 import { getEffectiveScopeForPrimary, resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import { listSliceFiles } from '../artifactCompletion.js';
@@ -19,6 +19,8 @@ import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
 import { SLICE_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
 import { loadMarkdownContract } from '../../workflow-policy/contracts/markdownContract.js';
+
+const log = createLogger('platform/agent-runner/pipeline/testCapture');
 
 export interface TestCaptureResult {
   command: string;
@@ -409,10 +411,7 @@ export async function captureSliceValidation(
     if (allCommands.length === 0) return [];
     return await runTestCapture(allCommands, cwd, DEFAULT_COMMAND_TIMEOUT_MS, signal);
   } catch (err) {
-    console.warn(
-      '[testCapture] captureSliceValidation failed, continuing without test evidence:',
-      getErrorMessage(err),
-    );
+    log.warn('slice_validation.capture.failed', { error: getErrorMessage(err) });
     return [];
   }
 }

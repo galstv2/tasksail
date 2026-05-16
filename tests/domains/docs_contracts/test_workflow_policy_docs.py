@@ -72,7 +72,7 @@ class WorkflowPolicyDocsTests(unittest.TestCase):
         ),
         ("context_pack_model", "qmd/global/retrospectives"),
         ("qmd_memory_model", "qmd/global/retrospectives/shared-retrospective-memory.md"),
-        ("qmd_task_filing_system", "qmd/global/retrospectives/history/{year}/{task-id}.md"),
+        ("qmd_task_filing_system", "qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md"),
         ("qmd_task_filing_system", "retrospective.md.record.json"),
         # Retrospective as required closeout gate
         ("readme", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),

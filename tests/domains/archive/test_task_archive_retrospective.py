@@ -229,9 +229,11 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
             self.assertTrue(shared_memory_path.exists())
             markdown = shared_memory_path.read_text(encoding="utf-8")
             self.assertIn("# Shared Retrospective Memory", markdown)
-            self.assertIn("## Contributing Tasks", markdown)
-            self.assertIn("CAP-2001: Child Task Closeout", markdown)
+            self.assertIn("## Summary", markdown)
+            self.assertIn("latest 1 completed tasks", markdown)
             self.assertIn("## Recurring Strengths", markdown)
+            self.assertNotIn("## Audit Trail", markdown)
+            self.assertNotIn("CAP-2001: Child Task Closeout", markdown)
 
     def test_shared_retrospective_memory_skips_empty_cross_task_sections(
         self,
@@ -253,10 +255,11 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
             markdown = self.shared_memory_markdown_path(repo_root).read_text(
                 encoding="utf-8"
             )
-            self.assertIn("## Contributing Tasks", markdown)
-            self.assertIn("CAP-2001: Child Task Closeout", markdown)
-            self.assertIn("## Audit Trail", markdown)
-            self.assertEqual(markdown.count("- CAP-2001: Child Task Closeout"), 2)
+            self.assertIn("## Summary", markdown)
+            self.assertIn("latest 1 completed tasks", markdown)
+            self.assertNotIn("## Contributing Tasks", markdown)
+            self.assertNotIn("## Audit Trail", markdown)
+            self.assertNotIn("CAP-2001: Child Task Closeout", markdown)
             for section in [
                 "Recurring Strengths",
                 "Recurring Bottlenecks",

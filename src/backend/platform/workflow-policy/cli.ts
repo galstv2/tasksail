@@ -1,6 +1,12 @@
 import { evaluateWorkflowPolicy } from './evaluate.js';
 import { MODE_CHOICES, OUTPUT_CHOICES } from './models.js';
 import type { PolicyOutputFormat, PolicyValidationMode } from './types.js';
+import {
+  runCliBoundary,
+  ValidationError,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 
 /** Modes that require --task-id (fail-closed if absent). */
 const TASK_ID_REQUIRED_MODES = new Set<PolicyValidationMode>([
@@ -24,7 +30,7 @@ interface CliOptions {
 }
 
 function printUsage(): void {
-  process.stdout.write(
+  writeProtocolStdout(
     'Usage: workflow-policy [options]\n' +
       'Options:\n' +
       '  --root <path>                Repo root to validate (defaults to cwd)\n' +
@@ -41,7 +47,11 @@ function printUsage(): void {
 function requireValue(argv: string[], index: number, flag: string): string {
   const value = argv[index + 1];
   if (!value) {
-    throw new Error(`${flag} requires a value`);
+    throw new ValidationError(`${flag} requires a value`, {
+      code: 'WORKFLOW_POLICY_ARG_VALUE_REQUIRED',
+      category: 'user',
+      context: { flag },
+    });
   }
   return value;
 }
@@ -71,7 +81,11 @@ function parseArgs(argv: string[]): CliOptions {
       case '--mode': {
         const value = requireValue(argv, i, '--mode');
         if (!isModeChoice(value)) {
-          throw new Error(`invalid --mode: ${value}`);
+          throw new ValidationError(`invalid --mode: ${value}`, {
+            code: 'WORKFLOW_POLICY_MODE_INVALID',
+            category: 'user',
+            context: { value },
+          });
         }
         options.mode = value;
         i += 1;
@@ -80,7 +94,11 @@ function parseArgs(argv: string[]): CliOptions {
       case '--format': {
         const value = requireValue(argv, i, '--format');
         if (!isFormatChoice(value)) {
-          throw new Error(`invalid --format: ${value}`);
+          throw new ValidationError(`invalid --format: ${value}`, {
+            code: 'WORKFLOW_POLICY_FORMAT_INVALID',
+            category: 'user',
+            context: { value },
+          });
         }
         options.format = value;
         i += 1;
@@ -107,7 +125,11 @@ function parseArgs(argv: string[]): CliOptions {
         process.exit(0);
         break;
       default:
-        throw new Error(`unknown option: ${arg}`);
+        throw new ValidationError(`unknown option: ${arg}`, {
+          code: 'WORKFLOW_POLICY_OPTION_UNKNOWN',
+          category: 'user',
+          context: { option: arg },
+        });
     }
   }
 
@@ -120,11 +142,14 @@ export async function main(argv: string[]): Promise<number> {
 
     // --task-id is required for all guarded (non-lint) modes.
     if (TASK_ID_REQUIRED_MODES.has(args.mode) && !args.taskId) {
-      process.stderr.write(
-        `task-id-required: --task-id <id> is required when --mode is '${args.mode}'.\n`,
+      throw new ValidationError(
+        `task-id-required: --task-id <id> is required when --mode is '${args.mode}'.`,
+        {
+          code: 'WORKFLOW_POLICY_TASK_ID_REQUIRED',
+          category: 'user',
+          context: { mode: args.mode },
+        },
       );
-      printUsage();
-      return 1;
     }
 
     const result = await evaluateWorkflowPolicy({
@@ -136,16 +161,16 @@ export async function main(argv: string[]): Promise<number> {
       requestedAgentId: args.requestedAgentId,
       enforce: args.enforce,
     });
-    process.stdout.write(result.stdout.endsWith('\n') ? result.stdout : `${result.stdout}\n`);
+    writeProtocolStdout(result.stdout.endsWith('\n') ? result.stdout : `${result.stdout}\n`);
     return result.exitCode;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    writeProtocolStderr(`${message}\n`);
     printUsage();
     return 1;
   }
 }
 
-void main(process.argv).then((exitCode) => {
-  process.exitCode = exitCode;
+runCliBoundary('platform/workflow-policy/cli', async () => {
+  process.exitCode = await main(process.argv);
 });

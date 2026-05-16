@@ -96,10 +96,8 @@ describe('codebase-wide legacy path regression guard', () => {
 
   // Files that are allowed to mention the forbidden literals:
   // - this test file itself (it defines the literals)
-  // - scratchspace artefacts (planning docs, decision logs)
   const ALLOW_LIST_PATTERNS = [
     'src/backend/platform/agent-runner/__tests__/promptPathAudit.test.ts',
-    'scratchspace/',
   ];
 
   function isAllowListed(filePath: string): boolean {
@@ -116,7 +114,7 @@ describe('codebase-wide legacy path regression guard', () => {
           'grep', '-n', '--fixed-strings',
           '-e', FORBIDDEN_LITERALS[0],
           '-e', FORBIDDEN_LITERALS[1],
-          '--', ':(exclude)scratchspace/',
+          '--',
         ],
         { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
       );

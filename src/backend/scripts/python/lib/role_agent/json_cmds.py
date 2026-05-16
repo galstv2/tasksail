@@ -5,6 +5,7 @@ import argparse
 import json
 
 from ..cli import fail
+from ..protocol_output import write_protocol_stdout
 
 
 def cmd_print_json_array_lines(args: argparse.Namespace) -> int:
@@ -18,5 +19,5 @@ def cmd_print_json_array_lines(args: argparse.Namespace) -> int:
     for item in payload:
         value = str(item).strip()
         if value:
-            print(value)
+            write_protocol_stdout(str(value) + '\n')
     return 0

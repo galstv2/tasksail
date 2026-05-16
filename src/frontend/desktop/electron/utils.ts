@@ -1,7 +1,11 @@
 import {
   access as fsAccess,
+  mkdir as fsMkdir,
   readFile as fsReadFile,
   readdir as fsReadDir,
+  rename as fsRename,
+  rm as fsRm,
+  writeFile as fsWriteFile,
 } from 'node:fs/promises';
 
 export type ReadOnlyRepoFs = {
@@ -10,10 +14,25 @@ export type ReadOnlyRepoFs = {
   readdir: (path: string) => Promise<string[]>;
 };
 
+export type WritableRepoFs = ReadOnlyRepoFs & {
+  mkdir: (path: string, options?: { recursive?: boolean }) => Promise<unknown>;
+  rename: (oldPath: string, newPath: string) => Promise<void>;
+  rm: (path: string, options: { recursive: true; force: true }) => Promise<unknown>;
+  writeFile: (path: string, contents: string, encoding: BufferEncoding) => Promise<void>;
+};
+
 export const repoFs: ReadOnlyRepoFs = {
   access: fsAccess,
   readFile: (path, encoding) => fsReadFile(path, { encoding }),
   readdir: fsReadDir,
+};
+
+export const repoReadWriteFs: WritableRepoFs = {
+  ...repoFs,
+  mkdir: fsMkdir,
+  rename: fsRename,
+  rm: fsRm,
+  writeFile: fsWriteFile,
 };
 
 export async function pathExists(

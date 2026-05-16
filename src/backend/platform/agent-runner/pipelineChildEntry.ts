@@ -1,5 +1,12 @@
 import { CLOSEOUT_FAILURE_EXIT_CODE, runPipelineSequence } from './pipeline/sequencer.js';
 import { pathToFileURL } from 'node:url';
+import {
+  createLogger,
+  installProcessHandlers,
+  writeProtocolStderr,
+} from '../core/index.js';
+
+const log = createLogger('platform/agent-runner/pipelineChildEntry');
 
 /**
  * Pipeline child entrypoint. Invoked by spawnPipelineForTask via child_process.fork.
@@ -86,8 +93,11 @@ function isDirectEntryPoint(): boolean {
 }
 
 if (isDirectEntryPoint()) {
+  const uninstall = installProcessHandlers('platform/agent-runner/pipelineChildEntry');
   main().catch((err: unknown) => {
-    process.stderr.write(formatPipelineChildEntryError(err));
+    log.error('pipeline.child.crash', err);
+    writeProtocolStderr(formatPipelineChildEntryError(err));
+    uninstall();
     const isCloseoutFailure = (err as { _isCloseoutFailure?: boolean })?._isCloseoutFailure === true;
     process.exit(isCloseoutFailure ? CLOSEOUT_FAILURE_EXIT_CODE : 1);
   });

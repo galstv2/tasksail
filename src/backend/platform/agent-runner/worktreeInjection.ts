@@ -107,9 +107,15 @@ function rewriteRepoLocalPath<T extends { repoLocalPath?: string }>(
 export function applyWorktreeInjectionToAllowedDirs(
   allowedDirs: readonly string[],
   bindingMap: WorktreeBindingMap,
+  options: { preservePrefixes?: readonly string[] } = {},
 ): string[] {
   if (!bindingMap.applied) return [...allowedDirs];
-  return allowedDirs.map((dir) => rewritePath(dir, bindingMap));
+  const preservePrefixes = (options.preservePrefixes ?? []).filter((dir) => dir.trim().length > 0);
+  return allowedDirs.map((dir) => (
+    preservePrefixes.some((prefix) => pathMatchesPrefix(dir, prefix))
+      ? dir
+      : rewritePath(dir, bindingMap)
+  ));
 }
 
 export function rewritePath(input: string, bindingMap: WorktreeBindingMap): string {
@@ -120,6 +126,10 @@ export function rewritePath(input: string, bindingMap: WorktreeBindingMap): stri
     }
   }
   return input;
+}
+
+function pathMatchesPrefix(input: string, prefix: string): boolean {
+  return input === prefix || input.startsWith(prefix + path.sep);
 }
 
 async function safeRealpath(p: string): Promise<string> {

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
+import { RuntimeTerminalEvents, createLogger, readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
@@ -20,6 +20,7 @@ import { stageAutoMergeCloseout, type AutoMergeResult, type AutoMergeBindingResu
 import { evictPolicyResultCache } from '../agent-runner/guardrails.js';
 
 const execFile = promisify(execFileCb);
+const log = createLogger('platform/queue/completePendingItem');
 
 export interface CompletePendingItemOptions {
   /** Required: the task ID to complete. */
@@ -132,10 +133,7 @@ async function syncRetrospectiveWithDeferral(options: {
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[closeout] retrospective sync deferred (non-fatal — task ${options.taskId} finalized, ` +
-      `will retry on next queue advance): ${reason}`,
-    );
+    log.warn('retrospective_sync.deferred', { taskId: options.taskId, reason });
     mergeCompletingSentinelPayload(options.sentinelPath, {
       retrospectiveSynced: false,
       retrospectiveSyncError: reason,
@@ -216,21 +214,38 @@ async function buildBranchHandoffsForArchive(options: {
   );
 }
 
-function logAutoMergeResult(taskId: string, result: AutoMergeResult): void {
+async function logAutoMergeResult(repoRoot: string, taskId: string, result: AutoMergeResult): Promise<void> {
   if (!result.enabled) {
-    console.info(`[closeout] auto_merge disabled for ${taskId}; source branches remain ready for operator review.`);
+    log.child({ taskId }).progress({
+      level: 'info',
+      event: 'auto_merge.disabled',
+      text: '[pipeline] auto-merge disabled',
+    });
+    await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeDisabled();
     return;
   }
   if (result.applied) {
     const repos = result.results
       .map((item) => `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'}`)
       .join(', ');
-    console.info(`[closeout] auto_merge applied for ${taskId}: ${repos}`);
+    log.child({ taskId }).progress({
+      level: 'info',
+      event: 'auto_merge.applied',
+      extra: { repos },
+      text: `[pipeline] auto-merge applied ${repos}`,
+    });
+    await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeApplied({ repos });
     return;
   }
   const first = result.results[0];
   const detail = first ? `${first.status}: ${first.detail}` : 'no bindings';
-  console.info(`[closeout] auto_merge skipped for ${taskId}; ${detail}`);
+  log.child({ taskId }).progress({
+    level: 'info',
+    event: 'auto_merge.skipped',
+    extra: { detail },
+    text: `[pipeline] auto-merge skipped - ${detail} [skip]`,
+  });
+  await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeSkipped({ detail });
 }
 
 /**
@@ -301,7 +316,7 @@ export async function completePendingItem(
         enabled: platformConfig.auto_merge,
         bindings: taskJson.contextPackBinding.repoBindings,
       });
-      logAutoMergeResult(taskId, autoMergeResult);
+      await logAutoMergeResult(repoRoot, taskId, autoMergeResult);
     }
 
     await buildBranchHandoffsForArchive({
@@ -338,8 +353,17 @@ export async function completePendingItem(
         }
       }
 
-      const archiveResult = await fileTaskArchive({ contextPackDir, taskId, repoRoot });
+      const terminalEvents = RuntimeTerminalEvents.forTask(repoRoot, taskId);
+      await terminalEvents.archiveStarted();
+      let archiveResult: Awaited<ReturnType<typeof fileTaskArchive>>;
+      try {
+        archiveResult = await fileTaskArchive({ contextPackDir, taskId, repoRoot });
+      } catch (err) {
+        await terminalEvents.archiveFailed();
+        throw err;
+      }
       if (!archiveResult.passed) {
+        await terminalEvents.archiveFailed();
         const details = [archiveResult.stdout, archiveResult.stderr]
           .filter(Boolean)
           .join('\n')
@@ -351,12 +375,13 @@ export async function completePendingItem(
       }
       const archiveStderr = (archiveResult.stderr ?? '').trim();
       if (archiveStderr) {
-        console.warn(`[archive] ${archiveStderr}`);
+        log.warn('archive.stderr', { taskId, stderr: archiveStderr });
       }
       const archivePath = typeof archiveResult.data?.record_md_path === 'string'
         ? archiveResult.data.record_md_path
         : null;
       resolvedArchiveMdPath = archivePath;
+      await terminalEvents.archiveCompleted();
       mergeCompletingSentinelPayload(sentinelPath, {
         archiveSucceeded: true,
         archivePath,
@@ -449,6 +474,14 @@ export async function completePendingItem(
   } finally {
     await release();
   }
+
+  log.child({ taskId }).progress({
+    level: 'info',
+    event: 'closeout.finalized',
+    text: `[pipeline] completed ${taskId} [ok]`,
+  });
+  await RuntimeTerminalEvents.forTask(repoRoot, taskId).taskCompleted();
+  await RuntimeTerminalEvents.forTask(repoRoot, taskId).closeoutFinalized();
 
   // Queue advance runs AFTER lock release (§4.6 contract).
   await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });

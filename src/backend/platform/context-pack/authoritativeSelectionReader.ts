@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readTextFile, safeJsonParse, resolvePath } from '../core/index.js';
+import { createLogger, readTextFile, safeJsonParse, resolvePath } from '../core/index.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
 import type {
   FocusTarget,
@@ -8,6 +8,8 @@ import type {
 } from './deepFocusNormalization.js';
 import type { Manifest, ManifestFocusableArea, ManifestRepo } from './focusedRepo.js';
 import { resolveFirstLocalPath } from './focusedRepo.js';
+
+const log = createLogger('platform/context-pack/authoritativeSelectionReader');
 
 /** Source that produced an {@link AuthoritativeSelection}. */
 export type AuthoritySource = 'manifest-primary' | 'active-task-sidecar' | 'workspace-sync-state';
@@ -273,10 +275,9 @@ export async function hydrateLegacyPrimariesInAuthoritativeSelection(
     }
   }
 
-  console.warn(
-    '[deep-focus] discarded malformed legacy primaries:',
-    'could not resolve primary scalar through manifest.',
-  );
+  log.warn('deep_focus.legacy_primaries.discarded', {
+    reason: 'could-not-resolve-primary-scalar-through-manifest',
+  });
   return {
     ...sel,
     selectedFocusTargets: [],

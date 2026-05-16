@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import logging
 from pathlib import Path
 
 from src.backend.mcp.context_estate.constants import (  # noqa: F401
@@ -38,9 +38,12 @@ from src.backend.mcp.context_estate_draft_index import (
     write_draft_artifact,
 )
 from src.backend.mcp.repo_context_mcp.utils import utc_now  # noqa: F401
+from src.backend.scripts.python.lib.logging_config import configure_logging
+from src.backend.scripts.python.lib.protocol_output import write_protocol_stdout
 
 # Keep CLI entry point here since it's the script entrypoint
 OUTPUT_FORMATS = ("json", "markdown")
+logger = logging.getLogger(__name__)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -91,25 +94,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="context-estate-discovery")
     args = parse_args(argv)
     if args.write_qmd_draft and not args.context_pack_dir:
-        print(
-            "--write-qmd-draft requires --context-pack-dir",
-            file=sys.stderr,
+        logger.error(
+            "context_estate.discovery.missing_context_pack_dir",
+            extra={"argument": "--context-pack-dir"},
         )
         return 1
 
     if args.mode == "auto":
-        print(
-            "[WARN] --mode auto: estate type will be inferred from directory structure. "
-            "Pass an explicit mode for deterministic output.",
-            file=sys.stderr,
+        logger.warning(
+            "context_estate.discovery.auto_mode",
+            extra={"mode": args.mode},
         )
 
     try:
         payload = discover_estate(args.root, mode=args.mode)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
+        logger.error(
+            "context_estate.discovery.failed",
+            extra={"error": str(exc), "root": args.root, "mode": args.mode},
+        )
         return 1
 
     if args.write_qmd_draft:
@@ -121,7 +127,10 @@ def main(argv: list[str] | None = None) -> int:
                 draft_file=args.draft_file,
             )
         except ValueError as exc:
-            print(f"QMD draft write failed: {exc}", file=sys.stderr)
+            logger.error(
+                "context_estate.discovery.qmd_draft_write_failed",
+                extra={"error": str(exc), "context_pack_dir": args.context_pack_dir},
+            )
             return 1
 
         payload = dict(payload)
@@ -129,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         payload["qmd_draft_artifact_status"] = "written"
 
     if args.format == "json":
-        print(json.dumps(payload, indent=2))
+        write_protocol_stdout(str(json.dumps(payload, indent=2)) + '\n')
     else:
-        print(render_markdown(payload), end="")
+        write_protocol_stdout(str(render_markdown(payload)))
     return 0

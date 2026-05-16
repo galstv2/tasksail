@@ -79,6 +79,7 @@ type DesktopShellClient = Pick<
   | 'checkActiveWorkGuard'
   | 'startRealignment'
   | 'runRealignmentAnalysis'
+  | 'dismissRealignment'
   | 'readTaskBoard'
   | 'readTaskContent'
   | 'reorderPending'
@@ -200,6 +201,7 @@ export function createDesktopShellClient(
     checkActiveWorkGuard: () => readShell().checkActiveWorkGuard(),
     startRealignment: (payload) => readShell().startRealignment(payload),
     runRealignmentAnalysis: (payload) => readShell().runRealignmentAnalysis(payload),
+    dismissRealignment: (payload) => readShell().dismissRealignment(payload),
     readTaskBoard: () => readShell().readTaskBoard(),
     readTaskContent: (fileName, column) => readShell().readTaskContent(fileName, column),
     reorderPending: (order) => readShell().reorderPending(order),

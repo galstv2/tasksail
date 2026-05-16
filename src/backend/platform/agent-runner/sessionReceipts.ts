@@ -27,6 +27,10 @@ function sessionReceiptPath(taskRuntime: string, agentId: string, launchId: stri
   return path.join(taskRuntime, 'role-sessions', `${agentId}-${launchId}.json`);
 }
 
+function receiptTimestamp(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 /**
  * Write a session start receipt so the runtime stream watcher can detect
  * the agent launch and emit a "started" event to the terminal feed.
@@ -55,7 +59,7 @@ export async function writeSessionStartReceipt(options: {
     ...(options.retryOfLaunchId != null ? { retry_of_launch_id: options.retryOfLaunchId } : {}),
     launch: {
       status: 'started',
-      started_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      started_at: receiptTimestamp(),
       pid: options.launchPid,
       invoked_by: 'src/backend/platform/agent-runner/roleAgent.ts',
       prompt_audit: options.promptAudit
@@ -73,6 +77,42 @@ export async function writeSessionStartReceipt(options: {
   };
   await writeTextFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   return receiptPath;
+}
+
+export async function writeSessionMonitorHeartbeat(options: {
+  receiptPath: string;
+  monitorPid: number;
+  monitorStartedAt: string;
+}): Promise<void> {
+  const existing = await readTextFile(options.receiptPath);
+  if (!existing) return;
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(existing) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  const terminal = payload.terminal;
+  if (
+    terminal &&
+    typeof terminal === 'object' &&
+    !Array.isArray(terminal) &&
+    ((terminal as Record<string, unknown>).status === 'completed' ||
+      (terminal as Record<string, unknown>).status === 'failed')
+  ) {
+    return;
+  }
+
+  payload.monitor = {
+    status: 'watching',
+    pid: options.monitorPid,
+    started_at: options.monitorStartedAt,
+    updated_at: receiptTimestamp(),
+    updated_by: 'src/backend/platform/agent-runner/agentSession.ts',
+  };
+  await writeTextFile(options.receiptPath, JSON.stringify(payload, null, 2) + '\n');
 }
 
 /**
@@ -97,7 +137,7 @@ export async function writeSessionTerminalReceipt(options: {
 
   payload.terminal = {
     status: options.terminalStatus,
-    completed_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    completed_at: receiptTimestamp(),
     exit_code: options.exitCode,
     updated_by: 'src/backend/platform/agent-runner/roleAgent.ts',
   };

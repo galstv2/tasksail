@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { slugify, findRepoRoot, ensureDir, copyFileSafe } from '../core/index.js';
+import { createLogger, slugify, findRepoRoot, ensureDir, copyFileSafe } from '../core/index.js';
 import { existsSync } from 'node:fs';
 import {
   resolveQueuePaths,
@@ -9,6 +9,8 @@ import {
 } from './paths.js';
 import { initializeTaskArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { stampRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
+
+const log = createLogger('platform/queue/newTask');
 
 /**
  * Regex that taskId values MUST conform to.
@@ -222,11 +224,7 @@ export async function initializeTask(
     const hasImplSpec = await hasAuthoredContent(implSpec);
 
     if (!hasImplSpec) {
-      process.stdout.write(
-        'Starter slice blocked: pre-slice artifacts are missing or empty. '
-        + 'Complete implementation-spec.md before '
-        + 'creating a starter slice.\n',
-      );
+      log.warn('starter_slice.blocked', { reason: 'missing-pre-slice-artifacts' });
       throw new Error('Starter slice blocked by missing pre-slice artifacts.');
     }
 

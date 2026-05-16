@@ -97,12 +97,12 @@ function mockGuardBlocked(): void {
   });
 }
 
-describe('blocked-realignment isolation', () => {
+describe('active-work isolation', () => {
   beforeEach(() => {
     mockGuardBlocked();
   });
 
-  it('feedback tab renders when guard is blocked', async () => {
+  it('feedback tab renders when active work exists', async () => {
     renderModal();
 
     const feedbackTab = screen.getByTestId('tab-feedback');
@@ -113,7 +113,7 @@ describe('blocked-realignment isolation', () => {
     });
   });
 
-  it('document tab renders when guard is blocked', async () => {
+  it('document tab renders when active work exists', async () => {
     renderModal();
 
     const documentTab = screen.getByTestId('tab-document');
@@ -124,14 +124,14 @@ describe('blocked-realignment isolation', () => {
     });
   });
 
-  it('sessions tab shows blocked message', async () => {
+  it('sessions tab stays usable when active work exists', async () => {
     renderModal();
 
     const sessionsTab = screen.getByTestId('tab-sessions');
     fireEvent.click(sessionsTab);
 
     await waitFor(() => {
-      expect(screen.getByTestId('realignment-guard-blocked')).toBeTruthy();
+      expect(screen.getByTestId('realignment-panel')).toBeTruthy();
     });
   });
 });
@@ -149,10 +149,12 @@ describe('realignment analysis actions', () => {
 
     fireEvent.click(screen.getByTestId('tab-sessions'));
     await waitFor(() => {
-      expect(screen.getByTestId('realignment-run-RA-1')).toBeTruthy();
+      expect(screen.getByTestId('session-item-RA-1')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('realignment-run-RA-1'));
+    fireEvent.click(screen.getByTestId('session-item-RA-1'));
+    fireEvent.click(screen.getByTestId('realignment-start'));
+    fireEvent.click(screen.getByText('Start realignment'));
 
     expect(window.desktopShell.runRealignmentAnalysis).toHaveBeenCalledWith({
       contextPackDir: '/context-packs/test',
@@ -171,10 +173,12 @@ describe('realignment analysis actions', () => {
 
     fireEvent.click(screen.getByTestId('tab-sessions'));
     await waitFor(() => {
-      expect(screen.getByTestId('realignment-run-RA-1')).toBeTruthy();
+      expect(screen.getByTestId('session-item-RA-1')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('realignment-run-RA-1'));
+    fireEvent.click(screen.getByTestId('session-item-RA-1'));
+    fireEvent.click(screen.getByTestId('realignment-start'));
+    fireEvent.click(screen.getByText('Start realignment'));
     await waitFor(() => {
       expect(window.desktopShell.runRealignmentAnalysis).toHaveBeenCalledWith({
         contextPackDir: '/context-packs/test',
@@ -190,6 +194,9 @@ describe('realignment analysis actions', () => {
         role: 'workflow',
         source: 'runtime.realignment',
         taskId: 'N/A',
+        taskGuid: null,
+        taskShortGuid: null,
+        taskTitle: null,
         severity: 'success',
         message: 'Realignment analysis archived.',
         actorName: 'Ron - Realignment',
@@ -223,21 +230,45 @@ describe('realignment analysis actions', () => {
         availableYears: ['2026'],
       },
     });
+    vi.mocked(window.desktopShell.listRealignmentSessions).mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'reinforcement.listRealignmentSessions',
+        mode: 'read-only' as const,
+        message: '1 session(s).',
+        sessions: [
+          {
+            realignmentId: 'RA-1',
+            triggerTaskId: 'T-FIRST',
+            triggerFeedbackId: 'FB-1',
+            participatingAgents: ['provider-builder', 'provider-qa'],
+            failureAnalysis: 'Gap',
+            rootCause: 'Cause',
+            correctiveActions: ['Fix'],
+            status: 'open',
+            meetingNotes: '',
+            createdAt: '2026-03-22T00:00:00Z',
+          },
+        ],
+      },
+    });
     renderModal();
 
     fireEvent.click(screen.getByTestId('tab-sessions'));
     await waitFor(() => {
-      expect(screen.getByTestId('realignment-start')).not.toBeDisabled();
+      expect(screen.getByTestId('session-item-RA-1')).toBeTruthy();
     });
 
+    fireEvent.click(screen.getByTestId('session-item-RA-1'));
     fireEvent.click(screen.getByTestId('realignment-start'));
     fireEvent.click(screen.getByText('Start realignment'));
 
     await waitFor(() => {
-      expect(window.desktopShell.startRealignment).toHaveBeenCalledWith({
+      expect(window.desktopShell.runRealignmentAnalysis).toHaveBeenCalledWith({
         contextPackDir: '/context-packs/test',
-        triggerTaskId: 'operator-initiated',
+        realignmentId: 'RA-1',
       });
+      expect(window.desktopShell.startRealignment).not.toHaveBeenCalled();
     });
   });
 });

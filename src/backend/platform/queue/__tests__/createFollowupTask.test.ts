@@ -10,6 +10,11 @@ vi.mock('../createDropboxTask.js', () => ({
 
 vi.mock('../../core/index.js', () => ({
   findRepoRoot: vi.fn().mockReturnValue('/resolved/repo/root'),
+  ValidationError: class ValidationError extends Error {
+    constructor(message: string) {
+      super(message);
+    }
+  },
 }));
 
 const { createFollowupTask } = await import('../createFollowupTask.js');

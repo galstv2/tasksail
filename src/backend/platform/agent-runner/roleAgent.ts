@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolvePaths } from '../core/index.js';
+import {
+  createLogger,
+  newSpanId,
+  resolvePaths,
+  writeProtocolStdout,
+} from '../core/index.js';
 import type { RunRoleAgentOptions, AgentRunResult } from './types.js';
 import { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } from './metadata.js';
 import { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } from './autonomy.js';
@@ -38,6 +43,8 @@ import {
   applyWorktreeInjectionToAllowedDirs,
 } from './worktreeInjection.js';
 import { buildReinforcementOverlay } from './reinforcementOverlay.js';
+
+const log = createLogger('platform/agent-runner/roleAgent');
 import {
   agentErrorWithTails,
   extractPolicyFailureDetails,
@@ -140,6 +147,7 @@ export async function runRoleAgent(
   options: RunRoleAgentOptions,
 ): Promise<AgentRunResult> {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
+  const spanId = options.spanId ?? newSpanId();
   const startTime = Date.now();
 
   // 1. Load registry and resolve agent profile.
@@ -330,22 +338,37 @@ export async function runRoleAgent(
           `Failing closed — repo-executor requires a resolvable focused repo.`,
         );
       } else if (usesFocusedRepoContext) {
-        console.warn(
-          `[roleAgent] planning-agent could not resolve focused repo roots from context pack "${options.contextPackDir}". ` +
-          'Continuing with planning workspace dirs only.',
-        );
+        log.child({ taskId: options.taskId, agentId: options.agentId, spanId })
+          .warn('focused_repo.resolve.skipped', { contextPackDir: options.contextPackDir });
       }
 
     // §B1 defense-in-depth: rewrite any originalRoot path that may have leaked
     // into allowedDirs (no-op when bindingMap is empty or no allowedDir matches).
+    // Preserve platform-owned metadata/runtime roots: when a monolith context
+    // pack points at a subtree inside the platform repo, originalRoot is the
+    // platform root, but contextpacks/, AgentWorkSpace/, and .platform-state/
+    // must remain outside the task worktree.
     autonomyArgs.allowedDirs = applyWorktreeInjectionToAllowedDirs(
       autonomyArgs.allowedDirs,
       worktreeBindingMap,
+      {
+        preservePrefixes: [
+          paths.agentWorkSpace,
+          paths.platformState,
+          options.contextPackDir,
+        ].filter((dir): dir is string => Boolean(dir)),
+      },
     );
   }
 
   // 4. Build provider CLI args and resolve launch prompt.
   const provider = getActiveProvider(paths.repoRoot);
+  const launchLog = log.child({
+    taskId: options.taskId,
+    agentId: options.agentId,
+    providerId: provider.id,
+    spanId,
+  });
   const launchContext = {
     repoRoot: paths.repoRoot,
     requestedCwd: agentCwd,
@@ -465,7 +488,7 @@ export async function runRoleAgent(
   // 5b. Dry-run: print command and return before launch-time side effects.
   if (options.dryRun) {
     const cmd = formatAgentCommand(paths.repoRoot, cliArgs);
-    process.stdout.write(formatDryRunOutput(cmd));
+    writeProtocolStdout(formatDryRunOutput(cmd));
     return {
       exitCode: 0,
       agentId: options.agentId,
@@ -486,6 +509,7 @@ export async function runRoleAgent(
     taskId: options.taskId ?? '',
     agentEnv,
     internalMcpServer,
+    spanId,
     abortSignal: options.abortSignal,
   });
   if (externalMcpLaunchContext?.injectionEnabled) {
@@ -493,13 +517,15 @@ export async function runRoleAgent(
     if (configFilePath) {
       cliArgs.push(...provider.mcpConfigArgs(configFilePath));
     } else {
-      console.warn(
-        '[roleAgent] external MCP config file path unavailable, continuing without MCP flag injection.',
-      );
+      launchLog.warn('external_mcp.config_path.missing');
     }
   }
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
-  logExternalMcpLaunchStatus(options.agentId, mcpLaunch);
+  logExternalMcpLaunchStatus(options.agentId, mcpLaunch, {
+    taskId: options.taskId,
+    providerId: provider.id,
+    spanId,
+  });
   Object.assign(
     agentEnv,
     buildAutonomyEnvironment(

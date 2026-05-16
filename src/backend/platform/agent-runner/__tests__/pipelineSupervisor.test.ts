@@ -183,6 +183,31 @@ describe('pipelineSupervisor', () => {
     expect(active[0]!.pid).toBeGreaterThan(0);
   });
 
+  it('routes child exit promise failures through the task failure path', async () => {
+    let rejectExit!: (err: unknown) => void;
+    const child = makeChildStub({ pid: 33333 });
+    spawnPipelineForTaskMock.mockResolvedValue({
+      ...child,
+      exit: new Promise<number>((_resolve, reject) => {
+        rejectExit = reject;
+      }),
+    });
+
+    const { startPipeline, listActivePipelines } = await import('../pipelineSupervisor.js');
+
+    await startPipeline('task-a', repoRoot);
+    rejectExit(new Error('child process error'));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith({
+      repoRoot,
+      taskId: 'task-a',
+    });
+    expect(listActivePipelines()).toEqual([]);
+  });
+
   it('F5: startPipeline returns deferred when recoverOnStartup is in progress', async () => {
     // Setup a tmp dir with an active marker so recoverOnStartup has work to do
     const tmpDir = await setupTmpRepo({ activeTaskIds: ['pending-task'], taskJsonTaskIds: ['pending-task'] });
@@ -259,6 +284,60 @@ describe('pipelineSupervisor', () => {
     });
 
     await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('recoverOnStartup logs when missing .task.json recovery cannot move the task to error items', async () => {
+    const tmpDir = await setupTmpRepo({
+      activeTaskIds: ['missing-json-task'],
+    });
+    moveFailedItemToErrorItemsMock.mockRejectedValueOnce(new Error('move failed'));
+    const errorSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let errorOutput = '';
+
+    try {
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpDir);
+      errorOutput = String(errorSpy.mock.calls.flat().join('\n'));
+    } finally {
+      errorSpy.mockRestore();
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+
+    expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith({
+      repoRoot: tmpDir,
+      taskId: 'missing-json-task',
+    });
+    expect(errorOutput).toContain('startup.recovery.error.items.move.failed');
+    expect(errorOutput).toContain('missing-json-task');
+    expect(errorOutput).toContain('missing-task-json');
+  });
+
+  it('recoverOnStartup logs when failed crash recovery cannot move the task to error items', async () => {
+    const tmpDir = await setupTmpRepo({
+      activeTaskIds: ['crashed-task'],
+      taskJsonTaskIds: ['crashed-task'],
+    });
+    moveFailedItemToErrorItemsMock.mockRejectedValueOnce(new Error('move failed'));
+    const errorSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let errorOutput = '';
+
+    try {
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpDir);
+      errorOutput = String(errorSpy.mock.calls.flat().join('\n'));
+    } finally {
+      errorSpy.mockRestore();
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+
+    expect(finalizeTaskWorktreesMock).toHaveBeenCalledWith('crashed-task', 'failed', tmpDir);
+    expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith({
+      repoRoot: tmpDir,
+      taskId: 'crashed-task',
+    });
+    expect(errorOutput).toContain('startup.recovery.error.items.move.failed');
+    expect(errorOutput).toContain('crashed-task');
+    expect(errorOutput).toContain('pid-gone');
   });
 
   it('F36: pid map is empty on startup (no state reconstruction)', async () => {
@@ -368,7 +447,7 @@ describe('pipelineSupervisor', () => {
     const child = makeChildStub({ pid: 66662, exitCode: 78 });
     spawnPipelineForTaskMock.mockResolvedValue(child);
     resumeCloseoutFromSentinelMock.mockResolvedValue({ status: 'no-sentinel', drove: [] });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const { startPipeline } = await import('../pipelineSupervisor.js');
     await startPipeline('task-closeout-no-sentinel', repoRoot);
@@ -382,9 +461,9 @@ describe('pipelineSupervisor', () => {
       repoRoot,
       taskId: 'task-closeout-no-sentinel',
     });
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('closeout recovery for task-closeout-no-sentinel returned no-sentinel'),
-    );
+    const warnings = String(warnSpy.mock.calls.flat().join('\n'));
+    expect(warnings).toContain('closeout_recovery.incomplete');
+    expect(warnings).toContain('task-closeout-no-sentinel');
     warnSpy.mockRestore();
   });
 
@@ -449,13 +528,11 @@ describe('pipelineSupervisor', () => {
       mkdirSync(pendingDir, { recursive: true });
       writeFileSync(path.join(pendingDir, `${taskId}.md`), '# pending\n');
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       const { recoverOnStartup } = await import('../pipelineSupervisor.js');
       await recoverOnStartup(tmpRoot);
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('recoverStuckMidCompletion could not prove archival'),
-      );
+      expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain('startup_recovery.completion_unproven');
       expect(existsSync(path.join(activeItemsDir, taskId))).toBe(false);
       expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(false);
     });

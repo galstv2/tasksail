@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DesktopActionResponse, DesktopInvokeResult } from './desktopContract';
+import type {
+  DesktopActionResponse,
+  DesktopInvokeResult,
+  TerminalSetTaskScopeResponse,
+} from './desktopContract';
+import { DESKTOP_ACTION_NAMES } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
 
 describe('desktopContract', () => {
+  it('includes terminal.setTaskScope in the approved desktop actions', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('terminal.setTaskScope');
+    const response: TerminalSetTaskScopeResponse = {
+      action: 'terminal.setTaskScope',
+      mode: 'scoped',
+      selectedTaskGuid: null,
+      events: [],
+      taskScopes: [],
+      message: 'Terminal task scope reset to all tasks.',
+    };
+    expect(response.action).toBe('terminal.setTaskScope');
+  });
+
   it('accepts planner submit requests without sourceState and with legacy complete sourceState', () => {
     expect(
       validateDesktopActionRequest({

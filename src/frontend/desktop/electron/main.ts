@@ -85,9 +85,13 @@ import {
   writeInstructionFile,
 } from './agentInstructionsHandlers';
 import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
+import { registerIpcLogHandler } from './log/ipcLogHandler';
+import { createLogger, installProcessHandlers } from './log/logger';
 
 // Re-export archived task handler so existing test imports from './main' continue to work.
 export { listArchivedTasksAction } from './main.archivedTasks';
+
+const log = createLogger('electron/main');
 
 import { listArchivedTasksAction } from './main.archivedTasks';
 
@@ -102,8 +106,23 @@ import {
   startTaskBoardWatcher,
 } from './main.taskBoard';
 import { startTaskRecoveryController } from './main.recovery';
-import { startRuntimeStreamWatcher } from './main.runtimeStream';
-import { emitStreamEvent, withStreamEvent } from './main.stream';
+import {
+  refreshRuntimeStreamState,
+  resetRuntimeStreamState,
+  startRuntimeStreamWatcher,
+} from './main.runtimeStream';
+import {
+  clearTerminalTaskScopeForWebContents,
+  emitStreamEvent,
+  refreshStreamTaskMetadataForScope,
+  resetStreamState,
+  setTerminalTaskScopeForWebContents,
+  withStreamEvent,
+} from './main.stream';
+import {
+  getCurrentActiveContextPackTaskScope,
+  refreshCurrentActiveContextPackTaskScope,
+} from './main.contextPackTaskVisibility';
 import { cleanupWorkspaceOnQuit } from './main.cleanup';
 import { TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE } from './devRestartProtocol';
 
@@ -196,6 +215,8 @@ import {
   updateGlobalRealignmentDoc,
   checkActiveWorkGuard,
   startRealignmentSession,
+  dismissRealignmentSession,
+  type ReinforcementFeedbackResult,
 } from '../../../backend/platform/agent-runner/reinforcementWrite';
 import { prewarmExternalMcpRegistry } from '../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache';
 import { startRealignmentAnalysisJob } from '../../../backend/platform/agent-runner/realignmentPhase/supervisor';
@@ -317,11 +338,19 @@ async function cleanupStalePipelineState(): Promise<void> {
           role: 'system',
           severity: 'warning',
         });
-      } catch {
-        // Already dead — nothing to kill.
+      } catch (error: unknown) {
+        if (getNodeErrorCode(error) !== 'ESRCH') {
+          log.warn('startup.recovery.agent-process.kill.failed', {
+            receiptPath,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
-    } catch {
-      // Corrupt receipt — skip.
+    } catch (error: unknown) {
+      log.warn('startup.recovery.receipt.read.failed', {
+        receiptPath,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }
@@ -330,43 +359,72 @@ function schedulePipelineAutoStart(): void {
   // §5.3: Guard replaced — check pipelineSupervisor.listActivePipelines() instead of
   // the deleted PIPELINE_LOCK_DIR. If any pipeline is already supervised, skip launch.
   void (async () => {
-    if (listActivePipelines().length > 0) {
-      return;
-    }
+    try {
+      if (listActivePipelines().length > 0) {
+        return;
+      }
 
-    const status = await getQueueStatus(REPO_ROOT);
-    const firstActive = status.activeTasks[0];
-    if (!firstActive) {
+      try {
+        const { changed } = await refreshCurrentActiveContextPackTaskScope(listAvailableContextPacks);
+        if (changed) {
+          await refreshTerminalScopeCaches();
+        } else {
+          await refreshStreamTaskMetadataForScope(getCurrentActiveContextPackTaskScope());
+          await refreshRuntimeStreamState();
+        }
+      } catch (error: unknown) {
+        log.warn('terminal.pre-pipeline-refresh.failed', {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        try {
+          await refreshStreamTaskMetadataForScope(getCurrentActiveContextPackTaskScope());
+        } catch (error: unknown) {
+          log.warn('terminal.task-metadata-refresh.failed', {
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+        await refreshRuntimeStreamState();
+      }
+
+      const status = await getQueueStatus(REPO_ROOT);
+      const firstActive = status.activeTasks[0];
+      if (!firstActive) {
+        emitStreamEvent({
+          message: 'pipeline.autoStart: no active pending item; skipping launch',
+          source: 'pipeline.autoStart',
+          role: 'workflow',
+          severity: 'info',
+        });
+        return;
+      }
+      const taskId = firstActive.taskId;
+
       emitStreamEvent({
-        message: 'pipeline.autoStart: no active pending item; skipping launch',
+        message: 'Launching active-task pipeline for pending item from Alice.',
         source: 'pipeline.autoStart',
         role: 'workflow',
-        severity: 'info',
       });
-      return;
-    }
-    const taskId = firstActive.taskId;
 
-    emitStreamEvent({
-      message: 'Launching active-task pipeline for pending item from Alice.',
-      source: 'pipeline.autoStart',
-      role: 'workflow',
-    });
-
-    return import('../../../backend/platform/agent-runner/pipeline/sequencer.js')
-      .then(({ runPipelineSequence }) => runPipelineSequence({ repoRoot: REPO_ROOT, startAt: 'alice', taskId }))
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        const alreadyRunning = message.includes('Another pipeline run is already active');
-        emitStreamEvent({
-          message: alreadyRunning
-            ? `Pipeline already running: ${message}`
-            : `Failed to start agent pipeline: ${message}`,
-          source: 'pipeline.autoStart',
-          role: 'system',
-          severity: alreadyRunning ? 'warning' : 'error',
+      await import('../../../backend/platform/agent-runner/pipeline/sequencer.js')
+        .then(({ runPipelineSequence }) => runPipelineSequence({ repoRoot: REPO_ROOT, startAt: 'alice', taskId }))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const alreadyRunning = message.includes('Another pipeline run is already active');
+          emitStreamEvent({
+            message: alreadyRunning
+              ? `Pipeline already running: ${message}`
+              : `Failed to start agent pipeline: ${message}`,
+            source: 'pipeline.autoStart',
+            role: 'system',
+            severity: alreadyRunning ? 'warning' : 'error',
+          });
         });
-      });
+    } catch (error: unknown) {
+      log.error(
+        'pipeline.autoStart.failed',
+        error instanceof Error ? error : { reason: String(error) },
+      );
+    }
   })();
 }
 
@@ -439,6 +497,9 @@ type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   runRealignmentAnalysis: (
     payload: import('../src/shared/desktopContract').ReinforcementRunRealignmentAnalysisRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  dismissRealignment: (
+    payload: import('../src/shared/desktopContract').ReinforcementDismissRealignmentRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   activateContextPack: (
     payload: import('../src/shared/desktopContract').ContextPackActivationRequest['payload'],
@@ -518,6 +579,10 @@ type DesktopActionHandlers = {
     options?: Parameters<typeof submitUploadedSpecHelper>[1],
   ) => Promise<DesktopInvokeResult>;
   cancelTask: (taskId: string) => Promise<DesktopInvokeResult>;
+  setTerminalTaskScope: (
+    webContentsId: number,
+    taskGuid: string | null,
+  ) => import('../src/shared/desktopContract').TerminalSetTaskScopeResponse;
 };
 
 export async function readQueueStatusSnapshot(
@@ -638,7 +703,16 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   listConversationHistory: () => listConversationHistoryAction(),
   hydrateConversation: (recordId) => hydrateConversationAction(recordId),
   submitReinforcementFeedback: async (payload) => {
-    const result = await submitReinforcementFeedback(payload);
+    let result: ReinforcementFeedbackResult;
+    try {
+      result = await submitReinforcementFeedback(payload);
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        action: 'reinforcement.submitFeedback',
+        error: error instanceof Error ? error.message : 'Feedback submission failed.',
+      };
+    }
     if (!result.passed) {
       return { ok: false, action: 'reinforcement.submitFeedback', error: result.stderr || 'Feedback submission failed.' };
     }
@@ -811,6 +885,27 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
       },
     };
   },
+  dismissRealignment: async (payload) => {
+    const result = await dismissRealignmentSession(payload);
+    if (!result.passed) {
+      const parsed = parseStderrErrorCode(result.stderr, 'realignment_dismiss_failed');
+      return {
+        ok: false,
+        action: 'reinforcement.dismissRealignment',
+        error: parsed?.errorMessage ?? result.stderr ?? 'Failed to dismiss realignment.',
+        errorCode: parsed?.errorCode,
+      } as const;
+    }
+    return {
+      ok: true,
+      response: {
+        action: 'reinforcement.dismissRealignment' as const,
+        mode: 'dismissed' as const,
+        message: 'Realignment dismissed.',
+        realignmentId: payload.realignmentId,
+      },
+    };
+  },
   listExternalMcpServers: () => listExternalMcpServers(),
   addExternalMcpServer: (payload) => addExternalMcpServer(payload),
   updateExternalMcpServer: (payload) => updateExternalMcpServer(payload),
@@ -827,9 +922,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
   writeInstructionFile: (request) => writeInstructionFile(request),
   readTaskBoard: () => readTaskBoard(listAvailableContextPacks),
   readTaskContent: (payload) => readTaskContentImpl(payload, listAvailableContextPacks),
-  reorderPending: (payload) => reorderPendingImpl(payload),
+  reorderPending: (payload) => reorderPendingImpl(payload, listAvailableContextPacks),
   requeueErrorItem: async (payload) => {
-    const result = await requeueErrorItemAction(payload);
+    const result = await requeueErrorItemAction(payload, listAvailableContextPacks);
     if (
       result.ok &&
       result.response.action === 'taskBoard.requeueErrorItem' &&
@@ -840,9 +935,9 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     }
     return result;
   },
-  deleteTask: (payload) => deleteTaskAction(payload),
+  deleteTask: (payload) => deleteTaskAction(payload, listAvailableContextPacks),
   moveToPending: async (payload) => {
-    const result = await moveToPendingAction(payload);
+    const result = await moveToPendingAction(payload, listAvailableContextPacks);
     if (
       result.ok &&
       result.response.action === 'taskBoard.moveToPending' &&
@@ -853,7 +948,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
     }
     return result;
   },
-  moveToOpen: (payload) => moveToOpenAction(payload),
+  moveToOpen: (payload) => moveToOpenAction(payload, listAvailableContextPacks),
   activateContextPack: async (payload) => {
     const catalog = await listAvailableContextPacks();
     const entry = catalog.contextPacks.find((p) => p.contextPackId === payload.packId);
@@ -909,6 +1004,7 @@ const defaultDesktopActionHandlers: DesktopActionHandlers = {
       },
     };
   },
+  setTerminalTaskScope: setTerminalTaskScopeForWebContents,
 };
 
 function resolveDesktopActionHandlers(
@@ -923,6 +1019,7 @@ function resolveDesktopActionHandlers(
 export async function handleDesktopAction(
   request: DesktopActionRequest | unknown,
   handlers?: Partial<DesktopActionHandlers>,
+  context?: { webContentsId?: number },
 ): Promise<DesktopInvokeResult> {
   const resolvedHandlers = resolveDesktopActionHandlers(handlers);
   const requestErrors = validateDesktopActionRequest(request);
@@ -1252,21 +1349,15 @@ export async function handleDesktopAction(
         try {
           await commitPendingRecordToHistory(destinationPath);
         } catch (historyError: unknown) {
-          console.error(
-            historyError instanceof Error
-              ? `Planner conversation history upsert failed after dropbox finalization: ${historyError.message}`
-              : 'Planner conversation history upsert failed after dropbox finalization.',
-          );
+          log.error('planner.finalize.history.upsert.failed', historyError);
         }
 
         try {
           await resolvedHandlers.endPlannerSession();
         } catch (endSessionError: unknown) {
-          console.warn(
-            endSessionError instanceof Error
-              ? `Planner session shutdown failed after finalization: ${endSessionError.message}`
-              : 'Planner session shutdown failed after finalization.',
-          );
+          log.warn('planner.finalize.session-shutdown.failed', {
+            reason: endSessionError instanceof Error ? endSessionError.message : String(endSessionError),
+          });
         }
         emitStreamEvent({ message: `Spec finalized to dropbox: ${basename(destinationPath)}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
         return {
@@ -1344,8 +1435,17 @@ export async function handleDesktopAction(
           error: 'Cannot switch context pack while a pipeline is active. Cancel the running task first.',
         };
       }
-      return withStreamEvent(resolvedHandlers.applyContextPackSwitch(request.payload),
-        { message: 'Applied workspace switch.', source: 'contextPack.applySwitch', role: 'workflow' });
+      const result = await resolvedHandlers.applyContextPackSwitch(request.payload);
+      if (result.ok) {
+        await refreshCurrentActiveContextPackTaskScope(resolvedHandlers.listContextPacks);
+        await refreshTerminalScopeCaches();
+        emitStreamEvent({
+          message: 'Applied workspace switch.',
+          source: 'contextPack.applySwitch',
+          role: 'workflow',
+        });
+      }
+      return result;
     }
     case 'contextPack.clearActive': {
       // §5.3 active-task guard: block clearing active context pack while a pipeline is running.
@@ -1356,8 +1456,17 @@ export async function handleDesktopAction(
           error: 'Cannot clear active context pack while a pipeline is active. Cancel the running task first.',
         };
       }
-      return withStreamEvent(resolvedHandlers.clearActiveContextPack(),
-        { message: 'Cleared active context pack.', source: 'contextPack.clearActive', role: 'workflow' });
+      const result = await resolvedHandlers.clearActiveContextPack();
+      if (result.ok) {
+        await refreshCurrentActiveContextPackTaskScope(resolvedHandlers.listContextPacks);
+        await refreshTerminalScopeCaches();
+        emitStreamEvent({
+          message: 'Cleared active context pack.',
+          source: 'contextPack.clearActive',
+          role: 'workflow',
+        });
+      }
+      return result;
     }
     case 'planner.pickMarkdownFile':
       return resolvedHandlers.pickMarkdownFile();
@@ -1389,6 +1498,8 @@ export async function handleDesktopAction(
         { message: 'Corrective realignment started.', source: 'reinforcement.startRealignment', role: 'system', severity: 'warning' });
     case 'reinforcement.runRealignmentAnalysis':
       return resolvedHandlers.runRealignmentAnalysis(request.payload);
+    case 'reinforcement.dismissRealignment':
+      return resolvedHandlers.dismissRealignment(request.payload);
     case 'contextPack.activate':
       return withStreamEvent(resolvedHandlers.activateContextPack(request.payload),
         { message: 'Activated context pack.', source: 'contextPack.activate', role: 'workflow' });
@@ -1474,6 +1585,21 @@ export async function handleDesktopAction(
       return resolvedHandlers.loadDeepFocusSelections(request.payload);
     case 'deepFocus.clearSelections':
       return resolvedHandlers.clearDeepFocusSelections(request.payload);
+    case 'terminal.setTaskScope':
+      if (typeof context?.webContentsId !== 'number') {
+        return {
+          ok: false,
+          action: 'terminal.setTaskScope',
+          error: 'Terminal task scope requires an IPC sender.',
+        };
+      }
+      return {
+        ok: true,
+        response: resolvedHandlers.setTerminalTaskScope(
+          context.webContentsId,
+          request.payload.taskGuid,
+        ),
+      };
     case 'planner.uploadSpec':
       {
         const activePlannerSessionId = plannerSession.getObservability().sessionId;
@@ -1552,7 +1678,7 @@ export function registerDesktopContract(): void {
       } satisfies DesktopInvokeResult;
     }
 
-    return handleDesktopAction(request);
+    return handleDesktopAction(request, undefined, { webContentsId: event.sender?.id });
   });
 
   ipcMain.handle(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL, async () => readBypassTemplate());
@@ -1578,6 +1704,12 @@ export async function createWindow(): Promise<BrowserWindow> {
     },
   });
   mainWindow = window;
+  const webContentsId = window.webContents?.id;
+  if (typeof webContentsId === 'number') {
+    window.webContents.on('destroyed', () => {
+      clearTerminalTaskScopeForWebContents(webContentsId);
+    });
+  }
   window.once('closed', () => {
     if (mainWindow === window) {
       mainWindow = null;
@@ -1658,9 +1790,7 @@ export async function loadDevServerUrlWithRetry(window: BrowserWindow, url: stri
       if (window.isDestroyed()) {
         return;
       }
-      console.info(
-        `Vite dev server not ready, retrying... (attempt ${attempt}/${DEV_URL_MAX_ATTEMPTS})`,
-      );
+      log.info('app.dev-server.retry', { attempt, maxAttempts: DEV_URL_MAX_ATTEMPTS });
       await new Promise((resolve) => setTimeout(resolve, DEV_URL_RETRY_DELAY_MS));
       if (window.isDestroyed()) {
         return;
@@ -1677,10 +1807,24 @@ function focusMainWindow(): void {
   mainWindow.focus();
 }
 
+async function refreshTerminalScopeCaches(): Promise<void> {
+  resetStreamState();
+  try {
+    await refreshStreamTaskMetadataForScope(getCurrentActiveContextPackTaskScope());
+  } catch (error: unknown) {
+    log.warn('terminal.scope-cache-refresh.failed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  resetRuntimeStreamState();
+  await refreshRuntimeStreamState();
+}
+
 export function registerAppLifecycle(): void {
   if (!HAS_SINGLE_INSTANCE_LOCK) {
     return;
   }
+  const uninstallProcessHandlers = installProcessHandlers();
   // Constrain V8 heap to 256 MB so GC runs more aggressively in long-lived sessions.
   // --expose-gc makes the global gc() function available for the idle GC nudge timer.
   if (typeof app.commandLine?.appendSwitch === 'function') {
@@ -1688,7 +1832,7 @@ export function registerAppLifecycle(): void {
   }
   registerDevGracefulRestartHandler();
   app.on('second-instance', (_event, argv, workingDirectory) => {
-    console.info('TaskSail duplicate launch ignored.', { argv, workingDirectory });
+    log.info('app.launch.duplicate', { argv, workingDirectory });
     focusMainWindow();
   });
 
@@ -1705,10 +1849,13 @@ export function registerAppLifecycle(): void {
     }
 
     registerDesktopContract();
+    registerIpcLogHandler();
     await createWindow();
 
     // Clean up stale pipeline state before starting watchers/recovery.
     await cleanupStalePipelineState();
+    await refreshCurrentActiveContextPackTaskScope(listAvailableContextPacks);
+    await refreshTerminalScopeCaches();
 
     stopBoardWatcher = startTaskBoardWatcher(listAvailableContextPacks);
     startContextPackCatalogWatcher({
@@ -1717,9 +1864,23 @@ export function registerAppLifecycle(): void {
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, event);
         }
+        void refreshCurrentActiveContextPackTaskScope(listAvailableContextPacks)
+          .then(({ changed }) => {
+            if (!changed) {
+              return;
+            }
+            return refreshTerminalScopeCaches();
+          })
+          .catch((error: unknown) => {
+            log.warn('context-pack.scope-refresh.failed', {
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          });
       },
     });
-    stopRuntimeWatcher = startRuntimeStreamWatcher();
+    stopRuntimeWatcher = startRuntimeStreamWatcher({
+      scopeProvider: getCurrentActiveContextPackTaskScope,
+    });
     recoveryController = startTaskRecoveryController({
       schedulePipelineAutoStart,
     });
@@ -1727,7 +1888,11 @@ export function registerAppLifecycle(): void {
     // Rebuild the task registry from filesystem state on startup (fire-and-forget).
     // This handles first run, corruption recovery, and manual file placement.
     void repairTaskRegistry(REPO_ROOT)
-      .catch(() => { /* best-effort — board falls back to directory scanning */ });
+      .catch((error: unknown) => {
+        log.warn('task-registry.repair.failed', {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      });
 
     // Auto-start backend MCP services (non-blocking).
     void autoStartBackendServices(REPO_ROOT);
@@ -1753,6 +1918,7 @@ export function registerAppLifecycle(): void {
     stopRuntimeWatcher?.();
     recoveryController?.stop();
     recoveryController = null;
+    uninstallProcessHandlers();
     void plannerSession.endSession();
 
     if (!devGracefulRestartRequested) {

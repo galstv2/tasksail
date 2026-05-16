@@ -17,7 +17,7 @@ delete when it is no longer useful.
 
 Repository guidance:
 
-- files under `scratchspace/` are generally ignored by git
+- files under `scratchspace/` are always ignored by git
 - this README is kept tracked so the purpose of the directory remains clear
 - durable project documentation, implementation artifacts, and workflow records
   should live in their proper repository locations instead of this directory

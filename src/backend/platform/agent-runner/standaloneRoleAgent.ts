@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import type { AgentId } from '../core/index.js';
+import { createLogger, type AgentId } from '../core/index.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { ResolvedMcpServer } from '../cli-provider/index.js';
 import { getPlatformConfig } from '../platform-config/get.js';
@@ -19,6 +19,8 @@ import { agentErrorWithTails } from './recoveryPasses.js';
 import { createRoleLaunchId, sha256Hex } from './roleAgent.js';
 import { buildReinforcementOverlay } from './reinforcementOverlay.js';
 import type { AgentMcpLaunchStatus } from './types.js';
+
+const log = createLogger('platform/agent-runner/standaloneRoleAgent');
 
 export interface StandaloneRoleAgentOptions {
   agentId: AgentId;
@@ -156,9 +158,7 @@ export async function runStandaloneRoleAgent(
     if (configFilePath) {
       cliArgs.push(...provider.mcpConfigArgs(configFilePath));
     } else {
-      console.warn(
-        '[standaloneRoleAgent] external MCP config file path unavailable, continuing without MCP flag injection.',
-      );
+      log.warn('external_mcp.config_path.missing', { agentId: options.agentId });
     }
   }
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);

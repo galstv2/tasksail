@@ -7,7 +7,12 @@
  */
 import { pathToFileURL } from 'node:url';
 import type { AgentId } from '../core/index.js';
-import { ALL_AGENT_IDS, getErrorMessage } from '../core/index.js';
+import {
+  ALL_AGENT_IDS,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import { runRoleAgent } from './roleAgent.js';
 import { runPipelineSequence } from './pipeline/sequencer.js';
 import { fromRegistryId } from './metadata.js';
@@ -30,7 +35,7 @@ function requireAgentId(raw: string | undefined, flag: string): AgentId | undefi
   if (!raw) return undefined;
   const normalized = normalizeAgentId(raw);
   if (!normalized) {
-    process.stderr.write(`Error: unknown agent-id for ${flag}: "${raw}"\n`);
+    writeProtocolStderr(`Error: unknown agent-id for ${flag}: "${raw}"\n`);
     process.exitCode = 1;
   }
   return normalized;
@@ -39,7 +44,7 @@ function requireAgentId(raw: string | undefined, flag: string): AgentId | undefi
 /** Check that a flag's value argument exists; writes error and sets exitCode if missing. */
 function requireValue(args: string[], i: number, flag: string): boolean {
   if (i + 1 >= args.length) {
-    process.stderr.write(`Error: ${flag} requires a value\n`);
+    writeProtocolStderr(`Error: ${flag} requires a value\n`);
     process.exitCode = 1;
     return false;
   }
@@ -70,7 +75,7 @@ export async function main(argv: string[]): Promise<void> {
       break;
     default:
       if (subcommand) {
-        process.stderr.write(`Unknown subcommand: ${subcommand}\n`);
+        writeProtocolStderr(`Unknown subcommand: ${subcommand}\n`);
       }
       printUsage();
       process.exitCode = 1;
@@ -79,7 +84,7 @@ export async function main(argv: string[]): Promise<void> {
 }
 
 function printUsage(): void {
-  process.stdout.write(
+  writeProtocolStdout(
     `Usage: pnpm run agent -- [options]
        pnpm run agent:pipeline -- [options]
        pnpm run agent:kill -- [options]
@@ -130,7 +135,7 @@ async function handleRun(args: string[]): Promise<void> {
         break;
       case '--help':
       case '-h':
-        process.stdout.write(
+        writeProtocolStdout(
           `Usage: agent-runner run --agent-id <id> --task-id <id> [options]\n` +
           `Options:\n` +
           `  --dry-run              Print command without launching\n` +
@@ -142,20 +147,20 @@ async function handleRun(args: string[]): Promise<void> {
       case '--':
         break;
       default:
-        process.stderr.write(`Unknown option: ${args[i]}\n`);
+        writeProtocolStderr(`Unknown option: ${args[i]}\n`);
         process.exitCode = 1;
         return;
     }
   }
 
   if (!agentId) {
-    process.stderr.write('Error: --agent-id is required\n');
+    writeProtocolStderr('Error: --agent-id is required\n');
     process.exitCode = 1;
     return;
   }
 
   if (!taskId) {
-    process.stderr.write('Error: --task-id is required\n');
+    writeProtocolStderr('Error: --task-id is required\n');
     process.exitCode = 1;
     return;
   }
@@ -205,7 +210,7 @@ async function handlePipeline(args: string[]): Promise<void> {
         break;
       case '--help':
       case '-h':
-        process.stdout.write(
+        writeProtocolStdout(
           `Usage: agent-runner pipeline [--start-at <id>] [--stop-after <id>] [--task-id <id>] [--auto-advance] [--skip-reset-on-failure]\n` +
           `Defaults to the unattended active-task order (Alice -> Dalton -> Ron).\n`,
         );
@@ -213,14 +218,14 @@ async function handlePipeline(args: string[]): Promise<void> {
       case '--':
         break;
       default:
-        process.stderr.write(`Unknown option: ${args[i]}\n`);
+        writeProtocolStderr(`Unknown option: ${args[i]}\n`);
         process.exitCode = 1;
         return;
     }
   }
 
   if (!taskId) {
-    process.stderr.write('Error: --task-id is required for pipeline command.\n');
+    writeProtocolStderr('Error: --task-id is required for pipeline command.\n');
     process.exitCode = 1;
     return;
   }
@@ -261,23 +266,23 @@ async function handleKill(args: string[]): Promise<void> {
         break;
       case '--help':
       case '-h':
-        process.stdout.write('Usage: agent-runner kill --task-id <id> [--repo-root <path>] [--reason <text>]\n');
+        writeProtocolStdout('Usage: agent-runner kill --task-id <id> [--repo-root <path>] [--reason <text>]\n');
         return;
       default:
-        process.stderr.write(`Unknown option: ${args[i]}\n`);
+        writeProtocolStderr(`Unknown option: ${args[i]}\n`);
         process.exitCode = 1;
         return;
     }
   }
 
   if (!taskId) {
-    process.stderr.write('Error: --task-id is required for kill command.\n');
+    writeProtocolStderr('Error: --task-id is required for kill command.\n');
     process.exitCode = 1;
     return;
   }
 
   await requestPipelineKill(repoRoot ?? process.cwd(), taskId, reason);
-  process.stdout.write('Pipeline kill requested.\n');
+  writeProtocolStdout('Pipeline kill requested.\n');
 }
 
 async function handleClearKill(args: string[]): Promise<void> {
@@ -296,23 +301,23 @@ async function handleClearKill(args: string[]): Promise<void> {
         break;
       case '--help':
       case '-h':
-        process.stdout.write('Usage: agent-runner clear-kill --task-id <id> [--repo-root <path>]\n');
+        writeProtocolStdout('Usage: agent-runner clear-kill --task-id <id> [--repo-root <path>]\n');
         return;
       default:
-        process.stderr.write(`Unknown option: ${args[i]}\n`);
+        writeProtocolStderr(`Unknown option: ${args[i]}\n`);
         process.exitCode = 1;
         return;
     }
   }
 
   if (!taskId) {
-    process.stderr.write('Error: --task-id is required for clear-kill command.\n');
+    writeProtocolStderr('Error: --task-id is required for clear-kill command.\n');
     process.exitCode = 1;
     return;
   }
 
   const cleared = await clearPipelineKill(repoRoot ?? process.cwd(), taskId);
-  process.stdout.write(cleared ? 'Cleared pipeline kill request.\n' : 'No pipeline kill request was present.\n');
+  writeProtocolStdout(cleared ? 'Cleared pipeline kill request.\n' : 'No pipeline kill request was present.\n');
 }
 
 const isCliEntrypoint = process.argv[1]
@@ -320,8 +325,5 @@ const isCliEntrypoint = process.argv[1]
   : false;
 
 if (isCliEntrypoint) {
-  main(process.argv).catch((err: unknown) => {
-    process.stderr.write(`${getErrorMessage(err)}\n`);
-    process.exitCode = 1;
-  });
+  runCliBoundary('platform/agent-runner/cli', () => main(process.argv));
 }

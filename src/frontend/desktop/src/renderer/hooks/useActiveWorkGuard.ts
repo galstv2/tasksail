@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../shared/desktopContract';
+import { createLogger } from '../log/logger';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 
@@ -21,6 +22,8 @@ export type UseActiveWorkGuardResult = {
   startState: StartRealignmentState;
   startRealignment: (contextPackDir: string, triggerTaskId: string) => void;
 };
+
+const log = createLogger('src/renderer/hooks/useActiveWorkGuard');
 
 export function useActiveWorkGuard(
   hasActiveContextPack: boolean,
@@ -62,13 +65,28 @@ export function useActiveWorkGuard(
   const startRealignment = useCallback(
     async (contextPackDir: string, triggerTaskId: string) => {
       setStartState({ status: 'starting' });
-      const result = await client.startRealignment({ contextPackDir, triggerTaskId });
-      if (result.ok && result.response.action === 'reinforcement.startRealignment') {
-        setStartState({ status: 'started', session: result.response.session });
-      } else if (!result.ok) {
-        setStartState({ status: 'error', message: result.error });
-        // Active work may have appeared between the guard check and the start call
-        check().catch(() => {});
+      try {
+        const result = await client.startRealignment({ contextPackDir, triggerTaskId });
+        if (result.ok && result.response.action === 'reinforcement.startRealignment') {
+          setStartState({ status: 'started', session: result.response.session });
+        } else if (!result.ok) {
+          log.warn('realignment.start.failed', {
+            contextPackDir,
+            triggerTaskId,
+            reason: result.error,
+          });
+          setStartState({ status: 'error', message: result.error });
+          // Active work may have appeared between the guard check and the start call
+          check().catch(() => {});
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to start realignment.';
+        log.warn('realignment.start.failed', {
+          contextPackDir,
+          triggerTaskId,
+          reason: message,
+        });
+        setStartState({ status: 'error', message });
       }
     },
     [client, check],

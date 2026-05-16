@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 DEFAULT_MANIFEST = "qmd/repo-sources.json"
 DEFAULT_PLAN_FILE = "qmd/bootstrap/seed-plan.json"
 
@@ -15,6 +17,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from src.backend.mcp.git_roots import coerce_git_root_field  # noqa: E402
 from src.backend.mcp.pack_constants import (  # noqa: E402
     MANIFEST_VERSION as DEFAULT_MANIFEST_VERSION,
 )
@@ -26,6 +29,7 @@ from src.backend.mcp.repo_context_mcp.utils import (  # noqa: E402
     normalize_layer,
     unique_preserving_order,
 )
+from src.backend.scripts.python.lib.logging_config import configure_logging  # noqa: E402
 
 
 @dataclass
@@ -120,6 +124,7 @@ def coerce_local_path(value: Any) -> LocalPath:
         return LocalPath(
             host=value["host"].replace("\\", "/"),
             container=container.replace("\\", "/") if isinstance(container, str) else None,
+            git_root=coerce_git_root_field(value.get("git_root")),
         )
     raise ValueError("local_paths entries must be strings or objects with host")
 
@@ -435,6 +440,7 @@ def render_markdown(plan: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    configure_logging(stack="py", service="plan-qmd-seeding")
     args = parse_args()
     context_pack_dir = resolve_path(Path.cwd(), args.context_pack_dir)
     manifest_path = resolve_path(context_pack_dir, args.manifest)
@@ -443,7 +449,7 @@ def main() -> int:
     try:
         plan = build_plan(context_pack_dir, manifest_path)
     except ValueError as exc:
-        print(f"QMD seeding dry run failed: {exc}", file=sys.stderr)
+        write_protocol_stderr(str(f"QMD seeding dry run failed: {exc}") + '\n')
         return 1
 
     if args.write_plan:
@@ -454,9 +460,9 @@ def main() -> int:
 
     if not args.quiet:
         if args.format == "json":
-            print(json.dumps(plan, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(plan, indent=2, sort_keys=False)) + '\n')
         else:
-            print(render_markdown(plan))
+            write_protocol_stdout(str(render_markdown(plan)) + '\n')
 
     return 0
 

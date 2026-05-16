@@ -7,8 +7,10 @@ import type {
   DesktopInvokeResult,
   PlannerPickMarkdownFileResponse,
 } from '../../src/shared/desktopContract';
+import { createLogger } from '../log/logger';
 
 const MARKDOWN_FILE_SIZE_LIMIT = 128 * 1024;
+const log = createLogger('electron/contextPackActions/pickMarkdownFile');
 
 export async function pickMarkdownFileAction(): Promise<DesktopInvokeResult> {
   try {
@@ -68,6 +70,9 @@ export async function pickMarkdownFileAction(): Promise<DesktopInvokeResult> {
     };
     return { ok: true, response };
   } catch (error: unknown) {
+    log.warn('planner.pick-markdown-file.failed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return {
       ok: false,
       action: 'planner.pickMarkdownFile',

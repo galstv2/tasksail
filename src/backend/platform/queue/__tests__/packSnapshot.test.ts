@@ -36,8 +36,13 @@ describe('pack-snapshot writer and reader', () => {
     const platformRepo = makeRepo('platform-repo');
     const toolsRepo = makeRepo('tools-repo');
     writeManifest({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'orders',
       estate_type: 'distributed-platform',
       qmd_scope_root: 'qmd/context-packs/orders',
+      primary_working_repo_ids: ['platform'],
+      primary_focus_area_ids: [],
       repositories: [
         { repo_id: 'platform', local_paths: [platformRepo] },
         { repo_id: 'tools', local_paths: [toolsRepo] },
@@ -86,8 +91,13 @@ describe('pack-snapshot writer and reader', () => {
     const platformRepo = makeRepo('platform-repo');
     const toolsRepo = makeRepo('tools-repo');
     writeManifest({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'orders',
       estate_type: 'distributed-platform',
       qmd_scope_root: 'qmd/context-packs/orders',
+      primary_working_repo_ids: ['platform'],
+      primary_focus_area_ids: [],
       repositories: [
         { repo_id: 'platform', local_paths: [platformRepo] },
         { repo_id: 'tools', local_paths: [toolsRepo] },
@@ -126,7 +136,13 @@ describe('pack-snapshot writer and reader', () => {
   it('rejects a distributed primary that is outside the selected repo set', async () => {
     const platformRepo = makeRepo('platform-repo');
     writeManifest({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'orders',
       estate_type: 'distributed-platform',
+      qmd_scope_root: 'qmd/context-packs/orders',
+      primary_working_repo_ids: ['rogue'],
+      primary_focus_area_ids: [],
       repositories: [{ repo_id: 'platform', local_paths: [platformRepo] }],
     });
 

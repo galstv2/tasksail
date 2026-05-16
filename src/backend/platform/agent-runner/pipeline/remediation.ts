@@ -1,4 +1,4 @@
-import { readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
+import { createLogger, newSpanId, readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
@@ -13,6 +13,8 @@ import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopeProm
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { getActiveProvider } from '../../cli-provider/index.js';
+
+const log = createLogger('platform/agent-runner/pipeline/remediation');
 
 export const ADVISORY_FINDING_HEADING = '## QA Advisory Finding';
 
@@ -264,6 +266,7 @@ export async function remediationRunQaLoop(options: {
         agentId: 'dalton',
         repoRoot: paths.repoRoot,
         taskId: options.taskId,
+        spanId: newSpanId(),
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: remediationPrompt,
@@ -289,9 +292,10 @@ export async function remediationRunQaLoop(options: {
       implementationStepsDir: paths.implementationSteps,
       captureCwd,
       abortSignal: options.abortSignal,
+      pipelineTaskId: options.taskId,
     });
     if (capture.skipped) {
-      console.warn('[remediation] target repo resolution failed; skipping orchestrator test capture.');
+      log.warn('orchestrator_test_capture.skipped', { reason: 'target-repo-resolution-failed' });
     }
     const ronPromptOverride = buildTestCapturePrompt(
       capture.results,
@@ -304,6 +308,7 @@ export async function remediationRunQaLoop(options: {
         agentId: 'ron',
         repoRoot: paths.repoRoot,
         taskId: options.taskId,
+        spanId: newSpanId(),
         skipWorkflowValidation: true,
         contextPackDir: effectiveContextPackDir,
         promptOverride: ronPromptOverride,

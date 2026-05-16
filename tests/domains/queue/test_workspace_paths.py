@@ -85,7 +85,7 @@ def test_cli_home_root_singleton_default():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
         os.environ.pop("TASKSAIL_CLI_HOME_DIR_NAME", None)
-        assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "copilot-home"
+        assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "cli-home"
 
 
 def test_cli_home_root_singleton_from_env():

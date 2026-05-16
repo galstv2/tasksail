@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -123,11 +122,12 @@ def resolve_headers(
             var_name = m.group(1)
             env_val = os.environ.get(var_name)  # process-global; not per-task
             if env_val is None:
-                print(
-                    f"[external-mcp] Server '{server.get('id', '?')}' excluded: "
-                    f"env variable ${var_name} is not set. "
-                    f"Set it in your environment or .env file.",
-                    file=sys.stderr,
+                logger.warning(
+                    "external_mcp.server.excluded_missing_env",
+                    extra={
+                        "server_id": str(server.get("id", "?")),
+                        "env_var": var_name,
+                    },
                 )
                 return None
             resolved[key] = env_val
@@ -186,7 +186,14 @@ def preflight_check_servers(
         for future in as_completed(futures):
             msg = future.result()
             if msg:
-                print(msg, file=sys.stderr)
+                server = futures[future]
+                logger.warning(
+                    "external_mcp.preflight.unreachable",
+                    extra={
+                        "server_id": str(server.get("id", "?")),
+                        "warning": msg,
+                    },
+                )
                 warnings.append(msg)
 
     return warnings

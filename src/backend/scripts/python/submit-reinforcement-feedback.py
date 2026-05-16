@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stdout
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -20,6 +22,7 @@ from src.backend.mcp.reinforcement.models import ROLE_MULTIPLIERS
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -40,6 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="submit-reinforcement-feedback")
     args = parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
     context_pack_dir = Path(args.context_pack_dir).resolve()
@@ -67,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         result["realignment_session"] = session.as_dict()
 
-    print(json.dumps(result, indent=2))
+    write_protocol_stdout(str(json.dumps(result, indent=2)) + '\n')
     return 0
 
 

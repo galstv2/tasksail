@@ -1336,6 +1336,34 @@ describe('contextPack.setRepoCategory', () => {
   });
 });
 
+describe('terminal.setTaskScope', () => {
+  it('accepts null and non-empty taskGuid payloads', () => {
+    expect(validateDesktopActionRequest({
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: null },
+    })).toEqual([]);
+    expect(validateDesktopActionRequest({
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: 'feedbeef-1234-4234-9234-123456789abc' },
+    })).toEqual([]);
+  });
+
+  it('rejects missing, empty, and non-string taskGuid payloads', () => {
+    expect(validateDesktopActionRequest({
+      action: 'terminal.setTaskScope',
+      payload: {},
+    })).toContain('payload.taskGuid must be null or a non-empty string.');
+    expect(validateDesktopActionRequest({
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: '' },
+    })).toContain('payload.taskGuid must be null or a non-empty string.');
+    expect(validateDesktopActionRequest({
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: 123 },
+    })).toContain('payload.taskGuid must be null or a non-empty string.');
+  });
+});
+
 describe('isValidDesktopActionRequest', () => {
   it('returns true for a valid request', () => {
     expect(isValidDesktopActionRequest({ action: 'queue.readStatus' })).toBe(true);

@@ -10,6 +10,7 @@ const clearStagingArtifacts = vi.fn();
 const resolveFocusedRepoRoot = vi.fn();
 const resolveSelectedPrimaryRepoRoot = vi.fn();
 const collectFocusedRepoTargetDirectoryRoots = vi.fn();
+const warn = vi.fn();
 
 let actualCollectFocusedRepoTargetDirectoryRoots:
   typeof import('../../../backend/platform/context-pack/focusedRepo.js')['collectFocusedRepoTargetDirectoryRoots'];
@@ -23,6 +24,16 @@ vi.mock('electron', () => ({
 vi.mock('./main.staging', () => ({
   clearStagingArtifacts,
   initializeStagedPlanningDraft,
+}));
+
+vi.mock('./log/logger', () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+    child: vi.fn(() => ({ debug: vi.fn(), info: vi.fn(), warn, error: vi.fn(), child: vi.fn() })),
+  })),
 }));
 
 vi.mock('../../../backend/platform/context-pack/focusedRepo.js', async (importOriginal) => {
@@ -110,6 +121,23 @@ describe('plannerSession staging bootstrap', () => {
 
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(1, { force: true });
     expect(clearStagingArtifacts).toHaveBeenNthCalledWith(2, { sessionId: 'planner-101' });
+  });
+
+  it('logs staging bootstrap failures before ending the planner session and rethrowing', async () => {
+    resolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
+    resolveFocusedRepoRoot.mockResolvedValue(undefined);
+    clearStagingArtifacts.mockResolvedValue(undefined);
+    initializeStagedPlanningDraft.mockRejectedValue(new Error('Staging bootstrap failed.'));
+
+    const plannerSession = await import('./plannerSession');
+    await expect(plannerSession.startSession('/contextpacks/test')).rejects.toThrow(
+      'Staging bootstrap failed.',
+    );
+
+    expect(warn).toHaveBeenCalledWith('planner.session.start.cleanup.failed', {
+      contextPackDir: '/contextpacks/test',
+      reason: 'Staging bootstrap failed.',
+    });
   });
 
   it('derives the parent directory as the planner context root for a file-focus selection on services/Acme.Api/Routes.cs', async () => {

@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from lib.protocol_output import write_protocol_stdout
+
 # Ensure the repo root is on sys.path so `src.backend.*` imports resolve.
 _SCRIPT = Path(__file__).resolve()
 _REPO_ROOT = _SCRIPT.parents[4]
@@ -40,6 +42,7 @@ from src.backend.mcp.pack_preflight import (
 )
 from src.backend.mcp.pack_schemas.answers import validate_answers
 from src.backend.mcp.pack_schemas.errors import PackSchemaError
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
 def _resolve_path(value: Any, label: str) -> Path:
@@ -96,6 +99,7 @@ def _read_payload(arg: str) -> str:
 
 
 def main() -> int:
+    configure_logging(stack="py", service="run-pack-preflight")
     parser = argparse.ArgumentParser(
         description="Validate a context-pack create payload before any disk write.",
     )
@@ -110,26 +114,26 @@ def main() -> int:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(json.dumps(_payload_malformed(
+        write_protocol_stdout(str(json.dumps(_payload_malformed(
             f"Failed to parse payload JSON: {exc}",
             details={"error": str(exc)},
-        ).to_dict()))
+        ).to_dict())) + '\n')
         return 0
 
     if not isinstance(payload, dict):
-        print(json.dumps(_payload_malformed("payload must be a JSON object").to_dict()))
+        write_protocol_stdout(str(json.dumps(_payload_malformed("payload must be a JSON object").to_dict())) + '\n')
         return 0
 
     try:
         request = _build_request(payload)
     except PackSchemaError as exc:
-        print(json.dumps(_payload_malformed(
+        write_protocol_stdout(str(json.dumps(_payload_malformed(
             "Bootstrap answers failed schema validation.",
             details={"errors": list(exc.errors)},
-        ).to_dict()))
+        ).to_dict())) + '\n')
         return 0
     except (ValueError, TypeError) as exc:
-        print(json.dumps(_payload_malformed(str(exc)).to_dict()))
+        write_protocol_stdout(str(json.dumps(_payload_malformed(str(exc)).to_dict())) + '\n')
         return 0
 
     try:
@@ -137,10 +141,10 @@ def main() -> int:
     except Exception as exc:
         # Validator should never raise; if it does, treat it as a hard failure
         # so the TS caller can distinguish from "ran and produced result".
-        print(json.dumps({"status": "error", "error": str(exc)}))
+        write_protocol_stdout(str(json.dumps({"status": "error", "error": str(exc)})) + '\n')
         return 1
 
-    print(json.dumps(result.to_dict()))
+    write_protocol_stdout(str(json.dumps(result.to_dict())) + '\n')
     return 0
 
 

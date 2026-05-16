@@ -367,6 +367,27 @@ class ReinforcementStore:
             self._realignment_sessions_read_path(),
         )
 
+    def delete_realignment_session(self, realignment_id: str) -> bool:
+        """Remove a realignment session from the active sessions store."""
+        def _delete(data: dict[str, Any]) -> dict[str, Any]:
+            self._ensure_collection(data, SCHEMA_VERSION_REALIGNMENT_SESSIONS)
+            data["entries"] = [
+                entry
+                for entry in data["entries"]
+                if entry.get("realignment_id") != realignment_id
+            ]
+            return data
+
+        before = self.load_realignment_sessions()
+        if all(session.realignment_id != realignment_id for session in before):
+            return False
+        self._locked_read_modify_write(
+            self._realignment_sessions_path(),
+            _delete,
+            self._realignment_sessions_read_path(),
+        )
+        return True
+
     def save_realignment_notes(
         self,
         realignment_id: str,

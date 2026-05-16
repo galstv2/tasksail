@@ -18,8 +18,16 @@ import {
 } from './operations.js';
 import { resolveQueuePaths } from './paths.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
-import { findRepoRoot } from '../core/index.js';
+import {
+  createLogger,
+  findRepoRoot,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import type { QueueRepairIssue } from './repairQueueIssues.js';
+
+const log = createLogger('platform/queue/cli');
 
 const USAGE = `Usage: task-queue <command> [options]
 
@@ -68,7 +76,7 @@ function parseArgs(argv: string[]): {
 
 export async function main(argv: string[]): Promise<void> {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
-    process.stdout.write(USAGE);
+    writeProtocolStdout(USAGE);
     return;
   }
 
@@ -109,11 +117,18 @@ export async function main(argv: string[]): Promise<void> {
         contextPackDir,
         lockOperationName: 'cli.new-task.dropbox',
       });
-      process.stdout.write(`Created dropbox task: ${outputPath}\n`);
+      writeProtocolStdout(`Created dropbox task: ${outputPath}\n`);
+      const taskId = path.basename(outputPath, '.md');
+      log.child({ taskId }).progress({
+        level: 'info',
+        event: 'queue.dropbox.arrived',
+        extra: { path: outputPath, via: 'create-task' },
+        text: `[queue] dropbox arrived ${taskId}`,
+      });
       if (activation.activated) {
-        process.stdout.write(`[cli.new-task] activated next pending item after publish.\n`);
+        writeProtocolStdout(`[cli.new-task] activated next pending item after publish.\n`);
       } else if (activation.reason) {
-        process.stdout.write(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
+        writeProtocolStdout(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
       }
       break;
     }
@@ -150,11 +165,18 @@ export async function main(argv: string[]): Promise<void> {
         contextPackDir,
         lockOperationName: 'cli.new-task.followup',
       });
-      process.stdout.write(`Created follow-up task: ${outputPath}\n`);
+      writeProtocolStdout(`Created follow-up task: ${outputPath}\n`);
+      const taskId = path.basename(outputPath, '.md');
+      log.child({ taskId }).progress({
+        level: 'info',
+        event: 'queue.dropbox.arrived',
+        extra: { path: outputPath, via: 'followup' },
+        text: `[queue] dropbox arrived ${taskId}`,
+      });
       if (activation.activated) {
-        process.stdout.write(`[cli.new-task] activated next pending item after publish.\n`);
+        writeProtocolStdout(`[cli.new-task] activated next pending item after publish.\n`);
       } else if (activation.reason) {
-        process.stdout.write(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
+        writeProtocolStdout(`[cli.new-task] activation skipped after publish: ${activation.reason}\n`);
       }
       break;
     }
@@ -171,9 +193,9 @@ export async function main(argv: string[]): Promise<void> {
         repoRoot: flags['repo-root'],
       });
       if (booleans.has('reset')) {
-        process.stdout.write('Cleared handoff artifacts.\n');
+        writeProtocolStdout('Cleared handoff artifacts.\n');
       } else {
-        process.stdout.write('Initialized handoff artifacts.\n');
+        writeProtocolStdout('Initialized handoff artifacts.\n');
       }
       break;
     }
@@ -181,39 +203,39 @@ export async function main(argv: string[]): Promise<void> {
     case 'status': {
       if (booleans.has('closeout-health')) {
         const health = await getCloseoutHealth(repoRoot);
-        process.stdout.write(JSON.stringify(health, null, 2) + '\n');
+        writeProtocolStdout(JSON.stringify(health, null, 2) + '\n');
         break;
       }
       const status = await getQueueStatus(flags['repo-root']);
-      process.stdout.write(`Workspace Ready: ${status.workspaceReady ? 'yes' : 'no'}\n`);
-      process.stdout.write(`Active Item: ${status.activeTasks[0]?.taskId ?? 'none'}\n`);
+      writeProtocolStdout(`Workspace Ready: ${status.workspaceReady ? 'yes' : 'no'}\n`);
+      writeProtocolStdout(`Active Item: ${status.activeTasks[0]?.taskId ?? 'none'}\n`);
       if (status.activeTaskWithBlankWorkspace) {
-        process.stdout.write(
+        writeProtocolStdout(
           'WARNING: active task marker present but handoffs/ is blank — run "task-queue repair --auto-fix" to recover\n',
         );
       }
       if (status.partialPublish) {
-        process.stdout.write(
+        writeProtocolStdout(
           'WARNING: handoff publish was interrupted — run "task-queue repair --auto-fix" to recover\n',
         );
       }
       for (const taskId of status.stuckMidCompletion) {
-        process.stdout.write(
+        writeProtocolStdout(
           `WARNING: task '${taskId}' is stuck mid-completion (closeout died after archive/checkpoint).\n` +
           `         Switching to branch 'task/${taskId}' may fail until recovery runs because stale worktree metadata can pin the branch.\n` +
           `         Recover with: pnpm run repair -- --auto-fix\n`,
         );
       }
       if (status.errorItemsCount > 0) {
-        process.stdout.write(`Error Items: ${status.errorItemsCount}\n`);
+        writeProtocolStdout(`Error Items: ${status.errorItemsCount}\n`);
       }
-      process.stdout.write(`Dropbox Items: ${status.dropboxItems.length}\n`);
+      writeProtocolStdout(`Dropbox Items: ${status.dropboxItems.length}\n`);
       for (const item of status.dropboxItems) {
-        process.stdout.write(`  ${item}\n`);
+        writeProtocolStdout(`  ${item}\n`);
       }
-      process.stdout.write(`Pending Items: ${status.pendingItems.length}\n`);
+      writeProtocolStdout(`Pending Items: ${status.pendingItems.length}\n`);
       for (const item of status.pendingItems) {
-        process.stdout.write(`  ${item}\n`);
+        writeProtocolStdout(`  ${item}\n`);
       }
       break;
     }
@@ -230,14 +252,14 @@ export async function main(argv: string[]): Promise<void> {
         if (activeIds.length === 1) {
           completeTaskId = activeIds[0]!;
         } else if (activeIds.length === 0) {
-          process.stderr.write(
+          writeProtocolStderr(
             'Error: no active task found. Activate a task before completing.\n',
           );
           process.exitCode = 1;
           return;
         } else {
           // N>1 active tasks — operator must disambiguate.
-          process.stderr.write(
+          writeProtocolStderr(
             `Error [completion-requires-task-id]: multiple active tasks found. Pass --task-id to specify which to complete.\nActive task IDs:\n${activeIds.map((id) => `  ${id}`).join('\n')}\n`,
           );
           process.exitCode = 1;
@@ -250,7 +272,7 @@ export async function main(argv: string[]): Promise<void> {
         skipArchive: booleans.has('skip-archive'),
         repoRoot: flags['repo-root'],
       });
-      process.stdout.write('Completed active pending item.\n');
+      writeProtocolStdout('Completed active pending item.\n');
       break;
     }
 
@@ -271,7 +293,7 @@ export async function main(argv: string[]): Promise<void> {
       );
       try {
         const moved = await moveDropboxItemsOnce(qp.dropboxDir, qp.pendingDir);
-        process.stdout.write(`Moved ${moved} item(s) from dropbox to pending.\n`);
+        writeProtocolStdout(`Moved ${moved} item(s) from dropbox to pending.\n`);
       } finally {
         await release();
       }
@@ -314,17 +336,17 @@ export async function main(argv: string[]): Promise<void> {
         contextPackDir: activateContextPackDir,
       });
       if (!result.activated) {
-        process.stdout.write('waiting until handoffs/ is reset or pending items are available\n');
+        writeProtocolStdout('waiting until handoffs/ is reset or pending items are available\n');
         process.exitCode = 2;
       } else {
-        process.stdout.write('Activated next pending item.\n');
+        writeProtocolStdout('Activated next pending item.\n');
       }
       break;
     }
 
     default:
-      process.stderr.write(`Unknown command: ${command}\n\n`);
-      process.stdout.write(USAGE);
+      writeProtocolStderr(`Unknown command: ${command}\n\n`);
+      writeProtocolStdout(USAGE);
       process.exitCode = 1;
   }
 }
@@ -431,9 +453,5 @@ const isCliEntrypoint = process.argv[1]
   : false;
 
 if (isCliEntrypoint) {
-  void main(process.argv.slice(2)).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-  });
+  runCliBoundary('platform/queue/cli', () => main(process.argv.slice(2)));
 }

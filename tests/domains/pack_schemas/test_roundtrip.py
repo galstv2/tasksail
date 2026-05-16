@@ -236,3 +236,43 @@ def test_manifest_v2_legacy_local_paths_normalize_to_structured() -> None:
     assert dumped["repositories"][0]["local_paths"] == [
         {"host": "C:/Users/example/api", "container": None}
     ]
+
+
+def test_manifest_v2_local_paths_preserve_git_root() -> None:
+    raw = {
+        "manifest_version": "qmd-repo-sources/v2",
+        "manifest_status": "approved",
+        "estate_type": "monolith",
+        "context_pack_id": "subtree-pack",
+        "qmd_scope_root": "qmd/context-packs/subtree-pack",
+        "primary_working_repo_ids": [],
+        "primary_focus_area_ids": ["backend"],
+        "repositories": [
+            {
+                "repo_id": "src",
+                "repo_name": "Src",
+                "local_paths": [
+                    {
+                        "host": "/repos/monolith/src",
+                        "container": None,
+                        "git_root": "/repos/monolith",
+                    }
+                ],
+                "repo_category": "unknown",
+                "repo_focus": "primary",
+            }
+        ],
+    }
+
+    model = validate_manifest_v2(raw)
+
+    assert model.repositories is not None
+    assert model.repositories[0].local_paths[0].git_root == "/repos/monolith"
+    dumped = dump_manifest_v2(model)
+    assert dumped["repositories"][0]["local_paths"] == [
+        {
+            "host": "/repos/monolith/src",
+            "container": None,
+            "git_root": "/repos/monolith",
+        }
+    ]

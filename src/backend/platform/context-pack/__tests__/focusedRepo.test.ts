@@ -636,6 +636,65 @@ describe('resolveFocusedRepoRoot', () => {
     expect(result!.readonlyContextRoots).toEqual([]);
   });
 
+  it('preserves standard monolith selections with multiple primary focus areas', async () => {
+    const repoDir = makeRepo('my-app');
+    const repoRoot = makePlatformRepo([{ path: '.' }]);
+    const packDir = path.join(tmpDir, 'pack');
+    writeManifest(packDir, {
+      estate_type: 'monolith',
+      repository: {
+        repo_id: 'my-app',
+        local_paths: [repoDir],
+      },
+      focusable_areas: [
+        { focus_id: 'backend', relative_path: 'backend', repository_type: 'primary' },
+        { focus_id: 'frontend', relative_path: 'frontend', repository_type: 'primary' },
+      ],
+    });
+    writeWorkspaceSyncState({
+      contextPackDir: packDir,
+      selectedRepoIds: [],
+      selectedFocusIds: ['backend', 'frontend'],
+    });
+
+    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
+
+    expect(result).toBeDefined();
+    expect(result!.primaryRepoId).toBe('my-app');
+    expect(result!.primaryFocusId).toBe('backend');
+    expect(result!.primaryFocusRelativePath).toBe('backend');
+    expect(result!.selectedFocusIds).toEqual(['backend', 'frontend']);
+    expect(result!.primaryFocusTargets).toEqual([
+      {
+        path: 'backend',
+        kind: 'directory',
+        repoLocalPath: realpathSync(repoDir),
+        focusId: 'backend',
+        role: 'anchor',
+      },
+      {
+        path: 'frontend',
+        kind: 'directory',
+        repoLocalPath: realpathSync(repoDir),
+        focusId: 'frontend',
+        role: 'primary',
+      },
+    ]);
+    expect(result!.writableRoots).toEqual([
+      expect.objectContaining({
+        path: 'backend',
+        kind: 'directory',
+        reason: 'selected-primary',
+      }),
+      expect.objectContaining({
+        path: 'frontend',
+        kind: 'directory',
+        reason: 'selected-primary',
+      }),
+    ]);
+    expect(result!.authoritySource).toBe('workspace-sync-state');
+  });
+
   it('surfaces a specific error when the selected monolith primary focus is missing relative_path', async () => {
     const repoDir = makeRepo('my-app');
     const repoRoot = makePlatformRepo([{ path: '.' }]);
@@ -661,11 +720,7 @@ describe('resolveFocusedRepoRoot', () => {
     );
   });
 
-  it('explains the multi-primary distributed selection failure', async () => {
-    // Reproduces the incident where two manifest repos both have
-    // repository_type=primary and the dropbox file selected both: the resolver
-    // returns undefined and the diagnostic helper must name both repos so the
-    // operator can correct the selection.
+  it('resolves standard distributed selections with multiple primary repos', async () => {
     const platformDir = makeRepo('platform');
     const toolsDir = makeRepo('tools');
     const repoRoot = makePlatformRepo([{ path: '.' }, { path: platformDir }, { path: toolsDir }]);
@@ -684,13 +739,11 @@ describe('resolveFocusedRepoRoot', () => {
     });
 
     const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
-    expect(result).toBeUndefined();
-
-    const explanation = await explainSelectedPrimaryBoundaryFailure(packDir, repoRoot);
-    expect(explanation).toContain('selectedRepoIds [platform, tools]');
-    expect(explanation).toContain('2 repos with repository_type=primary');
-    expect(explanation).toContain('platform, tools');
-    expect(explanation).toContain('exactly one required');
+    expect(result).toBeDefined();
+    expect(result!.primaryRepoId).toBe('platform');
+    expect(result!.primaryRepoRoot).toBe(realpathSync(platformDir));
+    expect(result!.selectedRepoIds).toEqual(['platform', 'tools']);
+    expect(result!.visibleRepoRoots).toEqual([realpathSync(platformDir), realpathSync(toolsDir)]);
   });
 
   it('explains a missing manifest with the manifest path', async () => {

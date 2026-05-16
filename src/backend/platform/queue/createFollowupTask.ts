@@ -2,7 +2,7 @@ import { createDropboxTask } from './createDropboxTask.js';
 import type { TaskContextPackTarget } from './markdown.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { assertPolicyPasses } from './policyValidation.js';
-import { findRepoRoot } from '../core/index.js';
+import { findRepoRoot, ValidationError } from '../core/index.js';
 
 export interface CreateFollowupTaskOptions {
   /** Parent task file path (for context extraction). */
@@ -68,16 +68,16 @@ export async function createFollowupTask(
   } = options;
 
   if (!title) {
-    throw new Error('--title is required.');
+    throw new ValidationError('--title is required.', { code: 'TITLE_REQUIRED', category: 'user' });
   }
   if (!parentTaskId) {
-    throw new Error('--parent-task-id is required.');
+    throw new ValidationError('--parent-task-id is required.', { code: 'PARENT_TASK_ID_REQUIRED', category: 'user' });
   }
   if (!parentQmdScope) {
-    throw new Error('--parent-qmd-scope is required.');
+    throw new ValidationError('--parent-qmd-scope is required.', { code: 'PARENT_QMD_SCOPE_REQUIRED', category: 'user' });
   }
   if (!followupReason) {
-    throw new Error('--followup-reason is required.');
+    throw new ValidationError('--followup-reason is required.', { code: 'FOLLOWUP_REASON_REQUIRED', category: 'user' });
   }
 
   // Validate parent closeout before creating the follow-up

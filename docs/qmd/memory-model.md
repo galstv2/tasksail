@@ -23,7 +23,7 @@ Recommended top-level shape:
 
 Retrospective memory adds a parallel shared root outside context-pack scopes:
 
-- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}.md`
+- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md`
 - `AgentWorkSpace/qmd/global/retrospectives/shared-retrospective-memory.md`
 - `AgentWorkSpace/qmd/global/retrospectives/indexes/history.json`
 - `AgentWorkSpace/qmd/global/retrospectives/indexes/action-items.json`

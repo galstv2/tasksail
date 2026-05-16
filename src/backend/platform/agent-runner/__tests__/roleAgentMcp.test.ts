@@ -2,6 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 
 const existsSync = vi.fn();
+const testLogger = vi.hoisted(() => {
+  const logger: {
+    debug: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+    child: () => typeof logger;
+  } = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: () => logger,
+  };
+  return logger;
+});
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -69,6 +85,8 @@ vi.mock('../../core/index.js', async () => {
     resolvePaths: vi.fn(),
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
+    createLogger: () => testLogger,
+    newSpanId: vi.fn(() => 'test-span-id'),
   };
 });
 
@@ -501,7 +519,6 @@ describe('runRoleAgent external MCP launch integration', () => {
       signalCode: null,
     });
     mockedPrepareExternalMcpLaunchContext.mockRejectedValue(new Error('helper boom'));
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(
       runRoleAgent({
@@ -520,9 +537,9 @@ describe('runRoleAgent external MCP launch integration', () => {
     expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] external MCP launch context failed, continuing without MCP:',
-      'helper boom',
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'external_mcp.launch_context.failed',
+      { error: 'helper boom' },
     );
   });
 
@@ -547,7 +564,6 @@ describe('runRoleAgent external MCP launch integration', () => {
       selectedServerIds: [],
       excludedServerIds: [],
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(
       runRoleAgent({
@@ -566,9 +582,12 @@ describe('runRoleAgent external MCP launch integration', () => {
     expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
-      'malformed: External MCP registry validation failed: runtime registry missing',
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'external_mcp.launch_context.unavailable',
+      {
+        status: 'malformed',
+        reason: 'External MCP registry validation failed: runtime registry missing',
+      },
     );
   });
 
@@ -601,8 +620,6 @@ describe('runRoleAgent external MCP launch integration', () => {
       selectedServerIds: ['github'],
       excludedServerIds: ['filesystem'],
     });
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
     const result = await runRoleAgent({
       agentId: 'dalton',
       taskId: 't1',
@@ -616,16 +633,15 @@ describe('runRoleAgent external MCP launch integration', () => {
       selectedServerIds: ['github'],
       excludedServerIds: ['filesystem'],
     });
-    expect(logSpy).toHaveBeenCalledWith(
-      '[roleAgent] MCP launch status:',
-      JSON.stringify({
-        agentId: 'dalton',
+    expect(testLogger.info).toHaveBeenCalledWith(
+      'external_mcp.launch_status',
+      {
         status: 'available',
         injectionEnabled: true,
         selectedServerIds: ['github'],
         excludedServerIds: ['filesystem'],
         reason: '1 external MCP server(s) injected',
-      }),
+      },
     );
   });
 });

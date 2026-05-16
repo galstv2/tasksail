@@ -21,6 +21,7 @@ from src.backend.mcp.context_estate.helpers import (
     normalize_activation_priority,
     resolve_candidate,
 )
+from src.backend.mcp.git_roots import local_path_entry
 from src.backend.mcp.repo_context_mcp.utils import (
     ensure_non_empty_string,
     normalize_bool,
@@ -111,9 +112,9 @@ def _normalize_distributed_repositories(
         repo_entry: dict[str, Any] = {
             "repo_id": repo_id,
             "repo_name": repo_name,
-            "local_paths": [
+            "local_paths": [local_path_entry(
                 ensure_non_empty_string(candidate.get("path"), "path")
-            ],
+            )],
             "system_layer": normalize_layer(raw_repo.get("system_layer")),
         }
 
@@ -235,7 +236,7 @@ def _normalize_monolith_repository(
     repo_entry: dict[str, Any] = {
         "repo_id": repo_id,
         "repo_name": repo_name,
-        "local_paths": [root_path],
+        "local_paths": [local_path_entry(root_path)],
         "system_layer": normalize_layer(repository.get("system_layer")),
     }
 
@@ -302,7 +303,7 @@ def _normalize_monolith_extra_repositories(
         repo_entry: dict[str, Any] = {
             "repo_id": repo_id,
             "repo_name": repo_name,
-            "local_paths": [local_path],
+            "local_paths": [local_path_entry(local_path)],
             "system_layer": normalize_layer(raw_repo.get("system_layer")),
         }
 

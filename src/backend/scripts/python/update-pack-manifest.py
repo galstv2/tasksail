@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -22,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
 from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
 from src.backend.mcp.pack_schemas.errors import PackSchemaError
 from src.backend.mcp.pack_writer import PackWriter, PackWriterContended
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
 def parse_args(argv=None):  # type: ignore[no-untyped-def]
@@ -65,6 +68,7 @@ def _err(message: str) -> str:
 
 
 def main(argv=None) -> int:  # type: ignore[no-untyped-def]
+    configure_logging(stack="py", service="update-pack-manifest")
     args = parse_args(argv)
     context_pack_dir = Path(args.context_pack_dir)
     writer = PackWriter(context_pack_dir)
@@ -79,14 +83,11 @@ def main(argv=None) -> int:  # type: ignore[no-untyped-def]
                         repo.repo_focus = target_focus
                         repo.repo_focus_authored = True
                         return model
-                print(
-                    _err(f"repo_id '{args.repo_id}' not found in manifest."),
-                    file=sys.stderr,
-                )
+                write_protocol_stderr(str(_err(f"repo_id '{args.repo_id}' not found in manifest.")) + '\n')
                 raise SystemExit(1)
 
             writer.update_manifest(mutator_focus, preserve_authored_fields=False)
-            print(_ok(args.repo_id, "repo_focus"))
+            write_protocol_stdout(str(_ok(args.repo_id, "repo_focus")) + '\n')
 
         elif args.repo_category is not None:
             target_category = args.repo_category
@@ -97,14 +98,11 @@ def main(argv=None) -> int:  # type: ignore[no-untyped-def]
                         repo.repo_category = target_category
                         repo.repo_category_authored = True
                         return model
-                print(
-                    _err(f"repo_id '{args.repo_id}' not found in manifest."),
-                    file=sys.stderr,
-                )
+                write_protocol_stderr(str(_err(f"repo_id '{args.repo_id}' not found in manifest.")) + '\n')
                 raise SystemExit(1)
 
             writer.update_manifest(mutator_category, preserve_authored_fields=False)
-            print(_ok(args.repo_id, "repo_category"))
+            write_protocol_stdout(str(_ok(args.repo_id, "repo_category")) + '\n')
 
         else:
             # --primary-focus-area-ids
@@ -119,18 +117,18 @@ def main(argv=None) -> int:  # type: ignore[no-untyped-def]
                 return model
 
             writer.update_manifest(mutator_pfa, preserve_authored_fields=False)
-            print(_ok(args.repo_id, "primary_focus_area_ids"))
+            write_protocol_stdout(str(_ok(args.repo_id, "primary_focus_area_ids")) + '\n')
 
     except PackWriterContended as exc:
-        print(_err(f"Pack writer lock contended: {exc}"), file=sys.stderr)
+        write_protocol_stderr(str(_err(f"Pack writer lock contended: {exc}")) + '\n')
         return 1
     except PackSchemaError as exc:
-        print(_err(f"Schema validation error: {exc}"), file=sys.stderr)
+        write_protocol_stderr(str(_err(f"Schema validation error: {exc}")) + '\n')
         return 1
     except SystemExit as exc:
         return int(exc.code or 1)
     except Exception as exc:
-        print(_err(str(exc)), file=sys.stderr)
+        write_protocol_stderr(str(_err(str(exc))) + '\n')
         return 1
 
     return 0

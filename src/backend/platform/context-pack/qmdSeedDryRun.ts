@@ -1,6 +1,14 @@
 import { pathToFileURL } from 'node:url';
-import { findRepoRoot } from '../core/index.js';
+import {
+  createLogger,
+  findRepoRoot,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import { planQmdSeeding } from './pythonHelpers.js';
+
+const log = createLogger('platform/context-pack/qmdSeedDryRun');
 
 const USAGE = `Usage: qmd-seed-dry-run --context-pack-dir <path> [options]
 
@@ -86,7 +94,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   try {
     args = parseArgs(argv);
   } catch (err) {
-    process.stderr.write(
+    writeProtocolStderr(
       `Error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.exitCode = 1;
@@ -94,12 +102,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
 
   if (args.help) {
-    process.stdout.write(USAGE);
+    writeProtocolStdout(USAGE);
     return;
   }
 
   if (!args.contextPackDir) {
-    process.stderr.write('Error: --context-pack-dir is required\n');
+    writeProtocolStderr('Error: --context-pack-dir is required\n');
     process.exitCode = 1;
     return;
   }
@@ -114,12 +122,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       writePlan: args.writePlan,
       quiet: args.quiet,
     });
-    process.stdout.write(result.stdout);
+    writeProtocolStdout(result.stdout);
     if (result.stderr) {
-      process.stderr.write(result.stderr);
+      writeProtocolStderr(result.stderr);
     }
   } catch (err) {
-    process.stderr.write(
+    log.error('qmd.seed.dry.run.failed', err, {
+      contextPackDir: args.contextPackDir,
+      manifestPath: args.manifestPath,
+      writePlan: args.writePlan,
+    });
+    writeProtocolStderr(
       `Error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.exitCode = 1;
@@ -131,5 +144,5 @@ const isCliEntrypoint = process.argv[1]
   : false;
 
 if (isCliEntrypoint) {
-  void main();
+  runCliBoundary('platform/context-pack/qmdSeedDryRun', main);
 }

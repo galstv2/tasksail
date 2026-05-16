@@ -86,4 +86,30 @@ describe('runLocalChecks smoke profile', () => {
     });
     expect(broadPytestCall).toBe(false);
   });
+
+  it('isolates desktop test and build logs from the repo production log directory', async () => {
+    const repoRoot = path.resolve('/workspace/tasksail');
+
+    await runLocalChecks({
+      repoRoot,
+      profile: 'contracts',
+      changedPath: 'src/frontend/desktop/src/renderer/App.tsx',
+    });
+
+    const desktopCalls = execFileMock.mock.calls.filter(([command, args]) => {
+      return command === 'npm' && Array.isArray(args);
+    });
+    expect(desktopCalls).toHaveLength(2);
+    for (const [, , options] of desktopCalls) {
+      expect(options).toMatchObject({
+        cwd: path.join(repoRoot, 'src', 'frontend', 'desktop'),
+        env: expect.objectContaining({
+          LOG_DIR: expect.stringContaining('tasksail-local-checks-logs-'),
+        }),
+      });
+      expect((options as { env: NodeJS.ProcessEnv }).env.LOG_DIR).not.toContain(
+        path.join(repoRoot, '.platform-state', 'logs'),
+      );
+    }
+  });
 });

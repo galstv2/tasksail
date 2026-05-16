@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
 import { findRepoRoot, isWindowsPlatform, runPython } from '../core/index.js';
@@ -31,19 +33,27 @@ export interface LocalChecksResult {
   advisoryWarnings: string[];
 }
 
-function runDesktopNpmCommand(
+async function runDesktopNpmCommand(
   args: string[],
   cwd: string,
 ): Promise<void> {
-  if (isWindowsPlatform()) {
-    const command = process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe';
-    return execFileAsync(command, ['/d', '/s', '/c', 'npm', ...args], {
-      cwd,
-      timeout: 120_000,
-    }).then(() => undefined);
-  }
+  const logDir = await fs.mkdtemp(path.join(tmpdir(), 'tasksail-local-checks-logs-'));
+  const env = { ...process.env, LOG_DIR: logDir };
+  try {
+    if (isWindowsPlatform()) {
+      const command = process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe';
+      await execFileAsync(command, ['/d', '/s', '/c', 'npm', ...args], {
+        cwd,
+        env,
+        timeout: 120_000,
+      });
+      return;
+    }
 
-  return execFileAsync('npm', args, { cwd, timeout: 120_000 }).then(() => undefined);
+    await execFileAsync('npm', args, { cwd, env, timeout: 120_000 });
+  } finally {
+    await fs.rm(logDir, { recursive: true, force: true });
+  }
 }
 
 async function timedCheck(

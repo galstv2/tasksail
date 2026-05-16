@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from lib.protocol_output import write_protocol_stdout
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "tests" / "test_manifest.json"
+logger = logging.getLogger(__name__)
 
 
 class ManifestError(ValueError):
@@ -391,8 +395,7 @@ def emit_resolution(
     output_format: str,
 ) -> None:
     if output_format == "json":
-        print(
-            json.dumps(
+        write_protocol_stdout(str(json.dumps(
                 {
                     "modules": list(resolution.modules),
                     "changed_path_domains": list(
@@ -400,12 +403,11 @@ def emit_resolution(
                     ),
                 },
                 indent=2,
-            )
-        )
+            )) + '\n')
         return
 
     for module_name in resolution.modules:
-        print(module_name)
+        write_protocol_stdout(str(module_name) + '\n')
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -413,6 +415,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     workspace_root = Path(args.workspace_root).resolve()
+    workspace_root_str = str(workspace_root)
+    if workspace_root_str not in sys.path:
+        sys.path.insert(0, workspace_root_str)
+    try:
+        from lib.logging_config import configure_logging
+    except ModuleNotFoundError:
+        configure_logging = None
+    if configure_logging is not None:
+        configure_logging(stack="py", service="run-targeted-tests")
 
     try:
         manifest = load_manifest(
@@ -428,16 +439,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             workspace_root=workspace_root,
         )
     except ManifestError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        logger.error("targeted_tests.selection_failed", extra={"error": str(exc)})
         return 2
 
     if args.resolve_only:
         emit_resolution(resolution, output_format=args.format)
         return 0
 
-    print(f"Selected {len(resolution.modules)} test module(s):")
+    write_protocol_stdout(str(f"Selected {len(resolution.modules)} test module(s):") + '\n')
     for module_name in resolution.modules:
-        print(f"- {module_name}")
+        write_protocol_stdout(str(f"- {module_name}") + '\n')
 
     return run_modules(
         resolution.modules,

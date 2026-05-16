@@ -23,6 +23,7 @@ import {
 import { PLANNER_SAVE_DRAFT_WORKFLOW, wrapFreshSessionMessage } from '../src/shared/plannerWorkflow';
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { REPO_ROOT } from './paths';
+import { createLogger } from './log/logger';
 import {
   clearStagingArtifacts,
   initializeStagedPlanningDraft,
@@ -34,6 +35,8 @@ import {
   beginPendingRecord,
   discardPendingRecord,
 } from './plannerHistory';
+
+const log = createLogger('electron/plannerSession');
 
 const broker = new PlannerSessionBroker({
   emitEvent: (plannerEvent) => {
@@ -130,6 +133,10 @@ export async function startSession(
   } catch (error: unknown) {
     broker.endSession();
     discardPendingRecord();
+    log.warn('planner.session.start.cleanup.failed', {
+      contextPackDir: effectiveContextPackDir,
+      reason: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -352,11 +359,10 @@ export async function endSession(): Promise<{ ended: boolean }> {
   try {
     await clearStagingArtifacts({ sessionId });
   } catch (error: unknown) {
-    console.warn(
-      error instanceof Error
-        ? `Planner staging cleanup failed during session end: ${error.message}`
-        : 'Planner staging cleanup failed during session end.',
-    );
+    log.warn('planner.session.staging-cleanup.failed', {
+      sessionId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
   }
   return { ended: true };
 }

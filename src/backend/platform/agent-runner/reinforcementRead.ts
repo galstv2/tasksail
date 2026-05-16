@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { findRepoRoot } from '../core/index.js';
 import {
   agentRewardsDir,
@@ -35,6 +35,10 @@ export interface TaskLedgerEntry {
   settlementStatus: 'unrewarded' | 'rewarded';
   qualityOutcome: string;
   year: string;
+  reviewStatus: 'unreviewed' | 'reviewed';
+  feedbackCount: number;
+  archivePath: string;
+  archiveMarkdown: string;
 }
 
 export interface RealignmentSessionEntry {
@@ -60,6 +64,15 @@ export interface GlobalRealignmentDocData {
 }
 
 type JsonRecord = Record<string, unknown>;
+type ArchiveCandidate = {
+  fallbackName: string;
+  jsonPath: string;
+  markdownPath: string;
+};
+type RealignmentJobReceipt = {
+  status?: string;
+  reason?: string;
+};
 
 const CURRENT_ROLE_MULTIPLIERS: Record<string, number> = {
   'planning-agent': 1.0,
@@ -154,10 +167,18 @@ function mapAgentReward(e: JsonRecord): AgentRewardSummary {
   };
 }
 
+async function readTextSafe(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * List completed tasks from the active context pack's QMD archive tree.
  *
- * Source: ``AgentWorkSpace/qmd/context-packs/<contextPackName>/archive/tasks/<year>/*.json``
+ * Source: ``AgentWorkSpace/qmd/context-packs/<contextPackName>/archive/tasks/<year>/<task>/archive.json``
  *
  * Each JSON sidecar contains task metadata including difficulty and reward
  * fields set during archival.  The task ledger
@@ -202,20 +223,54 @@ export async function listReinforcementTasks(
     });
   }
 
+  const feedbackData = await readStoreJsonSafe<JsonRecord>(repoRoot, 'feedback-events.json');
+  const feedbackEntries = Array.isArray(feedbackData?.entries) ? feedbackData.entries as JsonRecord[] : [];
+  const feedbackCountByTask = new Map<string, number>();
+  for (const entry of feedbackEntries) {
+    const taskId = String(entry.task_id ?? '');
+    if (!taskId) continue;
+    feedbackCountByTask.set(taskId, (feedbackCountByTask.get(taskId) ?? 0) + 1);
+  }
+
   const tasks: TaskLedgerEntry[] = [];
   for (const yr of targetYears) {
     const yearPath = path.join(archiveRoot, yr);
-    let files: string[];
+    let candidates: ArchiveCandidate[];
     try {
-      files = (await readdir(yearPath)).filter((f) => f.endsWith('.json'));
+      const entries = await readdir(yearPath, { withFileTypes: true });
+      candidates = entries.flatMap((entry) => {
+        if (entry.isDirectory()) {
+          if (entry.name.startsWith('.')) {
+            return [];
+          }
+          return [{
+            fallbackName: entry.name,
+            jsonPath: path.join(yearPath, entry.name, 'archive.json'),
+            markdownPath: path.join(yearPath, entry.name, 'archive.md'),
+          }];
+        }
+        if (
+          !entry.isFile() ||
+          !entry.name.endsWith('.json') ||
+          entry.name.endsWith('.planner-focus-snapshot.json')
+        ) {
+          return [];
+        }
+        return [{
+          fallbackName: path.basename(entry.name, '.json'),
+          jsonPath: path.join(yearPath, entry.name),
+          markdownPath: path.join(yearPath, `${path.basename(entry.name, '.json')}.md`),
+        }];
+      });
     } catch {
       continue;
     }
-    for (const file of files) {
-      const data = await readJsonSafe<JsonRecord>(path.join(yearPath, file));
+    for (const candidate of candidates) {
+      const data = await readJsonSafe<JsonRecord>(candidate.jsonPath);
       if (!data) continue;
-      const taskId = String(data.task_id ?? '');
+      const taskId = String(data.task_id ?? candidate.fallbackName);
       const ledgerEntry = ledgerMap.get(taskId);
+      const feedbackCount = feedbackCountByTask.get(taskId) ?? 0;
       tasks.push({
         taskId,
         title: String(data.task_title ?? taskId),
@@ -224,6 +279,10 @@ export async function listReinforcementTasks(
         settlementStatus: ledgerEntry?.status === 'rewarded' ? 'rewarded' : 'unrewarded',
         qualityOutcome: String(data.workflow_status ?? ''),
         year: yr,
+        reviewStatus: feedbackCount > 0 ? 'reviewed' : 'unreviewed',
+        feedbackCount,
+        archivePath: candidate.markdownPath,
+        archiveMarkdown: await readTextSafe(candidate.markdownPath),
       });
     }
   }
@@ -244,21 +303,49 @@ export async function listRealignmentSessions(
     repoRoot, 'realignment', 'sessions.json',
   );
   if (!data || !Array.isArray(data.entries)) return [];
-  const sessions = (data.entries as JsonRecord[]).map((e) => ({
-    realignmentId: String(e.realignment_id ?? ''),
-    triggerTaskId: String(e.trigger_task_id ?? ''),
-    triggerFeedbackId: String(e.trigger_feedback_id ?? ''),
-    participatingAgents: Array.isArray(e.participating_agents) ? e.participating_agents as string[] : [],
-    failureAnalysis: String(e.failure_analysis ?? ''),
-    rootCause: String(e.root_cause ?? ''),
-    correctiveActions: Array.isArray(e.corrective_actions) ? e.corrective_actions as string[] : [],
-    status: String(e.status ?? ''),
-    meetingNotes: String(e.meeting_notes ?? ''),
-    createdAt: String(e.created_at ?? ''),
+  const sessions = await Promise.all((data.entries as JsonRecord[]).map(async (e) => {
+    const realignmentId = String(e.realignment_id ?? '');
+    return {
+      realignmentId,
+      triggerTaskId: String(e.trigger_task_id ?? ''),
+      triggerFeedbackId: String(e.trigger_feedback_id ?? ''),
+      participatingAgents: Array.isArray(e.participating_agents) ? e.participating_agents as string[] : [],
+      failureAnalysis: String(e.failure_analysis ?? ''),
+      rootCause: String(e.root_cause ?? ''),
+      correctiveActions: Array.isArray(e.corrective_actions) ? e.corrective_actions as string[] : [],
+      status: await visibleRealignmentStatus(repoRoot, realignmentId, String(e.status ?? '')),
+      meetingNotes: String(e.meeting_notes ?? ''),
+      createdAt: String(e.created_at ?? ''),
+    };
   }));
   // Most recent first.
   sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return sessions;
+}
+
+async function visibleRealignmentStatus(
+  repoRoot: string,
+  realignmentId: string,
+  storedStatus: string,
+): Promise<string> {
+  if (!realignmentId || storedStatus === 'archived') {
+    return storedStatus;
+  }
+  const receipt = await readJsonSafe<RealignmentJobReceipt>(path.join(
+    repoRoot,
+    '.platform-state',
+    'runtime',
+    'realignment',
+    realignmentId,
+    'job.json',
+  ));
+  if (receipt?.status === 'running') {
+    return 'running';
+  }
+  if (receipt?.status === 'error' && storedStatus === 'open') {
+    return 'error';
+  }
+  return storedStatus;
 }
 
 export async function readGlobalRealignmentDoc(

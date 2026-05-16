@@ -24,6 +24,14 @@ describe('requireAuthorizedActiveContextPack', () => {
     writeFileSync(path.join(tmpDir, '.env'), `ACTIVE_CONTEXT_PACK_DIR=${activeContextPackDir}\n`);
   }
 
+  function writeWorkspaceSyncState(activeContextPackDir: string): void {
+    mkdirSync(path.join(tmpDir, '.platform-state'), { recursive: true });
+    writeFileSync(
+      path.join(tmpDir, '.platform-state', 'workspace-context-sync.json'),
+      JSON.stringify({ active_context_pack_dir: activeContextPackDir }),
+    );
+  }
+
   function makeContextPack(name: string): string {
     const packDir = path.join(tmpDir, name);
     mkdirSync(path.join(packDir, 'qmd'), { recursive: true });
@@ -53,7 +61,7 @@ describe('requireAuthorizedActiveContextPack', () => {
         repoRoot: tmpDir,
         requestedContextPackDir: roguePackDir,
       }),
-    ).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
+    ).rejects.toThrow('Write operations are limited to the active context pack.');
   });
 
   it('rejects when ACTIVE_CONTEXT_PACK_DIR in process env disagrees with repo .env', async () => {
@@ -75,6 +83,32 @@ describe('requireAuthorizedActiveContextPack', () => {
     await expect(
       requireAuthorizedActiveContextPack({ repoRoot: tmpDir }),
     ).resolves.toBe(packDir);
+  });
+
+  it('falls back to workspace sync state when .env and process.env are empty', async () => {
+    const packDir = makeContextPack('pack-sync');
+    writeFileSync(path.join(tmpDir, '.env'), 'ACTIVE_CONTEXT_PACK_DIR=\n');
+    delete process.env['ACTIVE_CONTEXT_PACK_DIR'];
+    writeWorkspaceSyncState(packDir);
+
+    await expect(
+      requireAuthorizedActiveContextPack({ repoRoot: tmpDir }),
+    ).resolves.toBe(packDir);
+  });
+
+  it('rejects a requested context pack that differs from workspace sync state', async () => {
+    const packDir = makeContextPack('pack-sync');
+    const roguePackDir = makeContextPack('pack-rogue');
+    writeFileSync(path.join(tmpDir, '.env'), 'ACTIVE_CONTEXT_PACK_DIR=\n');
+    delete process.env['ACTIVE_CONTEXT_PACK_DIR'];
+    writeWorkspaceSyncState(packDir);
+
+    await expect(
+      requireAuthorizedActiveContextPack({
+        repoRoot: tmpDir,
+        requestedContextPackDir: roguePackDir,
+      }),
+    ).rejects.toThrow('Write operations are limited to the active context pack.');
   });
 
   it('rejects when both .env and process.env are empty', async () => {

@@ -155,8 +155,8 @@ Companion retrospective paths:
 
 - `AgentWorkSpace/qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md`
 - `AgentWorkSpace/qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md.record.json`
-- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}.md`
-- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}.md.record.json`
+- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md`
+- `AgentWorkSpace/qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md.record.json`
 - `AgentWorkSpace/qmd/global/retrospectives/shared-retrospective-memory.md`
 - `AgentWorkSpace/qmd/global/retrospectives/shared-retrospective-memory.md.record.json`
 

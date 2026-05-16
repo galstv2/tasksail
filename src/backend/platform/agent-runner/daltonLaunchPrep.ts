@@ -4,7 +4,7 @@ import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import type { RunRoleAgentOptions, AutonomyIntent } from './types.js';
 import type { RunSummary } from './processLifecycle.js';
 import { readTextFile } from '../core/io.js';
-import { getErrorMessage } from '../core/index.js';
+import { createLogger, getErrorMessage } from '../core/index.js';
 import {
   captureChangedPathsSnapshot,
   validateDaltonBoundaryChanges,
@@ -13,6 +13,8 @@ import {
 } from './confinement.js';
 import { agentErrorWithTails } from './recoveryPasses.js';
 import { getActiveProvider } from '../cli-provider/index.js';
+
+const log = createLogger('platform/agent-runner/daltonLaunchPrep');
 
 export function resolveDaltonLaunchCwd(
   focused: FocusedRepoResult,
@@ -294,9 +296,10 @@ export async function handleDaltonConfinementValidation(
       focused: deps.focused,
     }));
     deps.setLastPromptAudit(retryBuilt.promptAudit);
-    console.warn(
-      `[roleAgent] Dalton confinement retry launching after boundary violation: ${error.violationPaths.length} path(s)`,
-    );
+    log.warn('dalton.confinement_retry.launching', {
+      agentId: deps.agentId,
+      violationPathCount: error.violationPaths.length,
+    });
     const retrySession = deps.runAgentSessionForConfinementRetry && deps.initialLaunchId
       ? await deps.runAgentSessionForConfinementRetry(
           retryBuilt.cliArgs,

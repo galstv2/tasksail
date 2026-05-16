@@ -78,7 +78,7 @@ class DocsOperatingModelTests(unittest.TestCase):
             "qmd/context-packs/{context-pack-id}/archive/retrospectives/"
             "{repo}/{year}/{task-id}/retrospective.md",
         ),
-        ("readme", "qmd/global/retrospectives/history/{year}/{task-id}.md"),
+        ("readme", "qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md"),
         ("readme", "qmd/global/retrospectives/shared-retrospective-memory.md"),
         # README validation lanes
         ("readme", "make test-smoke"),

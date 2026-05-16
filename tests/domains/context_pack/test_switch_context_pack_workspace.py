@@ -190,6 +190,15 @@ class SwitchContextPackWorkspaceTests(unittest.TestCase):
                 apply_payload["selected_focus_ids"],
                 ["services-billing", "services-identity"],
             )
+            self.assertEqual(
+                apply_payload["target_folders"],
+                [
+                    (monolith_root / "services" / "billing").resolve().as_posix(),
+                    (monolith_root / "services" / "identity").resolve().as_posix(),
+                ],
+            )
+            self.assertEqual(apply_payload["folders_to_add"], [])
+            self.assertEqual(apply_payload["managed_folders"], [])
             workspace_payload = json.loads(
                 (
                     workspace_root
@@ -198,15 +207,7 @@ class SwitchContextPackWorkspaceTests(unittest.TestCase):
             )
             self.assertEqual(
                 workspace_payload["folders"],
-                [
-                    {"path": "."},
-                    {"path": str(
-                        (monolith_root / "services" / "billing").resolve()
-                    )},
-                    {"path": str(
-                        (monolith_root / "services" / "identity").resolve()
-                    )},
-                ],
+                [{"path": "."}],
             )
 
 

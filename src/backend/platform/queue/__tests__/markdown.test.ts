@@ -85,7 +85,7 @@ Some content.
   });
 
   it('returns the first duplicate label value and warns once per call', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       const duplicate = `# Task
 
@@ -97,8 +97,9 @@ Some content.
 `;
       expect(extractLineageValue(duplicate, 'Task Kind')).toBe('child-task');
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]?.[0]).toContain('Task Kind');
-      expect(warn.mock.calls[0]?.[0]).toContain('Task Lineage');
+      expect(String(warn.mock.calls[0]?.[0])).toContain('markdown.label.duplicate');
+      expect(String(warn.mock.calls[0]?.[0])).toContain('Task Kind');
+      expect(String(warn.mock.calls[0]?.[0])).toContain('Task Lineage');
     } finally {
       warn.mockRestore();
     }

@@ -30,6 +30,7 @@ import {
 } from '../selectors/contextPackPreferences';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import { isMonolithEstateMode } from '../contextPackModeUtils';
+import { createLogger } from '../log/logger';
 import { useContextPackCreation } from './useContextPackCreation';
 import { useIpcCall } from './useIpcCall';
 import { useContextPackSwitching, type SwitchingStateSnapshot } from './useContextPackSwitching';
@@ -38,6 +39,8 @@ type RefreshOptions = {
   preferredContextPackDir?: string;
   preserveFeedback?: boolean;
 };
+
+const log = createLogger('src/renderer/hooks/useContextPackSelection');
 
 type DeepFocusSelectionCommit = {
   deepFocusEnabled: boolean;
@@ -235,6 +238,13 @@ export function useContextPackSelection(
       if (!preserveFeedback) {
         setMessage(response.message);
       }
+      const applyCatalogDefaultDeepFocusState = () => {
+        setSelectedDeepFocusState((current) => {
+          const next = selectPreferredDeepFocusState(nextSelectedPack, [null]);
+          return isDeepFocusStateEqual(current, next) ? current : next;
+        });
+      };
+
       // Try restoring deep focus selections from disk for the initial load.
       if (!preserveCurrentDeepFocus && nextSelectedContextPackDir) {
         void client.loadDeepFocusSelections(nextSelectedContextPackDir).then((result) => {
@@ -252,10 +262,13 @@ export function useContextPackSelection(
             );
             return;
           }
-          setSelectedDeepFocusState((current) => {
-            const next = selectPreferredDeepFocusState(nextSelectedPack, [null]);
-            return isDeepFocusStateEqual(current, next) ? current : next;
+          applyCatalogDefaultDeepFocusState();
+        }).catch((err: unknown) => {
+          log.warn('deep-focus.selections.load.failed', {
+            contextPackDir: nextSelectedContextPackDir,
+            reason: err instanceof Error ? err.message : String(err),
           });
+          applyCatalogDefaultDeepFocusState();
         }).finally(() => setRefreshPending(false));
       } else {
         setSelectedDeepFocusState((current) => {
@@ -315,7 +328,7 @@ export function useContextPackSelection(
 
   useEffect(() => client.subscribeContextPackCatalogChanged((event) => {
     if (!isContextPackCatalogChangedEvent(event)) {
-      console.warn('Dropped malformed context-pack catalog event:', event);
+      log.warn('context-pack.catalog-event.malformed', { event });
       return;
     }
     void refreshCatalog({ preserveFeedback: true });
@@ -347,6 +360,15 @@ export function useContextPackSelection(
               hydrateLegacyPrimaries({ state: loaded, catalogEntry: selectedPack }),
             )
           : selectLastAppliedDeepFocusState(selectedPack);
+        setSelectedDeepFocusState((current) =>
+          isDeepFocusStateEqual(current, next) ? current : next,
+        );
+      }).catch((err: unknown) => {
+        log.warn('deep-focus.selections.load.failed', {
+          contextPackDir,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        const next = selectLastAppliedDeepFocusState(selectedPack);
         setSelectedDeepFocusState((current) =>
           isDeepFocusStateEqual(current, next) ? current : next,
         );
@@ -398,7 +420,24 @@ export function useContextPackSelection(
       setSelectedDeepFocusState(nextState);
       const packDir = selectedContextPackDirRef.current;
       if (packDir) {
-        void client.saveDeepFocusSelections(packDir, nextState);
+        void client.saveDeepFocusSelections(packDir, nextState)
+          .then((result) => {
+            if (!result.ok) {
+              log.warn('deep-focus.selections.save.failed', {
+                contextPackDir: packDir,
+                reason: result.error,
+              });
+              setError(result.error);
+            }
+          })
+          .catch((err: unknown) => {
+            const reason = err instanceof Error ? err.message : String(err);
+            log.warn('deep-focus.selections.save.failed', {
+              contextPackDir: packDir,
+              reason,
+            });
+            setError(reason);
+          });
       }
     },
     [client],
@@ -478,8 +517,23 @@ export function useContextPackSelection(
           if (result.ok) {
             void refreshCatalog({ preserveFeedback: true });
           } else {
+            log.warn('context-pack.repository-type.save.failed', {
+              contextPackDir: packDir,
+              repoId,
+              repositoryType: newType,
+              reason: result.error,
+            });
             setError(result.error);
           }
+        }).catch((err: unknown) => {
+          const reason = err instanceof Error ? err.message : String(err);
+          log.warn('context-pack.repository-type.save.failed', {
+            contextPackDir: packDir,
+            repoId,
+            repositoryType: newType,
+            reason,
+          });
+          setError(reason);
         });
       },
     },

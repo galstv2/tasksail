@@ -26,6 +26,8 @@ import {
   type ReinforcementStartRealignmentResponse,
   type ReinforcementRunRealignmentAnalysisRequest,
   type ReinforcementRunRealignmentAnalysisResponse,
+  type ReinforcementDismissRealignmentRequest,
+  type ReinforcementDismissRealignmentResponse,
   type AgentConfigAddModelResponse,
   type AgentConfigLoadAgentsResponse,
   type AgentConfigLoadModelCatalogResponse,
@@ -75,13 +77,63 @@ import {
   type ContextPackDeepFocusState,
   type ContextPackCatalogChangedEvent,
 } from '../src/shared/desktopContract';
+import { LOG_EMIT_CHANNEL, type LogEmitPayload } from '../src/shared/desktopContractLogging';
 import { isRecord } from '../src/shared/desktopContractValidators';
 
 const isDev = process.env.NODE_ENV === 'development' || Boolean(process.env.VITE_DEV_SERVER_URL);
 
+type FrontendLogLevel = 'debug' | 'info' | 'warn' | 'error';
+const LOG_LEVELS = new Set<FrontendLogLevel>(['debug', 'info', 'warn', 'error']);
+
+function normalizeFrontendLogLevel(
+  value: string | undefined,
+  fallback: FrontendLogLevel,
+): FrontendLogLevel {
+  const normalized = value?.toLowerCase();
+  return normalized && LOG_LEVELS.has(normalized as FrontendLogLevel)
+    ? (normalized as FrontendLogLevel)
+    : fallback;
+}
+
+const logLevel = normalizeFrontendLogLevel(process.env.LOG_LEVEL, 'info');
+
+function emitPreloadWarn(msg: 'preload.stream-event.malformed' | 'preload.planner-event.malformed' | 'preload.task-board-update.malformed' | 'preload.context-pack-catalog-event.malformed', extra: Record<string, unknown>): void {
+  void ipcRenderer.invoke(LOG_EMIT_CHANNEL, {
+    ts: new Date().toISOString(),
+    level: 'warn',
+    stack: 'renderer',
+    module: 'electron/preload',
+    pid: 0,
+    task_id: null,
+    agent_id: null,
+    provider_id: null,
+    span_id: null,
+    msg,
+    extra,
+  } satisfies LogEmitPayload).catch(() => undefined);
+}
+
+function isContextPackCatalogChangedEvent(value: unknown): value is ContextPackCatalogChangedEvent {
+  return (
+    isRecord(value) &&
+    typeof value.changedRoot === 'string' &&
+    (
+      value.reason === 'mkdir' ||
+      value.reason === 'rmdir' ||
+      value.reason === 'rename' ||
+      value.reason === 'unknown'
+    )
+  );
+}
+
 export const bootstrapInfo = {
   appName: 'TaskSail',
   platform: process.platform,
+  logLevel,
+  rendererForwardLevel: normalizeFrontendLogLevel(
+    process.env.LOG_RENDERER_FORWARD_LEVEL,
+    logLevel,
+  ),
   versions: {
     chrome: isDev ? process.versions.chrome : undefined,
     electron: isDev ? process.versions.electron : undefined,
@@ -90,6 +142,10 @@ export const bootstrapInfo = {
 };
 
 export const desktopShellApi = {
+  log: {
+    emit: (payload: LogEmitPayload): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke(LOG_EMIT_CHANNEL, payload),
+  },
   getBootstrapInfo: async () => bootstrapInfo,
   describeActiveProvider: async (): Promise<ProviderFrontendDescriptor> =>
     ipcRenderer.invoke(PROVIDER_DESCRIBE_ACTIVE_CHANNEL),
@@ -117,6 +173,11 @@ export const desktopShellApi = {
   getObservabilitySnapshot: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'observability.readSnapshot',
+    }),
+  setTerminalTaskScope: (taskGuid: string | null): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid },
     }),
   initiateFollowUp: async (
     draft: FollowUpDirectSubmissionDraft,
@@ -432,6 +493,13 @@ export const desktopShellApi = {
       action: 'reinforcement.runRealignmentAnalysis',
       payload,
     }),
+  dismissRealignment: async (
+    payload: ReinforcementDismissRealignmentRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'reinforcement.dismissRealignment',
+      payload,
+    }),
   loadAgentConfig: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.loadAgents',
@@ -621,7 +689,7 @@ export const desktopShellApi = {
       ) {
         callback(data as import('../src/renderer/activityStream').StreamEvent);
       } else {
-        console.warn('Dropped malformed stream event:', data);
+        emitPreloadWarn('preload.stream-event.malformed', { data });
       }
     };
     ipcRenderer.on(DESKTOP_SHELL_STREAM_CHANNEL, handler);
@@ -642,7 +710,7 @@ export const desktopShellApi = {
       ) {
         callback(plannerEvent as PlannerStreamEvent);
       } else {
-        console.warn('Dropped malformed planner event:', plannerEvent);
+        emitPreloadWarn('preload.planner-event.malformed', { plannerEvent });
       }
     };
     ipcRenderer.on(DESKTOP_SHELL_PLANNER_EVENT_CHANNEL, handler);
@@ -657,6 +725,11 @@ export const desktopShellApi = {
     ) => {
       if (isRecord(data) && data.action === 'taskBoard.readBoard') {
         callback(data as import('../src/shared/desktopContract').TaskBoardReadBoardResponse);
+      } else {
+        emitPreloadWarn('preload.task-board-update.malformed', {
+          action: isRecord(data) ? String(data.action) : null,
+          type: typeof data,
+        });
       }
     };
     ipcRenderer.on(DESKTOP_SHELL_TASK_BOARD_CHANNEL, handler);
@@ -666,7 +739,14 @@ export const desktopShellApi = {
     callback: (event: ContextPackCatalogChangedEvent) => void,
   ): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
-      callback(data as ContextPackCatalogChangedEvent);
+      if (isContextPackCatalogChangedEvent(data)) {
+        callback(data);
+      } else {
+        emitPreloadWarn('preload.context-pack-catalog-event.malformed', {
+          reason: isRecord(data) ? String(data.reason) : null,
+          type: typeof data,
+        });
+      }
     };
     ipcRenderer.on(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, handler);
     return () => ipcRenderer.removeListener(CONTEXT_PACK_CATALOG_CHANGED_CHANNEL, handler);
@@ -674,6 +754,9 @@ export const desktopShellApi = {
 };
 
 export type DesktopShellApi = {
+  log: {
+    emit: (payload: LogEmitPayload) => Promise<{ ok: boolean; reason?: string }>;
+  };
   getBootstrapInfo: () => Promise<typeof bootstrapInfo>;
   describeActiveProvider: () => Promise<ProviderFrontendDescriptor>;
   submitPlannerDraft: (
@@ -684,6 +767,7 @@ export type DesktopShellApi = {
   deletePendingItem: (queueName: string) => Promise<DesktopInvokeResult>;
   getEnvironmentStatus: () => Promise<DesktopInvokeResult>;
   getObservabilitySnapshot: () => Promise<DesktopInvokeResult>;
+  setTerminalTaskScope: (taskGuid: string | null) => Promise<DesktopInvokeResult>;
   initiateFollowUp: (
     draft: FollowUpDirectSubmissionDraft,
     stage: 'compose' | 'preview' | 'confirm',
@@ -826,6 +910,9 @@ export type DesktopShellApi = {
   runRealignmentAnalysis: (
     payload: ReinforcementRunRealignmentAnalysisRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  dismissRealignment: (
+    payload: ReinforcementDismissRealignmentRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   loadAgentConfig: () => Promise<DesktopInvokeResult>;
   loadModelCatalog: () => Promise<DesktopInvokeResult>;
   saveAgentModels: (
@@ -918,6 +1005,7 @@ export type DesktopAllowedResponses =
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
   | ReinforcementRunRealignmentAnalysisResponse
+  | ReinforcementDismissRealignmentResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
   | AgentConfigSaveAgentModelsResponse

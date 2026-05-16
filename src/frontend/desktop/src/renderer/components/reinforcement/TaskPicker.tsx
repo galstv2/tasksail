@@ -8,6 +8,7 @@ type TaskPickerProps = {
   loading: boolean;
   onSelectYear: (year: string | null) => void;
   onSelectTask: (taskId: string) => void;
+  onOpenTask?: (taskId: string) => void;
 };
 
 function TaskPicker({
@@ -18,6 +19,7 @@ function TaskPicker({
   loading,
   onSelectYear,
   onSelectTask,
+  onOpenTask,
 }: TaskPickerProps): JSX.Element {
   return (
     <div className="task-picker" data-testid="task-picker">
@@ -51,9 +53,17 @@ function TaskPicker({
                 type="button"
                 className={`task-picker__item ${task.taskId === selectedTaskId ? 'task-picker__item--selected' : ''}`}
                 onClick={() => onSelectTask(task.taskId)}
+                onDoubleClick={() => onOpenTask?.(task.taskId)}
                 data-testid={`task-picker-item-${task.taskId}`}
               >
-                <span className="task-picker__title">{task.title}</span>
+                <span className="task-picker__title-row">
+                  <span className="task-picker__title">{task.title}</span>
+                  {task.reviewStatus === 'reviewed' && (
+                    <span className="status-chip status-chip--xs status-chip--completed">
+                      Reviewed
+                    </span>
+                  )}
+                </span>
                 <span className="task-picker__meta">
                   {task.difficulty} &middot; {task.effectiveReward.toLocaleString()} &middot; {task.settlementStatus}
                 </span>

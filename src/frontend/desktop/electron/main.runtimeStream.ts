@@ -1,4 +1,5 @@
 import { watch, type FSWatcher } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 
 import type {
@@ -6,12 +7,30 @@ import type {
   GuardrailObservation,
   ObservabilitySnapshotResponse,
 } from '../src/shared/desktopContract';
+import { loadTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 import type { ReadOnlyRepoFs } from './utils';
-import { pathExists, repoFs } from './utils';
+import type { WritableRepoFs } from './utils';
+import { pathExists, repoReadWriteFs } from './utils';
 import { REPO_ROOT } from './paths';
 import { readObservabilitySnapshot as readObservabilitySnapshotImpl } from './repoObservability';
-import { emitStreamEvent, type StreamEventOptions } from './main.stream';
+import {
+  emitStreamEvent,
+  refreshStreamTaskMetadataForScope,
+  type StreamEventOptions,
+} from './main.stream';
 import { getNodeErrorCode } from './main.textUtils';
+import { createLogger } from './log/logger';
+import { appendTaskTerminalTranscriptEvent } from './main.taskTerminalTranscript';
+import {
+  activeContextPackTaskScopesEqual,
+  defaultActiveScopeProvider,
+  filterActiveTaskIdsForScope,
+  type ActiveScopeProvider,
+  type ActiveContextPackTaskScope,
+  type ContextPackLister,
+} from './main.contextPackTaskVisibility';
+
+const log = createLogger('electron/main.runtimeStream');
 
 const PLATFORM_STATE_DIR = join(REPO_ROOT, '.platform-state');
 const RUNTIME_DIR = join(PLATFORM_STATE_DIR, 'runtime');
@@ -36,6 +55,17 @@ type RealignmentJobObservation = {
   globalRealignmentVersion?: number;
 };
 
+type RuntimeTerminalEventObservation = {
+  taskId: string;
+  eventId: string;
+  source: string;
+  role: StreamEventOptions['role'];
+  severity: NonNullable<StreamEventOptions['severity']>;
+  message: string;
+  actorName?: string;
+  sessionContext?: StreamEventOptions['sessionContext'];
+};
+
 type RuntimeSnapshot = Pick<ObservabilitySnapshotResponse, 'agentTerminalSessions' | 'guardrails'> & {
   realignmentJobs?: RealignmentJobObservation[];
 };
@@ -47,10 +77,29 @@ type RuntimeStreamState = {
 };
 
 type RuntimeWatcherOptions = {
-  fsAdapter?: ReadOnlyRepoFs;
+  fsAdapter?: WritableRepoFs;
   readSnapshot?: (fsAdapter: ReadOnlyRepoFs, runtimeTaskIds?: string[]) => Promise<RuntimeSnapshot>;
   watchFactory?: typeof watch;
+  scopeProvider?: ActiveScopeProvider;
+  // TODO(gate-14): remove once callers migrate to scopeProvider.
+  listContextPacks?: ContextPackLister;
 };
+
+type RuntimeStreamDiffEntry = {
+  event: StreamEventOptions;
+  transcriptEventId?: string;
+};
+
+let resetRuntimeStreamStateImpl: (() => void) | null = null;
+let refreshRuntimeStreamStateImpl: (() => Promise<void>) | null = null;
+
+export function resetRuntimeStreamState(): void {
+  resetRuntimeStreamStateImpl?.();
+}
+
+export async function refreshRuntimeStreamState(): Promise<void> {
+  await refreshRuntimeStreamStateImpl?.();
+}
 
 /**
  * Per-task runtime subtrees are watched dynamically from taskIds discovered
@@ -119,7 +168,7 @@ function buildSessionEvent(
   return {
     message,
     source: 'runtime.agentSession',
-    role: 'workflow',
+    role: 'agent',
     severity,
     taskId: session.taskId ?? undefined,
     actorName: session.agentLabel,
@@ -127,52 +176,93 @@ function buildSessionEvent(
   };
 }
 
-function summarizeNewSession(session: AgentTerminalSession): StreamEventOptions {
+function sessionSummaryCode(session: AgentTerminalSession): string {
   if (session.stuckState === 'orphaned') {
-    return buildSessionEvent(session, 'Appears orphaned.', 'warning');
+    return 'orphaned';
   }
   if (session.stuckState === 'suspected-stuck') {
-    return buildSessionEvent(session, 'May be stuck.', 'warning');
+    return 'suspected-stuck';
   }
   if (session.terminalState === 'failed') {
-    return buildSessionEvent(session, 'Failed.', 'error');
+    return 'failed';
   }
   if (session.terminalState === 'completed') {
-    return buildSessionEvent(session, 'Completed.', 'success');
+    return 'completed';
   }
   if (session.terminalState === 'running') {
-    return buildSessionEvent(session, 'Is running.');
+    return 'running';
   }
   if (session.launchState === 'queued') {
-    return buildSessionEvent(session, 'Queued for launch.');
+    return 'queued';
   }
   if (session.launchState === 'started') {
-    return buildSessionEvent(session, 'Launch started.');
+    return 'started';
   }
   if (session.launchState === 'failed') {
-    return buildSessionEvent(session, 'Launch failed.', 'error');
+    return 'launch-failed';
   }
   if (session.launchState === 'completed') {
-    return buildSessionEvent(session, 'Launch completed.');
+    return 'launch-completed';
   }
   if (session.launchState === 'skipped') {
-    return buildSessionEvent(session, 'Launch skipped.', 'warning');
+    return 'skipped';
   }
   if (session.launchState === 'dry-run') {
+    return 'dry-run';
+  }
+  return 'observed';
+}
+
+function summarizeNewSession(session: AgentTerminalSession): StreamEventOptions {
+  const code = sessionSummaryCode(session);
+  if (code === 'orphaned') {
+    return buildSessionEvent(session, 'Appears orphaned.', 'warning');
+  }
+  if (code === 'suspected-stuck') {
+    return buildSessionEvent(session, 'May be stuck.', 'warning');
+  }
+  if (code === 'failed') {
+    return buildSessionEvent(session, 'Failed.', 'error');
+  }
+  if (code === 'completed') {
+    return buildSessionEvent(session, 'Completed.', 'success');
+  }
+  if (code === 'running') {
+    return buildSessionEvent(session, 'Is running.');
+  }
+  if (code === 'queued') {
+    return buildSessionEvent(session, 'Queued for launch.');
+  }
+  if (code === 'started') {
+    return buildSessionEvent(session, 'Launch started.');
+  }
+  if (code === 'launch-failed') {
+    return buildSessionEvent(session, 'Launch failed.', 'error');
+  }
+  if (code === 'launch-completed') {
+    return buildSessionEvent(session, 'Launch completed.');
+  }
+  if (code === 'skipped') {
+    return buildSessionEvent(session, 'Launch skipped.', 'warning');
+  }
+  if (code === 'dry-run') {
     return buildSessionEvent(session, 'Dry run recorded.');
   }
   return buildSessionEvent(session, 'Runtime session observed.');
 }
 
-function diffSessionEvents(
+function diffSessionEntries(
   previous: AgentTerminalSession | undefined,
   next: AgentTerminalSession,
-): StreamEventOptions[] {
+): RuntimeStreamDiffEntry[] {
   if (!previous) {
-    return [summarizeNewSession(next)];
+    return [{
+      event: summarizeNewSession(next),
+      transcriptEventId: `runtime.agentSession:${next.sessionId}:summary:${sessionSummaryCode(next)}`,
+    }];
   }
 
-  const events: StreamEventOptions[] = [];
+  const entries: RuntimeStreamDiffEntry[] = [];
 
   if (previous.launchState !== next.launchState) {
     const launchMessages: Record<AgentTerminalSession['launchState'], string> = {
@@ -193,7 +283,10 @@ function diffSessionEvents(
       skipped: 'warning',
       unknown: 'warning',
     };
-    events.push(buildSessionEvent(next, launchMessages[next.launchState], launchSeverity[next.launchState]));
+    entries.push({
+      event: buildSessionEvent(next, launchMessages[next.launchState], launchSeverity[next.launchState]),
+      transcriptEventId: `runtime.agentSession:${next.sessionId}:launch:${next.launchState}`,
+    });
   }
 
   if (previous.terminalState !== next.terminalState) {
@@ -211,18 +304,27 @@ function diffSessionEvents(
       failed: 'error',
       unknown: 'warning',
     };
-    events.push(buildSessionEvent(next, terminalMessages[next.terminalState], terminalSeverity[next.terminalState]));
+    entries.push({
+      event: buildSessionEvent(next, terminalMessages[next.terminalState], terminalSeverity[next.terminalState]),
+      transcriptEventId: `runtime.agentSession:${next.sessionId}:terminal:${next.terminalState}`,
+    });
   }
 
   if (previous.stuckState !== next.stuckState) {
     if (next.stuckState === 'suspected-stuck') {
-      events.push(buildSessionEvent(next, 'May be stuck.', 'warning'));
+      entries.push({
+        event: buildSessionEvent(next, 'May be stuck.', 'warning'),
+        transcriptEventId: `runtime.agentSession:${next.sessionId}:stuck:${next.stuckState}`,
+      });
     } else if (next.stuckState === 'orphaned') {
-      events.push(buildSessionEvent(next, 'Appears orphaned.', 'warning'));
+      entries.push({
+        event: buildSessionEvent(next, 'Appears orphaned.', 'warning'),
+        transcriptEventId: `runtime.agentSession:${next.sessionId}:stuck:${next.stuckState}`,
+      });
     }
   }
 
-  return events;
+  return entries;
 }
 
 function buildGuardrailEvent(
@@ -250,11 +352,11 @@ function buildGuardrailEvent(
   };
 }
 
-function diffGuardrailEvents(
+function diffGuardrailEntries(
   previous: GuardrailObservation | undefined,
   next: GuardrailObservation,
   sessions: Map<string, AgentTerminalSession>,
-): StreamEventOptions[] {
+): RuntimeStreamDiffEntry[] {
   if (
     previous &&
     previous.status === next.status &&
@@ -267,7 +369,11 @@ function diffGuardrailEvents(
 
   const session =
     next.sessionId ? sessions.get(next.sessionId) : undefined;
-  return [buildGuardrailEvent(next, session)];
+  const event = buildGuardrailEvent(next, session);
+  return [{
+    event,
+    transcriptEventId: guardrailTranscriptEventId(next, event.message),
+  }];
 }
 
 function buildRealignmentEvent(
@@ -298,31 +404,78 @@ function buildRealignmentEvent(
   };
 }
 
-function diffRealignmentEvents(
+function diffRealignmentEntries(
   previous: RealignmentJobObservation | undefined,
   next: RealignmentJobObservation,
-): StreamEventOptions[] {
+): RuntimeStreamDiffEntry[] {
   if (previous?.status === next.status) {
     return [];
   }
-  return [buildRealignmentEvent(next)];
+  return [{ event: buildRealignmentEvent(next) }];
+}
+
+function guardrailTranscriptEventId(
+  observation: GuardrailObservation,
+  summary: string,
+): string {
+  const identity = observation.receiptPath || observation.agentId;
+  const summaryHash = createHash('sha1').update(summary, 'utf8').digest('hex').slice(0, 12);
+  return [
+    'runtime.guardrail',
+    identity,
+    observation.status,
+    observation.severity,
+    String(observation.violationCount),
+    summaryHash,
+  ].join(':');
+}
+
+function hasRealTaskId(taskId: unknown): taskId is string {
+  return typeof taskId === 'string' && taskId.trim() !== '' && taskId !== 'N/A';
+}
+
+function isValidTranscriptRole(role: unknown): role is StreamEventOptions['role'] {
+  return (
+    role === 'planner' ||
+    role === 'queue' ||
+    role === 'agent' ||
+    role === 'pipeline' ||
+    role === 'workflow' ||
+    role === 'operator' ||
+    role === 'system'
+  );
+}
+
+function isValidTranscriptSeverity(severity: unknown): severity is NonNullable<StreamEventOptions['severity']> {
+  return severity === 'info' || severity === 'success' || severity === 'warning' || severity === 'error';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function diffRuntimeStreamEvents(
   previous: RuntimeSnapshot,
   next: RuntimeSnapshot,
 ): StreamEventOptions[] {
+  return diffRuntimeStreamEntries(previous, next).map((entry) => entry.event);
+}
+
+function diffRuntimeStreamEntries(
+  previous: RuntimeSnapshot,
+  next: RuntimeSnapshot,
+): RuntimeStreamDiffEntry[] {
   const previousState = createRuntimeStreamState(previous);
   const nextState = createRuntimeStreamState(next);
-  const events: StreamEventOptions[] = [];
+  const entries: RuntimeStreamDiffEntry[] = [];
 
   for (const [sessionId, session] of nextState.sessions) {
-    events.push(...diffSessionEvents(previousState.sessions.get(sessionId), session));
+    entries.push(...diffSessionEntries(previousState.sessions.get(sessionId), session));
   }
 
   for (const [receiptPath, observation] of nextState.guardrails) {
-    events.push(
-      ...diffGuardrailEvents(
+    entries.push(
+      ...diffGuardrailEntries(
         previousState.guardrails.get(receiptPath),
         observation,
         nextState.sessions,
@@ -331,27 +484,31 @@ export function diffRuntimeStreamEvents(
   }
 
   for (const [realignmentId, job] of nextState.realignmentJobs) {
-    events.push(
-      ...diffRealignmentEvents(
+    entries.push(
+      ...diffRealignmentEntries(
         previousState.realignmentJobs.get(realignmentId),
         job,
       ),
     );
   }
 
-  return events;
+  return entries;
 }
 
 export function startRuntimeStreamWatcher(
   options: RuntimeWatcherOptions = {},
 ): () => void {
-  const fsAdapter = options.fsAdapter ?? repoFs;
-  const defaultReadSnapshot = readObservabilitySnapshotImpl as (
-    fsAdapter: ReadOnlyRepoFs,
+  const fsAdapter = options.fsAdapter ?? repoReadWriteFs;
+  const defaultReadSnapshot = (
+    currentFsAdapter: ReadOnlyRepoFs,
     runtimeTaskIds?: string[],
-  ) => Promise<RuntimeSnapshot>;
+  ): Promise<RuntimeSnapshot> => readObservabilitySnapshotImpl(
+    currentFsAdapter,
+    runtimeTaskIds,
+  ) as Promise<RuntimeSnapshot>;
   const readSnapshot = options.readSnapshot ?? defaultReadSnapshot;
   const watchFactory = options.watchFactory ?? watch;
+  const scopeProvider = options.scopeProvider ?? defaultActiveScopeProvider;
   const activeWatchers = new Map<string, FSWatcher>();
   const drainingTaskRefreshes = new Map<string, number>();
   let stopped = false;
@@ -360,8 +517,23 @@ export function startRuntimeStreamWatcher(
   let refreshQueued = false;
   let previousSnapshot: RuntimeSnapshot | null = null;
   const previousPipelinePhaseByTask = new Map<string, string>();
+  const previousTerminalEventKeysByTask = new Map<string, Set<string>>();
   let currentRuntimeTaskIds: string[] = [];
   let currentRealignmentIds: string[] = [];
+  let currentScope: ActiveContextPackTaskScope | null = scopeProvider();
+
+  const clearRuntimeState = (): void => {
+    previousSnapshot = null;
+    drainingTaskRefreshes.clear();
+    previousPipelinePhaseByTask.clear();
+    previousTerminalEventKeysByTask.clear();
+    currentRuntimeTaskIds = [];
+    closeStaleRuntimeWatchers(new Set<string>());
+  };
+
+  resetRuntimeStreamStateImpl = (): void => {
+    clearRuntimeState();
+  };
 
   const readActiveTaskIdsFromFs = async (): Promise<string[]> => {
     try {
@@ -375,6 +547,22 @@ export function startRuntimeStreamWatcher(
       }
       throw err;
     }
+  };
+
+  const readVisibleActiveTaskIdsFromFs = async (
+    scope: ActiveContextPackTaskScope | null,
+  ): Promise<string[]> => {
+    const activeTaskIds = await readActiveTaskIdsFromFs();
+    if (!scope || activeTaskIds.length === 0) {
+      return [];
+    }
+    const registry = await loadTaskRegistry(REPO_ROOT);
+    return filterActiveTaskIdsForScope(activeTaskIds, {
+      registry,
+      scope,
+      pendingDir: PENDING_ITEMS_DIR,
+      fsAdapter,
+    });
   };
 
   const readRealignmentIdsFromFs = async (): Promise<string[]> => {
@@ -455,6 +643,12 @@ export function startRuntimeStreamWatcher(
         previousPipelinePhaseByTask.delete(taskId);
       }
     }
+
+    for (const taskId of previousTerminalEventKeysByTask.keys()) {
+      if (!runtimeTaskIds.has(taskId)) {
+        previousTerminalEventKeysByTask.delete(taskId);
+      }
+    }
   };
 
   const readRealignmentJobs = async (): Promise<RealignmentJobObservation[]> => {
@@ -521,6 +715,88 @@ export function startRuntimeStreamWatcher(
     return phases;
   };
 
+  const readRuntimeTerminalEvents = async (): Promise<RuntimeTerminalEventObservation[]> => {
+    const events: RuntimeTerminalEventObservation[] = [];
+
+    for (const taskId of currentRuntimeTaskIds) {
+      try {
+        const raw = await fsAdapter.readFile(
+          join(TASKS_RUNTIME_DIR, taskId, 'terminal-events.json'),
+          'utf-8',
+        );
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (!Array.isArray(parsed.events)) {
+          continue;
+        }
+        for (const item of parsed.events) {
+          if (!isRecord(item)) {
+            continue;
+          }
+          const eventId = typeof item.eventId === 'string' ? item.eventId : null;
+          const source = typeof item.source === 'string' ? item.source : null;
+          const role = source === 'runtime.guardrail' ? 'system' : item.role;
+          const severity = item.severity;
+          const message = typeof item.message === 'string' ? item.message : null;
+          const actorName = typeof item.actorName === 'string' ? item.actorName : undefined;
+          const sessionContext = isRecord(item.sessionContext)
+            ? item.sessionContext as StreamEventOptions['sessionContext']
+            : undefined;
+          if (
+            !eventId ||
+            !source ||
+            !message ||
+            !isValidTranscriptRole(role) ||
+            !isValidTranscriptSeverity(severity)
+          ) {
+            continue;
+          }
+          events.push({
+            taskId,
+            eventId,
+            source,
+            role,
+            severity,
+            message,
+            ...(actorName ? { actorName } : {}),
+            ...(sessionContext ? { sessionContext } : {}),
+          });
+        }
+      } catch (err) {
+        if (getNodeErrorCode(err) !== 'ENOENT') {
+          throw err;
+        }
+      }
+    }
+
+    return events;
+  };
+
+  const checkRuntimeTerminalEvents = async (): Promise<void> => {
+    if (stopped) return;
+    try {
+      const terminalEvents = await readRuntimeTerminalEvents();
+      for (const event of terminalEvents) {
+        const previousKeys = previousTerminalEventKeysByTask.get(event.taskId) ?? new Set<string>();
+        if (previousKeys.has(event.eventId)) {
+          continue;
+        }
+        emitStreamEvent({
+          message: event.message,
+          source: event.source,
+          role: event.role,
+          severity: event.severity,
+          taskId: event.taskId,
+          actorName: event.actorName,
+          sessionContext: event.sessionContext,
+        });
+        previousKeys.add(event.eventId);
+        previousTerminalEventKeysByTask.set(event.taskId, previousKeys);
+      }
+    } catch {
+      // Best effort — terminal events are observability only.
+    }
+  };
+
   const checkPipelinePhase = async (): Promise<void> => {
     if (stopped) return;
     try {
@@ -532,24 +808,38 @@ export function startRuntimeStreamWatcher(
 
         const phaseEvent = PIPELINE_PHASE_MESSAGES[phase];
         if (phaseEvent) {
-          emitStreamEvent({
+          await appendTaskTerminalTranscriptEvent(fsAdapter, REPO_ROOT, {
+            taskId,
+            eventId: `runtime.pipeline.phase:${phase}`,
             message: phaseEvent.message,
             source: 'runtime.pipeline',
-            role: 'system',
+            role: 'pipeline',
             severity: phaseEvent.severity,
-            taskId,
           });
         }
         previousPipelinePhaseByTask.set(taskId, phase);
       }
+      await checkRuntimeTerminalEvents();
     } catch {
       // Best effort — phase file may not exist.
     }
   };
 
   const ensureWatchers = async (): Promise<void> => {
-    const activeTaskIds = await readActiveTaskIdsFromFs();
+    const nextScope = scopeProvider();
+    if (!activeContextPackTaskScopesEqual(currentScope, nextScope)) {
+      currentScope = nextScope;
+      clearRuntimeState();
+    }
+    const activeTaskIds = await readVisibleActiveTaskIdsFromFs(currentScope);
     currentRuntimeTaskIds = resolveRuntimeTaskIds(activeTaskIds);
+    try {
+      await refreshStreamTaskMetadataForScope(currentScope);
+    } catch (error: unknown) {
+      log.warn('runtime-stream.task-metadata-refresh.failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
     currentRealignmentIds = await readRealignmentIdsFromFs();
     const runtimeTaskIdSet = new Set(currentRuntimeTaskIds);
     closeStaleRuntimeWatchers(runtimeTaskIdSet);
@@ -585,6 +875,8 @@ export function startRuntimeStreamWatcher(
         const phaseWatcher = watchFactory(taskRuntimeDir, { persistent: false }, (_eventType, filename) => {
           if (filename === 'pipeline-phase.json') {
             void checkPipelinePhase();
+          } else if (filename === 'terminal-events.json') {
+            void checkRuntimeTerminalEvents();
           }
         });
         activeWatchers.set(phaseWatcherKey, phaseWatcher);
@@ -606,6 +898,7 @@ export function startRuntimeStreamWatcher(
     refreshInFlight = true;
     try {
       await ensureWatchers();
+      await checkRuntimeTerminalEvents();
       const snapshot = await readSnapshot(fsAdapter, currentRuntimeTaskIds);
       const runtimeSnapshot: RuntimeSnapshot = {
         agentTerminalSessions: snapshot.agentTerminalSessions ?? [],
@@ -616,15 +909,41 @@ export function startRuntimeStreamWatcher(
       if (stopped) return;
 
       if (previousSnapshot) {
-        for (const event of diffRuntimeStreamEvents(previousSnapshot, runtimeSnapshot)) {
-          emitStreamEvent(event);
+        let appendedTranscriptEvent = false;
+        const appendedTaskIds = new Set<string>();
+        for (const { event, transcriptEventId } of diffRuntimeStreamEntries(previousSnapshot, runtimeSnapshot)) {
+          if (hasRealTaskId(event.taskId)) {
+            if (!transcriptEventId) {
+              continue;
+            }
+            await appendTaskTerminalTranscriptEvent(fsAdapter, REPO_ROOT, {
+              taskId: event.taskId,
+              eventId: transcriptEventId,
+              source: event.source,
+              role: event.role,
+              severity: event.severity ?? 'info',
+              message: event.message,
+              ...(event.actorName ? { actorName: event.actorName } : {}),
+              ...(event.sessionContext ? { sessionContext: event.sessionContext } : {}),
+            });
+            appendedTranscriptEvent = true;
+            appendedTaskIds.add(event.taskId);
+          } else {
+            emitStreamEvent(event);
+          }
+        }
+        if (appendedTranscriptEvent) {
+          currentRuntimeTaskIds = [...new Set([...currentRuntimeTaskIds, ...appendedTaskIds])].sort();
+          await checkRuntimeTerminalEvents();
         }
       }
 
       previousSnapshot = runtimeSnapshot;
     } catch (err) {
       if (getNodeErrorCode(err) !== 'ENOENT') {
-        console.warn('[runtimeStream] refresh failed:', err instanceof Error ? err.message : err);
+        log.warn('runtime-stream.refresh.failed', {
+          reason: err instanceof Error ? err.message : String(err),
+        });
       }
     } finally {
       refreshInFlight = false;
@@ -635,12 +954,19 @@ export function startRuntimeStreamWatcher(
     }
   };
 
+  refreshRuntimeStreamStateImpl = refreshFromArtifacts;
   void refreshFromArtifacts();
 
   return () => {
     stopped = true;
     if (debounceTimer) {
       clearTimeout(debounceTimer);
+    }
+    if (resetRuntimeStreamStateImpl) {
+      resetRuntimeStreamStateImpl = null;
+    }
+    if (refreshRuntimeStreamStateImpl === refreshFromArtifacts) {
+      refreshRuntimeStreamStateImpl = null;
     }
     for (const watcher of activeWatchers.values()) {
       watcher.close();

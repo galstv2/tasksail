@@ -1,10 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import App from './App';
 import { installAppTestHarness } from './App.test-setup';
 
 installAppTestHarness();
+
+async function renderApp() {
+  const { default: App } = await import('./App');
+  return render(<App />);
+}
 
 describe("App", () => {
   it('opens the context-pack creation modal and completes discovery-backed creation', async () => {
@@ -215,7 +219,7 @@ describe("App", () => {
       },
     });
 
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Create context pack' })).toBeInTheDocument();
@@ -267,7 +271,7 @@ describe("App", () => {
   });
 
   it('shows preview results and wrapper warnings as toast notifications', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(
@@ -399,7 +403,7 @@ describe("App", () => {
         },
       });
 
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(
@@ -426,7 +430,7 @@ describe("App", () => {
   });
 
   it('renders 3-column shell layout with sidebar, main, and a stacked config rail', async () => {
-    render(<App />);
+    await renderApp();
     await waitFor(() => {
       expect(screen.getByLabelText('Open MCP configuration')).toBeTruthy();
       expect(screen.getByLabelText('Open agent configuration')).toBeTruthy();
@@ -453,7 +457,7 @@ describe("App", () => {
   });
 
   it('MCP modal opens from rail and shows empty state', async () => {
-    render(<App />);
+    await renderApp();
     await waitFor(() => {
       expect(screen.getByLabelText('Open MCP configuration')).toBeTruthy();
     });
@@ -603,7 +607,7 @@ describe("App", () => {
         },
       });
 
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByLabelText('Open agent configuration')).toBeTruthy();
@@ -698,7 +702,7 @@ describe("App", () => {
       },
     });
 
-    render(<App />);
+    await renderApp();
 
     // 1. Open modal — empty state.
     await waitFor(() => {

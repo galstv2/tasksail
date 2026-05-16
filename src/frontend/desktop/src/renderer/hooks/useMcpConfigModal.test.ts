@@ -1,9 +1,28 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 import { createMockClient } from '../../test/factories/clientFactory';
 import { useMcpConfigModal } from './useMcpConfigModal';
 import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
 
 function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMcpServerEntry {
   return {
@@ -19,6 +38,10 @@ function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMc
 }
 
 describe('useMcpConfigModal', () => {
+  beforeEach(() => {
+    logEmit.mockClear();
+  });
+
   it('loads servers on mount for accurate pmdge count', async () => {
     const servers = [makeServer(), makeServer({ id: 'mcp-2', display_name: 'MCP 2' })];
     const client = createMockClient({
@@ -163,6 +186,131 @@ describe('useMcpConfigModal', () => {
 
     await act(async () => { await result.current.mcpConfigModalProps.onToggleEnabled('test-mcp'); });
     expect(result.current.enabledServerCount).toBe(0);
+  });
+
+  it('logs and surfaces MCP server load rejections', async () => {
+    const client = createMockClient({
+      listExternalMcpServers: vi.fn().mockRejectedValue(new Error('MCP list failed.')),
+    });
+
+    const { result } = renderHook(() => useMcpConfigModal(client));
+
+    await waitFor(() => {
+      expect(result.current.mcpConfigModalProps.error).toBe('MCP list failed.');
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'mcp.servers.load.failed',
+        level: 'warn',
+        extra: { reason: 'MCP list failed.' },
+      }));
+    });
+  });
+
+  it('logs provider roster load rejections without blocking server load', async () => {
+    const client = createMockClient({
+      listExternalMcpServers: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.list', mode: 'read-only', message: '', servers: [makeServer()] },
+      }),
+      describeActiveProvider: vi.fn().mockRejectedValue(new Error('Provider unavailable.')),
+    });
+
+    const { result } = renderHook(() => useMcpConfigModal(client));
+
+    await waitFor(() => {
+      expect(result.current.enabledServerCount).toBe(1);
+      expect(result.current.mcpConfigModalProps.error).toBeNull();
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'mcp.provider-roster.load.failed',
+        level: 'warn',
+        extra: { reason: 'Provider unavailable.' },
+      }));
+    });
+  });
+
+  it('logs and surfaces MCP toggle rejections', async () => {
+    const client = createMockClient({
+      toggleExternalMcpServer: vi.fn().mockRejectedValue(new Error('Toggle failed.')),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    await act(async () => { await result.current.mcpConfigModalProps.onToggleEnabled('test-mcp'); });
+
+    expect(result.current.mcpConfigModalProps.error).toBe('Toggle failed.');
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'mcp.server.toggle.failed',
+      level: 'warn',
+      extra: { serverId: 'test-mcp', reason: 'Toggle failed.' },
+    }));
+  });
+
+  it('logs and surfaces MCP remove rejections', async () => {
+    const client = createMockClient({
+      removeExternalMcpServer: vi.fn().mockRejectedValue(new Error('Remove failed.')),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    await act(async () => { await result.current.mcpConfigModalProps.onConfirmRemove('test-mcp'); });
+
+    expect(result.current.mcpConfigModalProps.error).toBe('Remove failed.');
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'mcp.server.remove.failed',
+      level: 'warn',
+      extra: { serverId: 'test-mcp', reason: 'Remove failed.' },
+    }));
+  });
+
+  it('logs and exits validating state when MCP validation rejects', async () => {
+    const client = createMockClient({
+      validateExternalMcpConnection: vi.fn().mockRejectedValue(new Error('Validation bridge failed.')),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse'); });
+    await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
+
+    expect(result.current.mcpConfigModalProps.connectionValidation).toEqual({
+      status: 'failed',
+      message: 'Validation bridge failed.',
+    });
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'mcp.connection.validate.failed',
+      level: 'warn',
+      extra: { reason: 'Validation bridge failed.' },
+    }));
+  });
+
+  it('logs and exits saving state when MCP save rejects', async () => {
+    const client = createMockClient({
+      validateExternalMcpConnection: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK' },
+      }),
+      addExternalMcpServer: vi.fn().mockRejectedValue(new Error('Save failed.')),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test MCP');
+      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Test');
+      result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse');
+      result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']);
+    });
+    await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
+    await act(async () => { await result.current.mcpConfigModalProps.onSave(); });
+
+    expect(result.current.mcpConfigModalProps.saving).toBe(false);
+    expect(result.current.mcpConfigModalProps.error).toBe('Save failed.');
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'mcp.server.save.failed',
+      level: 'warn',
+      extra: { serverId: 'test-mcp', reason: 'Save failed.' },
+    }));
   });
 });
 

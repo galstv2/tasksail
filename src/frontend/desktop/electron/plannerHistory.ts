@@ -21,6 +21,9 @@ import type {
 } from '../src/shared/desktopContract';
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { REPO_ROOT } from './paths';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/plannerHistory');
 
 type PlannerPendingRecord = {
   id: string;
@@ -132,8 +135,11 @@ export async function commitPendingRecordToHistory(
       markdownDestination: record.finalizedDestinationPath,
       snapshot: projectPlannerFocusSnapshot(record),
     });
-  } catch {
-    console.warn(`planner-focus-snapshot: skipped for finalizedDestinationPath=${record.finalizedDestinationPath} reason=write-failed`);
+  } catch (err: unknown) {
+    log.warn('planner.focus-snapshot.write.skipped', {
+      finalizedDestinationPath: record.finalizedDestinationPath,
+      reason: err instanceof Error ? err.message : 'write-failed',
+    });
   }
   discardPendingRecord();
   return record;

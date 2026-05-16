@@ -10,6 +10,7 @@ import type {
 } from '../../shared/desktopContract';
 import { isTaskBoardReadBoardResponse } from '../../shared/desktopContractTypeGuards';
 import { useToastContext } from '../contexts/ToastContext';
+import { createLogger } from '../log/logger';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 
 export type TaskBoardState = {
@@ -25,6 +26,8 @@ const EMPTY_BOARD: TaskBoardState = {
   errorItems: [],
   completedItems: [],
 };
+
+const log = createLogger('src/renderer/hooks/useTaskBoard');
 
 export type UseTaskBoardResult = {
   board: TaskBoardState;
@@ -42,7 +45,15 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
   const { addToast } = useToastContext();
 
   const refresh = useCallback(async () => {
-    const result = await client.readTaskBoard();
+    let result: Awaited<ReturnType<DesktopShellClient['readTaskBoard']>>;
+    try {
+      result = await client.readTaskBoard();
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : 'Task board refresh failed.';
+      log.warn('task-board.refresh.failed', { reason });
+      addToast({ severity: 'error', message: reason, duration: 6000 });
+      return;
+    }
     if (!result.ok) {
       addToast({ severity: 'error', message: result.error, duration: 6000 });
       return;
@@ -87,7 +98,15 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
 
   const reorderPending = useCallback(
     async (order: string[]) => {
-      const result = await client.reorderPending(order);
+      let result: Awaited<ReturnType<DesktopShellClient['reorderPending']>>;
+      try {
+        result = await client.reorderPending(order);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to reorder pending queue.';
+        log.warn('task-board.reorder-pending.failed', { reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return;
+      }
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error, duration: 6000 });
         return;
@@ -100,7 +119,15 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
 
   const requeueErrorItem = useCallback(
     async (fileName: string, insertAtIndex: number) => {
-      const result = await client.requeueErrorItem(fileName, insertAtIndex);
+      let result: Awaited<ReturnType<DesktopShellClient['requeueErrorItem']>>;
+      try {
+        result = await client.requeueErrorItem(fileName, insertAtIndex);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to requeue task.';
+        log.warn('task-board.requeue-error.failed', { fileName, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return;
+      }
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error, duration: 6000 });
         return;
@@ -113,18 +140,34 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
 
   const readTaskContent = useCallback(
     async (fileName: string, column: TaskBoardContentColumn): Promise<string | null> => {
-      const result = await client.readTaskContent(fileName, column);
+      let result: Awaited<ReturnType<DesktopShellClient['readTaskContent']>>;
+      try {
+        result = await client.readTaskContent(fileName, column);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to read task content.';
+        log.warn('task-board.read-task-content.failed', { fileName, column, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return null;
+      }
       if (!result.ok) return null;
       const resp = result.response as TaskBoardReadTaskContentResponse;
       if (resp.mode === 'not-found') return null;
       return resp.content;
     },
-    [client],
+    [client, addToast],
   );
 
   const deleteTask = useCallback(
     async (fileName: string, column: TaskBoardDeleteColumn): Promise<boolean> => {
-      const result = await client.deleteTask(fileName, column);
+      let result: Awaited<ReturnType<DesktopShellClient['deleteTask']>>;
+      try {
+        result = await client.deleteTask(fileName, column);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to delete task.';
+        log.warn('task-board.delete-task.failed', { fileName, column, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return false;
+      }
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error, duration: 6000 });
         return false;
@@ -137,7 +180,15 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
 
   const moveToPending = useCallback(
     async (fileName: string, insertAtIndex: number) => {
-      const result = await client.moveToPending(fileName, insertAtIndex);
+      let result: Awaited<ReturnType<DesktopShellClient['moveToPending']>>;
+      try {
+        result = await client.moveToPending(fileName, insertAtIndex);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to move task to pending.';
+        log.warn('task-board.move-to-pending.failed', { fileName, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return;
+      }
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error, duration: 6000 });
         return;
@@ -149,7 +200,15 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
 
   const moveToOpen = useCallback(
     async (fileName: string) => {
-      const result = await client.moveToOpen(fileName);
+      let result: Awaited<ReturnType<DesktopShellClient['moveToOpen']>>;
+      try {
+        result = await client.moveToOpen(fileName);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to move task to open.';
+        log.warn('task-board.move-to-open.failed', { fileName, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return;
+      }
       if (!result.ok) {
         addToast({ severity: 'error', message: result.error, duration: 6000 });
         return;

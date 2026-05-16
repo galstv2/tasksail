@@ -24,6 +24,7 @@ export interface AgentProfile {
 export interface RunRoleAgentOptions {
   agentId: AgentId;
   taskId: string;
+  spanId?: string;
   repoRoot?: string;
   contextPackDir?: string;
   dryRun?: boolean;

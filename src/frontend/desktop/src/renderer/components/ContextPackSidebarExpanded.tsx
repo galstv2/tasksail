@@ -317,7 +317,7 @@ function ContextPackSidebarExpanded({
           <div className="context-pack-warning-modal" role="alertdialog" aria-modal="true" aria-label="Primary selection required" onClick={(e) => e.stopPropagation()}>
             <p className="context-pack-warning-modal__title">Primary Selection Required</p>
             <p className="context-pack-warning-modal__body">
-              Exactly one Primary must be selected in your working focus before applying.
+              Select at least one Primary in your working focus before applying.
             </p>
             <button type="button" className="action-button" onClick={onDismissMultiPrimaryWarning}>
               OK

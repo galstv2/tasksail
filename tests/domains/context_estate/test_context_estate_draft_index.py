@@ -204,7 +204,8 @@ class ContextEstateDraftIndexTests(unittest.TestCase):
             )
 
             self.assertNotEqual(completed.returncode, 0)
-            self.assertIn("QMD draft write failed", completed.stderr)
+            self.assertIn("context_estate.discovery.qmd_draft_write_failed", completed.stderr)
+            self.assertIn("draft_file", completed.stderr)
 
 
 if __name__ == "__main__":

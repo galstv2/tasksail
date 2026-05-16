@@ -19,9 +19,18 @@ import {
 } from '../src/shared/desktopContract';
 import { getProviderFrontendDescriptor } from '../../../backend/platform/cli-provider/index.js';
 import { escapeRegExp } from '../../../backend/platform/core/index.js';
+import { loadTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 import { REPO_ROOT } from './paths';
 import { readTaskRecoveryState } from './main.recoveryState';
 import { pathExists, stringOrNull, repoFs, type ReadOnlyRepoFs } from './utils';
+import {
+  filterActiveTaskIdsForScope,
+  getCurrentActiveContextPackTaskScope,
+  isCurrentActiveContextPackTaskScopeInitialized,
+  readVisibleTaskMarkdownItems,
+  resolveActiveContextPackTaskScope,
+  type ContextPackLister,
+} from './main.contextPackTaskVisibility';
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
@@ -106,6 +115,27 @@ async function readActiveTaskIds(fsAdapter: ReadOnlyRepoFs): Promise<string[]> {
 }
 
 async function readPendingQueueItems(
+  visiblePendingItems: Awaited<ReturnType<typeof readVisibleTaskMarkdownItems>>,
+  activeTaskIds: Set<string>,
+): Promise<PendingQueueItem[]> {
+  const items: PendingQueueItem[] = [];
+  for (const item of visiblePendingItems) {
+    const taskId = item.taskId;
+    const isActive = taskId ? activeTaskIds.has(taskId) : false;
+    const state: PendingQueueItem['state'] = isActive ? 'active' : 'pending';
+    items.push({
+      queueName: item.fileName,
+      taskId,
+      title: extractMetadataValue(item.content, 'Task Title') || item.title,
+      state,
+      canDelete: state === 'pending',
+    });
+  }
+
+  return items;
+}
+
+async function readUnscopedPendingQueueItems(
   fsAdapter: ReadOnlyRepoFs,
   activeTaskIds: Set<string>,
 ): Promise<PendingQueueItem[]> {
@@ -275,8 +305,19 @@ function deriveSessionHealth(args: {
   terminalState: AgentTerminalSession['terminalState'];
   lastUpdatedAt: string | null;
   launchStartedAt?: string | null;
+  monitorUpdatedAt?: string | null;
+  monitorStartedAt?: string | null;
+  monitorPid?: number | null;
 }): Pick<AgentTerminalSession, 'liveness' | 'stuckState' | 'stuckReason'> {
-  const { launchPid, terminalState, lastUpdatedAt, launchStartedAt } = args;
+  const {
+    launchPid,
+    terminalState,
+    lastUpdatedAt,
+    launchStartedAt,
+    monitorUpdatedAt,
+    monitorStartedAt,
+    monitorPid,
+  } = args;
   const liveness = probePidLiveness(launchPid, launchStartedAt);
 
   if (terminalState === 'completed' || terminalState === 'failed') {
@@ -298,7 +339,23 @@ function deriveSessionHealth(args: {
     };
   }
 
+  const monitorUpdatedAtMs = parseTimestamp(monitorUpdatedAt);
+  const monitorIsRecent = monitorUpdatedAtMs !== null &&
+    Date.now() - monitorUpdatedAtMs < ORPHANED_GRACE_MS;
+  const monitorIsActive = monitorIsRecent &&
+    monitorPid !== null &&
+    monitorPid !== undefined &&
+    monitorPid > 0 &&
+    probePidLiveness(monitorPid, monitorStartedAt) === 'alive';
+
   if (liveness === 'not-found' && ageMs !== null && ageMs >= ORPHANED_GRACE_MS) {
+    if (monitorIsActive) {
+      return {
+        liveness,
+        stuckState: 'none',
+        stuckReason: null,
+      };
+    }
     return {
       liveness,
       stuckState: 'orphaned',
@@ -461,6 +518,9 @@ function deriveGuardrailObservationSummary(args: {
     return launchSeam
       ? `Approved internal bypass attested through ${launchSeam}.`
       : 'Approved internal bypass attested for this runtime.';
+  }
+  if (status === 'malformed') {
+    return 'Produced a malformed guardrail receipt.';
   }
   return 'Guardrail receipt recorded an allowed launch.';
 }
@@ -744,10 +804,14 @@ function parseSessionEntry(
   const agentId = stringOrNull(payload?.agent_id) ?? fallbackAgentId;
   const launchPayload = asJsonObject(payload?.launch);
   const terminalPayload = asJsonObject(payload?.terminal);
+  const monitorPayload = asJsonObject(payload?.monitor);
   const launchState = mapLaunchState(stringOrNull(launchPayload?.status));
   const terminalState = mapTerminalState(stringOrNull(terminalPayload?.status), launchState);
   const launchPid = numberOrNull(launchPayload?.pid);
   const startedAt = stringOrNull(launchPayload?.started_at);
+  const monitorStartedAt = stringOrNull(monitorPayload?.started_at);
+  const monitorUpdatedAt = stringOrNull(monitorPayload?.updated_at);
+  const monitorPid = numberOrNull(monitorPayload?.pid);
   const lastUpdatedAt = getLatestTimestamp(
     stringOrNull(terminalPayload?.completed_at),
     startedAt,
@@ -757,6 +821,9 @@ function parseSessionEntry(
     terminalState,
     lastUpdatedAt,
     launchStartedAt: startedAt,
+    monitorUpdatedAt,
+    monitorStartedAt,
+    monitorPid,
   });
   const latestOutputLines = stringArrayOrEmpty(payload?.latest_output_lines);
   const launchPhase = stringOrNull(payload?.launch_phase);
@@ -1035,14 +1102,56 @@ async function buildArtifactReference(
 
 export async function readQueueStatusSnapshot(
   fsAdapter: ReadOnlyRepoFs = repoFs,
+  listContextPacks?: ContextPackLister,
 ): Promise<QueueStatusResponse> {
-  // Enumerate ACTIVE_ITEMS_DIR for multi-task support.
-  const [dropboxCount, pendingCount, activeTaskIds, errorItemsCount] = await Promise.all([
-    countMarkdownFiles(DROPBOX_DIR, fsAdapter),
-    countMarkdownFiles(PENDING_DIR, fsAdapter),
-    readActiveTaskIds(fsAdapter),
-    countMarkdownFiles(ERROR_ITEMS_DIR, fsAdapter),
-  ]);
+  const scope = listContextPacks
+    ? await resolveActiveContextPackTaskScope(listContextPacks)
+    : getCurrentActiveContextPackTaskScope();
+  const scopedRead = Boolean(listContextPacks) || isCurrentActiveContextPackTaskScopeInitialized();
+  if (scopedRead && !scope) {
+    return {
+      action: 'queue.readStatus',
+      mode: 'observed',
+      queueDepth: 0,
+      pendingReviewCount: 0,
+      activeTaskId: null,
+      operatorStatus: inferOperatorStatus({
+        activeTaskIds: [],
+        agentTerminalSessions: [],
+      }),
+      message: 'Observed repo queue state: 0 queued, 0 pending. Active tasks: 0.',
+    };
+  }
+
+  const rawActiveTaskIds = await readActiveTaskIds(fsAdapter);
+  let dropboxCount: number;
+  let pendingCount: number;
+  let errorItemsCount: number;
+  let activeTaskIds: string[];
+  if (scope) {
+    const registry = await loadTaskRegistry(REPO_ROOT);
+    const [dropboxItems, pendingItems, errorItems] = await Promise.all([
+      readVisibleTaskMarkdownItems(DROPBOX_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(PENDING_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(ERROR_ITEMS_DIR, scope, fsAdapter),
+    ]);
+    activeTaskIds = await filterActiveTaskIdsForScope(rawActiveTaskIds, {
+      registry,
+      scope,
+      pendingDir: PENDING_DIR,
+      fsAdapter,
+    });
+    dropboxCount = dropboxItems.length;
+    pendingCount = pendingItems.length;
+    errorItemsCount = errorItems.length;
+  } else {
+    [dropboxCount, pendingCount, errorItemsCount] = await Promise.all([
+      countMarkdownFiles(DROPBOX_DIR, fsAdapter),
+      countMarkdownFiles(PENDING_DIR, fsAdapter),
+      countMarkdownFiles(ERROR_ITEMS_DIR, fsAdapter),
+    ]);
+    activeTaskIds = rawActiveTaskIds;
+  }
 
   // Derive activeTaskId for backward-compat scalar from the first active marker (F39).
   const activeTaskId = activeTaskIds[0] ?? null;
@@ -1066,7 +1175,52 @@ export async function readQueueStatusSnapshot(
 export async function readObservabilitySnapshot(
   fsAdapter: ReadOnlyRepoFs = repoFs,
   runtimeTaskIdsOverride?: string[],
+  listContextPacks?: ContextPackLister,
 ): Promise<ObservabilitySnapshotResponse> {
+  const scope = listContextPacks
+    ? await resolveActiveContextPackTaskScope(listContextPacks)
+    : getCurrentActiveContextPackTaskScope();
+  const scopedRead = Boolean(listContextPacks) || isCurrentActiveContextPackTaskScopeInitialized();
+  if (scopedRead && !scope) {
+    return {
+      action: 'observability.readSnapshot',
+      mode: 'read-only',
+      message:
+        'Repo observability reflects queue and artifact truth only. The desktop shell does not author workflow-policy artifacts.',
+      queueDepth: 0,
+      pendingReviewCount: 0,
+      activeTaskId: null,
+      activeTaskTitle: null,
+      currentState: 'idle',
+      operatorStatus: inferOperatorStatus({
+        activeTaskIds: [],
+        agentTerminalSessions: [],
+      }),
+      pendingQueueItems: [],
+      activeTasks: [],
+      activeTask: null,
+      agentTerminalSessions: [],
+      guardrailSummary: buildGuardrailSummary([]),
+      guardrails: [],
+      recoveryState: null,
+      lifecycle: [
+        {
+          state: 'queued',
+          observed: false,
+          detail: 'No queued markdown tasks observed in AgentWorkSpace/dropbox/.',
+        },
+        {
+          state: 'active',
+          observed: false,
+          detail: 'No active AgentWorkSpace/pendingitems/ artifact is currently visible.',
+        },
+      ],
+      artifactReferences: [],
+      policyBoundary:
+        'Repo artifacts remain authoritative. Desktop recovery controls may mutate queue claims and pending items, but they never author handoff summaries directly.',
+    };
+  }
+
   const providerDescriptor = getProviderFrontendDescriptor(REPO_ROOT);
   const rosterAgentIds = providerDescriptor.roster.map((entry) => entry.agentId);
   const agentLabelLookup = buildAgentLabelLookup(providerDescriptor.roster);
@@ -1126,26 +1280,54 @@ export async function readObservabilitySnapshot(
   }
 
   const [
-    dropboxCount,
-    pendingCount,
-    activeTaskIds,
-    errorItemsCount,
+    rawActiveTaskIds,
     recoveryState,
   ] =
     await Promise.all([
-      countMarkdownFiles(DROPBOX_DIR, fsAdapter),
-      countMarkdownFiles(PENDING_DIR, fsAdapter),
       readActiveTaskIds(fsAdapter),
-      countMarkdownFiles(ERROR_ITEMS_DIR, fsAdapter),
       readTaskRecoveryState(fsAdapter),
     ]);
+  let dropboxCount: number;
+  let pendingCount: number;
+  let errorItemsCount: number;
+  let activeTaskIds: string[];
+  let pendingQueueItems: PendingQueueItem[];
+  let runtimeTaskIds: string[];
 
-  const runtimeTaskIds = runtimeTaskIdsOverride ?? activeTaskIds;
+  if (scope) {
+    const registry = await loadTaskRegistry(REPO_ROOT);
+    const [dropboxItems, pendingItems, errorItems] = await Promise.all([
+      readVisibleTaskMarkdownItems(DROPBOX_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(PENDING_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(ERROR_ITEMS_DIR, scope, fsAdapter),
+    ]);
+    activeTaskIds = await filterActiveTaskIdsForScope(rawActiveTaskIds, {
+      registry,
+      scope,
+      pendingDir: PENDING_DIR,
+      fsAdapter,
+    });
+    dropboxCount = dropboxItems.length;
+    pendingCount = pendingItems.length;
+    errorItemsCount = errorItems.length;
+
+    const visibleTaskIdSet = new Set(pendingItems.flatMap((item) => item.taskId ? [item.taskId] : []));
+    runtimeTaskIds = [...new Set((runtimeTaskIdsOverride ?? activeTaskIds).filter((taskId) => (
+      activeTaskIds.includes(taskId) || visibleTaskIdSet.has(taskId)
+    )))];
+    pendingQueueItems = await readPendingQueueItems(pendingItems, new Set(activeTaskIds));
+  } else {
+    activeTaskIds = rawActiveTaskIds;
+    [dropboxCount, pendingCount, errorItemsCount] = await Promise.all([
+      countMarkdownFiles(DROPBOX_DIR, fsAdapter),
+      countMarkdownFiles(PENDING_DIR, fsAdapter),
+      countMarkdownFiles(ERROR_ITEMS_DIR, fsAdapter),
+    ]);
+    runtimeTaskIds = runtimeTaskIdsOverride ?? activeTaskIds;
+    pendingQueueItems = await readUnscopedPendingQueueItems(fsAdapter, new Set(activeTaskIds));
+  }
   const { agentTerminalSessions, guardrails } = await readRuntimeReceipts(runtimeTaskIds);
   const guardrailSummary = buildGuardrailSummary(guardrails);
-
-  const activeTaskIdSet = new Set(activeTaskIds);
-  const pendingQueueItems = await readPendingQueueItems(fsAdapter, activeTaskIdSet);
 
   const activeTaskId = activeTaskIds[0] ?? null;
   const tasksDir = join(REPO_ROOT, 'AgentWorkSpace', 'tasks');

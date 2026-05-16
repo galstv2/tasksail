@@ -3,9 +3,10 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
-import { findRepoRoot, readTextFile, getErrorMessage } from '../core/index.js';
+import { createLogger, findRepoRoot, readTextFile, getErrorMessage } from '../core/index.js';
 
 const execFileAsync = promisify(execFile);
+const log = createLogger('platform/validation/fileSizes');
 
 export const FILE_SIZE_LIMITS: Record<string, number> = {
   '.py': 500,
@@ -77,7 +78,7 @@ async function listTrackedFiles(repoRoot: string): Promise<string[]> {
     );
     return splitCommandOutputLines(stdout);
   } catch (err: unknown) {
-    process.stderr.write(`Warning: git ls-files failed: ${getErrorMessage(err)}\n`);
+    log.warn('git.ls_files.failed', { error: getErrorMessage(err) });
     return [];
   }
 }

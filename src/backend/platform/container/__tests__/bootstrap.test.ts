@@ -9,6 +9,13 @@ vi.mock('node:fs', () => ({
 
 vi.mock('../../core/index.js', () => ({
   ensureEnvFile: vi.fn().mockResolvedValue(true),
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  }),
 }));
 
 vi.mock('../compose.js', () => ({

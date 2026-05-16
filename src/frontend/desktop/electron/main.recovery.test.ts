@@ -22,9 +22,20 @@ const resolveQueuePaths = vi.fn(() => ({
 const readFile = vi.fn();
 const readdir = vi.fn();
 const stat = vi.fn();
+const recoveryLogError = vi.fn();
 
 vi.mock('./paths', () => ({
   REPO_ROOT: '/repo',
+}));
+
+vi.mock('./log/logger', () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: recoveryLogError,
+    child: vi.fn(),
+  }),
 }));
 
 vi.mock('./utils', () => ({
@@ -178,6 +189,49 @@ describe('startTaskRecoveryController', () => {
       source: 'recovery.controller',
       severity: 'error',
     }));
+
+    controller.stop();
+  });
+
+  it('logs a structured error when reconciliation throws', async () => {
+    moveFailedItemToErrorItems.mockRejectedValue(new Error('queue move failed'));
+    const { startTaskRecoveryController } = await import('./main.recovery');
+    const controller = startTaskRecoveryController({
+      pollIntervalMs: 60_000,
+      activationGraceMs: 5 * 60 * 1000,
+      schedulePipelineAutoStart: vi.fn(),
+    });
+
+    controller.reconcileNow();
+
+    await vi.waitFor(() => {
+      expect(recoveryLogError).toHaveBeenCalledWith(
+        'recovery.reconcile.failed',
+        expect.any(Error),
+      );
+    });
+
+    controller.stop();
+  });
+
+  it('logs a structured error when the activation marker write rejects', async () => {
+    writeTaskRecoveryState.mockRejectedValueOnce(new Error('recovery state write failed'));
+    const { startTaskRecoveryController } = await import('./main.recovery');
+    const controller = startTaskRecoveryController({
+      pollIntervalMs: 60_000,
+      activationGraceMs: 5 * 60 * 1000,
+      schedulePipelineAutoStart: vi.fn(),
+    });
+
+    controller.noteActivatedPendingItem('TASK-9.md');
+
+    await vi.waitFor(() => {
+      expect(recoveryLogError).toHaveBeenCalledWith(
+        'recovery.activation-marker.persist.failed',
+        expect.any(Error),
+        { queueName: 'TASK-9.md' },
+      );
+    });
 
     controller.stop();
   });

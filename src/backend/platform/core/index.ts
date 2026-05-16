@@ -4,6 +4,10 @@ export {
   resolvePath,
   ensurePathWithinDropbox,
   isPathWithinBoundary,
+  logsDir,
+  logFile,
+  taskAgentLogFile,
+  logFileWithSuffix,
 } from './paths.js';
 
 export type { ResolvePathsOptions } from './paths.js';
@@ -27,6 +31,45 @@ export {
   ensureEnvFile,
   upsertEnvVar,
 } from './env.js';
+
+export { loadLogConfig, type LogConfig } from './logConfig.js';
+
+export {
+  writeProtocolJson,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from './protocolOutput.js';
+
+export {
+  PlatformError,
+  ConfigError,
+  ValidationError,
+  ContainerError,
+  MCPError,
+  AgentRunError,
+  QueueError,
+  ContextPackError,
+  InvariantError,
+  serializeError,
+  exitCodeFor,
+  type ErrorCategory,
+  type ErrorEnvelope,
+  type PlatformErrorOptions,
+} from './errors.js';
+
+export {
+  createLogger,
+  installProcessHandlers,
+  newSpanId,
+  flushLoggers,
+  type Logger,
+  type LogContext,
+  type ProgressArgs,
+  type ProgressEvent,
+  type ProgressLevel,
+} from './logger.js';
+
+export { runCliBoundary } from './cliBoundary.js';
 
 export {
   trimWhitespace,
@@ -53,6 +96,12 @@ export {
   sleep,
   safeJsonParse,
 } from './io.js';
+
+export {
+  RuntimeTerminalEvents,
+  type RuntimeTerminalEventRole,
+  type RuntimeTerminalEventSeverity,
+} from './runtimeTerminalEvents.js';
 
 export { detectPythonBin, runPython } from './pythonRunner.js';
 

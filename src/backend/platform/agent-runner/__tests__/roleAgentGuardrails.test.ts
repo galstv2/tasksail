@@ -1,6 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsSync = vi.fn();
+const testLogger = vi.hoisted(() => {
+  const logger: {
+    debug: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+    child: () => typeof logger;
+  } = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: () => logger,
+  };
+  return logger;
+});
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -68,6 +84,9 @@ vi.mock('../../core/index.js', async () => {
     resolvePaths: vi.fn(),
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
+    createLogger: () => testLogger,
+    newSpanId: vi.fn(() => 'test-span-id'),
+    writeProtocolStdout: vi.fn(),
   };
 });
 
@@ -949,8 +968,9 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(retryReceipt.launchId).not.toBe(initialReceipt.launchId);
     expect(retryReceipt.launchPhase).toBe('Confinement retry');
     expect(retryReceipt.retryOfLaunchId).toBe(initialReceipt.launchId);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] Dalton confinement retry launching after boundary violation: 1 path(s)',
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'dalton.confinement_retry.launching',
+      { agentId: 'dalton', violationPathCount: 1 },
     );
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([

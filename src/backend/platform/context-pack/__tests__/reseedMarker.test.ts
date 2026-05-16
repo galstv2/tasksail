@@ -53,7 +53,7 @@ describe('readReseedMarker', () => {
     utimesSync(markerPath(), oldTime, oldTime);
 
     await expect(readReseedMarker(contextPackDir)).resolves.toBeNull();
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('ignoring stale marker'));
+    expect(String(stderr.mock.calls.flat().join('\n'))).toContain('reseed_marker.stale.ignored');
   });
 
   it('returns null and warns for corrupt marker JSON', async () => {
@@ -61,7 +61,7 @@ describe('readReseedMarker', () => {
     writeFileSync(markerPath(), '{not-json', 'utf-8');
 
     await expect(readReseedMarker(contextPackDir)).resolves.toBeNull();
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('ignoring corrupt marker'));
+    expect(String(stderr.mock.calls.flat().join('\n'))).toContain('reseed_marker.corrupt.ignored');
   });
 
   it('throws when the marker path is not readable as a file', async () => {

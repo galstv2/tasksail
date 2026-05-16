@@ -1199,8 +1199,8 @@ describe('§4.15 B4 per-binding git error isolation', () => {
     expect(spawnCalls.length).toBe(0);
     expect(existsSync(path.join(runtimeDir, '.gc-after-ts'))).toBe(true);
     expect(existsSync(taskDir)).toBe(false);
-    expect(stderrLines.join('')).toContain('[worktreeFinalize] prune-failed:');
-    expect(stderrLines.join('')).toContain('[worktreeFinalize] branch-delete-failed:');
+    expect(stderrLines.join('')).toContain('worktree.prune.failed');
+    expect(stderrLines.join('')).toContain('worktree.branch_delete.failed');
   });
 });
 

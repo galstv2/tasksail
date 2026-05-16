@@ -36,7 +36,7 @@ const MOCK_REGISTRY: RegistryJson = {
       role_name: 'Verification Engineer',
       human_name: 'Dalton (Verify)',
       instruction_path: '.github/copilot/instructions/software-engineer.instructions.md',
-      agent_profile_path: '.github/agents/software-engineer.md',
+      agent_profile_path: '.github/agents/software-engineer-verify.md',
       autonomy_profile: 'repo-executor',
       required_model: 'claude-sonnet-4.6',
       wall_clock_timeout_s: 900,
@@ -139,6 +139,7 @@ describe('resolveAgentProfile', () => {
     expect(profile.requiredModel).toBe('claude-sonnet-4.6');
     expect(profile.autonomyProfile).toBe('repo-executor');
     expect(profile.workflowOrder).toBe(99);
+    expect(profile.agentProfilePath).toBe('.github/agents/software-engineer-verify.md');
   });
 
   it('throws for agent not in registry', () => {

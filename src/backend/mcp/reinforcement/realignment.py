@@ -124,6 +124,23 @@ class RealignmentManager:
             "session": archived.as_dict(),
         }
 
+    def dismiss_session(self, realignment_id: str) -> dict[str, Any]:
+        """Remove an operator-dismissed realignment recommendation."""
+        target = self._find_session(realignment_id)
+        if target is None:
+            return {"status": "not_found", "realignment_id": realignment_id}
+        if target.status in {"running", "reviewed", "archived"}:
+            return {
+                "status": "blocked",
+                "realignment_id": realignment_id,
+                "reason": f"cannot_dismiss_{target.status}",
+            }
+        deleted = self._store.delete_realignment_session(realignment_id)
+        return {
+            "status": "dismissed" if deleted else "not_found",
+            "realignment_id": realignment_id,
+        }
+
     def list_sessions(
         self,
         status_filter: str | None = None,

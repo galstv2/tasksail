@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { mkdir, rm, rmdir, stat } from 'node:fs/promises';
-import { readTextFile, safeJsonParse, writeTextFile, sleep } from '../core/index.js';
+import { createLogger, readTextFile, safeJsonParse, writeTextFile, sleep } from '../core/index.js';
 import { setLabelValue } from './artifacts.js';
+
+const log = createLogger('platform/queue/retrospectiveFlag');
 
 const TASK_COUNTER_DIR_RELATIVE = '.platform-state/task-counters';
 const DEFAULT_CONTEXT_PACK_ID = 'platform-core';
@@ -141,9 +143,7 @@ async function reclaimIfStale(lockDir: string): Promise<void> {
     const info = await stat(lockDir);
     const ageMs = Date.now() - info.mtimeMs;
     if (ageMs > COUNTER_LOCK_STALE_MS) {
-      console.warn(
-        `[retrospectiveFlag] reclaiming stale counter lock: ${lockDir} ageMs=${Math.round(ageMs)}`,
-      );
+      log.warn('counter_lock.stale.reclaiming', { lockDir, ageMs: Math.round(ageMs) });
       // `rm` with recursive+force handles both directory locks (canonical
       // shape) and stray regular files left over from earlier code versions
       // or partial writes. `rmdir` would throw ENOTDIR on the file case and

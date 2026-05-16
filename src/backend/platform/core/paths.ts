@@ -63,6 +63,35 @@ export function resolvePaths(options: ResolvePathsOptions): PlatformPaths {
   };
 }
 
+export function logsDir(repoRoot?: string): string {
+  return process.env.LOG_DIR ?? path.join(repoRoot ?? findRepoRoot(), '.platform-state', 'logs');
+}
+
+export function logFile(
+  stack: 'ts' | 'py',
+  level: 'info' | 'warn' | 'error',
+  date: Date,
+  repoRoot?: string,
+): string {
+  const dateStamp = date.toISOString().slice(0, 10).replaceAll('-', '');
+  return path.join(logsDir(repoRoot), level, `backend-${stack}-${dateStamp}.jsonl`);
+}
+
+export function taskAgentLogFile(
+  taskId: string,
+  agentId: string,
+  repoRoot?: string,
+): string {
+  return path.join(logsDir(repoRoot), 'agent', taskId, `${agentId}.jsonl`);
+}
+
+export function logFileWithSuffix(basePath: string, suffix: number): string {
+  const ext = '.jsonl';
+  return basePath.endsWith(ext)
+    ? `${basePath.slice(0, -ext.length)}.${suffix}${ext}`
+    : `${basePath}.${suffix}${ext}`;
+}
+
 /**
  * Convert a potentially relative path to an absolute path,
  * resolving against a pmse directory.

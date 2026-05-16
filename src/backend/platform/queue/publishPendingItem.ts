@@ -1,11 +1,14 @@
+import path from 'node:path';
 import { resolveQueuePaths, type QueuePaths } from './paths.js';
 import { acquireDirLockOrThrow } from './dirLock.js';
-import { ensureDir } from '../core/index.js';
+import { createLogger, ensureDir } from '../core/index.js';
 import {
   activateNextPendingItemIfReady,
   moveDropboxItemsOnce,
   type ActivateNextPendingItemResult,
 } from './operations.js';
+
+const log = createLogger('platform/queue/publishPendingItem');
 
 export interface PublishPendingItemOptions {
   /**
@@ -83,11 +86,21 @@ export async function publishPendingItem(
       contextPackDir,
     });
   } catch (activationError) {
+    const message = activationError instanceof Error
+      ? activationError.message
+      : String(activationError);
+    const shortReason = message.replace(/\s+/g, ' ').trim().slice(0, 120) || 'unknown';
+    const reason = `activation-error:${shortReason}`;
+    const taskId = path.basename(destinationPath, '.md');
+    log.child({ taskId }).progress({
+      level: 'info',
+      event: 'queue.active.skipped',
+      extra: { reason },
+      text: `[queue] activation skipped - ${reason}`,
+    });
     activation = {
       activated: false,
-      reason: `activation-error: ${
-        activationError instanceof Error ? activationError.message : String(activationError)
-      }`,
+      reason: `activation-error: ${shortReason}`,
     };
   }
 

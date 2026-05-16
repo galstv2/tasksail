@@ -4,10 +4,12 @@ import net from 'node:net';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { loadEnv } from '../core/index.js';
+import { createLogger, loadEnv } from '../core/index.js';
 import { ensureDir, writeTextFileAtomic } from '../core/io.js';
 import { checkServiceHealth } from './healthcheck.js';
 import { createSharedMcpBootstrapEnv } from './sharedMcp.js';
+
+const log = createLogger('platform/container/directRuntimeProcess');
 
 const PID_REL_PATH = '.platform-state/runtime/repo-context-mcp.pid';
 const LOG_REL_PATH = '.platform-state/runtime/repo-context-mcp.log';
@@ -81,9 +83,7 @@ async function spawnDirectMcpUncoalesced(opts: DirectProcessSpawnOptions): Promi
   let exitedEarly = false;
   const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
     exitedEarly = true;
-    process.stderr.write(
-      `[directRuntimeProcess] repo-context-mcp exited prematurely (code=${code} signal=${signal}); see ${logPath}\n`,
-    );
+    log.warn('repo_context_mcp.exited_early', { code, signal, logPath });
   };
   child.once('exit', onExit);
 
@@ -262,8 +262,6 @@ function warnIfContainerOnlyContextPath(env: NodeJS.ProcessEnv): void {
     activeContextPackDir !== undefined
     && (activeContextPackDir.startsWith('/workspace') || activeContextPackDir.startsWith('/context-pack-roots/'))
   ) {
-    process.stderr.write(
-      `[directRuntimeProcess] WARNING: ACTIVE_CONTEXT_PACK_DIR is set to a container-only path (${activeContextPackDir}); in DirectRuntime mode it must be a host path. Requests using this value will fail until it is updated.\n`,
-    );
+    log.warn('active_context_pack_dir.container_only', { activeContextPackDir });
   }
 }

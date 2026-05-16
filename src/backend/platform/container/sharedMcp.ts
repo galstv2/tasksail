@@ -2,6 +2,7 @@ import path from 'node:path';
 import { rm, stat } from 'node:fs/promises';
 
 import { isRecord } from '../core/guards.js';
+import { createLogger } from '../core/index.js';
 import { readTextFile, safeJsonParse, writeTextFileAtomic } from '../core/io.js';
 import { isPathWithinBoundary } from '../core/paths.js';
 import { toContainerPath } from '../core/platform.js';
@@ -11,6 +12,8 @@ import { checkServiceHealth } from './healthcheck.js';
 import { createRuntimeFromConfig } from './runtime.js';
 import { resolveDefaultComposeFile } from './types.js';
 import { isDirectMcpHealthy } from './directRuntimeProcess.js';
+
+const log = createLogger('platform/container/sharedMcp');
 
 const SHARED_MCP_COMPOSE_OVERRIDE_PATH = '.platform-state/runtime/shared-mcp-compose.override.yml';
 const SHARED_MCP_HEALTH_SPEC = 'repo-context-mcp';
@@ -354,5 +357,5 @@ function legacyPortAllocationsPath(repoRoot: string): string {
 
 function logLegacySweepFailure(message: string, err: unknown): void {
   const detail = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`[sharedMcp] legacy port allocation sweep: ${message}: ${detail}\n`);
+  log.warn('legacy_port_allocation_sweep.failed', { message, error: detail });
 }

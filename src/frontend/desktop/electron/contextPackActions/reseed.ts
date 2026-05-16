@@ -21,10 +21,13 @@ import {
   runContextPackReseedCommand,
   type ContextPackReseedRunner,
 } from './shared';
+import { createLogger } from '../log/logger';
 
 // Re-export so it's available from main.contextPackActions barrel.
 export { runContextPackReseedCommand };
 export type { ContextPackReseedRunner };
+
+const log = createLogger('electron/contextPackActions/reseed');
 
 export function buildContextPackReseedArgs(payload: ContextPackReseedPayload): string[] {
   return [REPO_CONTEXT_APP_PATH, 'seed', '--context-pack-dir', payload.contextPackDir, '--format', 'json'];
@@ -83,15 +86,19 @@ async function updateSyncStateAfterReseed(
       'utf-8',
     );
   } catch (err: unknown) {
-    console.warn('updateSyncStateAfterReseed: failed to persist workspace-counts.json:',
-      err instanceof Error ? err.message : err);
+    log.warn('context-pack.reseed.workspace-counts.persist.failed', {
+      contextPackDir: reseedResult.contextPackDir,
+      reason: err instanceof Error ? err.message : String(err),
+    });
   }
 
   try {
     await rebuildAgentMirror(REPO_ROOT, reseedResult.contextPackDir);
   } catch (err: unknown) {
-    console.warn('updateSyncStateAfterReseed: agent mirror rebuild failed:',
-      err instanceof Error ? err.message : err);
+    log.warn('context-pack.reseed.mirror-rebuild.failed', {
+      contextPackDir: reseedResult.contextPackDir,
+      reason: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
 import { createNamedWorkflowAgentRoster, type NamedWorkflowAgentRoster } from '../../shared/agentRoster';
+import { createLogger } from '../log/logger';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 import { splitLines } from '../utils/splitLines';
@@ -120,6 +121,11 @@ function draftToEntry(draft: McpServerFormDraft): ExternalMcpServerEntry {
 }
 
 const CONNECTION_FIELDS: (keyof McpServerFormDraft)[] = ['url', 'transport', 'headers'];
+const log = createLogger('src/renderer/hooks/useMcpConfigModal');
+
+function mcpErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export function useMcpConfigModal(
   client: DesktopShellClient = desktopShellClient,
@@ -140,18 +146,29 @@ export function useMcpConfigModal(
   const lastValidatedRef = useRef<{ url: string; transport: string; headers: string } | null>(null);
 
   const loadServers = useCallback(async () => {
-    const result = await client.listExternalMcpServers();
-    if (result.ok && result.response.action === 'externalMcp.list') {
-      setServers(result.response.servers);
-      setError(null);
-    } else if (!result.ok) {
-      setError(result.error);
+    try {
+      const result = await client.listExternalMcpServers();
+      if (result.ok && result.response.action === 'externalMcp.list') {
+        setServers(result.response.servers);
+        setError(null);
+      } else if (!result.ok) {
+        setError(result.error);
+      }
+    } catch (err: unknown) {
+      const message = mcpErrorMessage(err, 'Unable to load MCP servers.');
+      log.warn('mcp.servers.load.failed', { reason: message });
+      setError(message);
     }
   }, [client]);
 
   const loadProviderRoster = useCallback(async () => {
-    const descriptor = await client.describeActiveProvider();
-    setAgentRoster(createNamedWorkflowAgentRoster(descriptor));
+    try {
+      const descriptor = await client.describeActiveProvider();
+      setAgentRoster(createNamedWorkflowAgentRoster(descriptor));
+    } catch (err: unknown) {
+      const message = mcpErrorMessage(err, 'Unable to load provider roster.');
+      log.warn('mcp.provider-roster.load.failed', { reason: message });
+    }
   }, [client]);
 
   useEffect(() => {
@@ -177,11 +194,17 @@ export function useMcpConfigModal(
 
   const onToggleEnabled = useCallback(
     async (serverId: string) => {
-      const result = await client.toggleExternalMcpServer(serverId);
-      if (result.ok && result.response.action === 'externalMcp.toggleEnabled') {
-        setServers(result.response.servers);
-      } else if (!result.ok) {
-        setError(result.error);
+      try {
+        const result = await client.toggleExternalMcpServer(serverId);
+        if (result.ok && result.response.action === 'externalMcp.toggleEnabled') {
+          setServers(result.response.servers);
+        } else if (!result.ok) {
+          setError(result.error);
+        }
+      } catch (err: unknown) {
+        const message = mcpErrorMessage(err, 'Unable to toggle MCP server.');
+        log.warn('mcp.server.toggle.failed', { serverId, reason: message });
+        setError(message);
       }
     },
     [client],
@@ -193,17 +216,23 @@ export function useMcpConfigModal(
 
   const onConfirmRemove = useCallback(
     async (serverId: string) => {
-      const result = await client.removeExternalMcpServer(serverId);
-      if (result.ok && result.response.action === 'externalMcp.remove') {
-        setServers(result.response.servers);
-        setRemovingServerId(null);
-        // Clear form state if the removed server was being edited.
-        if (editingServerId === serverId) {
-          setView('list');
-          setEditingServerId(null);
+      try {
+        const result = await client.removeExternalMcpServer(serverId);
+        if (result.ok && result.response.action === 'externalMcp.remove') {
+          setServers(result.response.servers);
+          setRemovingServerId(null);
+          // Clear form state if the removed server was being edited.
+          if (editingServerId === serverId) {
+            setView('list');
+            setEditingServerId(null);
+          }
+        } else if (!result.ok) {
+          setError(result.error);
         }
-      } else if (!result.ok) {
-        setError(result.error);
+      } catch (err: unknown) {
+        const message = mcpErrorMessage(err, 'Unable to remove MCP server.');
+        log.warn('mcp.server.remove.failed', { serverId, reason: message });
+        setError(message);
       }
     },
     [client, editingServerId],
@@ -282,29 +311,35 @@ export function useMcpConfigModal(
     for (const h of draft.headers) {
       if (h.key.trim()) headersObj[h.key.trim()] = h.value;
     }
-    const result = await client.validateExternalMcpConnection({
-      transport: draft.transport,
-      url: draft.url,
-      headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
-    });
-    if (result.ok && result.response.action === 'externalMcp.validateConnection') {
-      const resp = result.response;
-      if (resp.success) {
-        setConnectionValidation({
-          status: 'success',
-          message: resp.message,
-          toolCount: resp.toolCount,
-        });
-        lastValidatedRef.current = {
-          url: draft.url,
-          transport: draft.transport,
-          headers: JSON.stringify(headersObj),
-        };
-      } else {
-        setConnectionValidation({ status: 'failed', message: resp.message });
+    try {
+      const result = await client.validateExternalMcpConnection({
+        transport: draft.transport,
+        url: draft.url,
+        headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
+      });
+      if (result.ok && result.response.action === 'externalMcp.validateConnection') {
+        const resp = result.response;
+        if (resp.success) {
+          setConnectionValidation({
+            status: 'success',
+            message: resp.message,
+            toolCount: resp.toolCount,
+          });
+          lastValidatedRef.current = {
+            url: draft.url,
+            transport: draft.transport,
+            headers: JSON.stringify(headersObj),
+          };
+        } else {
+          setConnectionValidation({ status: 'failed', message: resp.message });
+        }
+      } else if (!result.ok) {
+        setConnectionValidation({ status: 'failed', message: result.error });
       }
-    } else if (!result.ok) {
-      setConnectionValidation({ status: 'failed', message: result.error });
+    } catch (err: unknown) {
+      const message = mcpErrorMessage(err, 'Unable to validate MCP connection.');
+      log.warn('mcp.connection.validate.failed', { reason: message });
+      setConnectionValidation({ status: 'failed', message });
     }
   }, [client, draft]);
 
@@ -312,37 +347,47 @@ export function useMcpConfigModal(
     setSaving(true);
     setFieldErrors({});
     setError(null);
-    const entry = draftToEntry(draft);
-    const result = editingServerId
-      ? await client.updateExternalMcpServer(entry)
-      : await client.addExternalMcpServer(entry);
+    try {
+      const entry = draftToEntry(draft);
+      const result = editingServerId
+        ? await client.updateExternalMcpServer(entry)
+        : await client.addExternalMcpServer(entry);
 
-    if (result.ok) {
-      const resp = result.response;
-      if (resp.action === 'externalMcp.add' || resp.action === 'externalMcp.update') {
-        setServers(resp.servers);
-      }
-      setView('list');
-      setEditingServerId(null);
-    } else {
-      // Map backend validation errors to field paths.
-      if (result.details && result.details.length > 0) {
-        const mapped: Record<string, string> = {};
-        for (const detail of result.details) {
-          const colonIdx = detail.indexOf(':');
-          if (colonIdx > 0) {
-            const fieldPath = detail.slice(0, colonIdx).trim();
-            const msg = detail.slice(colonIdx + 1).trim();
-            // Extract the leaf field name for display.
-            const leaf = fieldPath.split('.').pop() ?? fieldPath;
-            mapped[leaf] = msg;
-          }
+      if (result.ok) {
+        const resp = result.response;
+        if (resp.action === 'externalMcp.add' || resp.action === 'externalMcp.update') {
+          setServers(resp.servers);
         }
-        setFieldErrors(mapped);
+        setView('list');
+        setEditingServerId(null);
+      } else {
+        // Map backend validation errors to field paths.
+        if (result.details && result.details.length > 0) {
+          const mapped: Record<string, string> = {};
+          for (const detail of result.details) {
+            const colonIdx = detail.indexOf(':');
+            if (colonIdx > 0) {
+              const fieldPath = detail.slice(0, colonIdx).trim();
+              const msg = detail.slice(colonIdx + 1).trim();
+              // Extract the leaf field name for display.
+              const leaf = fieldPath.split('.').pop() ?? fieldPath;
+              mapped[leaf] = msg;
+            }
+          }
+          setFieldErrors(mapped);
+        }
+        setError(result.error);
       }
-      setError(result.error);
+    } catch (err: unknown) {
+      const message = mcpErrorMessage(err, 'Unable to save MCP server.');
+      log.warn('mcp.server.save.failed', {
+        serverId: editingServerId ?? draft.id,
+        reason: message,
+      });
+      setError(message);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }, [client, draft, editingServerId]);
 
   const enabledServerCount = servers.filter((s) => s.enabled).length;

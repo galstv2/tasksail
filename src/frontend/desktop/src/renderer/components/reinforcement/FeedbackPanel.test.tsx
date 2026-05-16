@@ -20,6 +20,8 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
         difficulty: 'medium',
         effectiveReward: 100,
         settlementStatus: 'unrewarded' as const,
+        qualityOutcome: 'completed',
+        year: '2026',
       },
     ] as ReinforcementTaskEntry[],
     availableYears: ['2026'] as string[],
@@ -65,6 +67,68 @@ describe('FeedbackPanel', () => {
     };
     render(<FeedbackPanel {...defaultProps({ draft })} />);
     expect(screen.getByTestId('feedback-form')).toBeTruthy();
+  });
+
+  it('opens selected task markdown in a detail modal on double click', () => {
+    const draft: FeedbackDraft = {
+      taskId: 'task-1',
+      feedbackType: 'none',
+      starRating: null,
+      comment: '',
+    };
+    render(
+      <FeedbackPanel
+        {...defaultProps({
+          draft,
+          tasks: [{
+            taskId: 'task-1',
+            title: 'Fix login bug',
+            difficulty: 'medium',
+            effectiveReward: 100,
+            settlementStatus: 'unrewarded',
+            qualityOutcome: 'completed',
+            year: '2026',
+            archiveMarkdown: '# Fix login bug\n\n## Summary\nPreview text.',
+          }],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('feedback-task-preview')).toBeNull();
+
+    fireEvent.doubleClick(screen.getByTestId('task-picker-item-task-1'));
+
+    expect(screen.getByRole('dialog', { name: 'Fix login bug' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Fix login bug' }).textContent).toContain('Preview text.');
+  });
+
+  it('marks reviewed tasks read-only', () => {
+    const draft: FeedbackDraft = {
+      taskId: 'task-1',
+      feedbackType: 'none',
+      starRating: null,
+      comment: '',
+    };
+    render(
+      <FeedbackPanel
+        {...defaultProps({
+          draft,
+          tasks: [{
+            taskId: 'task-1',
+            title: 'Fix login bug',
+            difficulty: 'medium',
+            effectiveReward: 100,
+            settlementStatus: 'unrewarded',
+            qualityOutcome: 'completed',
+            year: '2026',
+            reviewStatus: 'reviewed',
+          }],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('feedback-reviewed-readonly').textContent).toContain('Reviewed');
+    expect(screen.queryByTestId('feedback-submit-btn')).toBeNull();
   });
 
   it('calls onSelectFeedbackType when type button clicked', () => {

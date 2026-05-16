@@ -39,6 +39,14 @@ vi.mock('../../../core/index.js', () => ({
   getErrorMessage,
   readEnvAssignment,
   safeJsonParse,
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  }),
+  newSpanId: vi.fn(() => 'test-span-id'),
   STANDARD_AGENT_ORDER: ['alice', 'dalton', 'ron'],
   FAST_PATH_AGENT_ORDER: ['alice', 'dalton', 'ron'],
 }));

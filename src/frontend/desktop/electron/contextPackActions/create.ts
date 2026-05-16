@@ -1,6 +1,12 @@
 import { execFile } from 'node:child_process';
-import { mkdir as fsMkdir, readFile as fsReadFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { constants as fsConstants } from 'node:fs';
+import {
+  access as fsAccess,
+  mkdir as fsMkdir,
+  readFile as fsReadFile,
+  stat as fsStat,
+} from 'node:fs/promises';
+import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type {
@@ -28,8 +34,10 @@ import {
   type PythonScriptRunner,
   type ContextPackReseedRunner,
 } from './shared';
+import { createLogger } from '../log/logger';
 
 const execFileAsync = promisify(execFile);
+const log = createLogger('electron/contextPackActions/create');
 
 function isMonolithEstateMode(mode: ContextPackEstateType): boolean {
   return mode === 'monolith' || mode === 'monolith-platform';
@@ -52,9 +60,7 @@ async function initGitReposForNewProject(
       const repoDir = resolve(repo.repoRoot);
       if (repoDir === monolithRoot) return false;
       if (isPathInside(repoDir, monolithRoot)) {
-        console.warn(
-          `initGitReposForNewProject: skipping git init for "${repoDir}" — path resolves inside the monolith at "${monolithRoot}". A nested .git would corrupt the monolith repo. Move the part outside the monolith or use distributed mode.`,
-        );
+        log.warn('context-pack.create.git-init.skipped', { repoDir, monolithRoot });
         return false;
       }
       return true;
@@ -186,6 +192,61 @@ type PreflightOutcome =
   | { ok: true }
   | { ok: false; preflightErrors: ContextPackPreflightError[] };
 
+interface PathDiagnostics {
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
+  writable: boolean;
+  reason?: string;
+}
+
+function contextPackCreateLogContext(payload: ContextPackCreateRequest['payload']): Record<string, unknown> {
+  return {
+    contextPackDir: payload.contextPackDir,
+    contextPackParentDir: dirname(payload.contextPackDir),
+    discoveryRoot: payload.discoveryRoot,
+    mode: payload.mode,
+    writePlan: payload.writePlan,
+    seedOnCreate: payload.seedOnCreate,
+    initGitRepos: payload.initGitRepos,
+    contextPackId: payload.bootstrapAnswers.contextPackId,
+    estateName: payload.bootstrapAnswers.estateName,
+    repositoryCount: payload.bootstrapAnswers.repositories.length,
+    focusableAreaCount: payload.bootstrapAnswers.focusableAreas?.length ?? 0,
+    primaryWorkingRepoCount: payload.bootstrapAnswers.primaryWorkingRepoIds?.length ?? 0,
+    primaryFocusAreaCount: payload.bootstrapAnswers.primaryFocusAreaIds?.length ?? 0,
+  };
+}
+
+async function inspectPath(pathToInspect: string): Promise<PathDiagnostics> {
+  try {
+    const stats = await fsStat(pathToInspect);
+    let writable = false;
+    let reason: string | undefined;
+    try {
+      await fsAccess(pathToInspect, fsConstants.W_OK);
+      writable = true;
+    } catch (error: unknown) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    return {
+      path: pathToInspect,
+      exists: true,
+      isDirectory: stats.isDirectory(),
+      writable,
+      ...(reason ? { reason } : {}),
+    };
+  } catch (error: unknown) {
+    return {
+      path: pathToInspect,
+      exists: false,
+      isDirectory: false,
+      writable: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function runContextPackPreflight(
   payload: ContextPackCreateRequest['payload'],
   runner: PythonScriptRunner,
@@ -211,6 +272,15 @@ export async function executeContextPackCreateAction(
 
     const preflight = await runContextPackPreflight(np, preflightRunner);
     if (!preflight.ok) {
+      log.warn('context-pack.create.preflight.failed', {
+        ...contextPackCreateLogContext(np),
+        preflightScriptPath: RUN_PACK_PREFLIGHT_SCRIPT_PATH,
+        errorCount: preflight.preflightErrors.length,
+        errors: preflight.preflightErrors,
+        contextPackDirDiagnostics: await inspectPath(np.contextPackDir),
+        contextPackParentDiagnostics: await inspectPath(dirname(np.contextPackDir)),
+        discoveryRootDiagnostics: await inspectPath(np.discoveryRoot),
+      });
       return {
         ok: false,
         action: 'contextPack.create',
@@ -224,7 +294,16 @@ export async function executeContextPackCreateAction(
     await fsMkdir(np.discoveryRoot, { recursive: true });
     const answersJson = JSON.stringify(buildContextPackBootstrapAnswersPayload(np));
     const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np), { stdin: answersJson });
-    const bp = JSON.parse(bootstrapResult.stdout) as Record<string, unknown>;
+    let bp: Record<string, unknown>;
+    try {
+      bp = JSON.parse(bootstrapResult.stdout) as Record<string, unknown>;
+    } catch (bootstrapParseError: unknown) {
+      log.warn('context-pack.create.bootstrap-output.parse.failed', {
+        commandPath: CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
+        reason: bootstrapParseError instanceof Error ? bootstrapParseError.message : String(bootstrapParseError),
+      });
+      throw bootstrapParseError;
+    }
     if (np.initGitRepos) await initGitReposForNewProject(np);
     if (np.writePlan !== false) await planRunner(buildQmdSeedPlanArgs(np.contextPackDir));
 
@@ -239,10 +318,9 @@ export async function executeContextPackCreateAction(
         .map((r: unknown) => (typeof r === 'object' && r !== null ? stringOrNull((r as Record<string, unknown>).status) : null))
         .filter((s): s is string => s !== null);
     } catch (planParseError: unknown) {
-      console.warn(
-        'executeContextPackCreateAction: could not parse seed-plan JSON:',
-        planParseError instanceof Error ? planParseError.message : planParseError,
-      );
+      log.warn('context-pack.create.seed-plan.parse.failed', {
+        reason: planParseError instanceof Error ? planParseError.message : String(planParseError),
+      });
     }
 
     const shouldSeedOnCreate = np.seedOnCreate !== false;
@@ -255,10 +333,10 @@ export async function executeContextPackCreateAction(
       try {
         await planRunner(buildWriteStubScopeTreeArgs(np.contextPackDir, planOverallStatus, planRepoStatuses));
       } catch (stubErr: unknown) {
-        console.warn(
-          'executeContextPackCreateAction: stub scope tree write failed (non-fatal):',
-          stubErr instanceof Error ? stubErr.message : stubErr,
-        );
+        log.warn('context-pack.create.stub-scope-tree.write.failed', {
+          contextPackDir: np.contextPackDir,
+          reason: stubErr instanceof Error ? stubErr.message : String(stubErr),
+        });
       }
     }
     const response: ContextPackCreateResponse = {
@@ -270,6 +348,15 @@ export async function executeContextPackCreateAction(
     };
     return { ok: true, response };
   } catch (error: unknown) {
+    log.error(
+      'context-pack.create.failed',
+      error,
+      contextPackCreateLogContext({
+        ...payload,
+        contextPackDir: resolve(payload.contextPackDir),
+        discoveryRoot: resolve(payload.discoveryRoot),
+      }),
+    );
     const stderr = typeof error === 'object' && error !== null && 'stderr' in error
       ? String((error as { stderr?: unknown }).stderr ?? '') : '';
     return {

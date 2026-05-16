@@ -19,8 +19,17 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stdout
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from src.backend.scripts.python.lib.logging_config import configure_logging  # noqa: E402
+
 
 def main() -> None:
+    configure_logging(stack="py", service="write-stub-scope-tree")
     parser = argparse.ArgumentParser(description="Write an empty scope tree for a new-flow context pack.")
     parser.add_argument("--context-pack-dir", required=True, help="Absolute path to the context pack directory.")
     parser.add_argument("--plan-overall-status", default=None, help="overall_status from the seed plan JSON.")
@@ -51,12 +60,12 @@ def main() -> None:
         plan_repo_statuses=plan_repo_statuses,
     )
 
-    print(json.dumps(result))
+    write_protocol_stdout(str(json.dumps(result)) + '\n')
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:  # noqa: BLE001
-        print(json.dumps({"wrote": False, "error": str(exc)}))
+        write_protocol_stdout(str(json.dumps({"wrote": False, "error": str(exc)})) + '\n')
         sys.exit(1)

@@ -15,6 +15,8 @@ from http.server import ThreadingHTTPServer as ThreadedServer
 from pathlib import Path
 from typing import Any
 
+from src.backend.scripts.python.lib.logging_config import configure_logging
+
 from .config import (
     REQUEST_ID_HEADER,
     RepoContextConfig,
@@ -387,10 +389,7 @@ def parse_args(argv: list[str] | None = None):
 
 
 def run_server(host: str, port: int) -> int:
-    logging.basicConfig(
-        level=getattr(logging, SERVER_CONFIG.log_level, logging.INFO),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    configure_logging(stack="py", service="repo-context-mcp")
     server = ThreadedServer((host, port), Handler)
 
     shutdown_event = threading.Event()
@@ -429,6 +428,7 @@ def run_server(host: str, port: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="repo-context-mcp")
     return create_cli().run(argv, run_server)
 
 

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from src.backend.mcp.git_roots import coerce_git_root_field
 from src.backend.mcp.pack_constants import (
     ALLOWED_ESTATE_TYPES,
     ALLOWED_REPO_CATEGORIES,
@@ -57,6 +58,7 @@ _REQUIRED_FOCUS_FIELDS = ("focus_id", "focus_name", "focus_type", "relative_path
 class LocalPath:
     host: str
     container: str | None = None
+    git_root: str | None = None
 
 
 @dataclass(slots=True)
@@ -152,9 +154,14 @@ def _coerce_local_path(value: Any, *, manifest_path: str | None) -> LocalPath:
         container = value.get("container")
         if container is not None and not isinstance(container, str):
             raise ValueError("local_paths[] object field 'container' must be a string or null")
+        git_root = coerce_git_root_field(
+            value.get("git_root"),
+            field_label="local_paths[] object field 'git_root'",
+        )
         return LocalPath(
             host=_normalize_host_path(host, manifest_path=manifest_path),
             container=container.replace("\\", "/") if isinstance(container, str) else None,
+            git_root=git_root,
         )
     raise ValueError("local_paths[] entries must be strings or objects")
 
@@ -319,10 +326,16 @@ def dump_manifest_v2(model: RepoSourcesManifestV2) -> dict[str, Any]:
     """Serialize a RepoSourcesManifestV2 to a dict, stripping None values."""
     def _repo_to_dict(repo: ManifestRepositoryV2) -> dict[str, Any]:
         data = _strip_none(dataclasses.asdict(repo))
-        data["local_paths"] = [
-            {"host": local_path.host, "container": local_path.container}
-            for local_path in repo.local_paths
-        ]
+        local_paths: list[dict[str, str | None]] = []
+        for local_path in repo.local_paths:
+            entry = {
+                "host": local_path.host,
+                "container": local_path.container,
+            }
+            if local_path.git_root is not None:
+                entry["git_root"] = local_path.git_root
+            local_paths.append(entry)
+        data["local_paths"] = local_paths
         return data
 
     d: dict[str, Any] = {

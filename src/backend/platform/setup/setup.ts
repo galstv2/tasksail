@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
-import { findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
+import { createLogger, findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
 import { createRuntimeFromConfig } from '../container/runtime.js';
 import { sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
@@ -13,6 +13,7 @@ import { resolveContainerRuntime } from '../platform-config/resolve.js';
 import { seedDeepFocusIgnoreConfig } from '../deep-focus-ignore/seed.js';
 
 const execFileAsync = promisify(execFile);
+const log = createLogger('platform/setup/setup');
 
 export type PlatformOS = 'darwin' | 'linux' | 'win32';
 
@@ -39,7 +40,7 @@ async function configureGitHooks(repoRoot: string): Promise<string> {
     });
     return 'ok';
   } catch (err: unknown) {
-    process.stderr.write(`Warning: git hooks configuration failed: ${getErrorMessage(err)}\n`);
+    log.warn('git_hooks.configure.failed', { error: getErrorMessage(err) });
     return 'failed';
   }
 }
@@ -66,7 +67,7 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
     }
     return 'ok';
   } catch (err: unknown) {
-    process.stderr.write(`Warning: skip-worktree failed: ${getErrorMessage(err)}\n`);
+    log.warn('skip_worktree.failed', { error: getErrorMessage(err) });
     return 'failed';
   }
 }
@@ -79,11 +80,9 @@ export async function assertPythonOnPath(): Promise<void> {
   });
   if (ok) return;
 
-  process.stderr.write(
-    'container_runtime is set to "direct", but `python3` was not found on PATH.\n'
-      + 'Install Python 3.13+ and ensure `python3` is discoverable, or set container_runtime\n'
-      + 'to "docker" or "podman" in config/platform.default.json.\n',
-  );
+  log.error('python3.missing', {
+    message: 'container_runtime is set to "direct", but `python3` was not found on PATH.',
+  });
   process.exit(1);
 }
 
@@ -114,7 +113,11 @@ export async function startContainerServices(repoRoot: string): Promise<string> 
 
     return 'ok';
   } catch (err: unknown) {
-    process.stderr.write(`Warning: container service startup failed: ${getErrorMessage(err)}\n`);
+    try {
+      log.warn('container_services.start.failed', { error: getErrorMessage(err) });
+    } catch {
+      // Setup may be exercised before a repository root exists; service startup still reports failure.
+    }
     return 'failed';
   }
 }

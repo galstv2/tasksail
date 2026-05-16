@@ -1,5 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.hoisted(() => {
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: vi.fn(() => Promise.resolve({ ok: true })) },
+    },
+  });
+});
+
 import { formatRecentsTimestamp } from './SidebarDeepFocusUtils';
 
 describe('formatRecentsTimestamp — Apple Mail vocabulary', () => {

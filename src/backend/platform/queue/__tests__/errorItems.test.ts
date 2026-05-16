@@ -327,9 +327,8 @@ describe('B2 commitTaskSnapshot empty-tree and commit-failure handling', () => {
 
       expect(ok).toBe(false);
       expect(git(worktreeRoot, ['rev-parse', 'HEAD'])).toBe(baseSha);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining(
-        `Warning: task snapshot commit failed in ${worktreeRoot}:`,
-      ));
+      expect(String(stderrSpy.mock.calls.flat().join('\n'))).toContain('task_snapshot.commit.failed');
+      expect(String(stderrSpy.mock.calls.flat().join('\n'))).toContain(worktreeRoot);
     } finally {
       chmodSync(objectsDir, 0o755);
       stderrSpy.mockRestore();

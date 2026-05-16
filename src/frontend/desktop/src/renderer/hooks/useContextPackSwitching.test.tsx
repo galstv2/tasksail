@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ObservabilityProvider } from '../contexts/ObservabilityContext';
 import { ToastProvider } from '../contexts/ToastContext';
@@ -13,6 +13,25 @@ import {
   useContextPackSwitching,
   type SwitchingStateSnapshot,
 } from './useContextPackSwitching';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
 
 afterEach(() => {
   cleanup();
@@ -70,6 +89,10 @@ function renderSwitchingHook(
 }
 
 describe('useContextPackSwitching', () => {
+  beforeEach(() => {
+    logEmit.mockClear();
+  });
+
   it('starts with no pending action and no results', () => {
     const { result } = renderSwitchingHook(createMockClient());
     expect(result.current.actionPending).toBeNull();
@@ -398,6 +421,31 @@ describe('useContextPackSwitching', () => {
     expect(refreshCatalog).toHaveBeenCalledWith({ preserveFeedback: true });
   });
 
+  it('logs when refresh after a failed apply action rejects', async () => {
+    const client = createMockClient({
+      applyContextPackSwitch: vi.fn().mockResolvedValue({
+        ok: false,
+        error: 'Activation validation failed.',
+      }),
+    });
+
+    const { result, refreshCatalog } = renderSwitchingHook(client);
+    refreshCatalog.mockRejectedValue(new Error('Catalog refresh failed.'));
+
+    await act(async () => {
+      await result.current.runAction('apply');
+    });
+
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'context-pack.switch.refresh-after-failure.failed',
+      level: 'warn',
+      extra: {
+        stage: 'failed-result',
+        reason: 'Catalog refresh failed.',
+      },
+    }));
+  });
+
   it('refreshes catalog after a thrown error', async () => {
     const client = createMockClient({
       applyContextPackSwitch: vi.fn().mockRejectedValue(new Error('Network down')),
@@ -411,6 +459,28 @@ describe('useContextPackSwitching', () => {
 
     expect(setError).toHaveBeenCalledWith('Network down');
     expect(refreshCatalog).toHaveBeenCalledWith({ preserveFeedback: true });
+  });
+
+  it('logs when refresh after a thrown action error rejects', async () => {
+    const client = createMockClient({
+      applyContextPackSwitch: vi.fn().mockRejectedValue(new Error('Network down')),
+    });
+
+    const { result, refreshCatalog } = renderSwitchingHook(client);
+    refreshCatalog.mockRejectedValue(new Error('Catalog refresh failed.'));
+
+    await act(async () => {
+      await result.current.runAction('apply');
+    });
+
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'context-pack.switch.refresh-after-failure.failed',
+      level: 'warn',
+      extra: {
+        stage: 'thrown-error',
+        reason: 'Catalog refresh failed.',
+      },
+    }));
   });
 
   it('shows timeout-specific guidance when IPC times out', async () => {
@@ -506,6 +576,101 @@ describe('useContextPackSwitching', () => {
 
     expect(result.current.showMultiPrimaryWarning).toBe(true);
     expect(client.applyContextPackSwitch).not.toHaveBeenCalled();
+  });
+
+  it('allows distributed apply when multiple typed primary repos are selected', async () => {
+    const applyResponse = createSwitchResponse('contextPack.applySwitch', 'applied');
+    const client = createMockClient({
+      applyContextPackSwitch: vi.fn().mockResolvedValue({
+        ok: true,
+        response: applyResponse,
+      }),
+    });
+    const distributedPack = createListContextPacksResponse([
+      {
+        contextPackId: 'distributed',
+        displayName: 'Distributed Pack',
+        contextPackDir: '/tmp/pack',
+        manifestPath: null,
+        bootstrapReady: true,
+        source: 'configured-path',
+        isActive: false,
+        estateType: 'distributed-platform',
+        defaultScopeMode: 'focused',
+        repoCount: 3,
+        primaryWorkingRepoIds: ['api', 'web'],
+        focusTargets: [
+          {
+            focusId: 'api',
+            displayName: 'API',
+            kind: 'repository',
+            repoId: 'api',
+            serviceName: null,
+            systemLayer: 'backend',
+            repoRole: null,
+            repositoryType: 'primary',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: true,
+            activationPriority: 100,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+          {
+            focusId: 'web',
+            displayName: 'Web',
+            kind: 'repository',
+            repoId: 'web',
+            serviceName: null,
+            systemLayer: 'frontend',
+            repoRole: null,
+            repositoryType: 'primary',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: true,
+            activationPriority: 90,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+          {
+            focusId: 'docs',
+            displayName: 'Docs',
+            kind: 'repository',
+            repoId: 'docs',
+            serviceName: null,
+            systemLayer: 'documentation',
+            repoRole: null,
+            repositoryType: 'support',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: false,
+            activationPriority: 10,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderSwitchingHook(
+      client,
+      () => ({
+        ...defaultSnapshot,
+        selectedRepoIds: ['api', 'web'],
+        selectedFocusIds: [],
+        catalogResponse: distributedPack,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.runAction('apply');
+    });
+
+    expect(result.current.showMultiPrimaryWarning).toBe(false);
+    expect(client.applyContextPackSwitch).toHaveBeenCalled();
   });
 
   it('allows legacy monolith packs with untyped focus areas to pass through', async () => {

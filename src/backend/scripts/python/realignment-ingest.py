@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+
+from lib.protocol_output import write_protocol_stdout
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 if str(ROOT_DIR) not in sys.path:
@@ -17,6 +20,9 @@ from src.backend.mcp.reinforcement.fairness import FairnessManager
 from src.backend.mcp.reinforcement.models import RealignmentSession
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
+from src.backend.scripts.python.lib.logging_config import configure_logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -70,10 +76,10 @@ def _require_analyzable(
 ) -> RealignmentSession:
     session = manager.find_session(realignment_id)
     if session is None:
-        print("session not found", file=sys.stderr)
+        logger.error("realignment.ingest.session_not_found", extra={"realignment_id": realignment_id})
         raise SystemExit(2)
     if not manager.is_analyzable(session):
-        print("session not analyzable", file=sys.stderr)
+        logger.error("realignment.ingest.session_not_analyzable", extra={"realignment_id": realignment_id})
         raise SystemExit(3)
     return session
 
@@ -88,11 +94,11 @@ def _mark_error(manager: RealignmentManager, realignment_id: str, reason: str) -
         realignment_id,
         {"status": "error", "meeting_notes": updated_notes},
     )
-    print(json.dumps({
+    write_protocol_stdout(str(json.dumps({
         "realignment_id": realignment_id,
         "status": "error",
         "session": updated.as_dict() if updated is not None else None,
-    }, indent=2))
+    }, indent=2)) + '\n')
     return 0
 
 
@@ -103,32 +109,32 @@ def _archive_reviewed(
 ) -> int:
     session = manager.find_session(realignment_id)
     if session is None:
-        print("session not found", file=sys.stderr)
+        logger.error("realignment.ingest.session_not_found", extra={"realignment_id": realignment_id})
         raise SystemExit(2)
     if session.status != "reviewed":
-        print("session not reviewed", file=sys.stderr)
+        logger.error("realignment.ingest.session_not_reviewed", extra={"realignment_id": realignment_id})
         raise SystemExit(3)
 
     doc = store.load_global_realignment_document()
     try:
         archive = manager.archive_reviewed_session(session)
     except Exception as exc:
-        print(json.dumps({
+        write_protocol_stdout(str(json.dumps({
             "realignment_id": realignment_id,
             "status": "partial",
             "reason": "promotion_committed_archive_failed",
             "detail": str(exc),
             "global_realignment_version": doc.version,
-        }, indent=2))
+        }, indent=2)) + '\n')
         return 1
 
-    print(json.dumps({
+    write_protocol_stdout(str(json.dumps({
         "realignment_id": realignment_id,
         "status": "archived",
         "global_realignment_version": doc.version,
         "notes_path": archive["notes_path"],
         "session": archive["session"],
-    }, indent=2))
+    }, indent=2)) + '\n')
     return 0
 
 
@@ -163,35 +169,36 @@ def _ingest(
     except SystemExit:
         raise
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        logger.exception("realignment.ingest.failed", extra={"error": str(exc), "realignment_id": realignment_id})
         return 1
 
     try:
         doc = fairness.compact_global_document()
         archive = manager.archive_reviewed_session(reviewed)
-        print(json.dumps({
+        write_protocol_stdout(str(json.dumps({
             "realignment_id": realignment_id,
             "status": "archived",
             "global_realignment_version": doc.version,
             "notes_path": archive["notes_path"],
             "session": archive["session"],
-        }, indent=2))
+        }, indent=2)) + '\n')
         return 0
     except Exception as exc:
-        print(json.dumps({
+        write_protocol_stdout(str(json.dumps({
             "realignment_id": realignment_id,
             "status": "partial",
             "reason": "promotion_committed_archive_failed",
             "detail": str(exc),
             "global_realignment_version": doc.version,
-        }, indent=2))
+        }, indent=2)) + '\n')
         return 1
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="realignment-ingest")
     args = parse_args(argv)
     if args.mark_error and not args.reason:
-        print("--reason is required with --mark-error", file=sys.stderr)
+        logger.error("realignment.ingest.missing_reason")
         return 1
     repo_root = Path(args.repo_root).resolve()
     context_pack_dir = Path(args.context_pack_dir).resolve()

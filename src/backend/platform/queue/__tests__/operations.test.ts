@@ -104,7 +104,7 @@ function initGitRepo(repoDir: string): string {
 
 function seedDistributedContextPackWithRepos(
   repoRoot: string,
-  repos: Array<{ repoId: string; repoDir: string }>,
+  repos: Array<{ repoId: string; repoDir: string; repoGitRoot?: string }>,
   workspaceRepoDirs: string[],
   packName = 'multi-repo',
 ): string {
@@ -120,7 +120,10 @@ function seedDistributedContextPackWithRepos(
       qmd_scope_root: `qmd/context-packs/${packName}`,
       repositories: repos.map((repo, index) => ({
         repo_id: repo.repoId,
-        local_paths: [repo.repoDir],
+        local_paths: [{
+          host: repo.repoDir,
+          ...(repo.repoGitRoot ? { git_root: repo.repoGitRoot } : {}),
+        }],
         repository_type: 'primary',
         default_focusable: index === 0,
         activation_priority: 100 - index,
@@ -137,6 +140,50 @@ function seedDistributedContextPackWithRepos(
         { path: '.' },
         ...workspaceRepoDirs.map((repoDir) => ({ path: repoDir })),
       ],
+    }, null, 2) + '\n',
+    'utf-8',
+  );
+  return contextPackDir;
+}
+
+function seedMonolithContextPack(
+  repoRoot: string,
+  options: {
+    packName: string;
+    repoLocalPath: string;
+    repoGitRoot?: string;
+    focusAreas: Array<{ focusId: string; focusRelativePath: string }>;
+  },
+): string {
+  const contextPackDir = path.join(repoRoot, 'contextpacks', options.packName);
+  mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+  writeFileSync(
+    path.join(contextPackDir, 'qmd', 'repo-sources.json'),
+    JSON.stringify({
+      manifest_version: 'qmd-repo-sources/v2',
+      manifest_status: 'approved',
+      context_pack_id: options.packName,
+      estate_type: 'monolith',
+      qmd_scope_root: `qmd/context-packs/${options.packName}`,
+      repositories: [{
+        repo_id: 'src',
+        local_paths: [{
+          host: options.repoLocalPath,
+          ...(options.repoGitRoot ? { git_root: options.repoGitRoot } : {}),
+        }],
+        repository_type: 'primary',
+        default_focusable: true,
+        activation_priority: 100,
+      }],
+      focusable_areas: options.focusAreas.map((area) => ({
+        focus_id: area.focusId,
+        focus_name: area.focusId,
+        focus_type: area.focusId,
+        relative_path: area.focusRelativePath,
+        repository_type: 'primary',
+      })),
+      primary_working_repo_ids: [],
+      primary_focus_area_ids: options.focusAreas.map((area) => area.focusId),
     }, null, 2) + '\n',
     'utf-8',
   );
@@ -984,6 +1031,199 @@ ${binding}
       expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-multi-repo', 'worktrees', `service-${shaA.slice(0, 8)}`))).toBe(true);
       expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-multi-repo', 'worktrees', `service-${shaB.slice(0, 8)}`))).toBe(true);
     } finally {
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('creates branches against each persisted git root when a distributed context pack points at subtrees', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    const apiRoot = path.join(repoRoot, 'external-repos', 'api');
+    const webRoot = path.join(repoRoot, 'external-repos', 'web');
+    const apiSrc = path.join(apiRoot, 'src');
+    const webSrc = path.join(webRoot, 'src');
+    initGitRepo(apiRoot);
+    initGitRepo(webRoot);
+    mkdirSync(apiSrc, { recursive: true });
+    mkdirSync(webSrc, { recursive: true });
+    writeFileSync(path.join(apiSrc, 'index.ts'), 'export const api = true;\n', 'utf-8');
+    writeFileSync(path.join(webSrc, 'index.ts'), 'export const web = true;\n', 'utf-8');
+    execFileSync('git', ['add', 'src/index.ts'], { cwd: apiRoot, stdio: 'ignore' });
+    execFileSync('git', ['add', 'src/index.ts'], { cwd: webRoot, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'add api src'],
+      { cwd: apiRoot, stdio: 'ignore' },
+    );
+    execFileSync(
+      'git',
+      ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'add web src'],
+      { cwd: webRoot, stdio: 'ignore' },
+    );
+    const apiSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: apiRoot, encoding: 'utf-8' }).trim();
+    const webSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: webRoot, encoding: 'utf-8' }).trim();
+    const contextPackDir = seedDistributedContextPackWithRepos(
+      repoRoot,
+      [
+        { repoId: 'api', repoDir: apiSrc, repoGitRoot: apiRoot },
+        { repoId: 'web', repoDir: webSrc, repoGitRoot: webRoot },
+      ],
+      [apiSrc],
+      'distributed-subtrees',
+    );
+    const binding = formatContextPackBindingSection({
+      contextPackDir,
+      contextPackId: 'distributed-subtrees',
+      scopeMode: 'focused',
+      selectedRepoIds: ['api', 'web'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusPath: 'src',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        { repoLocalPath: apiSrc, repoId: 'api', path: 'src', kind: 'directory', role: 'anchor' },
+        { repoLocalPath: webSrc, repoId: 'web', path: 'src', kind: 'directory', role: 'primary' },
+      ],
+    });
+    try {
+      writeFileSync(path.join(pendingDir, 'task-distributed-subtrees.md'), `# Distributed subtrees\n\n${binding}\n`);
+      seedTemplates(templatesDir);
+
+      const result = await activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot });
+
+      expect(result.activated).toBe(true);
+      const sidecar = JSON.parse(
+        readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-distributed-subtrees', '.task.json'), 'utf-8'),
+      );
+      const repoBindings = sidecar.contextPackBinding.repoBindings;
+      expect(repoBindings.map((binding: { originalRoot: string }) => binding.originalRoot)).toEqual([
+        realpathSync(apiRoot),
+        realpathSync(webRoot),
+      ]);
+      expect(repoBindings.map((binding: { worktreeRoot: string }) => path.basename(binding.worktreeRoot))).toEqual([
+        `src-${apiSha.slice(0, 8)}`,
+        `src-${webSha.slice(0, 8)}`,
+      ]);
+      expect(existsSync(path.join(repoBindings[0].worktreeRoot, 'src', 'index.ts'))).toBe(true);
+      expect(existsSync(path.join(repoBindings[1].worktreeRoot, 'src', 'index.ts'))).toBe(true);
+    } finally {
+      for (const [root, sha] of [[apiRoot, apiSha], [webRoot, webSha]] as const) {
+        try {
+          execFileSync('git', ['worktree', 'remove', '--force', path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-distributed-subtrees', 'worktrees', `src-${sha.slice(0, 8)}`)], {
+            cwd: root,
+            stdio: 'ignore',
+          });
+        } catch {
+          // Test cleanup only.
+        }
+        try {
+          execFileSync('git', ['branch', '-D', 'task/task-distributed-subtrees'], { cwd: root, stdio: 'ignore' });
+        } catch {
+          // Test cleanup only.
+        }
+      }
+      if (savedAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = savedAutostart;
+      }
+    }
+  });
+
+  it('creates branches against the parent git root when a monolith context pack points at a subtree', async () => {
+    const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    const monolithRoot = path.join(repoRoot, 'external-repos', 'monolith');
+    const srcRoot = path.join(monolithRoot, 'src');
+    const backendRoot = path.join(srcRoot, 'backend');
+    initGitRepo(monolithRoot);
+    mkdirSync(backendRoot, { recursive: true });
+    writeFileSync(path.join(backendRoot, 'index.ts'), 'export const backend = true;\n', 'utf-8');
+    execFileSync('git', ['add', 'src/backend/index.ts'], { cwd: monolithRoot, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'add backend'],
+      { cwd: monolithRoot, stdio: 'ignore' },
+    );
+    const baseSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: monolithRoot, encoding: 'utf-8' }).trim();
+    const contextPackDir = seedMonolithContextPack(repoRoot, {
+      packName: 'src-pack',
+      repoLocalPath: srcRoot,
+      repoGitRoot: monolithRoot,
+      focusAreas: [
+        { focusId: 'backend', focusRelativePath: 'backend' },
+        { focusId: 'frontend', focusRelativePath: 'frontend' },
+      ],
+    });
+    const binding = formatContextPackBindingSection({
+      contextPackDir,
+      contextPackId: 'src-pack',
+      scopeMode: 'focused',
+      selectedRepoIds: [],
+      selectedFocusIds: ['backend', 'frontend'],
+    });
+    try {
+      writeFileSync(path.join(pendingDir, 'task-subtree.md'), `# Subtree\n\n${binding}\n`);
+      seedTemplates(templatesDir);
+
+      const result = await activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot });
+
+      expect(result.activated).toBe(true);
+      const sidecar = JSON.parse(
+        readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-subtree', '.task.json'), 'utf-8'),
+      );
+      const [repoBinding] = sidecar.contextPackBinding.repoBindings;
+      expect(repoBinding.originalRoot).toBe(realpathSync(monolithRoot));
+      expect(repoBinding.baseCommitSha).toBe(baseSha);
+      expect(path.basename(repoBinding.worktreeRoot)).toBe('src');
+      expect(existsSync(path.join(repoBinding.worktreeRoot, 'src', 'backend', 'index.ts'))).toBe(true);
+      expect(
+        execFileSync('git', ['rev-parse', '--verify', 'refs/heads/task/task-subtree'], {
+          cwd: monolithRoot,
+          encoding: 'utf-8',
+        }).trim(),
+      ).toBe(baseSha);
+
+      const snapshot = JSON.parse(
+        readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-subtree', 'pack-snapshot.json'), 'utf-8'),
+      );
+      expect(snapshot.primary.repoRoot).toBe(realpathSync(srcRoot));
+      expect(snapshot.primary.primaryFocusRelativePath).toBe('backend');
+      expect(snapshot.selectedFocusIds).toEqual(['backend', 'frontend']);
+      expect(snapshot.deepFocus.primaryFocusTargets).toEqual([
+        {
+          path: 'backend',
+          kind: 'directory',
+          repoLocalPath: realpathSync(srcRoot),
+          focusId: 'backend',
+          role: 'anchor',
+        },
+        {
+          path: 'frontend',
+          kind: 'directory',
+          repoLocalPath: realpathSync(srcRoot),
+          focusId: 'frontend',
+          role: 'primary',
+        },
+      ]);
+    } finally {
+      try {
+        execFileSync('git', ['worktree', 'remove', '--force', path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-subtree', 'worktrees', 'src')], {
+          cwd: monolithRoot,
+          stdio: 'ignore',
+        });
+      } catch {
+        // Test cleanup only.
+      }
+      try {
+        execFileSync('git', ['branch', '-D', 'task/task-subtree'], { cwd: monolithRoot, stdio: 'ignore' });
+      } catch {
+        // Test cleanup only.
+      }
       if (savedAutostart === undefined) {
         delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
       } else {

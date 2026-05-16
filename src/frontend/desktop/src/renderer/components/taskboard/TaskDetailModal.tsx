@@ -7,6 +7,8 @@ export type TaskDetailModalProps = {
   content: string;
   column: TaskBoardContentColumn;
   onClose: () => void;
+  zIndex?: number;
+  escPriority?: number;
 };
 
 const COLUMN_LABELS: Record<TaskBoardContentColumn, string> = {
@@ -28,6 +30,8 @@ function TaskDetailModal({
   content,
   column,
   onClose,
+  zIndex,
+  escPriority,
 }: TaskDetailModalProps): JSX.Element {
   return (
     <ModalShell
@@ -39,6 +43,8 @@ function TaskDetailModal({
       variant="terminal"
       accentColor={COLUMN_ACCENT[column]}
       className={`task-detail-modal--${column}`}
+      zIndex={zIndex}
+      escPriority={escPriority}
       footer={<>
         <span className="modal-shell__footer-esc">ESC to close</span>
         <span className="task-detail-modal__column-badge" data-column={column}>

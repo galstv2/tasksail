@@ -378,6 +378,9 @@ describe('desktopShellClient', () => {
 
   it('uses the live window desktop shell when the shared client is imported once', async () => {
     window.desktopShell = {
+      log: {
+        emit: vi.fn().mockResolvedValue({ ok: true }),
+      },
       getBootstrapInfo: vi.fn().mockResolvedValue({ appName: 'TaskSail' }),
       describeActiveProvider: vi.fn().mockResolvedValue({
         providerId: 'test-provider',
@@ -441,6 +444,7 @@ describe('desktopShellClient', () => {
       checkActiveWorkGuard: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.checkActiveWorkGuard', allowed: true } }),
       startRealignment: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.startRealignment', mode: 'started' } }),
       runRealignmentAnalysis: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.runRealignmentAnalysis', mode: 'analysis-started' } }),
+      dismissRealignment: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.dismissRealignment', mode: 'dismissed' } }),
       listExternalMcpServers: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.list', servers: [] } }),
       addExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.add', servers: [] } }),
       updateExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.update', servers: [] } }),
@@ -472,6 +476,7 @@ describe('desktopShellClient', () => {
       loadDeepFocusSelections: vi.fn().mockResolvedValue({ ok: true, response: { action: 'deepFocus.loadSelections', mode: 'read-only', message: 'No saved selections found.', selections: null } }),
       clearDeepFocusSelections: vi.fn().mockResolvedValue({ ok: true, response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Cleared.' } }),
       cancelTask: vi.fn().mockResolvedValue({ ok: true, response: { action: 'cancel-task', mode: 'cancelled', message: 'Pipeline stopped.', taskId: 'TASK-1' } }),
+      setTerminalTaskScope: vi.fn().mockResolvedValue({ ok: true, response: { action: 'terminal.setTaskScope', mode: 'scoped', selectedTaskGuid: null, events: [], taskScopes: [], message: 'Terminal task scope reset to all tasks.' } }),
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),
@@ -620,6 +625,10 @@ describe('desktopShellClient', () => {
       contextPackDir: '/packs/pack-a',
       realignmentId: 'RA-1',
     });
+    await desktopShellClient.dismissRealignment({
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
 
     expect(window.desktopShell.readReinforcementOverview).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.listReinforcementTasks).toHaveBeenCalledWith('2026');
@@ -627,6 +636,10 @@ describe('desktopShellClient', () => {
     expect(window.desktopShell.listRealignmentSessions).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.readRealignmentDoc).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.runRealignmentAnalysis).toHaveBeenCalledWith({
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
+    expect(window.desktopShell.dismissRealignment).toHaveBeenCalledWith({
       contextPackDir: '/packs/pack-a',
       realignmentId: 'RA-1',
     });

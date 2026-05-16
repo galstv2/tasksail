@@ -121,6 +121,35 @@ describe('startRealignmentAnalysisJob', () => {
     });
   });
 
+  it('allows only one active realignment job at a time', async () => {
+    let resolveAnalysis!: (value: unknown) => void;
+    mocks.runRealignmentAnalysis.mockReturnValueOnce(new Promise((resolve) => {
+      resolveAnalysis = resolve;
+    }));
+
+    await expect(startRealignmentAnalysisJob({
+      repoRoot,
+      contextPackDir,
+      realignmentId,
+    })).resolves.toMatchObject({ status: 'started' });
+
+    await expect(startRealignmentAnalysisJob({
+      repoRoot,
+      contextPackDir,
+      realignmentId: 'RA-2',
+    })).resolves.toEqual({
+      jobId: 'realignment:RA-2',
+      realignmentId: 'RA-2',
+      status: 'already-running',
+      reason: 'realignment_job_active',
+    });
+
+    resolveAnalysis({ passed: true, realignmentId, status: 'archived' });
+    await vi.waitFor(() => {
+      expect(readReceipt()).toEqual(expect.objectContaining({ status: 'archived' }));
+    });
+  });
+
   it('returns failed and does not start analysis when the initial receipt cannot be written', async () => {
     rmSync(repoRoot, { recursive: true, force: true });
     writeFileSync(repoRoot, 'not a directory', 'utf-8');

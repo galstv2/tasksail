@@ -24,6 +24,7 @@ vi.mock('../../core/index.js', () => ({
 }));
 
 import {
+  listReinforcementTasks,
   listRealignmentSessions,
   readAgentRewards,
   readGlobalRealignmentDoc,
@@ -42,15 +43,38 @@ const legacySidecars = path.join(
   repoRoot, 'AgentWorkSpace', 'qmd', 'global', 'agent-rewards',
 );
 
-function installFiles(files: Map<string, unknown>, dirs = new Map<string, string[]>()) {
+type MockDirEntry = string | {
+  name: string;
+  isDirectory: () => boolean;
+  isFile: () => boolean;
+};
+
+function installFiles(files: Map<string, unknown>, dirs = new Map<string, MockDirEntry[]>()) {
   mockReadFile.mockImplementation(async (filePath: string) => {
     if (!files.has(filePath)) throw new Error(`missing ${filePath}`);
-    return JSON.stringify(files.get(filePath));
+    const value = files.get(filePath);
+    return typeof value === 'string' ? value : JSON.stringify(value);
   });
   mockReaddir.mockImplementation(async (dirPath: string) => {
     if (!dirs.has(dirPath)) throw new Error(`missing ${dirPath}`);
     return dirs.get(dirPath);
   });
+}
+
+function dirEntry(name: string) {
+  return {
+    name,
+    isDirectory: () => true,
+    isFile: () => false,
+  };
+}
+
+function fileEntry(name: string) {
+  return {
+    name,
+    isDirectory: () => false,
+    isFile: () => true,
+  };
 }
 
 describe('reinforcementRead canonical paths', () => {
@@ -145,6 +169,32 @@ describe('reinforcementRead canonical paths', () => {
     );
   });
 
+  it('overlays running realignment job receipts on session status', async () => {
+    installFiles(new Map<string, unknown>([
+      [path.join(canonicalStore, 'realignment', 'sessions.json'), {
+        entries: [{
+          realignment_id: 'RA-RUNNING',
+          trigger_task_id: 'T-1',
+          trigger_feedback_id: 'FB-1',
+          participating_agents: ['software-engineer'],
+          failure_analysis: '',
+          root_cause: '',
+          corrective_actions: [],
+          status: 'open',
+          meeting_notes: '',
+          created_at: '2026-01-01T00:00:00Z',
+        }],
+      }],
+      [path.join(repoRoot, '.platform-state', 'runtime', 'realignment', 'RA-RUNNING', 'job.json'), {
+        status: 'running',
+      }],
+    ]));
+
+    const sessions = await listRealignmentSessions(repoRoot);
+
+    expect(sessions[0]?.status).toBe('running');
+  });
+
   it('falls back to legacy sidecars only when canonical sidecars are absent', async () => {
     installFiles(
       new Map<string, unknown>([
@@ -197,5 +247,105 @@ describe('reinforcementRead canonical paths', () => {
 
     expect(agents.find((agent) => agent.agentId === 'planning-agent')?.multiplier).toBe(1.0);
     expect(agents.find((agent) => agent.agentId === 'product-manager')?.multiplier).toBe(1.5);
+  });
+
+  it('lists tasks from the nested context-pack archive layout', async () => {
+    const contextPackName = 'sample-pack';
+    const archiveRoot = path.join(
+      repoRoot,
+      'AgentWorkSpace',
+      'qmd',
+      'context-packs',
+      contextPackName,
+      'archive',
+      'tasks',
+    );
+    const yearPath = path.join(archiveRoot, '2026');
+    installFiles(
+      new Map<string, unknown>([
+        [path.join(canonicalStore, 'task-ledger.json'), {
+          entries: [{
+            task_id: 'task-nested',
+            settlement_status: 'rewarded',
+            effective_reward: 1500,
+          }],
+        }],
+        [path.join(canonicalStore, 'feedback-events.json'), {
+          entries: [{
+            task_id: 'task-nested',
+            feedback_id: 'FB-1',
+          }],
+        }],
+        [path.join(yearPath, 'task-nested', 'archive.json'), {
+          task_id: 'task-nested',
+          task_title: 'Nested archived task',
+          difficulty_level: 'Medium',
+          workflow_status: 'completed',
+        }],
+        [path.join(yearPath, 'task-nested', 'archive.md'), '# Nested archived task\n'],
+      ]),
+      new Map([
+        [archiveRoot, [dirEntry('2026')]],
+        [yearPath, [
+          dirEntry('task-nested'),
+          fileEntry('task-nested.planner-focus-snapshot.json'),
+        ]],
+      ]),
+    );
+
+    const result = await listReinforcementTasks(repoRoot, contextPackName, '2026');
+
+    expect(result.availableYears).toEqual(['2026']);
+    expect(result.tasks).toEqual([{
+      taskId: 'task-nested',
+      title: 'Nested archived task',
+      difficulty: 'medium',
+      effectiveReward: 1500,
+      settlementStatus: 'rewarded',
+      qualityOutcome: 'completed',
+      year: '2026',
+      reviewStatus: 'reviewed',
+      feedbackCount: 1,
+      archivePath: path.join(yearPath, 'task-nested', 'archive.md'),
+      archiveMarkdown: '# Nested archived task\n',
+    }]);
+  });
+
+  it('keeps legacy flat JSON task archives readable', async () => {
+    const contextPackName = 'sample-pack';
+    const archiveRoot = path.join(
+      repoRoot,
+      'AgentWorkSpace',
+      'qmd',
+      'context-packs',
+      contextPackName,
+      'archive',
+      'tasks',
+    );
+    const yearPath = path.join(archiveRoot, '2026');
+    installFiles(
+      new Map<string, unknown>([
+        [path.join(canonicalStore, 'task-ledger.json'), { entries: [] }],
+        [path.join(canonicalStore, 'feedback-events.json'), { entries: [] }],
+        [path.join(yearPath, 'legacy-task.json'), {
+          task_id: 'legacy-task',
+          task_title: 'Legacy archived task',
+          difficulty_level: 'Small',
+          workflow_status: 'completed',
+        }],
+        [path.join(yearPath, 'legacy-task.md'), '# Legacy archived task\n'],
+      ]),
+      new Map([
+        [archiveRoot, [dirEntry('2026')]],
+        [yearPath, [
+          fileEntry('legacy-task.json'),
+          fileEntry('legacy-task.planner-focus-snapshot.json'),
+        ]],
+      ]),
+    );
+
+    const result = await listReinforcementTasks(repoRoot, contextPackName, '2026');
+
+    expect(result.tasks.map((task) => task.taskId)).toEqual(['legacy-task']);
   });
 });

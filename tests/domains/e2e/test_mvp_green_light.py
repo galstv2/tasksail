@@ -354,7 +354,8 @@ class MvpGreenLightTests(unittest.TestCase):
         global_history = (
             self.workspace
             / "AgentWorkSpace/qmd/global/retrospectives/history/2026"
-            / f"{self.task_id.lower()}.md"
+            / self.task_id.lower()
+            / "retrospective.md"
         )
         self.assertTrue(
             global_history.exists(),

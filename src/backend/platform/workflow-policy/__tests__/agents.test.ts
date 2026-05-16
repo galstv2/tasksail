@@ -89,6 +89,18 @@ describe('loadNamedAgentTeam', () => {
       'qa',
     ]);
     expect(team['software-engineer-verify']).toBeUndefined();
+    expect(team['planning-agent']?.expectedInstructionHeading).toBe(
+      '# Planning Intake Agent Instructions',
+    );
+    expect(team['planning-agent']?.expectedAgentIdentity).toBe(
+      'Act as the Planning Intake Agent.',
+    );
+    expect(team['product-manager']?.expectedInstructionHeading).toBe(
+      '# Product Manager (Alice) — Instructions',
+    );
+    expect(team['product-manager']?.expectedAgentIdentity).toBe(
+      'Act as Alice, the Product Manager.',
+    );
     expect(errors).toEqual([]);
   });
 });

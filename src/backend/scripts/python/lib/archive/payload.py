@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from .storage import (
 )
 
 SLICE_PATTERN = re.compile(r"\b(slice-[A-Za-z0-9-]+\.md)\b")
+logger = logging.getLogger(__name__)
 
 
 def _normalize_archive_text(lines: list[str]) -> str:
@@ -78,16 +79,24 @@ def _read_structured_status(
         return raw
     fallback_value = fallback()
     if not raw:
-        print(
-            f"Warning: archive task_id={task_id} field '{field_name}' empty in final-summary.md; "
-            f"using inferred value '{fallback_value}'. Fill the section to suppress this warning.",
-            file=sys.stderr,
+        logger.warning(
+            "archive.structured_status.empty",
+            extra={
+                "task_id": task_id,
+                "field_name": field_name,
+                "fallback_value": fallback_value,
+            },
         )
     else:
-        print(
-            f"Warning: archive task_id={task_id} field '{field_name}' has unrecognized value "
-            f"'{raw}' (allowed: {sorted(allowed)}); using inferred value '{fallback_value}'.",
-            file=sys.stderr,
+        logger.warning(
+            "archive.structured_status.unrecognized",
+            extra={
+                "task_id": task_id,
+                "field_name": field_name,
+                "raw_value": raw,
+                "allowed_values": sorted(allowed),
+                "fallback_value": fallback_value,
+            },
         )
     return fallback_value
 
@@ -252,12 +261,13 @@ def build_archive_payload(
             child_depth = parent_depth + 1
         else:
             child_depth = 1
-            print(
-                f"Warning: parent archive not found for parent_task_id="
-                f"'{parent_task_id}', parent_qmd_record_id="
-                f"'{parent_qmd_record_id}'. Child task will be archived "
-                f"with parent_resolution='orphaned'.",
-                file=sys.stderr,
+            logger.warning(
+                "archive.parent.not_found",
+                extra={
+                    "parent_task_id": parent_task_id,
+                    "parent_qmd_record_id": parent_qmd_record_id,
+                    "parent_resolution": "orphaned",
+                },
             )
 
     tags = [

@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from ..protocol_output import write_protocol_stdout
 from ..workspace_paths import handoffs_dir
 
 
@@ -50,10 +51,10 @@ def cmd_resolve_agent_metadata(args: argparse.Namespace) -> int:
     found = find_agent_entry(payload, args.agent_id)
     if found is None:
         return 2
-    print(found.get("agent_profile_path", ""))
-    print(found.get("required_model", ""))
-    print(found.get("role_name", ""))
-    print(found.get("instruction_path", ""))
-    print(found.get("autonomy_profile", ""))
-    print(str(found.get("pre_task", False)).lower())
+    write_protocol_stdout(str(found.get("agent_profile_path", "")) + '\n')
+    write_protocol_stdout(str(found.get("required_model", "")) + '\n')
+    write_protocol_stdout(str(found.get("role_name", "")) + '\n')
+    write_protocol_stdout(str(found.get("instruction_path", "")) + '\n')
+    write_protocol_stdout(str(found.get("autonomy_profile", "")) + '\n')
+    write_protocol_stdout(str(str(found.get("pre_task", False)).lower()) + '\n')
     return 0

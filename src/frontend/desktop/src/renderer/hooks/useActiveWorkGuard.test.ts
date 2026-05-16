@@ -1,9 +1,28 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { useActiveWorkGuard } from './useActiveWorkGuard';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
 
 function createMockClient(
   response?: unknown,
@@ -36,6 +55,10 @@ function createMockClient(
 }
 
 describe('useActiveWorkGuard', () => {
+  beforeEach(() => {
+    logEmit.mockClear();
+  });
+
   it('returns allowed when no active context pack', async () => {
     const { client } = createMockClient();
     const { result } = renderHook(() => useActiveWorkGuard(false, client));
@@ -190,5 +213,35 @@ describe('useActiveWorkGuard', () => {
 
     // Guard was rechecked after failure
     expect(checkActiveWorkGuard).toHaveBeenCalledTimes(2);
+  });
+
+  it('startRealignment logs and exits starting state when IPC rejects', async () => {
+    const { client } = createMockClient();
+    vi.mocked(client.startRealignment).mockRejectedValueOnce(new Error('Realignment bridge failed.'));
+    const { result } = renderHook(() => useActiveWorkGuard(true, client));
+
+    await waitFor(() => {
+      expect(result.current.guard.status).toBe('allowed');
+    });
+
+    await waitFor(async () => {
+      result.current.startRealignment('/ctx', 'T-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.startState).toEqual({
+        status: 'error',
+        message: 'Realignment bridge failed.',
+      });
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'realignment.start.failed',
+        level: 'warn',
+        extra: {
+          contextPackDir: '/ctx',
+          triggerTaskId: 'T-1',
+          reason: 'Realignment bridge failed.',
+        },
+      }));
+    });
   });
 });

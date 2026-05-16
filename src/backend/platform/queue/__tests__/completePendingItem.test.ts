@@ -31,6 +31,8 @@ vi.mock('../policyValidation.js', () => ({
 
 vi.mock('../../core/paths.js', () => ({
   findRepoRoot: () => '/fake/repo',
+  logsDir: () => path.join(tmpdir(), 'tasksail-test-logs'),
+  logFileWithSuffix: (basePath: string, suffix: number) => `${basePath}.${suffix}`,
 }));
 
 vi.mock('../../context-pack/index.js', () => ({

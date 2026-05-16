@@ -21,6 +21,13 @@ vi.mock('../compose.js', () => ({
 
 vi.mock('../../core/index.js', () => ({
   ensureEnvFile: vi.fn().mockResolvedValue(undefined),
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  }),
 }));
 
 vi.mock('../../mcp-registry/seed.js', () => ({

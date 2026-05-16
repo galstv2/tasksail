@@ -5,6 +5,7 @@ import {
   ensureDir,
   writeTextFile,
   ensurePathWithinDropbox,
+  ValidationError,
 } from '../core/index.js';
 import { assertValidTaskId, resolveQueuePaths } from './paths.js';
 import {
@@ -108,31 +109,32 @@ export async function createDropboxTask(
   const carryForwardSummary = (options.carryForwardSummary ?? '').trim();
 
   if (!title) {
-    throw new Error('--title is required.');
+    throw new ValidationError('--title is required.', { code: 'TITLE_REQUIRED', category: 'user' });
   }
 
   if (kind !== 'standard' && kind !== 'child-task') {
-    throw new Error('--task-kind must be standard or child-task.');
+    throw new ValidationError('--task-kind must be standard or child-task.', { code: 'TASK_KIND_INVALID', category: 'user' });
   }
 
   if (suggestedPath !== 'sequential' && suggestedPath !== 'parallel') {
-    throw new Error('--suggested-path must be sequential or parallel.');
+    throw new ValidationError('--suggested-path must be sequential or parallel.', { code: 'SUGGESTED_PATH_INVALID', category: 'user' });
   }
 
   if (kind === 'child-task') {
     if (!parentTaskId) {
-      throw new Error('--parent-task-id is required for child-task intake.');
+      throw new ValidationError('--parent-task-id is required for child-task intake.', { code: 'PARENT_TASK_ID_REQUIRED', category: 'user' });
     }
     if (!followupReason) {
-      throw new Error('--followup-reason is required for child-task intake.');
+      throw new ValidationError('--followup-reason is required for child-task intake.', { code: 'FOLLOWUP_REASON_REQUIRED', category: 'user' });
     }
     if (!carryForwardSummary) {
-      throw new Error(
+      throw new ValidationError(
         '--carry-forward-summary is required for child-task intake.',
+        { code: 'CARRY_FORWARD_SUMMARY_REQUIRED', category: 'user' },
       );
     }
     if (!parentQmdScope) {
-      throw new Error('--parent-qmd-scope is required for child-task intake.');
+      throw new ValidationError('--parent-qmd-scope is required for child-task intake.', { code: 'PARENT_QMD_SCOPE_REQUIRED', category: 'user' });
     }
   }
 
@@ -168,12 +170,12 @@ export async function createDropboxTask(
   ensurePathWithinDropbox(queuePaths.dropboxDir, outputFile);
   const outputBase = path.basename(outputFile);
   if (!outputBase.endsWith('.md') || outputBase.startsWith('.')) {
-    throw new Error('Dropbox task output path must be a visible .md file.');
+    throw new ValidationError('Dropbox task output path must be a visible .md file.', { code: 'DROPBOX_OUTPUT_PATH_INVALID', category: 'user' });
   }
   assertValidTaskId(path.basename(outputFile, '.md'));
 
   if (existsSync(outputFile) && !force) {
-    throw new Error(`${outputFile} already exists. Use --force to overwrite.`);
+    throw new ValidationError(`${outputFile} already exists. Use --force to overwrite.`, { code: 'DROPBOX_OUTPUT_EXISTS', category: 'user' });
   }
 
   const createdAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');

@@ -13,8 +13,11 @@ import {
   runContextPackWorkspaceScript, toWorkspaceSyncPrimaryTarget, validateTestTarget,
   type ContextPackWorkspaceScriptRunner,
 } from './shared';
+import { createLogger } from '../log/logger';
 
 export { buildContextPackWorkspaceArgs, runContextPackWorkspaceScript, type ContextPackWorkspaceScriptRunner };
+
+const log = createLogger('electron/contextPackActions/workspace');
 
 function readSnakeOrCamelString(
   value: Record<string, unknown>,
@@ -347,10 +350,28 @@ export async function executeContextPackWorkspaceAction(
       };
     }
     if (wrapperAction === 'apply' && normalized.contextPackDir) {
-      await setActiveContextPackEnv(REPO_ROOT, normalized.contextPackDir);
+      try {
+        await setActiveContextPackEnv(REPO_ROOT, normalized.contextPackDir);
+      } catch (error: unknown) {
+        log.error(
+          'context-pack.workspace.activate-env.failed',
+          error instanceof Error ? error : { reason: String(error) },
+          { wrapperAction, contextPackDir: normalized.contextPackDir },
+        );
+        throw error;
+      }
     }
     if (wrapperAction === 'clear') {
-      await setActiveContextPackEnv(REPO_ROOT, '');
+      try {
+        await setActiveContextPackEnv(REPO_ROOT, '');
+      } catch (error: unknown) {
+        log.error(
+          'context-pack.workspace.activate-env.failed',
+          error instanceof Error ? error : { reason: String(error) },
+          { wrapperAction },
+        );
+        throw error;
+      }
     }
     const responseBase = {
       message: wrapperAction === 'preview'

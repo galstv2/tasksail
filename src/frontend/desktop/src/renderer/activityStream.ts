@@ -1,5 +1,19 @@
-export type StreamRole = 'planner' | 'queue' | 'workflow' | 'operator' | 'system';
+export type StreamRole =
+  | 'planner'
+  | 'queue'
+  | 'agent'
+  | 'pipeline'
+  | 'workflow'
+  | 'operator'
+  | 'system';
 export type StreamSeverity = 'info' | 'success' | 'warning' | 'error';
+
+export type TerminalTaskScopeOption = {
+  taskGuid: string;
+  taskShortGuid: string;
+  taskId: string;
+  title: string | null;
+};
 
 export type StreamEvent = {
   id: string;
@@ -8,6 +22,9 @@ export type StreamEvent = {
   actorName?: string;
   source: string;
   taskId: string;
+  taskGuid: string | null;
+  taskShortGuid: string | null;
+  taskTitle: string | null;
   severity: StreamSeverity;
   message: string;
   sessionContext?: {
@@ -32,6 +49,8 @@ export const streamRoleAppearance: Record<
 > = {
   planner: { label: 'Planner', accentClass: 'planner' },
   queue: { label: 'Queue', accentClass: 'queue' },
+  agent: { label: 'Agent', accentClass: 'agent' },
+  pipeline: { label: 'Pipeline', accentClass: 'pipeline' },
   workflow: { label: 'Workflow', accentClass: 'workflow' },
   operator: { label: 'Operator', accentClass: 'operator' },
   system: { label: 'System', accentClass: 'system' },
@@ -39,6 +58,9 @@ export const streamRoleAppearance: Record<
 
 export function formatStreamMetadata(event: StreamEvent): string {
   const metadataParts = [event.timestamp, event.source, event.taskId || 'N/A', event.severity];
+  if (event.taskGuid) {
+    metadataParts.push(`guid ${event.taskGuid}`);
+  }
 
   if (event.sessionContext?.instanceId) {
     metadataParts.push(`instance ${event.sessionContext.instanceId}`);
@@ -72,7 +94,10 @@ export function messageEmbedsActorName(event: Pick<StreamEvent, 'actorName' | 'm
   if (!actorName) {
     return false;
   }
-  return event.message.startsWith(`Task [`) && event.message.includes(`] ${actorName}:`);
+  return event.message.startsWith(`Task [`) && (
+    event.message.includes(`] - ${actorName}:`) ||
+    event.message.includes(`] ${actorName}:`)
+  );
 }
 
 export function formatStreamMessage(event: StreamEvent): string {
@@ -85,11 +110,8 @@ export function formatStreamMessage(event: StreamEvent): string {
 export function filterActivityStream(
   events: StreamEvent[],
   roleFilter: StreamRole | 'all',
-  highPriorityOnly: boolean,
 ): StreamEvent[] {
   return events.filter((event) => {
-    const roleMatches = roleFilter === 'all' || event.role === roleFilter;
-    const priorityMatches = !highPriorityOnly || event.severity === 'warning' || event.severity === 'error';
-    return roleMatches && priorityMatches;
+    return roleFilter === 'all' || event.role === roleFilter;
   });
 }

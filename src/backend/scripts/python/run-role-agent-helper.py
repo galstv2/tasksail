@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -12,6 +14,7 @@ REPO_ROOT = SCRIPT_DIR.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from lib.logging_config import configure_logging  # noqa: E402
 from lib.role_agent.code_diff import capture_code_diff  # noqa: E402
 from lib.role_agent.corrections_cmds import cmd_render_corrections_context  # noqa: E402
 from lib.role_agent.external_mcp import (  # noqa: E402
@@ -38,7 +41,7 @@ def _cmd_capture_code_diff(args: argparse.Namespace) -> int:
     )
     # Print repo names so the shell script can export them without
     # a second subprocess invocation.
-    print(",".join(repo_names))
+    write_protocol_stdout(str(",".join(repo_names)) + '\n')
     return exit_code
 
 
@@ -48,7 +51,7 @@ def _cmd_task_counter_position(args: argparse.Namespace) -> int:
     pack_dir_str = str(args.context_pack_dir).strip()
     pack_dir = Path(pack_dir_str).resolve() if pack_dir_str else None
     counter = TaskCompletionCounter.from_context_pack_dir(root_dir, pack_dir)
-    print(f"{counter.cycle_position()} {str(counter.is_retrospective_required()).lower()}")
+    write_protocol_stdout(str(f"{counter.cycle_position()} {str(counter.is_retrospective_required()).lower()}") + '\n')
     return 0
 
 
@@ -85,13 +88,10 @@ def _cmd_prepare_external_mcp_launch_context(args: argparse.Namespace) -> int:
             injection_enabled=False,
         )
     except Exception as exc:
-        print(
-            f"[external-mcp] Unexpected error preparing launch context: {exc}",
-            file=sys.stderr,
-        )
+        write_protocol_stderr(str(f"[external-mcp] Unexpected error preparing launch context: {exc}") + '\n')
         return 1
 
-    print(json.dumps(_launch_context_payload(context)))
+    write_protocol_stdout(str(json.dumps(_launch_context_payload(context))) + '\n')
     return 0
 
 
@@ -160,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    configure_logging(stack="py", service="run-role-agent-helper")
     parser = build_parser()
     args = parser.parse_args()
     return int(args.func(args))

@@ -1,6 +1,12 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { resolvePath } from '../core/index.js';
-import { readContextPackManifest, resolveFirstLocalPath, type Manifest, type ManifestRepo } from '../context-pack/focusedRepo.js';
+import {
+  buildStandardMonolithPrimaryTargets,
+  readContextPackManifest,
+  resolveFirstLocalPath,
+  type Manifest,
+  type ManifestRepo,
+} from '../context-pack/focusedRepo.js';
 import { resolveDeepFocusSelection } from '../context-pack/deepFocusResolver.js';
 import { deriveStandardModeReadonlyRepoRoots } from '../context-pack/standardModeRepoRoots.js';
 import { deriveWritableRootsFromFocusedSelection } from '../context-pack/writableRootsDerivation.js';
@@ -30,9 +36,10 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
   const rawPrimaryRepoId = deepFocusEnabled
     ? options.selection.deepFocusPrimaryRepoId ?? firstTargetIdentity(options.selection.selectedFocusTargets, 'repoId') ?? options.selection.selectedRepoIds[0]
     : options.binding.primaryRepoId;
+  const selectedFocusIds = collectSelectedFocusIds(options.binding, options.selection);
   const rawPrimaryFocusId = deepFocusEnabled
     ? options.selection.deepFocusPrimaryFocusId ?? firstTargetIdentity(options.selection.selectedFocusTargets, 'focusId') ?? options.selection.selectedFocusIds[0]
-    : options.binding.primaryFocusId;
+    : options.binding.primaryFocusId ?? options.selection.primaryFocusId ?? selectedFocusIds[0];
   const primaryRepoId = isMonolith ? undefined : rawPrimaryRepoId;
   const primaryFocusId = isMonolith ? rawPrimaryFocusId : undefined;
 
@@ -53,6 +60,9 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
   const focusAreas = isMonolith
     ? collectFocusAreas(manifest, primary.focusId ?? '')
     : [];
+  const standardMonolithPrimaryTargets = isMonolith && !deepFocusEnabled
+    ? buildStandardMonolithPrimaryTargets(manifest, selectedFocusIds, primary.repoRoot)
+    : undefined;
 
   const deepFocusSelection = {
     selectedRepoIds: [...options.selection.selectedRepoIds],
@@ -79,7 +89,7 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
   const derivedRoots = deriveWritableRootsFromFocusedSelection({
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath ?? undefined,
     primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
-    primaryFocusTargets: deepFocus?.primaryFocusTargets,
+    primaryFocusTargets: deepFocus?.primaryFocusTargets ?? standardMonolithPrimaryTargets,
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
   });
@@ -99,14 +109,14 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
     },
     support,
     focusAreas,
-    selectedFocusIds: collectSelectedFocusIds(options.binding, options.selection),
+    selectedFocusIds,
     qmdScopeRoot: readQmdScopeRoot(manifest, options.contextPackId),
     estateRepoIds: collectEstateRepoIds(manifest),
     declaredRepoRoots,
     deepFocus: {
       enabled: deepFocusEnabled,
       primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind ?? options.selection.selectedFocusTargetKind ?? null,
-      primaryFocusTargets: deepFocus?.primaryFocusTargets ?? options.selection.selectedFocusTargets ?? [],
+      primaryFocusTargets: deepFocus?.primaryFocusTargets ?? standardMonolithPrimaryTargets ?? options.selection.selectedFocusTargets ?? [],
       selectedTestTarget: deepFocus?.selectedTestTarget ?? options.selection.selectedTestTarget ?? null,
       supportTargets: deepFocus?.supportTargets ?? [],
       writableRoots: derivedRoots.writableRoots,

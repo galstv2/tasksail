@@ -22,7 +22,9 @@
 import path from 'node:path';
 import { readFile, rmdir, unlink } from 'node:fs/promises';
 
-import { ensureDir, writeTextFileAtomic } from '../core/index.js';
+import { createLogger, ensureDir, writeTextFileAtomic } from '../core/index.js';
+
+const log = createLogger('platform/queue/plannerFocusSnapshotStaging');
 
 export const PLANNER_FOCUS_SNAPSHOT_ENVELOPE_SCHEMA_VERSION = 1;
 
@@ -159,21 +161,19 @@ export async function moveStagedPlannerFocusSnapshot(options: {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return;
     }
-    console.warn(`planner-focus-snapshot: skipped move for taskId=${oldTaskId} reason=read-failed`);
+    log.warn('planner_focus_snapshot.move.skipped', { taskId: oldTaskId, reason: 'read-failed' });
     return;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
-    console.warn(`planner-focus-snapshot: skipped move for taskId=${oldTaskId} reason=parse-failed`);
+  } catch (err) {
+    log.warn('planner_focus_snapshot.move.skipped', { taskId: oldTaskId, reason: 'parse-failed', error: err instanceof Error ? err.message : String(err) });
     return;
   }
   const errors = validatePlannerFocusSnapshotEnvelope(parsed, { expectedBindingKey: oldTaskId });
   if (errors.length > 0) {
-    console.warn(
-      `planner-focus-snapshot: skipped move for taskId=${oldTaskId} reason=invalid-envelope: ${errors.join('; ')}`,
-    );
+    log.warn('planner_focus_snapshot.move.skipped', { taskId: oldTaskId, reason: 'invalid-envelope', errors });
     return;
   }
   const envelope = parsed as PlannerFocusSnapshotEnvelope;
@@ -213,21 +213,19 @@ export async function transferStagedSnapshotToActiveTask(
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return;
     }
-    console.warn(`planner-focus-snapshot: skipped transfer for taskId=${taskId} reason=read-failed`);
+    log.warn('planner_focus_snapshot.transfer.skipped', { taskId, reason: 'read-failed' });
     return;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
-    console.warn(`planner-focus-snapshot: skipped transfer for taskId=${taskId} reason=parse-failed`);
+  } catch (err) {
+    log.warn('planner_focus_snapshot.transfer.skipped', { taskId, reason: 'parse-failed', error: err instanceof Error ? err.message : String(err) });
     return;
   }
   const errors = validatePlannerFocusSnapshotEnvelope(parsed, { expectedBindingKey: taskId });
   if (errors.length > 0) {
-    console.warn(
-      `planner-focus-snapshot: skipped transfer for taskId=${taskId} reason=invalid-envelope: ${errors.join('; ')}`,
-    );
+    log.warn('planner_focus_snapshot.transfer.skipped', { taskId, reason: 'invalid-envelope', errors });
     return;
   }
   const envelope = parsed as PlannerFocusSnapshotEnvelope;
@@ -249,7 +247,7 @@ export async function cleanupStagedPlannerFocusSnapshot(
     await unlink(stagingPath);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`planner-focus-snapshot: skipped for taskId=${taskId} reason=cleanup-failed`);
+      log.warn('planner_focus_snapshot.cleanup.skipped', { taskId, reason: 'cleanup-failed' });
     }
   }
 }
@@ -267,7 +265,7 @@ export async function cleanupActivePlannerFocusSnapshot(
     await unlink(activePath);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`planner-focus-snapshot: skipped active cleanup for taskId=${taskId} reason=cleanup-failed`);
+      log.warn('planner_focus_snapshot.active_cleanup.skipped', { taskId, reason: 'cleanup-failed' });
     }
   }
 }

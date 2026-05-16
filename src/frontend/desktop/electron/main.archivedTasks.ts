@@ -13,6 +13,10 @@ import type {
 } from '../src/shared/desktopContract';
 import { validatePlannerFocusSnapshot } from '../src/shared/desktopContractValidators';
 import { REPO_ROOT } from './paths';
+import {
+  resolveActiveContextPackTaskScope,
+  type ActiveContextPackTaskScope,
+} from './main.contextPackTaskVisibility';
 
 type ContextPackLister = () => Promise<ContextPackListResponse>;
 type ArchiveCandidate = {
@@ -283,11 +287,13 @@ function buildParentTaskContent(
 
 export async function listArchivedTasksAction(
   listContextPacks: ContextPackLister,
+  options?: { scope?: ActiveContextPackTaskScope | null },
 ): Promise<DesktopInvokeResult> {
   try {
-    const catalog = await listContextPacks();
-    const activeEntry = catalog.contextPacks.find((entry) => entry.isActive);
-    if (!activeEntry) {
+    const activeScope = options && Object.prototype.hasOwnProperty.call(options, 'scope')
+      ? options.scope ?? null
+      : await resolveActiveContextPackTaskScope(listContextPacks);
+    if (!activeScope) {
       const response: PlannerListArchivedTasksResponse = {
         action: 'planner.listArchivedTasks',
         mode: 'no-context-pack',
@@ -297,9 +303,7 @@ export async function listArchivedTasksAction(
       return { ok: true, response };
     }
 
-    // Use directory basename — archive paths are built from the directory name,
-    // not contextPackId which may be overridden by the manifest.
-    const contextPackName = basename(activeEntry.contextPackDir);
+    const { contextPackName } = activeScope;
     const archiveRoot = join(
       REPO_ROOT,
       'AgentWorkSpace',

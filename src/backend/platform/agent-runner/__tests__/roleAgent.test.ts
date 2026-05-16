@@ -1,6 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsSync = vi.fn();
+const testLogger = vi.hoisted(() => {
+  const logger: {
+    debug: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+    child: () => typeof logger;
+  } = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: () => logger,
+  };
+  return logger;
+});
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -68,6 +84,8 @@ vi.mock('../../core/index.js', async () => {
     resolvePaths: vi.fn(),
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
+    createLogger: () => testLogger,
+    newSpanId: vi.fn(() => 'test-span-id'),
   };
 });
 
@@ -360,7 +378,6 @@ describe('runRoleAgent autonomy env var export', () => {
       .mockRejectedValueOnce(new DaltonConfinementError('outside boundary', ['/repo/worktree/leak.ts']))
       .mockResolvedValueOnce(undefined);
     mockedExistsSync.mockReturnValue(true);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const originalAssignmentPrompt = [
       '## Implementation Spec',
       '',
@@ -389,8 +406,9 @@ describe('runRoleAgent autonomy env var export', () => {
     expect(retryPrompt).toContain('### Slice: slice-1');
     expect(retryPrompt?.match(/Original assignment body\./g)).toHaveLength(1);
     expect(retryPrompt).toContain('You are a fresh independent Dalton process.');
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[roleAgent] Dalton confinement retry launching after boundary violation: 1 path(s)',
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'dalton.confinement_retry.launching',
+      { agentId: 'dalton', violationPathCount: 1 },
     );
   });
 

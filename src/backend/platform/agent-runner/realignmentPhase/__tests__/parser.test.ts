@@ -59,6 +59,75 @@ describe('parseRealignmentAnalysis', () => {
     expect(parsed.meetingNotes).toBe('');
   });
 
+  it('accepts numbered corrective action lists from Ron output', () => {
+    const parsed = parseRealignmentAnalysis([
+      '## Failure Analysis',
+      'Failure.',
+      '',
+      '## Root Cause',
+      'Cause.',
+      '',
+      '## Corrective Actions',
+      '',
+      '1. Require end-to-end proof at the true interaction boundary.',
+      '2. Treat stated limitations as sign-off risks.',
+      '',
+      '## Validation Notes',
+      'Validated.',
+    ].join('\n'));
+
+    expect(parsed.correctiveActions).toEqual([
+      'Require end-to-end proof at the true interaction boundary.',
+      'Treat stated limitations as sign-off risks.',
+    ]);
+  });
+
+  it('accepts nested headings, heading case differences, and trailing colons', () => {
+    const parsed = parseRealignmentAnalysis([
+      '### Failure analysis:',
+      'Failure.',
+      '',
+      '### ROOT CAUSE',
+      'Cause.',
+      '',
+      '### Corrective Actions:',
+      '- Action.',
+      '',
+      '### validation notes:',
+      'Validated.',
+      '',
+      '### meeting notes:',
+      'Notes.',
+    ].join('\n'));
+
+    expect(parsed).toEqual({
+      failureAnalysis: 'Failure.',
+      rootCause: 'Cause.',
+      correctiveActions: ['Action.'],
+      validationNotes: 'Validated.',
+      meetingNotes: 'Notes.',
+    });
+  });
+
+  it('accepts singular corrective action heading and checkbox bullets', () => {
+    const parsed = parseRealignmentAnalysis([
+      '## Failure Analysis',
+      'Failure.',
+      '## Root Cause',
+      'Cause.',
+      '## Corrective Action',
+      '- [ ] Add validation ownership guidance.',
+      '- [x] Keep analysis abstract.',
+      '## Validation Notes',
+      'Validated.',
+    ].join('\n'));
+
+    expect(parsed.correctiveActions).toEqual([
+      'Add validation ownership guidance.',
+      'Keep analysis abstract.',
+    ]);
+  });
+
   it.each([
     ['Failure Analysis'],
     ['Root Cause'],

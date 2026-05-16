@@ -1,5 +1,26 @@
 // @vitest-environment jsdom
 
+import { beforeEach, vi } from 'vitest';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
+
 import {
   act,
   createClient,
@@ -10,7 +31,6 @@ import {
   it,
   render,
   screen,
-  vi,
   waitFor,
 } from './useContextPackSelection.testSetup';
 import type {
@@ -50,6 +70,12 @@ function createListResponse(
 }
 
 describe('useContextPackSelection', () => {
+  beforeEach(() => {
+    logEmit.mockImplementation(() => Promise.resolve({ ok: true }));
+    window.desktopShell.log.emit = logEmit;
+    logEmit.mockClear();
+  });
+
   it('loads catalog state and prefers the active context pack', async () => {
     render(<ContextPackSelectionHarness client={createClient()} />);
 
@@ -239,6 +265,93 @@ describe('useContextPackSelection', () => {
     expect(screen.getByTestId('selected-support-targets')).toHaveTextContent('none');
   });
 
+  it('surfaces and logs deep focus save failures', async () => {
+    const client = createClient({
+      saveDeepFocusSelections: vi.fn().mockResolvedValue({
+        ok: false,
+        action: 'deepFocus.saveSelections',
+        error: 'Unable to save deep focus selections.',
+      }),
+    });
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Commit deep focus' }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'Unable to save deep focus selections.',
+      );
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'deep-focus.selections.save.failed',
+        extra: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          reason: 'Unable to save deep focus selections.',
+        },
+      }));
+    });
+  });
+
+  it('logs deep focus load failures and falls back to catalog defaults', async () => {
+    const client = createClient({
+      loadDeepFocusSelections: vi.fn().mockRejectedValue(new Error('Selections file unreadable.')),
+    });
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+      expect(screen.getByTestId('deep-focus-enabled')).toHaveTextContent('false');
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'deep-focus.selections.load.failed',
+        extra: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          reason: 'Selections file unreadable.',
+        },
+      }));
+    });
+  });
+
+  it('surfaces and logs repository type save rejections', async () => {
+    const client = createClient({
+      setRepositoryType: vi.fn().mockRejectedValue(new Error('Repository metadata save failed.')),
+    });
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-pack')).toHaveTextContent(
+        '/tmp/context-packs/orders-estate',
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Toggle repository type' }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'Repository metadata save failed.',
+      );
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'context-pack.repository-type.save.failed',
+        extra: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          repoId: 'orders-api',
+          repositoryType: 'support',
+          reason: 'Repository metadata save failed.',
+        },
+      }));
+    });
+  });
+
   it('persists explicit no-tests separately from an unset test target', async () => {
     const client = createClient();
     render(<ContextPackSelectionHarness client={client} />);
@@ -426,7 +539,6 @@ describe('useContextPackSelection', () => {
   });
 
   it('drops malformed legacy load and warns', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const client = createClient({
       loadDeepFocusSelections: vi.fn().mockResolvedValue(createLoadSelectionsResponse({
         deepFocusEnabled: true,
@@ -444,10 +556,12 @@ describe('useContextPackSelection', () => {
     render(<ContextPackSelectionHarness client={client} />);
 
     await waitFor(() => {
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[deep-focus] discarded malformed legacy primaries:',
-        'repo id missing-repo did not resolve to a catalog focus target',
-      );
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'deep-focus.legacy-primaries.discarded',
+        extra: {
+          reason: 'repo id missing-repo did not resolve to a catalog focus target',
+        },
+      }));
     });
 
     await act(async () => {
@@ -472,7 +586,33 @@ describe('useContextPackSelection', () => {
         },
       );
     });
-    warnSpy.mockRestore();
+  });
+
+  it('drops malformed catalog events and warns', async () => {
+    let catalogHandler: ((event: unknown) => void) | undefined;
+    const client = createClient({
+      subscribeContextPackCatalogChanged: vi.fn((handler) => {
+        catalogHandler = handler;
+        return vi.fn();
+      }),
+    });
+    render(<ContextPackSelectionHarness client={client} />);
+
+    await waitFor(() => {
+      expect(catalogHandler).toBeDefined();
+    });
+
+    const event = { malformed: true };
+    act(() => {
+      catalogHandler?.(event);
+    });
+
+    await waitFor(() => {
+      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+        msg: 'context-pack.catalog-event.malformed',
+        extra: { event },
+      }));
+    });
   });
 
   it('preserves already-new loaded deep focus state', async () => {

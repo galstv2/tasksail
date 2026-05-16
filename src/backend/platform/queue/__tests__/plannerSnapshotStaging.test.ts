@@ -16,13 +16,11 @@ import {
 
 describe('plannerFocusSnapshotStaging', () => {
   let repoRoot: string;
-  // Silence intentional warn() calls in negative-path tests so output stays
-  // focused. Restored in afterEach.
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'planner-staging-'));
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {

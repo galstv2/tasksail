@@ -43,7 +43,7 @@ describe('commitTaskSnapshot integration (spec §6.7)', () => {
     writeFileSync(path.join(repoRoot, 'src.ts'), 'export const baseline = 0;\n');
     git(repoRoot, ['add', '.gitignore', 'README.md', 'src.ts']);
     git(repoRoot, ['commit', '-m', 'init']);
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -147,7 +147,7 @@ describe('commitTaskSnapshot integration (spec §6.7)', () => {
 
     // Noise warning surfaces files NOT covered by .gitignore (bin/, dist/junk,
     // proprietary-vendor-cache/) and does NOT mention node_modules/ (gitignored).
-    const warnings = warnSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    const warnings = warnSpy.mock.calls.flat().map(String).join('\n');
     expect(warnings).toContain('bin/Debug/net8.0/Acme.dll');
     expect(warnings).toContain('proprietary-vendor-cache/data.bin');
     expect(warnings).not.toContain('node_modules/');

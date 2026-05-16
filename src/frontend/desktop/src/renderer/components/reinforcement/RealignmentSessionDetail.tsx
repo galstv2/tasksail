@@ -1,28 +1,23 @@
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
 import type { RealignmentAnalysisRunState } from '../../hooks/useRealignmentSessions';
-import {
-  realignmentActionLabel,
-  realignmentRunMessage,
-} from './realignmentSessionActions';
+import { realignmentRunMessage } from './realignmentSessionActions';
 
 type RealignmentSessionDetailProps = {
   session: ReinforcementRealignmentSessionEntry;
   onBack: () => void;
   analysisRun: RealignmentAnalysisRunState;
-  onRunAnalysis: (realignmentId: string) => void;
 };
+
+function statusLabel(status: string): string {
+  if (status === 'running') return 'In Progress';
+  return status;
+}
 
 function RealignmentSessionDetail({
   session,
   onBack,
   analysisRun,
-  onRunAnalysis,
 }: RealignmentSessionDetailProps): JSX.Element {
-  const label = realignmentActionLabel(session.status);
-  const isCurrentRun =
-    analysisRun.status !== 'idle' &&
-    analysisRun.realignmentId === session.realignmentId &&
-    (analysisRun.status === 'starting' || analysisRun.status === 'running');
   const message = realignmentRunMessage(session, analysisRun);
 
   return (
@@ -38,17 +33,6 @@ function RealignmentSessionDetail({
 
       <h3 className="session-detail__title">{session.realignmentId}</h3>
 
-      {label && (
-        <button
-          type="button"
-          className="session-detail__analysis-btn"
-          disabled={isCurrentRun}
-          onClick={() => onRunAnalysis(session.realignmentId)}
-          data-testid={`realignment-detail-run-${session.realignmentId}`}
-        >
-          {isCurrentRun ? 'Analysis running...' : label}
-        </button>
-      )}
       {message && (
         <p
           className={`session-detail__analysis-message session-detail__analysis-message--${analysisRun.status}`}
@@ -59,7 +43,7 @@ function RealignmentSessionDetail({
       )}
 
       <div className="session-detail__meta">
-        <span>Status: {session.status}</span>
+        <span>Status: {statusLabel(session.status)}</span>
         <span>Created: {session.createdAt.slice(0, 10) || '\u2014'}</span>
       </div>
 

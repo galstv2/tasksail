@@ -117,6 +117,13 @@ describe('verification Dalton prompts', () => {
 
     expect(prompt).toContain('Fix broken builds, failing tests, and obvious bugs');
     expect(prompt).toContain('obvious performance problems in the changed code');
+    expect(prompt).toContain('## Objective Defect Boundary');
+    expect(prompt).toContain('Because you do not know the task');
+    expect(prompt).toContain('do NOT judge whether the work is');
+    expect(prompt).toContain('complete, requested, properly scoped, or product-correct');
+    expect(prompt).toContain('tests changed in a way that no longer exercises');
+    expect(prompt).toContain('filesystem, shell, serialization, network, auth, logging');
+    expect(prompt).toContain('If you cannot tie an observation to one of those objective defects');
     expect(prompt).toContain('Do NOT fix style preferences or refactor working code');
   });
 
@@ -133,7 +140,8 @@ describe('verification Dalton prompts', () => {
 
     expect(prompt).toContain('Start from the staged verification diff file');
     expect(prompt).toContain('open and inspect the referenced');
-    expect(prompt).toContain('# No git diff available. Skip this file and scope your review to the files listed in the assigned slice.');
+    expect(prompt).toContain('If the file contains an empty-diff sentinel');
+    expect(prompt).not.toContain('assigned slice');
     expect(prompt).toContain('inspect the changed repo files manually');
   });
 });

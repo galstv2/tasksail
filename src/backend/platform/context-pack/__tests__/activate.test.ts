@@ -13,6 +13,7 @@ vi.mock('../../core/index.js', async () => {
   return {
     ...actual,
     findRepoRoot: vi.fn(),
+    runPython: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
   };
 });
 

@@ -180,6 +180,60 @@ describe('listArchivedTasksAction', () => {
     });
   });
 
+  it('uses a provided active scope without calling the catalog lister', async () => {
+    writeNestedArchiveTask('task-one');
+    const lister = vi.fn().mockResolvedValue(createCatalog());
+
+    const result = await listArchivedTasksAction(lister, {
+      scope: {
+        contextPackId: 'test',
+        contextPackDir: '/packs/test',
+        contextPackName: 'test',
+      },
+    });
+
+    expect(lister).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.response).toEqual(expect.objectContaining({
+      action: 'planner.listArchivedTasks',
+      mode: 'found',
+    }));
+  });
+
+  it('returns no-context-pack for a provided null scope without calling the catalog lister', async () => {
+    const lister = vi.fn().mockResolvedValue(createCatalog({
+      contextPacks: [
+        {
+          contextPackId: 'test',
+          displayName: 'Test',
+          contextPackDir: '/packs/test',
+          manifestPath: null,
+          bootstrapReady: false,
+          source: 'configured-path',
+          isActive: true,
+          estateType: null,
+          defaultScopeMode: null,
+          repoCount: 0,
+          primaryWorkingRepoIds: [],
+          focusTargets: [],
+        },
+      ],
+    }));
+
+    const result = await listArchivedTasksAction(lister, { scope: null });
+
+    expect(lister).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.listArchivedTasks',
+        mode: 'no-context-pack',
+        tasks: [],
+      }),
+    });
+  });
+
   it('returns empty when archive directory does not exist', async () => {
     const lister = vi.fn().mockResolvedValue(
       createCatalog({

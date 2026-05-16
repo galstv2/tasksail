@@ -113,9 +113,16 @@ function writeNamedAgentFiles(repoRoot: string): void {
   for (const [agentId, role, name] of agents) {
     const instructionPath = path.join(repoRoot, '.github', 'copilot', 'instructions', `${agentId}.instructions.md`);
     mkdirSync(path.dirname(instructionPath), { recursive: true });
-    writeFileSync(instructionPath, `# ${role} (${name}) — Instructions\n`, 'utf-8');
+    const instructionHeading =
+      agentId === 'planning-agent'
+        ? `# ${role} Instructions`
+        : `# ${role} (${name}) — Instructions`;
+    writeFileSync(instructionPath, `${instructionHeading}\n`, 'utf-8');
 
-    const identity = `Act as ${name}, the ${role}.`;
+    const identity =
+      agentId === 'planning-agent'
+        ? `Act as the ${role}.`
+        : `Act as ${name}, the ${role}.`;
     writeFileSync(
       path.join(repoRoot, '.github', 'agents', `${agentId}.md`),
       [

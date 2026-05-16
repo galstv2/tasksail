@@ -1,4 +1,9 @@
-import { findRepoRoot } from '../core/index.js';
+import {
+  findRepoRoot,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import { loadMcpRegistry, RUNTIME_REGISTRY_PATH } from '../mcp-registry/index.js';
 import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { createRuntimeFromConfig } from './runtime.js';
@@ -38,7 +43,7 @@ async function main(): Promise<void> {
     const messages = platformSeed.errors.map(
       (e) => `  ${e.field}: ${e.message} (${e.fix})`,
     );
-    console.error(`Platform config validation failed:\n${messages.join('\n')}`);
+    writeProtocolStderr(`Platform config validation failed:\n${messages.join('\n')}\n`);
     process.exit(1);
   }
 
@@ -50,7 +55,7 @@ async function main(): Promise<void> {
       const registryResult = await loadMcpRegistry(registryPath);
       if (!registryResult.ok) {
         for (const e of registryResult.errors) {
-          console.error(`${e.field}: ${e.message} (${e.fix})`);
+          writeProtocolStderr(`${e.field}: ${e.message} (${e.fix})\n`);
         }
         process.exit(1);
       }
@@ -60,19 +65,19 @@ async function main(): Promise<void> {
       let failed = false;
       for (const r of results) {
         const status = r.healthy ? '[ok]' : '[fail]';
-        console.log(`${status} ${r.service} (${r.attempts} attempts)`);
+        writeProtocolStdout(`${status} ${r.service} (${r.attempts} attempts)\n`);
         if (r.error) {
-          console.error(`  ${r.error}`);
+          writeProtocolStderr(`  ${r.error}\n`);
         }
         if (!r.healthy) {
           failed = true;
         }
       }
       if (failed) {
-        console.error('One or more container endpoints failed health checks.');
+        writeProtocolStderr('One or more container endpoints failed health checks.\n');
         process.exit(1);
       }
-      console.log('All configured container endpoints passed health checks.');
+      writeProtocolStdout('All configured container endpoints passed health checks.\n');
       break;
     }
 
@@ -88,7 +93,7 @@ async function main(): Promise<void> {
         build: buildFlag,
         env: createSharedMcpBootstrapEnv(platformConfig.mcp_port),
       });
-      console.log('Bootstrap complete.');
+      writeProtocolStdout('Bootstrap complete.\n');
       break;
     }
 
@@ -107,8 +112,8 @@ async function main(): Promise<void> {
       }
 
       if (!contextPackDir) {
-        console.error(
-          'Context pack directory required. Pass --context-pack-dir, set TASKSAIL_TASK_ID, or activate a context pack.',
+        writeProtocolStderr(
+          'Context pack directory required. Pass --context-pack-dir, set TASKSAIL_TASK_ID, or activate a context pack.\n',
         );
         process.exit(1);
       }
@@ -125,7 +130,7 @@ async function main(): Promise<void> {
           | undefined,
         writePlan: !args.includes('--no-write-report'),
       });
-      console.log('Seed complete.');
+      writeProtocolStdout('Seed complete.\n');
       break;
     }
 
@@ -137,7 +142,7 @@ async function main(): Promise<void> {
         detach: true,
         build: args.includes('--build'),
       });
-      console.log('Services started.');
+      writeProtocolStdout('Services started.\n');
       break;
     }
 
@@ -157,12 +162,12 @@ async function main(): Promise<void> {
       } else {
         await runtime.composeDown({ env: { TASKSAIL_REPO_ROOT: repoRoot } });
       }
-      console.log('Services stopped.');
+      writeProtocolStdout('Services stopped.\n');
       break;
     }
 
     default:
-      console.error(`Unknown subcommand: ${subcommand}`);
+      writeProtocolStderr(`Unknown subcommand: ${subcommand}\n`);
       printUsage();
       process.exit(1);
   }
@@ -171,7 +176,7 @@ async function main(): Promise<void> {
 function requireComposeRuntime(runtime: Awaited<ReturnType<typeof createRuntimeFromConfig>>): string {
   const composeFile = resolveDefaultComposeFile(runtime.backend);
   if (!runtime.requiresComposeFile || composeFile === undefined) {
-    process.stderr.write(
+    writeProtocolStderr(
       `This command requires a compose-bound runtime; container_runtime is "${runtime.backend}".\n`,
     );
     process.exit(1);
@@ -180,7 +185,7 @@ function requireComposeRuntime(runtime: Awaited<ReturnType<typeof createRuntimeF
 }
 
 function printUsage(): void {
-  console.log('Usage: container-runtime <healthcheck|bootstrap|seed|up|down> [options]');
+  writeProtocolStdout('Usage: container-runtime <healthcheck|bootstrap|seed|up|down> [options]\n');
 }
 
 function extractArg(args: string[], flag: string): string | undefined {
@@ -191,7 +196,4 @@ function extractArg(args: string[], flag: string): string | undefined {
   return undefined;
 }
 
-main().catch((err: Error) => {
-  console.error(err.message);
-  process.exit(1);
-});
+runCliBoundary('platform/container/cli', main);

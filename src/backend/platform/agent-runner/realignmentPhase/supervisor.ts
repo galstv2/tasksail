@@ -2,12 +2,15 @@ import path from 'node:path';
 
 import {
   ensureDir,
+  createLogger,
   getErrorMessage,
   writeTextFileAtomic,
 } from '../../core/index.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { runRealignmentAnalysis } from '../reinforcementWrite.js';
 import type { RealignmentExecutionResult } from './driver.js';
+
+const log = createLogger('platform/agent-runner/realignmentPhase/supervisor');
 
 export interface RealignmentJobStartResult {
   jobId: string;
@@ -27,6 +30,7 @@ type RealignmentJobReceipt = {
 };
 
 const runningJobs = new Map<string, Promise<void>>();
+let activeRealignmentId: string | null = null;
 
 export function startRealignmentAnalysisJob(options: {
   repoRoot: string;
@@ -54,6 +58,14 @@ async function startRealignmentAnalysisJobInternal(options: {
       reason: 'realignment_job_already_running',
     };
   }
+  if (activeRealignmentId) {
+    return {
+      jobId: jobIdForRealignment(options.realignmentId),
+      realignmentId: options.realignmentId,
+      status: 'already-running',
+      reason: 'realignment_job_active',
+    };
+  }
 
   const jobId = jobIdForRealignment(options.realignmentId);
   const startedAt = new Date().toISOString();
@@ -75,15 +87,16 @@ async function startRealignmentAnalysisJobInternal(options: {
     };
   }
 
+  activeRealignmentId = options.realignmentId;
   const jobPromise = runJob(options, jobId, startedAt)
     .catch((error) => {
-      console.warn(
-        '[realignmentSupervisor] background realignment job failed:',
-        getErrorMessage(error),
-      );
+      log.warn('realignment_job.failed', { realignmentId: options.realignmentId, error: getErrorMessage(error) });
     })
     .finally(() => {
       runningJobs.delete(options.realignmentId);
+      if (activeRealignmentId === options.realignmentId) {
+        activeRealignmentId = null;
+      }
     });
   runningJobs.set(options.realignmentId, jobPromise);
 
@@ -138,10 +151,7 @@ async function runJob(
   try {
     await writeJobReceipt(options.repoRoot, options.realignmentId, finalReceipt);
   } catch (error) {
-    console.warn(
-      '[realignmentSupervisor] final realignment receipt write failed:',
-      getErrorMessage(error),
-    );
+    log.warn('realignment_receipt.write_failed', { realignmentId: options.realignmentId, error: getErrorMessage(error) });
   }
 }
 

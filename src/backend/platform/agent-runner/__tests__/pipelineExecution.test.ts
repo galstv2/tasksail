@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -242,10 +242,20 @@ describe('runPipelineSequence', () => {
           excludedServerIds: [],
         },
       });
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const logDir = path.join(repoRoot, 'logs');
+    const previousLogDir = process.env.LOG_DIR;
+    process.env.LOG_DIR = logDir;
 
     const { runPipelineSequence } = await import('../pipeline/sequencer.js');
-    await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
+    try {
+      await runPipelineSequence({ repoRoot, taskId: 'test-task-id' });
+    } finally {
+      if (previousLogDir === undefined) {
+        delete process.env.LOG_DIR;
+      } else {
+        process.env.LOG_DIR = previousLogDir;
+      }
+    }
 
     const receiptRaw = await import('node:fs/promises').then(({ readFile }) => readFile(
       path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'test-task-id', 'pipeline-receipt.json'),
@@ -258,14 +268,14 @@ describe('runPipelineSequence', () => {
       };
     };
 
-    expect(logSpy).toHaveBeenCalledWith(
-      '[pipeline] external MCP registry status:',
-      JSON.stringify({
-        status: 'degraded',
-        reason: 'registry not prewarmed',
-        serverCount: 0,
-      }),
-    );
+    const infoDir = path.join(logDir, 'info');
+    const infoLog = readdirSync(infoDir)
+      .filter((name) => name.startsWith('backend-ts-'))
+      .map((name) => readFileSync(path.join(infoDir, name), 'utf-8'))
+      .join('\n');
+    const logs = infoLog;
+    expect(logs).toContain('external_mcp_registry.status');
+    expect(logs).toContain('registry not prewarmed');
     expect(receipt.externalMcp).toEqual({
       registry: {
         status: 'degraded',

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_detection import _detect_system_layer
+from src.backend.mcp.git_roots import coerce_git_root_field
 from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath
 from src.backend.mcp.path_resolution import pick_local_path
 
@@ -37,6 +38,7 @@ def _coerce_local_path(value: Any) -> LocalPath:
         return LocalPath(
             host=value["host"].replace("\\", "/"),
             container=container.replace("\\", "/") if isinstance(container, str) else None,
+            git_root=coerce_git_root_field(value.get("git_root")),
         )
     raise ValueError("local_paths entries must be strings or objects with host")
 

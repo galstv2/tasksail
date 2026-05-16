@@ -49,6 +49,27 @@ export function buildVerificationDaltonPrompt(
     '   - Are there obvious performance problems in the changed code — unnecessary',
     '     nested scans, repeated full-list passes in hot paths, avoidable N+1 work,',
     '     or data structures that make the algorithm asymptotically worse than needed?',
+    '',
+    '## Objective Defect Boundary',
+    '',
+    'Because you do not know the task, do NOT judge whether the work is',
+    'complete, requested, properly scoped, or product-correct. Limit findings',
+    'and fixes to objective defects visible from the changed code and repository',
+    'contracts:',
+    '- build, test, lint, type-check, or validation failures;',
+    '- tests changed in a way that no longer exercises the behavior their names',
+    '  claim to verify;',
+    '- direct runtime defects such as null/undefined errors, unclosed resources,',
+    '  race conditions, incorrect path handling, swallowed errors, or unsafe',
+    '  filesystem, shell, serialization, network, auth, logging, retry, or',
+    '  partial-failure behavior;',
+    '- new dependencies, tools, or config only when they break validation, are',
+    '  unavailable, or conflict with existing checked-in project contracts;',
+    '- complexity only when it causes a concrete bug or makes validation results',
+    '  unreliable.',
+    'If you cannot tie an observation to one of those objective defects, leave it',
+    'for QA and do not change the code.',
+    '',
     '5. **Fix broken builds, failing tests, and obvious bugs.** These are objective',
     '   problems — fix them directly.',
     '6. **Do NOT fix style preferences or refactor working code.** If the code works,',
@@ -70,7 +91,7 @@ export function buildVerificationDaltonPrompt(
       parts.push(`- \`${verificationDiffAbsolutePath}\``);
       parts.push('');
       parts.push('This file was staged by the orchestrator for this verification pass.');
-      parts.push('If the file contains `# No git diff available. Skip this file and scope your review to the files listed in the assigned slice.`, treat that as an empty-diff sentinel and fall back to the slice-listed files.');
+      parts.push('If the file contains an empty-diff sentinel, treat the staged diff as unavailable and inspect changed repo files manually.');
     }
     if (verificationDiffWarning) {
       parts.push('');

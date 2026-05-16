@@ -26,6 +26,9 @@ import { formatContextPackBindingSection } from '../../../backend/platform/queue
 import type { StagedDraftContent } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { getNodeErrorCode } from './main.textUtils';
+import { createLogger } from './log/logger';
+
+const log = createLogger('electron/main.staging');
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const STAGING_DIR = join(DROPBOX_DIR, '.staging');
@@ -194,6 +197,7 @@ export function derivePlannerDraftTitle(args: {
   primaryFocusRelativePath?: string | null;
   primaryFocusTargetKind?: FocusTargetKind | null;
   primaryFocusTargets?: PrimaryFocusTarget[] | null;
+  selectedFocusIds?: string[] | null;
 }): string {
   const primaryRepoId = trimOrEmpty(args.primaryRepoId);
   const primaryRepoRoot = trimOrEmpty(args.primaryRepoRoot);
@@ -201,6 +205,11 @@ export function derivePlannerDraftTitle(args: {
   const baseTitle = repoTitle || primaryRepoId;
   if (!baseTitle) {
     return '';
+  }
+
+  const selectedFocusCount = args.selectedFocusIds?.filter((id) => id.trim()).length ?? 0;
+  if (selectedFocusCount > 1) {
+    return `${baseTitle} (+${selectedFocusCount} focus areas)`;
   }
 
   const primaryFocusRelativePath = trimOrEmpty(args.primaryFocusRelativePath);
@@ -360,6 +369,7 @@ export async function initializeStagedPlanningDraft(
     primaryFocusRelativePath: options.focusedRepo?.primaryFocusRelativePath,
     primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind,
     primaryFocusTargets: options.focusedRepo?.primaryFocusTargets,
+    selectedFocusIds: options.focusedRepo?.selectedFocusIds,
   });
 
   if (!title) {
@@ -379,6 +389,9 @@ export async function initializeStagedPlanningDraft(
   const deepFocusPrimaryTargets = isDeepFocus
     ? options.focusedRepo!.primaryFocusTargets?.map(clonePrimaryFocusTarget) ?? []
     : [];
+  const hasMultipleStandardFocusPrimaries = !isDeepFocus
+    && isMonolithEstate(options.focusedRepo?.estateType)
+    && (options.focusedRepo?.selectedFocusIds?.filter((id) => id.trim()).length ?? 0) > 1;
 
   const metadata: PlannerStagingSidecar = {
     version: 1,
@@ -390,7 +403,9 @@ export async function initializeStagedPlanningDraft(
     title,
     primaryRepoId: trimOrEmpty(options.focusedRepo?.primaryRepoId),
     primaryRepoRoot: trimOrEmpty(options.focusedRepo?.primaryRepoRoot),
-    primaryFocusRelativePath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+    primaryFocusRelativePath: hasMultipleStandardFocusPrimaries
+      ? null
+      : trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
     deepFocusEnabled: isDeepFocus,
     primaryFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
     primaryFocusTargets: deepFocusPrimaryTargets,
@@ -426,7 +441,9 @@ export async function initializeStagedPlanningDraft(
           primaryRepoId: isMonolithEstate(options.focusedRepo?.estateType)
             ? undefined
             : (trimOrEmpty(options.focusedRepo?.primaryRepoId) || undefined),
-          primaryFocusId: trimOrEmpty(options.focusedRepo?.primaryFocusId) || undefined,
+          primaryFocusId: hasMultipleStandardFocusPrimaries
+            ? undefined
+            : trimOrEmpty(options.focusedRepo?.primaryFocusId) || undefined,
           // Empty selectedRepoIds is metadata-only: queue ops re-parse markdown
           // (operations.ts), runtime monolith selection is rebuilt from the task
           // pack snapshot's primary.repoId in reconstructFocusedRepoResult
@@ -437,7 +454,9 @@ export async function initializeStagedPlanningDraft(
             : [...(options.focusedRepo?.selectedRepoIds ?? [])],
           selectedFocusIds: [...(options.focusedRepo?.selectedFocusIds ?? [])],
           deepFocusEnabled: isDeepFocus,
-          selectedFocusPath: trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
+          selectedFocusPath: hasMultipleStandardFocusPrimaries
+            ? null
+            : trimOrEmpty(options.focusedRepo?.primaryFocusRelativePath) || null,
           selectedFocusTargetKind: options.focusedRepo?.primaryFocusTargetKind ?? null,
           selectedFocusTargets: deepFocusPrimaryTargets,
           selectedTestTarget: deepFocusTestTarget,
@@ -455,7 +474,18 @@ export async function initializeStagedPlanningDraft(
     ]);
     return metadata;
   } catch (error: unknown) {
-    await clearStagingArtifacts({ sessionId: options.sessionId, force: true });
+    try {
+      await clearStagingArtifacts({ sessionId: options.sessionId, force: true });
+    } catch (cleanupError: unknown) {
+      log.error(
+        'planner-staging.rollback.failed',
+        cleanupError instanceof Error ? cleanupError : { reason: String(cleanupError) },
+        {
+          sessionId: options.sessionId,
+          originalError: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
     throw error;
   }
 }

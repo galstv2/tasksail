@@ -65,6 +65,34 @@ class TestArchiveSession:
         assert manager.archive_session("RA-NONE")["status"] == "not_found"
 
 
+class TestDismissSession:
+    def test_dismiss_removes_session(self, manager: RealignmentManager) -> None:
+        session = manager.start_session("T-1", "FB-1", ["software-engineer"])
+
+        result = manager.dismiss_session(session.realignment_id)
+
+        assert result["status"] == "dismissed"
+        assert manager.list_sessions() == []
+
+    def test_dismiss_blocks_reviewed_session(self, manager: RealignmentManager) -> None:
+        session = manager.start_session("T-1", "FB-1", ["software-engineer"])
+        manager.update_session(session.realignment_id, {"status": "reviewed"})
+
+        result = manager.dismiss_session(session.realignment_id)
+
+        assert result["status"] == "blocked"
+        assert manager.list_sessions()[0]["realignment_id"] == session.realignment_id
+
+    def test_dismiss_blocks_archived_session(self, manager: RealignmentManager) -> None:
+        session = manager.start_session("T-1", "FB-1", ["software-engineer"])
+        manager.archive_session(session.realignment_id)
+
+        result = manager.dismiss_session(session.realignment_id)
+
+        assert result["status"] == "blocked"
+        assert manager.list_sessions()[0]["realignment_id"] == session.realignment_id
+
+
 class TestListSessions:
     def test_filter_by_status(self, manager: RealignmentManager) -> None:
         manager.start_session("T-1", "FB-1", ["software-engineer"])

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import TerminalFeed from './TerminalFeed';
 import type { TerminalFeedProps } from './TerminalFeed';
@@ -17,6 +17,9 @@ function makeEvent(overrides: Partial<StreamEvent> = {}): StreamEvent {
     role: 'workflow',
     source: 'test',
     taskId: 'TASK-1',
+    taskGuid: null,
+    taskShortGuid: null,
+    taskTitle: null,
     severity: 'info',
     message: 'Agent started',
     ...overrides,
@@ -32,12 +35,31 @@ function makeObservabilitySnapshot(
 function renderFeed(overrides: Partial<TerminalFeedProps> = {}) {
   const props: TerminalFeedProps = {
     activityStream: [],
+    replayedEventIds: new Set(),
+    taskScopes: [],
+    selectedTaskGuid: null,
+    onSelectTaskScope: vi.fn(async () => undefined),
     observabilitySnapshot: null,
     environmentStatus: null,
     ...overrides,
   };
   return render(<TerminalFeed {...props} />);
 }
+
+const taskScopes: TerminalFeedProps['taskScopes'] = [
+  {
+    taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+    taskShortGuid: 'feedbeef',
+    taskId: 'TASK-1',
+    title: 'Build terminal filter',
+  },
+  {
+    taskGuid: 'facefeed-1234-4234-9234-123456789abc',
+    taskShortGuid: 'facefeed',
+    taskId: 'TASK-2',
+    title: null,
+  },
+];
 
 describe('TerminalFeed', () => {
   it('renders terminal chrome with title', () => {
@@ -46,16 +68,18 @@ describe('TerminalFeed', () => {
     expect(feed.querySelector('.terminal-feed__title')).toHaveTextContent('Terminal');
   });
 
-  it('renders role filter tabs (All, Planner, Queue, Workflow, System)', () => {
+  it('renders role filter tabs in predictable order', () => {
     renderFeed();
     const tablist = screen.getByRole('tablist', { name: 'Role filter' });
     const tabs = within(tablist).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([
       'All',
+      'Agent',
+      'Pipeline',
       'Planner',
       'Queue',
-      'Workflow',
       'System',
+      'Workflow',
     ]);
   });
 
@@ -81,7 +105,7 @@ describe('TerminalFeed', () => {
         makeEvent({
           id: 'e1',
           actorName: 'Alice (Product Manager)',
-          message: 'Task [feedbeef] Alice (Product Manager): Is running.',
+          message: 'Task [feedbeef] - Alice (Product Manager): Is running.',
         }),
       ],
     });
@@ -89,8 +113,223 @@ describe('TerminalFeed', () => {
     const line = document.querySelector('.terminal-line');
     expect(line?.querySelector('.terminal-actor')).toBeNull();
     expect(line?.querySelector('.terminal-message')?.textContent).toBe(
-      'Task [feedbeef] Alice (Product Manager): Is running.',
+      'Task [feedbeef] - Alice (Product Manager): Is running.',
     );
+  });
+
+  it('renders a custom task scope menu and calls the selector with full GUIDs', () => {
+    const onSelectTaskScope = vi.fn(async () => undefined);
+    renderFeed({
+      selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+      onSelectTaskScope,
+      taskScopes,
+    });
+
+    expect(screen.queryByRole('combobox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+    expect(trigger).toHaveTextContent('Build terminal filter');
+    expect(trigger).toHaveTextContent('Task [feedbeef]');
+
+    fireEvent.click(trigger);
+    const listbox = screen.getByRole('listbox', { name: 'Terminal task scope' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveAttribute('aria-controls', 'terminal-task-scope-listbox');
+    expect(within(listbox).getByRole('option', { name: 'All Tasks' })).toBeInTheDocument();
+    expect(within(listbox).getByRole('option', { name: /Build terminal filter/ })).toHaveTextContent('Task [feedbeef]');
+    expect(within(listbox).getByRole('option', { name: /Task TASK-2/ })).toHaveTextContent('Task [facefeed]');
+    expect(within(listbox).getByRole('option', { name: /Build terminal filter/ })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(within(listbox).getByRole('option', { name: /Task TASK-2/ }));
+    expect(onSelectTaskScope).toHaveBeenCalledWith('facefeed-1234-4234-9234-123456789abc');
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'All Tasks' }));
+    expect(onSelectTaskScope).toHaveBeenCalledWith(null);
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('Enter and Space open the task scope menu from the trigger', () => {
+    renderFeed({ taskScopes });
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    expect(screen.getByRole('listbox', { name: 'Terminal task scope' })).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Terminal task scope' }), { key: 'Escape' });
+    fireEvent.keyDown(trigger, { key: ' ' });
+    expect(screen.getByRole('listbox', { name: 'Terminal task scope' })).toBeInTheDocument();
+  });
+
+  it('renders duplicate task titles with visible short GUID markers', () => {
+    renderFeed({
+      taskScopes: [
+        {
+          taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+          taskShortGuid: 'feedbeef',
+          taskId: 'TASK-1',
+          title: 'Same title',
+        },
+        {
+          taskGuid: 'facefeed-1234-4234-9234-123456789abc',
+          taskShortGuid: 'facefeed',
+          taskId: 'TASK-2',
+          title: 'Same title',
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+
+    const options = screen.getAllByRole('option', { name: /Same title/ });
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent('Task [feedbeef]');
+    expect(options[1]).toHaveTextContent('Task [facefeed]');
+  });
+
+  it('renders all-tasks trigger text without a short GUID marker', () => {
+    renderFeed({ taskScopes });
+
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+    expect(trigger).toHaveTextContent('All Tasks');
+    expect(trigger).not.toHaveTextContent('Task [');
+  });
+
+  it('marks task scope dropdown active only for a selected task GUID', () => {
+    const { rerender } = renderFeed();
+    expect(document.querySelector('.terminal-feed__task-scope')).not.toHaveClass(
+      'terminal-feed__task-scope--active',
+    );
+
+    const props: TerminalFeedProps = {
+      activityStream: [],
+      replayedEventIds: new Set(),
+      taskScopes: [],
+      selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+      onSelectTaskScope: vi.fn(async () => undefined),
+      observabilitySnapshot: null,
+      environmentStatus: null,
+    };
+    rerender(<TerminalFeed {...props} />);
+
+    expect(document.querySelector('.terminal-feed__task-scope')).toHaveClass(
+      'terminal-feed__task-scope--active',
+    );
+  });
+
+  it('task scope menu closes on outside mousedown', () => {
+    renderFeed({ taskScopes });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    expect(screen.getByRole('listbox', { name: 'Terminal task scope' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Terminal task scope' })).toHaveFocus();
+  });
+
+  it('Escape closes the task scope menu and returns focus to the trigger', () => {
+    renderFeed({ taskScopes });
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Terminal task scope' }), { key: 'Escape' });
+
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('Tab closes the task scope menu', () => {
+    renderFeed({ taskScopes });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Terminal task scope' }), { key: 'Tab' });
+
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+  });
+
+  it('keyboard navigation updates active descendant and Enter selects the full GUID', () => {
+    const onSelectTaskScope = vi.fn(async () => undefined);
+    renderFeed({ taskScopes, onSelectTaskScope });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    const listbox = screen.getByRole('listbox', { name: 'Terminal task scope' });
+    expect(listbox).toHaveAttribute('aria-activedescendant', 'terminal-task-scope-option-all');
+
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    expect(listbox).toHaveAttribute(
+      'aria-activedescendant',
+      'terminal-task-scope-option-feedbeef-1234-4234-9234-123456789abc',
+    );
+    fireEvent.keyDown(listbox, { key: 'ArrowUp' });
+    expect(listbox).toHaveAttribute('aria-activedescendant', 'terminal-task-scope-option-all');
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+
+    expect(onSelectTaskScope).toHaveBeenCalledWith('feedbeef-1234-4234-9234-123456789abc');
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+  });
+
+  it('Space selects the active task scope option', () => {
+    const onSelectTaskScope = vi.fn(async () => undefined);
+    renderFeed({ taskScopes, onSelectTaskScope });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    const listbox = screen.getByRole('listbox', { name: 'Terminal task scope' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: ' ' });
+
+    expect(onSelectTaskScope).toHaveBeenCalledWith('facefeed-1234-4234-9234-123456789abc');
+    expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+  });
+
+  it('renders only the all-tasks option when there are no task scopes', () => {
+    renderFeed({ taskScopes: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+
+    const options = within(screen.getByRole('listbox', { name: 'Terminal task scope' })).getAllByRole('option');
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent('All Tasks');
+  });
+
+  it('does not filter by task locally and renders task badge before role', () => {
+    renderFeed({
+      selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+      activityStream: [
+        makeEvent({
+          id: 'e1',
+          role: 'pipeline',
+          taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+          taskShortGuid: 'feedbeef',
+          taskTitle: 'Build terminal filter',
+          message: 'Task [feedbeef] - Created worktree.',
+        }),
+        makeEvent({
+          id: 'e2',
+          role: 'queue',
+          taskGuid: 'facefeed-1234-4234-9234-123456789abc',
+          taskShortGuid: 'facefeed',
+          taskTitle: 'Other task',
+          message: 'Task [facefeed] - Activated task.',
+        }),
+      ],
+    });
+
+    const lines = document.querySelectorAll('.terminal-line');
+    expect(lines).toHaveLength(2);
+    expect(Array.from(lines[0].children).map((child) => child.className)).toEqual([
+      'terminal-timestamp',
+      'terminal-task',
+      'terminal-role terminal-role--pipeline',
+      'terminal-message',
+    ]);
+    expect(lines[0].querySelector('.terminal-task')?.textContent).toBe('Task [feedbeef]');
+    expect(lines[0].querySelector('.terminal-message')?.textContent).toBe('Created worktree.');
   });
 
   it('renders the separate actor span for non-embedded actor messages', () => {
@@ -127,23 +366,90 @@ describe('TerminalFeed', () => {
     expect(lines[0].querySelector('.terminal-message')?.textContent).toBe('Plan msg');
   });
 
-  it('severity toggle filters to warnings and errors only', () => {
+  it('filters agent and pipeline events by role tabs', () => {
     const events = [
-      makeEvent({ id: 'e1', severity: 'info', message: 'Info msg' }),
-      makeEvent({ id: 'e2', severity: 'warning', message: 'Warn msg' }),
-      makeEvent({ id: 'e3', severity: 'error', message: 'Error msg' }),
+      makeEvent({ id: 'e1', role: 'queue', message: 'Queue msg' }),
+      makeEvent({ id: 'e2', role: 'agent', message: 'Agent msg' }),
+      makeEvent({ id: 'e3', role: 'pipeline', severity: 'info', message: 'Pipeline info' }),
+      makeEvent({ id: 'e4', role: 'pipeline', severity: 'warning', message: 'Pipeline warning' }),
+      makeEvent({ id: 'e5', role: 'workflow', severity: 'warning', message: 'Workflow warning' }),
     ];
     renderFeed({ activityStream: events });
 
-    expect(document.querySelectorAll('.terminal-line')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('tab', { name: 'Agent' }));
+    let lines = document.querySelectorAll('.terminal-line');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].querySelector('.terminal-message')?.textContent).toBe('Agent msg');
 
-    const checkbox = screen.getByRole('checkbox');
-    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('tab', { name: 'Pipeline' }));
+    lines = document.querySelectorAll('.terminal-line');
+    expect(lines).toHaveLength(2);
+    expect(Array.from(lines).map((line) => line.querySelector('.terminal-message')?.textContent)).toEqual([
+      'Pipeline info',
+      'Pipeline warning',
+    ]);
+  });
+
+  it('does not render the warnings and errors only checkbox', () => {
+    renderFeed();
+    expect(screen.queryByRole('checkbox', { name: /warnings & errors only/i })).not.toBeInTheDocument();
+  });
+
+  it('renders explicit role classes for every terminal role', () => {
+    renderFeed({
+      activityStream: [
+        makeEvent({ id: 'planner', role: 'planner', message: 'Planner started' }),
+        makeEvent({ id: 'queue', role: 'queue', message: 'Queue started' }),
+        makeEvent({ id: 'agent', role: 'agent', message: 'Agent started' }),
+        makeEvent({ id: 'pipeline', role: 'pipeline', message: 'Pipeline started' }),
+        makeEvent({ id: 'workflow', role: 'workflow', message: 'Workflow started' }),
+        makeEvent({ id: 'operator', role: 'operator', message: 'Operator note' }),
+        makeEvent({ id: 'system', role: 'system', message: 'System started' }),
+      ],
+    });
+
+    const roles = document.querySelectorAll('.terminal-role');
+    expect(Array.from(roles).map((role) => role.className)).toEqual([
+      'terminal-role terminal-role--planner',
+      'terminal-role terminal-role--queue',
+      'terminal-role terminal-role--agent',
+      'terminal-role terminal-role--pipeline',
+      'terminal-role terminal-role--workflow',
+      'terminal-role terminal-role--operator',
+      'terminal-role terminal-role--system',
+    ]);
+  });
+
+  it('workflow events render under all and workflow tabs with workflow styling', () => {
+    const events = [
+      makeEvent({ id: 'e1', role: 'workflow', message: 'Workflow msg' }),
+      makeEvent({ id: 'e2', role: 'agent', message: 'Agent msg' }),
+    ];
+    renderFeed({ activityStream: events });
+
+    expect(document.querySelectorAll('.terminal-line')).toHaveLength(2);
+    expect(document.querySelector('.terminal-role--workflow')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Workflow' }));
 
     const filtered = document.querySelectorAll('.terminal-line');
-    expect(filtered).toHaveLength(2);
-    expect(filtered[0].querySelector('.terminal-message')?.textContent).toBe('Warn msg');
-    expect(filtered[1].querySelector('.terminal-message')?.textContent).toBe('Error msg');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].querySelector('.terminal-message')?.textContent).toBe('Workflow msg');
+    expect(filtered[0].querySelector('.terminal-role')).toHaveClass('terminal-role--workflow');
+  });
+
+  it('applies replay suppression only to replayed terminal lines', () => {
+    renderFeed({
+      activityStream: [
+        makeEvent({ id: 'replayed', message: 'Replay msg' }),
+        makeEvent({ id: 'live', message: 'Live msg' }),
+      ],
+      replayedEventIds: new Set(['replayed']),
+    });
+
+    const lines = document.querySelectorAll('.terminal-line');
+    expect(lines[0]).toHaveClass('terminal-line--replay');
+    expect(lines[1]).not.toHaveClass('terminal-line--replay');
   });
 
   it('system details drawer toggle exists and defaults to closed', () => {

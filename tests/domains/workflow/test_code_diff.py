@@ -382,7 +382,10 @@ class CaptureCodeDiffTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(repo_names, [Path(binding["worktreeRoot"]).name])
-        self.assertIn("Failed to write diff artifact", stderr.getvalue())
+        logged = json.loads(stderr.getvalue())
+        self.assertEqual(logged["msg"], "code_diff.artifact_write_failed")
+        self.assertEqual(logged["extra"]["error"], "disk full")
+        self.assertEqual(logged["err"]["message"], "disk full")
 
 
 if __name__ == "__main__":

@@ -302,4 +302,28 @@ describe('validateDesktopActionRequest — reinforcement actions', () => {
       expect(errors).toContainEqual('payload.realignmentId must be a non-empty string.');
     });
   });
+
+  describe('reinforcement.dismissRealignment', () => {
+    it('accepts valid payload', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.dismissRealignment',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          realignmentId: 'RA-1',
+        },
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects empty realignmentId', () => {
+      const errors = validateDesktopActionRequest({
+        action: 'reinforcement.dismissRealignment',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          realignmentId: '',
+        },
+      });
+      expect(errors).toContainEqual('payload.realignmentId must be a non-empty string.');
+    });
+  });
 });

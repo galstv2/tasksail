@@ -173,7 +173,8 @@ def global_history_storage_path(
         global_retrospective_root_path(repo_root)
         / "history"
         / year
-        / f"{slugify(task_id)}.md"
+        / slugify(task_id)
+        / "retrospective.md"
     )
 
 

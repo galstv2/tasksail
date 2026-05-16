@@ -31,3 +31,9 @@ export type { PreCommitResult } from './preCommitHook.js';
 
 export { checkExternalMcpRegistry } from './externalMcpCheck.js';
 export type { ExternalMcpCheckResult } from './externalMcpCheck.js';
+
+export { checkLoggingDiscipline } from './loggingDiscipline.js';
+export type {
+  LoggingDisciplineResult,
+  LoggingDisciplineViolation,
+} from './loggingDiscipline.js';

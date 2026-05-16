@@ -84,7 +84,16 @@ describe('main.contextPackWatcher', () => {
   });
 
   it('skips missing catalog roots and keeps watching readable roots', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const infoSpy = vi.fn();
+    vi.doMock('./log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: infoSpy,
+        warn: vi.fn(),
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+    }));
     const onChange = vi.fn();
     watchMock.mockImplementation((root, _options, callback: WatchCallback) => {
       if (root === '/repo/missing-contextpacks') {
@@ -103,13 +112,13 @@ describe('main.contextPackWatcher', () => {
       onChange,
     });
 
-    expect(infoSpy).toHaveBeenCalledWith(
-      'Context-pack catalog watcher: skipping missing root "/repo/missing-contextpacks"',
-    );
+    expect(infoSpy).toHaveBeenCalledWith('context-pack.watcher.skipped', {
+      root: '/repo/missing-contextpacks',
+      reason: 'missing-root',
+    });
     expect(watchMock).toHaveBeenCalledTimes(2);
     expect(callbacks).toHaveLength(1);
-
-    infoSpy.mockRestore();
+    vi.doUnmock('./log/logger');
   });
 
   it('propagates non-missing catalog root watch failures', async () => {
@@ -123,5 +132,34 @@ describe('main.contextPackWatcher', () => {
       catalogRoots: ['/repo/contextpacks'],
       onChange,
     })).toThrow('denied');
+  });
+
+  it('logs a structured error before propagating non-missing watch failures', async () => {
+    const errorSpy = vi.fn();
+    vi.doMock('./log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: errorSpy,
+        child: vi.fn(),
+      }),
+    }));
+    const onChange = vi.fn();
+    watchMock.mockImplementation(() => {
+      throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    });
+    const { startContextPackCatalogWatcher } = await import('./main.contextPackWatcher');
+
+    expect(() => startContextPackCatalogWatcher({
+      catalogRoots: ['/repo/contextpacks'],
+      onChange,
+    })).toThrow('denied');
+    expect(errorSpy).toHaveBeenCalledWith(
+      'context-pack.watcher.start.failed',
+      expect.any(Error),
+      { root: '/repo/contextpacks' },
+    );
+    vi.doUnmock('./log/logger');
   });
 });

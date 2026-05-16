@@ -2,18 +2,24 @@
 
 import { validateStructure } from './structure.js';
 import { checkFileSizes } from './fileSizes.js';
+import { checkLoggingDiscipline } from './loggingDiscipline.js';
 import {
   runLocalChecks,
   runMarkdownContractValidation,
   type LocalChecksProfile,
 } from './localChecks.js';
 import { preCommitHook } from './preCommitHook.js';
-import { findRepoRoot } from '../core/index.js';
+import {
+  findRepoRoot,
+  runCliBoundary,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 
 const VALID_PROFILES = new Set<string>(['full', 'smoke', 'integration', 'contracts']);
 
 function usage(): void {
-  console.log(`Usage: platform-validate <command> [options]
+  writeProtocolStdout(`Usage: platform-validate <command> [options]
 
 Commands:
   validate         Validate repository structure
@@ -40,31 +46,33 @@ async function main(): Promise<void> {
   switch (command) {
     case 'validate': {
       const result = await validateStructure();
-      if (!result.valid) {
-        for (const err of result.errors) {
-          console.error(`  [FAIL] ${err}`);
+      const loggingResult = await checkLoggingDiscipline();
+      const errors = [...result.errors, ...loggingResult.errors];
+      if (errors.length > 0) {
+        for (const err of errors) {
+          writeProtocolStderr(`  [FAIL] ${err}\n`);
         }
-        console.error('\nRepository structure validation failed.');
+        writeProtocolStderr('\nRepository validation failed.\n');
         process.exit(1);
       }
       const repoRoot = await findRepoRoot();
       await runMarkdownContractValidation(repoRoot);
-      console.log('Repository structure and markdown contract validation passed.');
+      writeProtocolStdout('Repository structure, logging discipline, and markdown contract validation passed.\n');
       break;
     }
 
     case 'check-sizes': {
       const result = await checkFileSizes();
       for (const w of result.warnings) {
-        console.warn(`  [WARN] ${w.path}: ${w.lines} lines (baseline ${w.baseline})`);
+        writeProtocolStderr(`  [WARN] ${w.path}: ${w.lines} lines (baseline ${w.baseline})\n`);
       }
       if (result.violations.length > 0) {
         for (const v of result.violations) {
-          console.error(`  [FAIL] ${v.path}: ${v.lines} lines (limit ${v.limit})`);
+          writeProtocolStderr(`  [FAIL] ${v.path}: ${v.lines} lines (limit ${v.limit})\n`);
         }
         process.exit(1);
       }
-      console.log('All files within size limits.');
+      writeProtocolStdout('All files within size limits.\n');
       break;
     }
 
@@ -74,7 +82,7 @@ async function main(): Promise<void> {
         if (args[i] === '--profile' && args[i + 1]) {
           const profile = args[++i];
           if (!VALID_PROFILES.has(profile)) {
-            console.error(`Unknown profile: ${profile}`);
+            writeProtocolStderr(`Unknown profile: ${profile}\n`);
             process.exit(1);
           }
           options.profile = profile as LocalChecksProfile;
@@ -87,15 +95,15 @@ async function main(): Promise<void> {
       const result = await runLocalChecks(options);
       for (const r of result.results) {
         const icon = r.passed ? 'PASS' : 'FAIL';
-        console.log(`  [${icon}] ${r.name} (${r.duration}ms)${r.error ? ': ' + r.error : ''}`);
+        writeProtocolStdout(`  [${icon}] ${r.name} (${r.duration}ms)${r.error ? ': ' + r.error : ''}\n`);
       }
       for (const w of result.advisoryWarnings) {
-        console.warn(`  [ADVISORY] ${w}`);
+        writeProtocolStderr(`  [ADVISORY] ${w}\n`);
       }
       if (!result.passed) {
         process.exit(1);
       }
-      console.log('\nAll local checks passed.');
+      writeProtocolStdout('\nAll local checks passed.\n');
       break;
     }
 
@@ -103,23 +111,20 @@ async function main(): Promise<void> {
       const result = await preCommitHook();
       if (!result.passed) {
         for (const f of result.failures) {
-          console.error(`  [FAIL] ${f}`);
+          writeProtocolStderr(`  [FAIL] ${f}\n`);
         }
-        console.error(`\nPre-commit: ${result.failures.length} check(s) failed.`);
+        writeProtocolStderr(`\nPre-commit: ${result.failures.length} check(s) failed.\n`);
         process.exit(1);
       }
-      console.log('Pre-commit checks passed.');
+      writeProtocolStdout('Pre-commit checks passed.\n');
       break;
     }
 
     default:
-      console.error(`Unknown command: ${command}`);
+      writeProtocolStderr(`Unknown command: ${command}\n`);
       usage();
       process.exit(1);
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+runCliBoundary('platform/validation/cli', main);

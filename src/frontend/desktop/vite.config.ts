@@ -179,7 +179,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    setupFiles: ['src/test/setup.ts', childGuardPath],
+    setupFiles: ['src/test/setup.ts', childGuardPath, 'src/test/logIsolation.ts'],
     pool: 'forks',
     poolOptions: {
       forks: {

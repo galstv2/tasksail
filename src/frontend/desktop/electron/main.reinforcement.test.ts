@@ -29,6 +29,7 @@ vi.mock('../../../backend/platform/agent-runner/reinforcementWrite', () => ({
   updateGlobalRealignmentDoc: vi.fn(),
   checkActiveWorkGuard: vi.fn(),
   startRealignmentSession: vi.fn(),
+  dismissRealignmentSession: vi.fn(),
 }));
 
 vi.mock('../../../backend/platform/agent-runner/reinforcementRead', () => ({
@@ -53,6 +54,7 @@ import {
   updateGlobalRealignmentDoc,
   checkActiveWorkGuard,
   startRealignmentSession,
+  dismissRealignmentSession,
 } from '../../../backend/platform/agent-runner/reinforcementWrite';
 import {
   readReinforcementOverview,
@@ -68,6 +70,7 @@ const mockSubmit = vi.mocked(submitReinforcementFeedback);
 const mockUpdate = vi.mocked(updateGlobalRealignmentDoc);
 const mockCheckGuard = vi.mocked(checkActiveWorkGuard);
 const mockStartRealignment = vi.mocked(startRealignmentSession);
+const mockDismissRealignment = vi.mocked(dismissRealignmentSession);
 const mockReadOverview = vi.mocked(readReinforcementOverview);
 const mockReadAgentRewards = vi.mocked(readAgentRewards);
 const mockListTasks = vi.mocked(listReinforcementTasks);
@@ -138,6 +141,21 @@ describe('reinforcement IPC actions', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toBe('Script error');
+        expect(result.action).toBe('reinforcement.submitFeedback');
+      }
+    });
+
+    it('returns error when submission throws before script execution', async () => {
+      mockSubmit.mockRejectedValue(new Error('No active context pack is configured.'));
+
+      const result = await handleDesktopAction({
+        action: 'reinforcement.submitFeedback',
+        payload: validPayload,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe('No active context pack is configured.');
         expect(result.action).toBe('reinforcement.submitFeedback');
       }
     });
@@ -263,6 +281,10 @@ describe('reinforcement IPC actions', () => {
             settlementStatus: 'unrewarded',
             qualityOutcome: 'success',
             year: '2026',
+            reviewStatus: 'unreviewed',
+            feedbackCount: 0,
+            archivePath: '/tmp/context-pack/qmd/context-packs/test/archive/tasks/2026/T-1/archive.md',
+            archiveMarkdown: '# Test task\n',
           },
         ],
         availableYears: ['2026'],
@@ -516,6 +538,36 @@ describe('reinforcement IPC actions', () => {
         realignmentId: 'RA-1',
         externalMcpRegistry,
       }));
+    });
+  });
+
+  describe('reinforcement.dismissRealignment', () => {
+    it('dismisses a realignment session', async () => {
+      mockDismissRealignment.mockResolvedValue({
+        passed: true,
+        stdout: '{"status":"dismissed","realignment_id":"RA-1"}',
+        stderr: '',
+        exitCode: 0,
+        data: { status: 'dismissed', realignment_id: 'RA-1' },
+      });
+
+      const result = await handleDesktopAction({
+        action: 'reinforcement.dismissRealignment',
+        payload: { contextPackDir: '/ctx', realignmentId: 'RA-1' },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockDismissRealignment).toHaveBeenCalledWith({
+        contextPackDir: '/ctx',
+        realignmentId: 'RA-1',
+      });
+      if (result.ok) {
+        expect(result.response).toEqual(expect.objectContaining({
+          action: 'reinforcement.dismissRealignment',
+          mode: 'dismissed',
+          realignmentId: 'RA-1',
+        }));
+      }
     });
   });
 });

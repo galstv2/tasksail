@@ -80,8 +80,8 @@ describe('rebuildAgentMirror', () => {
     seedManifest(scopeRoot);
     seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
     seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.md', '# Task 001');
-    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md', '# History');
-    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md.record.json', '{}');
+    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001/retrospective.md', '# History');
+    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001/retrospective.md.record.json', '{}');
 
     const result = await rebuildAgentMirror(repoRoot, contextPackDir);
 
@@ -92,8 +92,8 @@ describe('rebuildAgentMirror', () => {
 
     expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.json'))).toBe(true);
     expect(existsSync(mirrorPath('archive/tasks/2026/task-001/archive.md'))).toBe(true);
-    expect(existsSync(mirrorPath('retrospectives/history/2026/task-001.md'))).toBe(true);
-    expect(existsSync(mirrorPath('retrospectives/history/2026/task-001.md.record.json'))).toBe(true);
+    expect(existsSync(mirrorPath('retrospectives/history/2026/task-001/retrospective.md'))).toBe(true);
+    expect(existsSync(mirrorPath('retrospectives/history/2026/task-001/retrospective.md.record.json'))).toBe(true);
 
     // Content matches canonical.
     expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/archive.json'), 'utf-8'))
@@ -104,7 +104,7 @@ describe('rebuildAgentMirror', () => {
     const scopeRoot = `qmd/context-packs/${packName}`;
     seedManifest(scopeRoot);
     seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
-    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001.md', '# History');
+    seedCanonical(scopeRoot, 'retrospectives/history/2026/task-001/retrospective.md', '# History');
 
     const first = await rebuildAgentMirror(repoRoot, contextPackDir);
     expect(first.filesCopied).toBe(2);

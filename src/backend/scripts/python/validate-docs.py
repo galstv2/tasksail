@@ -8,7 +8,14 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from src.backend.scripts.python.lib.logging_config import configure_logging  # noqa: E402
+
 IGNORED_PREFIXES = (
     "AgentWorkSpace/dropbox/",
     "AgentWorkSpace/pendingitems/",
@@ -219,6 +226,7 @@ def validate_file(path: Path) -> list[str]:
 
 
 def main() -> int:
+    configure_logging(stack="py", service="validate-docs")
     markdown_files = tracked_markdown_files()
     errors: list[str] = []
 
@@ -226,12 +234,12 @@ def main() -> int:
         errors.extend(validate_file(markdown_file))
 
     if errors:
-        print("Markdown validation failed:", file=sys.stderr)
+        write_protocol_stderr(str("Markdown validation failed:") + '\n')
         for error in errors:
-            print(f"  - {error}", file=sys.stderr)
+            write_protocol_stderr(str(f"  - {error}") + '\n')
         return 1
 
-    print(f"Validated {len(markdown_files)} markdown files.")
+    write_protocol_stdout(str(f"Validated {len(markdown_files)} markdown files.") + '\n')
     return 0
 
 

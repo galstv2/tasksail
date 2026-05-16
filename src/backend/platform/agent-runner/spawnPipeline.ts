@@ -83,14 +83,22 @@ export async function spawnPipelineForTask(options: {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     },
   );
+  if (child.pid === undefined) {
+    child.once('error', () => undefined);
+    throw new Error('Failed to spawn pipeline child: no PID returned by fork().');
+  }
+  const exit = new Promise<number>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
+  });
   // F13: surface stdout/stderr streams so the supervisor (§5.2) can readline-split and
   // wrap each line in the { type, taskId, line, ts } envelope before forwarding.
   // Callers that do not consume the streams MUST still drain them to prevent the pipe
   // buffer from filling and stalling the child process.
   return {
-    pid: child.pid!,
+    pid: child.pid,
     stdout: child.stdout!,
     stderr: child.stderr!,
-    exit: new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 1))),
+    exit,
   };
 }

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 
+import { createLogger } from '../core/index.js';
 import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { transitionTask } from './taskRegistry.js';
@@ -11,6 +12,8 @@ import {
   writeDeferredRetrospectiveMarker,
   type CompletingSentinelPayload,
 } from './completePendingItem.js';
+
+const log = createLogger('platform/queue/resumeCloseout');
 
 export interface ResumeCloseoutResult {
   status: 'completed' | 'no-sentinel' | 'no-archive-record' | 'still-failing';
@@ -79,10 +82,7 @@ export async function resumeCloseoutFromSentinel(
         // as Fix A does in completePendingItem) and continue with finalize/unlinks.
         // Aborting here would re-create the strand 173443z hit (§1).
         const reason = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[resumeCloseout] retrospective sync deferred (non-fatal — task ${taskId} finalized, ` +
-          `will retry on next queue advance): ${reason}`,
-        );
+        log.warn('retrospective_sync.deferred', { taskId, reason });
         writeDeferredRetrospectiveMarker({
           repoRoot,
           taskId,

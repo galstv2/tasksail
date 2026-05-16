@@ -3,7 +3,7 @@
  * for the Kanban board UI, and delegates reorder/requeue to backend queue modules.
  */
 import { watch, type FSWatcher } from 'node:fs';
-import { open as fsOpen, readdir as fsReadDir, readFile as fsReadFile, unlink as fsUnlink } from 'node:fs/promises';
+import { readFile as fsReadFile, unlink as fsUnlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { BrowserWindow } from 'electron';
 
@@ -26,6 +26,15 @@ import type {
 import { REPO_ROOT } from './paths';
 import { pathExists, repoFs, type ReadOnlyRepoFs } from './utils';
 import {
+  filterActiveTaskIdsForScope,
+  filterRegistryTaskSetsForScope,
+  isRegistryEntryVisibleForScope,
+  readVisibleTaskMarkdownItems,
+  resolveActiveContextPackTaskScope,
+  type ActiveContextPackTaskScope,
+  type ContextPackLister,
+} from './main.contextPackTaskVisibility';
+import {
   readQueueOrderManifest,
   writeQueueOrderManifest,
   resolveQueuePaths,
@@ -40,9 +49,8 @@ import {
 import { listArchivedTasksAction } from './main.archivedTasks';
 import {
   loadTaskRegistry,
-  getAllTasks,
-  getTasksForContextPack,
   getRegistryPath,
+  type TaskRegistry,
   type TaskRegistryEntry,
 } from '../../../backend/platform/queue/taskRegistry.js';
 
@@ -51,57 +59,113 @@ const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
 
-const HEAD_BYTES = 1024;
-
-async function readFileHead(filePath: string): Promise<string> {
-  const handle = await fsOpen(filePath, 'r');
-  try {
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
-    return buf.toString('utf-8', 0, bytesRead);
-  } finally {
-    await handle.close();
-  }
-}
-
-function extractHeading(content: string): string | null {
-  const match = content.match(/^#\s+(.+)$/m);
-  return match?.[1]?.trim() || null;
-}
-
-function extractTaskId(content: string): string | null {
-  const match = content.match(/^- Task ID:\s*(.+?)$/m);
-  return match?.[1]?.trim() || null;
-}
-
-async function readBoardItems(dir: string): Promise<TaskBoardItem[]> {
-  if (!(await pathExists(dir, repoFs))) return [];
-  const entries = await fsReadDir(dir);
-  const mdFiles = entries.filter(
-    (f) => f.endsWith('.md') && !f.startsWith('.'),
-  );
-  const items: TaskBoardItem[] = [];
-  for (const fileName of mdFiles) {
-    try {
-      const head = await readFileHead(join(dir, fileName));
-      items.push({
-        fileName,
-        taskId: extractTaskId(head),
-        title: extractHeading(head),
-      });
-    } catch {
-      items.push({ fileName, taskId: null, title: null });
-    }
-  }
-  return items;
-}
-
 function registryEntryToItem(entry: TaskRegistryEntry): TaskBoardItem {
   return {
     fileName: entry.fileName,
     taskId: entry.taskId,
     title: entry.title,
   };
+}
+
+function boardItemsFromVisibleMarkdownItems(
+  items: Awaited<ReturnType<typeof readVisibleTaskMarkdownItems>>,
+): TaskBoardItem[] {
+  return items.map((item) => ({
+    fileName: item.fileName,
+    taskId: item.taskId,
+    title: item.title,
+  }));
+}
+
+function isPendingBoardEntry(entry: TaskRegistryEntry): boolean {
+  return entry.state === 'pending' || entry.state === 'active';
+}
+
+function isCompletedBoardEntry(entry: TaskRegistryEntry): boolean {
+  return entry.state === 'completed';
+}
+
+function visibleTaskMutationError(
+  action:
+    | 'taskBoard.reorderPending'
+    | 'taskBoard.requeueErrorItem'
+    | 'taskBoard.deleteTask'
+    | 'taskBoard.moveToPending'
+    | 'taskBoard.moveToOpen',
+  fileName: string,
+): DesktopInvokeResult {
+  return {
+    ok: false,
+    action,
+    error: `${fileName} is not visible in the active context pack.`,
+  };
+}
+
+function findVisibleRegistryEntryForColumn(
+  column: TaskBoardContentColumn,
+  fileName: string,
+  scope: ActiveContextPackTaskScope | null,
+  registry: Awaited<ReturnType<typeof loadTaskRegistry>>,
+): TaskRegistryEntry | null {
+  for (const taskSet of Object.values(registry.tasks)) {
+    const candidates =
+      column === 'open'
+        ? taskSet.open
+        : column === 'pending'
+          ? [...taskSet.pending, ...taskSet.active]
+          : column === 'error'
+            ? taskSet.failed
+            : taskSet.completed;
+    const match = candidates.find((entry) => (
+      entry.fileName === fileName
+      && (
+        column === 'pending'
+          ? isPendingBoardEntry(entry)
+          : column === 'completed'
+            ? isCompletedBoardEntry(entry)
+            : true
+      )
+      && isRegistryEntryVisibleForScope(entry, scope)
+    ));
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+async function isFileVisibleForScope(options: {
+  fileName: string;
+  dir: string;
+  column: Exclude<TaskBoardContentColumn, 'completed'>;
+  scope: ActiveContextPackTaskScope;
+  registry: TaskRegistry;
+  fsAdapter?: ReadOnlyRepoFs;
+}): Promise<boolean> {
+  if (findVisibleRegistryEntryForColumn(options.column, options.fileName, options.scope, options.registry)) {
+    return true;
+  }
+
+  const visibleItems = await readVisibleTaskMarkdownItems(
+    options.dir,
+    options.scope,
+    options.fsAdapter ?? repoFs,
+  );
+  return visibleItems.some((item) => item.fileName === options.fileName);
+}
+
+async function resolveVisibleMutationContext(
+  listContextPacks?: ContextPackLister,
+): Promise<{ scope: ActiveContextPackTaskScope; registry: TaskRegistry } | null> {
+  if (!listContextPacks) {
+    return null;
+  }
+  const scope = await resolveActiveContextPackTaskScope(listContextPacks);
+  if (!scope) {
+    return null;
+  }
+  const registry = await loadTaskRegistry(REPO_ROOT);
+  return { scope, registry };
 }
 
 function registryEntryToPendingItem(
@@ -116,12 +180,15 @@ function registryEntryToPendingItem(
 }
 
 export async function readTaskBoard(
-  listContextPacks?: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
+  listContextPacks?: ContextPackLister,
   fsAdapter: ReadOnlyRepoFs = repoFs,
 ): Promise<DesktopInvokeResult> {
   try {
     const registry = await loadTaskRegistry(REPO_ROOT);
     const hasRegistryData = Object.keys(registry.tasks).length > 0;
+    const scope = listContextPacks
+      ? await resolveActiveContextPackTaskScope(listContextPacks)
+      : null;
 
     // QMD is the system of record for completed tasks. The registry's
     // `completed[]` is wiped by repairTaskRegistry on Electron startup
@@ -132,40 +199,29 @@ export async function readTaskBoard(
     // resolve completed from the QMD scan, regardless of which path handles
     // the other columns.
     let completedItems: ArchivedTaskEntry[] = [];
-    if (listContextPacks) {
-      const archivedResult = await listArchivedTasksAction(listContextPacks);
+    if (listContextPacks && scope) {
+      const archivedResult = await listArchivedTasksAction(listContextPacks, { scope });
       if (archivedResult.ok && 'tasks' in archivedResult.response) {
         completedItems = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks
           .slice(-10);
       }
     }
 
-    if (hasRegistryData) {
-      // Registry-first path: read from the centralized JSON index.
-      // Determine active context pack to scope the board.
-      let activePackId: string | null = null;
-      if (listContextPacks) {
-        const catalog = await listContextPacks();
-        const activeEntry = catalog.contextPacks.find((e) => e.isActive);
-        activePackId = activeEntry?.contextPackId ?? null;
-      }
+    if (!scope) {
+      const response: TaskBoardReadBoardResponse = {
+        action: 'taskBoard.readBoard',
+        mode: 'read-only',
+        message: '0 open, 0 pending, 0 failed, 0 completed.',
+        dropboxItems: [],
+        pendingItems: [],
+        errorItems: [],
+        completedItems,
+      };
+      return { ok: true, response };
+    }
 
-      // When scoped to a context pack, also include _unbound tasks so legacy
-      // tasks (created before registry) are always visible.
-      let tasks;
-      if (activePackId) {
-        const packTasks = getTasksForContextPack(registry, activePackId);
-        const unboundTasks = getTasksForContextPack(registry, '_unbound');
-        tasks = {
-          open: [...packTasks.open, ...unboundTasks.open],
-          pending: [...packTasks.pending, ...unboundTasks.pending],
-          active: [...packTasks.active, ...unboundTasks.active],
-          failed: [...packTasks.failed, ...unboundTasks.failed],
-          completed: [...packTasks.completed, ...unboundTasks.completed],
-        };
-      } else {
-        tasks = getAllTasks(registry);
-      }
+    if (hasRegistryData) {
+      const tasks = filterRegistryTaskSetsForScope(registry, scope);
 
       const dropboxItems = tasks.open.map(registryEntryToItem);
       const pendingItems = [
@@ -187,27 +243,38 @@ export async function readTaskBoard(
     }
 
     // Fallback: scan directories (legacy path when registry is empty).
-    const dropboxItems = await readBoardItems(DROPBOX_DIR);
-    const pendingRaw = await readBoardItems(PENDING_DIR);
+    const [dropboxRaw, pendingRaw, errorRaw, activeTaskIds] = await Promise.all([
+      readVisibleTaskMarkdownItems(DROPBOX_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(PENDING_DIR, scope, fsAdapter),
+      readVisibleTaskMarkdownItems(ERROR_ITEMS_DIR, scope, fsAdapter),
+      filterActiveTaskIdsForScope(
+        await (async () => {
+          if (!(await pathExists(ACTIVE_ITEMS_DIR, fsAdapter))) {
+            return [];
+          }
+          try {
+            return (await fsAdapter.readdir(ACTIVE_ITEMS_DIR))
+              .filter((entry) => !entry.startsWith('.') && !entry.endsWith('.completing'))
+              .sort();
+          } catch {
+            return [];
+          }
+        })(),
+        {
+          registry,
+          scope,
+          pendingDir: PENDING_DIR,
+          fsAdapter,
+        },
+      ),
+    ]);
+    const dropboxItems = boardItemsFromVisibleMarkdownItems(dropboxRaw);
 
-    // §5.3: Read active task from .active-items/ directory (per-task markers).
-    let activeFileName: string | null = null;
-    if (await pathExists(ACTIVE_ITEMS_DIR, fsAdapter)) {
-      try {
-        const entries = await fsAdapter.readdir(ACTIVE_ITEMS_DIR);
-        const firstMarker = entries.find((f) => !f.startsWith('.') && !f.endsWith('.completing'));
-        if (firstMarker) {
-          activeFileName = `${firstMarker}.md`;
-        }
-      } catch {
-        // Absent or unreadable — no active item.
-      }
-    }
+    const activeFileName = activeTaskIds[0] ? `${activeTaskIds[0]}.md` : null;
 
-    const QUEUE_ORDER_PATH = join(REPO_ROOT, '.platform-state', 'queue', 'queue-order.json');
-    const orderManifest = await readQueueOrderManifest(QUEUE_ORDER_PATH);
+    const orderManifest = await readQueueOrderManifest(resolveQueuePaths(REPO_ROOT).queueOrderPath);
     const orderMap = new Map(orderManifest.map((name, i) => [name, i]));
-    const sortedPending = [...pendingRaw].sort((a, b) => {
+    const sortedPending = [...boardItemsFromVisibleMarkdownItems(pendingRaw)].sort((a, b) => {
       const ai = orderMap.get(a.fileName) ?? Number.MAX_SAFE_INTEGER;
       const bi = orderMap.get(b.fileName) ?? Number.MAX_SAFE_INTEGER;
       if (ai !== bi) return ai - bi;
@@ -219,7 +286,7 @@ export async function readTaskBoard(
       state: (item.fileName === activeFileName ? 'active' : 'pending') as 'active' | 'pending',
     }));
 
-    const errorItems = await readBoardItems(ERROR_ITEMS_DIR);
+    const errorItems = boardItemsFromVisibleMarkdownItems(errorRaw);
 
     const response: TaskBoardReadBoardResponse = {
       action: 'taskBoard.readBoard',
@@ -285,7 +352,7 @@ export function formatCompletedBranchHandoffText(task: ArchivedTaskEntry): strin
 
 export async function readTaskContent(
   payload: TaskBoardReadTaskContentRequest['payload'],
-  listContextPacks?: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
     const { fileName, column } = payload;
@@ -301,38 +368,48 @@ export async function readTaskContent(
     let filePath: string;
     let archivedTask: ArchivedTaskEntry | null = null;
     if (column === 'completed') {
-      const taskId = base.replace(/\.md$/, '');
-      let archivePath: string | null = null;
-      if (listContextPacks) {
-        const archivedResult = await listArchivedTasksAction(listContextPacks);
-        if (archivedResult.ok && 'tasks' in archivedResult.response) {
-          const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
-          const match = tasks.find((t) => t.taskId === taskId);
-          if (match?.archivePath) {
-            archivePath = match.archivePath;
-            archivedTask = match;
-          }
-        }
-      }
-
-      // Registry completed entries are not durable, but older in-session
-      // records may still be the only source of an archive path.
-      if (!archivePath) {
-        const registry = await loadTaskRegistry(REPO_ROOT);
-        for (const taskSet of Object.values(registry.tasks)) {
-          const match = taskSet.completed.find((e) => e.taskId === taskId);
-          if (match?.archivePath) {
-            archivePath = match.archivePath;
-            break;
-          }
-        }
-      }
-
-      if (!archivePath) {
+      if (!listContextPacks) {
         return notFoundResult(base);
       }
-      filePath = archivePath;
+      const taskId = base.replace(/\.md$/, '');
+      const archivedResult = await listArchivedTasksAction(listContextPacks);
+      if (archivedResult.ok && 'tasks' in archivedResult.response) {
+        const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
+        const match = tasks.find((t) => t.taskId === taskId);
+        if (match?.archivePath) {
+          filePath = match.archivePath;
+          archivedTask = match;
+        } else {
+          const scope = await resolveActiveContextPackTaskScope(listContextPacks);
+          if (!scope) {
+            return notFoundResult(base);
+          }
+          const registry = await loadTaskRegistry(REPO_ROOT);
+          const registryMatch = filterRegistryTaskSetsForScope(registry, scope)
+            .completed
+            .find((entry) => entry.taskId === taskId && entry.archivePath);
+          if (!registryMatch?.archivePath) {
+            return notFoundResult(base);
+          }
+          filePath = registryMatch.archivePath;
+        }
+      } else {
+        return notFoundResult(base);
+      }
     } else {
+      const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+      const isVisible = mutationContext
+        ? await isFileVisibleForScope({
+        fileName: base,
+        dir: COLUMN_DIR_MAP[column],
+        column,
+        scope: mutationContext.scope,
+        registry: mutationContext.registry,
+          })
+        : false;
+      if (!isVisible) {
+        return notFoundResult(base);
+      }
       filePath = join(COLUMN_DIR_MAP[column], base);
     }
 
@@ -375,12 +452,78 @@ export async function readTaskContent(
 
 export async function reorderPending(
   payload: TaskBoardReorderPendingRequest['payload'],
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    if (!mutationContext) {
+      return visibleTaskMutationError('taskBoard.reorderPending', 'Pending queue');
+    }
+    const { scope, registry } = mutationContext;
+    const scopedTasks = filterRegistryTaskSetsForScope(registry, scope);
+    const registryPendingFileNames = [
+      ...scopedTasks.active,
+      ...scopedTasks.pending,
+    ]
+      .filter(isPendingBoardEntry)
+      .map((entry) => entry.fileName);
+    const visiblePendingItems = await readVisibleTaskMarkdownItems(PENDING_DIR, scope, repoFs);
+    const visiblePendingFileNames = [
+      ...new Set([
+        ...registryPendingFileNames,
+        ...visiblePendingItems.map((item) => item.fileName),
+      ]),
+    ];
+    const visiblePendingFileNameSet = new Set(visiblePendingFileNames);
+    const hiddenFile = payload.order.find((fileName) => !visiblePendingFileNameSet.has(fileName));
+    if (hiddenFile) {
+      return visibleTaskMutationError('taskBoard.reorderPending', hiddenFile);
+    }
+
     const queuePaths = resolveQueuePaths(REPO_ROOT);
     await withDirLock(queuePaths.queueLockDir, 'Reorder pending', async () => {
-      if (payload.order.length > 0) {
-        await writeQueueOrderManifest(queuePaths.queueOrderPath, payload.order);
+      const currentPendingEntries = await repoFs.readdir(PENDING_DIR);
+      const currentPendingFileNames = currentPendingEntries
+        .filter((entry) => entry.endsWith('.md') && !entry.startsWith('.'))
+        .sort();
+      const currentPendingSet = new Set(currentPendingFileNames);
+      const existingManifest = await readQueueOrderManifest(queuePaths.queueOrderPath);
+      const manifestPendingOrder = existingManifest.filter((fileName) => currentPendingSet.has(fileName));
+      const manifestPendingSet = new Set(manifestPendingOrder);
+      const fullPendingOrder = [
+        ...manifestPendingOrder,
+        ...currentPendingFileNames.filter((fileName) => !manifestPendingSet.has(fileName)),
+      ];
+      const nextVisibleOrder = [...payload.order];
+      const emitted = new Set<string>();
+      const mergedManifest: string[] = [];
+
+      for (const fileName of fullPendingOrder) {
+        if (!visiblePendingFileNameSet.has(fileName)) {
+          mergedManifest.push(fileName);
+          emitted.add(fileName);
+          continue;
+        }
+
+        const nextVisibleFileName = nextVisibleOrder.shift();
+        if (nextVisibleFileName && !emitted.has(nextVisibleFileName)) {
+          mergedManifest.push(nextVisibleFileName);
+          emitted.add(nextVisibleFileName);
+        } else if (!emitted.has(fileName)) {
+          mergedManifest.push(fileName);
+          emitted.add(fileName);
+        }
+      }
+
+      for (const fileName of nextVisibleOrder) {
+        if (!emitted.has(fileName)) {
+          mergedManifest.push(fileName);
+          emitted.add(fileName);
+        }
+      }
+
+      if (mergedManifest.length > 0) {
+        await writeQueueOrderManifest(queuePaths.queueOrderPath, mergedManifest);
       } else {
         try { await fsUnlink(queuePaths.queueOrderPath); } catch { /* absent */ }
       }
@@ -404,8 +547,19 @@ export async function reorderPending(
 
 export async function requeueErrorItem(
   payload: TaskBoardRequeueErrorItemRequest['payload'],
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    if (!mutationContext || !(await isFileVisibleForScope({
+      fileName: payload.fileName,
+      dir: ERROR_ITEMS_DIR,
+      column: 'error',
+      scope: mutationContext.scope,
+      registry: mutationContext.registry,
+    }))) {
+      return visibleTaskMutationError('taskBoard.requeueErrorItem', payload.fileName);
+    }
     const result = await requeueErrorItemImpl({
       fileName: payload.fileName,
       insertAtIndex: payload.insertAtIndex,
@@ -432,9 +586,20 @@ export async function requeueErrorItem(
 
 export async function deleteTask(
   payload: TaskBoardDeleteTaskRequest['payload'],
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
     const queueName = payload.fileName;
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    if (!mutationContext || !(await isFileVisibleForScope({
+      fileName: queueName,
+      dir: COLUMN_DIR_MAP[payload.column],
+      column: payload.column,
+      scope: mutationContext.scope,
+      registry: mutationContext.registry,
+    }))) {
+      return visibleTaskMutationError('taskBoard.deleteTask', queueName);
+    }
     switch (payload.column) {
       case 'open':
         await deleteDropboxItem({ queueName, repoRoot: REPO_ROOT });
@@ -467,8 +632,19 @@ export async function deleteTask(
 
 export async function moveToPending(
   payload: TaskBoardMoveToPendingRequest['payload'],
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    if (!mutationContext || !(await isFileVisibleForScope({
+      fileName: payload.fileName,
+      dir: DROPBOX_DIR,
+      column: 'open',
+      scope: mutationContext.scope,
+      registry: mutationContext.registry,
+    }))) {
+      return visibleTaskMutationError('taskBoard.moveToPending', payload.fileName);
+    }
     const result = await moveDropboxItemToPending({
       fileName: payload.fileName,
       insertAtIndex: payload.insertAtIndex,
@@ -495,8 +671,19 @@ export async function moveToPending(
 
 export async function moveToOpen(
   payload: TaskBoardMoveToOpenRequest['payload'],
+  listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    if (!mutationContext || !(await isFileVisibleForScope({
+      fileName: payload.fileName,
+      dir: ERROR_ITEMS_DIR,
+      column: 'error',
+      scope: mutationContext.scope,
+      registry: mutationContext.registry,
+    }))) {
+      return visibleTaskMutationError('taskBoard.moveToOpen', payload.fileName);
+    }
     const result = await moveErrorItemToDropbox({
       fileName: payload.fileName,
       repoRoot: REPO_ROOT,

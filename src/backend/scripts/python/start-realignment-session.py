@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -18,6 +20,7 @@ if str(ROOT_DIR) not in sys.path:
 from src.backend.mcp.reinforcement.models import ROLE_MULTIPLIERS
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 ACTIVE_ITEMS_DIR_RELATIVE_PATH = "AgentWorkSpace/pendingitems/.active-items"
 
@@ -49,6 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="start-realignment-session")
     args = parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
     context_pack_dir = Path(args.context_pack_dir).resolve()
@@ -65,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "activeTaskId": active_task,
         }
-        print(json.dumps(error), file=sys.stderr)
+        write_protocol_stderr(str(json.dumps(error)) + '\n')
         return 1
 
     store = ReinforcementStore(
@@ -79,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         participating_agents=list(ROLE_MULTIPLIERS.keys()),
     )
 
-    print(json.dumps(session.as_dict(), indent=2))
+    write_protocol_stdout(str(json.dumps(session.as_dict(), indent=2)) + '\n')
     return 0
 
 

@@ -54,6 +54,13 @@ describe('planner staging helpers', () => {
       primaryFocusRelativePath: 'src/handler.ts',
       primaryFocusTargetKind: 'file',
     })).toBe('backend / src/handler.ts (file)');
+
+    expect(derivePlannerDraftTitle({
+      primaryRepoId: 'src',
+      primaryRepoRoot: '/repos/src',
+      primaryFocusRelativePath: 'backend',
+      selectedFocusIds: ['backend', 'frontend'],
+    })).toBe('src (+2 focus areas)');
   });
 
   it('initializes an owned staged shell with sidecar metadata and lock ownership', async () => {
@@ -126,6 +133,45 @@ describe('planner staging helpers', () => {
     // Pack ID. Staging passes [] and the emitter skips the line entirely.
     expect(draft?.content).not.toContain('- Selected Repo IDs:');
     expect(draft?.content).toContain('- Primary Focus ID: platform-service');
+  });
+
+  it('preserves multiple standard monolith primary focus selections without singular primary focus metadata', async () => {
+    const { initializeStagedPlanningDraft, readOwnedStagedDraft, readPlannerStagingSidecar } = await import('../main.staging');
+
+    const metadata = await initializeStagedPlanningDraft({
+      sessionId: 'planner-monolith-multi',
+      contextPackDir: '/contextpacks/src',
+      focusedRepo: {
+        estateType: 'monolith',
+        primaryRepoId: 'src',
+        primaryRepoRoot: '/repos/src',
+        primaryFocusId: 'backend',
+        primaryFocusRelativePath: 'backend',
+        selectedRepoIds: [],
+        selectedFocusIds: ['backend', 'frontend'],
+      },
+      now: new Date('2026-03-04T05:06:07.000Z'),
+    });
+
+    expect(metadata.title).toBe('src (+2 focus areas)');
+    expect(metadata.primaryFocusRelativePath).toBeNull();
+    expect(metadata.contextPackBinding.primaryFocusId).toBeUndefined();
+    expect(metadata.contextPackBinding.selectedFocusIds).toEqual(['backend', 'frontend']);
+
+    const { draft } = await readOwnedStagedDraft('planner-monolith-multi');
+    expect(draft?.filename).toBe('20260304T050607Z_src-2-focus-areas.md');
+    expect(draft?.content).toContain('# src (+2 focus areas)');
+    expect(draft?.content).not.toContain('- Primary Repo ID:');
+    expect(draft?.content).not.toContain('- Selected Repo IDs:');
+    expect(draft?.content).not.toContain('- Primary Focus ID:');
+    expect(draft?.content).toContain('- Selected Focus IDs: backend, frontend');
+    await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
+      title: 'src (+2 focus areas)',
+      primaryFocusRelativePath: null,
+      contextPackBinding: expect.objectContaining({
+        selectedFocusIds: ['backend', 'frontend'],
+      }),
+    }));
   });
 
   it('persists Deep Focus staging metadata for planner-originated drafts', async () => {
@@ -546,5 +592,46 @@ describe('planner staging helpers', () => {
       draft: null,
       error: null,
     });
+  });
+
+  it('logs a structured rollback error when staging cleanup fails after a write failure', async () => {
+    const errorSpy = vi.fn();
+    vi.doMock('../log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: errorSpy,
+        child: vi.fn(),
+      }),
+    }));
+    const { initializeStagedPlanningDraft } = await import('../main.staging');
+
+    const stagingDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'dropbox', '.staging');
+    // Pre-create the draft path as a directory. The draft write then fails with
+    // EISDIR, and the rollback's unlink of that same path also fails — exercising
+    // the compound-failure branch the B7 patch instruments.
+    await mkdir(join(stagingDir, '20260102T030405Z_backend-services-orders.md'), { recursive: true });
+
+    await expect(initializeStagedPlanningDraft({
+      sessionId: 'planner-rollback',
+      contextPackDir: '/contextpacks/orders',
+      focusedRepo: {
+        estateType: 'distributed',
+        primaryRepoId: 'backend',
+        primaryRepoRoot: '/repos/backend',
+        primaryFocusRelativePath: 'services/orders',
+        selectedRepoIds: ['backend'],
+        selectedFocusIds: ['orders'],
+      },
+      now: new Date('2026-01-02T03:04:05.000Z'),
+    })).rejects.toThrow();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      'planner-staging.rollback.failed',
+      expect.any(Error),
+      expect.objectContaining({ sessionId: 'planner-rollback' }),
+    );
+    vi.doUnmock('../log/logger');
   });
 });

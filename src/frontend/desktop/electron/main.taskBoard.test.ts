@@ -1,22 +1,5 @@
 // @vitest-environment node
 
-/**
- * readTaskBoard "completed column" contract:
- *
- *   QMD is the system of record for completed tasks.
- *
- * The on-disk task registry's `completed[]` is wiped on Electron startup by
- * repairTaskRegistry — which scans dropbox/pendingitems/error-items but NOT
- * the QMD archive — leaving valid QMD-archived tasks orphaned in the registry.
- * If readTaskBoard derived `completedItems` from `registry.completed[]`, the
- * UI's completed selection would flap: archived .md files would appear
- * whenever the registry was empty (legacy fallback path) and silently vanish
- * after a repair sweep cleared `completed[]`.
- *
- * The contract: readTaskBoard MUST always resolve `completedItems` from the
- * QMD archive scan via listArchivedTasksAction, regardless of registry state.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
@@ -34,34 +17,159 @@ vi.mock('./paths', () => ({
   DESKTOP_ROOT: '/repo/src/frontend/desktop',
 }));
 
-vi.mock('../../../backend/platform/queue/taskRegistry.js', () => ({
+const {
+  pathExists,
+  repoFs,
+  readFile,
+  unlink,
+  loadTaskRegistry,
+  getRegistryPath,
+  listArchivedTasksAction,
+  readQueueOrderManifest,
+  writeQueueOrderManifest,
+  resolveQueuePaths,
+  withDirLock,
+  requeueErrorItemImpl,
+  deletePendingItem,
+  deleteDropboxItem,
+  deleteErrorItem,
+  moveDropboxItemToPending,
+  moveErrorItemToDropbox,
+} = vi.hoisted(() => ({
+  pathExists: vi.fn(async () => true),
+  repoFs: {
+    access: vi.fn<(path: string) => Promise<void>>(async () => undefined),
+    readFile: vi.fn<(path: string, encoding: BufferEncoding) => Promise<string>>(async () => ''),
+    readdir: vi.fn<(path: string) => Promise<string[]>>(async () => [] as string[]),
+  },
+  readFile: vi.fn(async () => ''),
+  unlink: vi.fn(async () => undefined),
   loadTaskRegistry: vi.fn(),
-  getAllTasks: vi.fn(),
-  getTasksForContextPack: vi.fn(),
-  getRegistryPath: vi.fn(() => '/repo/.platform-state/queue/task-registry.json'),
+  getRegistryPath: vi.fn(() => '/repo/.platform-state/task-registry.json'),
+  listArchivedTasksAction: vi.fn(),
+  readQueueOrderManifest: vi.fn<() => Promise<string[]>>(async () => []),
+  writeQueueOrderManifest: vi.fn(async () => undefined),
+  resolveQueuePaths: vi.fn(() => ({
+    queueLockDir: '/repo/.platform-state/queue/lock',
+    queueOrderPath: '/repo/.platform-state/queue/queue-order.json',
+  })),
+  withDirLock: vi.fn(async (_dir: string, _label: string, callback: () => Promise<void>) => callback()),
+  requeueErrorItemImpl: vi.fn(async () => ({
+    requeuedItem: 'TASK-A.md',
+    activatedItem: null,
+  })),
+  deletePendingItem: vi.fn(async () => undefined),
+  deleteDropboxItem: vi.fn(async () => undefined),
+  deleteErrorItem: vi.fn(async () => undefined),
+  moveDropboxItemToPending: vi.fn(async () => ({
+    movedItem: 'TASK-A.md',
+    activatedItem: null,
+  })),
+  moveErrorItemToDropbox: vi.fn(async () => ({
+    movedItem: 'TASK-A.md',
+  })),
+}));
+
+vi.mock('./utils', () => ({
+  pathExists,
+  repoFs,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile,
+    unlink,
+  };
+});
+
+vi.mock('../../../backend/platform/queue/taskRegistry.js', () => ({
+  loadTaskRegistry,
+  getRegistryPath,
 }));
 
 vi.mock('./main.archivedTasks', () => ({
-  listArchivedTasksAction: vi.fn(),
+  listArchivedTasksAction,
+}));
+
+vi.mock('../../../backend/platform/queue', () => ({
+  readQueueOrderManifest,
+  writeQueueOrderManifest,
+  resolveQueuePaths,
+  withDirLock,
+  requeueErrorItem: requeueErrorItemImpl,
+  deletePendingItem,
+  deleteDropboxItem,
+  deleteErrorItem,
+  moveDropboxItemToPending,
+  moveErrorItemToDropbox,
 }));
 
 import {
-  loadTaskRegistry,
-  getAllTasks,
-  getTasksForContextPack,
-} from '../../../backend/platform/queue/taskRegistry.js';
-import { listArchivedTasksAction } from './main.archivedTasks';
-import { formatCompletedBranchHandoffText, readTaskBoard } from './main.taskBoard';
+  deleteTask,
+  formatCompletedBranchHandoffText,
+  moveToOpen,
+  moveToPending,
+  readTaskBoard,
+  readTaskContent,
+  reorderPending,
+  requeueErrorItem,
+} from './main.taskBoard';
 import type {
   ArchivedTaskEntry,
   ContextPackListResponse,
   TaskBoardReadBoardResponse,
 } from '../src/shared/desktopContract';
 
-const mockLoadTaskRegistry = vi.mocked(loadTaskRegistry);
-const mockGetAllTasks = vi.mocked(getAllTasks);
-const mockGetTasksForContextPack = vi.mocked(getTasksForContextPack);
-const mockListArchivedTasksAction = vi.mocked(listArchivedTasksAction);
+function contextPackList(activePackId: string | null): ContextPackListResponse {
+  return {
+    action: 'contextPack.list',
+    mode: 'read-only',
+    message: 'Context packs listed.',
+    activeContextPackDir: activePackId ? `/packs/${activePackId}` : null,
+    configuredPaths: [],
+    searchRoots: [],
+    recentContextPackDirs: [],
+    contextPacks: activePackId ? [
+      {
+        contextPackId: activePackId,
+        displayName: activePackId,
+        contextPackDir: `/packs/${activePackId}`,
+        manifestPath: null,
+        bootstrapReady: true,
+        source: 'configured-path',
+        isActive: true,
+        estateType: null,
+        defaultScopeMode: null,
+        repoCount: 0,
+        primaryWorkingRepoIds: [],
+        focusTargets: [],
+      },
+    ] : [],
+  };
+}
+
+function taskEntry(
+  taskId: string,
+  state: 'open' | 'pending' | 'active' | 'failed' | 'completed',
+  contextPackId: string | null,
+): Record<string, unknown> {
+  return {
+    taskId,
+    fileName: `${taskId}.md`,
+    title: `Title ${taskId}`,
+    state,
+    contextPackId,
+    contextPackDir: contextPackId ? `/packs/${contextPackId}` : null,
+    scopeMode: null,
+    selectedRepoIds: [],
+    selectedFocusIds: [],
+    createdAt: '2026-05-16T00:00:00Z',
+    completedAt: null,
+    archivePath: state === 'completed' ? `/archive/${taskId}.md` : null,
+  };
+}
 
 function archivedTask(taskId: string): ArchivedTaskEntry {
   return {
@@ -77,149 +185,458 @@ function archivedTask(taskId: string): ArchivedTaskEntry {
   };
 }
 
-function emptyContextPackList(): ContextPackListResponse {
-  return {
-    action: 'contextPack.list',
-    mode: 'read-only',
-    message: 'Context packs listed.',
-    activeContextPackDir: null,
-    configuredPaths: [],
-    searchRoots: [],
-    recentContextPackDirs: [],
-    contextPacks: [],
-  };
+function bindingMarkdown(taskId: string, contextPackId: string): string {
+  return [
+    `# ${taskId}`,
+    '',
+    '## Task Metadata',
+    '',
+    `- Task ID: ${taskId}`,
+    '',
+    '## Context Pack Binding',
+    '',
+    `- Context Pack Dir: /packs/${contextPackId}`,
+    `- Context Pack ID: ${contextPackId}`,
+    '- Scope Mode: focused',
+  ].join('\n');
 }
 
-describe('readTaskBoard — completed column reads QMD as system of record', () => {
+describe('main.taskBoard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {},
+    });
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Archived tasks found.',
+        tasks: [],
+      },
+    });
+    repoFs.readdir.mockResolvedValue([]);
+    repoFs.readFile.mockResolvedValue('');
+    readFile.mockResolvedValue('');
+    pathExists.mockResolvedValue(true);
   });
 
-  it('returns QMD-archived tasks even when the registry has populated open/pending/failed entries (Path A)', async () => {
-    // Registry has data → hasRegistryData=true → Path A fires.
-    // Critically, registry.tasks._unbound.completed is EMPTY — this simulates
-    // the post-repairTaskRegistry state where completed[] was wiped.
-    mockLoadTaskRegistry.mockResolvedValue({
+  it('shows only active-pack registry entries and hides other packs plus _unbound tasks', async () => {
+    loadTaskRegistry.mockResolvedValue({
       schema_version: 2,
       tasks: {
+        'pack-a': {
+          open: [taskEntry('OPEN-A', 'open', 'pack-a')],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [taskEntry('FAILED-A', 'failed', 'pack-a')],
+          completed: [taskEntry('DONE-A', 'completed', 'pack-a')],
+        },
+        'pack-b': {
+          open: [taskEntry('OPEN-B', 'open', 'pack-b')],
+          pending: [taskEntry('PENDING-B', 'pending', 'pack-b')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
         _unbound: {
-          open: [
-            {
-              taskId: 'open-1',
-              fileName: 'open-1.md',
-              title: 'Open task',
-              state: 'open',
-              contextPackId: null,
-              contextPackDir: null,
-              scopeMode: null,
-              selectedRepoIds: [],
-              selectedFocusIds: [],
-              createdAt: '2026-04-26T00:00:00Z',
-              completedAt: null,
-              archivePath: null,
-            },
-          ],
+          open: [taskEntry('OPEN-U', 'open', null)],
           pending: [],
           active: [],
           failed: [],
-          completed: [], // wiped by repairTaskRegistry
+          completed: [],
         },
       },
     });
-
-    mockGetAllTasks.mockReturnValue({
-      open: [
-        {
-          taskId: 'open-1',
-          fileName: 'open-1.md',
-          title: 'Open task',
-          state: 'open',
-          contextPackId: null,
-          contextPackDir: null,
-          scopeMode: null,
-          selectedRepoIds: [],
-          selectedFocusIds: [],
-          createdAt: '2026-04-26T00:00:00Z',
-          completedAt: null,
-          archivePath: null,
-        },
-      ],
-      pending: [],
-      active: [],
-      failed: [],
-      completed: [],
-    });
-    mockGetTasksForContextPack.mockReturnValue({
-      open: [], pending: [], active: [], failed: [], completed: [],
-    });
-
-    // QMD scan returns one archived task.
-    const archived = archivedTask('20260408t003544z-platform');
-    mockListArchivedTasksAction.mockResolvedValue({
+    listArchivedTasksAction.mockResolvedValue({
       ok: true,
       response: {
         action: 'planner.listArchivedTasks',
         mode: 'found',
-        message: '1 archived task.',
-        tasks: [archived],
+        message: 'Archived tasks found.',
+        tasks: [archivedTask('DONE-A')],
       },
     });
 
-    const listContextPacks = vi.fn().mockResolvedValue(emptyContextPackList());
-
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
     const result = await readTaskBoard(listContextPacks);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return; // narrow for TS
+    if (!result.ok) {
+      return;
+    }
     const response = result.response as TaskBoardReadBoardResponse;
-    expect(response.completedItems).toEqual([archived]);
-    expect(response.dropboxItems).toHaveLength(1);
-    expect(mockListArchivedTasksAction).toHaveBeenCalledWith(listContextPacks);
+    expect(response.dropboxItems.map((item) => item.taskId)).toEqual(['OPEN-A']);
+    expect(response.pendingItems.map((item) => item.taskId)).toEqual(['ACTIVE-A', 'PENDING-A']);
+    expect(response.errorItems.map((item) => item.taskId)).toEqual(['FAILED-A']);
+    expect(response.completedItems.map((item) => item.taskId)).toEqual(['DONE-A']);
+    expect(listContextPacks).toHaveBeenCalledTimes(1);
+    expect(listArchivedTasksAction).toHaveBeenCalledWith(
+      listContextPacks,
+      { scope: expect.objectContaining({ contextPackId: 'pack-a' }) },
+    );
   });
 
-  it('returns QMD-archived tasks when the registry is fully empty (Path B fallback)', async () => {
-    // Registry has NO data → hasRegistryData=false → Path B fires.
-    // The QMD scan must still drive the completed column.
-    mockLoadTaskRegistry.mockResolvedValue({
+  it('returns empty task arrays when no active context pack exists', async () => {
+    loadTaskRegistry.mockResolvedValue({
       schema_version: 2,
-      tasks: {},
-    });
-
-    const archived = archivedTask('20260408t003544z-platform');
-    mockListArchivedTasksAction.mockResolvedValue({
-      ok: true,
-      response: {
-        action: 'planner.listArchivedTasks',
-        mode: 'found',
-        message: '1 archived task.',
-        tasks: [archived],
+      tasks: {
+        'pack-a': {
+          open: [taskEntry('OPEN-A', 'open', 'pack-a')],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
       },
     });
 
-    const listContextPacks = vi.fn().mockResolvedValue(emptyContextPackList());
-
-    const result = await readTaskBoard(listContextPacks);
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList(null)));
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const response = result.response as TaskBoardReadBoardResponse;
-    expect(response.completedItems).toEqual([archived]);
-  });
-
-  it('returns empty completed list when listContextPacks is not provided (no QMD scan possible)', async () => {
-    // No lister → cannot scan QMD → completedItems must be empty (not throw).
-    mockLoadTaskRegistry.mockResolvedValue({
-      schema_version: 2,
-      tasks: {},
-    });
-
-    const result = await readTaskBoard();
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.dropboxItems).toEqual([]);
+    expect(response.pendingItems).toEqual([]);
+    expect(response.errorItems).toEqual([]);
     expect(response.completedItems).toEqual([]);
-    expect(mockListArchivedTasksAction).not.toHaveBeenCalled();
+  });
+
+  it('filters fallback filesystem scans by markdown context pack binding', async () => {
+    const fsAdapter = {
+      access: vi.fn(async () => undefined),
+      readdir: vi.fn(async (dir: string) => {
+        if (dir.endsWith('/dropbox')) {
+          return ['OPEN-A.md', 'OPEN-B.md'];
+        }
+        if (dir.endsWith('/pendingitems')) {
+          return ['TASK-A.md', 'TASK-B.md'];
+        }
+        if (dir.endsWith('/pendingitems/.active-items')) {
+          return ['TASK-A'];
+        }
+        if (dir.endsWith('/error-items')) {
+          return ['ERROR-A.md', 'ERROR-B.md'];
+        }
+        return [];
+      }),
+      readFile: vi.fn(async (filePath: string) => {
+        if (filePath.endsWith('OPEN-A.md')) return bindingMarkdown('OPEN-A', 'pack-a');
+        if (filePath.endsWith('OPEN-B.md')) return bindingMarkdown('OPEN-B', 'pack-b');
+        if (filePath.endsWith('TASK-A.md')) return bindingMarkdown('TASK-A', 'pack-a');
+        if (filePath.endsWith('TASK-B.md')) return bindingMarkdown('TASK-B', 'pack-b');
+        if (filePath.endsWith('ERROR-A.md')) return bindingMarkdown('ERROR-A', 'pack-a');
+        if (filePath.endsWith('ERROR-B.md')) return bindingMarkdown('ERROR-B', 'pack-b');
+        return '';
+      }),
+    };
+
+    const result = await readTaskBoard(
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+      fsAdapter,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.dropboxItems.map((item) => item.taskId)).toEqual(['OPEN-A']);
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({ taskId: 'TASK-A', state: 'active' }),
+    ]);
+    expect(response.errorItems.map((item) => item.taskId)).toEqual(['ERROR-A']);
+  });
+
+  it('does not mark a visible fallback pending item active from a hidden pack active marker', async () => {
+    const fsAdapter = {
+      access: vi.fn(async () => undefined),
+      readdir: vi.fn(async (dir: string) => {
+        if (dir.endsWith('/dropbox')) {
+          return [];
+        }
+        if (dir.endsWith('/pendingitems')) {
+          return ['TASK-A.md', 'TASK-B.md'];
+        }
+        if (dir.endsWith('/pendingitems/.active-items')) {
+          return ['TASK-B'];
+        }
+        if (dir.endsWith('/error-items')) {
+          return [];
+        }
+        return [];
+      }),
+      readFile: vi.fn(async (filePath: string) => {
+        if (filePath.endsWith('TASK-A.md')) return bindingMarkdown('TASK-A', 'pack-a');
+        if (filePath.endsWith('TASK-B.md')) return bindingMarkdown('TASK-B', 'pack-b');
+        return '';
+      }),
+    };
+
+    const result = await readTaskBoard(
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+      fsAdapter,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({ taskId: 'TASK-A', state: 'pending' }),
+    ]);
+  });
+
+  it('returns not-found for hidden task content without reading the file body', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-b': {
+          open: [taskEntry('TASK-B', 'open', 'pack-b')],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    const result = await readTaskContent(
+      { column: 'open', fileName: 'TASK-B.md' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.readTaskContent',
+        mode: 'not-found',
+        fileName: 'TASK-B.md',
+      }),
+    });
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  it('returns active-pack task content when the requested queue item is visible', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('TASK-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readFile.mockResolvedValue('# Task A\n\nBody for pack A.');
+
+    const result = await readTaskContent(
+      { column: 'pending', fileName: 'TASK-A.md' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.readTaskContent',
+        mode: 'found',
+        fileName: 'TASK-A.md',
+        content: '# Task A\n\nBody for pack A.',
+      }),
+    });
+    expect(readFile).toHaveBeenCalledWith('/repo/AgentWorkSpace/pendingitems/TASK-A.md', 'utf-8');
+  });
+
+  it('reads completed content only from the active context-pack archive listing', async () => {
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Archived tasks found.',
+        tasks: [archivedTask('DONE-A')],
+      },
+    });
+    readFile.mockResolvedValue('# Done A\n\nArchived content.');
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+
+    await expect(
+      readTaskContent({ column: 'completed', fileName: 'DONE-B.md' }, listContextPacks),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.readTaskContent',
+        mode: 'not-found',
+        fileName: 'DONE-B.md',
+      }),
+    });
+    expect(readFile).not.toHaveBeenCalled();
+
+    const result = await readTaskContent(
+      { column: 'completed', fileName: 'DONE-A.md' },
+      listContextPacks,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.readTaskContent',
+        mode: 'found',
+        fileName: 'DONE-A.md',
+        content: '# Done A\n\nArchived content.',
+      }),
+    });
+    expect(readFile).toHaveBeenCalledWith(
+      '/repo/AgentWorkSpace/qmd/context-packs/pack-a/archive/tasks/2026/DONE-A/archive.md',
+      'utf-8',
+    );
+  });
+
+  it('rejects hidden task mutations without calling queue helpers', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-b': {
+          open: [taskEntry('OPEN-B', 'open', 'pack-b')],
+          pending: [taskEntry('PENDING-B', 'pending', 'pack-b')],
+          active: [],
+          failed: [taskEntry('ERROR-B', 'failed', 'pack-b')],
+          completed: [],
+        },
+      },
+    });
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+
+    await expect(deleteTask({ column: 'pending', fileName: 'PENDING-B.md' }, listContextPacks))
+      .resolves.toEqual(expect.objectContaining({ ok: false }));
+    await expect(moveToPending({ fileName: 'OPEN-B.md', insertAtIndex: 0 }, listContextPacks))
+      .resolves.toEqual(expect.objectContaining({ ok: false }));
+    await expect(moveToOpen({ fileName: 'ERROR-B.md' }, listContextPacks))
+      .resolves.toEqual(expect.objectContaining({ ok: false }));
+    await expect(requeueErrorItem({ fileName: 'ERROR-B.md', insertAtIndex: 0 }, listContextPacks))
+      .resolves.toEqual(expect.objectContaining({ ok: false }));
+
+    expect(deletePendingItem).not.toHaveBeenCalled();
+    expect(moveDropboxItemToPending).not.toHaveBeenCalled();
+    expect(moveErrorItemToDropbox).not.toHaveBeenCalled();
+    expect(requeueErrorItemImpl).not.toHaveBeenCalled();
+  });
+
+  it('resolves context-pack scope and registry at most once per visible mutation handler', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [taskEntry('OPEN-A', 'open', 'pack-a')],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [taskEntry('ERROR-A', 'failed', 'pack-a')],
+          completed: [],
+        },
+      },
+    });
+
+    const cases: Array<(listContextPacks: () => Promise<ContextPackListResponse>) => Promise<unknown>> = [
+      (listContextPacks) => requeueErrorItem({ fileName: 'ERROR-A.md', insertAtIndex: 0 }, listContextPacks),
+      (listContextPacks) => deleteTask({ column: 'pending', fileName: 'PENDING-A.md' }, listContextPacks),
+      (listContextPacks) => moveToPending({ fileName: 'OPEN-A.md', insertAtIndex: 0 }, listContextPacks),
+      (listContextPacks) => moveToOpen({ fileName: 'ERROR-A.md' }, listContextPacks),
+    ];
+
+    for (const run of cases) {
+      vi.clearAllMocks();
+      loadTaskRegistry.mockResolvedValue({
+        schema_version: 2,
+        tasks: {
+          'pack-a': {
+            open: [taskEntry('OPEN-A', 'open', 'pack-a')],
+            pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+            active: [],
+            failed: [taskEntry('ERROR-A', 'failed', 'pack-a')],
+            completed: [],
+          },
+        },
+      });
+      const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+      const result = await run(listContextPacks);
+      expect(result).toEqual(expect.objectContaining({ ok: true }));
+      expect(listContextPacks).toHaveBeenCalledTimes(1);
+      expect(loadTaskRegistry).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('rejects pending reorder payloads that include hidden filenames', async () => {
+    repoFs.readdir.mockResolvedValue(['HIDDEN-B.md', 'VISIBLE-A.md']);
+    repoFs.readFile.mockImplementation(async (filePath: string, _encoding: BufferEncoding) => {
+      if (filePath.endsWith('VISIBLE-A.md')) {
+        return bindingMarkdown('VISIBLE-A', 'pack-a');
+      }
+      if (filePath.endsWith('HIDDEN-B.md')) {
+        return bindingMarkdown('HIDDEN-B', 'pack-b');
+      }
+      return '';
+    });
+
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+    const result = await reorderPending(
+      { order: ['VISIBLE-A.md', 'HIDDEN-B.md'] },
+      listContextPacks,
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'taskBoard.reorderPending',
+      error: 'HIDDEN-B.md is not visible in the active context pack.',
+    }));
+    expect(listContextPacks).toHaveBeenCalledTimes(1);
+    expect(loadTaskRegistry).toHaveBeenCalledTimes(1);
+    expect(writeQueueOrderManifest).not.toHaveBeenCalled();
+  });
+
+  it('merges visible pending reorder updates without dropping hidden filenames', async () => {
+    repoFs.readdir.mockResolvedValue(['HIDDEN-B.md', 'HIDDEN-C.md', 'VISIBLE-A.md', 'VISIBLE-D.md']);
+    repoFs.readFile.mockImplementation(async (filePath: string, _encoding: BufferEncoding) => {
+      if (filePath.endsWith('VISIBLE-A.md')) {
+        return bindingMarkdown('VISIBLE-A', 'pack-a');
+      }
+      if (filePath.endsWith('VISIBLE-D.md')) {
+        return bindingMarkdown('VISIBLE-D', 'pack-a');
+      }
+      if (filePath.endsWith('HIDDEN-B.md')) {
+        return bindingMarkdown('HIDDEN-B', 'pack-b');
+      }
+      if (filePath.endsWith('HIDDEN-C.md')) {
+        return bindingMarkdown('HIDDEN-C', 'pack-b');
+      }
+      return '';
+    });
+    readQueueOrderManifest.mockResolvedValue([
+      'HIDDEN-B.md',
+      'VISIBLE-A.md',
+      'HIDDEN-C.md',
+      'VISIBLE-D.md',
+    ]);
+
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+    const result = await reorderPending(
+      { order: ['VISIBLE-D.md', 'VISIBLE-A.md'] },
+      listContextPacks,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(listContextPacks).toHaveBeenCalledTimes(1);
+    expect(loadTaskRegistry).toHaveBeenCalledTimes(1);
+    expect(writeQueueOrderManifest).toHaveBeenCalledWith(
+      '/repo/.platform-state/queue/queue-order.json',
+      ['HIDDEN-B.md', 'VISIBLE-D.md', 'HIDDEN-C.md', 'VISIBLE-A.md'],
+    );
   });
 
   it('formats completed task branch handoff text for manual operator review', () => {

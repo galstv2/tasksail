@@ -6,7 +6,10 @@ import {
   DESKTOP_SHELL_INVOKE_CHANNEL,
   DESKTOP_SHELL_STREAM_CHANNEL,
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
+  DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+  CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
 } from '../src/shared/desktopContract';
+import { LOG_EMIT_CHANNEL } from '../src/shared/desktopContractLogging';
 
 const exposeInMainWorld = vi.fn();
 const invoke = vi.fn();
@@ -27,6 +30,7 @@ vi.mock('electron', () => ({
 describe('electron preload bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invoke.mockResolvedValue(undefined);
   });
 
   it('exposes the desktop shell API through the context bridge', async () => {
@@ -67,12 +71,14 @@ describe('electron preload bridge', () => {
         checkActiveWorkGuard: expect.any(Function),
         startRealignment: expect.any(Function),
         runRealignmentAnalysis: expect.any(Function),
+        dismissRealignment: expect.any(Function),
         loadAgentConfig: expect.any(Function),
         loadModelCatalog: expect.any(Function),
         saveAgentModels: expect.any(Function),
         addModel: expect.any(Function),
         removeModel: expect.any(Function),
         describeActiveProvider: expect.any(Function),
+        log: expect.objectContaining({ emit: expect.any(Function) }),
       }),
     );
   });
@@ -96,6 +102,24 @@ describe('electron preload bridge', () => {
     expect(bootstrapInfo.versions).toHaveProperty('chrome');
     expect(bootstrapInfo.versions).toHaveProperty('electron');
     expect(bootstrapInfo.versions.node).toEqual(expect.any(String));
+  });
+
+  it('passes renderer log payloads through the dedicated log channel', async () => {
+    const { desktopShellApi } = await import('./preload');
+    const payload = validLogPayload();
+
+    await desktopShellApi.log.emit(payload);
+
+    expect(invoke).toHaveBeenCalledWith(LOG_EMIT_CHANNEL, payload);
+  });
+
+  it('does not validate renderer log payloads in preload', async () => {
+    const { desktopShellApi } = await import('./preload');
+    const { task_id: _taskId, ...payload } = validLogPayload();
+
+    await desktopShellApi.log.emit(payload as Parameters<typeof desktopShellApi.log.emit>[0]);
+
+    expect(invoke).toHaveBeenCalledWith(LOG_EMIT_CHANNEL, payload);
   });
 
   it('invokes only approved IPC channels and does not expose unrestricted shell methods', async () => {
@@ -123,6 +147,8 @@ describe('electron preload bridge', () => {
     await desktopShellApi.getQueueStatus();
     await desktopShellApi.getEnvironmentStatus();
     await desktopShellApi.getObservabilitySnapshot();
+    await desktopShellApi.setTerminalTaskScope('feedbeef-1234-4234-9234-123456789abc');
+    await desktopShellApi.setTerminalTaskScope(null);
     await desktopShellApi.initiateFollowUp(
       {
         taskKind: 'child-task',
@@ -248,6 +274,14 @@ describe('electron preload bridge', () => {
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'observability.readSnapshot',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: 'feedbeef-1234-4234-9234-123456789abc' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'terminal.setTaskScope',
+      payload: { taskGuid: null },
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'followup.begin',
@@ -476,7 +510,6 @@ describe('electron preload bridge', () => {
     it('drops malformed stream events missing required fields', async () => {
       const { desktopShellApi } = await import('./preload');
       const callback = vi.fn();
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       desktopShellApi.onStreamEvent(callback);
 
       const handler = on.mock.calls.find(
@@ -487,8 +520,12 @@ describe('electron preload bridge', () => {
       handler!({} as Electron.IpcRendererEvent, { id: 'evt-1', message: 'Hello' });
       handler!({} as Electron.IpcRendererEvent, null);
       expect(callback).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledTimes(3);
-      warnSpy.mockRestore();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls).toHaveLength(3);
+      expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.stream-event.malformed',
+        extra: { data: { id: 'evt-1', role: 'swe' } },
+      });
     });
   });
 
@@ -515,7 +552,6 @@ describe('electron preload bridge', () => {
     it('drops malformed planner events missing required fields', async () => {
       const { desktopShellApi } = await import('./preload');
       const callback = vi.fn();
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       desktopShellApi.onPlannerEvent(callback);
 
       const handler = on.mock.calls.find(
@@ -537,8 +573,126 @@ describe('electron preload bridge', () => {
       });
       handler!({} as Electron.IpcRendererEvent, 'not-an-object');
       expect(callback).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledTimes(4);
-      warnSpy.mockRestore();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls).toHaveLength(4);
+      expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.planner-event.malformed',
+        extra: {
+          plannerEvent: {
+            eventType: 'planner.turn.completed',
+            brokerStatus: 'idle',
+          },
+        },
+      });
+    });
+  });
+
+  describe('onTaskBoardUpdate validation', () => {
+    it('invokes callback for well-formed task board updates', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskBoardUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+      )?.[1];
+      expect(handler).toBeDefined();
+
+      const validBoard = { action: 'taskBoard.readBoard', mode: 'read-only' };
+      handler!({} as Electron.IpcRendererEvent, validBoard);
+      expect(callback).toHaveBeenCalledWith(validBoard);
+    });
+
+    it('drops malformed task board updates and logs a structured warning', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskBoardUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+      )?.[1];
+
+      handler!({} as Electron.IpcRendererEvent, { action: 'taskBoard.somethingElse' });
+      handler!({} as Electron.IpcRendererEvent, null);
+      expect(callback).not.toHaveBeenCalled();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls).toHaveLength(2);
+      expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.task-board-update.malformed',
+        extra: { action: 'taskBoard.somethingElse', type: 'object' },
+      });
+      expect(logCalls[1]?.[1]).toMatchObject({
+        msg: 'preload.task-board-update.malformed',
+        extra: { action: null, type: 'object' },
+      });
+    });
+  });
+
+  describe('subscribeContextPackCatalogChanged validation', () => {
+    it('invokes callback for well-formed context-pack catalog events', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.subscribeContextPackCatalogChanged(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
+      )?.[1];
+      expect(handler).toBeDefined();
+
+      const validEvent = {
+        changedRoot: '/tmp/contextpacks',
+        reason: 'rename',
+      } as const;
+      handler!({} as Electron.IpcRendererEvent, validEvent);
+      expect(callback).toHaveBeenCalledWith(validEvent);
+    });
+
+    it('drops malformed context-pack catalog events and logs a structured warning', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.subscribeContextPackCatalogChanged(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
+      )?.[1];
+
+      handler!({} as Electron.IpcRendererEvent, {
+        changedRoot: '/tmp/contextpacks',
+        reason: 'invalid-reason',
+      });
+      handler!({} as Electron.IpcRendererEvent, { reason: 'rename' });
+      handler!({} as Electron.IpcRendererEvent, null);
+
+      expect(callback).not.toHaveBeenCalled();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls).toHaveLength(3);
+      expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.context-pack-catalog-event.malformed',
+        extra: { reason: 'invalid-reason', type: 'object' },
+      });
+      expect(logCalls[1]?.[1]).toMatchObject({
+        msg: 'preload.context-pack-catalog-event.malformed',
+        extra: { reason: 'rename', type: 'object' },
+      });
+      expect(logCalls[2]?.[1]).toMatchObject({
+        msg: 'preload.context-pack-catalog-event.malformed',
+        extra: { reason: null, type: 'object' },
+      });
     });
   });
 });
+
+function validLogPayload() {
+  return {
+    ts: '2026-05-12T14:23:01.482Z',
+    level: 'info',
+    stack: 'renderer',
+    module: 'src/renderer/preload-test',
+    msg: 'preload.test',
+    pid: 0,
+    task_id: null,
+    agent_id: null,
+    provider_id: null,
+    span_id: null,
+  } as const;
+}

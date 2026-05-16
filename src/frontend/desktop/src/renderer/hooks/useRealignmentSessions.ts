@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../shared/desktopContract';
+import { createLogger } from '../log/logger';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 
@@ -12,6 +13,7 @@ export type UseRealignmentSessionsResult = {
   analysisRun: RealignmentAnalysisRunState;
   onSelectSession: (sessionId: string | null) => void;
   runAnalysis: (contextPackDir: string, realignmentId: string) => Promise<void>;
+  dismissRealignment: (contextPackDir: string, realignmentId: string) => Promise<void>;
   completeAnalysisRun: (message: string) => void;
   reload: () => Promise<void>;
 };
@@ -23,6 +25,8 @@ export type RealignmentAnalysisRunState =
   | { status: 'skipped'; realignmentId: string; message: string }
   | { status: 'error'; realignmentId: string; message: string }
   | { status: 'completed'; realignmentId: string; message: string };
+
+const log = createLogger('src/renderer/hooks/useRealignmentSessions');
 
 export function useRealignmentSessions(
   hasActiveContextPack: boolean,
@@ -113,6 +117,76 @@ export function useRealignmentSessions(
     [client, load],
   );
 
+  const dismissRealignment = useCallback(
+    async (contextPackDir: string, realignmentId: string) => {
+      try {
+        const result = await client.dismissRealignment({ contextPackDir, realignmentId });
+        if (result.ok && result.response.action === 'reinforcement.dismissRealignment') {
+          setSessions((current) => current.filter((session) => session.realignmentId !== realignmentId));
+          setSelectedSessionId((current) => (current === realignmentId ? null : current));
+          await load();
+          return;
+        }
+        if (!result.ok) {
+          log.warn('realignment.dismiss.failed', {
+            contextPackDir,
+            realignmentId,
+            reason: result.error,
+          });
+          setAnalysisRun({
+            status: 'error',
+            realignmentId,
+            message: result.error,
+          });
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to dismiss realignment.';
+        log.warn('realignment.dismiss.failed', {
+          contextPackDir,
+          realignmentId,
+          reason: message,
+        });
+        setAnalysisRun({
+          status: 'error',
+          realignmentId,
+          message,
+        });
+      }
+    },
+    [client, load],
+  );
+
+  useEffect(() => {
+    if (!sessions.some((session) => session.status === 'running')) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      load().catch(() => {});
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [load, sessions]);
+
+  useEffect(() => {
+    if (analysisRun.status !== 'starting' && analysisRun.status !== 'running') {
+      return;
+    }
+    const session = sessions.find((entry) => entry.realignmentId === analysisRun.realignmentId);
+    if (!session) return;
+    if (session.status === 'error') {
+      setAnalysisRun({
+        status: 'error',
+        realignmentId: session.realignmentId,
+        message: 'Realignment analysis failed. Review the task and retry.',
+      });
+    } else if (session.status === 'archived') {
+      setAnalysisRun({
+        status: 'completed',
+        realignmentId: session.realignmentId,
+        message: 'Realignment analysis archived.',
+      });
+    }
+  }, [analysisRun, sessions]);
+
   const completeAnalysisRun = useCallback((message: string) => {
     setAnalysisRun((current) => {
       if (current.status !== 'running' && current.status !== 'starting') {
@@ -134,6 +208,7 @@ export function useRealignmentSessions(
     analysisRun,
     onSelectSession,
     runAnalysis,
+    dismissRealignment,
     completeAnalysisRun,
     reload: load,
   };

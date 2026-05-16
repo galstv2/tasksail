@@ -1,14 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import App from './App';
 import { installAppTestHarness } from './App.test-setup';
 
 installAppTestHarness();
 
+async function renderApp() {
+  const { default: App } = await import('./App');
+  return render(<App />);
+}
+
 describe("App", () => {
   it('renders the persistent left sidebar with context-pack list and active state', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(
@@ -31,7 +35,7 @@ describe("App", () => {
   });
 
   it('renders compact header title without old eyebrow or badge', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByText('TaskSail')).toBeInTheDocument();
@@ -42,7 +46,7 @@ describe("App", () => {
   });
 
   it('renders sidebar and main agent workspace regions', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(
@@ -56,7 +60,7 @@ describe("App", () => {
   });
 
   it('renders the FAB planner button', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(
@@ -66,7 +70,7 @@ describe("App", () => {
   });
 
   it('renders status chips from observability data', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByText('Observe queue artifacts')).toBeInTheDocument();
@@ -74,7 +78,7 @@ describe("App", () => {
   });
 
   it('renders the terminal feed in the main workspace', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByLabelText('Terminal feed')).toBeInTheDocument();
@@ -82,7 +86,7 @@ describe("App", () => {
   });
 
   it('renders the planner modal when FAB is clicked', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Plan with Lily' })).toBeInTheDocument();
@@ -98,7 +102,7 @@ describe("App", () => {
   });
 
   it('auto-collapses the context pack sidebar when the window becomes narrow', async () => {
-    render(<App />);
+    await renderApp();
 
     await waitFor(() => {
       expect(

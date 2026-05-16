@@ -1,4 +1,23 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { logEmit } = vi.hoisted(() => {
+  const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
+  Object.defineProperty(window, 'desktopShell', {
+    configurable: true,
+    writable: true,
+    value: {
+      getBootstrapInfo: vi.fn().mockResolvedValue({
+        appName: 'TaskSail',
+        platform: 'test',
+        logLevel: 'info',
+        rendererForwardLevel: 'info',
+        versions: { chrome: undefined, electron: undefined, node: 'test' },
+      }),
+      log: { emit: logEmit },
+    },
+  });
+  return { logEmit };
+});
 
 import type {
   ContextPackDeepFocusState,
@@ -39,12 +58,17 @@ function makePrimary(
 }
 
 describe('migrateSupportScopes (spec §5.3)', () => {
+  beforeEach(() => {
+    logEmit.mockImplementation(() => Promise.resolve({ ok: true }));
+    window.desktopShell.log.emit = logEmit;
+    logEmit.mockClear();
+  });
+
   afterEach(() => {
-    vi.restoreAllMocks();
+    logEmit.mockClear();
   });
 
   it('returns the same reference when there is nothing to migrate', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const state = makeState({
       selectedFocusTargets: [
         makePrimary('src/api/users.ts', {
@@ -57,11 +81,10 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     const next = migrateSupportScopes(state);
 
     expect(next).toBe(state);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logEmit).not.toHaveBeenCalled();
   });
 
   it('returns the same reference when there are no primaries (no per-primary bucket to conflict with)', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const state = makeState({
       selectedFocusTargets: [],
       selectedSupportTargets: [{ path: 'src/lib/log.ts', kind: 'file' }],
@@ -70,11 +93,10 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     const next = migrateSupportScopes(state);
 
     expect(next).toBe(state);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logEmit).not.toHaveBeenCalled();
   });
 
   it('drops a globally-listed support that also lives on a primary, preferring the per-primary placement', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const duplicated = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -93,12 +115,14 @@ describe('migrateSupportScopes (spec §5.3)', () => {
       { path: 'src/lib/log.ts', kind: 'file' },
     ]);
     expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([duplicated]);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/removed 1 .*support path .*per-primary scope/);
+    expect(logEmit).toHaveBeenCalledTimes(1);
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
+      extra: { removedCount: 1 },
+    }));
   });
 
   it('preserves cross-primary sharing (same path on two primaries is intentional, not a duplicate)', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const shared = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -113,11 +137,10 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     expect(next).toBe(state);
     expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([shared]);
     expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([shared]);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logEmit).not.toHaveBeenCalled();
   });
 
   it('drops globals when path lives on N≥1 primaries (combined rule §5.3-3)', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const shared = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -132,11 +155,13 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     expect(next.selectedSupportTargets).toEqual([]);
     expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([shared]);
     expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([shared]);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
+      extra: { removedCount: 1 },
+    }));
   });
 
   it('reports a pluralized count when multiple paths are migrated', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const a = { path: 'src/lib/format.ts', kind: 'file' as const };
     const b = { path: 'src/lib/log.ts', kind: 'file' as const };
     const state = makeState({
@@ -149,12 +174,14 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     const next = migrateSupportScopes(state);
 
     expect(next.selectedSupportTargets).toEqual([]);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/removed 2 .*support paths .*per-primary scope/);
+    expect(logEmit).toHaveBeenCalledTimes(1);
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
+      extra: { removedCount: 2 },
+    }));
   });
 
   it('treats kind mismatches as distinct paths (file vs directory at same path is not a duplicate)', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const state = makeState({
       selectedFocusTargets: [
         makePrimary('src/api/users.ts', {
@@ -167,6 +194,6 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     const next = migrateSupportScopes(state);
 
     expect(next).toBe(state);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logEmit).not.toHaveBeenCalled();
   });
 });

@@ -133,7 +133,7 @@ Workflow agents are declared in `.github/agents/` and `.github/agents/registry.j
 
 ## QA routing rule
 
-QA findings route back to Software Engineer, then return to QA. Closeout requires `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`; the retrospective target is target 1 minute and hard cap 2 minutes. Retrospectives are archived under `qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md`, global history under `qmd/global/retrospectives/history/{year}/{task-id}.md`, and synthesis under `qmd/global/retrospectives/shared-retrospective-memory.md`.
+QA findings route back to Software Engineer, then return to QA. Closeout requires `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`; the retrospective target is target 1 minute and hard cap 2 minutes. Retrospectives are archived under `qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md`, global history under `qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md`, and synthesis under `qmd/global/retrospectives/shared-retrospective-memory.md`.
 
 ## Security expectations
 

@@ -133,7 +133,7 @@ describe('authoritativeSelectionReader', () => {
 
   it('discards malformed legacy primary when scalar cannot resolve', async () => {
     const toolsRepo = makeRepo('tools');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     writeManifest({
       estate_type: 'distributed-platform',
       repositories: [
@@ -159,10 +159,7 @@ describe('authoritativeSelectionReader', () => {
     expect(selection?.selectedFocusTargets).toEqual([]);
     expect(selection?.deepFocusPrimaryRepoId).toBeNull();
     expect(selection?.deepFocusPrimaryFocusId).toBeNull();
-    expect(warn).toHaveBeenCalledWith(
-      '[deep-focus] discarded malformed legacy primaries:',
-      'could not resolve primary scalar through manifest.',
-    );
+    expect(String(warn.mock.calls.flat().join('\n'))).toContain('deep_focus.legacy_primaries.discarded');
   });
 
   it('uses workspace sync when stale queue selection state conflicts without a task id', async () => {

@@ -58,6 +58,13 @@ describe('guardrails runtime policy cache', () => {
     });
   }
 
+  function writeRoleSession(taskId: string, filename: string, payload: unknown): void {
+    const roleSessionsDir = path.join(makeTaskRuntime(repoRoot, taskId), 'role-sessions');
+    mkdirSync(roleSessionsDir, { recursive: true });
+    const content = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+    writeFileSync(path.join(roleSessionsDir, filename), `${content}\n`, 'utf-8');
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     policyResultCache.clear();
@@ -166,6 +173,91 @@ describe('guardrails runtime policy cache', () => {
     await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
     writeFileSync(path.join(guardrailsDir, 'policy.json'), '{"active": true, "version": 2}\n', 'utf-8');
     await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not rerun policy for role-session changes that only update top-level monitor', async () => {
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 111 },
+      latest_output_lines: ['Started Dalton runtime.'],
+      monitor: { status: 'watching', pid: 222, started_at: '2026-05-16T05:33:19Z', updated_at: '2026-05-16T05:34:19Z' },
+    });
+
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 111 },
+      latest_output_lines: ['Started Dalton runtime.'],
+      monitor: { status: 'watching', pid: 222, started_at: '2026-05-16T05:33:19Z', updated_at: '2026-05-16T05:35:19Z' },
+    });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reruns policy when role-session terminal status changes', async () => {
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 111 },
+      latest_output_lines: ['Started Dalton runtime.'],
+      monitor: { updated_at: '2026-05-16T05:34:19Z' },
+    });
+
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 111 },
+      terminal: { status: 'completed', completed_at: '2026-05-16T05:39:01Z', exit_code: 0 },
+      latest_output_lines: ['Dalton exited completed (exit_code=0).'],
+      monitor: { updated_at: '2026-05-16T05:35:19Z' },
+    });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
+  });
+
+  it('reruns policy when role-session launch pid or latest output changes', async () => {
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 111 },
+      latest_output_lines: ['Started Dalton runtime.'],
+      monitor: { updated_at: '2026-05-16T05:34:19Z' },
+    });
+
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', {
+      agent_id: 'dalton',
+      launch_id: 'launch-1',
+      launch: { status: 'started', started_at: '2026-05-16T05:33:19Z', pid: 112 },
+      latest_output_lines: ['Still running.'],
+      monitor: { updated_at: '2026-05-16T05:35:19Z' },
+    });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID);
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back conservatively for invalid role-session JSON', async () => {
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', '{"agent_id":');
+
+    await expect(runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID)).resolves.toEqual({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
+    writeRoleSession(TEST_TASK_ID, 'dalton-launch.json', '{"agent_id": "dalton",');
+    await expect(runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', TEST_TASK_ID)).resolves.toEqual({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
 
     expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
   });

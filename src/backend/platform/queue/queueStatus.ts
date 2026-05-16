@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { getErrorMessage } from '../core/index.js';
+import { createLogger, getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { handoffWorkspaceIsReady } from './lifecycle.js';
+
+const log = createLogger('platform/queue/queueStatus');
 
 export interface ActiveTaskEntry {
   taskId: string;
@@ -81,7 +83,7 @@ export async function getQueueStatus(
         });
       }
     } catch (err: unknown) {
-      process.stderr.write(`Warning: failed to read active-items: ${getErrorMessage(err)}\n`);
+      log.warn('active_items.read.failed', { error: getErrorMessage(err) });
     }
   }
 

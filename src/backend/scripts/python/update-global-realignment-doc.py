@@ -12,12 +12,15 @@ import json
 import sys
 from pathlib import Path
 
+from lib.protocol_output import write_protocol_stderr, write_protocol_stdout
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.backend.mcp.reinforcement.fairness import FairnessManager, VersionConflictError
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
+from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -37,6 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_logging(stack="py", service="update-global-realignment-doc")
     args = parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
     context_pack_dir = Path(args.context_pack_dir).resolve()
@@ -49,15 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.field and args.value is not None:
         updates = {args.field: json.loads(args.value)}
     else:
-        print("Provide --field/--value or --stdin", file=sys.stderr)
+        write_protocol_stderr(str("Provide --field/--value or --stdin") + '\n')
         return 1
 
     try:
         doc = manager.update_global_document(updates)
     except VersionConflictError as exc:
-        print(json.dumps({"error": "version_conflict", "message": str(exc)}), file=sys.stderr)
+        write_protocol_stderr(str(json.dumps({"error": "version_conflict", "message": str(exc)})) + '\n')
         return 1
-    print(json.dumps(doc.as_dict(), indent=2))
+    write_protocol_stdout(str(json.dumps(doc.as_dict(), indent=2)) + '\n')
     return 0
 
 

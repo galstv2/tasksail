@@ -19,9 +19,24 @@ integration test), gate it behind RUN_SLOW_TESTS and add the
 from __future__ import annotations
 
 import os
+import shutil
 import socket
+import tempfile
+from pathlib import Path
 
 import pytest
+
+_TEST_LOG_DIR_ENV = "LOG_DIR"
+_test_log_dir: Path | None = None
+
+if not os.environ.get(_TEST_LOG_DIR_ENV):
+    _test_log_dir = Path(tempfile.mkdtemp(prefix="tasksail-pytest-logs-"))
+    os.environ[_TEST_LOG_DIR_ENV] = str(_test_log_dir)
+
+
+def pytest_sessionfinish() -> None:
+    if _test_log_dir is not None:
+        shutil.rmtree(_test_log_dir, ignore_errors=True)
 
 # ---------------------------------------------------------------------------
 # Keep a reference to the real bind so we can restore it when needed.

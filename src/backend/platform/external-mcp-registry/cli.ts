@@ -15,28 +15,42 @@
  */
 import path from 'node:path';
 
+import {
+  createLogger,
+  runCliBoundary,
+  ValidationError,
+  writeProtocolStderr,
+  writeProtocolStdout,
+} from '../core/index.js';
 import { loadExternalMcpRegistry, RUNTIME_REGISTRY_PATH } from './load.js';
 import { seedExternalMcpRegistry } from './seed.js';
+
+const log = createLogger('platform/external-mcp-registry/cli');
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
   if (command !== 'validate' && command !== 'seed') {
-    process.stderr.write('Usage: cli.ts <validate|seed> --root <repo-root>\n');
-    process.exit(2);
+    throw new ValidationError('Usage: cli.ts <validate|seed> --root <repo-root>', {
+      code: 'EXTERNAL_MCP_COMMAND_INVALID',
+      category: 'user',
+      context: { command },
+    });
   }
 
   const rootIdx = args.indexOf('--root');
   if (rootIdx === -1 || rootIdx + 1 >= args.length) {
-    process.stderr.write('Missing required --root argument.\n');
-    process.exit(2);
+    throw new ValidationError('Missing required --root argument.', {
+      code: 'EXTERNAL_MCP_ROOT_REQUIRED',
+      category: 'user',
+    });
   }
   const repoRoot = args[rootIdx + 1];
 
   if (command === 'seed') {
     const result = await seedExternalMcpRegistry(repoRoot);
-    process.stdout.write(JSON.stringify(result) + '\n');
+    writeProtocolStdout(JSON.stringify(result) + '\n');
     process.exit(result.action === 'failed' ? 1 : 0);
   }
 
@@ -46,11 +60,12 @@ async function main(): Promise<void> {
   const runtimePath = path.join(repoRoot, RUNTIME_REGISTRY_PATH);
   const result = await loadExternalMcpRegistry(runtimePath);
 
-  process.stdout.write(JSON.stringify(result) + '\n');
+  writeProtocolStdout(JSON.stringify(result) + '\n');
   process.exit(result.ok ? 0 : 1);
 }
 
-main().catch((e: unknown) => {
-  process.stderr.write(`Unexpected error: ${e instanceof Error ? e.message : String(e)}\n`);
+runCliBoundary('platform/external-mcp-registry/cli', () => main().catch((e: unknown) => {
+  log.error('cli.crash', e);
+  writeProtocolStderr(`${e instanceof Error ? e.message : String(e)}\n`);
   process.exit(2);
-});
+}));

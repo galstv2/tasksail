@@ -14,11 +14,17 @@ const MAX_WORKERS = resolveMaxWorkers();
 const childGuardPath = fileURLToPath(
   new URL('./vitest.childProcessGuard.ts', import.meta.url),
 );
+const logIsolationPath = fileURLToPath(
+  new URL('./vitest.logIsolation.ts', import.meta.url),
+);
 
 export default defineConfig({
   test: {
-    include: ['**/__tests__/**/*.test.ts'],
-    setupFiles: [childGuardPath],
+    include: [
+      'src/backend/platform/**/__tests__/**/*.test.ts',
+      'src/frontend/desktop/electron/**/__tests__/**/*.test.ts',
+    ],
+    setupFiles: [childGuardPath, logIsolationPath],
     pool: 'forks',
     poolOptions: {
       forks: {

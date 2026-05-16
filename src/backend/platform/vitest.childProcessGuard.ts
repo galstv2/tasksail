@@ -12,8 +12,12 @@ function childPids(): string[] {
   }
 }
 
-afterEach(() => {
-  const pids = childPids();
+afterEach(async () => {
+  let pids = childPids();
+  if (pids.length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    pids = childPids();
+  }
   if (pids.length === 0) return;
 
   const details = pids.map((pid) => {

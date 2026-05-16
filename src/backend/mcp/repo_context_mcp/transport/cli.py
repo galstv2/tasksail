@@ -5,6 +5,8 @@ import json
 import os
 from typing import Any, Callable
 
+from src.backend.scripts.python.lib.protocol_output import write_protocol_stdout
+
 from ..services import (
     RESEED_IN_PROGRESS_ERROR_CODE,
     ReseedAlreadyInProgressError,
@@ -264,7 +266,7 @@ class RepoContextCli:
                 write_report=not args.no_write_report,
             )
         except ReseedAlreadyInProgressError as exc:
-            print(json.dumps({
+            write_protocol_stdout(str(json.dumps({
                 "error": RESEED_IN_PROGRESS_ERROR_CODE,
                 "message": str(exc),
                 "pid": exc.pid,
@@ -272,12 +274,12 @@ class RepoContextCli:
                 "started_at": exc.started_at,
                 "same_host": exc.same_host,
                 "stale_after_seconds": exc.stale_after_seconds,
-            }, indent=2, sort_keys=False))
+            }, indent=2, sort_keys=False)) + '\n')
             return 2
         if args.format == "json":
-            print(json.dumps(report, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(report, indent=2, sort_keys=False)) + '\n')
         else:
-            print(self.render_run_markdown(report))
+            write_protocol_stdout(str(self.render_run_markdown(report)) + '\n')
         return (
             0
             if report["overall_status"]
@@ -294,9 +296,9 @@ class RepoContextCli:
             context_pack_dir=context_pack_dir,
         )
         if args.format == "json":
-            print(json.dumps(summary, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(summary, indent=2, sort_keys=False)) + '\n')
         else:
-            print(self.render_context_pack_conventions_summary(summary))
+            write_protocol_stdout(str(self.render_context_pack_conventions_summary(summary)) + '\n')
         return 0
 
     def _run_corrections(self, args: argparse.Namespace) -> int:
@@ -308,9 +310,9 @@ class RepoContextCli:
             context_pack_dir=context_pack_dir,
         )
         if args.format == "json":
-            print(json.dumps(summary, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(summary, indent=2, sort_keys=False)) + '\n')
         else:
-            print(self.render_behavior_correction_memo(summary))
+            write_protocol_stdout(str(self.render_behavior_correction_memo(summary)) + '\n')
         return 0
 
     def _run_carry_forward(self, args: argparse.Namespace) -> int:
@@ -325,9 +327,9 @@ class RepoContextCli:
             parent_task_id=args.parent_task_id.strip() or None,
         )
         if args.format == "json":
-            print(json.dumps(summary, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(summary, indent=2, sort_keys=False)) + '\n')
         else:
-            print(summary["rendered_summary_markdown"])
+            write_protocol_stdout(str(summary["rendered_summary_markdown"]) + '\n')
         return 0
 
     def _run_lineage(self, args: argparse.Namespace) -> int:
@@ -342,7 +344,7 @@ class RepoContextCli:
             root_task_id=args.root_task_id.strip() or None,
         )
         if args.format == "json":
-            print(json.dumps(summary, indent=2, sort_keys=False))
+            write_protocol_stdout(str(json.dumps(summary, indent=2, sort_keys=False)) + '\n')
         else:
-            print(summary["rendered_summary_markdown"])
+            write_protocol_stdout(str(summary["rendered_summary_markdown"]) + '\n')
         return 0

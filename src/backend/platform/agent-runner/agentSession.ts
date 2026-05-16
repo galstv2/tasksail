@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { getErrorMessage } from '../core/index.js';
+import { createLogger, getErrorMessage } from '../core/index.js';
 import type { RunRoleAgentOptions, AgentMcpLaunchStatus } from './types.js';
 import { launchAgent, waitForAgentDetailed } from './processLifecycle.js';
 import {
@@ -8,9 +8,15 @@ import {
   prepareExternalMcpLaunchContext,
   type ExternalMcpLaunchContext,
 } from './pythonHelpers.js';
-import { writeSessionStartReceipt, writeSessionTerminalReceipt } from './sessionReceipts.js';
+import {
+  writeSessionMonitorHeartbeat,
+  writeSessionStartReceipt,
+  writeSessionTerminalReceipt,
+} from './sessionReceipts.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { ResolvedMcpServer } from '../cli-provider/index.js';
+
+const log = createLogger('platform/agent-runner/agentSession');
 
 export type PreparedAgentMcpLaunchContext = ExternalMcpLaunchContext & {
   configFilePath?: string;
@@ -56,11 +62,17 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
   agentId: RunRoleAgentOptions['agentId'];
   repoRoot: string;
   taskId: string;
+  spanId?: string;
   agentEnv: Record<string, string>;
   internalMcpServer?: ResolvedMcpServer;
   abortSignal?: AbortSignal;
 }): Promise<ExternalMcpLaunchContext | undefined> {
   const provider = getActiveProvider(options.repoRoot);
+  const launchLog = log.child({
+    taskId: options.taskId,
+    agentId: options.agentId,
+    spanId: options.spanId,
+  });
   // Set when prepareExternalMcpLaunchContext throws and we synthesize a fallback
   // launchContext so the internal MCP can still be wired up. Carries the
   // underlying error message for diagnostic logging and signals downstream
@@ -89,11 +101,16 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
       const configFilePath = provider.renderMcpConfig(launchDir, mergedServers);
       // Preserve the synthesized failure reason so operators can see why the
       // external helper failed; otherwise emit the success message.
-      const preservesFailureReason = !externalInjectionEnabled && helperFailureMessage !== undefined;
+      const internalOnlyWithExternalIssue = !externalInjectionEnabled
+        && launchContext.status !== 'not-applicable';
       return {
         ...launchContext,
-        status: externalInjectionEnabled ? launchContext.status : 'available',
-        reason: externalInjectionEnabled || preservesFailureReason
+        status: externalInjectionEnabled
+          ? launchContext.status
+          : internalOnlyWithExternalIssue
+            ? 'degraded'
+            : 'available',
+        reason: externalInjectionEnabled || internalOnlyWithExternalIssue
           ? launchContext.reason
           : 'internal repo-context MCP injected',
         injectionEnabled: true,
@@ -105,10 +122,7 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
       if (options.internalMcpServer) {
         throw new Error(`internal MCP config render failed: ${getErrorMessage(err)}`);
       }
-      console.warn(
-        '[roleAgent] external MCP config render failed, continuing without MCP:',
-        getErrorMessage(err),
-      );
+      launchLog.warn('external_mcp.config_render.failed', { error: getErrorMessage(err) });
       return {
         status: 'unavailable',
         reason: `external MCP config render failed: ${getErrorMessage(err)}`,
@@ -132,15 +146,12 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
     });
   } catch (err) {
     if (!options.internalMcpServer) {
-      console.warn(
-        '[roleAgent] external MCP launch context failed, continuing without MCP:',
-        getErrorMessage(err),
-      );
+      launchLog.warn('external_mcp.launch_context.failed', { error: getErrorMessage(err) });
       return undefined;
     }
     helperFailureMessage = getErrorMessage(err);
     launchContext = {
-      status: 'available',
+      status: 'unavailable',
       reason: `external MCP launch context failed: ${helperFailureMessage}`,
       injectionEnabled: false,
       envExports: {},
@@ -158,15 +169,9 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
     return mergedLaunchContext;
   }
   if (helperFailureMessage !== undefined) {
-    console.warn(
-      '[roleAgent] external MCP unavailable, internal MCP wired up:',
-      helperFailureMessage,
-    );
+    launchLog.warn('external_mcp.unavailable.internal_wired', { reason: helperFailureMessage });
   } else if (launchContext.status !== 'not-applicable') {
-    console.warn(
-      '[roleAgent] external MCP launch context unavailable, continuing without MCP:',
-      `${launchContext.status}: ${launchContext.reason}`,
-    );
+    launchLog.warn('external_mcp.launch_context.unavailable', { status: launchContext.status, reason: launchContext.reason });
   }
   return renderMergedConfig(launchContext, false);
 }
@@ -208,18 +213,20 @@ export function summarizeExternalMcpLaunchContext(
 export function logExternalMcpLaunchStatus(
   agentId: RunRoleAgentOptions['agentId'],
   launchStatus: AgentMcpLaunchStatus,
+  context?: { taskId?: string; providerId?: string; spanId?: string },
 ): void {
-  console.log(
-    '[roleAgent] MCP launch status:',
-    JSON.stringify({
-      agentId,
-      status: launchStatus.status,
-      injectionEnabled: launchStatus.injectionEnabled,
-      selectedServerIds: launchStatus.selectedServerIds,
-      excludedServerIds: launchStatus.excludedServerIds,
-      reason: launchStatus.reason,
-    }),
-  );
+  log.child({
+    agentId,
+    taskId: context?.taskId,
+    providerId: context?.providerId,
+    spanId: context?.spanId,
+  }).info('external_mcp.launch_status', {
+    status: launchStatus.status,
+    injectionEnabled: launchStatus.injectionEnabled,
+    selectedServerIds: launchStatus.selectedServerIds,
+    excludedServerIds: launchStatus.excludedServerIds,
+    reason: launchStatus.reason,
+  });
 }
 
 /** Correct a session receipt to 'completed' after greedy-stop or denied-action recovery overrides exitCode to 0. */
@@ -272,15 +279,76 @@ export async function runAgentSession(options: {
     wallClockTimeoutS: options.wallClockTimeoutS,
     idleTimeoutS: options.idleTimeoutS,
   });
+  const launchStartedAt = Date.now();
+  const progressTaskId = options.env['TASKSAIL_TASK_ID'] || '';
+  const progressIdentity = options.session && progressTaskId
+    ? {
+        providerId: getActiveProvider(options.repoRoot).id,
+        agentId: options.session.agentId,
+        taskId: progressTaskId,
+        launchId: options.session.launchId,
+        modelId: options.env['RUN_ROLE_AGENT_ACTIVE_MODEL'] || 'unknown',
+      }
+    : undefined;
+
+  if (progressIdentity) {
+    log.child({
+      taskId: progressIdentity.taskId,
+      agentId: progressIdentity.agentId,
+      providerId: progressIdentity.providerId,
+    }).progress({
+      level: 'info',
+      event: 'agent.launch.started',
+      extra: {
+        child_pid: child.pid ?? null,
+        launch_id: progressIdentity.launchId,
+        model_id: progressIdentity.modelId,
+      },
+      text: `[agent] started ${progressIdentity.agentId}  pid=${child.pid ?? 'unknown'}  model=${progressIdentity.modelId}`,
+    });
+  }
 
   // Write session start receipt for the runtime stream watcher.
   let sessionReceiptFile: string | undefined;
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let heartbeatStopped = false;
+  let heartbeatInFlight: Promise<void> | undefined;
+  const monitorStartedAt = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const writeHeartbeat = (): void => {
+    if (heartbeatStopped || !sessionReceiptFile || heartbeatInFlight) {
+      return;
+    }
+    const heartbeat = writeSessionMonitorHeartbeat({
+      receiptPath: sessionReceiptFile,
+      monitorPid: process.pid,
+      monitorStartedAt,
+    })
+      .catch(() => {})
+      .finally(() => {
+        if (heartbeatInFlight === heartbeat) {
+          heartbeatInFlight = undefined;
+        }
+      });
+    heartbeatInFlight = heartbeat;
+  };
+  const stopHeartbeat = async (): Promise<void> => {
+    heartbeatStopped = true;
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    }
+    if (heartbeatInFlight) {
+      await heartbeatInFlight.catch(() => {});
+    }
+  };
   if (options.session) {
     try {
       sessionReceiptFile = await writeSessionStartReceipt({
         ...options.session,
         launchPid: child.pid ?? null,
       });
+      writeHeartbeat();
+      heartbeatTimer = setInterval(writeHeartbeat, 30_000);
     } catch {
       // Non-fatal — the terminal feed just won't show the start event.
     }
@@ -321,19 +389,42 @@ export async function runAgentSession(options: {
     }, greedyPollIntervalMs)
     : undefined;
 
-  const runSummary = await waitForAgentDetailed(child, {
-    wallClockTimeoutMs: options.wallClockTimeoutS !== undefined
-      ? options.wallClockTimeoutS * 1000
-      : undefined,
-    idleTimeoutMs: options.idleTimeoutS !== undefined
-      ? options.idleTimeoutS * 1000
-      : undefined,
-    abortSignal: options.abortSignal,
-  });
-  if (greedyTimer) {
-    clearInterval(greedyTimer);
+  let runSummary: Awaited<ReturnType<typeof waitForAgentDetailed>>;
+  try {
+    runSummary = await waitForAgentDetailed(child, {
+      wallClockTimeoutMs: options.wallClockTimeoutS !== undefined
+        ? options.wallClockTimeoutS * 1000
+        : undefined,
+      idleTimeoutMs: options.idleTimeoutS !== undefined
+        ? options.idleTimeoutS * 1000
+        : undefined,
+      abortSignal: options.abortSignal,
+    });
+  } finally {
+    if (greedyTimer) {
+      clearInterval(greedyTimer);
+    }
+    await stopHeartbeat();
   }
-
+  const durationMs = Date.now() - launchStartedAt;
+  const status = deriveAgentRunStatus(runSummary);
+  if (progressIdentity) {
+    log.child({
+      taskId: progressIdentity.taskId,
+      agentId: progressIdentity.agentId,
+      providerId: progressIdentity.providerId,
+    }).progress({
+      level: 'info',
+      event: 'agent.launch.terminal',
+      extra: {
+        child_pid: child.pid ?? null,
+        status,
+        duration_ms: durationMs,
+        exit_code: runSummary.exitCode,
+      },
+      text: `[agent] exited ${progressIdentity.agentId}  ${status}  in ${Math.round(durationMs / 1000)}s${status === 'success' ? ' [ok]' : status === 'failure' ? ' [fail]' : ''}`,
+    });
+  }
   // Write session terminal receipt for the runtime stream watcher.
   if (sessionReceiptFile && options.session) {
     try {
@@ -356,4 +447,19 @@ export async function runAgentSession(options: {
     greedyStopTriggered,
     sessionReceiptFile: sessionReceiptFile ?? null,
   };
+}
+
+function deriveAgentRunStatus(
+  result: Awaited<ReturnType<typeof waitForAgentDetailed>>,
+): 'success' | 'failure' | 'killed' | 'timeout' {
+  if (
+    result.terminationReason === 'wall-clock-timeout'
+    || result.terminationReason === 'idle-timeout'
+  ) {
+    return 'timeout';
+  }
+  if (result.terminationReason === 'aborted') {
+    return 'killed';
+  }
+  return result.exitCode === 0 ? 'success' : 'failure';
 }

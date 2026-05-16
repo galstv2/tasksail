@@ -14,9 +14,12 @@ import path from 'node:path';
 import { spawnPipelineForTask } from './spawnPipeline.js';
 import { CLOSEOUT_FAILURE_EXIT_CODE } from './pipeline/sequencer.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
+import { createLogger, writeProtocolStdout } from '../core/index.js';
 import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
 import { recoverStuckMidCompletion } from '../queue/recoverStuckMidCompletion.js';
 import { resumeCloseoutFromSentinel } from '../queue/resumeCloseout.js';
+
+const log = createLogger('platform/agent-runner/pipelineSupervisor');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,7 +78,7 @@ function wrapChildOutput(
     };
     // Forward to process output so the parent can observe pipeline output.
     // Callers that need structured access can intercept before this point.
-    process.stdout.write(JSON.stringify(envelope) + '\n');
+    writeProtocolStdout(JSON.stringify(envelope) + '\n');
   });
 }
 
@@ -103,12 +106,10 @@ async function handleChildExit(
       const result = await resumeCloseoutFromSentinel(taskId, repoRoot);
       resumed = result.status === 'completed';
       if (!resumed) {
-        console.warn(
-          `[pipelineSupervisor] closeout recovery for ${taskId} returned ${result.status}; moving task to error-items.`,
-        );
+        log.warn('closeout_recovery.incomplete', { taskId, status: result.status });
       }
     } catch (err) {
-      console.error(`[pipelineSupervisor] resumeCloseoutFromSentinel failed for ${taskId}:`, err);
+      log.error('closeout_recovery.resume_failed', err, { taskId });
     }
     if (resumed) {
       return;
@@ -120,7 +121,7 @@ async function handleChildExit(
   try {
     await moveFailedItemToErrorItems({ repoRoot, taskId });
   } catch (err) {
-    console.error(`[pipelineSupervisor] moveFailedItemToErrorItems failed for ${taskId}:`, err);
+    log.error('error_items.move_failed', err, { taskId });
   }
 }
 
@@ -178,9 +179,14 @@ export async function startPipeline(
     wrapChildOutput(taskId, child.stderr, 'stderr');
 
     // Register exit handler with closure over captured taskId (MUST per §5.2 blast-radius).
-    void child.exit.then((code) => {
-      void handleChildExit(taskId, repoRoot, code ?? null, null);
-    });
+    void child.exit
+      .then((code) => {
+        void handleChildExit(taskId, repoRoot, code ?? null, null);
+      })
+      .catch((err: unknown) => {
+        log.error('pipeline.child.exit.failed', err, { taskId });
+        void handleChildExit(taskId, repoRoot, 1, null);
+      });
 
     return { status: 'started', pid: child.pid };
   })();
@@ -349,9 +355,11 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
 
       if (!hasCarveout) {
         if (existsSync(path.join(activeItemsDir, branchTaskId))) {
-          console.warn(
-            `[recoverOnStartup] skipping branch delete for ${branch}: task became active during sweep`,
-          );
+          log.warn('startup_recovery.branch_delete.skipped', {
+            branch,
+            taskId: branchTaskId,
+            reason: 'task-became-active',
+          });
           continue;
         }
         try {
@@ -405,13 +413,18 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     if (!existsSync(taskJsonPath)) {
       // Override to failed regardless of sentinel presence
       outcome = 'failed';
-      console.log(`[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "missing-task-json", reclassifiedAs: "failed" }`);
+      log.info('task_crash.recovered', { taskId: markerTaskId, reason: 'missing-task-json', reclassifiedAs: 'failed' });
 
       // Skip archival and finalizeTaskWorktrees (no bindings to tear down)
       // Proceed to step 3e+: registry transition handled by moveFailedItemToErrorItems
       try {
         await moveFailedItemToErrorItems({ repoRoot, taskId: markerTaskId });
-      } catch { /* best-effort */ }
+      } catch (err) {
+        log.error('startup.recovery.error.items.move.failed', err, {
+          taskId: markerTaskId,
+          reason: 'missing-task-json',
+        });
+      }
 
       // 3g: Remove marker
       try { unlinkSync(path.join(activeItemsDir, markerTaskId)); } catch { /* best-effort */ }
@@ -437,22 +450,15 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
           recoveredViaCompletion = result.recovered;
         }
         if (!recoveredViaCompletion) {
-          console.warn(
-            `[pipelineSupervisor] recoverStuckMidCompletion could not prove archival for ${markerTaskId}: closeout recovery returned no completed state — falling through to failure recovery`,
-          );
+          log.warn('startup_recovery.completion_unproven', { taskId: markerTaskId });
           outcome = 'failed';
         }
       } catch (err) {
-        console.error(
-          `[pipelineSupervisor] recoverStuckMidCompletion threw for ${markerTaskId}:`,
-          err instanceof Error ? err.message : err,
-        );
+        log.error('startup_recovery.completion_failed', err, { taskId: markerTaskId });
         outcome = 'failed';
       }
       if (recoveredViaCompletion) {
-        console.log(
-          `[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "pid-gone", reclassifiedAs: "completed" }`,
-        );
+        log.info('task_crash.recovered', { taskId: markerTaskId, reason: 'pid-gone', reclassifiedAs: 'completed' });
         continue;
       }
     }
@@ -461,18 +467,24 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     try {
       await finalizeTaskWorktrees(markerTaskId, outcome, repoRoot);
     } catch (err) {
-      console.error(`[pipelineSupervisor] finalizeTaskWorktrees failed for ${markerTaskId}:`, err);
+      log.error('worktree_finalize.failed', err, { taskId: markerTaskId });
     }
 
     // 3e: Transition registry + handle failure case
     if (outcome === 'failed') {
       try {
         await moveFailedItemToErrorItems({ repoRoot, taskId: markerTaskId });
-      } catch { /* best-effort */ }
+      } catch (err) {
+        log.error('startup.recovery.error.items.move.failed', err, {
+          taskId: markerTaskId,
+          reason: 'pid-gone',
+          outcome,
+        });
+      }
     }
 
     // 3f: Emit task-crash-recovered
-    console.log(`[pipelineSupervisor] task-crash-recovered: { taskId: "${markerTaskId}", reason: "pid-gone", reclassifiedAs: "${outcome}" }`);
+    log.info('task_crash.recovered', { taskId: markerTaskId, reason: 'pid-gone', reclassifiedAs: outcome });
 
     // 3g: Remove marker
     try { unlinkSync(path.join(activeItemsDir, markerTaskId)); } catch { /* best-effort */ }
@@ -506,7 +518,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     sweepRuntimeGC(repoRoot);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[pipelineSupervisor] sweepRuntimeGC failed (non-fatal): ${msg}`);
+    log.error('runtime_gc.sweep.failed', err, { error: msg });
   }
 
   // ── Step 5: F36 assertion — lock map MUST be empty ───────────────────────
@@ -515,6 +527,6 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   // No reconstruction is attempted (per F36 spec).
   // Assertion: pidMap.size === 0 at end of recoverOnStartup.
   if (pidMap.size !== 0) {
-    console.error('[pipelineSupervisor] F36 violation: pid map is not empty after recoverOnStartup');
+    log.error('startup_recovery.pid_map_not_empty', { pidMapSize: pidMap.size });
   }
 }

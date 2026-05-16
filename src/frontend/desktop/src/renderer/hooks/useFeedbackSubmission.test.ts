@@ -155,6 +155,28 @@ describe('useFeedbackSubmission', () => {
     });
   });
 
+  it('onSubmit sets error when the shell call rejects', async () => {
+    const client = createMockClient({
+      submitReinforcementFeedback: vi.fn().mockRejectedValue(new Error('No active context pack is configured.')),
+    });
+    const { result } = renderHook(() => useFeedbackSubmission(client));
+
+    act(() => {
+      result.current.onSelectTask('T-1');
+    });
+
+    await act(async () => {
+      await result.current.onSubmit('/ctx');
+    });
+
+    await waitFor(() => {
+      expect(result.current.submitState).toEqual({
+        status: 'error',
+        message: 'No active context pack is configured.',
+      });
+    });
+  });
+
   it('onReset clears draft and submitState', async () => {
     const client = createMockClient();
     const { result } = renderHook(() => useFeedbackSubmission(client));

@@ -127,6 +127,7 @@ export const DESKTOP_ACTION_NAMES = [
   'reinforcement.checkActiveWorkGuard',
   'reinforcement.startRealignment',
   'reinforcement.runRealignmentAnalysis',
+  'reinforcement.dismissRealignment',
   'externalMcp.list',
   'externalMcp.add',
   'externalMcp.update',
@@ -155,6 +156,7 @@ export const DESKTOP_ACTION_NAMES = [
   'deepFocus.saveSelections',
   'deepFocus.loadSelections',
   'deepFocus.clearSelections',
+  'terminal.setTaskScope',
   'cancel-task',
 ] as const;
 
@@ -446,6 +448,10 @@ export type ReinforcementTaskEntry = {
   settlementStatus: 'unrewarded' | 'rewarded';
   qualityOutcome: string;
   year: string;
+  reviewStatus?: 'unreviewed' | 'reviewed';
+  feedbackCount?: number;
+  archivePath?: string;
+  archiveMarkdown?: string;
 };
 
 export type ReinforcementAgentRewardEntry = {
@@ -607,6 +613,21 @@ export type ReinforcementRunRealignmentAnalysisResponse = {
   mode: 'analysis-started' | 'analysis-start-failed';
   message: string;
   job: RealignmentJobStartResult;
+};
+
+export type ReinforcementDismissRealignmentRequest = {
+  action: 'reinforcement.dismissRealignment';
+  payload: {
+    contextPackDir: string;
+    realignmentId: string;
+  };
+};
+
+export type ReinforcementDismissRealignmentResponse = {
+  action: 'reinforcement.dismissRealignment';
+  mode: 'dismissed';
+  message: string;
+  realignmentId: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -860,6 +881,20 @@ export type TaskBoardMoveToOpenResponse = {
   movedItem: string;
 };
 
+export type TerminalSetTaskScopeRequest = {
+  action: 'terminal.setTaskScope';
+  payload: { taskGuid: string | null };
+};
+
+export type TerminalSetTaskScopeResponse = {
+  action: 'terminal.setTaskScope';
+  mode: 'scoped';
+  selectedTaskGuid: string | null;
+  events: import('../renderer/activityStream').StreamEvent[];
+  taskScopes: import('../renderer/activityStream').TerminalTaskScopeOption[];
+  message: string;
+};
+
 export type DesktopActionRequest =
   | PlannerSubmitRequest
   | PlannerStartSessionRequest
@@ -901,6 +936,7 @@ export type DesktopActionRequest =
   | ReinforcementCheckActiveWorkGuardRequest
   | ReinforcementStartRealignmentRequest
   | ReinforcementRunRealignmentAnalysisRequest
+  | ReinforcementDismissRealignmentRequest
   | ExternalMcpListRequest
   | AgentConfigLoadAgentsRequest
   | AgentConfigLoadModelCatalogRequest
@@ -929,6 +965,7 @@ export type DesktopActionRequest =
   | DeepFocusSaveSelectionsRequest
   | DeepFocusLoadSelectionsRequest
   | DeepFocusClearSelectionsRequest
+  | TerminalSetTaskScopeRequest
   | CancelTaskRequest;
 
 export type DesktopActionResponse =
@@ -972,6 +1009,7 @@ export type DesktopActionResponse =
   | ReinforcementCheckActiveWorkGuardResponse
   | ReinforcementStartRealignmentResponse
   | ReinforcementRunRealignmentAnalysisResponse
+  | ReinforcementDismissRealignmentResponse
   | ExternalMcpListResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
@@ -997,6 +1035,7 @@ export type DesktopActionResponse =
   | DeepFocusSaveSelectionsResponse
   | DeepFocusLoadSelectionsResponse
   | DeepFocusClearSelectionsResponse
+  | TerminalSetTaskScopeResponse
   | CancelTaskResponse;
 
 // ---------------------------------------------------------------------------

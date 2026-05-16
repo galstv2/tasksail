@@ -25,11 +25,21 @@ vi.mock('../pipeline/externalMcpRegistryCache.js', () => ({
   prewarmExternalMcpRegistry: vi.fn(),
 }));
 
+vi.mock('../reinforcementPaths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../reinforcementPaths.js')>();
+  return {
+    ...actual,
+    readJsonSafe: vi.fn(),
+  };
+});
+
 import { runPython } from '../../core/pythonRunner.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/index.js';
 import { prewarmExternalMcpRegistry } from '../pipeline/externalMcpRegistryCache.js';
+import { readJsonSafe } from '../reinforcementPaths.js';
 import { executeRealignmentSession } from '../realignmentPhase/driver.js';
 import {
+  dismissRealignmentSession,
   runRealignmentAnalysis,
   submitReinforcementFeedback,
   updateGlobalRealignmentDoc,
@@ -39,11 +49,13 @@ const mockRunPython = vi.mocked(runPython);
 const mockRequireAuthorizedActiveContextPack = vi.mocked(requireAuthorizedActiveContextPack);
 const mockPrewarmExternalMcpRegistry = vi.mocked(prewarmExternalMcpRegistry);
 const mockExecuteRealignmentSession = vi.mocked(executeRealignmentSession);
+const mockReadJsonSafe = vi.mocked(readJsonSafe);
 
 describe('submitReinforcementFeedback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireAuthorizedActiveContextPack.mockResolvedValue('/packs/pack-a');
+    mockReadJsonSafe.mockResolvedValue(null);
   });
 
   it('builds correct args and parses JSON stdout', async () => {
@@ -120,7 +132,7 @@ describe('submitReinforcementFeedback', () => {
 
   it('rejects writes outside the authorized active context pack', async () => {
     mockRequireAuthorizedActiveContextPack.mockRejectedValue(
-      new Error('Write operations are limited to the active context pack configured in repo .env.'),
+      new Error('Write operations are limited to the active context pack.'),
     );
 
     await expect(
@@ -130,7 +142,7 @@ describe('submitReinforcementFeedback', () => {
         feedbackType: 'negative',
         repoRoot: '/fake/repo',
       }),
-    ).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
+    ).rejects.toThrow('Write operations are limited to the active context pack.');
 
     expect(mockRunPython).not.toHaveBeenCalled();
   });
@@ -209,7 +221,7 @@ describe('updateGlobalRealignmentDoc', () => {
 
   it('rejects realignment writes outside the authorized active context pack', async () => {
     mockRequireAuthorizedActiveContextPack.mockRejectedValue(
-      new Error('Write operations are limited to the active context pack configured in repo .env.'),
+      new Error('Write operations are limited to the active context pack.'),
     );
 
     await expect(
@@ -219,7 +231,7 @@ describe('updateGlobalRealignmentDoc', () => {
         value: '"y"',
         repoRoot: '/fake/repo',
       }),
-    ).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
+    ).rejects.toThrow('Write operations are limited to the active context pack.');
 
     expect(mockRunPython).not.toHaveBeenCalled();
   });
@@ -305,15 +317,61 @@ describe('runRealignmentAnalysis', () => {
 
   it('rejects unauthorized context packs without launching the driver', async () => {
     mockRequireAuthorizedActiveContextPack.mockRejectedValue(
-      new Error('Write operations are limited to the active context pack configured in repo .env.'),
+      new Error('Write operations are limited to the active context pack.'),
     );
 
     await expect(runRealignmentAnalysis({
       repoRoot: '/fake/repo',
       contextPackDir: '/packs/rogue-pack',
       realignmentId: 'RA-1',
-    })).rejects.toThrow('Write operations are limited to the active context pack configured in repo .env.');
+    })).rejects.toThrow('Write operations are limited to the active context pack.');
 
     expect(mockExecuteRealignmentSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('dismissRealignmentSession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuthorizedActiveContextPack.mockResolvedValue('/packs/pack-a');
+  });
+
+  it('authorizes the active context pack and runs the dismiss script', async () => {
+    mockRunPython.mockResolvedValue({
+      stdout: '{"status":"dismissed","realignment_id":"RA-1"}',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await dismissRealignmentSession({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.data).toEqual({ status: 'dismissed', realignment_id: 'RA-1' });
+    expect(mockRequireAuthorizedActiveContextPack).toHaveBeenCalledWith({
+      repoRoot: '/fake/repo',
+      requestedContextPackDir: '/packs/pack-a',
+    });
+    const [scriptPath, args] = mockRunPython.mock.calls[0]!;
+    expect(scriptPath).toContain('dismiss-realignment-session.py');
+    expect(args).toContain('--realignment-id');
+    expect(args).toContain('RA-1');
+  });
+
+  it('blocks dismissing an in-progress realignment', async () => {
+    mockReadJsonSafe.mockResolvedValue({ status: 'running' });
+
+    const result = await dismissRealignmentSession({
+      repoRoot: '/fake/repo',
+      contextPackDir: '/packs/pack-a',
+      realignmentId: 'RA-1',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.stderr).toContain('realignment_in_progress');
+    expect(mockRunPython).not.toHaveBeenCalled();
   });
 });

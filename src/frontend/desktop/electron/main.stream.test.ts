@@ -4,10 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DESKTOP_SHELL_STREAM_CHANNEL } from '../src/shared/desktopContract';
 
-const send = vi.fn();
-const getAllWindows = vi.fn();
-const randomUUID = vi.fn();
-const readFileSync = vi.fn();
+const {
+  send,
+  getAllWindows,
+  loadTaskRegistry,
+  currentScopeState,
+} = vi.hoisted(() => ({
+  send: vi.fn(),
+  getAllWindows: vi.fn(),
+  loadTaskRegistry: vi.fn(),
+  currentScopeState: { value: null as { contextPackId: string; contextPackDir: string; contextPackName: string } | null },
+}));
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -15,17 +22,41 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('node:crypto', () => ({
-  randomUUID,
-}));
-
-vi.mock('node:fs', () => ({
-  readFileSync,
-}));
-
 vi.mock('./paths', () => ({
   REPO_ROOT: '/repo',
 }));
+
+vi.mock('../../../backend/platform/queue/taskRegistry.js', () => ({
+  loadTaskRegistry,
+}));
+
+vi.mock('./main.contextPackTaskVisibility', () => ({
+  getCurrentActiveContextPackTaskScope: () => currentScopeState.value,
+  setCurrentActiveContextPackTaskScope: (scope: typeof currentScopeState.value) => {
+    currentScopeState.value = scope;
+    return { previous: null, changed: true };
+  },
+  isRegistryEntryVisibleForScope: (
+    entry: { contextPackId?: string | null; contextPackDir?: string | null },
+    scope: typeof currentScopeState.value,
+  ) => {
+    if (!scope) {
+      return false;
+    }
+    return (entry.contextPackId?.trim() || null)
+      ? entry.contextPackId === scope.contextPackId
+      : entry.contextPackDir === scope.contextPackDir;
+  },
+}));
+
+type StreamModule = typeof import('./main.stream');
+
+async function importStreamWithRegistry(registry: unknown): Promise<StreamModule> {
+  loadTaskRegistry.mockResolvedValue(registry);
+  const stream = await import('./main.stream');
+  await stream.refreshStreamTaskMetadataForScope(currentScopeState.value);
+  return stream;
+}
 
 describe('main.stream', () => {
   beforeEach(() => {
@@ -34,58 +65,62 @@ describe('main.stream', () => {
     getAllWindows.mockReturnValue([
       {
         isDestroyed: () => false,
-        webContents: { send },
+        webContents: { id: 1, send },
       },
     ]);
-    randomUUID
-      .mockReturnValueOnce('12345678-1234-4234-9234-123456789abc')
-      .mockReturnValueOnce('abcdef12-abcd-4abc-9abc-abcdef123456');
-    readFileSync.mockImplementation(() => {
-      throw Object.assign(new Error('missing registry'), { code: 'ENOENT' });
-    });
+    loadTaskRegistry.mockResolvedValue({ schema_version: 2, tasks: {} });
+    currentScopeState.value = {
+      contextPackId: 'pack-a',
+      contextPackDir: '/packs/pack-a',
+      contextPackName: 'pack-a',
+    };
   });
 
   it('prefixes task-scoped terminal messages with a stable registry GUID per task', async () => {
-    const { emitStreamEvent } = await import('./main.stream');
-    readFileSync.mockReturnValue(JSON.stringify({
+    const { emitStreamEvent } = await importStreamWithRegistry({
       schema_version: 2,
       tasks: {
         _unbound: {
           open: [
-            {
-              taskId: 'TASK-A',
-              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
-            },
+             {
+                 taskId: 'TASK-A',
+                 taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+                 title: 'Task Alpha',
+                 contextPackId: 'pack-a',
+                 contextPackDir: '/packs/pack-a',
+             },
           ],
           pending: [],
           active: [
-            {
-              taskId: 'TASK-B',
-              taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456',
-            },
+             {
+               taskId: 'TASK-B',
+               taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456',
+               contextPackId: 'pack-a',
+               contextPackDir: '/packs/pack-a',
+             },
           ],
           failed: [],
           completed: [],
         },
       },
-    }));
+    });
 
     emitStreamEvent({
       message: 'Completed.',
       source: 'runtime.agentSession',
-      role: 'workflow',
+      role: 'agent',
       taskId: 'TASK-A',
     });
     emitStreamEvent({
       message: 'Test evidence captured.',
       source: 'runtime.pipeline',
-      role: 'system',
+      role: 'pipeline',
       taskId: 'TASK-A',
     });
     emitStreamEvent({
       message: 'Launch started.',
       source: 'runtime.agentSession',
-      role: 'workflow',
+      role: 'agent',
       taskId: 'TASK-B',
     });
 
@@ -94,7 +129,10 @@ describe('main.stream', () => {
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
         taskId: 'TASK-A',
-        message: 'Task [feedbeef] Completed.',
+        taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+        taskShortGuid: 'feedbeef',
+        taskTitle: 'Task Alpha',
+        message: 'Task [feedbeef] - Completed.',
       }),
     );
     expect(send).toHaveBeenNthCalledWith(
@@ -102,7 +140,10 @@ describe('main.stream', () => {
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
         taskId: 'TASK-A',
-        message: 'Task [feedbeef] Test evidence captured.',
+        taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+        taskShortGuid: 'feedbeef',
+        taskTitle: 'Task Alpha',
+        message: 'Task [feedbeef] - Test evidence captured.',
       }),
     );
     expect(send).toHaveBeenNthCalledWith(
@@ -110,15 +151,16 @@ describe('main.stream', () => {
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
         taskId: 'TASK-B',
-        message: 'Task [cafef00d] Launch started.',
+        taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456',
+        taskShortGuid: 'cafef00d',
+        taskTitle: null,
+        message: 'Task [cafef00d] - Launch started.',
       }),
     );
-    expect(randomUUID).not.toHaveBeenCalled();
   });
 
-  it('includes the actor after the task GUID for task-scoped actor messages', async () => {
-    const { emitStreamEvent } = await import('./main.stream');
-    readFileSync.mockReturnValue(JSON.stringify({
+  it('does not reload the registry while emitting repeated events after metadata refresh', async () => {
+    const { emitStreamEvent } = await importStreamWithRegistry({
       schema_version: 2,
       tasks: {
         _unbound: {
@@ -126,6 +168,9 @@ describe('main.stream', () => {
             {
               taskId: 'TASK-A',
               taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+              title: 'Task Alpha',
+              contextPackId: 'pack-a',
+              contextPackDir: '/packs/pack-a',
             },
           ],
           pending: [],
@@ -134,12 +179,47 @@ describe('main.stream', () => {
           completed: [],
         },
       },
-    }));
+    });
+    expect(loadTaskRegistry).toHaveBeenCalledTimes(1);
+
+    for (let index = 0; index < 100; index += 1) {
+      emitStreamEvent({
+        message: `Event ${index}`,
+        source: 'test',
+        role: 'pipeline',
+        taskId: 'TASK-A',
+      });
+    }
+
+    expect(loadTaskRegistry).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(100);
+  });
+
+  it('includes the actor after the task GUID for task-scoped actor messages', async () => {
+    const { emitStreamEvent } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {
+        _unbound: {
+          open: [
+            {
+              taskId: 'TASK-A',
+              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+              contextPackId: 'pack-a',
+              contextPackDir: '/packs/pack-a',
+            },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
 
     emitStreamEvent({
       message: 'Is running.',
       source: 'runtime.agentSession',
-      role: 'workflow',
+      role: 'agent',
       taskId: 'TASK-A',
       actorName: 'Alice (Product Manager)',
     });
@@ -148,11 +228,13 @@ describe('main.stream', () => {
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
         taskId: 'TASK-A',
+        taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+        taskShortGuid: 'feedbeef',
+        taskTitle: null,
         actorName: 'Alice (Product Manager)',
-        message: 'Task [feedbeef] Alice (Product Manager): Is running.',
+        message: 'Task [feedbeef] - Alice (Product Manager): Is running.',
       }),
     );
-    expect(randomUUID).not.toHaveBeenCalled();
   });
 
   it('leaves non-task and already-prefixed messages unchanged', async () => {
@@ -164,9 +246,9 @@ describe('main.stream', () => {
       role: 'system',
     });
     emitStreamEvent({
-      message: 'Task [deadbeef] Already tagged.',
+      message: 'Task [deadbeef] - Already tagged.',
       source: 'runtime.pipeline',
-      role: 'system',
+      role: 'pipeline',
       taskId: 'TASK-C',
     });
 
@@ -175,37 +257,289 @@ describe('main.stream', () => {
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
         taskId: 'N/A',
+        taskGuid: null,
+        taskShortGuid: null,
+        taskTitle: null,
         message: 'Backend services started.',
       }),
     );
-    expect(send).toHaveBeenNthCalledWith(
-      2,
-      DESKTOP_SHELL_STREAM_CHANNEL,
-      expect.objectContaining({
-        taskId: 'TASK-C',
-        message: 'Task [deadbeef] Already tagged.',
-      }),
-    );
-    expect(randomUUID).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to a generated GUID when task registry lookup misses', async () => {
+  it('drops task-scoped events when task registry lookup misses', async () => {
     const { emitStreamEvent } = await import('./main.stream');
 
     emitStreamEvent({
       message: 'Completed.',
       source: 'runtime.agentSession',
-      role: 'workflow',
+      role: 'agent',
       taskId: 'TASK-MISSING',
     });
 
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('drops task-scoped events that belong to a hidden context pack', async () => {
+    const { emitStreamEvent } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {
+        _unbound: {
+          open: [
+            {
+              taskId: 'TASK-A',
+              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+              title: 'Alpha',
+              contextPackId: 'pack-a',
+              contextPackDir: '/packs/pack-a',
+            },
+            {
+              taskId: 'TASK-B',
+              taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456',
+              title: 'Beta',
+              contextPackId: 'pack-b',
+              contextPackDir: '/packs/pack-b',
+            },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B1.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+
+    expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       DESKTOP_SHELL_STREAM_CHANNEL,
       expect.objectContaining({
-        taskId: 'TASK-MISSING',
-        message: 'Task [12345678] Completed.',
+        taskId: 'TASK-A',
+        taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
       }),
     );
-    expect(randomUUID).toHaveBeenCalledTimes(1);
+  });
+
+  it('filters future events per webContents task scope and replays matching history', async () => {
+    const {
+      emitStreamEvent,
+      setTerminalTaskScopeForWebContents,
+    } = await importStreamWithRegistry({
+      tasks: {
+        _unbound: {
+          open: [
+            { taskId: 'TASK-A', taskGuid: 'feedbeef-1234-4234-9234-123456789abc', title: 'Alpha', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+            { taskId: 'TASK-B', taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456', title: 'Beta', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B1.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+
+    const replay = setTerminalTaskScopeForWebContents(
+      1,
+      'feedbeef-1234-4234-9234-123456789abc',
+    );
+    expect(replay.selectedTaskGuid).toBe('feedbeef-1234-4234-9234-123456789abc');
+    expect(replay.events.map((event) => event.taskId)).toEqual(['TASK-A']);
+    expect(replay.taskScopes.map((scope) => scope.title)).toEqual(['Alpha', 'Beta']);
+
+    send.mockClear();
+    getAllWindows.mockReturnValue([
+      { isDestroyed: () => false, webContents: { id: 1, send } },
+      { isDestroyed: () => false, webContents: { id: 2, send } },
+    ]);
+    emitStreamEvent({ message: 'B2.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({ taskId: 'TASK-B' }),
+    );
+  });
+
+  it('keeps different task scopes isolated per webContents id', async () => {
+    const {
+      emitStreamEvent,
+      setTerminalTaskScopeForWebContents,
+    } = await importStreamWithRegistry({
+      tasks: {
+        _unbound: {
+          open: [
+            { taskId: 'TASK-A', taskGuid: 'feedbeef-1234-4234-9234-123456789abc', title: 'Alpha', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+            { taskId: 'TASK-B', taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456', title: 'Beta', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    const sendA = vi.fn();
+    const sendB = vi.fn();
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B1.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+    setTerminalTaskScopeForWebContents(1, 'feedbeef-1234-4234-9234-123456789abc');
+    setTerminalTaskScopeForWebContents(2, 'cafef00d-abcd-4abc-9abc-abcdef123456');
+
+    getAllWindows.mockReturnValue([
+      { isDestroyed: () => false, webContents: { id: 1, send: sendA } },
+      { isDestroyed: () => false, webContents: { id: 2, send: sendB } },
+    ]);
+
+    emitStreamEvent({ message: 'A2.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B2.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+
+    expect(sendA).toHaveBeenCalledTimes(1);
+    expect(sendA).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({ taskId: 'TASK-A' }),
+    );
+    expect(sendB).toHaveBeenCalledTimes(1);
+    expect(sendB).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({ taskId: 'TASK-B' }),
+    );
+  });
+
+  it('unknown task scope resets to all tasks and clear removes only one window scope', async () => {
+    const {
+      clearTerminalTaskScopeForWebContents,
+      emitStreamEvent,
+      setTerminalTaskScopeForWebContents,
+    } = await importStreamWithRegistry({
+      tasks: {
+        _unbound: {
+          open: [
+            { taskId: 'TASK-A', taskGuid: 'feedbeef-1234-4234-9234-123456789abc', title: 'Alpha', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+            { taskId: 'TASK-B', taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456', title: 'Beta', contextPackId: 'pack-a', contextPackDir: '/packs/pack-a' },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B1.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+    setTerminalTaskScopeForWebContents(1, 'feedbeef-1234-4234-9234-123456789abc');
+    setTerminalTaskScopeForWebContents(2, 'cafef00d-abcd-4abc-9abc-abcdef123456');
+
+    const unknown = setTerminalTaskScopeForWebContents(1, 'missing-guid');
+    expect(unknown.selectedTaskGuid).toBeNull();
+    expect(unknown.events).toHaveLength(2);
+    expect(unknown.message).toBe('Unknown terminal task scope; reset to all tasks.');
+
+    clearTerminalTaskScopeForWebContents(2);
+    send.mockClear();
+    getAllWindows.mockReturnValue([
+      { isDestroyed: () => false, webContents: { id: 1, send } },
+      { isDestroyed: () => false, webContents: { id: 2, send } },
+    ]);
+    emitStreamEvent({ message: 'A2.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('resetStreamState clears history, task metadata, and per-window scopes', async () => {
+    const {
+      emitStreamEvent,
+      resetStreamState,
+      setTerminalTaskScopeForWebContents,
+    } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {
+        _unbound: {
+          open: [
+            {
+              taskId: 'TASK-A',
+              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+              title: 'Alpha',
+              contextPackId: 'pack-a',
+              contextPackDir: '/packs/pack-a',
+            },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    expect(setTerminalTaskScopeForWebContents(1, 'feedbeef-1234-4234-9234-123456789abc')).toEqual(
+      expect.objectContaining({
+        selectedTaskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+        events: [expect.objectContaining({ taskId: 'TASK-A' })],
+        taskScopes: [expect.objectContaining({ taskGuid: 'feedbeef-1234-4234-9234-123456789abc' })],
+      }),
+    );
+
+    resetStreamState();
+
+    expect(setTerminalTaskScopeForWebContents(1, null)).toEqual(
+      expect.objectContaining({
+        selectedTaskGuid: null,
+        events: [],
+        taskScopes: [],
+      }),
+    );
+    send.mockClear();
+    emitStreamEvent({ message: 'A2.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('returns terminal task scope options only for visible context-pack tasks', async () => {
+    const {
+      emitStreamEvent,
+      setTerminalTaskScopeForWebContents,
+    } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {
+        _unbound: {
+          open: [
+            {
+              taskId: 'TASK-A',
+              taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+              title: 'Alpha',
+              contextPackId: 'pack-a',
+              contextPackDir: '/packs/pack-a',
+            },
+            {
+              taskId: 'TASK-B',
+              taskGuid: 'cafef00d-abcd-4abc-9abc-abcdef123456',
+              title: 'Beta',
+              contextPackId: 'pack-b',
+              contextPackDir: '/packs/pack-b',
+            },
+          ],
+          pending: [],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    emitStreamEvent({ message: 'A1.', source: 'test', role: 'pipeline', taskId: 'TASK-A' });
+    emitStreamEvent({ message: 'B1.', source: 'test', role: 'pipeline', taskId: 'TASK-B' });
+
+    expect(setTerminalTaskScopeForWebContents(1, null).taskScopes).toEqual([
+      expect.objectContaining({
+        taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
+        taskId: 'TASK-A',
+        title: 'Alpha',
+      }),
+    ]);
   });
 });

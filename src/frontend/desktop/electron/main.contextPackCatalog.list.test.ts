@@ -112,4 +112,52 @@ describe('listAvailableContextPacks', () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it('falls back to the directory id and logs a parse error for a corrupt manifest', async () => {
+    const warnSpy = vi.fn();
+    vi.doMock('./log/logger', () => ({
+      createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        child: vi.fn(),
+      }),
+    }));
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-packs-corrupt-'));
+    try {
+      const corruptPack = join(tempRoot, 'corrupt-pack');
+      await mkdir(join(corruptPack, 'qmd'), { recursive: true });
+      await writeFile(
+        join(corruptPack, 'qmd', 'repo-sources.json'),
+        '{ "context_pack_id": "corrupt-pack", truncated',
+      );
+
+      const contextPackEnvVars = getActiveProvider(process.cwd()).contextPackEnvVars();
+      vi.stubEnv(contextPackEnvVars.paths, corruptPack);
+      vi.stubEnv(contextPackEnvVars.searchRoots, '');
+      vi.stubEnv('ACTIVE_CONTEXT_PACK_DIR', corruptPack);
+
+      const { listAvailableContextPacks } = await import('./main.contextPackCatalog');
+      const response = await listAvailableContextPacks();
+
+      expect(response.contextPacks).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          contextPackId: 'corrupt-pack',
+          displayName: 'corrupt-pack',
+          contextPackDir: corruptPack,
+        }),
+      ]));
+      expect(warnSpy).toHaveBeenCalledWith(
+        'context-pack.catalog.manifest.parse-failed',
+        expect.objectContaining({
+          contextPackDir: corruptPack,
+          manifestPath: join(corruptPack, 'qmd', 'repo-sources.json'),
+        }),
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+      vi.doUnmock('./log/logger');
+    }
+  });
 });

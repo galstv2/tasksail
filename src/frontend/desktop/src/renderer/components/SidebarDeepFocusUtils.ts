@@ -6,6 +6,7 @@ import type {
   ContextPackFocusTargetKind,
   ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
+import { createLogger } from '../log/logger';
 import { deepFocusStrings } from './SidebarDeepFocusStrings';
 
 export type EditScopeCursor =
@@ -84,6 +85,7 @@ type BadgeRow = {
 };
 
 const TEST_DIR_NAME_PATTERN = /^(__)?(tests?|specs?|e2e)(__)?$|[.\-_](tests?|specs?|e2e)$/i;
+const log = createLogger('src/renderer/components/SidebarDeepFocusUtils');
 
 /**
  * Returns true when a row should be treated as a test-classified directory.
@@ -206,7 +208,7 @@ function hasMonolithIdentity(target: ContextPackPrimaryFocusTarget): boolean {
 }
 
 function warnDiscardedLegacyPrimaries(reason: string): void {
-  console.warn('[deep-focus] discarded malformed legacy primaries:', reason);
+  log.warn('deep-focus.legacy-primaries.discarded', { reason });
 }
 
 export function hydrateLegacyPrimaries(options: {
@@ -325,12 +327,7 @@ export function migrateSupportScopes(
     return state;
   }
 
-  console.warn(
-    `[deep-focus] removed ${removedCount} duplicated support ${
-      removedCount === 1 ? 'path' : 'paths'
-    } from globals (already present in per-primary scope)`,
-  );
-
+  log.warn('deep-focus.support-scopes.duplicate-globals.removed', { removedCount });
   return { ...state, selectedSupportTargets: filteredGlobals };
 }
 

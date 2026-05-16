@@ -46,6 +46,28 @@ export function buildExpectedAgentIdentity(roleName: string, humanName: string):
   return `Act as the ${roleName}.`;
 }
 
+function expectedInstructionHeadingForAgent(
+  agentId: string,
+  roleName: string,
+  humanName: string,
+): string {
+  if (agentId === 'planning-agent') {
+    return `# ${roleName} Instructions`;
+  }
+  return buildExpectedInstructionHeading(roleName, humanName);
+}
+
+function expectedAgentIdentityForAgent(
+  agentId: string,
+  roleName: string,
+  humanName: string,
+): string {
+  if (agentId === 'planning-agent') {
+    return `Act as the ${roleName}.`;
+  }
+  return buildExpectedAgentIdentity(roleName, humanName);
+}
+
 export async function loadNamedAgentTeam(
   rootDir: string,
 ): Promise<{ team: NamedAgentTeam; errors: string[] }> {
@@ -150,8 +172,8 @@ export async function loadNamedAgentTeam(
       instructionPath,
       agentProfilePath,
       workflowOrder: workflowOrder as number,
-      expectedInstructionHeading: buildExpectedInstructionHeading(roleName, humanName),
-      expectedAgentIdentity: buildExpectedAgentIdentity(roleName, humanName),
+      expectedInstructionHeading: expectedInstructionHeadingForAgent(agentId, roleName, humanName),
+      expectedAgentIdentity: expectedAgentIdentityForAgent(agentId, roleName, humanName),
       requiredModel: String(item.required_model ?? '').trim(),
     });
   }

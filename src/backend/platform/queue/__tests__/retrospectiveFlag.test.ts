@@ -465,7 +465,7 @@ describe('retrospectiveFlag', () => {
       mkdirSync(lockDir);
       const tenMinutesAgoSeconds = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
       utimesSync(lockDir, tenMinutesAgoSeconds, tenMinutesAgoSeconds);
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
       const handoffsDir = path.join(tmpRoot, 'handoffs');
       mkdirSync(handoffsDir, { recursive: true });
@@ -481,9 +481,8 @@ describe('retrospectiveFlag', () => {
         taskId: 'task-stale-lock-test',
       });
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`[retrospectiveFlag] reclaiming stale counter lock: ${lockDir}`),
-      );
+      expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain('counter_lock.stale.reclaiming');
+      expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain(lockDir);
     });
 
     it('does not reclaim a counter lock whose mtime is fresh', async () => {
@@ -495,7 +494,7 @@ describe('retrospectiveFlag', () => {
       vi.spyOn(core, 'sleep').mockResolvedValue(undefined);
 
       mkdirSync(lockDir);
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
       const handoffsDir = path.join(tmpRoot, 'handoffs');
       mkdirSync(handoffsDir, { recursive: true });
@@ -527,7 +526,7 @@ describe('retrospectiveFlag', () => {
       writeFileSync(lockDir, '');
       const tenMinutesAgoSeconds = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
       utimesSync(lockDir, tenMinutesAgoSeconds, tenMinutesAgoSeconds);
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
       const handoffsDir = path.join(tmpRoot, 'handoffs');
       mkdirSync(handoffsDir, { recursive: true });
@@ -545,9 +544,8 @@ describe('retrospectiveFlag', () => {
         }),
       ).resolves.toBeUndefined();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`[retrospectiveFlag] reclaiming stale counter lock: ${lockDir}`),
-      );
+      expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain('counter_lock.stale.reclaiming');
+      expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain(lockDir);
     });
   });
 });

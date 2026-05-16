@@ -104,6 +104,7 @@ function TaskLedgerTable({
               <th>Difficulty</th>
               <th>Reward</th>
               <th>Status</th>
+              <th>Review</th>
               <th>Outcome</th>
             </tr>
           </thead>
@@ -118,6 +119,11 @@ function TaskLedgerTable({
                 <td>
                   <span className={`status-chip status-chip--sm status-chip--${task.settlementStatus === 'rewarded' ? 'active' : 'idle'}`}>
                     {task.settlementStatus}
+                  </span>
+                </td>
+                <td>
+                  <span className={`status-chip status-chip--sm status-chip--${task.reviewStatus === 'reviewed' ? 'completed' : 'idle'}`}>
+                    {task.reviewStatus === 'reviewed' ? 'reviewed' : 'unreviewed'}
                   </span>
                 </td>
                 <td>{task.qualityOutcome}</td>
