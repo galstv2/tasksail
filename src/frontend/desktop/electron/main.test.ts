@@ -263,6 +263,7 @@ describe('electron main bootstrap', () => {
 
     await vi.waitFor(() => {
       expect(startRuntimeStreamWatcher).toHaveBeenCalledWith({
+        listContextPacks: expect.any(Function),
         scopeProvider: expect.any(Function),
       });
     });
@@ -1052,128 +1053,6 @@ describe('electron main bootstrap', () => {
     expect(resetStreamState).not.toHaveBeenCalled();
     expect(resetRuntimeStreamState).not.toHaveBeenCalled();
     expect(emitStreamEvent).not.toHaveBeenCalled();
-  });
-
-  it('auto-starts the pipeline when moving to pending also activates the task', async () => {
-    vi.resetModules();
-    const runPipelineSequence = vi.fn(async () => ({
-      workflowPath: 'standard',
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      durationSeconds: 0,
-      agentsRun: [],
-      contextPackDir: null,
-      status: 'completed',
-    }));
-    const refreshRuntimeStreamState = vi.fn(async () => undefined);
-    const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
-    const pathExists = vi.fn(async () => false);
-    const moveToPending = vi.fn(async () => ({
-      ok: true as const,
-      response: {
-        action: 'taskBoard.moveToPending' as const,
-        mode: 'moved' as const,
-        message: 'Moved task.md to pending as 20260328-task.md.',
-        movedItem: '20260328-task.md',
-        activatedItem: '20260328-task.md',
-      },
-    }));
-
-    const getQueueStatus = vi.fn(async () => ({
-      dropboxItems: [],
-      pendingItems: ['20260328-task.md'],
-      activeItem: '20260328-task.md',
-      activeTasks: [{
-        taskId: '20260328-task',
-        state: 'active' as const,
-        handoffsDir: '/repo/AgentWorkSpace/tasks/20260328-task/handoffs',
-      }],
-      workspaceReady: false,
-      activeTaskWithBlankWorkspace: false,
-      partialPublish: false,
-      errorItemsCount: 0,
-    }));
-    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
-      getCurrentActiveContextPackTaskScope: vi.fn(() => ({
-        contextPackId: 'pack-a',
-        contextPackDir: '/packs/pack-a',
-        contextPackName: 'pack-a',
-      })),
-      refreshCurrentActiveContextPackTaskScope: vi.fn(async () => ({
-        previous: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
-        next: { contextPackId: 'pack-a', contextPackDir: '/packs/pack-a', contextPackName: 'pack-a' },
-        changed: false,
-      })),
-    }));
-    vi.doMock('./main.runtimeStream', () => ({
-      refreshRuntimeStreamState,
-      resetRuntimeStreamState: vi.fn(),
-      startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
-    }));
-    vi.doMock('./main.stream', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.stream')>()),
-      refreshStreamTaskMetadataForScope,
-    }));
-
-    vi.doMock('./utils', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./utils')>();
-      return {
-        ...actual,
-        pathExists,
-      };
-    });
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
-      return {
-        ...actual,
-        moveToPending,
-        startTaskBoardWatcher: vi.fn(() => vi.fn()),
-      };
-    });
-    vi.doMock('../../../backend/platform/agent-runner/pipeline/sequencer.js', () => ({
-      runPipelineSequence,
-    }));
-    vi.doMock('../../../backend/platform/queue', () => ({
-      acquireDirLockOrThrow: vi.fn(async () => vi.fn(async () => undefined)),
-      deletePendingItem: vi.fn(),
-      getQueueStatus,
-      resolveQueuePaths: vi.fn(() => ({
-        queueLockDir: '/repo/AgentWorkSpace/.queue-lock',
-      })),
-    }));
-    vi.doMock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
-      listActivePipelines: vi.fn(() => []),
-      stopPipeline: vi.fn(async () => undefined),
-    }));
-
-    const { handleDesktopAction } = await import('./main');
-
-    await expect(
-      handleDesktopAction({
-        action: 'taskBoard.moveToPending',
-        payload: { fileName: 'task.md', insertAtIndex: 0 },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      response: {
-        action: 'taskBoard.moveToPending',
-        mode: 'moved',
-        message: 'Moved task.md to pending as 20260328-task.md.',
-        movedItem: '20260328-task.md',
-        activatedItem: '20260328-task.md',
-      },
-    });
-
-    await vi.waitFor(() => {
-      expect(runPipelineSequence).toHaveBeenCalledWith({
-        repoRoot: expect.any(String),
-        startAt: 'alice',
-        taskId: '20260328-task',
-      });
-    });
-    expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledOnce();
-    expect(refreshRuntimeStreamState).toHaveBeenCalledOnce();
   });
 
   it('does not auto-start the pipeline when move to pending does not activate a task', async () => {

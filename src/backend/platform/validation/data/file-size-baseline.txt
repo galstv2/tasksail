@@ -35,9 +35,5 @@
 572 src/backend/scripts/python/activate-context-pack-helper.py
 501 src/backend/scripts/python/lib/policy/rules_bootstrap.py
 
-# TypeScript
-2027 src/frontend/desktop/electron/main.ts
-1131 src/frontend/desktop/electron/repoObservability.ts
-
 # Frontend CSS
 908 src/frontend/desktop/src/renderer/styles/reinforcement.css

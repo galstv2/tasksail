@@ -24,6 +24,10 @@
     {
       "display_name": "claude-opus-4.7",
       "model_id": "claude-opus-4.7"
+    },
+    {
+      "display_name": "auto",
+      "model_id": "auto"
     }
   ]
 }

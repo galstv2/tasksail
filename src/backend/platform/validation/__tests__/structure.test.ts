@@ -109,4 +109,206 @@ describe('validateStructure', () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
+
+  it('allows the Electron main thin-wrapper composition surface', async () => {
+    for (const dir of getRequiredDirs(tmpDir)) {
+      await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
+    }
+    for (const file of getRequiredFiles(tmpDir)) {
+      const filePath = path.join(tmpDir, file);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, '');
+    }
+    const mainPath = path.join(tmpDir, 'src/frontend/desktop/electron/main.ts');
+    await fs.promises.mkdir(path.dirname(mainPath), { recursive: true });
+    await fs.promises.writeFile(
+      mainPath,
+      [
+        "import { app } from 'electron';",
+        "import { schedulePipelineAutoStart } from './main.startupRecovery';",
+        "import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';",
+        'const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock?.() ?? true;',
+        'export function registerAppLifecycle(): void {}',
+        'export function handleDesktopAction() {',
+        '  return createDefaultDesktopActionHandlers({ schedulePipelineAutoStart });',
+        '}',
+        "export { createWindow } from './main.windowManager';",
+        '',
+      ].join('\n'),
+    );
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects Electron main implementation bodies that belong in extracted modules', async () => {
+    for (const dir of getRequiredDirs(tmpDir)) {
+      await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
+    }
+    for (const file of getRequiredFiles(tmpDir)) {
+      const filePath = path.join(tmpDir, file);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, '');
+    }
+    const mainPath = path.join(tmpDir, 'src/frontend/desktop/electron/main.ts');
+    await fs.promises.mkdir(path.dirname(mainPath), { recursive: true });
+    await fs.promises.writeFile(
+      mainPath,
+      [
+        "import { BrowserWindow, ipcMain } from 'electron';",
+        'type DesktopActionHandlers = Record<string, unknown>;',
+        'export function createWindow() { return new BrowserWindow({}); }',
+        'export function registerDesktopContract() { ipcMain.handle("desktop-shell:invoke", () => undefined); }',
+        'export async function handleDesktopAction(request: { action: string }) {',
+        '  switch (request.action) { default: return { ok: false }; }',
+        '}',
+        'export function startEverything() {',
+        '  startRuntimeStreamWatcher();',
+        '  startTaskBoardWatcher();',
+        '  startTaskRecoveryController();',
+        '  cleanupStalePipelineState();',
+        '  schedulePipelineAutoStart();',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('main.windowManager.ts');
+    expect(result.errors.join('\n')).toContain('main.ipcContract.ts');
+    expect(result.errors.join('\n')).toContain('main.desktopActionRouter.ts');
+    expect(result.errors.join('\n')).toContain('main.desktopActionHandlers.ts');
+    expect(result.errors.join('\n')).toContain('main.appController.ts');
+    expect(result.errors.join('\n')).toContain('main.startupRecovery.ts');
+  });
+
+  it('allows the repoObservability public facade and barrel shape', async () => {
+    for (const dir of getRequiredDirs(tmpDir)) {
+      await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
+    }
+    for (const file of getRequiredFiles(tmpDir)) {
+      const filePath = path.join(tmpDir, file);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, '');
+    }
+    const facadePath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability.ts');
+    const indexPath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability/index.ts');
+    await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
+    await fs.promises.writeFile(
+      facadePath,
+      [
+        'export {',
+        '  probePidLiveness,',
+        '  inferGuardrailIdentity,',
+        '  readQueueStatusSnapshot,',
+        '  readObservabilitySnapshot,',
+        "} from './repoObservability/index';",
+        '',
+      ].join('\n'),
+    );
+    await fs.promises.writeFile(
+      indexPath,
+      [
+        "export { probePidLiveness } from './sessionHealth';",
+        "export { inferGuardrailIdentity } from './guardrails';",
+        "export { readQueueStatusSnapshot } from './queueSnapshot';",
+        "export { readObservabilitySnapshot } from './snapshot';",
+        '',
+      ].join('\n'),
+    );
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects repoObservability implementation code in the public facade or barrel', async () => {
+    for (const dir of getRequiredDirs(tmpDir)) {
+      await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
+    }
+    for (const file of getRequiredFiles(tmpDir)) {
+      const filePath = path.join(tmpDir, file);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, '');
+    }
+    const facadePath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability.ts');
+    const indexPath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability/index.ts');
+    await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
+    await fs.promises.writeFile(
+      facadePath,
+      [
+        "import { readFile } from 'node:fs/promises';",
+        'export async function readObservabilitySnapshot() {',
+        "  return readFile('/tmp/receipt.json', 'utf-8');",
+        '}',
+        '',
+      ].join('\n'),
+    );
+    await fs.promises.writeFile(
+      indexPath,
+      [
+        "export { probePidLiveness } from './sessionHealth';",
+        "export { readObservabilitySnapshot } from './snapshot';",
+        "export function helperThatShouldStayInternal() { return true; }",
+        '',
+      ].join('\n'),
+    );
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('repoObservability.ts must remain a four-export facade');
+    expect(result.errors.join('\n')).toContain('repoObservability/index.ts must remain a four-export public barrel');
+  });
+
+  it('rejects production imports from internal repoObservability modules', async () => {
+    for (const dir of getRequiredDirs(tmpDir)) {
+      await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
+    }
+    for (const file of getRequiredFiles(tmpDir)) {
+      const filePath = path.join(tmpDir, file);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, '');
+    }
+    const facadePath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability.ts');
+    const indexPath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability/index.ts');
+    const consumerPath = path.join(tmpDir, 'src/frontend/desktop/electron/main.environmentStatus.ts');
+    await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
+    await fs.promises.writeFile(
+      facadePath,
+      [
+        'export {',
+        '  probePidLiveness,',
+        '  inferGuardrailIdentity,',
+        '  readQueueStatusSnapshot,',
+        '  readObservabilitySnapshot,',
+        "} from './repoObservability/index';",
+        '',
+      ].join('\n'),
+    );
+    await fs.promises.writeFile(
+      indexPath,
+      [
+        "export { probePidLiveness } from './sessionHealth';",
+        "export { inferGuardrailIdentity } from './guardrails';",
+        "export { readQueueStatusSnapshot } from './queueSnapshot';",
+        "export { readObservabilitySnapshot } from './snapshot';",
+        '',
+      ].join('\n'),
+    );
+    await fs.promises.writeFile(
+      consumerPath,
+      "import { readObservabilitySnapshot } from './repoObservability/snapshot';\n",
+    );
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('must import the public ./repoObservability facade');
+  });
 });

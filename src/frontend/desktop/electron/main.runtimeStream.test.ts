@@ -17,6 +17,7 @@ vi.mock('../../../backend/platform/agent-runner/pipelineSupervisor.js', () => ({
 
 import type {
   AgentTerminalSession,
+  ContextPackListResponse,
   GuardrailObservation,
 } from '../src/shared/desktopContract';
 import type { TaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
@@ -58,6 +59,32 @@ function makeDefaultTaskRegistry(): TaskRegistry {
 }
 
 const loadTaskRegistry = vi.fn(async () => makeDefaultTaskRegistry());
+
+function contextPackList(activePackId: string): ContextPackListResponse {
+  return {
+    action: 'contextPack.list',
+    mode: 'read-only',
+    message: 'Context packs listed.',
+    activeContextPackDir: `/packs/${activePackId}`,
+    configuredPaths: [],
+    searchRoots: [],
+    recentContextPackDirs: [],
+    contextPacks: [{
+      contextPackId: activePackId,
+      displayName: `Pack ${activePackId}`,
+      contextPackDir: `/packs/${activePackId}`,
+      manifestPath: `/packs/${activePackId}/qmd/repo-sources.json`,
+      bootstrapReady: true,
+      source: 'configured-path',
+      isActive: true,
+      estateType: null,
+      defaultScopeMode: null,
+      repoCount: 1,
+      primaryWorkingRepoIds: [],
+      focusTargets: [],
+    }],
+  };
+}
 
 vi.mock('../../../backend/platform/queue/taskRegistry.js', () => ({
   loadTaskRegistry,
@@ -678,9 +705,7 @@ describe('main.runtimeStream', () => {
       contextPackDir: '/packs/pack-a',
       contextPackName: 'pack-a',
     };
-    const listContextPacks = vi.fn(async () => {
-      throw new Error('listContextPacks should not be called by runtime watcher');
-    });
+    const listContextPacks = vi.fn(async () => contextPackList('pack-a'));
     loadTaskRegistry.mockResolvedValueOnce({
       schema_version: 2,
       tasks: {
@@ -772,10 +797,108 @@ describe('main.runtimeStream', () => {
     }
 
     expect(readSnapshot).toHaveBeenCalledWith(fsAdapter, ['TASK-A']);
-    expect(listContextPacks).not.toHaveBeenCalled();
+    expect(listContextPacks).toHaveBeenCalled();
     expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledWith(scope);
     expect(watchedPaths.some((path) => path.includes('/TASK-A/'))).toBe(true);
     expect(watchedPaths.some((path) => path.includes('/TASK-B/'))).toBe(false);
+
+    stop();
+  });
+
+  it('refreshes scope from the active catalog before filtering runtime terminal events', async () => {
+    const { startRuntimeStreamWatcher } = await import('./main.runtimeStream');
+    setCurrentActiveContextPackTaskScope({
+      contextPackId: 'pack-a',
+      contextPackDir: '/packs/pack-a',
+      contextPackName: 'pack-a',
+    });
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-b': {
+          open: [],
+          pending: [],
+          active: [{
+            taskId: 'TASK-B',
+            fileName: 'TASK-B.md',
+            title: 'Task B',
+            state: 'active' as const,
+            contextPackId: 'pack-b',
+            contextPackDir: '/packs/pack-b',
+            scopeMode: 'focused',
+            selectedRepoIds: [],
+            selectedFocusIds: [],
+            createdAt: null,
+            completedAt: null,
+            archivePath: null,
+          }],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    const listContextPacks = vi.fn(async () => contextPackList('pack-b'));
+    const watchFactory = vi.fn(() => ({ close: vi.fn() }) as unknown as FSWatcher);
+    const readSnapshot = vi.fn().mockResolvedValue({ agentTerminalSessions: [], guardrails: [] });
+    const fsAdapter = {
+      access: vi.fn(async (path: string) => {
+        const allowed =
+          path.endsWith('.platform-state') ||
+          path.endsWith('.platform-state/runtime') ||
+          path.endsWith('.platform-state/runtime/tasks') ||
+          path.endsWith('AgentWorkSpace/pendingitems') ||
+          path.endsWith('AgentWorkSpace/pendingitems/.active-items') ||
+          path.includes('.platform-state/runtime/tasks/TASK-B');
+        if (!allowed) {
+          throw Object.assign(new Error(`Unexpected watch target: ${path}`), { code: 'ENOENT' });
+        }
+      }),
+      readFile: vi.fn(async (path: string) => {
+        if (path.endsWith('.platform-state/runtime/tasks/TASK-B/terminal-events.json')) {
+          return JSON.stringify({
+            events: [{
+              eventId: 'task-b.activated',
+              source: 'runtime.queue',
+              role: 'queue',
+              severity: 'info',
+              message: 'Task B visible.',
+            }],
+          });
+        }
+        return '';
+      }),
+      readdir: vi.fn(async (path: string) => {
+        if (path.endsWith('AgentWorkSpace/pendingitems/.active-items')) {
+          return ['TASK-B'];
+        }
+        throw Object.assign(new Error(`Unexpected readdir: ${path}`), { code: 'ENOENT' });
+      }),
+      mkdir: vi.fn(async () => undefined),
+      rename: vi.fn(async () => undefined),
+      rm: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined),
+    };
+
+    const stop = startRuntimeStreamWatcher({
+      fsAdapter,
+      readSnapshot,
+      watchFactory: watchFactory as unknown as typeof import('node:fs').watch,
+      listContextPacks,
+    });
+
+    await vi.runAllTimersAsync();
+
+    expect(listContextPacks).toHaveBeenCalled();
+    expect(readSnapshot).toHaveBeenCalledWith(fsAdapter, ['TASK-B']);
+    expect(refreshStreamTaskMetadataForScope).toHaveBeenCalledWith({
+      contextPackId: 'pack-b',
+      contextPackDir: '/packs/pack-b',
+      contextPackName: 'pack-b',
+    });
+    expect(emitStreamEvent).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'TASK-B',
+      message: 'Task B visible.',
+    }));
 
     stop();
   });

@@ -25,6 +25,7 @@ import {
   activeContextPackTaskScopesEqual,
   defaultActiveScopeProvider,
   filterActiveTaskIdsForScope,
+  resolveActiveContextPackTaskScope,
   type ActiveScopeProvider,
   type ActiveContextPackTaskScope,
   type ContextPackLister,
@@ -81,7 +82,6 @@ type RuntimeWatcherOptions = {
   readSnapshot?: (fsAdapter: ReadOnlyRepoFs, runtimeTaskIds?: string[]) => Promise<RuntimeSnapshot>;
   watchFactory?: typeof watch;
   scopeProvider?: ActiveScopeProvider;
-  // TODO(gate-14): remove once callers migrate to scopeProvider.
   listContextPacks?: ContextPackLister;
 };
 
@@ -522,6 +522,20 @@ export function startRuntimeStreamWatcher(
   let currentRealignmentIds: string[] = [];
   let currentScope: ActiveContextPackTaskScope | null = scopeProvider();
 
+  const resolveCurrentScope = async (): Promise<ActiveContextPackTaskScope | null> => {
+    if (!options.listContextPacks) {
+      return scopeProvider();
+    }
+    try {
+      return await resolveActiveContextPackTaskScope(options.listContextPacks);
+    } catch (error: unknown) {
+      log.warn('runtime-stream.scope-refresh.failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return scopeProvider();
+    }
+  };
+
   const clearRuntimeState = (): void => {
     previousSnapshot = null;
     drainingTaskRefreshes.clear();
@@ -826,7 +840,7 @@ export function startRuntimeStreamWatcher(
   };
 
   const ensureWatchers = async (): Promise<void> => {
-    const nextScope = scopeProvider();
+    const nextScope = await resolveCurrentScope();
     if (!activeContextPackTaskScopesEqual(currentScope, nextScope)) {
       currentScope = nextScope;
       clearRuntimeState();
