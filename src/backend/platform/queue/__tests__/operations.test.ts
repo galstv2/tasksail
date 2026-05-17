@@ -452,6 +452,39 @@ describe('moveDropboxItemToPending planner focus snapshots', () => {
     const newTaskId = result.movedItem.replace(/\.md$/u, '');
     expect(existsSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', newTaskId, 'planner-focus-snapshot.json'))).toBe(false);
   });
+
+  it('returns the newly activated task id instead of an existing active marker', async () => {
+    const previousAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+    process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    try {
+      const paths = resolveQueuePaths(repoRoot);
+      mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+      writeFileSync(
+        path.join(repoRoot, '.platform-state', 'platform.json'),
+        JSON.stringify({
+          schema_version: 1,
+          container_runtime: 'docker',
+          max_parallel_tasks: 2,
+        }, null, 2) + '\n',
+        'utf-8',
+      );
+      mkdirSync(paths.templatesDir, { recursive: true });
+      seedTemplates(paths.templatesDir);
+      writeFileSync(path.join(paths.dropboxDir, 'task-a.md'), '# Task A');
+
+      const result = await moveDropboxItemToPending({ repoRoot, fileName: 'task-a.md', insertAtIndex: 0 });
+      const newTaskId = result.movedItem.replace(/\.md$/u, '');
+
+      expect(result.activatedItem).toBe(newTaskId);
+      expect(result.activatedItem).not.toBe('already-active');
+    } finally {
+      if (previousAutostart === undefined) {
+        delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
+      } else {
+        process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = previousAutostart;
+      }
+    }
+  });
 });
 
 describe('activateNextPendingItemIfReady', () => {

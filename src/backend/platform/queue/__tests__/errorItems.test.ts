@@ -747,20 +747,16 @@ describe('§4.14A activation after failure (cap=2, B active, A fails, D pending)
     expect(mockFinalizeTaskWorktrees).toHaveBeenCalledTimes(1);
     expect(mockFinalizeTaskWorktrees).toHaveBeenCalledWith('task-A', 'failed', repoRoot);
 
-    // Verify activateNextPendingItemIfReady ran and picked D:
-    // Either nextActiveItem is set (D was activated successfully) or D's active marker exists.
+    // Verify activateNextPendingItemIfReady ran and reported the task it actually picked.
+    expect(result.nextActiveItem).toBe('task-D');
+
     const activeMarkers = existsSync(queuePaths.activeItemsDir)
       ? readdirSync(queuePaths.activeItemsDir).filter((f) => !f.endsWith('.completing'))
       : [];
 
     // B is still active
     expect(activeMarkers).toContain('task-B');
-
-    // D was activated: marker or nextActiveItem references it
-    const dActivated =
-      activeMarkers.includes('task-D') ||
-      (result.nextActiveItem !== null && /task-D/.test(result.nextActiveItem ?? ''));
-    expect(dActivated).toBe(true);
+    expect(activeMarkers).toContain('task-D');
   });
 });
 

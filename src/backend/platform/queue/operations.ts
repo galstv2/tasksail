@@ -635,13 +635,8 @@ export async function moveDropboxItemToPending(options: {
     },
   );
 
-  let activatedItem: string | null = null;
   const result = await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot: root });
-  if (result.activated) {
-    // Read newly activated item from .active-items/ directory
-    const markers = getActiveTaskIds(queuePaths);
-    activatedItem = markers.length > 0 ? (markers[0] as string) : null;
-  }
+  const activatedItem = result.activated ? result.activatedTaskId ?? null : null;
 
   return { movedItem: finalFileName, activatedItem };
 }
@@ -664,6 +659,7 @@ export type ActivationGateReason =
 
 export interface ActivateNextPendingItemResult {
   activated: boolean;
+  activatedTaskId?: string;
   // Stable gate-condition codes use ActivationGateReason. Orchestrators
   // (e.g. publishPendingItem) may also surface dynamic strings such as
   // 'activation-error: <msg>' here.
@@ -1157,7 +1153,7 @@ export async function activateNextPendingItemIfReady(
   if (disablePipelineAutostart) {
     log.warn('pipeline.autostart.disabled', { taskId });
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
-    return { activated: true };
+    return { activated: true, activatedTaskId: taskId };
   }
 
   // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.
@@ -1187,7 +1183,7 @@ export async function activateNextPendingItemIfReady(
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
     // Recovery is in progress — pipeline will be started after recoverOnStartup completes.
     // This is not an error; the supervisor will handle re-activation.
-    return { activated: true };
+    return { activated: true, activatedTaskId: taskId };
   }
 
   // Intentionally do NOT unlink the pending markdown here. Per the contract
@@ -1199,7 +1195,7 @@ export async function activateNextPendingItemIfReady(
   // this point, the rename in errorItems.ts hits ENOENT and falls back to a
   // blank-template recovery that loses the original task content.
 
-  return { activated: true };
+  return { activated: true, activatedTaskId: taskId };
 }
 
 export interface CompleteActiveItemOptions {

@@ -12,7 +12,6 @@ import {
 } from './markdown.js';
 import {
   activateNextPendingItemIfReady,
-  getActiveTaskIds,
   insertIntoQueueManifest,
   removeFromQueueOrderManifest,
 } from './operations.js';
@@ -460,10 +459,7 @@ export async function moveFailedItemToErrorItems(options: {
     paths: queuePaths,
     repoRoot: root,
   });
-  if (activateResult.activated) {
-    const newMarkers = getActiveTaskIds(queuePaths);
-    nextActiveItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
-  }
+  nextActiveItem = activateResult.activated ? activateResult.activatedTaskId ?? null : null;
 
   return {
     movedItem: activeItem,
@@ -581,10 +577,7 @@ export async function requeueErrorItem(options: {
     paths: queuePaths,
     repoRoot: root,
   });
-  if (activateResult2.activated) {
-    const newMarkers = getActiveTaskIds(queuePaths);
-    activatedItem = newMarkers.length > 0 ? (newMarkers[0] ?? null) : null;
-  }
+  activatedItem = activateResult2.activated ? activateResult2.activatedTaskId ?? null : null;
 
   return { requeuedItem, activatedItem };
 }

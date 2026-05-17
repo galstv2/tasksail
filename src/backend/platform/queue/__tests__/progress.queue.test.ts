@@ -138,7 +138,10 @@ describe('queue progress events', () => {
     const paths = seedQueue(tmpRoot, 'task-git');
     initGitRepo(tmpRoot);
 
-    await expect(activateNextPendingItemIfReady({ paths, repoRoot: tmpRoot })).resolves.toEqual({ activated: true });
+    await expect(activateNextPendingItemIfReady({ paths, repoRoot: tmpRoot })).resolves.toEqual({
+      activated: true,
+      activatedTaskId: 'task-git',
+    });
 
     const lines = stderrChunks();
     const branchIndex = lines.findIndex((line) => line.includes('[pipeline] worktree '));
