@@ -646,9 +646,7 @@ describe('activateNextPendingItemIfReady', () => {
     for (const filename of HANDOFF_FILES) {
       const template = filename === 'retrospective-input.md'
         ? '# retrospective-input.md\n\n## Task Metadata\n\n- Task ID:\n- Retrospective Required:\n'
-        : filename === 'professional-task.md'
-          ? '# Professional Task\n\n## Task Metadata\n\n- Task ID:\n- Task Title:\n- Initialized At (UTC):\n- Active Branch:\n- Intake Source:\n\n## Raw Request\n'
-          : `# ${filename}\n\n- Task ID:\n`;
+        : `# ${filename}\n\n- Task ID:\n`;
       writeFileSync(path.join(templatesDir, filename), template);
     }
     writeFileSync(
@@ -678,15 +676,6 @@ describe('activateNextPendingItemIfReady', () => {
       ? readFileSync(path.join(taskHandoffsDir, 'retrospective-input.md'), 'utf-8')
       : '';
     expect(retrospective).toContain('- Retrospective Required: false');
-    const professionalTask = readFileSync(
-      path.join(taskHandoffsDir, 'professional-task.md'),
-      'utf-8',
-    );
-    expect(professionalTask).toContain('- Task ID: task-004');
-    expect(professionalTask).toContain('- Task Title: Add search');
-    expect(professionalTask).toContain('- Intake Source: AgentWorkSpace/pendingitems/task-004.md');
-    expect(professionalTask).not.toContain('## Raw Request\n\n# Add search');
-
     // Activation must stage the pending markdown into the per-task handoffs dir
     // as `intake.md` so artifact-author agents (Alice) can read intake from
     // their own task workspace without being granted access to the shared

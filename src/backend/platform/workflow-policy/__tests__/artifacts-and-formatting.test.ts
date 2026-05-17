@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,6 +21,7 @@ import { resolvePaths } from '../../core/index.js';
 import { validateMarkdownContract } from '../contracts/markdownContract.js';
 
 const TEST_TASK_ID = 'task-test-001';
+const REPO_ROOT = path.join(import.meta.dirname, '../../../../..');
 
 describe('workflow-policy artifacts and formatting', () => {
   const createdRoots: string[] = [];
@@ -269,6 +270,53 @@ describe('workflow-policy artifacts and formatting', () => {
       source: 'nested-heading',
       content: [''],
     });
+  });
+
+  it('resolves required implementation-spec semantic sections from the hardened template', () => {
+    const markdown = readFileSync(
+      path.join(REPO_ROOT, 'AgentWorkSpace/templates/implementation-spec.md'),
+      'utf-8',
+    );
+    const sections = parseSections(markdown);
+
+    for (const key of [
+      'goals',
+      'non-goals',
+      'codebase-analysis',
+      'dependency-analysis',
+      'change-boundaries',
+      'validation-strategy',
+      'files-likely-to-change',
+    ]) {
+      const spec = SPEC_REQUIRED_SECTION_SPECS.find((candidate) => candidate.key === key);
+      expect(spec, `missing spec for ${key}`).toBeDefined();
+      expect(resolveSemanticSection(sections, spec!)).toMatchObject({
+        source: 'nested-heading',
+      });
+    }
+  });
+
+  it('resolves required slice semantic sections from the hardened template', () => {
+    const markdown = readFileSync(
+      path.join(REPO_ROOT, 'AgentWorkSpace/templates/slice-template.md'),
+      'utf-8',
+    );
+    const sections = parseSections(markdown);
+
+    for (const key of [
+      'purpose',
+      'depends-on',
+      'scope',
+      'files',
+      'unit-tests',
+      'acceptance-criteria',
+      'validation-commands',
+      'guards',
+    ]) {
+      const spec = SLICE_REQUIRED_SECTION_SPECS.find((candidate) => candidate.key === key);
+      expect(spec, `missing spec for ${key}`).toBeDefined();
+      expect(resolveSemanticSection(sections, spec!)).toBeDefined();
+    }
   });
 
   it('does not split sections on heading-shaped lines inside fenced code blocks', () => {

@@ -36,6 +36,8 @@ Additional fields emitted conditionally by the staging writer:
 -->
 
 
+<!-- Scale intake detail to task size and risk: keep simple surgical tasks concise and exact; add file paths, symbols, compatibility notes, validation, and routing rationale for medium, complex, risky, or cross-cutting tasks only when those details reduce ambiguity or prevent regressions. Do not add filler. -->
+
 ## Request Summary
 <!-- (2+ sentences; minimum 20 characters) — say what the task is, why it is being asked for, and what concrete result is wanted. Use the Guide's exact terms when possible. Include any behavior, artifact, or workflow that must stay unchanged. Do not do codebase research here; give the clearest possible statement of the ask. -->
 
@@ -44,6 +46,15 @@ Additional fields emitted conditionally by the staging writer:
 
 ## Constraints
 <!-- (0+ bullets) — list only real boundaries that must be preserved. Use one bullet per constraint. Include out-of-scope items, unchanged behavior, compatibility requirements, ordering limits, or areas that must not be modified. Use "None" if not applicable. -->
+
+## Critical Requirements
+<!-- Prefer plain bullets. Use this section for load-bearing operator requirements downstream agents must not weaken, summarize away, or omit. Include exact algorithms, ordering constraints, data preservation rules, scope boundaries, and "must not regress" behavior. Write exact "None" only when there are truly no critical requirements to preserve. -->
+
+## Compatibility Requirements
+<!-- Prefer plain bullets. Use this section for existing behavior that must continue to work while this task changes related behavior. Include existing API behavior, direct-call behavior, UI behavior, file formats, or workflows that must remain compatible. Write exact "None" only when there are truly no compatibility requirements to preserve. -->
+
+## Required Validation
+<!-- Prefer plain bullets with concrete evidence: an exact command, Manual check:, Structural check:, or Log snapshot:. Include focused commands, broad regression commands, structural scans, log/runtime snapshots, or manual UI checks that Alice, Dalton, and Ron must preserve. Write exact "None" only when there is truly no required validation to preserve. -->
 
 ## Acceptance Signals
 <!-- (1+ bullet or numbered items required; prose alone fails validation) — list the clearest checks that would show the task is done. Keep them concrete and verifiable. Include both what should change and what must still work if that matters. -->

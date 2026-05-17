@@ -60,7 +60,33 @@ describe('createDropboxTask', () => {
     expect(content).toContain('The desired outcome');
     expect(content).toContain('## Constraints');
     expect(content).toContain('Some constraints');
+    expect(content).toContain('## Critical Requirements\n\nNone');
+    expect(content).toContain('## Compatibility Requirements\n\nNone');
+    expect(content).toContain('## Required Validation\n\nNone');
     expect(content).toContain('- Task Kind: standard');
+  });
+
+  it('emits requirement sections in template order', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Requirement Task',
+      summary: 'A brief summary',
+      desiredOutcome: 'The desired outcome',
+      constraints: '- Constraint one',
+      criticalRequirements: '- CR-001: Preserve the exact merge algorithm.',
+      compatibilityRequirements: '- COMP-001: Keep direct calls compatible.',
+      requiredValidation: '- VAL-001: $ pnpm run lint',
+      acceptanceSignals: '- Acceptance signal one',
+      repoRoot: tmpRoot,
+    });
+
+    const content = readFileSync(outputPath, 'utf-8');
+    expect(content.indexOf('## Constraints')).toBeLessThan(content.indexOf('## Critical Requirements'));
+    expect(content.indexOf('## Critical Requirements')).toBeLessThan(content.indexOf('## Compatibility Requirements'));
+    expect(content.indexOf('## Compatibility Requirements')).toBeLessThan(content.indexOf('## Required Validation'));
+    expect(content.indexOf('## Required Validation')).toBeLessThan(content.indexOf('## Acceptance Signals'));
+    expect(content).toContain('- CR-001: Preserve the exact merge algorithm.');
+    expect(content).toContain('- COMP-001: Keep direct calls compatible.');
+    expect(content).toContain('- VAL-001: $ pnpm run lint');
   });
 
   it('matches the planning intake template structure', async () => {

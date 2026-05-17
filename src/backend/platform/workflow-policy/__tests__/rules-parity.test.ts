@@ -353,7 +353,8 @@ describe('workflow-policy rule parity', () => {
         expect.objectContaining({
           rule_id: 'parallel-ok.constraints-populated',
           severity: 'warning',
-          message: 'Constraints section is empty when parallelization is approved.',
+          message: 'Constraints section is empty when Complex orchestrator execution is approved.',
+          remediation: 'Add sequencing, shared-file, resource, validation, or coordination constraints (or \'None\') to the Constraints section in parallel-ok.md.',
         }),
         expect.objectContaining({
           rule_id: 'parallel-ok.slices-exist',

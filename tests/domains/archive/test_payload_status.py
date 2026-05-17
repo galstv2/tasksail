@@ -186,6 +186,33 @@ class StructuredStatusTests(unittest.TestCase):
             payload["provenance_sources"],
         )
 
+    def test_provenance_includes_artifact_roots_without_manifest_file_expansion(self) -> None:
+        payload = self._run()
+        self.assertIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs",
+            payload["provenance_sources"],
+        )
+        self.assertIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/ImplementationSteps",
+            payload["provenance_sources"],
+        )
+        self.assertIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs/professional-task.md",
+            payload["provenance_sources"],
+        )
+        self.assertIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs/implementation-spec.md",
+            payload["provenance_sources"],
+        )
+        self.assertNotIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/handoffs/intake.md",
+            payload["provenance_sources"],
+        )
+        self.assertNotIn(
+            f"AgentWorkSpace/tasks/{self.TASK_ID}/ImplementationSteps/slice-1.md",
+            payload["provenance_sources"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -342,6 +342,72 @@ describe('closeout rules — parity', () => {
     await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
   });
 
+  function writeCloseoutFixture(repoRoot: string, options: {
+    reviewOutcome?: string;
+    intakeRequirements?: string;
+    requirementVerification?: string;
+    testResultSummary?: string;
+  } = {}): void {
+    writeActiveTask(repoRoot);
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      [
+        '# Implementation Spec',
+        '',
+        '## Intake Requirements',
+        '',
+        options.intakeRequirements ?? '- CR-001: Preserve behavior.\n- VAL-001: Run tests.',
+      ].join('\n'),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'issues.md'),
+      `# Issues\n\n## Review Outcome\n\n${options.reviewOutcome ?? 'pass'}\n`,
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'retrospective-input.md'),
+      '# Retrospective Input\n\n## Retrospective Summary\n\n- done\n\n## Meeting Context\n\n- done\n\n## Lily\'s Contribution (Planning Specialist)\n\n- done\n\n## Alice\'s Contribution (Product Manager)\n\n- done\n\n## Dalton\'s Contribution (Software Engineer)\n\n- done\n\n## Ron\'s Contribution (QA and Closeout)\n\n- done\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      [
+        '# Final Summary',
+        '',
+        '## Closeout Owner Agent ID',
+        '',
+        'qa',
+        '',
+        '## Completed Work',
+        '',
+        '- done',
+        '',
+        '## Key Design Decisions',
+        '',
+        '- decision',
+        '',
+        '## Known Limitations',
+        '',
+        '- none',
+        '',
+        '## Test Result Summary',
+        '',
+        options.testResultSummary ?? 'Tests passed.',
+        '',
+        '## Requirement Verification',
+        '',
+        options.requirementVerification ?? '- CR-001: verified acceptance covered.\n- VAL-001: advisory broad suite follow-up.',
+        '',
+        '## Difficulty Assessment',
+        '',
+        '- Difficulty Level: Medium',
+      ].join('\n'),
+      'utf-8',
+    );
+  }
+
   it('pre-closeout requires issues.md to exist', async () => {
     const repoRoot = makeRepoRoot();
     roots.push(repoRoot);
@@ -396,6 +462,299 @@ describe('closeout rules — parity', () => {
     const result = await validator.evaluate();
     expect(result.violations.some((v) => v.rule_id === 'closeout.final-summary-required')).toBe(true);
   });
+
+  it('pre-closeout passes requirement verification when generated IDs are verified or advisory', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot);
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.filter((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toHaveLength(0);
+  });
+
+  it('pre-closeout fails when Requirement Verification is missing or blank', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, { requirementVerification: '<!-- placeholder -->' });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-section-present')).toBe(true);
+  });
+
+  it('pre-closeout ignores requirement IDs hidden in comments or fenced code', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '<!-- - CR-001: verified - hidden -->\n\n```text\n- CR-001: verified - hidden\n```',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-section-present')).toBe(true);
+  });
+
+  it('pre-closeout requires generated IDs to appear inside Requirement Verification', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '- CR-001: verified - acceptance covered.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    const violation = result.violations.find((v) => v.rule_id === 'closeout.requirement-verification-ids-covered');
+    expect(violation?.message).toContain('VAL-001');
+  });
+
+  it('pre-closeout does not count generated IDs outside Requirement Verification', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      testResultSummary: 'VAL-001 passed in the focused test run.',
+      requirementVerification: '- CR-001: verified - acceptance covered.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    const violation = result.violations.find((v) => v.rule_id === 'closeout.requirement-verification-ids-covered');
+    expect(violation?.message).toContain('VAL-001');
+  });
+
+  it('pre-closeout fails pending or invalid requirement statuses without scanning evidence prose', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '- CR-001: pending - advisory caveat mentioned here.\n- VAL-001: verified - previously failed behavior now passes.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-completed' && v.message.includes('CR-001'))).toBe(true);
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-no-blocked-status')).toBe(false);
+  });
+
+  it('pre-closeout fails blocked requirement statuses in non-blocking closeout', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '- CR-001: blocked - not done.\n- VAL-001: verified - tests passed.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-no-blocked-status' && v.message.includes('CR-001'))).toBe(true);
+  });
+
+  it('pre-closeout fails generated ID lines with non-approved status tokens', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '- CR-001: reviewed - evidence attached.\n- VAL-001: verified - tests passed.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-completed' && v.message.includes('CR-001'))).toBe(true);
+  });
+
+  it('blocking reviews and no-generated-ID tasks skip requirement verification', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      reviewOutcome: 'blocking',
+      requirementVerification: '',
+    });
+
+    const blockingValidator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+    const blockingResult = await blockingValidator.evaluate();
+    expect(blockingResult.violations.some((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toBe(false);
+
+    const legacyRoot = makeRepoRoot();
+    roots.push(legacyRoot);
+    writeRegistry(legacyRoot);
+    writeCloseoutFixture(legacyRoot, {
+      intakeRequirements: 'None',
+      requirementVerification: '',
+    });
+    const legacyValidator = new PolicyValidator({
+      rootDir: legacyRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+    const legacyResult = await legacyValidator.evaluate();
+    expect(legacyResult.violations.some((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toBe(false);
+  });
+
+  it('missing implementation-spec records Gate 07 rule IDs without requirement-verification violations', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeActiveTask(repoRoot);
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
+    writeFileSync(path.join(handoffsDir, 'issues.md'), '# Issues\n\n## Review Outcome\n\npass\n', 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- decision\n\n## Known Limitations\n\n- none\n\n## Test Result Summary\n\nTests passed.\n\n## Requirement Verification\n\nNone\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect([...validator.evaluatedRules]).toEqual(expect.arrayContaining([
+      'closeout.requirement-verification-section-present',
+      'closeout.requirement-verification-ids-covered',
+      'closeout.requirement-verification-completed',
+      'closeout.requirement-verification-no-blocked-status',
+    ]));
+    expect(result.violations.some((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toBe(false);
+  });
+
+  it('pre-closeout fails when issues.md moved Review Outcome out of the top-level heading', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot);
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'),
+      '# Issues\n\n## Task Metadata\n\n- Review Outcome: pass\n',
+      'utf-8',
+    );
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.qa-review-approved')).toBe(true);
+  });
+
+  it('pre-archive fails when final-summary.md moved Closeout Owner Agent ID out of the top-level heading', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot);
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'final-summary.md'),
+      [
+        '# Final Summary',
+        '',
+        '## Task Metadata',
+        '',
+        '- Closeout Owner Agent ID: qa',
+        '',
+        '## Completed Work',
+        '',
+        '- done',
+        '',
+        '## Key Design Decisions',
+        '',
+        '- decision',
+        '',
+        '## Known Limitations',
+        '',
+        '- none',
+        '',
+        '## Test Result Summary',
+        '',
+        'Tests passed.',
+        '',
+        '## Requirement Verification',
+        '',
+        '- CR-001: verified acceptance covered.',
+        '- VAL-001: advisory broad suite follow-up.',
+        '',
+        '## Difficulty Assessment',
+        '',
+        '- Difficulty Level: Medium',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-archive',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.owner-agent-valid')).toBe(true);
+  });
+
 });
 
 describe('queue rules — parity', () => {

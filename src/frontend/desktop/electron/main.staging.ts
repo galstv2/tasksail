@@ -32,6 +32,7 @@ const log = createLogger('electron/main.staging');
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const STAGING_DIR = join(DROPBOX_DIR, '.staging');
+const PLANNING_INTAKE_TEMPLATE_PATH = join(REPO_ROOT, 'AgentWorkSpace', 'templates', 'planning-intake.md');
 const PLANNER_STAGING_SIDECAR_FILENAME = '.planner-staged-session.json';
 const PLANNER_STAGING_SIDECAR_PATH = join(STAGING_DIR, PLANNER_STAGING_SIDECAR_FILENAME);
 const PLANNER_LOCK_DIRNAME = '.planner-lock.d';
@@ -127,8 +128,19 @@ function buildPlannerStagedFilename(title: string, now: Date): string {
   return `${formatCompactTimestamp(now)}_${slug}.md`;
 }
 
-function renderPlannerStagedShell(metadata: PlannerStagingSidecar): string {
+async function readEditablePlanningIntakeTemplateBody(): Promise<string> {
+  const raw = await fsReadFile(PLANNING_INTAKE_TEMPLATE_PATH, 'utf-8');
+  const startIdx = raw.indexOf('## Request Summary');
+  if (startIdx === -1) {
+    throw new Error(`Planning intake template is missing ## Request Summary: ${PLANNING_INTAKE_TEMPLATE_PATH}`);
+  }
+  const endIdx = raw.indexOf('\n## Source', startIdx);
+  return (endIdx === -1 ? raw.slice(startIdx) : raw.slice(startIdx, endIdx)).trimEnd();
+}
+
+async function renderPlannerStagedShell(metadata: PlannerStagingSidecar): Promise<string> {
   const bindingSection = formatContextPackBindingSection(metadata.contextPackBinding);
+  const editableBody = await readEditablePlanningIntakeTemplateBody();
 
   return `# ${metadata.title}
 
@@ -143,26 +155,7 @@ function renderPlannerStagedShell(metadata: PlannerStagingSidecar): string {
 
 ${bindingSection}
 
-## Request Summary
-<!-- (2+ sentences) — keep it lean for simple asks; add more detail for complex asks when needed. State what the operator wants done and why. -->
-
-## Desired Outcome
-<!-- (1+ sentences) — keep it brief for simple asks; expand for complex asks if helpful. Describe success from the operator's perspective. -->
-
-## Constraints
-<!-- (0+ bullets) — keep only the needed constraints for simple asks; add more for complex asks when helpful. Use "None" if not applicable. -->
-
-## Acceptance Signals
-<!-- (1+ bullets) — add the minimum clear checks for simple asks; include more for complex asks as needed. Each should be measurable and verifiable. -->
-
-## Parent Task Carry-Forward Summary
-<!-- (0+ bullets) — required for "child-task" to preserve parent carry-forward context; leave blank for "standard" tasks. -->
-
-## Suggested Routing
-<!-- (1 word) - Recommended Execution: "Simple" for one coherent ask, "Complex" only when the work clearly breaks into separate streams or slices. -->
-- Recommended Execution:
-<!-- (1-2 sentences) - Explain why this should stay lean or expand. -->
-- Planner Notes:
+${editableBody}
 
 ## Source
 
@@ -469,7 +462,7 @@ export async function initializeStagedPlanningDraft(
 
   try {
     await Promise.all([
-      fsWriteFile(metadata.draftPath, renderPlannerStagedShell(metadata), 'utf-8'),
+      fsWriteFile(metadata.draftPath, await renderPlannerStagedShell(metadata), 'utf-8'),
       fsWriteFile(PLANNER_STAGING_SIDECAR_PATH, JSON.stringify(metadata, null, 2) + '\n', 'utf-8'),
     ]);
     return metadata;

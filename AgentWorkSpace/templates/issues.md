@@ -21,7 +21,7 @@
 <!-- (1 word) — [code-review | test-gap | security | hygiene | release-risk] — fill out only if "advisory" or "blocking" -->
 
 ## Expectation Violated
-<!-- (1+ sentences) - scale with complexity — fill out only if "advisory" or "blocking" -->
+<!-- (1+ sentences) - scale with complexity — fill out only if "advisory" or "blocking". If this finding violates a generated requirement from implementation-spec.md, include the exact CR-*, COMP-*, or VAL-* ID. -->
 
 ## Required Fix
 <!-- (1+ sentences) - scale with complexity —  fill out only if "blocking" -->

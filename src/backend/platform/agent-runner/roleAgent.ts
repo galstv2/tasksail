@@ -43,6 +43,7 @@ import {
   applyWorktreeInjectionToAllowedDirs,
 } from './worktreeInjection.js';
 import { buildReinforcementOverlay } from './reinforcementOverlay.js';
+import { prepopulateRequirementVerification } from './pipeline/requirementVerification.js';
 
 const log = createLogger('platform/agent-runner/roleAgent');
 import {
@@ -132,6 +133,24 @@ let roleLaunchCounter = 0;
 export function createRoleLaunchId(): string {
   roleLaunchCounter += 1;
   return `${Date.now()}-${process.pid}-${roleLaunchCounter}`;
+}
+
+function extractPolicyViolationRuleIds(policyResult: { stdout: string }): string[] {
+  try {
+    const parsed: unknown = JSON.parse(policyResult.stdout);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { violations?: unknown }).violations)) {
+      return [];
+    }
+    return (parsed as { violations: unknown[] }).violations
+      .map((violation) => (
+        violation && typeof violation === 'object'
+          ? (violation as { rule_id?: unknown }).rule_id
+          : undefined
+      ))
+      .filter((ruleId): ruleId is string => typeof ruleId === 'string');
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -567,6 +586,13 @@ export async function runRoleAgent(
     abortSignal: options.abortSignal,
   });
 
+  if (options.agentId === 'ron' && !options.promptOverride && options.launchPhase !== 'Retrospective') {
+    await prepopulateRequirementVerification({
+      handoffsDir: paths.handoffs,
+      repoRoot: paths.repoRoot,
+    });
+  }
+
   let artifactCompletionSignature = '';
   let artifactCompletionResult: boolean | undefined;
   let artifactCompletionInFlight: Promise<boolean> | null = null;
@@ -586,6 +612,7 @@ export async function runRoleAgent(
         handoffsDir: paths.handoffs,
         implStepsDir: paths.implementationSteps,
         repoRoot: paths.repoRoot,
+        taskId: options.taskId,
         abortSignal: options.abortSignal,
       }).then((result) => {
         artifactCompletionResult = result;
@@ -615,6 +642,7 @@ export async function runRoleAgent(
       handoffsDir: paths.handoffs,
       implStepsDir: paths.implementationSteps,
       repoRoot: paths.repoRoot,
+      taskId: options.taskId,
       abortSignal: options.abortSignal,
     }).then((result) => {
       artifactCompletionResult = result;
@@ -870,7 +898,9 @@ export async function runRoleAgent(
         handoffsDir: paths.handoffs,
         implStepsDir: paths.implementationSteps,
         repoRoot: paths.repoRoot,
+        taskId: options.taskId,
         abortSignal: options.abortSignal,
+        policyViolationRuleIds: nextPolicyResult ? extractPolicyViolationRuleIds(nextPolicyResult) : [],
       });
       const policyFailureDetails = nextPolicyBlocked && nextPolicyResult
         ? extractPolicyFailureDetails(nextPolicyResult)
@@ -972,6 +1002,7 @@ export async function runRoleAgent(
         handoffsDir: paths.handoffs,
         implStepsDir: paths.implementationSteps,
         repoRoot: paths.repoRoot,
+        taskId: options.taskId,
         abortSignal: options.abortSignal,
       });
       if (!hasConcreteArtifactRemediation(artifactPrompt)) {

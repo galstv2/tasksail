@@ -9,6 +9,10 @@ import {
 } from './paths.js';
 import { initializeTaskArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
 import { stampRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
+import {
+  buildImplementationSpecSectionsFromIntake,
+  buildProfessionalTaskSectionsFromIntake,
+} from './markdown.js';
 
 const log = createLogger('platform/queue/newTask');
 
@@ -192,10 +196,13 @@ export async function initializeTask(
     'Task Kind': 'standard',
   };
 
-  const sections: Record<string, string> = {};
-  if (rawRequest) {
-    sections['Raw Request'] = rawRequest;
-  }
+  const intakeMarkdown = rawRequest.includes('## Request Summary')
+    ? rawRequest
+    : buildMinimalIntakeMarkdown(taskTitle, rawRequest);
+  const sections = {
+    ...buildProfessionalTaskSectionsFromIntake(intakeMarkdown),
+    ...buildImplementationSpecSectionsFromIntake(intakeMarkdown),
+  };
 
   const implementationStepsDir = queuePaths.taskImplementationSteps(taskId);
 
@@ -252,4 +259,27 @@ export async function initializeTask(
 
     await copyFileSafe(sliceTemplatePath, candidate);
   }
+}
+
+function buildMinimalIntakeMarkdown(taskTitle: string, rawRequest: string): string {
+  return [
+    `# ${taskTitle}`,
+    '',
+    '## Request Summary',
+    '',
+    rawRequest || taskTitle,
+    '',
+    '## Desired Outcome',
+    '',
+    'Complete the requested task.',
+    '',
+    '## Constraints',
+    '',
+    'None',
+    '',
+    '## Acceptance Signals',
+    '',
+    '- Requested task is completed without weakening existing behavior.',
+    '',
+  ].join('\n');
 }

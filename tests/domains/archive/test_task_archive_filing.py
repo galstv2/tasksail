@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -12,6 +13,9 @@ from tests.domains.archive._archive_filing_base import TaskArchiveFilingTestBase
 
 
 class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
+    def sha256(self, path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
     def write_active_planner_focus_snapshot(self, repo_root: Path) -> dict[str, object]:
         snapshot = {
             "version": 1,
@@ -107,6 +111,155 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             self.assertEqual(
                 json.loads(mirror_snapshot_path.read_text(encoding="utf-8")),
                 snapshot,
+            )
+
+    def test_task_archive_copies_handoff_and_slice_artifacts_to_canonical_and_mirror(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            self.write_branch_handoff_snapshot_source(repo_root)
+            handoffs_dir = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "handoffs"
+            steps_dir = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            (handoffs_dir / "intake.md").write_bytes(b"intake bytes\n")
+            (handoffs_dir / "code-changes.diff").write_bytes(b"diff --git a/file b/file\n")
+            (handoffs_dir / ".publish-in-progress").write_text("transient\n", encoding="utf-8")
+            (handoffs_dir / "ignore.lock").write_text("lock\n", encoding="utf-8")
+            (handoffs_dir / "ignore.tmp").write_text("tmp\n", encoding="utf-8")
+            (handoffs_dir / "nested").mkdir()
+            (steps_dir / "draft.tmp").write_text("tmp\n", encoding="utf-8")
+            (steps_dir / "notes.txt").write_text("not markdown\n", encoding="utf-8")
+            symlink_path = handoffs_dir / "linked-intake.md"
+            try:
+                symlink_path.symlink_to(handoffs_dir / "intake.md")
+            except (OSError, NotImplementedError):
+                symlink_path = None
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+            archive_dir = self.task_archive_dir(context_pack_dir)
+            mirror_dir = self.mirror_task_archive_dir(repo_root)
+            for relative_path in (
+                "handoffs/intake.md",
+                "handoffs/implementation-spec.md",
+                "handoffs/code-changes.diff",
+                "handoffs/final-summary.md",
+                "handoffs/branch-handoffs.json",
+                "ImplementationSteps/slice-1.md",
+                "ImplementationSteps/slice-2.md",
+                "handoff-artifacts-manifest.json",
+            ):
+                self.assertTrue((archive_dir / relative_path).exists(), relative_path)
+                self.assertTrue((mirror_dir / relative_path).exists(), relative_path)
+                self.assertEqual(
+                    (archive_dir / relative_path).read_bytes(),
+                    (mirror_dir / relative_path).read_bytes(),
+                )
+
+            self.assertFalse((archive_dir / "ImplementationSteps" / "slice-template.md").exists())
+            self.assertFalse((archive_dir / "handoffs" / ".publish-in-progress").exists())
+            self.assertFalse((archive_dir / "handoffs" / "ignore.lock").exists())
+            self.assertFalse((archive_dir / "handoffs" / "ignore.tmp").exists())
+            self.assertFalse((archive_dir / "ImplementationSteps" / "draft.tmp").exists())
+            self.assertFalse((archive_dir / "ImplementationSteps" / "notes.txt").exists())
+            if symlink_path is not None:
+                self.assertFalse((archive_dir / "handoffs" / "linked-intake.md").exists())
+
+            self.assertEqual(
+                (handoffs_dir / "intake.md").read_bytes(),
+                (archive_dir / "handoffs" / "intake.md").read_bytes(),
+            )
+            self.assertEqual(
+                (steps_dir / "slice-1.md").read_bytes(),
+                (archive_dir / "ImplementationSteps" / "slice-1.md").read_bytes(),
+            )
+
+            manifest = json.loads(self.task_archive_manifest_path(context_pack_dir).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], "handoff-artifacts/v1")
+            self.assertEqual(manifest["task_id"], "CAP-2001")
+            manifest_files = {entry["archive_relative_path"]: entry for entry in manifest["files"]}
+            intake_entry = manifest_files["handoffs/intake.md"]
+            self.assertEqual(
+                intake_entry["source_relative_path"],
+                "AgentWorkSpace/tasks/CAP-2001/handoffs/intake.md",
+            )
+            self.assertEqual(intake_entry["kind"], "handoff")
+            self.assertEqual(intake_entry["size_bytes"], len(b"intake bytes\n"))
+            self.assertEqual(intake_entry["sha256"], self.sha256(handoffs_dir / "intake.md"))
+            self.assertEqual(
+                manifest_files["ImplementationSteps/slice-1.md"]["sha256"],
+                self.sha256(steps_dir / "slice-1.md"),
+            )
+            skipped = {
+                (entry["source_relative_path"], entry["reason"])
+                for entry in manifest["skipped"]
+            }
+            self.assertIn(("AgentWorkSpace/tasks/CAP-2001/handoffs/.publish-in-progress", "transient"), skipped)
+            self.assertIn(("AgentWorkSpace/tasks/CAP-2001/handoffs/ignore.lock", "transient"), skipped)
+            self.assertIn(("AgentWorkSpace/tasks/CAP-2001/handoffs/ignore.tmp", "transient"), skipped)
+            self.assertIn(("AgentWorkSpace/tasks/CAP-2001/handoffs/nested", "directory"), skipped)
+            self.assertIn(("AgentWorkSpace/tasks/CAP-2001/ImplementationSteps/draft.tmp", "transient"), skipped)
+            if symlink_path is not None:
+                self.assertIn(("AgentWorkSpace/tasks/CAP-2001/handoffs/linked-intake.md", "non-regular"), skipped)
+
+            payload = json.loads(Path(result["record_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(payload["handoff_artifacts"]["manifest_path"], "handoff-artifacts-manifest.json")
+            self.assertEqual(payload["handoff_artifacts"]["implementation_step_file_count"], 2)
+            self.assertEqual(
+                payload["handoff_artifacts"]["handoff_file_count"],
+                sum(1 for entry in manifest["files"] if entry["kind"] == "handoff"),
+            )
+            self.assertEqual(
+                payload["handoff_artifacts"]["total_size_bytes"],
+                sum(entry["size_bytes"] for entry in manifest["files"]),
+            )
+            archive_markdown = self.task_archive_markdown_path(context_pack_dir).read_text(encoding="utf-8")
+            self.assertIn("## Archived Handoff Artifacts", archive_markdown)
+            self.assertIn("- Manifest: handoff-artifacts-manifest.json", archive_markdown)
+
+    def test_task_archive_uses_task_scoped_artifacts_not_workspace_level_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            self.write_file(
+                repo_root / "AgentWorkSpace" / "handoffs" / "intake.md",
+                "stale workspace intake\n",
+            )
+            self.write_file(
+                repo_root / "AgentWorkSpace" / "ImplementationSteps" / "slice-1.md",
+                "stale workspace slice\n",
+            )
+            self.write_file(
+                repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "handoffs" / "intake.md",
+                "active task intake\n",
+            )
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            archive_dir = self.task_archive_dir(context_pack_dir)
+            self.assertEqual(
+                (archive_dir / "handoffs" / "intake.md").read_text(encoding="utf-8"),
+                "active task intake\n",
+            )
+            self.assertIn(
+                "Implement the archive artifact copy.",
+                (archive_dir / "ImplementationSteps" / "slice-1.md").read_text(encoding="utf-8"),
             )
 
     def test_task_archive_synthesizes_planner_focus_snapshot_when_missing(self) -> None:

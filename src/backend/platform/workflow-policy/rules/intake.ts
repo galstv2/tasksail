@@ -8,6 +8,12 @@ import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import { readTextFile } from '../../core/index.js';
 import {
+  CODE_FENCE_PATTERN,
+  COMMAND_LINE_PATTERN,
+  extractBulletItems,
+  normalizeText,
+} from '../matching.js';
+import {
   INTAKE_CHILD_TASK_REQUIRED_LINEAGE_FIELDS,
   INTAKE_CHILD_TASK_REQUIRED_SECTIONS,
   INTAKE_RECOMMENDED_SECTIONS,
@@ -15,12 +21,27 @@ import {
   INTAKE_REQUIRED_SECTIONS,
   METADATA_LINE,
 } from '../models.js';
-import { extractBulletItems, normalizeText } from '../matching.js';
 import { parseSections } from '../artifacts.js';
 import type { PolicyValidator } from '../validator.js';
 
 const H1_HEADING = /^#\s+(.*\S)\s*$/m;
 const INTAKE_DIRS = ['AgentWorkSpace/dropbox', 'AgentWorkSpace/pendingitems'];
+
+type RequirementPrefix = 'CR' | 'COMP' | 'VAL';
+
+const REQUIREMENT_SPECS: ReadonlyArray<{
+  sectionName: string;
+  ruleId: string;
+  prefix: RequirementPrefix;
+}> = [
+  { sectionName: 'Critical Requirements', ruleId: 'intake.critical-requirements-shaped', prefix: 'CR' },
+  { sectionName: 'Compatibility Requirements', ruleId: 'intake.compatibility-requirements-shaped', prefix: 'COMP' },
+  { sectionName: 'Required Validation', ruleId: 'intake.required-validation-shaped', prefix: 'VAL' },
+];
+
+function requirementIdPattern(prefix: RequirementPrefix): RegExp {
+  return new RegExp(`^${prefix}-(\\d{3}):`);
+}
 
 async function discoverIntakeFiles(
   rootDir: string,
@@ -97,6 +118,9 @@ export async function evaluateIntakeQualityRules(validator: PolicyValidator): Pr
   validator.recordRule('intake.request-summary-substantive');
   validator.recordRule('intake.child-lineage-required');
   validator.recordRule('intake.child-carry-forward-required');
+  validator.recordRule('intake.critical-requirements-shaped');
+  validator.recordRule('intake.compatibility-requirements-shaped');
+  validator.recordRule('intake.required-validation-shaped');
 
   if (validator.mode !== 'lint' && validator.mode !== 'ci') {
     return;
@@ -159,6 +183,9 @@ function validateSingleIntake(
   }
 
   validateSuggestedRouting(validator, relPath, sections);
+  for (const spec of REQUIREMENT_SPECS) {
+    validateRequirementSection(validator, relPath, sections, spec);
+  }
 
   const acItems = extractBulletItems(sections['Acceptance Signals'] ?? []);
   const acContent = normalizeText(sections['Acceptance Signals'] ?? []);
@@ -185,6 +212,91 @@ function validateSingleIntake(
   if (taskKind === 'child-task') {
     validateChildTaskIntake(validator, relPath, sections);
   }
+}
+
+function validateRequirementSection(
+  validator: PolicyValidator,
+  relPath: string,
+  sections: Record<string, string[]>,
+  spec: { sectionName: string; ruleId: string; prefix: RequirementPrefix },
+): void {
+  const lines = sections[spec.sectionName];
+  if (lines === undefined) {
+    return;
+  }
+  const content = normalizeText(lines);
+  if (!content || content === 'None') {
+    return;
+  }
+
+  const items = extractBulletItems(lines);
+  if (items.length === 0) {
+    validator.addViolation({
+      rule_id: spec.ruleId,
+      artifact: relPath,
+      message: `${spec.sectionName} must contain canonical ${spec.prefix}-### bullet items or exact None.`,
+      remediation: `Replace '${spec.sectionName}' in ${relPath} with exact None or canonical '${spec.prefix}-001:' bullets.`,
+    });
+    return;
+  }
+
+  const pattern = requirementIdPattern(spec.prefix);
+  const sectionContainsCodeFence = spec.prefix === 'VAL' && CODE_FENCE_PATTERN.test(lines.join('\n'));
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    const trimmed = item.trim();
+    const match = pattern.exec(trimmed);
+    const expected = String(index + 1).padStart(3, '0');
+    if (!match) {
+      validator.addViolation({
+        rule_id: spec.ruleId,
+        artifact: relPath,
+        message: `${spec.sectionName} bullet '${trimmed}' must begin with ${spec.prefix}-###:.`,
+        remediation: `Renumber '${spec.sectionName}' in ${relPath} starting at ${spec.prefix}-001 with no gaps.`,
+      });
+      return;
+    }
+
+    const idNumber = match[1] ?? '';
+    const id = `${spec.prefix}-${idNumber}`;
+    if (seen.has(id)) {
+      validator.addViolation({
+        rule_id: spec.ruleId,
+        artifact: relPath,
+        message: `${spec.sectionName} contains duplicate requirement ID ${id}.`,
+        remediation: `Renumber '${spec.sectionName}' in ${relPath} sequentially from ${spec.prefix}-001.`,
+      });
+    }
+    seen.add(id);
+
+    if (idNumber !== expected) {
+      validator.addViolation({
+        rule_id: spec.ruleId,
+        artifact: relPath,
+        message: `${spec.sectionName} requirement ${id} is not sequential; expected ${spec.prefix}-${expected}.`,
+        remediation: `Renumber '${spec.sectionName}' in ${relPath} sequentially from ${spec.prefix}-001 with no gaps.`,
+      });
+    }
+
+    if (spec.prefix === 'VAL' && !hasValidationEvidence(trimmed, pattern, sectionContainsCodeFence)) {
+      validator.addViolation({
+        rule_id: spec.ruleId,
+        artifact: relPath,
+        severity: 'warning',
+        message: `Required Validation item ${id} does not name concrete evidence.`,
+        remediation: `Prefer an exact command, Manual check:, Structural check:, or Log snapshot: for ${id} in ${relPath}.`,
+      });
+    }
+  });
+}
+
+function hasValidationEvidence(item: string, idPattern: RegExp, sectionContainsCodeFence: boolean): boolean {
+  const body = item.replace(idPattern, '').trim();
+  return sectionContainsCodeFence
+    || COMMAND_LINE_PATTERN.test(body)
+    || body.startsWith('Manual check:')
+    || body.startsWith('Structural check:')
+    || body.startsWith('Log snapshot:');
 }
 
 function validateChildTaskIntake(

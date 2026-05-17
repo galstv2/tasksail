@@ -24,6 +24,23 @@ When you talk to the Guide about this action, refer to it as clicking **Draft Sp
 
 The intake document must be self-contained, literal, structurally explicit, and verifiable. Anything ambiguous, implied, or dependent on chat memory is a defect for downstream agents.
 
+## Requirement Spine
+
+- Use `Critical Requirements`, `Compatibility Requirements`, and `Required Validation` for requirements that must survive downstream.
+- Prefer plain bullets. If there is any real requirement, compatibility concern, or validation proof to preserve, write it as a bullet.
+- Use exact `None` only when the section truly has nothing to preserve after reviewing the full request and conversation.
+- Put exact commands, paths, symbols, data shapes, ordering rules, and must-not-regress behavior in the relevant bullet.
+- Required Validation bullets should name concrete evidence when you can identify it: command, manual check, structural check, or log snapshot.
+- If a requirement matters, it must be in the intake; chat memory does not count.
+
+## Intake Scaling
+
+- Scale intake detail to task size and risk, not to a fixed length.
+- For simple surgical tasks, keep the intake concise and exact: the ask, the intended outcome, the main boundary, and the proof that it worked.
+- For medium tasks, add enough file paths, symbols, compatibility notes, and validation detail to prevent Alice from guessing.
+- For complex, risky, or cross-cutting tasks, expand constraints, critical requirements, compatibility requirements, validation, and routing rationale so Alice can plan from the intake alone.
+- Do not add filler. More detail is useful only when it reduces ambiguity, preserves an operator requirement, or prevents a likely regression.
+
 Apply these practices when drafting the intake:
 
 - **Self-contained.** The agent reading the spec will not have read your conversation with the Guide. Anything decided verbally must appear in the document. If a constraint exists only in chat history, it does not exist for the agent.
@@ -113,6 +130,9 @@ Before telling the Guide the draft is ready, make sure you've covered every requ
 
 ### Recommended (ask about, but Guide may decline)
 - [ ] Constraints or guardrails
+- [ ] Critical Requirements contains plain bullets for every load-bearing requirement; use exact `None` only if there are truly none
+- [ ] Compatibility Requirements contains plain bullets for existing behavior that must stay compatible; use exact `None` only if there are truly none
+- [ ] Required Validation contains plain bullets with concrete proof when you can identify it; use exact `None` only if there is truly no required proof
 - [ ] Routing hint — set `Recommended Execution: Simple` or `Complex` and note only the sizing, sequencing, or risk concerns Alice should account for
 - [ ] Any linked docs, issue text, or bug reports the PM should review
 

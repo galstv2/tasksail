@@ -135,6 +135,19 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
             year=year,
         ) / "planner-focus-snapshot.json"
 
+    def task_archive_manifest_path(
+        self,
+        context_pack_dir: Path,
+        *,
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.task_archive_dir(
+            context_pack_dir,
+            task_slug=task_slug,
+            year=year,
+        ) / "handoff-artifacts-manifest.json"
+
     def mirror_task_archive_dir(
         self,
         repo_root: Path,
@@ -199,6 +212,21 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
             task_slug=task_slug,
             year=year,
         ) / "planner-focus-snapshot.json"
+
+    def mirror_task_archive_manifest_path(
+        self,
+        repo_root: Path,
+        *,
+        context_pack_name: str = "sample-org",
+        task_slug: str = "cap-2001",
+        year: str = "2026",
+    ) -> Path:
+        return self.mirror_task_archive_dir(
+            repo_root,
+            context_pack_name=context_pack_name,
+            task_slug=task_slug,
+            year=year,
+        ) / "handoff-artifacts-manifest.json"
 
     def load_index_service(self, context_pack_dir: Path):
         service_cls = import_module(
@@ -592,5 +620,32 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
             ## Difficulty Assessment
 
             - Difficulty Level: Medium
+            """,
+        )
+
+    def seed_implementation_steps(self, repo_root: Path) -> None:
+        steps_dir = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+        self.write_file(
+            steps_dir / "slice-1.md",
+            """
+            # Slice 1
+
+            Implement the archive artifact copy.
+            """,
+        )
+        self.write_file(
+            steps_dir / "slice-2.md",
+            """
+            # Slice 2
+
+            Verify the mirror copy.
+            """,
+        )
+        self.write_file(
+            steps_dir / "slice-template.md",
+            """
+            # Slice Template
+
+            Do not archive this template.
             """,
         )

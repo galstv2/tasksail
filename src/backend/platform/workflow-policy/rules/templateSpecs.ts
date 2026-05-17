@@ -82,6 +82,7 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
     title: 'Implementation Spec',
     sections: [
       'Task Metadata',
+      'Intake Requirements',
       'Problem and Outcome',
       'Current State and Boundaries',
       'Implementation Plan',
@@ -132,6 +133,10 @@ export const HANDOFF_TEMPLATE_SPECS: Record<string, HandoffSpec> = {
       'Key Design Decisions',
       'Known Limitations',
       'Test Result Summary',
+      'Requirement Verification',
+      'Test Status',
+      'QA Status',
+      'Task branches',
       'Rollout or Operational Notes',
       'Follow-Up Backlog',
       'Difficulty Assessment',

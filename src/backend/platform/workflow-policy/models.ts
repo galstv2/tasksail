@@ -344,6 +344,9 @@ export const INTAKE_REQUIRED_SECTIONS = [
 
 export const INTAKE_RECOMMENDED_SECTIONS = [
   'Constraints',
+  'Critical Requirements',
+  'Compatibility Requirements',
+  'Required Validation',
   'Suggested Routing',
 ] as const;
 

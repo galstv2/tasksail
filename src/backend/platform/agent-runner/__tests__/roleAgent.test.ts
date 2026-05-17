@@ -98,6 +98,10 @@ vi.mock('../artifactCompletion.js', () => ({
   buildAgentArtifactRemediationPrompt: vi.fn(),
 }));
 
+vi.mock('../pipeline/requirementVerification.js', () => ({
+  prepopulateRequirementVerification: vi.fn(),
+}));
+
 vi.mock('../sessionReceipts.js', () => ({
   writeSessionStartReceipt: vi.fn(),
   writeSessionTerminalReceipt: vi.fn(),
@@ -135,6 +139,7 @@ const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = a
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
 const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
+const { prepopulateRequirementVerification } = await import('../pipeline/requirementVerification.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
 const { runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
 
@@ -161,6 +166,7 @@ const mockedWriteGuardrailReceipt = vi.mocked(writeGuardrailReceipt);
 const mockedGuardrailReceiptPath = vi.mocked(guardrailReceiptPath);
 const mockedCheckAgentArtifactCompletion = vi.mocked(checkAgentArtifactCompletion);
 const mockedBuildAgentArtifactRemediationPrompt = vi.mocked(buildAgentArtifactRemediationPrompt);
+const mockedPrepopulateRequirementVerification = vi.mocked(prepopulateRequirementVerification);
 const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
 const mockedWriteSessionTerminalReceipt = vi.mocked(writeSessionTerminalReceipt);
 const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot);
@@ -245,6 +251,7 @@ function setupCommonMocks(): void {
     excludedServerIds: [],
   });
   mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+  mockedPrepopulateRequirementVerification.mockResolvedValue(undefined);
   mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
     'Use the exact absolute workflow-artifact path shown below.\n- $COPILOT_HANDOFFS_DIR/issues.md',
   );
@@ -276,6 +283,128 @@ function useDaltonVerifyProfile(): void {
     wallClockTimeoutS: 600,
   } as never);
 }
+
+function useRonProfile(): void {
+  mockedResolveAgentProfile.mockReturnValue({
+    id: 'ron',
+    registryId: 'qa',
+    displayName: 'Ron',
+    role: 'QA and Closeout',
+    requiredModel: 'gpt-5.4',
+    autonomyProfile: 'artifact-author',
+    workflowOrder: 3,
+    wallClockTimeoutS: 600,
+  } as never);
+  mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+  mockedBuildAgentArgs.mockReturnValue({
+    args: ['--agent', 'qa'],
+    launchCwd: '/repo',
+    inlineAgentContext: false,
+    resolvedToolPolicy: {
+      allowAllTools: true,
+      noAskUser: true,
+      allowTools: [],
+      denyTools: [],
+    },
+  });
+  mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/ron.json');
+}
+
+describe('runRoleAgent Ron requirement verification prelaunch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupCommonMocks();
+    useRonProfile();
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedExistsSync.mockImplementation((filePath) => !String(filePath).endsWith('/.platform-state/platform.json'));
+    mockedLaunchAgent.mockReturnValue({ pid: 1234 } as never);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+  });
+
+  afterEach(() => {
+    delete process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'];
+    delete process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'];
+    vi.restoreAllMocks();
+  });
+
+  it('prepopulates Requirement Verification before normal Ron launch and passes taskId to QA completion', async () => {
+    await runRoleAgent({
+      agentId: 'ron',
+      taskId: 'task-test-001',
+      skipWorkflowValidation: true,
+    });
+
+    expect(mockedPrepopulateRequirementVerification).toHaveBeenCalledWith({
+      handoffsDir: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
+      repoRoot: '/repo',
+    });
+    expect(mockedLaunchAgent).toHaveBeenCalled();
+    expect(mockedCheckAgentArtifactCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'qa',
+      taskId: 'task-test-001',
+    }));
+  });
+
+  it('does not prepopulate for Ron promptOverride launches', async () => {
+    await runRoleAgent({
+      agentId: 'ron',
+      taskId: 'task-test-001',
+      skipWorkflowValidation: true,
+      promptOverride: 'Review this retry.',
+    });
+
+    expect(mockedPrepopulateRequirementVerification).not.toHaveBeenCalled();
+  });
+
+  it('does not prepopulate for Ron retrospective launches', async () => {
+    await runRoleAgent({
+      agentId: 'ron',
+      taskId: 'task-test-001',
+      skipWorkflowValidation: true,
+      launchPhase: 'Retrospective',
+    });
+
+    expect(mockedPrepopulateRequirementVerification).not.toHaveBeenCalled();
+  });
+
+  it('passes taskId into QA remediation prompt after incomplete Ron artifacts', async () => {
+    mockedCheckAgentArtifactCompletion.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue('Use exact path.\n- $COPILOT_HANDOFFS_DIR/final-summary.md');
+    mockedWaitForAgentDetailed
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      });
+
+    await runRoleAgent({
+      agentId: 'ron',
+      taskId: 'task-test-001',
+      skipWorkflowValidation: true,
+    });
+
+    expect(mockedBuildAgentArtifactRemediationPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'qa',
+      taskId: 'task-test-001',
+    }));
+  });
+});
 
 describe('runRoleAgent autonomy env var export', () => {
   beforeEach(() => {
@@ -818,12 +947,79 @@ describe('runRoleAgent autonomy env var export', () => {
 
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(mockedRunRuntimePolicyCheck).toHaveBeenCalledTimes(2);
+    expect(mockedBuildAgentArtifactRemediationPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      policyViolationRuleIds: [],
+      taskId: 't1',
+    }));
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
         expect.stringContaining('Blocking workflow-policy details'),
       ]),
     );
+  });
+
+  it('passes generated-spine policy rule ids into Alice cleanup and fails after one bad cleanup pass', async () => {
+    mockedResolveAgentProfile.mockReturnValue({
+      id: 'alice',
+      registryId: 'product-manager',
+      displayName: 'Alice',
+      role: 'Product Manager',
+      requiredModel: 'gpt-5.4',
+      autonomyProfile: 'artifact-author',
+      workflowOrder: 1,
+      wallClockTimeoutS: 300,
+    } as never);
+    mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+    mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
+    mockedGuardrailReceiptPath.mockReturnValue('/repo/.platform-state/runtime/guardrails/alice.json');
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      });
+    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedRunRuntimePolicyCheck
+      .mockResolvedValueOnce({
+        stdout: '{"violations":[{"rule_id":"spec.intake-requirements-critical-matches","message":"Critical differs."}]}',
+        stderr: '',
+        exitCode: 1,
+      })
+      .mockResolvedValueOnce({
+        stdout: '{"violations":[{"rule_id":"spec.intake-requirements-critical-matches","message":"Critical still differs."}]}',
+        stderr: '',
+        exitCode: 1,
+      });
+    mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
+      'Fill in AgentWorkSpace/tasks/t1/handoffs/implementation-spec.md with ## Intake Requirements from intake.md.',
+    );
+
+    await expect(
+      runRoleAgent({
+        agentId: 'alice',
+        taskId: 't1',
+        skipWorkflowValidation: true,
+      }),
+    ).rejects.toThrow('Workflow policy check failed for next agent "dalton" after agent "alice" completed');
+
+    expect(mockedBuildAgentArtifactRemediationPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      policyViolationRuleIds: ['spec.intake-requirements-critical-matches'],
+      taskId: 't1',
+    }));
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedRunRuntimePolicyCheck).toHaveBeenCalledTimes(2);
   });
 
   it('reruns Ron with a cleanup prompt when QA artifacts are incomplete', async () => {

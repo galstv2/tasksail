@@ -2,8 +2,12 @@
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+
+const REAL_REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+const REAL_TEMPLATE_PATH = join(REAL_REPO_ROOT, 'AgentWorkSpace', 'templates', 'planning-intake.md');
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,6 +32,10 @@ describe('planner staging helpers', () => {
   beforeEach(async () => {
     vi.resetModules();
     await rm(TEST_REPO_ROOT, { recursive: true, force: true });
+    const templateDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'templates');
+    await mkdir(templateDir, { recursive: true });
+    const template = await readFile(REAL_TEMPLATE_PATH, 'utf-8');
+    await writeFile(join(templateDir, 'planning-intake.md'), template, 'utf-8');
   });
 
   afterEach(async () => {
@@ -99,6 +107,20 @@ describe('planner staging helpers', () => {
     expect(readResult.draft?.content).toContain('- Selected Focus IDs: orders');
     expect(readResult.draft?.content).toContain('- Recommended Execution:');
     expect(readResult.draft?.content).toContain('- Task Kind: standard');
+    expect(readResult.draft?.content).toContain('## Critical Requirements');
+    expect(readResult.draft?.content).toContain('## Compatibility Requirements');
+    expect(readResult.draft?.content).toContain('## Required Validation');
+
+    const template = await readFile(join(TEST_REPO_ROOT, 'AgentWorkSpace', 'templates', 'planning-intake.md'), 'utf-8');
+    const editableHeadingOrder = (markdown: string) => {
+      const startIdx = markdown.indexOf('## Request Summary');
+      const endIdx = markdown.indexOf('\n## Source', startIdx);
+      return markdown
+        .slice(startIdx, endIdx === -1 ? undefined : endIdx)
+        .split('\n')
+        .filter((line) => line.startsWith('## '));
+    };
+    expect(editableHeadingOrder(readResult.draft?.content ?? '')).toEqual(editableHeadingOrder(template));
 
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',

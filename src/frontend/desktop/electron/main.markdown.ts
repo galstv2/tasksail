@@ -66,6 +66,98 @@ export function hasBulletedContent(value: string): boolean {
     .some((line) => /^([-*]|\d+\.)\s+\S+/.test(line));
 }
 
+const REQUIREMENT_PREFIX_PATTERN = /^(CR|COMP|VAL)-\d{3}:\s*/;
+
+function stripRequirementPrefix(value: string): string {
+  return value.replace(REQUIREMENT_PREFIX_PATTERN, '').trim();
+}
+
+function collectRequirementItems(value: string): string[] {
+  const content = stripMarkdownComments(value).trim();
+  if (!content || content === 'None') {
+    return [];
+  }
+
+  const lines = content.split(/\r?\n/);
+  const items: string[] = [];
+  let currentBullet: string[] = [];
+  let currentProse: string[] = [];
+
+  function pushItem(linesToPush: string[]): void {
+    const item = stripRequirementPrefix(linesToPush.join(' ').replace(/\s+/g, ' ').trim());
+    if (item) {
+      items.push(item);
+    }
+  }
+
+  function flushBullet(): void {
+    if (currentBullet.length === 0) {
+      return;
+    }
+    pushItem(currentBullet);
+    currentBullet = [];
+  }
+
+  function flushProse(): void {
+    if (currentProse.length === 0) {
+      return;
+    }
+    pushItem(currentProse);
+    currentProse = [];
+  }
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/);
+    if (bulletMatch) {
+      flushProse();
+      flushBullet();
+      currentBullet.push(bulletMatch[1] ?? '');
+      continue;
+    }
+
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      flushBullet();
+      flushProse();
+      continue;
+    }
+
+    if (currentBullet.length > 0) {
+      currentBullet.push(trimmedLine);
+    } else {
+      currentProse.push(trimmedLine);
+    }
+  }
+  flushBullet();
+  flushProse();
+
+  return items;
+}
+
+export function canonicalizeRequirementSection(
+  value: string | undefined,
+  prefix: 'CR' | 'COMP' | 'VAL',
+): string {
+  const items = collectRequirementItems(value ?? '');
+  if (items.length === 0) {
+    return 'None';
+  }
+  return items
+    .map((item, index) => `- ${prefix}-${String(index + 1).padStart(3, '0')}: ${item}`)
+    .join('\n');
+}
+
+export function canonicalizeEditableDraftRequirements<T extends Partial<PlannerEditableDraft>>(
+  draft: T,
+): T & Pick<PlannerEditableDraft, 'criticalRequirements' | 'compatibilityRequirements' | 'requiredValidation'> {
+  return {
+    ...draft,
+    criticalRequirements: canonicalizeRequirementSection(draft.criticalRequirements, 'CR'),
+    compatibilityRequirements: canonicalizeRequirementSection(draft.compatibilityRequirements, 'COMP'),
+    requiredValidation: canonicalizeRequirementSection(draft.requiredValidation, 'VAL'),
+  };
+}
+
 export function validatePlanningIntakeDraft(
   content: string,
   taskKind?: 'standard' | 'child-task',
@@ -186,6 +278,9 @@ export function parsePlannerEditableDraft(
     summary: stripMarkdownComments(sections.get('Request Summary') ?? '').trim(),
     desiredOutcome: stripMarkdownComments(sections.get('Desired Outcome') ?? '').trim(),
     constraints: stripMarkdownComments(sections.get('Constraints') ?? '').trim(),
+    criticalRequirements: stripMarkdownComments(sections.get('Critical Requirements') ?? 'None').trim() || 'None',
+    compatibilityRequirements: stripMarkdownComments(sections.get('Compatibility Requirements') ?? 'None').trim() || 'None',
+    requiredValidation: stripMarkdownComments(sections.get('Required Validation') ?? 'None').trim() || 'None',
     acceptanceSignals: stripMarkdownComments(sections.get('Acceptance Signals') ?? '').trim(),
     carryForwardSummary: stripMarkdownComments(sections.get('Parent Task Carry-Forward Summary') ?? '').trim(),
     suggestedPath,

@@ -61,6 +61,7 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Task branches\n\n[]\n\n'
       + `## Difficulty Assessment\n\n- Difficulty Level: ${difficultyLevel}\n`,
       'utf-8',
     );
@@ -360,6 +361,134 @@ describe('artifactCompletion', () => {
     expect(prompt).toContain('Simple or Complex');
   });
 
+  it('gives Alice concrete cleanup instructions for generated intake spine policy failures', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(implStepsDir, 'slice-search.md'),
+      '# Slice Template\n\n'
+      + '## Purpose\n\nAdd search support.\n\n'
+      + '## Depends On\n\nNone.\n\n'
+      + '## Scope\n\n- add exact-match search\n\n'
+      + '## Files\n\n- crud.py\n\n'
+      + '## Acceptance Criteria\n\n- search works\n\n'
+      + '## Unit Tests\n\n- test_search\n\n'
+      + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+      policyViolationRuleIds: ['spec.intake-requirements-critical-matches'],
+    });
+
+    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/implementation-spec.md');
+    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/intake.md');
+    expect(prompt).toContain('## Intake Requirements');
+    expect(prompt).toContain(
+      'restore the generated ## Intake Requirements section from intake.md. Do not reinterpret, summarize, reorder, or weaken the copied Critical Requirements, Compatibility Requirements, or Required Validation content. Leave authored planning sections otherwise unchanged unless needed to keep markdown structure valid.',
+    );
+  });
+
+  it('does not create cleanup instructions for unrelated policy failures alone', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(implStepsDir, 'slice-search.md'),
+      '# Slice Template\n\n'
+      + '## Purpose\n\nAdd search support.\n\n'
+      + '## Depends On\n\nNone.\n\n'
+      + '## Scope\n\n- add exact-match search\n\n'
+      + '## Files\n\n- crud.py\n\n'
+      + '## Acceptance Criteria\n\n- search works\n\n'
+      + '## Unit Tests\n\n- test_search\n\n'
+      + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+      policyViolationRuleIds: ['runtime.agent-transition-legal'],
+    });
+
+    expect(prompt).toBe('');
+  });
+
+  it.each([
+    'slice.requirement-id-covered',
+    'slice.validation-id-covered',
+    'slice.requirement-id-known',
+  ])('gives Alice concrete cleanup instructions for %s policy failures', async (ruleId) => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(implStepsDir, 'slice-1.md'),
+      '# Slice Template\n\n'
+      + '## Purpose\n\nAdd search support.\n\n'
+      + '## Depends On\n\nNone.\n\n'
+      + '## Scope\n\n- add exact-match search\n\n'
+      + '## Files\n\n- crud.py\n\n'
+      + '## Acceptance Criteria\n\n- search works\n\n'
+      + '## Unit Tests\n\n- test_search\n\n'
+      + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+      policyViolationRuleIds: [ruleId],
+    });
+
+    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/implementation-spec.md');
+    expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/');
+    expect(prompt).toContain('## Intake Requirements');
+    expect(prompt).toContain('### Requirement Handling');
+    expect(prompt).toContain('### Requirement Coverage');
+    expect(prompt).toContain('account for every generated CR-*, COMP-*, and VAL-* ID by exact ID');
+    expect(prompt).toContain('put every VAL-* in a validation surface');
+    expect(prompt).toContain('remove or correct any unknown requirement ID');
+    expect(prompt).toContain('Do not paste every ID into every slice.');
+  });
+
   it('tells product manager to record a simple-or-complex decision in parallel-ok', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
@@ -459,6 +588,218 @@ describe('artifactCompletion', () => {
     })).resolves.toBe(false);
   });
 
+  it('fails qa completion when generated requirement IDs are still pending', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n- VAL-001: Run tests.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n'
+      + '## Closeout Owner Agent ID\n\nqa\n\n'
+      + '## Completed Work\n\n- delivered fix\n\n'
+      + '## Key Design Decisions\n\n- kept contract aligned\n\n'
+      + '## Known Limitations\n\n- none\n\n'
+      + '## Requirement Verification\n\n- CR-001: pending - Ron must verify before pass/advisory closeout.\n- VAL-001: verified - focused tests passed.\n\n'
+      + '## Task branches\n\n[]\n\n'
+      + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('fails qa completion when generated requirement IDs exist and Requirement Verification is absent', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('fails qa completion when requirement evidence is hidden in comments or fenced code', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n'
+      + '## Closeout Owner Agent ID\n\nqa\n\n'
+      + '## Completed Work\n\n- delivered fix\n\n'
+      + '## Key Design Decisions\n\n- kept contract aligned\n\n'
+      + '## Known Limitations\n\n- none\n\n'
+      + '## Requirement Verification\n\n<!-- - CR-001: verified - hidden -->\n\n```text\n- CR-001: verified - hidden\n```\n\n'
+      + '## Task branches\n\n[]\n\n'
+      + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('accepts qa completion when generated requirements are verified or advisory', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n- VAL-001: Run tests.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n'
+      + '## Closeout Owner Agent ID\n\nqa\n\n'
+      + '## Completed Work\n\n- delivered fix\n\n'
+      + '## Key Design Decisions\n\n- kept contract aligned\n\n'
+      + '## Known Limitations\n\n- none\n\n'
+      + '## Requirement Verification\n\n- CR-001: verified acceptance criteria passed.\n- VAL-001: advisory broad suite remains follow-up.\n\n'
+      + '## Task branches\n\n[]\n\n'
+      + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(true);
+  });
+
+  it('names Requirement Verification in qa remediation when generated IDs are incomplete', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(prompt).toContain('populate ## Requirement Verification');
+    expect(prompt).toContain('replace each pending with verified or advisory');
+  });
+
+  it('fails qa completion when issues.md lacks top-level Review Outcome', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'issues.md'),
+      '# Issues\n\n## Task Metadata\n\n- Review Outcome: pass\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('allows blocking qa completion without final-summary or retrospective artifacts', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'issues.md'),
+      '# Issues\n\n'
+      + '## Review Outcome\n\nblocking\n\n'
+      + '## Finding\n\nThe implementation is incomplete.\n\n'
+      + '## Severity\n\nblocking\n\n'
+      + '## Finding Type\n\ncode-review\n\n'
+      + '## Required Fix\n\nFinish the required behavior.\n\n'
+      + '## Remediation Owner Agent ID\n\nsoftware-engineer\n\n'
+      + '## Revalidation Agent ID\n\nqa\n\n'
+      + '## Return-To Agent ID\n\nqa\n\n'
+      + '## Retest Instructions\n\nRun the focused test.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(true);
+  });
+
+  it('fails qa completion when final-summary lacks top-level Closeout Owner Agent ID', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Task Metadata\n\n- Closeout Owner Agent ID: qa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('fails qa completion when Task branches heading casing is wrong', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(false);
+  });
+
+  it('remediation prompt for shape failures instructs Ron to preserve seeded top-level headings', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(prompt).toContain('preserve every top-level ## heading from the seeded template');
+    expect(prompt).toContain('Do not move Closeout Owner Agent ID, Review Outcome, or Task branches into Task Metadata or a custom summary');
+  });
+
   it('mentions difficulty remediation when qa final summary is otherwise complete', async () => {
     writeQaArtifacts({ difficultyLevel: '' });
 
@@ -492,7 +833,7 @@ describe('artifactCompletion', () => {
     );
     writeFileSync(
       path.join(perTaskHandoffs, 'final-summary.md'),
-      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
 

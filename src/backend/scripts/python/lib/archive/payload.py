@@ -12,7 +12,7 @@ from ..markdown import parse_metadata, parse_sections
 from ..markdown_contracts import TASK_LINEAGE, TASK_METADATA
 from ..text import compact_text, extract_list, normalize_text, strip_html_comments
 from ..time import current_utc_timestamp
-from ..workspace_paths import handoffs_dir
+from ..workspace_paths import handoffs_dir, implementation_steps_dir
 from .parent import find_parent_archive
 from .storage import (
     archive_storage_path,
@@ -294,6 +294,8 @@ def build_archive_payload(
         child_task_outcome_delta,
     )
     provenance_sources = [
+        str(_handoffs.relative_to(repo_root)),
+        str(implementation_steps_dir(repo_root).relative_to(repo_root)),
         str((_handoffs / "professional-task.md").relative_to(repo_root)),
         str((_handoffs / "implementation-spec.md").relative_to(repo_root)),
         str((_handoffs / "tests.md").relative_to(repo_root)),

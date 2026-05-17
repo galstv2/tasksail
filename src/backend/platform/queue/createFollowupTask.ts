@@ -11,6 +11,9 @@ export interface CreateFollowupTaskOptions {
   summary?: string;
   desiredOutcome?: string;
   constraints?: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals?: string;
   parentTaskId: string;
   parentQmdScope: string;
@@ -53,6 +56,9 @@ export async function createFollowupTask(
     summary = '',
     desiredOutcome = '',
     constraints = '',
+    criticalRequirements = 'None',
+    compatibilityRequirements = 'None',
+    requiredValidation = 'None',
     acceptanceSignals = '',
     parentTaskId,
     parentQmdScope,
@@ -95,6 +101,9 @@ export async function createFollowupTask(
     summary,
     desiredOutcome,
     constraints,
+    criticalRequirements,
+    compatibilityRequirements,
+    requiredValidation,
     acceptanceSignals,
     kind: 'child-task',
     parentTaskId,

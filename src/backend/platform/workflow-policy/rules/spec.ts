@@ -16,13 +16,183 @@ import {
   COMMAND_LINE_PATTERN,
   TABLE_ROW_PATTERN,
   extractBulletItems,
+  normalizeIdentifier,
   normalizeText,
+  stripHtmlComments,
 } from '../matching.js';
 import { parseSections, resolveSemanticSection } from '../artifacts.js';
 import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
 const SPEC_RELATIVE_PATH = toHandoffKey('implementation-spec.md');
+const INTAKE_RELATIVE_PATH = toHandoffKey('intake.md');
+const INTAKE_REQUIREMENTS_SECTION = 'Intake Requirements';
+const GENERATED_INTAKE_SPINE_MODES = new Set(['lint', 'pre-slice', 'runtime', 'ci']);
+const INTAKE_REQUIREMENT_SUBSECTIONS = [
+  {
+    heading: 'Critical Requirements',
+    ruleId: 'spec.intake-requirements-critical-matches',
+  },
+  {
+    heading: 'Compatibility Requirements',
+    ruleId: 'spec.intake-requirements-compatibility-matches',
+  },
+  {
+    heading: 'Required Validation',
+    ruleId: 'spec.intake-requirements-validation-matches',
+  },
+] as const;
+
+export const GENERATED_INTAKE_SPINE_RULE_IDS: ReadonlySet<string> = new Set([
+  'spec.intake-requirements-section-present',
+  ...INTAKE_REQUIREMENT_SUBSECTIONS.map(({ ruleId }) => ruleId),
+]);
+
+function stripOuterBlankLines(lines: readonly string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start]!.trim() === '') {
+    start += 1;
+  }
+  while (end > start && lines[end - 1]!.trim() === '') {
+    end -= 1;
+  }
+  return lines.slice(start, end);
+}
+
+function normalizeGeneratedRequirementBody(lines: readonly string[] | undefined): string {
+  const stripped = stripOuterBlankLines(stripHtmlComments(lines ?? []));
+  if (!normalizeText(stripped)) {
+    return 'None';
+  }
+  return stripped.join('\n');
+}
+
+function findTopLevelSection(
+  sections: Record<string, string[]>,
+  heading: string,
+): string[] | null {
+  const normalizedHeading = normalizeIdentifier(heading);
+  for (const [sectionName, lines] of Object.entries(sections)) {
+    if (normalizeIdentifier(sectionName) === normalizedHeading) {
+      return lines;
+    }
+  }
+  return null;
+}
+
+function extractNestedMarkdownSection(
+  lines: readonly string[],
+  heading: string,
+): string[] | null {
+  const normalizedHeading = normalizeIdentifier(heading);
+  let activeLevel = 0;
+  let activeLines: string[] | null = null;
+  let inFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+    }
+
+    const match = inFence ? null : /^(#{3,6})\s+(.*\S)\s*$/.exec(trimmed);
+    if (match?.[1] && match[2]) {
+      const level = match[1].length;
+      if (activeLines && level <= activeLevel) {
+        return activeLines;
+      }
+      if (!activeLines && normalizeIdentifier(match[2]) === normalizedHeading) {
+        activeLevel = level;
+        activeLines = [];
+        continue;
+      }
+    }
+
+    if (activeLines) {
+      activeLines.push(rawLine);
+    }
+  }
+
+  return activeLines;
+}
+
+function extractedIntakeRequirementHeadingOrder(lines: readonly string[]): string[] {
+  const expectedHeadings = new Set(
+    INTAKE_REQUIREMENT_SUBSECTIONS.map(({ heading }) => normalizeIdentifier(heading)),
+  );
+  const ordered: string[] = [];
+  let inFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+    }
+    const match = inFence ? null : /^(#{3,6})\s+(.*\S)\s*$/.exec(trimmed);
+    if (!match?.[2]) {
+      continue;
+    }
+    const normalized = normalizeIdentifier(match[2]);
+    if (expectedHeadings.has(normalized)) {
+      ordered.push(normalized);
+    }
+  }
+
+  return ordered;
+}
+
+async function evaluateGeneratedIntakeRequirementSpine(validator: PolicyValidator): Promise<void> {
+  const intake = await validator.getArtifact(INTAKE_RELATIVE_PATH);
+  if (!intake.exists || !normalizeText(stripHtmlComments(Object.values(intake.sections).flat()))) {
+    return;
+  }
+
+  const spec = await validator.getArtifact(SPEC_RELATIVE_PATH);
+  if (!spec.exists || !spec.hasSubstantiveContent) {
+    return;
+  }
+
+  const intakeRequirementLines = findTopLevelSection(spec.sections, INTAKE_REQUIREMENTS_SECTION);
+  if (!intakeRequirementLines || !normalizeText(stripHtmlComments(intakeRequirementLines))) {
+    validator.addViolation({
+      rule_id: 'spec.intake-requirements-section-present',
+      artifact: SPEC_RELATIVE_PATH,
+      message: 'Generated ## Intake Requirements section is missing or empty in implementation-spec.md.',
+      remediation:
+        `Restore the generated ## Intake Requirements section in ${SPEC_RELATIVE_PATH} from ${INTAKE_RELATIVE_PATH}.`,
+    });
+    return;
+  }
+  const expectedHeadingOrder = INTAKE_REQUIREMENT_SUBSECTIONS.map(({ heading }) => normalizeIdentifier(heading));
+  const actualHeadingOrder = extractedIntakeRequirementHeadingOrder(intakeRequirementLines);
+  if (actualHeadingOrder.join('\n') !== expectedHeadingOrder.join('\n')) {
+    validator.addViolation({
+      rule_id: 'spec.intake-requirements-section-present',
+      artifact: SPEC_RELATIVE_PATH,
+      message:
+        'Generated ## Intake Requirements section headings are missing or reordered in implementation-spec.md.',
+      remediation:
+        `Restore the generated ## Intake Requirements section in ${SPEC_RELATIVE_PATH} from ${INTAKE_RELATIVE_PATH}.`,
+    });
+    return;
+  }
+
+  for (const { heading, ruleId } of INTAKE_REQUIREMENT_SUBSECTIONS) {
+    const expected = normalizeGeneratedRequirementBody(findTopLevelSection(intake.sections, heading) ?? undefined);
+    const actualLines = extractNestedMarkdownSection(intakeRequirementLines, heading);
+    const actual = actualLines === null ? null : normalizeGeneratedRequirementBody(actualLines);
+    if (actual !== expected) {
+      validator.addViolation({
+        rule_id: ruleId,
+        artifact: SPEC_RELATIVE_PATH,
+        message: `Generated ## Intake Requirements / ### ${heading} content is missing or differs from intake.md.`,
+        remediation:
+          `Restore the generated ### ${heading} body in ${SPEC_RELATIVE_PATH} from ${INTAKE_RELATIVE_PATH}; do not reinterpret, summarize, reorder, or weaken it.`,
+      });
+    }
+  }
+}
 
 export async function evaluateSpecQualityRules(validator: PolicyValidator): Promise<void> {
   validator.recordRule('spec.required-section-present');
@@ -32,6 +202,14 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
   validator.recordRule('spec.validation-strategy-executable');
   validator.recordRule('spec.dependency-analysis-structured');
   validator.recordRule('spec.child-carry-forward-required');
+  validator.recordRule('spec.intake-requirements-section-present');
+  validator.recordRule('spec.intake-requirements-critical-matches');
+  validator.recordRule('spec.intake-requirements-compatibility-matches');
+  validator.recordRule('spec.intake-requirements-validation-matches');
+
+  if (validator.hasActiveTask() && GENERATED_INTAKE_SPINE_MODES.has(validator.mode)) {
+    await evaluateGeneratedIntakeRequirementSpine(validator);
+  }
 
   if (validator.mode !== 'lint' && validator.mode !== 'ci') {
     return;

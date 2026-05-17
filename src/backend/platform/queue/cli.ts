@@ -29,6 +29,12 @@ import type { QueueRepairIssue } from './repairQueueIssues.js';
 
 const log = createLogger('platform/queue/cli');
 
+const DEFAULT_REQUIREMENT_SPINE = {
+  criticalRequirements: 'None',
+  compatibilityRequirements: 'None',
+  requiredValidation: 'None',
+} as const;
+
 const USAGE = `Usage: task-queue <command> [options]
 
 Commands:
@@ -98,6 +104,7 @@ export async function main(argv: string[]): Promise<void> {
             summary: flags['summary'],
             desiredOutcome: flags['desired-outcome'],
             constraints: flags['constraints'],
+            ...DEFAULT_REQUIREMENT_SPINE,
             acceptanceSignals: flags['acceptance-signals'],
             suggestedPath: flags['suggested-path'],
             planningNotes: flags['planning-notes'],
@@ -147,6 +154,7 @@ export async function main(argv: string[]): Promise<void> {
             summary: flags['summary'],
             desiredOutcome: flags['desired-outcome'],
             constraints: flags['constraints'],
+            ...DEFAULT_REQUIREMENT_SPINE,
             acceptanceSignals: flags['acceptance-signals'],
             parentTaskId: flags['parent-task-id'] ?? '',
             parentQmdScope: flags['parent-qmd-scope'] ?? '',

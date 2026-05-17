@@ -43,11 +43,14 @@ const { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } = await import(
 const { createDropboxTask } = await import('../../../../backend/platform/queue/createDropboxTask.js');
 const { createFollowupTask } = await import('../../../../backend/platform/queue/createFollowupTask.js');
 const { publishPendingItem } = await import('../../../../backend/platform/queue/publishPendingItem.js');
-const { readdir } = await import('node:fs/promises');
+const { readdir, readFile } = await import('node:fs/promises');
 const {
   runDropboxTaskScript,
   runFollowUpTaskScript,
+  readBypassTemplate,
   submitUploadedSpecHelper,
+  submitDraftViaDropboxHelper,
+  submitFollowUpViaHelper,
   validatePlannerDraftForSubmission,
   validateFollowUpDraftForSubmission,
 } = await import('../main.taskQueue');
@@ -214,6 +217,9 @@ describe('main.taskQueue direct submission hardening', () => {
       summary: 'Queue a task from the direct submission seam.',
       desiredOutcome: 'The task lands in dropbox with platform-owned metadata.',
       constraints: 'Keep metadata authority in the platform.',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '- Task file exists',
       suggestedPath: 'sequential',
       planningNotes: 'Ignore any renderer-authored title value.',
@@ -290,6 +296,9 @@ describe('main.taskQueue direct submission hardening', () => {
       summary: 'Carry completed findings into the next queue item.',
       desiredOutcome: 'The follow-up child task lands with platform-owned lineage.',
       constraints: 'Do not trust renderer-owned lineage fields.',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '- Child task is queued',
       parentTaskId: 'PARENT-123',
       followupReason: 'Continue the next slice from completed findings.',
@@ -382,6 +391,18 @@ The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly
 
     const result = await submitUploadedSpecHelper(
       buildUploadedSpec(`
+## Critical Requirements
+
+Child upload prose must be preserved.
+
+## Compatibility Requirements
+
+- Child upload compatibility stays intact.
+
+## Required Validation
+
+Review child upload queue output.
+
 ## Parent Task Carry-Forward Summary
 
 - Carry forward the immutable parent findings.
@@ -411,6 +432,9 @@ The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly
       selectedFocusTargets: sidecar.primaryFocusTargets,
       selectedTestTarget: { path: 'immutable/tests', kind: 'directory' },
       selectedSupportTargets: [{ path: 'immutable/docs.md', kind: 'file', effectiveScope: 'full-directory' }],
+      criticalRequirements: '- CR-001: Child upload prose must be preserved.',
+      compatibilityRequirements: '- COMP-001: Child upload compatibility stays intact.',
+      requiredValidation: '- VAL-001: Review child upload queue output.',
     }));
     expect(createDropboxTask).not.toHaveBeenCalled();
     expect(readWorkspaceSyncStateSnapshot).not.toHaveBeenCalled();
@@ -450,6 +474,55 @@ The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly
     expect(createFollowupTask).not.toHaveBeenCalled();
     expect(readWorkspaceSyncStateSnapshot).not.toHaveBeenCalled();
     expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('returns Bypass Lily template editable sections without platform-owned Source', async () => {
+    vi.mocked(readFile).mockResolvedValueOnce(buildUploadedSpec(`
+## Critical Requirements
+
+## Compatibility Requirements
+
+## Required Validation
+
+`) as never);
+    const template = await readBypassTemplate();
+
+    expect(template).toContain('## Critical Requirements');
+    expect(template).toContain('## Compatibility Requirements');
+    expect(template).toContain('## Required Validation');
+    expect(template.indexOf('## Critical Requirements')).toBeLessThan(template.indexOf('## Compatibility Requirements'));
+    expect(template.indexOf('## Compatibility Requirements')).toBeLessThan(template.indexOf('## Required Validation'));
+    expect(template).not.toContain('## Source');
+  });
+
+  it('canonicalizes Bypass Lily requirement sections before queueing', async () => {
+    vi.mocked(createDropboxTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_requirements.md',
+    );
+
+    await submitUploadedSpecHelper(
+      buildUploadedSpec(`
+## Critical Requirements
+
+- CR-009: Preserve exact ordering.
+
+## Compatibility Requirements
+
+- Existing callers keep working.
+
+## Required Validation
+
+Validation should be reviewed manually.
+
+`),
+      { plannerSidecar: buildPlannerSidecar() },
+    );
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      criticalRequirements: '- CR-001: Preserve exact ordering.',
+      compatibilityRequirements: '- COMP-001: Existing callers keep working.',
+      requiredValidation: '- VAL-001: Validation should be reviewed manually.',
+    }));
   });
 
   it('submits Bypass Lily uploads with the same repo-selection binding shape as Lily staging', async () => {
@@ -594,6 +667,9 @@ ${buildUploadedSpec()}`, { plannerSidecar: sidecar })).resolves.toEqual(expect.o
       summary: 'Queue from the renderer.',
       desiredOutcome: 'Platform derives title.',
       constraints: '',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '',
       parentTaskId: '',
       parentQmdRecordId: '',
@@ -611,6 +687,9 @@ ${buildUploadedSpec()}`, { plannerSidecar: sidecar })).resolves.toEqual(expect.o
       summary: 'Queue a child task.',
       desiredOutcome: '',
       constraints: '',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '',
       parentTaskId: 'PARENT-123',
       parentQmdRecordId: '',
@@ -621,5 +700,72 @@ ${buildUploadedSpec()}`, { plannerSidecar: sidecar })).resolves.toEqual(expect.o
       suggestedPath: 'sequential',
       planningNotes: '',
     })).toEqual([]);
+  });
+
+  it('canonicalizes prose requirements for direct planner submission', async () => {
+    const runner = vi.fn(async () => ({
+      filePath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_direct.md',
+      title: 'direct-task',
+    }));
+
+    await expect(submitDraftViaDropboxHelper({
+      title: '',
+      taskKind: 'standard',
+      summary: 'Queue from the renderer with prose requirement sections.',
+      desiredOutcome: 'The direct submission preserves all requirement text.',
+      constraints: '',
+      criticalRequirements: 'Preserve the direct prose requirement.',
+      compatibilityRequirements: '- Existing direct callers keep working.',
+      requiredValidation: 'Run the direct submission focused test.',
+      acceptanceSignals: '- Task is queued.',
+      parentTaskId: '',
+      parentQmdRecordId: '',
+      parentQmdScope: '',
+      rootTaskId: '',
+      followupReason: '',
+      carryForwardSummary: '',
+      suggestedPath: 'sequential',
+      planningNotes: '',
+    }, runner)).resolves.toEqual(expect.objectContaining({ ok: true }));
+
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({
+      criticalRequirements: '- CR-001: Preserve the direct prose requirement.',
+      compatibilityRequirements: '- COMP-001: Existing direct callers keep working.',
+      requiredValidation: '- VAL-001: Run the direct submission focused test.',
+    }));
+  });
+
+  it('canonicalizes prose requirements for direct follow-up submission', async () => {
+    const runner = vi.fn(async () => ({
+      filePath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_followup.md',
+      title: 'followup-task',
+      rootTaskId: 'ROOT-001',
+    }));
+
+    await expect(submitFollowUpViaHelper({
+      title: '',
+      taskKind: 'child-task',
+      summary: 'Queue a child task with prose requirement sections.',
+      desiredOutcome: 'The follow-up submission preserves all requirement text.',
+      constraints: '',
+      criticalRequirements: 'Do not lose the follow-up critical requirement.',
+      compatibilityRequirements: 'Keep parent archive behavior compatible.',
+      requiredValidation: 'Verify the follow-up runner receives generated IDs.',
+      acceptanceSignals: '- Child task is queued.',
+      parentTaskId: 'PARENT-123',
+      parentQmdRecordId: '',
+      parentQmdScope: '',
+      rootTaskId: 'ROOT-001',
+      followupReason: 'Continue follow-up work.',
+      carryForwardSummary: 'Carry forward validated context.',
+      suggestedPath: 'sequential',
+      planningNotes: '',
+    }, runner)).resolves.toEqual(expect.objectContaining({ ok: true }));
+
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({
+      criticalRequirements: '- CR-001: Do not lose the follow-up critical requirement.',
+      compatibilityRequirements: '- COMP-001: Keep parent archive behavior compatible.',
+      requiredValidation: '- VAL-001: Verify the follow-up runner receives generated IDs.',
+    }));
   });
 });

@@ -30,6 +30,8 @@ import {
   syncRetrospectiveRequiredMetadata,
 } from './retrospectiveFlag.js';
 import {
+  buildImplementationSpecSectionsFromIntake,
+  buildProfessionalTaskSectionsFromIntake,
   extractTaskTitle,
   extractLineageValue,
   extractContextPackBinding,
@@ -805,7 +807,10 @@ export async function activateNextPendingItemIfReady(
     'Follow-Up Reason': followupReason,
   };
 
-  const sections: Record<string, string> = {};
+  const sections = {
+    ...buildProfessionalTaskSectionsFromIntake(content),
+    ...buildImplementationSpecSectionsFromIntake(content),
+  };
 
   // The per-task active marker is written only after the task sidecar and
   // handoff workspace have been materialized. If materialization fails, the

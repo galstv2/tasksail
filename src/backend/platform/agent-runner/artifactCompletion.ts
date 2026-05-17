@@ -12,6 +12,7 @@ import {
   resolveSemanticSection,
 } from '../workflow-policy/artifacts.js';
 import { normalizeAgentId, normalizeText, stripHtmlComments } from '../workflow-policy/matching.js';
+import { GENERATED_INTAKE_SPINE_RULE_IDS } from '../workflow-policy/rules/spec.js';
 import {
   ALLOWED_DIFFICULTY_LEVELS,
   CONTENT_SECTION_EXCLUSIONS,
@@ -26,7 +27,14 @@ const FINAL_SUMMARY_REQUIRED_CONTENT_SECTIONS = [
   'Key Design Decisions',
   'Known Limitations',
 ];
+const REQUIREMENT_ID_PATTERN = /\b(?:CR|COMP|VAL)-\d{3}\b/g;
+const FENCE_OPEN_RE = /^(```|~~~)/;
 const ALLOWED_PARALLEL_DECISIONS = new Set(['simple', 'complex']);
+const SLICE_REQUIREMENT_TRACEABILITY_RULE_IDS = new Set([
+  'slice.requirement-id-covered',
+  'slice.validation-id-covered',
+  'slice.requirement-id-known',
+]);
 
 const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const TEMPLATE_BOILERPLATE_RE = /^(?:[-*]\s*|```\w*|#\s.*)$/;
@@ -190,6 +198,81 @@ function issuesHaveBlockingFindings(sections: Record<string, string[]>): boolean
   return severityText.includes('blocking');
 }
 
+function stripFencedCode(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (fence) {
+      if (trimmed.startsWith(fence)) {
+        fence = null;
+      }
+      continue;
+    }
+    const match = FENCE_OPEN_RE.exec(trimmed);
+    if (match?.[1]) {
+      fence = match[1];
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join('\n');
+}
+
+function generatedRequirementIdsFromSpec(spec: WorkspaceArtifact): string[] {
+  const intakeRequirements = spec.sections['Intake Requirements'];
+  if (!intakeRequirements) {
+    return [];
+  }
+  return [...new Set(stripFencedCode(stripHtmlComments(intakeRequirements).join('\n')).match(REQUIREMENT_ID_PATTERN) ?? [])].sort();
+}
+
+async function generatedRequirementIds(handoffsDir: string): Promise<string[]> {
+  const spec = await readHandoffArtifact(handoffsDir, 'implementation-spec.md');
+  if (!spec.exists || !spec.hasSubstantiveContent) {
+    return [];
+  }
+  return generatedRequirementIdsFromSpec(spec);
+}
+
+function parseRequirementStatus(lines: readonly string[], id: string): string | null {
+  const pattern = new RegExp(`\\b${id}:\\s*(.*)$`);
+  const match = stripFencedCode(stripHtmlComments(lines).join('\n'))
+    .split(/\r?\n/)
+    .map((candidate) => pattern.exec(candidate))
+    .find((candidate) => candidate !== null);
+  if (!match) {
+    return null;
+  }
+  const afterId = (match[1] ?? '').trim();
+  if (afterId.includes(' - ')) {
+    return afterId.split(' - ')[0]!.trim().toLowerCase();
+  }
+  const lowered = afterId.toLowerCase();
+  if (lowered.startsWith('not met')) {
+    return 'not met';
+  }
+  return lowered.split(/\s+/)[0] ?? null;
+}
+
+function requirementVerificationComplete(finalSummary: WorkspaceArtifact, ids: readonly string[]): boolean {
+  if (ids.length === 0) {
+    return true;
+  }
+  const lines = finalSummary.sections['Requirement Verification'];
+  if (!lines || !normalizeText(stripHtmlComments(lines))) {
+    return false;
+  }
+  return ids.every((id) => {
+    const status = parseRequirementStatus(lines, id);
+    return status === 'verified' || status === 'advisory';
+  });
+}
+
+function issuesReviewOutcome(sections: Record<string, string[]>): string {
+  return normalizeText(stripHtmlComments(sections['Review Outcome'] ?? [])).trim().toLowerCase();
+}
+
 async function qaIssuesStructured(handoffsDir: string): Promise<boolean> {
   const issues = await readHandoffArtifact(handoffsDir, 'issues.md');
   if (!issues.exists) {
@@ -296,11 +379,16 @@ export async function checkAgentArtifactCompletion(options: {
     if (!await qaIssuesStructured(options.handoffsDir)) {
       return false;
     }
+    const reviewOutcome = issuesReviewOutcome(issues.sections);
+    if (reviewOutcome !== 'pass' && reviewOutcome !== 'advisory' && reviewOutcome !== 'blocking') {
+      return false;
+    }
     if (await remediationHasBlockingFindings(options.handoffsDir)) {
       return true;
     }
 
     // Non-blocking outcome — all closeout artifacts are required.
+    const requirementIds = await generatedRequirementIds(options.handoffsDir);
     const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (!finalSummary.exists || !hasRealContent(finalSummary)) {
       return false;
@@ -317,6 +405,12 @@ export async function checkAgentArtifactCompletion(options: {
       if (!normalizeText(finalSummary.sections[sectionName] ?? [])) {
         return false;
       }
+    }
+    if (!normalizeText(finalSummary.sections['Task branches'] ?? [])) {
+      return false;
+    }
+    if (!requirementVerificationComplete(finalSummary, requirementIds)) {
+      return false;
     }
     const difficultyLevel = finalSummaryDifficultyLevel(finalSummary);
     if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
@@ -345,6 +439,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   repoRoot: string;
   taskId?: string;
   abortSignal?: AbortSignal;
+  policyViolationRuleIds?: readonly string[];
 }): Promise<string> {
   const agentId = normalizeAgentId(options.agentId);
 
@@ -353,6 +448,25 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     const missingParts: string[] = [];
     if (!await implementationSpecReady(options.handoffsDir)) {
       missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`);
+    }
+    if (options.policyViolationRuleIds?.some((ruleId) => GENERATED_INTAKE_SPINE_RULE_IDS.has(ruleId))) {
+      missingParts.push(
+        `- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: ` +
+        'restore the generated ## Intake Requirements section from intake.md. ' +
+        'Do not reinterpret, summarize, reorder, or weaken the copied Critical Requirements, Compatibility Requirements, or Required Validation content. ' +
+        'Leave authored planning sections otherwise unchanged unless needed to keep markdown structure valid. ' +
+        `Use ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'intake.md'))} as the source.`,
+      );
+    }
+    if (options.policyViolationRuleIds?.some((ruleId) => SLICE_REQUIREMENT_TRACEABILITY_RULE_IDS.has(ruleId))) {
+      missingParts.push(
+        `- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))} and ` +
+        `${toPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: ` +
+        'account for every generated CR-*, COMP-*, and VAL-* ID by exact ID from ## Intake Requirements. ' +
+        'Put global or cross-cutting IDs in ### Requirement Handling, put slice-owned IDs in the relevant slice content including ### Requirement Coverage, ' +
+        'put every VAL-* in a validation surface, and remove or correct any unknown requirement ID. ' +
+        'Do not paste every ID into every slice.',
+      );
     }
     const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
     if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
@@ -399,11 +513,26 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'issues.md'))}: Your issues.md has findings but is missing required structured sections. Each finding must have: Finding, Severity, Finding Type, Required Fix, Remediation Owner Agent ID (software-engineer), Revalidation Agent ID (qa), Return-To Agent ID (qa). Fill in all sections.`);
   }
   if (agentId === 'qa') {
+    const requirementIds = await generatedRequirementIds(options.handoffsDir);
+    const shapeInstruction = `${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: preserve every top-level ## heading from the seeded template; populate content only under the seeded section bodies. Do not move Closeout Owner Agent ID, Review Outcome, or Task branches into Task Metadata or a custom summary.`;
+    let shapeInstructionPushed = false;
+    const pushShapeInstruction = (): void => {
+      if (shapeInstructionPushed) {
+        return;
+      }
+      missingParts.push(`- ${shapeInstruction}`);
+      shapeInstructionPushed = true;
+    };
+    const issues = await readHandoffArtifact(options.handoffsDir, 'issues.md');
+    if (issues.exists && !['pass', 'advisory', 'blocking'].includes(issuesReviewOutcome(issues.sections))) {
+      missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'issues.md'))}: preserve every top-level ## heading from the seeded template; populate content only under the seeded section bodies. Do not move Closeout Owner Agent ID, Review Outcome, or Task branches into Task Metadata or a custom summary.`);
+    }
     const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (finalSummary.exists) {
       const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
       if (owner !== 'qa') {
         missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set Closeout Owner Agent ID to exactly 'qa'.`);
+        pushShapeInstruction();
       }
       const difficultyLevel = finalSummaryDifficultyLevel(finalSummary);
       if (!ALLOWED_DIFFICULTY_LEVELS.has(difficultyLevel)) {
@@ -420,6 +549,10 @@ export async function buildAgentArtifactRemediationPrompt(options: {
           `into this section. If TASKSAIL_TASK_BRANCHES is absent or empty, read the file path from TASKSAIL_TASK_BRANCHES_FILE instead and copy its contents. ` +
           `Do NOT run any git commands to discover branch names — use only the env var or file.`,
         );
+        pushShapeInstruction();
+      }
+      if (requirementIds.length > 0 && !requirementVerificationComplete(finalSummary, requirementIds)) {
+        missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: populate ## Requirement Verification. The platform pre-populated this section with pending generated CR-*, COMP-*, and VAL-* IDs; replace each pending with verified or advisory and add a short evidence note. Do not delete IDs.`);
       }
     }
   }

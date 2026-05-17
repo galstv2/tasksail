@@ -1,27 +1,40 @@
 # Slice Template
+<!-- Scale detail to task complexity: keep small surgical slices concise and exact; expand complex/risky slices with enough current-state facts, sequencing, guards, and validation detail that Dalton can execute without guessing. Do not add filler. -->
 
 ## Objective
 
 ### Purpose
-<!-- state what this slice solves and why, but also carry forward the relevant problem statement, goals, and architecture intent from implementation-spec.md; for simple tasks be concise, for complex/risky work include enough context that Dalton can execute without reopening the full spec -->
+<!-- concrete outcome for this slice and why it exists in the overall plan; reference relevant CR-*, COMP-*, or VAL-* IDs only when they directly affect this slice. For small tasks, one or two concise sentences are enough; expand context only when complex or risky. -->
+
+### Inputs to Read
+<!-- list exact files, tests, helpers, existing patterns, or generated handoff sections Dalton should read before editing; write "None" only if this slice genuinely needs no pre-read beyond the files it edits -->
 
 ## Dependencies and Order
 
 ### Depends On
-<!-- list prerequisite slice IDs, or "None" if independent; do not omit real dependencies that are needed for file availability, shared types, sequencing, or validation order -->
+<!-- list prerequisite slice IDs, generated files, types, helpers, sequencing constraints, or "None" when independent -->
 
 ## Execution Scope
 
 ### Scope
-<!-- describe exactly what this slice must deliver, mapped from implementation-spec.md; carry forward relevant contracts, boundaries, invariants, and non-goals that apply to this slice; prefix exclusions with "NOT:" so downstream agents know what must remain untouched -->
+<!-- required changes, preserved behavior, and relevant requirement IDs from Intake Requirements. For small tasks, use a few exact bullets; for large tasks, include sequencing, data flow, failure behavior, and integration boundaries in enough detail to prevent guessing. -->
+
+### Requirement Coverage
+<!-- List only the CR-*, COMP-*, and VAL-* IDs this slice implements, preserves, or validates. Write "None" only when no generated requirement applies directly to this slice. Do not paste every ID by default. -->
+
+### Allowed Changes
+<!-- exact files, directories, modules, tests, or docs this slice may edit; include ownership boundaries when multiple slices exist -->
+
+### Out of Scope
+<!-- exact files, behavior, features, cleanup, refactors, or validation changes this slice must not perform; prefix hard exclusions with "NOT:" -->
 
 ## Files and Interfaces
 
 ### Files
-<!-- (required, non-empty; leaving this blank fails validation) list all expected files with one-line change descriptions; prefix new files with "(new)"; include every file the slice is likely to touch from implementation-spec.md change surface, and call out any file that must stay read-only for this slice -->
+<!-- (required, non-empty; leaving this blank fails validation) list each file with expected edit type, new/existing/read-only status, and interface or contract notes when relevant. For small tasks, name exact expected files if known; for larger tasks, directories are allowed only with a concrete ownership boundary and example files or symbols. -->
 
 ### Unit Tests
-<!-- (required, non-empty; absence fails validation) list test files and what they verify; carry forward the relevant validation/test expectations from implementation-spec.md so the slice preserves happy paths, error cases, regressions, and any explicit contract/status-code checks -->
+<!-- (required, non-empty; absence fails validation) list test files and what behavior they prove. For small tasks, one focused test or an explicit reason for no test may be enough; for larger or riskier tasks, include focused regression coverage and broader validation when shared contracts or workflows are touched. -->
 
 ## Acceptance and Validation
 
@@ -35,7 +48,13 @@ or shell-prefixed command lines; narrative prose fails validation.
 Add a broader command only when this slice changes shared contracts.
 -->
 
+### Stale Assumption Handling
+<!-- if a named file/symbol/test moved, Dalton should find the nearest current equivalent and preserve the required behavior; if an acceptance criterion conflicts with allowed changes, stop expanding scope and leave a clear blocker in closeout -->
+
 ## Guards and Coordination
 
 ### Guards
-<!-- carry forward the slice-specific constraints from implementation-spec.md: preserved invariants, untouched areas, migration cautions, contract rules, risk mitigations, and coordination notes with other slices; write "None" only if there are truly no special guards -->
+<!-- preserved invariants, compatibility requirements, concurrency/order/locking constraints, coordination notes with other slices, and directly relevant requirement IDs; write "None" only when there are genuinely no special guards beyond required scope and validation -->
+
+### Closeout Requirements
+<!-- list what Dalton must report: files changed, tests run, validation not run, remaining risks, and any deferred external action; keep this concise -->

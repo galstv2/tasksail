@@ -536,6 +536,18 @@ Ship a useful planning intake.
 
 None
 
+## Critical Requirements
+
+Preserve normal finalization prose.
+
+## Compatibility Requirements
+
+- Existing finalize behavior keeps working.
+
+## Required Validation
+
+Review final queued markdown.
+
 ## Acceptance Signals
 
 - Signal one.
@@ -590,6 +602,9 @@ None
       summary: 'This request summary is long enough to pass the minimum length validation gate.',
       desiredOutcome: 'Ship a useful planning intake.',
       constraints: 'None',
+      criticalRequirements: '- CR-001: Preserve normal finalization prose.',
+      compatibilityRequirements: '- COMP-001: Existing finalize behavior keeps working.',
+      requiredValidation: '- VAL-001: Review final queued markdown.',
       acceptanceSignals: '- Signal one.',
       suggestedPath: 'sequential',
       planningNotes: 'Keep the focus constrained.',

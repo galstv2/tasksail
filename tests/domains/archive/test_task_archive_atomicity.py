@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ import threading
 import unittest
 from importlib import import_module
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.domains.archive._archive_filing_base import TaskArchiveFilingTestBase
 
@@ -62,6 +64,41 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             result = json.loads(completed.stdout)
             record_path = Path(result["record_path"])
             self.assertTrue(record_path.exists())
+
+    def test_handoff_artifact_copy_failure_preserves_active_workspace(self) -> None:
+        archive_mod = import_module("src.backend.scripts.python.file-task-archive")
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            active_handoffs = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "handoffs"
+            active_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+
+            original_copy2 = archive_mod.shutil.copy2
+
+            def fail_handoff_copy(source, destination, *args, **kwargs):
+                if Path(destination).parent.name == "handoffs":
+                    raise OSError("forced handoff copy failure")
+                return original_copy2(source, destination, *args, **kwargs)
+
+            with patch.dict(os.environ, {"TASKSAIL_TASK_ID": "CAP-2001"}):
+                with patch.object(archive_mod.shutil, "copy2", side_effect=fail_handoff_copy):
+                    status = archive_mod.main([
+                        "--repo-root",
+                        str(repo_root),
+                        "--context-pack-dir",
+                        str(context_pack_dir),
+                        "--qmd-scope",
+                        "qmd/context-packs/sample-org",
+                    ])
+
+            self.assertEqual(status, 1)
+            self.assertTrue((active_handoffs / "final-summary.md").exists())
+            self.assertTrue((active_steps / "slice-1.md").exists())
+            self.assertFalse(self.task_archive_json_path(context_pack_dir).exists())
 
     def test_staging_directory_cleaned_up_after_promotion(self) -> None:
         """Verify staging dir is removed after successful filing."""
@@ -241,6 +278,130 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
                 original_history,
                 "Global history must not be duplicated on resume",
             )
+
+    def test_resume_does_not_duplicate_handoff_artifact_manifest_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+
+            first = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(first.returncode, 0, msg=first.stderr)
+            first_result = json.loads(first.stdout)
+            record_path = Path(first_result["record_path"])
+            archive_dir = record_path.parent
+            payload = json.loads(record_path.read_text(encoding="utf-8"))
+
+            staging_dir = archive_dir.parent / ".staging-cap-2001"
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(record_path, staging_dir / "archive.json")
+            shutil.copytree(archive_dir / "handoffs", staging_dir / "handoffs")
+            shutil.copytree(archive_dir / "ImplementationSteps", staging_dir / "ImplementationSteps")
+            shutil.copy2(archive_dir / "handoff-artifacts-manifest.json", staging_dir / "handoff-artifacts-manifest.json")
+            (staging_dir / "manifest.json").write_text(
+                json.dumps({"archive": "written", "handoff_artifacts": "written"}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            record_path.unlink()
+
+            resumed = self.run_archive_script_with_resume(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(resumed.returncode, 0, msg=resumed.stderr)
+            manifest = json.loads(self.task_archive_manifest_path(context_pack_dir).read_text(encoding="utf-8"))
+            paths = [entry["archive_relative_path"] for entry in manifest["files"]]
+            self.assertEqual(len(paths), len(set(paths)))
+            resumed_payload = json.loads(
+                Path(json.loads(resumed.stdout)["record_path"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                resumed_payload["handoff_artifacts"],
+                payload["handoff_artifacts"],
+            )
+
+    def test_refiling_replaces_stale_archived_handoff_and_slice_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+
+            first = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(first.returncode, 0, msg=first.stderr)
+            archive_dir = self.task_archive_dir(context_pack_dir)
+            (archive_dir / "handoffs" / "stale.md").write_text("stale\n", encoding="utf-8")
+            (archive_dir / "ImplementationSteps" / "stale.md").write_text("stale\n", encoding="utf-8")
+            (repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps" / "slice-2.md").unlink()
+
+            second = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(second.returncode, 0, msg=second.stderr)
+            self.assertFalse((archive_dir / "handoffs" / "stale.md").exists())
+            self.assertFalse((archive_dir / "ImplementationSteps" / "stale.md").exists())
+            self.assertTrue((archive_dir / "ImplementationSteps" / "slice-1.md").exists())
+            self.assertFalse((archive_dir / "ImplementationSteps" / "slice-2.md").exists())
+
+    def test_resume_recovers_after_promotion_failure_moves_archive_json(self) -> None:
+        archive_mod = import_module("src.backend.scripts.python.file-task-archive")
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            self.seed_implementation_steps(repo_root)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            archive_dir = self.task_archive_dir(context_pack_dir)
+            resolved_archive_dir = archive_dir.resolve()
+            staging_dir = archive_dir.parent / ".staging-cap-2001"
+            original_copytree = archive_mod.shutil.copytree
+
+            def fail_canonical_artifact_promotion(source, destination, *args, **kwargs):
+                if Path(destination).resolve().is_relative_to(resolved_archive_dir):
+                    raise OSError("forced promotion failure")
+                return original_copytree(source, destination, *args, **kwargs)
+
+            with patch.dict(os.environ, {"TASKSAIL_TASK_ID": "CAP-2001"}):
+                with patch.object(archive_mod.shutil, "copytree", side_effect=fail_canonical_artifact_promotion):
+                    failed = archive_mod.main([
+                        "--repo-root",
+                        str(repo_root),
+                        "--context-pack-dir",
+                        str(context_pack_dir),
+                        "--qmd-scope",
+                        "qmd/context-packs/sample-org",
+                    ])
+
+            self.assertEqual(failed, 1)
+            self.assertTrue((archive_dir / "archive.json").exists())
+            self.assertTrue((staging_dir / "manifest.json").exists())
+            self.assertFalse((staging_dir / "archive.json").exists())
+
+            resumed = self.run_archive_script_with_resume(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(resumed.returncode, 0, msg=resumed.stderr)
+            self.assertTrue((archive_dir / "handoffs" / "final-summary.md").exists())
+            self.assertTrue((archive_dir / "ImplementationSteps" / "slice-1.md").exists())
+            self.assertTrue((archive_dir / "handoff-artifacts-manifest.json").exists())
+            self.assertFalse(staging_dir.exists())
 
     def test_parent_archive_update_is_locked(self) -> None:
         """Concurrent calls to update_parent_archive() with different

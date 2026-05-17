@@ -22,6 +22,45 @@ import {
   implementationStepsTemplatePath,
 } from '../paths.js';
 
+const PROFESSIONAL_TASK_TEMPLATE = [
+  '# Professional Task',
+  '',
+  '## Task Metadata',
+  '',
+  '- Task ID:',
+  '- Task Title:',
+  '- Initialized At (UTC):',
+  '- Active Branch:',
+  '- Intake Source:',
+  '',
+  '## Task Lineage',
+  '',
+  '- Task Kind:',
+  '',
+  '## Raw Request',
+  '',
+  '## Parent Task Carry-Forward Context',
+  '',
+  '## Problem Statement',
+  '',
+  '## Business Goal',
+  '',
+  '## Scope',
+  '',
+  '## Non-Goals',
+  '',
+  '## Constraints',
+  '',
+  '## Acceptance Criteria',
+  '',
+  '## Risks',
+  '',
+  '## Open Questions',
+  '',
+].join('\n');
+
+import { IMPLEMENTATION_SPEC_TEMPLATE, sectionBetween } from './intakeTestHelpers.js';
+
 describe('initializeTask starter slice generation', () => {
   let repoRoot: string;
   let templatesDir: string;
@@ -250,6 +289,171 @@ describe('initializeTask §4.1B — writes under tasks/<taskId>/handoffs/', () =
 
     const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'my-explicit-task', 'handoffs');
     expect(existsSync(handoffsDir)).toBe(true);
+  });
+
+  it('generates professional-task.md sections from intake-shaped rawRequest', async () => {
+    writeFileSync(path.join(templatesDir, 'professional-task.md'), PROFESSIONAL_TASK_TEMPLATE);
+    writeFileSync(path.join(templatesDir, 'implementation-spec.md'), IMPLEMENTATION_SPEC_TEMPLATE);
+    const rawRequest = [
+      '# Manual intake',
+      '',
+      '## Request Summary',
+      '',
+      'Wire manual tasks through intake mapping.',
+      '',
+      '## Desired Outcome',
+      '',
+      'Manual task metadata mirrors intake content.',
+      '',
+      '## Constraints',
+      '',
+      '- Must not change queue scheduling.',
+      '',
+      '## Acceptance Signals',
+      '',
+      '- Generated professional task is populated.',
+      '',
+      '## Critical Requirements',
+      '',
+      '- CR-001: Use one shared mapper.',
+      '',
+      '## Required Validation',
+      '',
+      '- VAL-001: Run focused new task tests.',
+      '',
+    ].join('\n');
+
+    await initializeTask({
+      repoRoot,
+      taskId: 'manual-intake-shaped',
+      title: 'Manual Intake Shaped',
+      rawRequest,
+      force: true,
+    });
+
+    const professionalTask = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'manual-intake-shaped', 'handoffs', 'professional-task.md'),
+      'utf-8',
+    );
+    expect(professionalTask).toContain('## Raw Request\n\nWire manual tasks through intake mapping.');
+    expect(professionalTask).toContain('## Business Goal\n\nManual task metadata mirrors intake content.');
+    expect(professionalTask).toContain('## Scope\n\n- CR-001: Use one shared mapper.');
+    expect(professionalTask).toContain('## Non-Goals\n\n- Must not change queue scheduling.');
+    expect(professionalTask).toContain('## Acceptance Criteria\n\n- Generated professional task is populated.\n\nRequired validation from intake:\n- VAL-001: Run focused new task tests.');
+
+    const implementationSpec = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'manual-intake-shaped', 'handoffs', 'implementation-spec.md'),
+      'utf-8',
+    );
+    expect(implementationSpec).toContain('## Intake Requirements');
+    expect(sectionBetween(
+      implementationSpec,
+      '### Critical Requirements',
+      '### Compatibility Requirements',
+    )).toBe('- CR-001: Use one shared mapper.');
+    expect(sectionBetween(
+      implementationSpec,
+      '### Compatibility Requirements',
+      '### Required Validation',
+    )).toBe('None');
+    expect(sectionBetween(
+      implementationSpec,
+      '### Required Validation',
+      '## Problem and Outcome',
+    )).toBe('- VAL-001: Run focused new task tests.');
+  });
+
+  it('wraps manual rawRequest in a minimal intake before generating professional-task.md', async () => {
+    writeFileSync(path.join(templatesDir, 'professional-task.md'), PROFESSIONAL_TASK_TEMPLATE);
+    writeFileSync(path.join(templatesDir, 'implementation-spec.md'), IMPLEMENTATION_SPEC_TEMPLATE);
+
+    await initializeTask({
+      repoRoot,
+      taskId: 'manual-raw-request',
+      title: 'Manual Raw Request',
+      rawRequest: 'Add search to the dashboard.',
+      force: true,
+    });
+
+    const professionalTask = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'manual-raw-request', 'handoffs', 'professional-task.md'),
+      'utf-8',
+    );
+    expect(professionalTask).toContain('## Raw Request\n\nAdd search to the dashboard.');
+    expect(professionalTask).toContain('## Business Goal\n\nComplete the requested task.');
+    expect(professionalTask).toContain('## Scope\n\n- Requested task is completed without weakening existing behavior.');
+    expect(professionalTask).toContain('## Non-Goals\n\n- None stated in intake.');
+    expect(professionalTask).toContain('## Acceptance Criteria\n\n- Requested task is completed without weakening existing behavior.');
+    expect(professionalTask).toContain('## Risks\n\n- None stated in intake.');
+    expect(professionalTask).toContain('## Open Questions\n\n- None.');
+
+    const implementationSpec = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'manual-raw-request', 'handoffs', 'implementation-spec.md'),
+      'utf-8',
+    );
+    expect(sectionBetween(
+      implementationSpec,
+      '### Critical Requirements',
+      '### Compatibility Requirements',
+    )).toBe('None');
+    expect(sectionBetween(
+      implementationSpec,
+      '### Compatibility Requirements',
+      '### Required Validation',
+    )).toBe('None');
+    expect(sectionBetween(
+      implementationSpec,
+      '### Required Validation',
+      '## Problem and Outcome',
+    )).toBe('None');
+  });
+
+  it('does not keep None when appending compatibility or validation sections', async () => {
+    writeFileSync(path.join(templatesDir, 'professional-task.md'), PROFESSIONAL_TASK_TEMPLATE);
+
+    await initializeTask({
+      repoRoot,
+      taskId: 'manual-appended-requirements',
+      title: 'Manual Appended Requirements',
+      rawRequest: [
+        '# Manual appended requirements',
+        '',
+        '## Request Summary',
+        '',
+        'Preserve appended requirement sections.',
+        '',
+        '## Desired Outcome',
+        '',
+        'Generated sections remain semantically clean.',
+        '',
+        '## Constraints',
+        '',
+        'None',
+        '',
+        '## Acceptance Signals',
+        '',
+        'None',
+        '',
+        '## Compatibility Requirements',
+        '',
+        '- COMP-001: Keep old calls working.',
+        '',
+        '## Required Validation',
+        '',
+        '- VAL-001: Run focused generation tests.',
+        '',
+      ].join('\n'),
+      force: true,
+    });
+
+    const professionalTask = readFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'manual-appended-requirements', 'handoffs', 'professional-task.md'),
+      'utf-8',
+    );
+    expect(professionalTask).toContain('## Constraints\n\nCompatibility requirements from intake:\n- COMP-001: Keep old calls working.');
+    expect(professionalTask).not.toContain('## Constraints\n\nNone\n\nCompatibility requirements from intake:');
+    expect(professionalTask).toContain('## Acceptance Criteria\n\nRequired validation from intake:\n- VAL-001: Run focused generation tests.');
+    expect(professionalTask).not.toContain('## Acceptance Criteria\n\nNone\n\nRequired validation from intake:');
   });
 
   it('rejects an invalid explicit taskId before touching the filesystem', async () => {

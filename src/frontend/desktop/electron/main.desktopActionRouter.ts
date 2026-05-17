@@ -13,6 +13,7 @@ import {
 import { commitPendingRecordToHistory } from './plannerHistory';
 import { REPO_ROOT } from './paths';
 import {
+  canonicalizeEditableDraftRequirements,
   parseMarkdownSections,
   parsePlannerEditableDraft,
   validatePlannerProtectedMetadata,
@@ -340,22 +341,26 @@ export async function handleDesktopAction(
       }
       try {
         const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
+        const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
         const metadata = stagedDraft.metadata;
         const destinationPath = metadata.lineage.taskKind === 'child-task'
           ? await createFollowupTask({
               title: metadata.title,
-              summary: editableDraft.summary,
-              desiredOutcome: editableDraft.desiredOutcome,
-              constraints: editableDraft.constraints,
-              acceptanceSignals: editableDraft.acceptanceSignals,
+              summary: canonicalDraft.summary,
+              desiredOutcome: canonicalDraft.desiredOutcome,
+              constraints: canonicalDraft.constraints,
+              criticalRequirements: canonicalDraft.criticalRequirements,
+              compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+              requiredValidation: canonicalDraft.requiredValidation,
+              acceptanceSignals: canonicalDraft.acceptanceSignals,
               parentTaskId: metadata.lineage.parentTaskId,
               parentQmdRecordId: metadata.lineage.parentQmdRecordId,
               parentQmdScope: metadata.lineage.parentQmdScope,
               rootTaskId: metadata.lineage.rootTaskId,
               followupReason: metadata.lineage.followUpReason,
-              carryForwardSummary: editableDraft.carryForwardSummary,
-              suggestedPath: editableDraft.suggestedPath,
-              planningNotes: editableDraft.planningNotes,
+              carryForwardSummary: canonicalDraft.carryForwardSummary,
+              suggestedPath: canonicalDraft.suggestedPath,
+              planningNotes: canonicalDraft.planningNotes,
               contextPackDir: metadata.contextPackBinding.contextPackDir,
               contextPackId: metadata.contextPackBinding.contextPackId,
               scopeMode: metadata.contextPackBinding.scopeMode,
@@ -373,12 +378,15 @@ export async function handleDesktopAction(
             })
           : await createDropboxTask({
               title: metadata.title,
-              summary: editableDraft.summary,
-              desiredOutcome: editableDraft.desiredOutcome,
-              constraints: editableDraft.constraints,
-              acceptanceSignals: editableDraft.acceptanceSignals,
-              suggestedPath: editableDraft.suggestedPath,
-              planningNotes: editableDraft.planningNotes,
+              summary: canonicalDraft.summary,
+              desiredOutcome: canonicalDraft.desiredOutcome,
+              constraints: canonicalDraft.constraints,
+              criticalRequirements: canonicalDraft.criticalRequirements,
+              compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+              requiredValidation: canonicalDraft.requiredValidation,
+              acceptanceSignals: canonicalDraft.acceptanceSignals,
+              suggestedPath: canonicalDraft.suggestedPath,
+              planningNotes: canonicalDraft.planningNotes,
               kind: metadata.lineage.taskKind,
               contextPackDir: metadata.contextPackBinding.contextPackDir,
               contextPackId: metadata.contextPackBinding.contextPackId,

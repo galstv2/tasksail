@@ -100,6 +100,25 @@ describe('rebuildAgentMirror', () => {
       .toBe('{"taskId":"task-001"}');
   });
 
+  it('repairs archived handoff and implementation-step artifacts in task archive subtrees', async () => {
+    const scopeRoot = `qmd/context-packs/${packName}`;
+    seedManifest(scopeRoot);
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/archive.json', '{"taskId":"task-001"}');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/handoffs/intake.md', 'intake');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/ImplementationSteps/slice-1.md', 'slice');
+    seedCanonical(scopeRoot, 'archive/tasks/2026/task-001/handoff-artifacts-manifest.json', '{"schema_version":"handoff-artifacts/v1"}');
+
+    const result = await rebuildAgentMirror(repoRoot, contextPackDir);
+
+    expect(result.filesCopied).toBe(4);
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/handoffs/intake.md'), 'utf-8'))
+      .toBe('intake');
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/ImplementationSteps/slice-1.md'), 'utf-8'))
+      .toBe('slice');
+    expect(readFileSync(mirrorPath('archive/tasks/2026/task-001/handoff-artifacts-manifest.json'), 'utf-8'))
+      .toBe('{"schema_version":"handoff-artifacts/v1"}');
+  });
+
   it('is idempotent — a second run copies nothing new', async () => {
     const scopeRoot = `qmd/context-packs/${packName}`;
     seedManifest(scopeRoot);

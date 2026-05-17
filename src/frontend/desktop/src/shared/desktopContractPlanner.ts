@@ -27,6 +27,9 @@ export type PlannerEditableDraftModel = {
   summary: string;
   desiredOutcome: string;
   constraints: string;
+  criticalRequirements: string;
+  compatibilityRequirements: string;
+  requiredValidation: string;
   acceptanceSignals: string;
   carryForwardSummary: string;
   suggestedPath: SuggestedPath;

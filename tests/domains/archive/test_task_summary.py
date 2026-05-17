@@ -137,6 +137,34 @@ class AdvisoryFindingPlacementTests(unittest.TestCase):
                 f"{other_heading} must precede QA Advisory Finding",
             )
 
+    def test_archived_handoff_artifacts_render_before_advisory_finding(self) -> None:
+        payload = _base_payload(
+            completed_work_items=["X"],
+            handoff_artifacts={
+                "manifest_path": "handoff-artifacts-manifest.json",
+                "handoff_file_count": 8,
+                "implementation_step_file_count": 2,
+                "total_size_bytes": 12345,
+            },
+            advisory_finding="Reviewer note: foo.",
+        )
+        output = build_task_archive_markdown(payload)
+        self.assertIn(
+            "## Archived Handoff Artifacts\n\n"
+            "- Handoff files: 8\n"
+            "- Implementation step files: 2\n"
+            "- Manifest: handoff-artifacts-manifest.json",
+            output,
+        )
+        self.assertLess(
+            output.index("## Archived Handoff Artifacts"),
+            output.index("## QA Advisory Finding"),
+        )
+
+    def test_archived_handoff_artifacts_omitted_when_absent(self) -> None:
+        output = build_task_archive_markdown(_base_payload(completed_work_items=["X"]))
+        self.assertNotIn("## Archived Handoff Artifacts", output)
+
     def test_advisory_finding_omitted_when_empty(self) -> None:
         payload = _base_payload(completed_work_items=["X"], advisory_finding="")
         output = build_task_archive_markdown(payload)

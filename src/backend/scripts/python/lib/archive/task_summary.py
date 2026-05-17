@@ -47,6 +47,7 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     )
     _add_list_section(lines, "Files Changed", payload.get("touched_files"))
     _add_list_section(lines, "Follow-Up Backlog", payload.get("followup_refs"))
+    _add_handoff_artifacts_section(lines, payload.get("handoff_artifacts"))
     # Append-only: this advisory section must remain last.
     _add_text_section(lines, "QA Advisory Finding", payload.get("advisory_finding"))
 
@@ -102,6 +103,20 @@ def _add_text_section(
     lines.append("")
     lines.append(content)
     lines.append("")
+
+
+def _add_handoff_artifacts_section(lines: list[str], artifacts: Any) -> None:
+    if not isinstance(artifacts, dict):
+        return
+    _add_list_section(
+        lines,
+        "Archived Handoff Artifacts",
+        [
+            f"Handoff files: {artifacts.get('handoff_file_count', 0)}",
+            f"Implementation step files: {artifacts.get('implementation_step_file_count', 0)}",
+            f"Manifest: {artifacts.get('manifest_path', 'handoff-artifacts-manifest.json')}",
+        ],
+    )
 
 
 def _add_list_section(

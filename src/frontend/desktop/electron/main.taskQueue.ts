@@ -25,6 +25,7 @@ import { derivePlannerDraftTitle, derivePlannerScopeMode, isMonolithEstate } fro
 import { REPO_ROOT } from './paths';
 import {
   parseMarkdownSections,
+  canonicalizeEditableDraftRequirements,
   parsePlannerEditableDraft,
   validatePlanningIntakeDraft,
   type PlannerEditableDraft,
@@ -34,6 +35,9 @@ export type DropboxScriptRunner = (options: {
   summary: string;
   desiredOutcome: string;
   constraints: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals: string;
   suggestedPath: string;
   planningNotes: string;
@@ -44,6 +48,9 @@ export type FollowUpScriptRunner = (options: {
   summary: string;
   desiredOutcome: string;
   constraints: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals: string;
   parentTaskId: string;
   followupReason: string;
@@ -351,6 +358,9 @@ export async function runDropboxTaskScript(options: {
   summary: string;
   desiredOutcome: string;
   constraints: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals: string;
   suggestedPath: string;
   planningNotes: string;
@@ -366,6 +376,9 @@ export async function runDropboxTaskScript(options: {
         summary: options.summary,
         desiredOutcome: options.desiredOutcome,
         constraints: options.constraints,
+        criticalRequirements: options.criticalRequirements ?? 'None',
+        compatibilityRequirements: options.compatibilityRequirements ?? 'None',
+        requiredValidation: options.requiredValidation ?? 'None',
         acceptanceSignals: options.acceptanceSignals,
         suggestedPath: options.suggestedPath,
         planningNotes: options.planningNotes,
@@ -397,6 +410,9 @@ export async function runFollowUpTaskScript(options: {
   summary: string;
   desiredOutcome: string;
   constraints: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals: string;
   parentTaskId: string;
   followupReason: string;
@@ -420,6 +436,9 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
         summary: options.summary,
         desiredOutcome: options.desiredOutcome,
         constraints: options.constraints,
+        criticalRequirements: options.criticalRequirements ?? 'None',
+        compatibilityRequirements: options.compatibilityRequirements ?? 'None',
+        requiredValidation: options.requiredValidation ?? 'None',
         acceptanceSignals: options.acceptanceSignals,
         parentTaskId: options.parentTaskId,
         parentQmdScope: parentMetadata.parentQmdScope,
@@ -529,14 +548,18 @@ function buildSidecarDropboxOptions(
   sidecar: PlannerStagingSidecar,
   editableDraft: PlannerEditableDraft,
 ) {
+  const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
   return {
     title: sidecar.title,
-    summary: editableDraft.summary,
-    desiredOutcome: editableDraft.desiredOutcome,
-    constraints: editableDraft.constraints,
-    acceptanceSignals: editableDraft.acceptanceSignals,
-    suggestedPath: editableDraft.suggestedPath,
-    planningNotes: editableDraft.planningNotes,
+    summary: canonicalDraft.summary,
+    desiredOutcome: canonicalDraft.desiredOutcome,
+    constraints: canonicalDraft.constraints,
+    criticalRequirements: canonicalDraft.criticalRequirements,
+    compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+    requiredValidation: canonicalDraft.requiredValidation,
+    acceptanceSignals: canonicalDraft.acceptanceSignals,
+    suggestedPath: canonicalDraft.suggestedPath,
+    planningNotes: canonicalDraft.planningNotes,
     contextPackDir: sidecar.contextPackBinding.contextPackDir,
     contextPackId: sidecar.contextPackBinding.contextPackId,
     scopeMode: sidecar.contextPackBinding.scopeMode,
@@ -651,14 +674,18 @@ async function submitUploadedSpecFromActiveWorkspace(
     throw new Error(err instanceof Error ? err.message : 'Failed to resolve active context pack for spec upload.');
   }
 
+  const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
   const filePath = await createDropboxTask({
     title: context.title,
-    summary: editableDraft.summary,
-    desiredOutcome: editableDraft.desiredOutcome,
-    constraints: editableDraft.constraints,
-    acceptanceSignals: editableDraft.acceptanceSignals,
-    suggestedPath: editableDraft.suggestedPath,
-    planningNotes: editableDraft.planningNotes,
+    summary: canonicalDraft.summary,
+    desiredOutcome: canonicalDraft.desiredOutcome,
+    constraints: canonicalDraft.constraints,
+    criticalRequirements: canonicalDraft.criticalRequirements,
+    compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+    requiredValidation: canonicalDraft.requiredValidation,
+    acceptanceSignals: canonicalDraft.acceptanceSignals,
+    suggestedPath: canonicalDraft.suggestedPath,
+    planningNotes: canonicalDraft.planningNotes,
     kind: 'standard',
     repoRoot: REPO_ROOT,
     contextPackDir: context.contextPackDir,
@@ -694,13 +721,17 @@ export async function submitDraftViaDropboxHelper(
   }
 
   try {
+    const canonicalDraft = canonicalizeEditableDraftRequirements(draft);
     const submission = normalizeDropboxSubmissionResult(await runner({
-      summary: draft.summary,
-      desiredOutcome: draft.desiredOutcome,
-      constraints: draft.constraints,
-      acceptanceSignals: draft.acceptanceSignals,
-      suggestedPath: draft.suggestedPath,
-      planningNotes: draft.planningNotes,
+      summary: canonicalDraft.summary,
+      desiredOutcome: canonicalDraft.desiredOutcome,
+      constraints: canonicalDraft.constraints,
+      criticalRequirements: canonicalDraft.criticalRequirements,
+      compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+      requiredValidation: canonicalDraft.requiredValidation,
+      acceptanceSignals: canonicalDraft.acceptanceSignals,
+      suggestedPath: canonicalDraft.suggestedPath,
+      planningNotes: canonicalDraft.planningNotes,
       kind: draft.taskKind,
     }));
 
@@ -746,11 +777,15 @@ export async function submitFollowUpViaHelper(
   }
 
   try {
+    const canonicalDraft = canonicalizeEditableDraftRequirements(draft);
     const submission = normalizeFollowUpSubmissionResult(await runner({
-      summary: draft.summary,
-      desiredOutcome: draft.desiredOutcome,
-      constraints: draft.constraints,
-      acceptanceSignals: draft.acceptanceSignals,
+      summary: canonicalDraft.summary,
+      desiredOutcome: canonicalDraft.desiredOutcome,
+      constraints: canonicalDraft.constraints,
+      criticalRequirements: canonicalDraft.criticalRequirements,
+      compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+      requiredValidation: canonicalDraft.requiredValidation,
+      acceptanceSignals: canonicalDraft.acceptanceSignals,
       parentTaskId: draft.parentTaskId,
       followupReason: draft.followupReason,
       carryForwardSummary: draft.carryForwardSummary,

@@ -60,8 +60,8 @@ function checkIndependentSlices(
       rule_id: 'parallel-ok.independent-slices-has-items',
       artifact: ARTIFACT,
       message:
-        'Independent Slices section must have bullet items when parallelization is approved.',
-      remediation: `Add bullet items listing independent slice IDs to the Independent Slices section in ${ARTIFACT}.`,
+        'Independent Slices section must list orchestrated slice IDs when Complex execution is approved.',
+      remediation: `Add bullet items listing slice IDs Dalton can orchestrate to the Independent Slices section in ${ARTIFACT}.`,
     });
   }
 }
@@ -76,8 +76,8 @@ function checkConstraints(
       rule_id: 'parallel-ok.constraints-populated',
       artifact: ARTIFACT,
       severity: 'warning',
-      message: 'Constraints section is empty when parallelization is approved.',
-      remediation: `Add resource limits or ordering dependencies (or 'None') to the Constraints section in ${ARTIFACT}.`,
+      message: 'Constraints section is empty when Complex orchestrator execution is approved.',
+      remediation: `Add sequencing, shared-file, resource, validation, or coordination constraints (or 'None') to the Constraints section in ${ARTIFACT}.`,
     });
   }
 }

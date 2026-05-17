@@ -1,5 +1,6 @@
 import { createLogger, extractMarkdownSection, stripHtmlComments } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
+import { parseSections } from '../workflow-policy/artifacts.js';
 import { loadMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
 import { SECTION_NAMES } from '../workflow-policy/contracts/sectionNames.js';
 
@@ -13,6 +14,170 @@ export function extractTaskTitle(content: string): string {
   const contract = loadMarkdownContract();
   const match = contract.compiled.title.exec(content);
   return match?.[contract.groups.title]?.trim() ?? '';
+}
+
+export function buildProfessionalTaskSectionsFromIntake(content: string): Record<string, string> {
+  const sections = parseSections(content);
+  const requestSummary = effectiveSection(
+    sections,
+    'Request Summary',
+    fallbackRequestSummary(content),
+  );
+  const desiredOutcome = effectiveSection(
+    sections,
+    'Desired Outcome',
+    'Complete the requested task.',
+  );
+  const constraints = effectiveSection(sections, 'Constraints', 'None');
+  const acceptanceSignals = effectiveSection(
+    sections,
+    'Acceptance Signals',
+    '- Requested task is completed without weakening existing behavior.',
+  );
+  const criticalRequirements = optionalSection(sections, 'Critical Requirements');
+  const compatibilityRequirements = optionalSection(sections, 'Compatibility Requirements');
+  const requiredValidation = optionalSection(sections, 'Required Validation');
+  const taskLineage = sectionBody(sections, SECTION_NAMES.TASK_LINEAGE);
+  const taskKind = extractLabeledValue(taskLineage, 'Task Kind', SECTION_NAMES.TASK_LINEAGE);
+  const parentCarryForward = taskKind === 'child-task'
+    ? optionalSection(sections, 'Parent Task Carry-Forward Summary') ?? ''
+    : '';
+
+  return {
+    'Raw Request': requestSummary,
+    'Problem Statement': requestSummary,
+    'Business Goal': desiredOutcome,
+    'Scope': criticalRequirements ?? acceptanceSignals,
+    'Non-Goals': extractNonGoals(constraints),
+    'Constraints': appendLabeledSection(
+      constraints,
+      'Compatibility requirements from intake:',
+      compatibilityRequirements,
+    ),
+    'Acceptance Criteria': appendLabeledSection(
+      acceptanceSignals,
+      'Required validation from intake:',
+      requiredValidation,
+    ),
+    'Risks': '- None stated in intake.',
+    'Open Questions': '- None.',
+    'Parent Task Carry-Forward Context': parentCarryForward,
+  };
+}
+
+export function buildImplementationSpecSectionsFromIntake(content: string): Record<string, string> {
+  return {
+    'Intake Requirements': renderIntakeRequirementsFromIntake(content),
+  };
+}
+
+function renderIntakeRequirementsFromIntake(content: string): string {
+  const sections = parseSections(content);
+  return [
+    '<!-- Platform-generated from handoffs/intake.md during task activation. Do not edit or delete. -->',
+    '',
+    '### Critical Requirements',
+    '',
+    sectionBodyOrNone(sections, 'Critical Requirements'),
+    '',
+    '### Compatibility Requirements',
+    '',
+    sectionBodyOrNone(sections, 'Compatibility Requirements'),
+    '',
+    '### Required Validation',
+    '',
+    sectionBodyOrNone(sections, 'Required Validation'),
+  ].join('\n');
+}
+
+function sectionBodyOrNone(
+  sections: Record<string, string[]>,
+  sectionName: string,
+): string {
+  const body = sectionBody(sections, sectionName);
+  return body.trim() ? body : 'None';
+}
+
+function sectionBody(
+  sections: Record<string, string[]>,
+  sectionName: string,
+): string {
+  return cleanSectionBody(sections[sectionName] ?? []);
+}
+
+// trimBlankLines handles boundary blank lines; no outer .trim() so leading
+// indentation on command lines and fence-internal text survives verbatim into
+// both the professional-task append blocks and the implementation-spec render.
+function cleanSectionBody(lines: readonly string[]): string {
+  return trimBlankLines(stripHtmlComments(lines.join('\n'))).join('\n');
+}
+
+function trimBlankLines(value: string): string[] {
+  const lines = value.split(/\r?\n/);
+  while (lines.length > 0 && lines[0]!.trim() === '') lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop();
+  return lines;
+}
+
+function isNonNone(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed !== '' && trimmed !== 'None';
+}
+
+function optionalSection(
+  sections: Record<string, string[]>,
+  sectionName: string,
+): string | undefined {
+  const body = sectionBody(sections, sectionName);
+  return isNonNone(body) ? body : undefined;
+}
+
+function effectiveSection(
+  sections: Record<string, string[]>,
+  sectionName: string,
+  fallback: string,
+): string {
+  const body = sectionBody(sections, sectionName);
+  return body.trim() ? body : fallback;
+}
+
+function fallbackRequestSummary(content: string): string {
+  const title = extractTaskTitle(content).trim();
+  if (title) return title;
+
+  const body = stripHtmlComments(content);
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      return trimmed;
+    }
+  }
+  return 'Unspecified request.';
+}
+
+function appendLabeledSection(
+  base: string,
+  label: string,
+  appendix: string | undefined,
+): string {
+  if (!appendix) return base;
+  if (!isNonNone(base)) {
+    return `${label}\n${appendix}`;
+  }
+  return `${base}\n\n${label}\n${appendix}`;
+}
+
+function extractNonGoals(constraints: string): string {
+  const nonGoals = constraints
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      const match = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+      const item = match?.[1]?.trim() ?? '';
+      return /^(?:NOT:|No |Do not |Must not )/.test(item);
+    });
+
+  return nonGoals.length > 0 ? nonGoals.join('\n') : '- None stated in intake.';
 }
 
 /**

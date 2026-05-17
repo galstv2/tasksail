@@ -1,4 +1,5 @@
 # Implementation Spec
+<!-- Scale detail to task complexity: keep small surgical plans concise and concrete; expand complex/risky plans only where extra current-state facts, sequencing, contracts, guards, or validation reduce ambiguity or regression risk. Do not add filler. -->
 
 ## Task Metadata
 
@@ -19,6 +20,9 @@
 - Parent QMD Scope:
 - Follow-Up Reason:
 
+## Intake Requirements
+<!-- Platform-generated from handoffs/intake.md during task activation. Do not edit or delete. Read handoffs/intake.md for the full request context; use this section as the canonical requirement spine for CR-*, COMP-*, and VAL-* items. -->
+
 ## Problem and Outcome
 
 ### Problem Statement
@@ -36,27 +40,30 @@
 <!-- (required for "child-task"; leaving this blank when Task Kind is child-task fails validation. Leave blank for "standard".) -->
 
 ### Codebase Analysis
-<!-- relevant existing code, patterns, and conventions; detail proportional to scope -->
+<!-- concrete current-state facts from files inspected; include exact file paths and symbol names when known. For simple tasks, one concise bullet is acceptable. -->
 
 ### Dependency Analysis
 <!-- (required) must contain a markdown table (| col | col |) or a fenced code block; bullets and prose alone fail validation. Internal and external dependencies. -->
 
 ### Change Boundaries
-<!-- what may be modified and what must remain untouched -->
+<!-- allowed areas, explicit out-of-scope areas, and preserved behavior when compatibility matters -->
 
 ## Implementation Plan
 
 ### Architecture Summary
-<!-- high-level approach and key trade-offs; expand for multi-system changes -->
+<!-- smallest viable approach and key sequencing decisions; for simple tasks, use a concise direct approach -->
 
 ### Touched Systems
 <!-- layers or services this change affects -->
+
+### Requirement Handling
+<!-- For each generated CR-*, COMP-*, and VAL-* from ## Intake Requirements that is global, cross-cutting, or not owned by one specific slice, reference the exact ID and explain where it is handled. Do not copy full requirement text. Do not edit ## Intake Requirements. -->
 
 ### Proposed Structure
 <!-- file layout, module decomposition, or class hierarchy; use nested bullets, tables, or code fences when authored -->
 
 ### Contracts
-<!-- API contracts, interface changes, or data schemas; "None" if not applicable -->
+<!-- exact API, data, section, file-format, IPC, or CLI contracts changed; write "None" when no contract changes exist -->
 
 ### Migrations or Data Implications
 <!-- schema changes, data migrations; "None" if not applicable -->
@@ -72,7 +79,7 @@
 ## Validation and Evidence
 
 ### Validation Strategy
-<!-- (required) must contain a fenced code block (```bash ... ```) or shell-prefixed command lines (e.g., $ pnpm test, npm run lint); narrative prose alone fails validation -->
+<!-- (required) must contain executable commands or manual checks mapped to the actual change; carry forward relevant VAL-* items from Intake Requirements. Use a fenced code block (```bash ... ```) or shell-prefixed command lines; narrative prose alone fails validation -->
 
 ### Test Coverage
 <!-- (recommended; absence triggers a warning, not an error) what tests will be added or updated; write "None" if not applicable -->
@@ -80,4 +87,4 @@
 ## Change Surface
 
 ### Files or Areas Likely to Change
-<!-- file paths or directories -->
+<!-- file paths or directories with one-line reasons; include read-only or do-not-touch paths when known -->

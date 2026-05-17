@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,7 @@ import { evaluateSpecQualityRules } from '../rules/spec.js';
 import { evaluateTaskQualityRules } from '../rules/taskQuality.js';
 
 const TEST_TASK_ID = 'task-test-001';
+const REPO_ROOT = path.join(import.meta.dirname, '../../../../..');
 
 function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
   const absolutePath = path.join(repoRoot, relativePath);
@@ -82,6 +83,39 @@ function createBlankHandoffs(repoRoot: string): void {
   }
 }
 
+async function validateIntakeMarkdown(repoRoot: string, content: string) {
+  createRegistryFixture(repoRoot);
+  createBlankHandoffs(repoRoot);
+  writeRepoFile(repoRoot, 'AgentWorkSpace/dropbox/request.md', content);
+  const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+  await validator.initialize();
+  await evaluateIntakeQualityRules(validator);
+  return validator.violations;
+}
+
+function canonicalIntake(requirementSections: string[]): string {
+  return [
+    '# Requirement request',
+    '',
+    '## Request Summary',
+    'Preserve operator requirements through the planning intake workflow.',
+    '',
+    '## Desired Outcome',
+    'The queued intake keeps explicit requirement sections.',
+    '',
+    '## Constraints',
+    'None',
+    '',
+    ...requirementSections,
+    '## Acceptance Signals',
+    '- The intake validator accepts the canonical requirement spine.',
+    '',
+    '## Suggested Routing',
+    '- Recommended Execution: Simple',
+    '',
+  ].join('\n');
+}
+
 function createActiveTask(repoRoot: string, extraLineage: string[] = []): void {
   createBlankHandoffs(repoRoot);
   const handoffsDir = resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs;
@@ -117,11 +151,342 @@ function createActiveTask(repoRoot: string, extraLineage: string[] = []): void {
   );
 }
 
+function generatedIntakeRequirementSpine(options: {
+  critical?: string[];
+  compatibility?: string[];
+  validation?: string[];
+} = {}): string {
+  return [
+    '## Intake Requirements',
+    '<!-- Platform-generated from handoffs/intake.md during task activation. Do not edit or delete. -->',
+    '',
+    '### Critical Requirements',
+    '',
+    ...(options.critical ?? ['None']),
+    '',
+    '### Compatibility Requirements',
+    '',
+    ...(options.compatibility ?? ['None']),
+    '',
+    '### Required Validation',
+    '',
+    ...(options.validation ?? ['None']),
+    '',
+  ].join('\n');
+}
+
+function writeIntakeRequirementFixture(repoRoot: string, options: {
+  critical?: string[];
+  compatibility?: string[];
+  validation?: string[];
+  omitRequirementSections?: boolean;
+} = {}): void {
+  const handoffsDir = resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs;
+  const requirementSections = options.omitRequirementSections
+    ? []
+    : [
+      '## Critical Requirements',
+      ...(options.critical ?? ['None']),
+      '',
+      '## Compatibility Requirements',
+      ...(options.compatibility ?? ['None']),
+      '',
+      '## Required Validation',
+      ...(options.validation ?? ['None']),
+      '',
+    ];
+  writeRepoFile(
+    repoRoot,
+    path.relative(repoRoot, path.join(handoffsDir, 'intake.md')),
+    [
+      '# Intake',
+      '',
+      '## Request Summary',
+      'Implement the task.',
+      '',
+      ...requirementSections,
+    ].join('\n'),
+  );
+}
+
+function writeMinimalImplementationSpec(repoRoot: string, intakeSpine: string | null): void {
+  const handoffsDir = resolvePaths({ repoRoot, taskId: TEST_TASK_ID }).handoffs;
+  writeRepoFile(
+    repoRoot,
+    path.relative(repoRoot, path.join(handoffsDir, 'implementation-spec.md')),
+    [
+      '# Implementation Spec',
+      '',
+      '## Task Metadata',
+      '- Task ID: task-123',
+      '',
+      ...(intakeSpine === null ? [] : [intakeSpine, '']),
+      '## Problem Statement',
+      'Port the content rules.',
+      '',
+      '## Goals',
+      '- Preserve parity.',
+      '',
+      '## Non-Goals',
+      '- No queue/runtime cutover.',
+      '',
+      '## Architecture Summary',
+      'Use the workflow-policy foundation.',
+      '',
+      '## Touched Systems',
+      '- workflow-policy',
+      '',
+      '## Change Boundaries',
+      'Rules and tests only.',
+      '',
+      '## Dependency Analysis',
+      '| Module | Depends On |',
+      '|---|---|',
+      '| spec.ts | artifacts.ts |',
+      '',
+      '## Codebase Analysis',
+      'The content rules already live under rules/*.ts.',
+      '',
+      '## Proposed Structure',
+      'Keep one file per rule family.',
+      '',
+      '## Validation Strategy',
+      '```bash',
+      'pnpm exec vitest run --config src/backend/platform/vitest.config.ts src/backend/platform/workflow-policy/__tests__/contentRuleFamilies.test.ts',
+      '```',
+      '',
+      '## Files or Areas Likely to Change',
+      '- src/backend/platform/workflow-policy/',
+      '',
+    ].join('\n'),
+  );
+}
+
 describe('workflow-policy content rule families', () => {
   const createdRoots: string[] = [];
 
   afterEach(async () => {
     await Promise.all(createdRoots.splice(0).map((repoRoot) => rm(repoRoot, { recursive: true, force: true })));
+  });
+
+  it('keeps Alice instructions aligned with Dalton-ready slice authoring', () => {
+    const file = readFileSync(
+      path.join(REPO_ROOT, '.github/copilot/instructions/product-manager.instructions.md'),
+      'utf-8',
+    );
+
+    expect(file).toContain('Populate slices as execution blueprints, not summaries.');
+    expect(file).toContain('simple surgical tasks should be concise and exact');
+    expect(file).toContain('medium tasks need enough file/symbol/test detail to remove ambiguity');
+    expect(file).toContain('complex or risky tasks need expanded boundaries, sequencing, contracts, guards, validation, and coordination');
+    expect(file).toContain('Complex` uses Dalton fleet/orchestrator mode');
+    expect(file).toContain('Do not require every `Complex` slice to be independent or concurrently executable.');
+    expect(file).toContain('Do not require every slice to copy every requirement ID.');
+    expect(file).toContain('Do not require Dalton to read operator chat, Lily chat, private planning artifacts, or internal planning playbooks.');
+    expect(file).not.toMatch(/scratchspace/i);
+    expect(file).not.toMatch(/all slices must (run concurrently|be independent)/i);
+    expect(file).not.toMatch(/Choose `Complex` only when ALL/i);
+    expect(file).not.toMatch(/professional-task\.md/i);
+  });
+
+  it('accepts matching generated implementation-spec intake requirements', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-valid-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    const critical = ['- CR-001: Preserve exact operator scope.'];
+    const compatibility = ['- COMP-001: Keep existing runtime behavior.'];
+    const validation = ['- VAL-001: Run `pnpm run lint`.'];
+    writeIntakeRequirementFixture(repoRoot, { critical, compatibility, validation });
+    writeMinimalImplementationSpec(repoRoot, generatedIntakeRequirementSpine({ critical, compatibility, validation }));
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations.filter((violation) => (
+      violation.rule_id.startsWith('spec.intake-requirements-')
+    ))).toEqual([]);
+  });
+
+  it('normalizes missing legacy intake requirement sections to None', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-legacy-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    writeIntakeRequirementFixture(repoRoot, { omitRequirementSections: true });
+    writeMinimalImplementationSpec(repoRoot, generatedIntakeRequirementSpine());
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations.filter((violation) => (
+      violation.rule_id.startsWith('spec.intake-requirements-')
+    ))).toEqual([]);
+  });
+
+  it('skips generated spine validation when intake is absent', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-absent-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    writeMinimalImplementationSpec(repoRoot, null);
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-slice', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual([]);
+  });
+
+  it.each([
+    ['spec.intake-requirements-section-present', null],
+    [
+      'spec.intake-requirements-section-present',
+      [
+        '## Intake Requirements',
+        '',
+        '### Required Validation',
+        '',
+        '- VAL-001: Run `pnpm run lint`.',
+        '',
+        '### Critical Requirements',
+        '',
+        '- CR-001: Preserve exact operator scope.',
+        '',
+        '### Compatibility Requirements',
+        '',
+        '- COMP-001: Keep existing runtime behavior.',
+        '',
+      ].join('\n'),
+    ],
+    [
+      'spec.intake-requirements-critical-matches',
+      generatedIntakeRequirementSpine({
+        critical: ['- CR-001: Summarized instead.'],
+        compatibility: ['- COMP-001: Keep existing runtime behavior.'],
+        validation: ['- VAL-001: Run `pnpm run lint`.'],
+      }),
+    ],
+    [
+      'spec.intake-requirements-compatibility-matches',
+      generatedIntakeRequirementSpine({
+        critical: ['- CR-001: Preserve exact operator scope.'],
+        compatibility: ['- COMP-001: Changed compatibility.'],
+        validation: ['- VAL-001: Run `pnpm run lint`.'],
+      }),
+    ],
+    [
+      'spec.intake-requirements-validation-matches',
+      generatedIntakeRequirementSpine({
+        critical: ['- CR-001: Preserve exact operator scope.'],
+        compatibility: ['- COMP-001: Keep existing runtime behavior.'],
+        validation: ['- VAL-001: Run `pnpm test`.'],
+      }),
+    ],
+  ])('emits %s when the generated spine is missing or edited', async (ruleId, spine) => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-invalid-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    writeIntakeRequirementFixture(repoRoot, {
+      critical: ['- CR-001: Preserve exact operator scope.'],
+      compatibility: ['- COMP-001: Keep existing runtime behavior.'],
+      validation: ['- VAL-001: Run `pnpm run lint`.'],
+    });
+    writeMinimalImplementationSpec(repoRoot, spine);
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule_id: ruleId }),
+    ]));
+  });
+
+  it('ignores HTML comments and preserves fenced validation bodies when comparing generated spine content', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-fence-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    const validation = [
+      '<!-- generated note -->',
+      '- VAL-001: Run this command:',
+      '```bash',
+      '  pnpm run lint',
+      '```',
+    ];
+    writeIntakeRequirementFixture(repoRoot, {
+      critical: ['<!-- ignored -->', '- CR-001: Preserve exact operator scope.'],
+      compatibility: ['None'],
+      validation,
+    });
+    writeMinimalImplementationSpec(repoRoot, generatedIntakeRequirementSpine({
+      critical: ['- CR-001: Preserve exact operator scope.'],
+      compatibility: ['None'],
+      validation: validation.slice(1),
+    }));
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations.some((violation) => (
+      violation.rule_id === 'spec.intake-requirements-validation-matches'
+    ))).toBe(false);
+  });
+
+  it.each(['pre-slice', 'runtime'] as const)(
+    'enforces generated spine integrity in %s without promoting older spec-quality lint rules',
+    async (mode) => {
+      const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-mode-'));
+      createdRoots.push(repoRoot);
+      createRegistryFixture(repoRoot);
+      createActiveTask(repoRoot);
+      writeIntakeRequirementFixture(repoRoot, {
+        critical: ['- CR-001: Preserve exact operator scope.'],
+      });
+      writeMinimalImplementationSpec(repoRoot, generatedIntakeRequirementSpine({
+        critical: ['- CR-001: Edited scope.'],
+      }));
+
+      const validator = new PolicyValidator({ rootDir: repoRoot, mode, taskId: TEST_TASK_ID });
+      await validator.initialize();
+      await evaluateSpecQualityRules(validator);
+
+      expect(validator.violations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'spec.intake-requirements-critical-matches',
+          severity: 'error',
+        }),
+      ]));
+      expect(validator.violations.some((violation) => (
+        violation.rule_id === 'spec.recommended-section-present'
+      ))).toBe(false);
+    },
+  );
+
+  it('does not enforce generated spine integrity in unrelated workflow-policy modes', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-spine-unrelated-mode-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    createActiveTask(repoRoot);
+    writeIntakeRequirementFixture(repoRoot, {
+      critical: ['- CR-001: Preserve exact operator scope.'],
+    });
+    writeMinimalImplementationSpec(repoRoot, generatedIntakeRequirementSpine({
+      critical: ['- CR-001: Edited scope.'],
+    }));
+
+    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'pre-closeout', taskId: TEST_TASK_ID });
+    await validator.initialize();
+    await evaluateSpecQualityRules(validator);
+
+    expect(validator.violations.some((violation) => (
+      violation.rule_id.startsWith('spec.intake-requirements-')
+    ))).toBe(false);
   });
 
   it('flags intake child-task and routing content gaps with Python-matching rule ids', async () => {
@@ -261,6 +626,178 @@ describe('workflow-policy content rule families', () => {
       expect.arrayContaining([
         expect.objectContaining({ rule_id: 'intake.routing-recommendation-valid' }),
       ]),
+    );
+  });
+
+  it('accepts canonical requirement sections with shaped IDs', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake([
+      '## Critical Requirements',
+      '- CR-001: Preserve the exact merge algorithm.',
+      '',
+      '## Compatibility Requirements',
+      '- COMP-001: Existing direct calls keep working.',
+      '',
+      '## Required Validation',
+      '- VAL-001: $ pnpm run lint',
+      '',
+    ]));
+
+    expect(violations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule_id: 'intake.critical-requirements-shaped' }),
+        expect.objectContaining({ rule_id: 'intake.compatibility-requirements-shaped' }),
+        expect.objectContaining({
+          rule_id: 'intake.required-validation-shaped',
+          severity: 'error',
+        }),
+      ]),
+    );
+  });
+
+  it('accepts exact None in all canonical requirement sections', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake([
+      '## Critical Requirements',
+      'None',
+      '',
+      '## Compatibility Requirements',
+      'None',
+      '',
+      '## Required Validation',
+      'None',
+      '',
+    ]));
+
+    expect(violations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule_id: 'intake.critical-requirements-shaped' }),
+        expect.objectContaining({ rule_id: 'intake.compatibility-requirements-shaped' }),
+        expect.objectContaining({ rule_id: 'intake.required-validation-shaped' }),
+      ]),
+    );
+  });
+
+  it.each([
+    ['Critical Requirements', 'intake.critical-requirements-shaped', '- Preserve the exact merge algorithm.'],
+    ['Compatibility Requirements', 'intake.compatibility-requirements-shaped', '- Existing direct calls keep working.'],
+    ['Required Validation', 'intake.required-validation-shaped', '- Run the tests.'],
+  ])('rejects non-ID bullets in %s', async (sectionName, ruleId, badBullet) => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+
+    const sections = [
+      '## Critical Requirements',
+      sectionName === 'Critical Requirements' ? badBullet : '- CR-001: Preserve the exact merge algorithm.',
+      '',
+      '## Compatibility Requirements',
+      sectionName === 'Compatibility Requirements' ? badBullet : '- COMP-001: Existing direct calls keep working.',
+      '',
+      '## Required Validation',
+      sectionName === 'Required Validation' ? badBullet : '- VAL-001: $ pnpm run lint',
+      '',
+    ];
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake(sections));
+
+    expect(violations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule_id: ruleId })]),
+    );
+  });
+
+  it('warns but does not fail on vague required validation items', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake([
+      '## Critical Requirements',
+      'None',
+      '',
+      '## Compatibility Requirements',
+      'None',
+      '',
+      '## Required Validation',
+      '- VAL-001: Run the tests.',
+      '',
+    ]));
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'intake.required-validation-shaped',
+          severity: 'warning',
+        }),
+      ]),
+    );
+    expect(violations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule_id: 'intake.required-validation-shaped',
+          severity: 'error',
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    ['- VAL-001: Manual check: confirm the modal shows reviewed status.'],
+    ['- VAL-001: Structural check: rg "CR-001" AgentWorkSpace/dropbox'],
+    ['- VAL-001: Log snapshot: compare before and after logs.'],
+    ['- VAL-001: Run validation.\n```bash\npnpm run lint\n```'],
+  ])('accepts concrete required validation evidence: %s', async (validationItem) => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake([
+      '## Critical Requirements',
+      'None',
+      '',
+      '## Compatibility Requirements',
+      'None',
+      '',
+      '## Required Validation',
+      validationItem,
+      '',
+    ]));
+
+    expect(violations).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule_id: 'intake.required-validation-shaped' })]),
+    );
+  });
+
+  it.each([
+    ['Critical Requirements', 'intake.critical-requirements-shaped', ['- CR-001: First.', '- CR-001: Duplicate.']],
+    ['Critical Requirements', 'intake.critical-requirements-shaped', ['- CR-001: First.', '- CR-003: Gap.']],
+    ['Critical Requirements', 'intake.critical-requirements-shaped', ['- CR-002: Starts wrong.']],
+    ['Compatibility Requirements', 'intake.compatibility-requirements-shaped', ['- COMP-001: First.', '- COMP-001: Duplicate.']],
+    ['Compatibility Requirements', 'intake.compatibility-requirements-shaped', ['- COMP-001: First.', '- COMP-003: Gap.']],
+    ['Compatibility Requirements', 'intake.compatibility-requirements-shaped', ['- COMP-002: Starts wrong.']],
+    ['Required Validation', 'intake.required-validation-shaped', ['- VAL-001: $ pnpm run lint', '- VAL-001: $ pnpm run test']],
+    ['Required Validation', 'intake.required-validation-shaped', ['- VAL-001: $ pnpm run lint', '- VAL-003: $ pnpm run test']],
+    ['Required Validation', 'intake.required-validation-shaped', ['- VAL-002: $ pnpm run lint']],
+  ])('rejects non-sequential IDs in %s', async (sectionName, ruleId, items) => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-intake-requirements-'));
+    createdRoots.push(repoRoot);
+    const sections = [
+      '## Critical Requirements',
+      ...(sectionName === 'Critical Requirements' ? items : ['- CR-001: Preserve the exact merge algorithm.']),
+      '',
+      '## Compatibility Requirements',
+      ...(sectionName === 'Compatibility Requirements' ? items : ['- COMP-001: Existing direct calls keep working.']),
+      '',
+      '## Required Validation',
+      ...(sectionName === 'Required Validation' ? items : ['- VAL-001: $ pnpm run lint']),
+      '',
+    ];
+
+    const violations = await validateIntakeMarkdown(repoRoot, canonicalIntake(sections));
+
+    expect(violations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule_id: ruleId })]),
     );
   });
 

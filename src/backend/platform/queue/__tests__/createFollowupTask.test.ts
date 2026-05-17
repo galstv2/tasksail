@@ -104,6 +104,31 @@ describe('createFollowupTask', () => {
     );
   });
 
+  it('forwards requirement sections to createDropboxTask', async () => {
+    await createFollowupTask({
+      ...PMSE_OPTIONS,
+      criticalRequirements: '- CR-001: Preserve parent behavior.',
+      compatibilityRequirements: '- COMP-001: Keep archive lookup compatible.',
+      requiredValidation: '- VAL-001: $ pnpm run lint',
+    });
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      criticalRequirements: '- CR-001: Preserve parent behavior.',
+      compatibilityRequirements: '- COMP-001: Keep archive lookup compatible.',
+      requiredValidation: '- VAL-001: $ pnpm run lint',
+    }));
+  });
+
+  it('defaults omitted requirement sections to exact None', async () => {
+    await createFollowupTask(PMSE_OPTIONS);
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
+    }));
+  });
+
   it('uses parentTaskId as rootTaskId when rootTaskId is not provided', async () => {
     await createFollowupTask(PMSE_OPTIONS);
 

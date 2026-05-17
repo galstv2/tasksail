@@ -20,6 +20,9 @@ export interface CreateDropboxTaskOptions {
   summary?: string;
   desiredOutcome?: string;
   constraints?: string;
+  criticalRequirements?: string;
+  compatibilityRequirements?: string;
+  requiredValidation?: string;
   acceptanceSignals?: string;
   suggestedPath?: string;
   planningNotes?: string;
@@ -92,6 +95,9 @@ export async function createDropboxTask(
     summary = '',
     desiredOutcome = '',
     constraints = '',
+    criticalRequirements = 'None',
+    compatibilityRequirements = 'None',
+    requiredValidation = 'None',
     acceptanceSignals = '',
     suggestedPath = 'sequential',
     planningNotes = '',
@@ -220,6 +226,18 @@ ${desiredOutcome}
 ## Constraints
 
 ${constraints}
+
+## Critical Requirements
+
+${criticalRequirements}
+
+## Compatibility Requirements
+
+${compatibilityRequirements}
+
+## Required Validation
+
+${requiredValidation}
 
 ## Acceptance Signals
 

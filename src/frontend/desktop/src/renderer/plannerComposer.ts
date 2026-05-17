@@ -10,6 +10,12 @@ import type { ProviderFrontendDescriptor } from '../shared/desktopContractProvid
 
 export type ComposerStage = 'compose' | 'preview' | 'confirm';
 
+const DEFAULT_REQUIREMENT_SPINE = {
+  criticalRequirements: 'None',
+  compatibilityRequirements: 'None',
+  requiredValidation: 'None',
+} as const;
+
 export type PlannerConversationMessage = {
   id: string;
   role: 'planner' | 'operator';
@@ -71,6 +77,7 @@ export function createLocalDraft(seed: PlannerDraftSeed): PlannerDraftModel {
     summary: seed.summary,
     desiredOutcome: seed.desiredOutcome,
     constraints: seed.constraints.join('\n'),
+    ...DEFAULT_REQUIREMENT_SPINE,
     acceptanceSignals: seed.acceptanceSignals.join('\n'),
     parentTaskId: '',
     parentQmdRecordId: '',
@@ -90,6 +97,7 @@ export function createFollowUpDraft(context: FollowUpDraftContext): PlannerDraft
     summary: context.requestedAdjustment,
     desiredOutcome: context.desiredOutcome,
     constraints: context.constraints.join('\n'),
+    ...DEFAULT_REQUIREMENT_SPINE,
     acceptanceSignals: context.acceptanceSignals.join('\n'),
     parentTaskId: context.parentTaskId,
     parentQmdRecordId: context.parentQmdRecordId,
@@ -112,6 +120,9 @@ export function toEditablePlannerDraft(
     | 'summary'
     | 'desiredOutcome'
     | 'constraints'
+    | 'criticalRequirements'
+    | 'compatibilityRequirements'
+    | 'requiredValidation'
     | 'acceptanceSignals'
     | 'carryForwardSummary'
     | 'suggestedPath'
@@ -122,6 +133,9 @@ export function toEditablePlannerDraft(
     summary: draft.summary,
     desiredOutcome: draft.desiredOutcome,
     constraints: draft.constraints,
+    criticalRequirements: draft.criticalRequirements,
+    compatibilityRequirements: draft.compatibilityRequirements,
+    requiredValidation: draft.requiredValidation,
     acceptanceSignals: draft.acceptanceSignals,
     carryForwardSummary: draft.carryForwardSummary,
     suggestedPath: draft.suggestedPath,
