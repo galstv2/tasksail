@@ -128,8 +128,7 @@ function buildPlannerStagedFilename(title: string, now: Date): string {
   return `${formatCompactTimestamp(now)}_${slug}.md`;
 }
 
-async function readEditablePlanningIntakeTemplateBody(): Promise<string> {
-  const raw = await fsReadFile(PLANNING_INTAKE_TEMPLATE_PATH, 'utf-8');
+function extractEditablePlanningIntakeTemplateBody(raw: string): string {
   const startIdx = raw.indexOf('## Request Summary');
   if (startIdx === -1) {
     throw new Error(`Planning intake template is missing ## Request Summary: ${PLANNING_INTAKE_TEMPLATE_PATH}`);
@@ -138,11 +137,30 @@ async function readEditablePlanningIntakeTemplateBody(): Promise<string> {
   return (endIdx === -1 ? raw.slice(startIdx) : raw.slice(startIdx, endIdx)).trimEnd();
 }
 
+function extractTitleHint(raw: string): string {
+  const titleIdx = raw.indexOf('# Task Title');
+  if (titleIdx === -1) {
+    throw new Error(`Planning intake template is missing # Task Title: ${PLANNING_INTAKE_TEMPLATE_PATH}`);
+  }
+  const startIdx = raw.indexOf('\n', titleIdx);
+  const bodyStartIdx = startIdx === -1 ? raw.length : startIdx + 1;
+  const nextSectionIdx = raw.indexOf('\n## ', bodyStartIdx);
+  return raw.slice(bodyStartIdx, nextSectionIdx === -1 ? undefined : nextSectionIdx).trim();
+}
+
+export async function readTitleHintFromTemplate(): Promise<string> {
+  const raw = await fsReadFile(PLANNING_INTAKE_TEMPLATE_PATH, 'utf-8');
+  return extractTitleHint(raw);
+}
+
 async function renderPlannerStagedShell(metadata: PlannerStagingSidecar): Promise<string> {
   const bindingSection = formatContextPackBindingSection(metadata.contextPackBinding);
-  const editableBody = await readEditablePlanningIntakeTemplateBody();
+  const rawTemplate = await fsReadFile(PLANNING_INTAKE_TEMPLATE_PATH, 'utf-8');
+  const editableBody = extractEditablePlanningIntakeTemplateBody(rawTemplate);
+  const titleHint = extractTitleHint(rawTemplate);
+  const renderedTitleHint = titleHint ? `\n${titleHint}` : '';
 
-  return `# ${metadata.title}
+  return `# Task Title${renderedTitleHint}
 
 ## Task Lineage
 

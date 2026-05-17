@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createDropboxTask } from '../createDropboxTask.js';
@@ -131,6 +131,17 @@ describe('createDropboxTask', () => {
     expect(content).toContain('## Desired Outcome');
   });
 
+  it('preserves explicit output paths', async () => {
+    const explicitPath = path.join(tmpRoot, 'AgentWorkSpace', 'dropbox', 'explicit-task.md');
+    const outputPath = await createDropboxTask({
+      title: 'Explicit Task',
+      outputPath: explicitPath,
+      repoRoot: tmpRoot,
+    });
+
+    expect(outputPath).toBe(explicitPath);
+  });
+
   it('persists standard-mode primary repo and focus metadata in queue markdown', async () => {
     const outputPath = await createDropboxTask({
       title: 'Repo Selection Task',
@@ -159,7 +170,30 @@ describe('createDropboxTask', () => {
     });
 
     const filename = path.basename(outputPath);
-    expect(filename).toMatch(/^\d{8}t\d{6}z_timestamped\.md$/);
+    expect(filename).toMatch(/^\d{4}-\d{2}-\d{2}_timestamped-\d{6}\.md$/);
+  });
+
+  it('avoids generated task-id collisions with pending items', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-17T09:02:46.000Z'));
+    try {
+      const firstPath = await createDropboxTask({
+        title: 'Collision Task',
+        repoRoot: tmpRoot,
+      });
+      const firstName = path.basename(firstPath);
+      writeFileSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', firstName), '# Existing\n');
+      rmSync(firstPath, { force: true });
+
+      const secondPath = await createDropboxTask({
+        title: 'Collision Task',
+        repoRoot: tmpRoot,
+      });
+
+      expect(path.basename(secondPath)).toBe(firstName.replace(/\.md$/, '-2.md'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('throws when title is missing', async () => {

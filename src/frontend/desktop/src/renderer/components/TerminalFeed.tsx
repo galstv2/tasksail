@@ -161,6 +161,10 @@ function TerminalFeed({
     taskScopeTriggerRef.current?.focus();
   }, []);
 
+  const dismissTaskScopeMenu = useCallback(() => {
+    setMenuOpen(false);
+  }, []);
+
   const openTaskScopeMenu = useCallback(() => {
     setActiveOptionIndex(selectedOptionIndex());
     setMenuOpen(true);
@@ -188,10 +192,10 @@ function TerminalFeed({
       if (taskScopeRef.current?.contains(target)) {
         return;
       }
-      closeTaskScopeMenu();
+      dismissTaskScopeMenu();
     }
     function handleBlur(): void {
-      closeTaskScopeMenu();
+      dismissTaskScopeMenu();
     }
     document.addEventListener('mousedown', handleMouseDown, true);
     window.addEventListener('blur', handleBlur);
@@ -256,7 +260,9 @@ function TerminalFeed({
       event.preventDefault();
       closeTaskScopeMenu();
     } else if (event.key === 'Tab') {
-      closeTaskScopeMenu();
+      // Tab and outside dismissals should not restore focus to the trigger;
+      // they are explicit attempts to leave the menu.
+      dismissTaskScopeMenu();
     }
   }
 

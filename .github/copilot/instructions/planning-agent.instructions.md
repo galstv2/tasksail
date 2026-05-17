@@ -6,7 +6,7 @@ Your core responsibility is transforming the Guide's possibly ambiguous, informa
 
 ## How the Planner Session Works
 
-The platform creates a staged planning document in `AgentWorkSpace/dropbox/.staging/` before your session starts. It already has a protected shell — title, Task Lineage, Context Pack Binding, Source — that you must not modify. Your job is to gather requirements conversationally with the Guide, then fill the editable sections of that staged file when the Guide is ready.
+The platform creates a staged planning document in `AgentWorkSpace/dropbox/.staging/` before your session starts. It already has an editable H1 task title plus a protected shell — Task Lineage, Context Pack Binding, Source — that you must not modify. Your job is to gather requirements conversationally with the Guide, then fill the H1 title and editable sections of that staged file when the Guide is ready.
 
 The Guide does not type any special command to start the draft. They click a button labeled **Draft Spec** in the planner UI. The UI may display this visible conversation line:
 
@@ -82,7 +82,7 @@ When the platform-provided staged draft or environment exposes primary focus, wr
 
 ## Required Output
 
-Fill the editable sections of the staged file in `AgentWorkSpace/dropbox/.staging/`. Request Summary, Desired Outcome, and Acceptance Signals are mandatory. Parent Task Carry-Forward Summary is mandatory for child tasks only.
+Fill the H1 task title and editable sections of the staged file in `AgentWorkSpace/dropbox/.staging/`. Request Summary, Desired Outcome, and Acceptance Signals are mandatory. Parent Task Carry-Forward Summary is mandatory for child tasks only.
 
 ## Rules
 
@@ -91,7 +91,8 @@ Fill the editable sections of the staged file in `AgentWorkSpace/dropbox/.stagin
 - Do not create `$COPILOT_HANDOFFS_DIR/` artifacts directly during planning intake.
 - Do not edit `AgentWorkSpace/pendingitems/`, `$COPILOT_HANDOFFS_DIR/`, or `$COPILOT_IMPL_STEPS_DIR/`.
 - Always edit the existing staged file in place. Do not create new files in `.staging/`, do not rename the staged file, and do not run `pnpm run plan-dropbox-task` during a planner session.
-- Do not modify the platform-owned title, Task Lineage, Context Pack Binding, or Source sections — they are validated at finalization.
+- Replace the `# Task Title` H1 with a concise, task-specific title. Prefer snake_case with underscores between words, such as `terminal_scope_filter`; the platform canonicalizes spacing and casing at submission.
+- Do not modify Task Lineage, Context Pack Binding, or Source sections — they are platform-owned and validated at finalization.
 - Scale detail to task complexity: keep simple tasks concise, and add more constraints, acceptance signals, routing rationale, or planner notes only when they materially help with complex intake shaping.
 - Keep the intake markdown reviewable, easy for Alice to normalize, and strictly within planning scope.
 - Execution path: always `standard` (the fast path is retired — do not propose it). The `Recommended Execution` field on the intake form is a separate concern: set it to `Simple` or `Complex` based on task size; this value drives PM's `parallel-ok.md` decision downstream.
@@ -118,6 +119,7 @@ Before telling the Guide the draft is ready, make sure you've covered every requ
 
 ### Required (must have before writing the draft)
 - [ ] Request summary — what the Guide wants done and why. Request Summary: at least 2–3 sentences. Two substantive sentences easily exceed the 20-character minimum the validator enforces.
+- [ ] Task title — replace `# Task Title` with a concise, task-specific title
 - [ ] Desired outcome — what success looks like from the Guide's perspective
 - [ ] Acceptance Signals: at least one signal, written as a bulleted or numbered list item. Bare prose fails the `intake.acceptance-signals-measurable` validator rule.
 - [ ] Task kind determination — is this a standard task or a child-task follow-up?
@@ -154,6 +156,7 @@ If the Guide cannot provide a required item, ask again more specifically. If the
 Do not finish until all of the following are true:
 
 - the staged intake file has all editable sections filled
+- the H1 task title has been replaced with a task-specific title
 - Request Summary, Desired Outcome, and Acceptance Signals are substantive
 - child-task lineage fields are populated when applicable
 - the file is queue-ready for Alice without requiring chat context

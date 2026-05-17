@@ -25,6 +25,7 @@ import {
   activeContextPackTaskScopesEqual,
   defaultActiveScopeProvider,
   filterActiveTaskIdsForScope,
+  readVisibleTaskMarkdownItemsByTaskId,
   resolveActiveContextPackTaskScope,
   type ActiveScopeProvider,
   type ActiveContextPackTaskScope,
@@ -39,6 +40,7 @@ const TASKS_RUNTIME_DIR = join(RUNTIME_DIR, 'tasks');
 const REALIGNMENT_RUNTIME_DIR = join(RUNTIME_DIR, 'realignment');
 const PENDING_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ACTIVE_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems', '.active-items');
+const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
 const WATCH_DEBOUNCE_MS = 150;
 const FINAL_DRAIN_REFRESH_COUNT = 2;
 
@@ -117,6 +119,7 @@ function computeWatchTargets(
     REALIGNMENT_RUNTIME_DIR,
     PENDING_ITEMS_DIR,
     ACTIVE_ITEMS_DIR,
+    ERROR_ITEMS_DIR,
   ]);
 
   for (const taskId of runtimeTaskIds) {
@@ -518,9 +521,11 @@ export function startRuntimeStreamWatcher(
   let previousSnapshot: RuntimeSnapshot | null = null;
   const previousPipelinePhaseByTask = new Map<string, string>();
   const previousTerminalEventKeysByTask = new Map<string, Set<string>>();
+  const seenFailedTaskIds = new Set<string>();
   let currentRuntimeTaskIds: string[] = [];
   let currentRealignmentIds: string[] = [];
   let currentScope: ActiveContextPackTaskScope | null = scopeProvider();
+  let shouldBaselineFailedTaskIds = true;
 
   const resolveCurrentScope = async (): Promise<ActiveContextPackTaskScope | null> => {
     if (!options.listContextPacks) {
@@ -541,6 +546,8 @@ export function startRuntimeStreamWatcher(
     drainingTaskRefreshes.clear();
     previousPipelinePhaseByTask.clear();
     previousTerminalEventKeysByTask.clear();
+    seenFailedTaskIds.clear();
+    shouldBaselineFailedTaskIds = true;
     currentRuntimeTaskIds = [];
     closeStaleRuntimeWatchers(new Set<string>());
   };
@@ -577,6 +584,19 @@ export function startRuntimeStreamWatcher(
       pendingDir: PENDING_ITEMS_DIR,
       fsAdapter,
     });
+  };
+
+  const readVisibleFailedTaskIdsFromFs = async (
+    scope: ActiveContextPackTaskScope | null,
+  ): Promise<string[]> => {
+    if (!scope) {
+      return [];
+    }
+    return [...(await readVisibleTaskMarkdownItemsByTaskId(
+      ERROR_ITEMS_DIR,
+      scope,
+      fsAdapter,
+    )).keys()].sort();
   };
 
   const readRealignmentIdsFromFs = async (): Promise<string[]> => {
@@ -846,6 +866,27 @@ export function startRuntimeStreamWatcher(
       clearRuntimeState();
     }
     const activeTaskIds = await readVisibleActiveTaskIdsFromFs(currentScope);
+    const failedTaskIds = await readVisibleFailedTaskIdsFromFs(currentScope);
+    if (shouldBaselineFailedTaskIds) {
+      seenFailedTaskIds.clear();
+      for (const taskId of failedTaskIds) {
+        seenFailedTaskIds.add(taskId);
+      }
+      shouldBaselineFailedTaskIds = false;
+    } else {
+      const currentFailedTaskIds = new Set(failedTaskIds);
+      for (const taskId of [...seenFailedTaskIds]) {
+        if (!currentFailedTaskIds.has(taskId)) {
+          seenFailedTaskIds.delete(taskId);
+        }
+      }
+      for (const taskId of failedTaskIds) {
+        if (!seenFailedTaskIds.has(taskId)) {
+          drainingTaskRefreshes.set(taskId, FINAL_DRAIN_REFRESH_COUNT);
+          seenFailedTaskIds.add(taskId);
+        }
+      }
+    }
     currentRuntimeTaskIds = resolveRuntimeTaskIds(activeTaskIds);
     try {
       await refreshStreamTaskMetadataForScope(currentScope);

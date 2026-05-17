@@ -30,6 +30,7 @@ import {
   validatePlanningIntakeDraft,
   type PlannerEditableDraft,
 } from './main.markdown';
+import { deriveBypassPlannerTaskTitle } from './main.plannerTitle';
 
 export type DropboxScriptRunner = (options: {
   summary: string;
@@ -538,7 +539,7 @@ function validateUploadedSpecContent(
   }
 
   if (/^#\s+\S/m.test(content)) {
-    return 'Uploaded spec must not include a top-level title (# heading). The title is auto-generated from the active context pack focus. Remove it and re-upload.';
+    return 'Uploaded spec must not include a top-level title (# heading). Bypass Lily task titles are generated from uploaded content. Remove it and re-upload.';
   }
 
   return validatePlanningIntakeDraft(content, taskKind, sections);
@@ -547,10 +548,11 @@ function validateUploadedSpecContent(
 function buildSidecarDropboxOptions(
   sidecar: PlannerStagingSidecar,
   editableDraft: PlannerEditableDraft,
+  title: string,
 ) {
   const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
   return {
-    title: sidecar.title,
+    title,
     summary: canonicalDraft.summary,
     desiredOutcome: canonicalDraft.desiredOutcome,
     constraints: canonicalDraft.constraints,
@@ -580,8 +582,9 @@ function buildSidecarDropboxOptions(
 async function submitUploadedSpecFromSidecar(
   sidecar: PlannerStagingSidecar,
   editableDraft: PlannerEditableDraft,
+  title: string,
 ): Promise<{ filePath: string; title: string }> {
-  const baseOptions = buildSidecarDropboxOptions(sidecar, editableDraft);
+  const baseOptions = buildSidecarDropboxOptions(sidecar, editableDraft, title);
   if (sidecar.lineage.taskKind === 'child-task') {
     return {
       filePath: await createFollowupTask({
@@ -593,7 +596,7 @@ async function submitUploadedSpecFromSidecar(
         followupReason: sidecar.lineage.followUpReason,
         carryForwardSummary: editableDraft.carryForwardSummary,
       }),
-      title: sidecar.title,
+      title,
     };
   }
 
@@ -602,7 +605,7 @@ async function submitUploadedSpecFromSidecar(
       ...baseOptions,
       kind: sidecar.lineage.taskKind,
     }),
-    title: sidecar.title,
+    title,
   };
 }
 
@@ -621,6 +624,7 @@ export async function submitUploadedSpecHelper(
       error: validationError,
     };
   }
+  const derivedTitle = deriveBypassPlannerTaskTitle(content);
 
   let editableDraft: PlannerEditableDraft;
   try {
@@ -635,8 +639,8 @@ export async function submitUploadedSpecHelper(
 
   try {
     const submission = plannerSidecar
-      ? await submitUploadedSpecFromSidecar(plannerSidecar, editableDraft)
-      : await submitUploadedSpecFromActiveWorkspace(editableDraft);
+      ? await submitUploadedSpecFromSidecar(plannerSidecar, editableDraft, derivedTitle)
+      : await submitUploadedSpecFromActiveWorkspace(editableDraft, derivedTitle);
     emitStreamEvent({
       message: `Uploaded spec submitted to dropbox: ${submission.filePath}`,
       source: 'planner.uploadSpec',
@@ -665,6 +669,7 @@ export async function submitUploadedSpecHelper(
 
 async function submitUploadedSpecFromActiveWorkspace(
   editableDraft: PlannerEditableDraft,
+  title: string,
 ): Promise<{ filePath: string; title: string }> {
   let context: ResolvedDirectSubmissionContext;
   try {
@@ -676,7 +681,7 @@ async function submitUploadedSpecFromActiveWorkspace(
 
   const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
   const filePath = await createDropboxTask({
-    title: context.title,
+    title,
     summary: canonicalDraft.summary,
     desiredOutcome: canonicalDraft.desiredOutcome,
     constraints: canonicalDraft.constraints,
@@ -702,7 +707,7 @@ async function submitUploadedSpecFromActiveWorkspace(
     selectedTestTarget: context.selectedTestTarget,
     selectedSupportTargets: context.selectedSupportTargets,
   });
-  return { filePath, title: context.title };
+  return { filePath, title };
 }
 
 export async function submitDraftViaDropboxHelper(

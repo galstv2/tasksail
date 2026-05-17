@@ -368,6 +368,17 @@ describe('moveDropboxItemsOnce', () => {
     expect(existsSync(path.join(dropboxDir, 'image.png'))).toBe(true);
   });
 
+  it('preserves valid generated dropbox filenames during promotion', async () => {
+    writeFileSync(path.join(dropboxDir, '20260517t090246z_task-a.md'), '# Task A');
+    writeFileSync(path.join(dropboxDir, '2026-05-17_task-b-090246.md'), '# Task B');
+
+    const count = await moveDropboxItemsOnce(dropboxDir, pendingDir);
+
+    expect(count).toBe(2);
+    expect(existsSync(path.join(pendingDir, '20260517t090246z_task-a.md'))).toBe(true);
+    expect(existsSync(path.join(pendingDir, '2026-05-17_task-b-090246.md'))).toBe(true);
+  });
+
   it('returns 0 when dropbox is empty', async () => {
     const count = await moveDropboxItemsOnce(dropboxDir, pendingDir);
     expect(count).toBe(0);
@@ -377,27 +388,27 @@ describe('moveDropboxItemsOnce', () => {
 describe('queueNameForSource', () => {
   it('generates a timestamped name with the original filename', () => {
     const name = queueNameForSource('/some/path/my-task.md');
-    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
+    expect(name).toMatch(/^\d{4}-\d{2}-\d{2}_my-task-\d{6}\.md$/);
   });
 
   it('preserves the basename of the source file', () => {
     const name = queueNameForSource('/deep/nested/path/special-file.md');
-    expect(name).toContain('special-file.md');
+    expect(name).toMatch(/^\d{4}-\d{2}-\d{2}_special-file-\d{6}\.md$/);
   });
 
   it('strips a legacy hyphenated canonical prefix before re-queueing', () => {
     const name = queueNameForSource('/some/path/20260307T183000Z-my-task.md');
-    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
+    expect(name).toMatch(/^\d{4}-\d{2}-\d{2}_my-task-\d{6}\.md$/);
   });
 
   it('strips an underscore canonical prefix before re-queueing', () => {
     const name = queueNameForSource('/some/path/20260307T183000Z_my-task.md');
-    expect(name).toMatch(/^\d{8}t\d{6}z_my-task\.md$/);
+    expect(name).toMatch(/^\d{4}-\d{2}-\d{2}_my-task-\d{6}\.md$/);
   });
 
   it('normalizes unsafe ingress names into valid task-id shape', () => {
     const name = queueNameForSource('/some/path/CAP.Parent Task!.md');
-    expect(name).toMatch(/^\d{8}t\d{6}z_cap-parent-task\.md$/);
+    expect(name).toMatch(/^\d{4}-\d{2}-\d{2}_cap-parent-task-\d{6}\.md$/);
   });
 });
 

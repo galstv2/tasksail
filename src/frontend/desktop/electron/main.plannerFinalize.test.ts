@@ -598,7 +598,7 @@ Review final queued markdown.
       }),
     });
     expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'backend / apps/api',
+      title: 'backend_apps_api',
       summary: 'This request summary is long enough to pass the minimum length validation gate.',
       desiredOutcome: 'Ship a useful planning intake.',
       constraints: 'None',
@@ -819,6 +819,194 @@ Do not widen the selected boundary.
       selectedFocusTargetKind: 'file',
       selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
       selectedSupportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+    }));
+  });
+
+  it('passes Lily-authored H1 canonical title to createFollowupTask for child-task finalization', async () => {
+    vi.resetModules();
+    const createFollowupTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040003Z_child-title.md');
+    vi.doMock('./main.staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.staging')>();
+      return {
+        ...actual,
+        clearStagingArtifacts: vi.fn(async () => undefined),
+        readOwnedStagedDraft: vi.fn(async () => buildOwnedPlannerDraft(`# Fix Child Followup Title
+
+## Task Lineage
+
+- Task Kind: child-task
+- Parent Task ID: CAP-001
+- Root Task ID: ROOT-001
+- Parent QMD Record ID: qmd-1
+- Parent QMD Scope: qmd/scope
+- Follow-Up Reason: Continue the child task
+
+## Context Pack Binding
+
+- Context Pack Dir: /contextpacks/orders
+- Context Pack ID: orders
+- Scope Mode: focus-selection
+- Selected Repo IDs: backend
+- Selected Focus IDs: api
+
+## Request Summary
+
+This child-task extends the parent work with enough context to pass validation.
+
+## Desired Outcome
+
+Complete the child-task intake with preserved lineage.
+
+## Constraints
+
+Preserve parent lineage.
+
+## Acceptance Signals
+
+- Child task is queued.
+
+## Parent Task Carry-Forward Summary
+
+Carry forward the parent constraints.
+
+## Suggested Routing
+
+- Recommended Execution: sequential
+- Planner Notes:
+
+## Source
+
+- Created By: Planning Agent
+- Created At (UTC): 2026-03-21T04:00:00Z
+`, {
+          taskKind: 'child-task',
+          parentTaskId: 'CAP-001',
+          rootTaskId: 'ROOT-001',
+          parentQmdRecordId: 'qmd-1',
+          parentQmdScope: 'qmd/scope',
+          followUpReason: 'Continue the child task',
+        })),
+      };
+    });
+    vi.doMock('../../../backend/platform/queue/createFollowupTask.js', () => ({
+      createFollowupTask,
+    }));
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        { action: 'planner.finalizeSpec', payload: { expectedTaskKind: 'child-task' } },
+        {
+          getPlannerSessionState: vi.fn(() => ({
+            brokerStatus: 'completed' as const,
+            cliSessionId: 'provider-session-1',
+            turnId: 'turn-1',
+            content: 'Draft ready.',
+            exitCode: 0,
+            usage: null,
+            error: null,
+          })),
+          endPlannerSession: vi.fn(async () => ({ ended: true })),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.finalizeSpec',
+        mode: 'finalized',
+      }),
+    });
+    expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'fix_child_followup_title',
+      parentTaskId: 'CAP-001',
+      rootTaskId: 'ROOT-001',
+      parentQmdRecordId: 'qmd-1',
+      parentQmdScope: 'qmd/scope',
+    }));
+  });
+
+  it('falls back to content-derived title when staged H1 is still the placeholder', async () => {
+    vi.resetModules();
+    const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040004Z_fallback.md');
+    vi.doMock('./main.staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./main.staging')>();
+      return {
+        ...actual,
+        clearStagingArtifacts: vi.fn(async () => undefined),
+        readOwnedStagedDraft: vi.fn(async () => buildOwnedPlannerDraft(`# Task Title
+
+## Task Lineage
+
+- Task Kind: standard
+- Parent Task ID:
+- Root Task ID:
+- Parent QMD Record ID:
+- Parent QMD Scope:
+- Follow-Up Reason:
+
+## Context Pack Binding
+
+- Context Pack Dir: /contextpacks/orders
+- Context Pack ID: orders
+- Scope Mode: focus-selection
+- Selected Repo IDs: backend
+- Selected Focus IDs: api
+
+## Request Summary
+
+Runtime runtime terminal events should keep progress terminal history coherent.
+
+## Desired Outcome
+
+Progress events are visible in task terminal history.
+
+## Constraints
+
+None
+
+## Acceptance Signals
+
+- Terminal history includes progress events.
+
+## Suggested Routing
+
+- Recommended Execution: sequential
+- Planner Notes:
+
+## Source
+
+- Created By: Planning Agent
+- Created At (UTC): 2026-03-21T04:00:00Z
+`)),
+      };
+    });
+    vi.doMock('../../../backend/platform/queue/createDropboxTask.js', () => ({
+      createDropboxTask,
+    }));
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        { action: 'planner.finalizeSpec' },
+        {
+          getPlannerSessionState: vi.fn(() => ({
+            brokerStatus: 'completed' as const,
+            cliSessionId: 'provider-session-1',
+            turnId: 'turn-1',
+            content: 'Draft ready.',
+            exitCode: 0,
+            usage: null,
+            error: null,
+          })),
+          endPlannerSession: vi.fn(async () => ({ ended: true })),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({ action: 'planner.finalizeSpec', mode: 'finalized' }),
+    });
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'context_events_terminal',
     }));
   });
 

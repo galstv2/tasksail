@@ -28,8 +28,8 @@ export const PLANNER_SAVE_DRAFT_WORKFLOW = {
     'This is the internal Draft Spec save prompt and authorizes you to write the staged planning document now. ' +
     'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
     'Edit the current staged file in place and preserve the existing shell structure. ' +
-    'Only update the editable planning sections. ' +
-    'Do NOT change the generated title, Task Lineage, Context Pack Binding, or Source metadata. ' +
+    'Update only the H1 task title and the editable planning sections. ' +
+    'Do NOT change Task Lineage, Context Pack Binding, or Source metadata. ' +
     'Do NOT rename the file and do NOT create any additional .md files in .staging/.',
 } as const;
 
@@ -42,7 +42,7 @@ export function buildChildTaskStarterPrompt(args: {
 }): string {
   const contentSections = formatParentTaskContent(args.parentTaskContent);
   return (
-    'This is a child-task correction workflow against an archived parent task. The staged planning document already contains the platform-owned title, lineage, context, and source shell.\n\n' +
+    'This is a child-task correction workflow against an archived parent task. The staged planning document already contains the editable H1 title plus the platform-owned lineage, context, and source shell.\n\n' +
     `Parent Task ID: ${args.parentTaskId}\n` +
     `Parent task title: ${args.parentTaskTitle}\n` +
     `Root Task ID: ${args.rootTaskId}\n` +
@@ -51,8 +51,8 @@ export function buildChildTaskStarterPrompt(args: {
     (contentSections ? `${contentSections}\n\n` : '') +
     'Ask the operator what specifically needs correction and why before finalizing the child-task intake.\n\n' +
     'Rules:\n' +
-    '- Fill or refine only the editable sections in the staged document.\n' +
-    '- Do NOT change the platform-owned title, Task Lineage, Context Pack Binding, or Source metadata.\n' +
+    '- Fill or refine only the H1 task title and editable sections in the staged document.\n' +
+    '- Do NOT change Task Lineage, Context Pack Binding, or Source metadata.\n' +
     '- The Guide will provide or you should ask for: Request Summary, Desired Outcome, ' +
     'Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
     '- Ask follow-up questions for any missing required content. Do not guess or fabricate.\n' +
@@ -94,7 +94,7 @@ export function buildMarkdownReviewPrompt(filename: string, content: string): st
     'The required sections are: Request Summary, Desired Outcome, and Acceptance Signals. ' +
     'Acceptance Signals must contain at least one bullet or numbered item. ' +
     'If this is a child-task flow, Parent Task Carry-Forward Summary must also be non-empty.\n\n' +
-    'Do not validate or rewrite platform-owned title, lineage, context-pack binding, or source sections. ' +
+    'Do not validate or rewrite platform-owned lineage, context-pack binding, or source sections. You may improve only the H1 task title and editable planning sections. ' +
     'If any editable required sections are missing or incomplete, ask me follow-up questions ' +
     'to fill in the gaps. Do not guess or fabricate content for missing sections.\n\n' +
     DRAFT_WRITE_CAUTION
@@ -119,7 +119,7 @@ export function buildChildTaskMarkdownReviewPrompt(
     '- Acceptance Signals\n' +
     '- Parent Task Carry-Forward Summary\n\n' +
     '- Suggested Routing / Planner Notes\n\n' +
-    'Do NOT validate or rewrite platform-owned title, lineage, context-pack binding, or source sections.\n\n' +
+    'Do NOT validate or rewrite platform-owned lineage, context-pack binding, or source sections. You may improve only the H1 task title and editable planning sections.\n\n' +
     'If any required content sections are still missing or incomplete after reviewing the file, ' +
     'ask me follow-up questions to fill in the gaps. Do not guess or fabricate content.\n\n' +
     DRAFT_WRITE_CAUTION

@@ -1,7 +1,6 @@
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import {
-  slugify,
   ensureDir,
   writeTextFile,
   ensurePathWithinDropbox,
@@ -14,6 +13,7 @@ import {
 } from './markdown.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { registerTask } from './taskRegistry.js';
+import { buildReadableTaskFileName } from './taskNames.js';
 
 export interface CreateDropboxTaskOptions {
   title: string;
@@ -69,19 +69,6 @@ export interface CreateDropboxTaskOptions {
   selectedTestTarget?: TaskContextPackTarget | null;
   /** Normalized Deep Focus support targets. */
   selectedSupportTargets?: TaskContextPackTarget[];
-}
-
-export const CANONICAL_TASK_FILENAME_SEPARATOR = '_';
-
-function formatCanonicalTaskTimestamp(date: Date): string {
-  return date.toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', 't')
-    .replace(/\.\d+Z$/, 'z');
-}
-
-function canonicalTaskSlug(title: string): string {
-  return slugify(title).slice(0, 47).replace(/[-_]+$/g, '') || 'task';
 }
 
 /**
@@ -152,23 +139,18 @@ export async function createDropboxTask(
   let outputFile = options.outputPath ?? '';
 
   if (!outputFile) {
-    const now = new Date();
-    const ts = formatCanonicalTaskTimestamp(now);
-    const slug = canonicalTaskSlug(title);
-    outputFile = path.join(
-      queuePaths.dropboxDir,
-      `${ts}${CANONICAL_TASK_FILENAME_SEPARATOR}${slug}.md`,
-    );
-
-    // Avoid collision
-    if (existsSync(outputFile)) {
-      let suffix = 1;
-      const stem = outputFile.replace(/\.md$/, '');
-      while (existsSync(`${stem}-${suffix}.md`)) {
-        suffix++;
+    const existingFileNames = new Set<string>();
+    const tasksDir = path.dirname(queuePaths.taskWorktree('placeholder'));
+    for (const dir of [queuePaths.dropboxDir, queuePaths.pendingDir, queuePaths.errorItemsDir, tasksDir]) {
+      if (!existsSync(dir)) continue;
+      for (const entry of readdirSync(dir)) {
+        existingFileNames.add(entry);
       }
-      outputFile = `${stem}-${suffix}.md`;
     }
+    outputFile = path.join(queuePaths.dropboxDir, buildReadableTaskFileName({
+      rawTitle: title,
+      existingFileNames,
+    }));
   } else if (!path.isAbsolute(outputFile)) {
     outputFile = path.join(queuePaths.dropboxDir, outputFile);
   }

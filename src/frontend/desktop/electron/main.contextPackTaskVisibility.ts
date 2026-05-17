@@ -285,8 +285,9 @@ export async function readVisibleTaskMarkdownItemsByTaskId(
 ): Promise<Map<string, VisibleTaskMarkdownItem>> {
   const byTaskId = new Map<string, VisibleTaskMarkdownItem>();
   for (const item of await readVisibleTaskMarkdownItems(dir, scope, fsAdapter)) {
-    if (item.taskId) {
-      byTaskId.set(item.taskId, item);
+    const taskId = item.taskId ?? basename(item.fileName, '.md');
+    if (taskId) {
+      byTaskId.set(taskId, { ...item, taskId });
     }
   }
   return byTaskId;

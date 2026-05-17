@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { RuntimeTerminalEvents, createLogger, moveFile, readTextFile, writeTextFile, ensureDir, findRepoRoot, slugify, copyFileSafe, resolvePath } from '../core/index.js';
+import { RuntimeTerminalEvents, createLogger, moveFile, readTextFile, ensureDir, findRepoRoot, copyFileSafe, resolvePath } from '../core/index.js';
 import {
   cleanupActivePlannerFocusSnapshot,
   moveStagedPlannerFocusSnapshot,
@@ -54,11 +54,28 @@ import type { TaskRepoBinding } from './taskJson.js';
 import { acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 import { writeTaskPackSnapshot } from './packSnapshot.js';
 import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
+import {
+  findDirtyTargetRepos,
+  failPendingActivationForDirtyRepos,
+  resolveRepoLabels,
+} from './activationDirtyGuard.js';
+import {
+  insertIntoQueueManifest,
+  readQueueOrderManifest,
+  writeQueueOrderManifest,
+} from './queueOrderManifest.js';
+import { buildReadableTaskFileName, isGeneratedTaskFileName, stripGeneratedTaskPrefix } from './taskNames.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('platform/queue/operations');
 
 export { acquireDirLock, acquireDirLockOrThrow, withDirLock } from './dirLock.js';
+export {
+  insertIntoQueueManifest,
+  readQueueOrderManifest,
+  removeFromQueueOrderManifest,
+  writeQueueOrderManifest,
+} from './queueOrderManifest.js';
 
 
 /**
@@ -329,83 +346,6 @@ async function resumeOrphanCompletingSentinels(
 }
 
 /**
- * Read the queue ordering manifest. Returns an empty array if absent or corrupt.
- */
-export async function readQueueOrderManifest(
-  manifestPath: string,
-): Promise<string[]> {
-  try {
-    const raw = await readFile(manifestPath, 'utf-8');
-    const manifest = JSON.parse(raw) as { order?: string[] };
-    return Array.isArray(manifest.order) ? manifest.order : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Write the queue ordering manifest.
- */
-export async function writeQueueOrderManifest(
-  queueOrderPath: string,
-  order: string[],
-): Promise<void> {
-  await ensureDir(path.dirname(queueOrderPath));
-  await writeTextFile(queueOrderPath, JSON.stringify({ order }, null, 2) + '\n');
-}
-
-/**
- * Insert a file into the queue-order manifest at a given index, reconciling
- * the manifest with the actual .md files on disk. Removes stale entries,
- * appends untracked files, and writes the updated manifest.
- *
- * Shared by moveDropboxItemToPending and requeueErrorItem.
- */
-export async function insertIntoQueueManifest(
-  pendingDir: string,
-  fileName: string,
-  insertAtIndex: number,
-  queueOrderPath?: string,
-): Promise<void> {
-  const resolvedPath = queueOrderPath
-    ?? deriveQueueStatePaths(pendingDir).queueOrderPath;
-  const currentFiles = (await readdir(pendingDir))
-    .filter((e) => e.endsWith('.md') && !e.startsWith('.'))
-    .sort();
-
-  const manifest = await readQueueOrderManifest(resolvedPath);
-  const tracked = new Set(manifest);
-  const reconciled = manifest.filter((f) => currentFiles.includes(f));
-  for (const f of currentFiles) {
-    if (!tracked.has(f) && f !== fileName) reconciled.push(f);
-  }
-  const filtered = reconciled.filter((f) => f !== fileName);
-  const idx = Math.max(0, Math.min(insertAtIndex, filtered.length));
-  filtered.splice(idx, 0, fileName);
-  await writeQueueOrderManifest(resolvedPath, filtered);
-}
-
-/**
- * Remove a file name from queue-order.json. Deletes the manifest when the
- * resulting list is empty. Best-effort: swallows read/write/unlink errors so
- * callers can use it as a cleanup step in failure paths.
- */
-export async function removeFromQueueOrderManifest(
-  queueOrderPath: string,
-  fileName: string,
-): Promise<void> {
-  try {
-    const order = await readQueueOrderManifest(queueOrderPath);
-    const filtered = order.filter((f) => f !== fileName);
-    if (filtered.length > 0) {
-      await writeQueueOrderManifest(queueOrderPath, filtered);
-    } else {
-      await unlink(queueOrderPath);
-    }
-  } catch { /* best-effort */ }
-}
-
-/**
  * Get the path to the next pending item to activate.
  * Uses queue-order.json manifest when present, falls back to alphabetical.
  * Skips any task IDs in the `skipTaskIds` set (already active tasks).
@@ -442,28 +382,17 @@ export async function nextPendingItemPath(
 }
 
 /**
- * Pattern matching the compact ISO-8601 timestamp prefix added by this
- * module (e.g., `20260330T070710Z_` or `20260330T070710Z-`). Used to strip stale prefixes so
- * that round-tripping between open and pending doesn't accumulate them.
- */
-const QUEUE_TIMESTAMP_PREFIX_RE = /^\d{8}[tT]\d{6}[zZ][-_]/;
-
-/**
- * Generate a timestamped queue name for a source file.
- * Strips any existing timestamp prefix first so round-tripping between
- * dropbox and pending doesn't accumulate multiple prefixes.
+ * Generate a readable queue name for a source file. Strips generated prefixes
+ * first so round-tripping between open and pending does not accumulate them.
  */
 export function queueNameForSource(sourceFile: string): string {
-  const baseName = path.basename(sourceFile)
-    .replace(/\.md$/i, '')
-    .replace(QUEUE_TIMESTAMP_PREFIX_RE, '');
-  const slug = slugify(baseName).slice(0, 47).replace(/[-_]+$/g, '') || 'task';
-  const now = new Date();
-  const ts = now.toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', 't')
-    .replace(/\.\d+Z$/, 'z');
-  return `${ts}_${slug}.md`;
+  const baseName = path.basename(sourceFile).replace(/\.md$/i, '');
+  return buildReadableTaskFileName({ rawTitle: stripGeneratedTaskPrefix(baseName) });
+}
+
+function pendingNameForDropboxSource(sourcePath: string): string {
+  const baseName = path.basename(sourcePath);
+  return isGeneratedTaskFileName(baseName) ? baseName : queueNameForSource(sourcePath);
 }
 
 /**
@@ -485,7 +414,7 @@ export async function moveDropboxItemsOnce(
 
     if (!entry.endsWith('.md')) continue;
 
-    let targetName = queueNameForSource(sourcePath);
+    let targetName = pendingNameForDropboxSource(sourcePath);
     let targetPath = path.join(pendingDir, targetName);
 
     // Avoid collisions
@@ -573,7 +502,7 @@ export async function moveDropboxItemToPending(options: {
   const sourcePath = path.join(queuePaths.dropboxDir, base);
 
   // Generate timestamped name with collision avoidance
-  const targetName = queueNameForSource(sourcePath);
+  const targetName = pendingNameForDropboxSource(sourcePath);
   let targetPath = path.join(queuePaths.pendingDir, targetName);
   let suffix = 1;
   while (existsSync(targetPath)) {
@@ -650,6 +579,7 @@ export interface ActivateNextPendingItemOptions {
 
 export const ACTIVATION_GATE_REASON = {
   CONCURRENCY_CAP_REACHED: 'concurrency-cap-reached',
+  ACTIVATION_BLOCKED_DIRTY_REPOS: 'activation-blocked-dirty-repos',
   SHARED_MCP_BOOTSTRAP_FAILED: 'shared-mcp-bootstrap-failed',
   PIPELINE_SPAWN_FAILED: 'pipeline-spawn-failed',
 } as const;
@@ -863,24 +793,30 @@ export async function activateNextPendingItemIfReady(
     visibleRepoRoots = [repoRoot];
   }
 
-  await ensureDir(path.dirname(perTaskSidecarPath));
-
   // Determine paths to clone from the context pack's taskMaterialization field.
   // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
   const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
 
   const persistedGitRoots = await resolvePersistedGitRootsForActivation(cpDir, repoRoot);
   const materializationOrigins = await resolveMaterializationOrigins(visibleRepoRoots, persistedGitRoots);
+  const dirtyRepos = await findDirtyTargetRepos(materializationOrigins);
+  if (dirtyRepos.length > 0) {
+    await failPendingActivationForDirtyRepos({
+      repoRoot,
+      paths,
+      taskId,
+      pendingItemPath: nextItem,
+      content,
+      dirtyRepos,
+    });
+    return { activated: false, reason: ACTIVATION_GATE_REASON.ACTIVATION_BLOCKED_DIRTY_REPOS };
+  }
+
+  await ensureDir(path.dirname(perTaskSidecarPath));
 
   // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
   // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
-  const basenames = materializationOrigins.map((origin) => {
-    try { return path.basename(realpathSync(origin.contextRoot)); } catch { return path.basename(origin.contextRoot); }
-  });
-  const basenameCount: Record<string, number> = {};
-  for (const b of basenames) {
-    basenameCount[b] = (basenameCount[b] ?? 0) + 1;
-  }
+  const repoLabels = await resolveRepoLabels(materializationOrigins);
 
   // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
   repoBindings = [];
@@ -893,7 +829,7 @@ export async function activateNextPendingItemIfReady(
   for (let i = 0; i < materializationOrigins.length; i++) {
     const origin = materializationOrigins[i]!;
     const originalRoot = origin.gitRoot;
-    const base = basenames[i]!;
+    const repoSlug = repoLabels[i]!;
 
     // Resolve base commit SHA.
     let baseCommitSha = '';
@@ -902,13 +838,6 @@ export async function activateNextPendingItemIfReady(
       baseCommitSha = stdout.trim();
     } catch {
       // Non-git or bare tmpdir in tests — leave empty.
-    }
-
-    // Compute repoSlug: add sha8 suffix only when two origins share a basename.
-    let repoSlug = base;
-    if ((basenameCount[base] ?? 0) > 1) {
-      const sha8 = baseCommitSha.length >= 8 ? baseCommitSha.slice(0, 8) : (baseCommitSha || 'unknown');
-      repoSlug = `${base}-${sha8}`;
     }
 
     const worktreePath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', repoSlug);

@@ -222,13 +222,14 @@ describe('TerminalFeed', () => {
   it('task scope menu closes on outside mousedown', () => {
     renderFeed({ taskScopes });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+    fireEvent.click(trigger);
     expect(screen.getByRole('listbox', { name: 'Terminal task scope' })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
 
     expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Terminal task scope' })).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
   });
 
   it('Escape closes the task scope menu and returns focus to the trigger', () => {
@@ -245,10 +246,12 @@ describe('TerminalFeed', () => {
   it('Tab closes the task scope menu', () => {
     renderFeed({ taskScopes });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal task scope' }));
+    const trigger = screen.getByRole('button', { name: 'Terminal task scope' });
+    fireEvent.click(trigger);
     fireEvent.keyDown(screen.getByRole('listbox', { name: 'Terminal task scope' }), { key: 'Tab' });
 
     expect(screen.queryByRole('listbox', { name: 'Terminal task scope' })).not.toBeInTheDocument();
+    expect(trigger).not.toHaveFocus();
   });
 
   it('keyboard navigation updates active descendant and Enter selects the full GUID', () => {

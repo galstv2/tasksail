@@ -102,7 +102,8 @@ describe('planner staging helpers', () => {
     expect(readResult.draft).toEqual(expect.objectContaining({
       filename: '20260102T030405Z_backend-services-orders.md',
     }));
-    expect(readResult.draft?.content).toContain('# backend / services/orders');
+    expect(readResult.draft?.content).toContain('# Task Title');
+    expect(readResult.draft?.content).toContain('concise, task-specific snake_case title');
     expect(readResult.draft?.content).toContain('- Context Pack Dir: /contextpacks/orders');
     expect(readResult.draft?.content).toContain('- Selected Focus IDs: orders');
     expect(readResult.draft?.content).toContain('- Recommended Execution:');
@@ -182,7 +183,7 @@ describe('planner staging helpers', () => {
 
     const { draft } = await readOwnedStagedDraft('planner-monolith-multi');
     expect(draft?.filename).toBe('20260304T050607Z_src-2-focus-areas.md');
-    expect(draft?.content).toContain('# src (+2 focus areas)');
+    expect(draft?.content).toContain('# Task Title');
     expect(draft?.content).not.toContain('- Primary Repo ID:');
     expect(draft?.content).not.toContain('- Selected Repo IDs:');
     expect(draft?.content).not.toContain('- Primary Focus ID:');

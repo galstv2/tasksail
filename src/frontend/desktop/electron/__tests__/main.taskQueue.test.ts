@@ -365,7 +365,7 @@ The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly
       }),
     });
     expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'backend / apps/api',
+      title: 'boundary_dropbox_intake',
       repoRoot: expect.any(String),
       summary: 'Queue a completed bypass spec through the same dropbox intake boundary used by planner finalization.',
       desiredOutcome: 'The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly into pendingitems.',
@@ -413,7 +413,7 @@ Review child upload queue output.
 
     expect(result.ok).toBe(true);
     expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'immutable-pack / immutable-focus',
+      title: 'child_dropbox_planner',
       parentTaskId: 'PARENT-123',
       rootTaskId: 'ROOT-001',
       parentQmdRecordId: 'qmd://implementation-summary/PARENT-123/final',
@@ -455,12 +455,12 @@ Review child upload queue output.
       ok: true,
       response: expect.objectContaining({
         action: 'planner.uploadSpec',
-        draftTitle: 'immutable-pack / immutable-focus',
+        draftTitle: 'dropbox_intake_planner',
         submittedPath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_recent-standard.md',
       }),
     });
     expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'immutable-pack / immutable-focus',
+      title: 'dropbox_intake_planner',
       kind: 'standard',
       contextPackDir: '/immutable/context-pack',
       contextPackId: 'immutable-pack',
@@ -490,6 +490,7 @@ Review child upload queue output.
     expect(template).toContain('## Critical Requirements');
     expect(template).toContain('## Compatibility Requirements');
     expect(template).toContain('## Required Validation');
+    expect(template).not.toContain('# Task Title');
     expect(template.indexOf('## Critical Requirements')).toBeLessThan(template.indexOf('## Compatibility Requirements'));
     expect(template.indexOf('## Compatibility Requirements')).toBeLessThan(template.indexOf('## Required Validation'));
     expect(template).not.toContain('## Source');
@@ -562,7 +563,7 @@ Validation should be reviewed manually.
     await submitUploadedSpecHelper(buildUploadedSpec());
 
     expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'platform',
+      title: 'dropbox_intake_planner',
       contextPackDir: '/context-packs/platform-pack',
       contextPackId: 'platform-pack',
       scopeMode: 'repo-selection',

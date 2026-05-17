@@ -19,6 +19,7 @@ import {
   validatePlannerProtectedMetadata,
   validatePlanningIntakeDraft,
 } from './main.markdown';
+import { resolvePlannerTaskTitleFromDraft } from './main.plannerTitle';
 import {
   startBackendServices,
   stopBackendServices,
@@ -343,9 +344,10 @@ export async function handleDesktopAction(
         const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
         const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
         const metadata = stagedDraft.metadata;
+        const taskTitle = resolvePlannerTaskTitleFromDraft(stagedDraft.draft.content);
         const destinationPath = metadata.lineage.taskKind === 'child-task'
           ? await createFollowupTask({
-              title: metadata.title,
+              title: taskTitle,
               summary: canonicalDraft.summary,
               desiredOutcome: canonicalDraft.desiredOutcome,
               constraints: canonicalDraft.constraints,
@@ -377,7 +379,7 @@ export async function handleDesktopAction(
               repoRoot: REPO_ROOT,
             })
           : await createDropboxTask({
-              title: metadata.title,
+              title: taskTitle,
               summary: canonicalDraft.summary,
               desiredOutcome: canonicalDraft.desiredOutcome,
               constraints: canonicalDraft.constraints,

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { createLogger, slugify, findRepoRoot, ensureDir, copyFileSafe } from '../core/index.js';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import {
   resolveQueuePaths,
   SLICE_TEMPLATE_FILENAME,
@@ -13,6 +13,7 @@ import {
   buildImplementationSpecSectionsFromIntake,
   buildProfessionalTaskSectionsFromIntake,
 } from './markdown.js';
+import { buildReadableTaskId } from './taskNames.js';
 
 const log = createLogger('platform/queue/newTask');
 
@@ -71,21 +72,7 @@ export function validateTaskId(taskId: string): void {
  * Generate a slug from a title + ISO timestamp. Output MUST pass TASK_ID_PATTERN.
  */
 export function generateTaskId(rawTitle: string): string {
-  const now = new Date();
-  // Produce a fully lowercase timestamp: strip separators, replace 'T' with '-', drop sub-seconds
-  // e.g. "2026-04-18T23:06:49.123Z" → "20260418-230649z"
-  const ts = now.toISOString()
-    .replace(/[-:]/g, '')       // remove dashes and colons
-    .replace('T', '-')          // lowercase separator between date and time
-    .replace(/\.\d+Z$/, 'z');   // drop milliseconds, lowercase trailing Z
-  // slugify lowercases and replaces non-alnum with hyphens; then strip leading/trailing hyphens
-  const base = slugify(rawTitle).replace(/^[-_]+|[-_]+$/g, '') || 'task';
-  const candidate = `${base}-${ts}`;
-  // Trim to 64 chars, ensuring no trailing hyphen/underscore
-  let trimmed = candidate.slice(0, 64).replace(/[-_]+$/, '');
-  // Strip any dots (slugify should not produce them, but be defensive)
-  trimmed = trimmed.replace(/\./g, '-');
-  return trimmed;
+  return buildReadableTaskId({ rawTitle });
 }
 
 /**
@@ -157,7 +144,15 @@ export async function initializeTask(
     validateTaskId(rawTaskId);
     taskId = rawTaskId;
   } else {
-    taskId = generateTaskId(taskTitle);
+    const existingIds = new Set<string>();
+    const tasksDir = path.dirname(queuePaths.taskWorktree('placeholder'));
+    for (const dir of [queuePaths.dropboxDir, queuePaths.pendingDir, tasksDir]) {
+      if (!existsSync(dir)) continue;
+      for (const entry of readdirSync(dir)) {
+        existingIds.add(entry.replace(/\.md$/, ''));
+      }
+    }
+    taskId = buildReadableTaskId({ rawTitle: taskTitle, existingIds });
     // Generated slugs must also pass validation (defense-in-depth)
     validateTaskId(taskId);
   }

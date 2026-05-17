@@ -1,4 +1,5 @@
 # Task Title
+<!-- Replace this H1 with a concise, task-specific snake_case title. Use underscores between words, e.g. terminal_scope_filter. The platform canonicalizes spacing and casing at submission. -->
 
 ## Task Lineage
 

@@ -167,6 +167,26 @@ export class RuntimeTerminalEvents {
     });
   }
 
+  activationBlockedDirtyRepos(input: {
+    taskTitle: string;
+    repoLabels: readonly string[];
+    repoRoots: readonly string[];
+  }): Promise<void> {
+    const repoNoun = input.repoLabels.length === 1 ? 'repo' : 'repos';
+    return this.append({
+      eventId: 'activation.blocked.dirty-repos',
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'error',
+      message: `Unable to activate ${input.taskTitle} due to uncommitted changes in target ${repoNoun} ${input.repoLabels.join(', ')}, please resolve and try again.`,
+      extra: {
+        repoLabels: input.repoLabels,
+        repoRoots: input.repoRoots,
+        reason: 'uncommitted-changes',
+      },
+    });
+  }
+
   autoMergeDisabled(): Promise<void> {
     return this.append({
       eventId: 'auto_merge.disabled',
