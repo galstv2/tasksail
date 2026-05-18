@@ -439,6 +439,13 @@ export type ContextPackClearRequest = {
   payload?: undefined;
 };
 
+export type ContextPackDeleteRequest = {
+  action: 'contextPack.delete';
+  payload: {
+    contextPackDir: string;
+  };
+};
+
 export type ContextPackSwitchExecutionResult = {
   ok: boolean;
   wrapperAction: 'preview' | 'apply' | 'clear';
@@ -488,6 +495,14 @@ export type ContextPackClearResponse = {
   message: string;
   commandPath: string;
   result: ContextPackSwitchExecutionResult;
+};
+
+export type ContextPackDeleteResponse = {
+  action: 'contextPack.delete';
+  mode: 'deleted';
+  contextPackDir: string;
+  mirrorDir: string;
+  message: string;
 };
 
 export type {

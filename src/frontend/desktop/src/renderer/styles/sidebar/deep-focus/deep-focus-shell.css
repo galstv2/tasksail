@@ -6,7 +6,7 @@
 /*
  * State grammar:
  * Primary Target = editable permission.
- * Test Folder = writable verification support.
+ * Test Target = writable verification support.
  * Support = read-only context (global or scoped to a primary).
  * Selected Row = command focus.
  * Hover = affordance only.

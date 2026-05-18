@@ -1,0 +1,522 @@
+// @vitest-environment jsdom
+
+import { readFileSync } from 'node:fs';
+
+import * as matchers from '@testing-library/jest-dom/matchers';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { ContextPackCatalogEntry, ContextPackFocusFilterSelection } from '../../shared/desktopContract';
+import FocusFilterModal from './FocusFilterModal';
+
+expect.extend(matchers);
+
+afterEach(() => cleanup());
+
+const pack: ContextPackCatalogEntry = {
+  contextPackId: 'pack',
+  displayName: 'Platform Pack',
+  contextPackDir: '/packs/platform',
+  manifestPath: null,
+  bootstrapReady: true,
+  source: 'configured-path',
+  isActive: false,
+  estateType: 'distributed-platform',
+  defaultScopeMode: 'focused',
+  repoCount: 1,
+  primaryWorkingRepoIds: [],
+  focusTargets: [],
+};
+
+const selection: ContextPackFocusFilterSelection = {
+  selectedRepoIds: ['api'],
+  selectedFocusIds: [],
+  deepFocusEnabled: false,
+  deepFocusPrimaryRepoId: null,
+  deepFocusPrimaryFocusId: null,
+  selectedFocusPath: null,
+  selectedFocusTargetKind: null,
+  selectedFocusTargets: [],
+  selectedTestTarget: undefined,
+  selectedSupportTargets: [],
+};
+
+const deepFocusSelection: ContextPackFocusFilterSelection = {
+  ...selection,
+  deepFocusEnabled: true,
+  selectedRepoIds: [],
+};
+
+const modalShellCss = readFileSync('src/renderer/styles/modalShell.css', 'utf8');
+const sidebarScopeCss = readFileSync('src/renderer/styles/sidebar/sidebar-scope.css', 'utf8');
+
+function renderFocusFilterModal(
+  overrides: Partial<ComponentProps<typeof FocusFilterModal>> = {},
+) {
+  const props: ComponentProps<typeof FocusFilterModal> = {
+    isOpen: true,
+    selectedPack: pack,
+    filters: [],
+    currentSelection: selection,
+    pending: false,
+    onClose: vi.fn(),
+    onSave: vi.fn().mockResolvedValue(true),
+    onApply: vi.fn(),
+    onDelete: vi.fn(),
+    ...overrides,
+  };
+  render(<FocusFilterModal {...props} />);
+  return props;
+}
+
+describe('FocusFilterModal', () => {
+  it('renders through ModalShell and clears the name after a successful save', async () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    renderFocusFilterModal({ onSave });
+    expect(screen.getByRole('dialog', { name: 'Focus Filters' })).toBeInTheDocument();
+    expect(screen.getByText('Focus Filters')).toBeInTheDocument();
+    const input = screen.getByLabelText('Filter name');
+    fireEvent.change(input, { target: { value: 'Primary API' } });
+    fireEvent.click(screen.getByText('Save'));
+    expect(onSave).toHaveBeenCalledWith('Primary API');
+    await waitFor(() => {
+      expect(input).toHaveValue('');
+    });
+  });
+
+  it('keeps the typed name when save fails', async () => {
+    const onSave = vi.fn().mockResolvedValue(false);
+    renderFocusFilterModal({ onSave });
+
+    const input = screen.getByLabelText('Filter name');
+    fireEvent.change(input, { target: { value: 'Primary API' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith('Primary API');
+    });
+    expect(input).toHaveValue('Primary API');
+  });
+
+  it('applies selected filters and closes after success', async () => {
+    const onApply = vi.fn().mockResolvedValue(true);
+    const onClose = vi.fn();
+    const onDelete = vi.fn();
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'API',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection,
+      }],
+      onClose,
+      onApply,
+      onDelete,
+    });
+    fireEvent.click(screen.getByText('API'));
+    fireEvent.click(screen.getByText('Apply filter'));
+    await waitFor(() => {
+      expect(onApply).toHaveBeenCalledWith('filter-1');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.click(screen.getByLabelText('Delete focus filter API'));
+    expect(onDelete).toHaveBeenCalledWith('filter-1');
+  });
+
+  it('keeps the modal open when filter apply fails', async () => {
+    const onApply = vi.fn().mockResolvedValue(false);
+    const onClose = vi.fn();
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'API',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection,
+      }],
+      onClose,
+      onApply,
+    });
+
+    fireEvent.click(screen.getByText('API'));
+    fireEvent.click(screen.getByText('Apply filter'));
+
+    await waitFor(() => {
+      expect(onApply).toHaveBeenCalledWith('filter-1');
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('shows standard filter primary and support targets in the saved row', () => {
+    renderFocusFilterModal({
+      selectedPack: {
+        ...pack,
+        focusTargets: [
+          {
+            focusId: 'api',
+            displayName: 'API',
+            kind: 'repository',
+            repoId: 'api',
+            repoLocalPath: '/repos/api',
+            serviceName: null,
+            systemLayer: null,
+            repoRole: null,
+            repositoryType: 'primary',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: true,
+            activationPriority: 1,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+          {
+            focusId: 'docs',
+            displayName: 'Docs',
+            kind: 'repository',
+            repoId: 'docs',
+            repoLocalPath: '/repos/docs',
+            serviceName: null,
+            systemLayer: null,
+            repoRole: null,
+            repositoryType: 'support',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: false,
+            activationPriority: 0,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+        ],
+      },
+      filters: [{
+        id: 'filter-1',
+        name: 'API plus docs',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection: {
+          ...selection,
+          selectedRepoIds: ['api', 'docs'],
+          repositoryTypes: { api: 'primary', docs: 'support' },
+        },
+      }],
+    });
+
+    const row = screen.getByText('API plus docs').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute('data-mode', 'standard');
+    expect(within(row!).queryByText('Deep Focus')).toBeNull();
+    expect(within(row!).getByText('Primary')).toBeInTheDocument();
+    expect(within(row!).getByText('API')).toBeInTheDocument();
+    expect(within(row!).getByText('Support')).toBeInTheDocument();
+    expect(within(row!).getByText('Docs')).toBeInTheDocument();
+  });
+
+  it('shows Deep Focus primary, test, and support slots in the saved row', () => {
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'API deep focus',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection: {
+          ...deepFocusSelection,
+          selectedFocusTargets: [{
+            path: '/repo/api/src',
+            kind: 'directory',
+            repoLocalPath: '/repo/api',
+            repoId: 'api',
+            testTarget: { path: '/repo/api/tests', kind: 'directory' },
+            supportTargets: [{ path: '/repo/api/docs', kind: 'directory' }],
+          }],
+          selectedTestTarget: { path: '/repo/shared/tests', kind: 'directory' },
+          selectedSupportTargets: [{ path: '/repo/shared/docs', kind: 'directory' }],
+        },
+      }],
+    });
+
+    const row = screen.getByText('API deep focus').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute('data-mode', 'deep-focus');
+    const modeFlag = within(row!).getByText('Deep Focus', { selector: '.focus-filter-modal__row-flag' });
+    expect(modeFlag).toBeInTheDocument();
+    expect(within(row!).getByText('Primary')).toBeInTheDocument();
+    expect(within(row!).getByText('api')).toBeInTheDocument();
+    expect(within(row!).getByText('Test')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: tests, api: tests')).toBeInTheDocument();
+    expect(within(row!).getByText('Support')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: docs, api: docs')).toBeInTheDocument();
+  });
+
+  it('uses the default ModalShell surface instead of terminal mode', () => {
+    renderFocusFilterModal();
+    expect(screen.getByRole('dialog', { name: 'Focus Filters' })).not.toHaveClass('modal-shell--terminal');
+  });
+
+  it('renders the ESC hint and footer actions with Apply after Cancel', () => {
+    renderFocusFilterModal();
+
+    const escHint = screen.getByText('ESC to close');
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    const apply = screen.getByRole('button', { name: 'Apply filter' });
+    expect(escHint).toHaveClass('modal-shell__footer-esc');
+    expect(cancel).toHaveClass('action-button');
+    expect(cancel).not.toHaveClass('action-button--primary');
+    expect(apply).toHaveClass('action-button', 'action-button--primary');
+
+    const footer = escHint.closest('.modal-shell__footer');
+    expect(footer).not.toBeNull();
+    expect(cancel.closest('.modal-shell__footer')).toBe(footer);
+    expect(apply.closest('.modal-shell__footer')).toBe(footer);
+    expect(Array.from(footer!.children)).toEqual([escHint, cancel, apply]);
+  });
+
+  it('renders Save as visually active when a unique name is entered', () => {
+    renderFocusFilterModal();
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Primary API' } });
+    expect(save).not.toBeDisabled();
+    expect(save).toHaveClass('focus-filter-modal__save-button');
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__save-button:not(:disabled)');
+    expect(sidebarScopeCss).toContain('background: var(--ts-accent-subtle);');
+  });
+
+  it('disables Save for duplicate filter names case-insensitively', () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'Primary API',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection,
+      }],
+      onSave,
+    });
+
+    fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'primary api' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    expect(screen.getByText('A filter with that name already exists.')).toBeInTheDocument();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('disables Save for duplicate selections', () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'Existing API',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection: {
+          ...selection,
+          selectedRepoIds: ['api'],
+        },
+      }],
+      currentSelection: {
+        ...selection,
+        selectedRepoIds: ['api'],
+      },
+      onSave,
+    });
+
+    fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Different name' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    expect(screen.getByText('Already saved as “Existing API”.')).toBeInTheDocument();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('disables Save for an empty Deep Focus selection even when a name is entered', () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    renderFocusFilterModal({
+      currentSelection: deepFocusSelection,
+      onSave,
+    });
+
+    expect(screen.getByText('Deep Focus · Primary — · Test — · Support 0')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Empty focus' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('enables Save for Deep Focus when any Deep Focus slot is selected', () => {
+    renderFocusFilterModal({
+      currentSelection: {
+        ...deepFocusSelection,
+        selectedSupportTargets: [{ path: '/repo/api/docs', kind: 'directory' }],
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Support docs' } });
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
+  });
+
+  it('pins ModalShell footer primary styling to the accent treatment', () => {
+    expect(modalShellCss).toContain('.modal-shell__footer {');
+    expect(modalShellCss).toContain('gap: 0.5rem;');
+    expect(modalShellCss).toContain('justify-content: flex-end;');
+    expect(modalShellCss).toContain('.modal-shell__footer .action-button--primary');
+    expect(modalShellCss).toContain('background: var(--ts-accent);');
+    expect(modalShellCss).toContain('border-color: var(--ts-accent);');
+    expect(modalShellCss).toContain('color: var(--ts-text-inverse);');
+    expect(modalShellCss).toContain('font-weight: 600;');
+    expect(modalShellCss).toContain('.modal-shell__footer .action-button--primary:hover:not(:disabled)');
+    expect(modalShellCss).toContain('background: var(--ts-accent-hover);');
+    expect(modalShellCss).toContain('opacity: 0.45;');
+  });
+
+  it('uses em-dash placeholders for empty Deep Focus primary and test slots', () => {
+    renderFocusFilterModal({ currentSelection: deepFocusSelection });
+
+    expect(screen.getByText('Deep Focus · Primary — · Test — · Support 0')).toBeInTheDocument();
+    expect(screen.queryByText(/No Primary/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No Test/)).not.toBeInTheDocument();
+  });
+
+  it('summarizes filled Deep Focus slots and keeps support count numeric', () => {
+    renderFocusFilterModal({
+      currentSelection: {
+        ...deepFocusSelection,
+        selectedFocusTargets: [{
+          path: '/repo/api',
+          kind: 'directory',
+          repoLocalPath: '/repo/api',
+          repoId: 'api',
+        }],
+        selectedTestTarget: {
+          path: '/repo/api/tests',
+          kind: 'directory',
+        },
+        selectedSupportTargets: [{
+          path: '/repo/api/docs',
+          kind: 'directory',
+        }, {
+          path: '/repo/api/scripts',
+          kind: 'directory',
+        }],
+      },
+    });
+
+    expect(screen.getByText('Deep Focus · Primary set · Test set · Support 2')).toBeInTheDocument();
+  });
+
+  it('keeps the filter-name input keyboard-focusable and backed by the focus-ring CSS contract', () => {
+    renderFocusFilterModal();
+
+    const input = screen.getByLabelText('Filter name');
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    expect(input).not.toHaveAttribute('style');
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__save-row input:focus');
+    expect(sidebarScopeCss).toContain('box-shadow: 0 0 0 2px var(--ts-accent-subtle);');
+  });
+
+  it('keeps per-row Delete muted at rest through class-only styling', () => {
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-1',
+        name: 'API',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection,
+      }],
+    });
+
+    const deleteButton = screen.getByLabelText('Delete focus filter API');
+    expect(deleteButton).toHaveClass('focus-filter-modal__delete');
+    expect(deleteButton).not.toHaveAttribute('style');
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__delete:hover');
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__delete:focus-visible');
+  });
+
+  it('lays out saved filter metadata as a quiet two-column definition list', () => {
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__row-details');
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-details\s*\{[^}]*display:\s*grid/,
+    );
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-details\s*\{[^}]*grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)/,
+    );
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-detail\s*\{[^}]*display:\s*contents/,
+    );
+    expect(sidebarScopeCss).not.toContain('.focus-filter-modal__scope-chip');
+    expect(sidebarScopeCss).not.toContain('.focus-filter-modal__mode-tag');
+  });
+
+  it('distinguishes deep focus rows with a left-edge accent stripe', () => {
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__row[data-mode="deep-focus"]::before');
+    expect(sidebarScopeCss).toContain('background: var(--ts-accent);');
+  });
+
+  it('marks Deep Focus rows with an inline accent flag instead of a chip', () => {
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__row-flag');
+    expect(sidebarScopeCss).toMatch(/\.focus-filter-modal__row-flag\s*\{[^}]*text-transform:\s*uppercase/);
+    expect(sidebarScopeCss).toMatch(/\.focus-filter-modal__row-flag\s*\{[^}]*letter-spacing:/);
+    expect(sidebarScopeCss).toMatch(/\.focus-filter-modal__row-flag\s*\{[^}]*color:\s*var\(--ts-accent\)/);
+  });
+
+  it('uses uppercase letter-spaced labels and muted soft text for metadata labels', () => {
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-detail-label\s*\{[^}]*text-transform:\s*uppercase/,
+    );
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-detail-label\s*\{[^}]*letter-spacing:/,
+    );
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-detail-label\s*\{[^}]*color:\s*var\(--ts-text-soft\)/,
+    );
+  });
+
+  it('renders empty Deep Focus slots with the empty modifier and an em-dash value', () => {
+    renderFocusFilterModal({
+      filters: [{
+        id: 'filter-empty',
+        name: 'Empty slots',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection: {
+          ...deepFocusSelection,
+          selectedFocusTargets: [{
+            path: '/repo/api',
+            kind: 'directory',
+            repoLocalPath: '/repo/api',
+            repoId: 'api',
+          }],
+        },
+      }],
+    });
+
+    const row = screen.getByText('Empty slots').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    const testDetail = within(row!).getByText('Test').closest('.focus-filter-modal__row-detail');
+    const supportDetail = within(row!).getByText('Support').closest('.focus-filter-modal__row-detail');
+    expect(testDetail).toHaveClass('focus-filter-modal__row-detail--empty');
+    expect(supportDetail).toHaveClass('focus-filter-modal__row-detail--empty');
+    expect(within(testDetail as HTMLElement).getByText('—')).toBeInTheDocument();
+    expect(within(supportDetail as HTMLElement).getByText('—')).toBeInTheDocument();
+    expect(sidebarScopeCss).toContain('.focus-filter-modal__row-detail--empty');
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__row-detail--empty\s+\.focus-filter-modal__row-detail-value\s*\{[^}]*color:\s*var\(--ts-text-soft\)/,
+    );
+  });
+});

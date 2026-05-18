@@ -398,6 +398,90 @@ describe('deriveWritableRootsFromFocusedSelection', () => {
     });
   });
 
+  it('uses explicit support target repoLocalPath for cross-repo support roots', () => {
+    expect(deriveWritableRootsFromFocusedSelection({
+      primaryFocusTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        },
+      ],
+      supportTargets: [{
+        path: 'Acme.Cli',
+        kind: 'directory',
+        effectiveScope: 'full-directory',
+        repoLocalPath: '/repos/tools',
+        repoId: 'tools',
+      }],
+    }).readonlyContextRoots).toEqual([
+      {
+        repoLocalPath: '/repos/tools',
+        path: 'Acme.Cli',
+        kind: 'directory',
+        reason: 'support-target',
+      },
+    ]);
+  });
+
+  it('uses explicit test target repoLocalPath for cross-repo test roots', () => {
+    expect(deriveWritableRootsFromFocusedSelection({
+      primaryFocusTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        },
+      ],
+      testTarget: {
+        path: 'Acme.Cli.Tests',
+        kind: 'directory',
+        repoLocalPath: '/repos/tools',
+      },
+    }).writableRoots).toContainEqual({
+      repoLocalPath: '/repos/tools',
+      path: 'Acme.Cli.Tests',
+      kind: 'directory',
+      reason: 'test-target',
+    });
+  });
+
+  it('uses explicit scoped test target repoLocalPath for cross-repo scoped test roots', () => {
+    expect(deriveWritableRootsFromFocusedSelection({
+      primaryFocusTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          testTarget: {
+            path: 'Acme.Cli.Tests',
+            kind: 'directory',
+            repoLocalPath: '/repos/tools',
+          },
+        },
+      ],
+    }).writableRoots).toContainEqual({
+      repoLocalPath: '/repos/tools',
+      path: 'Acme.Cli.Tests',
+      kind: 'directory',
+      reason: 'scoped-test-target',
+      sourceTargets: [
+        expect.objectContaining({
+          path: '',
+          kind: 'directory',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        }),
+      ],
+    });
+  });
+
   it('returns global effective scope when scoped fields are empty', () => {
     expect(getEffectiveScopeForPrimary(
       { path: 'src/orders', kind: 'directory', role: 'anchor' },

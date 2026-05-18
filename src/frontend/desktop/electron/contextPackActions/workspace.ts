@@ -10,7 +10,7 @@ import { readDeepFocusPath, stringArray } from '../main.contextPackShared';
 import {
   cloneFocusTarget, mirrorSinglePrimaryScopedFields, normalizeDeepFocusTarget,
   normalizePrimaryFocusTargets, normalizeRelativePath, normalizeSupportTargets,
-  runContextPackWorkspaceScript, toWorkspaceSyncPrimaryTarget, validateTestTarget,
+  runContextPackWorkspaceScript, toWorkspaceSyncPrimaryTarget, toWorkspaceSyncTarget, validateTestTarget,
   type ContextPackWorkspaceScriptRunner,
 } from './shared';
 import { createLogger } from '../log/logger';
@@ -51,6 +51,21 @@ function withScopedFieldsFromRawTargets(
         : {}),
     };
   });
+}
+
+function readTargetIdentity(value: Record<string, unknown>): {
+  repoLocalPath?: string;
+  repoId?: string;
+  focusId?: string;
+} {
+  const repoLocalPath = readSnakeOrCamelString(value, 'repo_local_path', 'repoLocalPath');
+  const repoId = readSnakeOrCamelString(value, 'repo_id', 'repoId');
+  const focusId = readSnakeOrCamelString(value, 'focus_id', 'focusId');
+  return {
+    ...(repoLocalPath ? { repoLocalPath } : {}),
+    ...(repoId ? { repoId } : {}),
+    ...(focusId ? { focusId } : {}),
+  };
 }
 
 function normalizeContextPackSwitchPayload(
@@ -110,10 +125,19 @@ function normalizeContextPackSwitchPayload(
         primaryTargets: normalizedPrimaryTargets,
         testTarget: selectedTestTarget ?? undefined,
         rawTargets: payload.selectedSupportTargets ?? [],
-      }).map(({ path, kind }) => ({ path, kind }))
+      }).map(({ path, kind, repoLocalPath, repoId, focusId }) => ({
+        path,
+        kind,
+        ...(repoLocalPath ? { repoLocalPath } : {}),
+        ...(repoId ? { repoId } : {}),
+        ...(focusId ? { focusId } : {}),
+      }))
     : (payload.selectedSupportTargets ?? []).map((t) => ({
         path: normalizeRelativePath(t.path),
         kind: t.kind,
+        ...(t.repoLocalPath ? { repoLocalPath: t.repoLocalPath } : {}),
+        ...(t.repoId ? { repoId: t.repoId } : {}),
+        ...(t.focusId ? { focusId: t.focusId } : {}),
       }));
   const mirrored = mirrorSinglePrimaryScopedFields(
     normalizedPrimaryTargets,
@@ -167,10 +191,17 @@ function buildContextPackWorkspaceArgs(
     }
     if (normalizedPayload.deepFocusEnabled) {
       if (normalizedPayload.selectedTestTarget !== undefined) {
-        args.push('--selected-test-target', JSON.stringify(normalizedPayload.selectedTestTarget));
+        args.push(
+          '--selected-test-target',
+          JSON.stringify(
+            normalizedPayload.selectedTestTarget === null
+              ? null
+              : toWorkspaceSyncTarget(normalizedPayload.selectedTestTarget),
+          ),
+        );
       }
       for (const supportTarget of normalizedPayload.selectedSupportTargets ?? []) {
-        args.push('--selected-support-target', JSON.stringify(supportTarget));
+        args.push('--selected-support-target', JSON.stringify(toWorkspaceSyncTarget(supportTarget)));
       }
     }
   }
@@ -239,7 +270,13 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
                   ...(repoId ? { repoId } : {}),
                   ...(focusId ? { focusId } : {}),
                   ...(st.role === 'anchor' || st.role === 'primary' ? { role: st.role } : {}),
-                  ...(tt ? { testTarget: { path: stringOrNull(tt.path) ?? '', kind: tt.kind === 'directory' || tt.kind === 'file' ? tt.kind : 'directory' } } : {}),
+                  ...(tt ? {
+                    testTarget: {
+                      path: stringOrNull(tt.path) ?? '',
+                      kind: tt.kind === 'directory' || tt.kind === 'file' ? tt.kind : 'directory',
+                      ...readTargetIdentity(tt),
+                    },
+                  } : {}),
                 };
               }),
           }
@@ -299,7 +336,13 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
         ...(repoId ? { repoId } : {}),
         ...(focusId ? { focusId } : {}),
         ...(target.role === 'anchor' || target.role === 'primary' ? { role: target.role } : {}),
-        ...(testTarget ? { testTarget: { path: stringOrNull(testTarget.path) ?? '', kind: testTarget.kind === 'directory' || testTarget.kind === 'file' ? testTarget.kind : 'directory' } } : {}),
+        ...(testTarget ? {
+          testTarget: {
+            path: stringOrNull(testTarget.path) ?? '',
+            kind: testTarget.kind === 'directory' || testTarget.kind === 'file' ? testTarget.kind : 'directory',
+            ...readTargetIdentity(testTarget),
+          },
+        } : {}),
         ...(supportTargets.length > 0
           ? {
               supportTargets: supportTargets
@@ -307,6 +350,7 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
                 .map((st) => ({
                   path: stringOrNull(st.path) ?? '',
                   kind: st.kind === 'directory' || st.kind === 'file' ? st.kind : 'directory',
+                  ...readTargetIdentity(st),
                 })),
             }
           : {}),
@@ -320,11 +364,13 @@ function normalizeContextPackExecutionResult(value: unknown): ContextPackSwitchE
             kind: selectedTestTarget.kind === 'directory' || selectedTestTarget.kind === 'file'
               ? selectedTestTarget.kind as ContextPackFocusTargetKind
               : 'directory' as ContextPackFocusTargetKind,
+            ...readTargetIdentity(selectedTestTarget),
           }
         : null,
     selectedSupportTargets: selectedSupportTargets.map((t) => ({
       path: stringOrNull(t.path) ?? '',
       kind: t.kind === 'directory' || t.kind === 'file' ? t.kind as ContextPackFocusTargetKind : 'directory' as ContextPackFocusTargetKind,
+      ...readTargetIdentity(t),
     })),
     derivedWritableRoots: derivedWritableRoots.map(normalizeDerivedRoot),
     derivedReadonlyContextRoots: derivedReadonlyContextRoots.map(normalizeDerivedRoot),

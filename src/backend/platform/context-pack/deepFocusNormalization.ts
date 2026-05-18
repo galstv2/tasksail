@@ -3,6 +3,9 @@ export type FocusTargetKind = 'directory' | 'file';
 export interface FocusTarget {
   path: string;
   kind: FocusTargetKind;
+  repoLocalPath?: string;
+  repoId?: string;
+  focusId?: string;
 }
 
 export interface PrimaryFocusTarget extends FocusTarget {
@@ -157,7 +160,26 @@ function normalizePrimaryFocusTarget(target: PrimaryFocusTarget, label: string):
   }
   const testTarget = normalizeScopedTestTarget(target.testTarget, label);
   const supportTargets = normalizeScopedSupportTargets(target.supportTargets, label);
-  if (!normalizedPath && (testTarget || supportTargets.length > 0)) {
+  const normalizedPrimary: PrimaryFocusTarget = {
+    path: normalizedPath,
+    kind: target.kind,
+    ...(typeof target.repoLocalPath === 'string' && target.repoLocalPath
+      ? { repoLocalPath: target.repoLocalPath }
+      : {}),
+    ...(typeof target.repoId === 'string' && target.repoId
+      ? { repoId: target.repoId }
+      : {}),
+    ...(typeof target.focusId === 'string' && target.focusId
+      ? { focusId: target.focusId }
+      : {}),
+  };
+  if (
+    !normalizedPath
+    && (
+      (testTarget && sameRepoValidationScope(normalizedPrimary, testTarget))
+      || supportTargets.some((supportTarget) => sameRepoValidationScope(normalizedPrimary, supportTarget))
+    )
+  ) {
     throw new Error(
       `scoped-fields-on-repo-root-primary: ${label} repo-root primary cannot include testTarget or supportTargets.`,
     );
@@ -204,7 +226,7 @@ function normalizeScopedSupportTargets(
   const seen = new Set<string>();
   for (const [index, target] of targets.entries()) {
     const normalized = normalizeNestedFocusTarget(target, `${label}.supportTargets[${index}]`);
-    const key = `${normalized.path}\0${normalized.kind}`;
+    const key = focusTargetIdentityKey(normalized);
     if (seen.has(key)) {
       continue;
     }
@@ -229,7 +251,19 @@ function normalizeNestedFocusTarget(target: FocusTarget, label: string): FocusTa
   if (!normalizedPath && target.kind === 'file') {
     throw new Error(`${label} repo-root path must be a directory, not a file.`);
   }
-  return { path: normalizedPath, kind: target.kind };
+  return {
+    path: normalizedPath,
+    kind: target.kind,
+    ...(typeof target.repoLocalPath === 'string' && target.repoLocalPath
+      ? { repoLocalPath: target.repoLocalPath }
+      : {}),
+    ...(typeof target.repoId === 'string' && target.repoId
+      ? { repoId: target.repoId }
+      : {}),
+    ...(typeof target.focusId === 'string' && target.focusId
+      ? { focusId: target.focusId }
+      : {}),
+  };
 }
 
 function mergeDuplicatePrimaryTarget(existing: PrimaryFocusTarget, duplicate: PrimaryFocusTarget): void {
@@ -252,7 +286,7 @@ function dedupeFocusTargets(targets: FocusTarget[]): FocusTarget[] {
   const seen = new Set<string>();
   const kept: FocusTarget[] = [];
   for (const target of targets) {
-    const key = `${target.path}\0${target.kind}`;
+    const key = focusTargetIdentityKey(target);
     if (seen.has(key)) {
       continue;
     }
@@ -275,7 +309,7 @@ function validatePrimaryScopedFields(
   targets: PrimaryFocusTarget[],
 ): void {
   if (primary.testTarget) {
-    if (primary.testTarget.path === primary.path) {
+    if (sameRepoValidationScope(primary, primary.testTarget) && primary.testTarget.path === primary.path) {
       throw new Error(`selectedFocusTargets[${primaryIndex}].testTarget overlaps primary[${primaryIndex}].`);
     }
     const otherPrimaryIndex = targets.findIndex((target, index) =>
@@ -286,25 +320,26 @@ function validatePrimaryScopedFields(
     if (otherPrimaryIndex !== -1) {
       throw new Error(`selectedFocusTargets[${primaryIndex}].testTarget overlaps primary[${otherPrimaryIndex}].`);
     }
-    if (isStrictAncestor(primary.testTarget.path, primary.path)) {
+    if (sameRepoValidationScope(primary, primary.testTarget) && isStrictAncestor(primary.testTarget.path, primary.path)) {
       throw new Error(`selectedFocusTargets[${primaryIndex}].testTarget contains primary[${primaryIndex}].`);
     }
   }
 
   for (const [supportIndex, supportTarget] of (primary.supportTargets ?? []).entries()) {
     const supportField = `selectedFocusTargets[${primaryIndex}].supportTargets[${supportIndex}]`;
-    if (supportTarget.path === primary.path) {
+    if (sameRepoValidationScope(primary, supportTarget) && supportTarget.path === primary.path) {
       throw new Error(`${supportField} overlaps primary[${primaryIndex}].`);
     }
-    if (isDescendantOrEqual(supportTarget.path, getPrimaryWritableRoot(primary))) {
+    if (sameRepoValidationScope(primary, supportTarget) && isDescendantOrEqual(supportTarget.path, getPrimaryWritableRoot(primary))) {
       throw new Error(`${supportField} overlaps primary[${primaryIndex}] writable root.`);
     }
-    if (primary.testTarget && supportTarget.path === primary.testTarget.path) {
+    if (primary.testTarget && sameRepoValidationScope(primary.testTarget, supportTarget) && supportTarget.path === primary.testTarget.path) {
       throw new Error(`${supportField} overlaps selectedFocusTargets[${primaryIndex}].testTarget.`);
     }
     const otherPrimaryIndex = targets.findIndex((target, index) =>
       index !== primaryIndex
         && sameRepoValidationScope(primary, target)
+        && sameRepoValidationScope(target, supportTarget)
         && target.path === supportTarget.path,
     );
     if (otherPrimaryIndex !== -1) {
@@ -324,10 +359,10 @@ function validateScopedSupportUnion(targets: PrimaryFocusTarget[]): void {
           continue;
         }
         const supportField = `selectedFocusTargets[${primaryIndex}].supportTargets[${supportIndex}]`;
-        if (isDescendantOrEqual(supportTarget.path, getPrimaryWritableRoot(otherPrimary))) {
+        if (sameRepoValidationScope(supportTarget, otherPrimary) && isDescendantOrEqual(supportTarget.path, getPrimaryWritableRoot(otherPrimary))) {
           throw new Error(`${supportField} overlaps primary[${otherPrimaryIndex}] writable root.`);
         }
-        if (isStrictAncestor(supportTarget.path, otherPrimary.path)) {
+        if (sameRepoValidationScope(supportTarget, otherPrimary) && isStrictAncestor(supportTarget.path, otherPrimary.path)) {
           throw new Error(`${supportField} contains primary[${otherPrimaryIndex}].`);
         }
       }
@@ -335,11 +370,23 @@ function validateScopedSupportUnion(targets: PrimaryFocusTarget[]): void {
   }
 }
 
-function sameRepoValidationScope(a: PrimaryFocusTarget, b: PrimaryFocusTarget): boolean {
-  if (!a.repoLocalPath || !b.repoLocalPath) {
+function sameRepoValidationScope(a: FocusTarget, b: FocusTarget): boolean {
+  const leftIdentifiers = [a.repoLocalPath, a.repoId, a.focusId].filter(Boolean);
+  const rightIdentifiers = [b.repoLocalPath, b.repoId, b.focusId].filter(Boolean);
+  if (leftIdentifiers.length === 0 || rightIdentifiers.length === 0) {
     return true;
   }
-  return a.repoLocalPath === b.repoLocalPath;
+  return leftIdentifiers.some((identifier) => rightIdentifiers.includes(identifier));
+}
+
+function focusTargetIdentityKey(target: FocusTarget): string {
+  return [
+    target.repoLocalPath ?? '',
+    target.repoId ?? '',
+    target.focusId ?? '',
+    target.path,
+    target.kind,
+  ].join('\0');
 }
 
 function getPrimaryWritableRoot(primary: PrimaryFocusTarget): string {
@@ -457,6 +504,7 @@ export function normalizeSupportTargets(options: {
       target,
       primaryPath,
       testPath,
+      testTarget: options.testTarget,
       primaryTargets,
       currentPrimary,
       strictMultiPrimaryOverlap,
@@ -482,6 +530,7 @@ function normalizeSupportTarget(options: {
   primaryTargets: PrimaryFocusTarget[];
   currentPrimary: PrimaryFocusTarget;
   strictMultiPrimaryOverlap: boolean;
+  testTarget?: FocusTarget;
   testPath?: string;
 }): NormalizedSupportTarget {
   const { target, primaryPath, testPath } = options;
@@ -500,7 +549,7 @@ function normalizeSupportTarget(options: {
   }
 
   const duplicatePrimary = options.primaryTargets.find((primaryTarget) =>
-    sameRepoValidationScope(options.currentPrimary, primaryTarget)
+    sameRepoValidationScope(target, primaryTarget)
       && normalizedPath === normalizeRelativePath(primaryTarget.path),
   );
   if (duplicatePrimary) {
@@ -511,7 +560,7 @@ function normalizeSupportTarget(options: {
   }
   if (options.strictMultiPrimaryOverlap) {
     for (const primaryTarget of options.primaryTargets) {
-      if (!sameRepoValidationScope(options.currentPrimary, primaryTarget)) {
+      if (!sameRepoValidationScope(target, primaryTarget)) {
         continue;
       }
       const primaryTargetPath = normalizeRelativePath(primaryTarget.path);
@@ -525,29 +574,43 @@ function normalizeSupportTarget(options: {
         throw new Error(`Support target "${target.path}" cannot be an ancestor of a primary target.`);
       }
     }
-  } else if (isStrictDescendant(normalizedPath, primaryPath)) {
+  } else if (sameRepoValidationScope(target, options.currentPrimary) && isStrictDescendant(normalizedPath, primaryPath)) {
     throw new Error(`Support target "${target.path}" cannot be nested inside the primary target.`);
   }
-  if (testPath !== undefined && isStrictDescendant(normalizedPath, testPath)) {
+  if (testPath !== undefined && sameRepoValidationScope(target, options.testTarget ?? options.currentPrimary) && isStrictDescendant(normalizedPath, testPath)) {
     throw new Error(`Support target "${target.path}" cannot be nested inside the test target.`);
   }
 
   if (target.kind === 'file') {
-    return { path: normalizedPath, kind: 'file', effectiveScope: 'exact-file' };
+    return {
+      path: normalizedPath,
+      kind: 'file',
+      effectiveScope: 'exact-file',
+      ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+      ...(target.repoId ? { repoId: target.repoId } : {}),
+      ...(target.focusId ? { focusId: target.focusId } : {}),
+    };
   }
 
-  const containsPrimary = isStrictAncestor(normalizedPath, primaryPath);
-  const containsTest = testPath !== undefined && isStrictAncestor(normalizedPath, testPath);
+  const containsPrimary = sameRepoValidationScope(target, options.currentPrimary) && isStrictAncestor(normalizedPath, primaryPath);
+  const containsTest = testPath !== undefined
+    && sameRepoValidationScope(target, options.testTarget ?? options.currentPrimary)
+    && isStrictAncestor(normalizedPath, testPath);
+  const identity = {
+    ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+    ...(target.repoId ? { repoId: target.repoId } : {}),
+    ...(target.focusId ? { focusId: target.focusId } : {}),
+  };
   if (containsPrimary && containsTest) {
-    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-primary-and-test' };
+    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-primary-and-test', ...identity };
   }
   if (containsPrimary) {
-    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-primary' };
+    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-primary', ...identity };
   }
   if (containsTest) {
-    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-test' };
+    return { path: normalizedPath, kind: 'directory', effectiveScope: 'directory-minus-test', ...identity };
   }
-  return { path: normalizedPath, kind: 'directory', effectiveScope: 'full-directory' };
+  return { path: normalizedPath, kind: 'directory', effectiveScope: 'full-directory', ...identity };
 }
 
 function getInvalidRelativePathReason(rawPath: string, label: string): string | undefined {
@@ -603,6 +666,9 @@ function subsumesSupportTarget(
   candidate: NormalizedSupportTarget,
   target: NormalizedSupportTarget,
 ): boolean {
+  if (!sameRepoValidationScope(candidate, target)) {
+    return false;
+  }
   if (candidate.path === target.path) {
     if (candidate.kind !== target.kind) {
       throw new Error(`Support target "${target.path}" has conflicting kinds.`);

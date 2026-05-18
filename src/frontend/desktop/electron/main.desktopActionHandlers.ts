@@ -71,6 +71,12 @@ import {
   saveDeepFocusSelections,
   loadDeepFocusSelections,
   clearDeepFocusSelections,
+  listFocusFilters,
+  createFocusFilter,
+  deleteFocusFilter,
+  loadContextPackSidebarState,
+  saveContextPackSidebarState,
+  executeContextPackDeleteAction,
 } from './main.contextPackActions';
 import {
   emitStreamEvent,
@@ -142,6 +148,9 @@ export type DesktopActionHandlers = {
     payload: import('../src/shared/desktopContract').ContextPackSwitchPayload,
   ) => Promise<DesktopInvokeResult>;
   clearActiveContextPack: () => Promise<DesktopInvokeResult>;
+  deleteContextPack: (
+    payload: import('../src/shared/desktopContract').ContextPackDeleteRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
   listConversationHistory: () => Promise<DesktopInvokeResult>;
@@ -242,6 +251,19 @@ export type DesktopActionHandlers = {
   clearDeepFocusSelections: (
     payload: import('../src/shared/desktopContract').DeepFocusClearSelectionsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  listFocusFilters: (
+    payload: import('../src/shared/desktopContract').FocusFiltersListRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  createFocusFilter: (
+    payload: import('../src/shared/desktopContract').FocusFiltersCreateRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  deleteFocusFilter: (
+    payload: import('../src/shared/desktopContract').FocusFiltersDeleteRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadContextPackSidebarState: () => Promise<DesktopInvokeResult>;
+  saveContextPackSidebarState: (
+    payload: import('../src/shared/desktopContract').ContextPackSidebarStateSaveRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   uploadSpec: (
     content: string,
     options?: Parameters<typeof submitUploadedSpecHelper>[1],
@@ -324,6 +346,7 @@ export function createDefaultDesktopActionHandlers(
     ),
   clearActiveContextPack: () =>
     executeContextPackWorkspaceAction('contextPack.clearActive', 'clear'),
+  deleteContextPack: (payload) => executeContextPackDeleteAction(payload),
   pickMarkdownFile: () => pickMarkdownFileAction(),
   listArchivedTasks: () => listArchivedTasksAction(listAvailableContextPacks),
   listConversationHistory: () => listConversationHistoryAction(),
@@ -611,6 +634,11 @@ export function createDefaultDesktopActionHandlers(
   saveDeepFocusSelections: (payload) => saveDeepFocusSelections(payload),
   loadDeepFocusSelections: (payload) => loadDeepFocusSelections(payload),
   clearDeepFocusSelections: (payload) => clearDeepFocusSelections(payload),
+  listFocusFilters: (payload) => listFocusFilters(payload),
+  createFocusFilter: (payload) => createFocusFilter(payload),
+  deleteFocusFilter: (payload) => deleteFocusFilter(payload),
+  loadContextPackSidebarState: () => loadContextPackSidebarState(),
+  saveContextPackSidebarState: (payload) => saveContextPackSidebarState(payload),
   uploadSpec: submitUploadedSpecHelper,
   cancelTask: async (taskId: string) => {
     await stopPipeline(taskId);

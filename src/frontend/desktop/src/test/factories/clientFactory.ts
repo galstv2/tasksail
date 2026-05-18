@@ -643,6 +643,30 @@ export function createMockClient(
       ok: true,
       response: { action: 'deepFocus.clearSelections', mode: 'cleared', message: 'Deep focus selections cleared.' },
     }),
+    listFocusFilters: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'focusFilters.list', mode: 'read-only', filters: [], message: 'No focus filters saved.' },
+    }),
+    createFocusFilter: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'focusFilters.create', mode: 'created', filter: null, filters: [], message: 'Focus filter saved.' },
+    }),
+    deleteFocusFilter: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'focusFilters.delete', mode: 'deleted', filters: [], message: 'Focus filter deleted.' },
+    }),
+    loadContextPackSidebarState: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'contextPackSidebarState.load', mode: 'read-only', state: null, message: 'No context-pack sidebar state saved.' },
+    }),
+    saveContextPackSidebarState: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'contextPackSidebarState.save', mode: 'saved', message: 'Context-pack sidebar state saved.' },
+    }),
+    deleteContextPack: vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'contextPack.delete', mode: 'deleted', contextPackDir: '/tmp/context-pack', mirrorDir: '/tmp/mirror', message: 'Context pack deleted.' },
+    }),
     subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
     listInstructionFiles: vi.fn().mockResolvedValue({
       ok: true,

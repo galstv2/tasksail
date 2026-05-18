@@ -102,6 +102,7 @@ function selectedRowTarget(row: TreeRowData): ContextPackDeepFocusTarget {
   return {
     path: normalizeRelativePath(row.targetPath),
     kind: row.kind,
+    repoLocalPath: row.repoLocalPath,
   };
 }
 
@@ -126,6 +127,9 @@ function selectedRowBadgeInput(row: TreeRowData, activeTopLevelId: string | null
     kind: row.kind,
     systemLayer: row.systemLayer,
     label: row.label,
+    isTest: row.isTest,
+    artifactType: row.artifactType,
+    pathKind: row.pathKind,
     topLevelId: row.topLevelId,
     isTopLevel: row.isTopLevel,
     activeTopLevelId,
@@ -457,15 +461,15 @@ function supportFileCount(state: ContextPackDeepFocusState): number {
 function testFolderStatusLabel(state: ContextPackDeepFocusState): string {
   const scopedTestCount = (state.selectedFocusTargets ?? []).filter((primary) => primary.testTarget).length;
   if (state.selectedTestTarget) {
-    return `Test Folder: ${basename(state.selectedTestTarget.path)}`;
+    return `Test Target: ${basename(state.selectedTestTarget.path)}`;
   }
   if (scopedTestCount === 1) {
-    return 'Test Folder: 1 scoped';
+    return 'Test Target: 1 scoped';
   }
   if (scopedTestCount > 1) {
-    return `Test Folder: ${scopedTestCount} scoped`;
+    return `Test Target: ${scopedTestCount} scoped`;
   }
-  return 'Test Folder: none';
+  return 'Test Target: none';
 }
 
 function activeScopeLabel(

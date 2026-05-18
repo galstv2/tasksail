@@ -114,6 +114,10 @@ class TaskArchiveServiceTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            (archive_dir / "list-payload.json").write_text(
+                json.dumps([{"record_type": "task-archive"}], indent=2) + "\n",
+                encoding="utf-8",
+            )
             self.create_archive(
                 context_pack_dir,
                 scope="qmd/context-packs/sample-org",

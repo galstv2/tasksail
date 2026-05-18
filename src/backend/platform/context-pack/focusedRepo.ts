@@ -86,6 +86,9 @@ export interface FocusedRepoResult {
     kind: FocusTargetKind;
     /** Absolute path resolved from primaryRepoRoot + path. */
     resolvedPath: string;
+    repoLocalPath?: string;
+    repoId?: string;
+    focusId?: string;
   };
   /** Raw Deep Focus test target selection, including explicit null opt-out. */
   selectedTestTarget?: FocusTarget | null;
@@ -743,14 +746,14 @@ export function collectFocusedRepoTargetDirectoryRoots(
   const seen = new Set<string>();
 
   const addTargetDirectory = (
-    target?: { path: string; kind: FocusTargetKind } | null,
+    target?: { path: string; kind: FocusTargetKind; repoLocalPath?: string } | null,
     repoRoot?: string,
   ): void => {
     if (!target) {
       return;
     }
 
-    const targetRepoRoot = repoRoot || focused.primaryRepoRoot;
+    const targetRepoRoot = target.repoLocalPath || repoRoot || focused.primaryRepoRoot;
     const targetPath = normalizeRelativePath(target.path);
     const directoryRelativePath = target.kind === 'file'
       ? normalizeParentRelativePath(targetPath)

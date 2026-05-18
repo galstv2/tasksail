@@ -62,6 +62,52 @@ describe('validateDesktopActionRequest', () => {
     });
   });
 
+  describe('focusFilters.create', () => {
+    const selection = {
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
+      selectedTestTarget: undefined,
+      selectedSupportTargets: [],
+    };
+
+    it('accepts repository type roles on focus filter selections', () => {
+      expect(validateDesktopActionRequest({
+        action: 'focusFilters.create',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          name: 'Backend',
+          selection: {
+            ...selection,
+            repositoryTypes: { platform: 'primary', tools: 'support' },
+          },
+        },
+      })).toEqual([]);
+    });
+
+    it('rejects malformed repository type roles on focus filter selections', () => {
+      expect(validateDesktopActionRequest({
+        action: 'focusFilters.create',
+        payload: {
+          contextPackDir: '/tmp/pack',
+          name: 'Backend',
+          selection: {
+            ...selection,
+            repositoryTypes: { platform: 'owner', '': 'primary' },
+          },
+        },
+      })).toEqual([
+        'payload.selection.repositoryTypes.platform must be primary or support.',
+        'payload.selection.repositoryTypes keys must be non-empty strings.',
+      ]);
+    });
+  });
+
   describe('planner.startSession', () => {
     const snapshot = {
       version: 1,

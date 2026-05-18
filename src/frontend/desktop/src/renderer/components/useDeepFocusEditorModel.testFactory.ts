@@ -8,7 +8,7 @@ export function makeDeepFocusEditorModel(
     activeScopeLabel: 'Active scope: Global',
     primaryTargetCount: 0,
     supportFileCount: 0,
-    testFolderStatusLabel: 'Test Folder: none',
+    testFolderStatusLabel: 'Test Target: none',
     tree: {
       visibleRows: [],
       currentRowsLength: 0,

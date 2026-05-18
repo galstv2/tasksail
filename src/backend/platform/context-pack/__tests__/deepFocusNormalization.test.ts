@@ -213,6 +213,31 @@ describe('deepFocusNormalization', () => {
     })).toThrow('scoped-fields-on-repo-root-primary');
   });
 
+  it('allows cross-repo support on a repo-root primary when target identity is explicit', () => {
+    expect(normalizePrimaryFocusTargets({
+      rawTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          supportTargets: [{
+            path: 'Acme.Cli',
+            kind: 'directory',
+            repoLocalPath: '/repos/tools',
+            repoId: 'tools',
+          }],
+        },
+      ],
+    }).anchor?.supportTargets).toEqual([{
+      path: 'Acme.Cli',
+      kind: 'directory',
+      repoLocalPath: '/repos/tools',
+      repoId: 'tools',
+    }]);
+  });
+
   it('allows scoped test equal to the global test so root reasons can be preserved downstream', () => {
     expect(validateTestTarget({
       primaryPath: 'src/orders',

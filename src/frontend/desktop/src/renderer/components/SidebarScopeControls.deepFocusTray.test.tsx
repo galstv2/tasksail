@@ -191,7 +191,7 @@ describe('SidebarScopeControls Deep Focus scope rail', () => {
     expect(document.querySelector('.deep-focus-editor-header__summary-chip')).toBeNull();
     expect(screen.queryByText('0 Primary Targets')).not.toBeInTheDocument();
     expect(screen.queryByText('0 Support Files')).not.toBeInTheDocument();
-    expect(screen.queryByText('Test Folder: none')).not.toBeInTheDocument();
+    expect(screen.queryByText('Test Target: none')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close editor' })).toBeInTheDocument();
     expect(within(document.querySelector('.deep-focus-footer__actions') as HTMLElement)
       .getByText('Done')).toBeInTheDocument();

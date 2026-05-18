@@ -96,8 +96,8 @@ export function computeCommittedSummaryChips(
     primaryTargetsChip,
     effectiveTest
       ? singlePrimary?.testTarget
-        ? `Test Folder: ${basename(effectiveTest.path)}`
-        : `Test Folder: ${basename(effectiveTest.path)} (shared)`
+        ? `Test Target: ${basename(effectiveTest.path)}`
+        : `Test Target: ${basename(effectiveTest.path)} (shared)`
       : null,
     supportCount > 0
       ? `${supportCount} supports`
@@ -252,10 +252,10 @@ export function computeSelectionTraySummary(
       ? `Primary: ${getPrimaryDisplayLabel(draftTopLevel, normalizeRelativePath(draftState.selectedFocusPath))}`
       : 'Primary: none',
     draftState.selectedTestTarget
-      ? `Test Folder: ${basename(draftState.selectedTestTarget.path)}`
+      ? `Test Target: ${basename(draftState.selectedTestTarget.path)}`
       : draftState.selectedTestTarget === null
-        ? 'Test Folder: none'
-        : 'Test Folder: none selected',
+        ? 'Test Target: none'
+        : 'Test Target: none selected',
     `Support: ${draftState.selectedSupportTargets.length}`,
   ].join(' · ');
 }
@@ -290,6 +290,9 @@ export function buildTreeRows(
         isTopLevel: false,
         ancillaryAllowed: true,
         systemLayer: target.systemLayer,
+        isTest: entry.isTest,
+        artifactType: entry.artifactType,
+        pathKind: entry.pathKind,
         depth,
       };
       rows.push(row);

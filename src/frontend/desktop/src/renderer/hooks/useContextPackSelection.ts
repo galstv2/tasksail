@@ -9,11 +9,19 @@ import type {
   ContextPackListRepoTreeResponse,
   ContextPackDeepFocusTarget,
   ContextPackPrimaryFocusTarget,
+  ContextPackFocusFilter,
+  ContextPackFocusFilterSelection,
+  ContextPackSidebarPersistedState,
+  ContextPackFocusFilterRepositoryType,
 } from '../../shared/desktopContract';
 import {
   isContextPackCatalogChangedEvent,
   isContextPackListResponse,
   isDeepFocusLoadSelectionsResponse,
+  isFocusFiltersCreateResponse,
+  isFocusFiltersDeleteResponse,
+  isFocusFiltersListResponse,
+  isContextPackSidebarStateLoadResponse,
 } from '../../shared/desktopContractTypeGuards';
 import { hydrateLegacyPrimaries, migrateSupportScopes } from '../components/SidebarDeepFocusUtils';
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
@@ -38,6 +46,7 @@ import { useContextPackSwitching, type SwitchingStateSnapshot } from './useConte
 type RefreshOptions = {
   preferredContextPackDir?: string;
   preserveFeedback?: boolean;
+  preserveNoSelection?: boolean;
 };
 
 const log = createLogger('src/renderer/hooks/useContextPackSelection');
@@ -52,6 +61,78 @@ type DeepFocusSelectionCommit = {
   selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
   selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
+
+function cloneSelectionSnapshot(
+  snapshot: ContextPackFocusFilterSelection,
+): ContextPackFocusFilterSelection {
+  return {
+    selectedRepoIds: [...snapshot.selectedRepoIds],
+    selectedFocusIds: [...snapshot.selectedFocusIds],
+    ...(snapshot.repositoryTypes ? { repositoryTypes: { ...snapshot.repositoryTypes } } : {}),
+    deepFocusEnabled: snapshot.deepFocusEnabled,
+    deepFocusPrimaryRepoId: snapshot.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: snapshot.deepFocusPrimaryFocusId,
+    selectedFocusPath: snapshot.selectedFocusPath,
+    selectedFocusTargetKind: snapshot.selectedFocusTargetKind,
+    selectedFocusTargets: (snapshot.selectedFocusTargets ?? []).map((target) => ({ ...target })),
+    selectedTestTarget: snapshot.selectedTestTarget === undefined
+      ? undefined
+      : snapshot.selectedTestTarget
+        ? { ...snapshot.selectedTestTarget }
+        : null,
+    selectedSupportTargets: (snapshot.selectedSupportTargets ?? []).map((target) => ({ ...target })),
+  };
+}
+
+function buildSelectionSnapshot(args: {
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+  selectedDeepFocusState: ContextPackDeepFocusState | null;
+  selectedPack?: ContextPackCatalogEntry | null;
+}): ContextPackFocusFilterSelection {
+  const selectedIds = new Set([...args.selectedRepoIds, ...args.selectedFocusIds]);
+  const repositoryTypes = Object.fromEntries(
+    (args.selectedPack?.focusTargets ?? [])
+      .filter((target) => selectedIds.has(target.focusId) && target.repositoryType)
+      .map((target) => [target.focusId, target.repositoryType as ContextPackFocusFilterRepositoryType]),
+  );
+  return {
+    selectedRepoIds: [...args.selectedRepoIds],
+    selectedFocusIds: [...args.selectedFocusIds],
+    ...(Object.keys(repositoryTypes).length ? { repositoryTypes } : {}),
+    deepFocusEnabled: args.selectedDeepFocusState?.deepFocusEnabled ?? false,
+    deepFocusPrimaryRepoId: args.selectedDeepFocusState?.deepFocusPrimaryRepoId ?? null,
+    deepFocusPrimaryFocusId: args.selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
+    selectedFocusPath: args.selectedDeepFocusState?.selectedFocusPath ?? null,
+    selectedFocusTargetKind: args.selectedDeepFocusState?.selectedFocusTargetKind ?? null,
+    selectedFocusTargets: (args.selectedDeepFocusState?.selectedFocusTargets ?? []).map((target) => ({ ...target })),
+    selectedTestTarget: args.selectedDeepFocusState?.selectedTestTarget === undefined
+      ? undefined
+      : args.selectedDeepFocusState.selectedTestTarget
+        ? { ...args.selectedDeepFocusState.selectedTestTarget }
+        : null,
+    selectedSupportTargets: (args.selectedDeepFocusState?.selectedSupportTargets ?? []).map((target) => ({ ...target })),
+  };
+}
+
+function deepFocusStateFromSelection(
+  selection: ContextPackFocusFilterSelection,
+): ContextPackDeepFocusState {
+  return {
+    deepFocusEnabled: selection.deepFocusEnabled,
+    deepFocusPrimaryRepoId: selection.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: selection.deepFocusPrimaryFocusId,
+    selectedFocusPath: selection.selectedFocusPath,
+    selectedFocusTargetKind: selection.selectedFocusTargetKind,
+    selectedFocusTargets: (selection.selectedFocusTargets ?? []).map((target) => ({ ...target })),
+    selectedTestTarget: selection.selectedTestTarget === undefined
+      ? undefined
+      : selection.selectedTestTarget
+        ? { ...selection.selectedTestTarget }
+        : null,
+    selectedSupportTargets: (selection.selectedSupportTargets ?? []).map((target) => ({ ...target })),
+  };
+}
 
 export type UseContextPackSelectionResult = {
   contextPackSidebarProps: Omit<ContextPackSidebarProps, 'collapsed' | 'onToggleCollapse' | 'onOpenPlannerModal'>;
@@ -121,6 +202,44 @@ function mergeCatalogEntries(
   });
 }
 
+function applyRepositoryTypesToCatalog(
+  response: ContextPackListResponse,
+  contextPackDir: string,
+  repositoryTypes: Record<string, ContextPackFocusFilterRepositoryType>,
+): ContextPackListResponse {
+  return {
+    ...response,
+    contextPacks: response.contextPacks.map((entry) => {
+      if (entry.contextPackDir !== contextPackDir) {
+        return entry;
+      }
+      return {
+        ...entry,
+        focusTargets: entry.focusTargets.map((target) =>
+          target.focusId in repositoryTypes
+            ? { ...target, repositoryType: repositoryTypes[target.focusId] ?? null }
+            : target),
+      };
+    }),
+  };
+}
+
+function validateRepositoryTypesForPack(
+  selectedPack: ContextPackCatalogEntry,
+  repositoryTypes: Record<string, ContextPackFocusFilterRepositoryType>,
+): string | null {
+  const knownFocusIds = new Set(selectedPack.focusTargets.map((target) => target.focusId));
+  for (const [focusId, repositoryType] of Object.entries(repositoryTypes)) {
+    if (!knownFocusIds.has(focusId)) {
+      return 'This focus filter references repository roles that no longer exist in the selected context pack.';
+    }
+    if (repositoryType !== 'primary' && repositoryType !== 'support') {
+      return 'This focus filter contains an invalid repository role.';
+    }
+  }
+  return null;
+}
+
 export function useContextPackSelection(
   client: DesktopShellClient = desktopShellClient,
   repoRoot?: string,
@@ -136,11 +255,20 @@ export function useContextPackSelection(
   const [selectedFocusIds, setSelectedFocusIds] = useState<string[]>([]);
   const [selectedDeepFocusState, setSelectedDeepFocusState] =
     useState<ContextPackDeepFocusState | null>(null);
+  const [focusFilters, setFocusFilters] = useState<ContextPackFocusFilter[]>([]);
+  const [focusFilterPending, setFocusFilterPending] = useState(false);
+  const [focusFilterError, setFocusFilterError] = useState('');
   const [refreshPending, setRefreshPending] = useState(false);
   const [message, setMessage] = useState('Loading context packs…');
   const [error, setError] = useState('');
 
   const catalogResponseRef = useRef(catalogResponse);
+  const selectedRepoIdsRef = useRef(selectedRepoIds);
+  const selectedFocusIdsRef = useRef(selectedFocusIds);
+  const selectedDeepFocusStateRef = useRef(selectedDeepFocusState);
+  const sidebarSaveTimerRef = useRef<number | null>(null);
+  const sidebarStateHydratedRef = useRef(false);
+  const focusFilterRequestSeqRef = useRef(0);
   const { call } = useIpcCall(setError);
 
   useEffect(() => {
@@ -155,24 +283,134 @@ export function useContextPackSelection(
     catalogResponseRef.current = catalogResponse;
   }, [catalogResponse]);
 
-  const getSwitchingState = useCallback((): SwitchingStateSnapshot => ({
-    selectedContextPackDir: selectedContextPackDirRef.current,
-    catalogResponse: catalogResponseRef.current,
-    scopeMode: 'focused',
-    selectedRepoIds,
-    selectedFocusIds,
-    deepFocusEnabled: selectedDeepFocusState?.deepFocusEnabled ?? false,
-    deepFocusPrimaryRepoId: selectedDeepFocusState?.deepFocusPrimaryRepoId ?? null,
-    deepFocusPrimaryFocusId: selectedDeepFocusState?.deepFocusPrimaryFocusId ?? null,
-    selectedFocusPath: selectedDeepFocusState?.selectedFocusPath ?? null,
-    selectedFocusTargetKind: selectedDeepFocusState?.selectedFocusTargetKind ?? null,
-    selectedFocusTargets: selectedDeepFocusState?.selectedFocusTargets ?? [],
-    selectedTestTarget: selectedDeepFocusState?.selectedTestTarget,
-    selectedSupportTargets: selectedDeepFocusState?.selectedSupportTargets ?? [],
-  }), [selectedDeepFocusState, selectedRepoIds, selectedFocusIds]);
+  useEffect(() => {
+    selectedRepoIdsRef.current = selectedRepoIds;
+  }, [selectedRepoIds]);
+
+  useEffect(() => {
+    selectedFocusIdsRef.current = selectedFocusIds;
+  }, [selectedFocusIds]);
+
+  useEffect(() => {
+    selectedDeepFocusStateRef.current = selectedDeepFocusState;
+  }, [selectedDeepFocusState]);
+
+  useEffect(() => () => {
+    if (sidebarSaveTimerRef.current) {
+      window.clearTimeout(sidebarSaveTimerRef.current);
+    }
+  }, []);
+
+  const getSwitchingState = useCallback((): SwitchingStateSnapshot => {
+    const deepFocus = selectedDeepFocusStateRef.current;
+    return {
+      selectedContextPackDir: selectedContextPackDirRef.current,
+      catalogResponse: catalogResponseRef.current,
+      scopeMode: 'focused',
+      selectedRepoIds: selectedRepoIdsRef.current,
+      selectedFocusIds: selectedFocusIdsRef.current,
+      deepFocusEnabled: deepFocus?.deepFocusEnabled ?? false,
+      deepFocusPrimaryRepoId: deepFocus?.deepFocusPrimaryRepoId ?? null,
+      deepFocusPrimaryFocusId: deepFocus?.deepFocusPrimaryFocusId ?? null,
+      selectedFocusPath: deepFocus?.selectedFocusPath ?? null,
+      selectedFocusTargetKind: deepFocus?.selectedFocusTargetKind ?? null,
+      selectedFocusTargets: deepFocus?.selectedFocusTargets ?? [],
+      selectedTestTarget: deepFocus?.selectedTestTarget,
+      selectedSupportTargets: deepFocus?.selectedSupportTargets ?? [],
+    };
+  }, []);
+
+  const currentSelectionSnapshot = useCallback((): ContextPackFocusFilterSelection =>
+    buildSelectionSnapshot({
+      selectedRepoIds: selectedRepoIdsRef.current,
+      selectedFocusIds: selectedFocusIdsRef.current,
+      selectedDeepFocusState: selectedDeepFocusStateRef.current,
+      selectedPack: catalogResponseRef.current?.contextPacks.find(
+        (entry) => entry.contextPackDir === selectedContextPackDirRef.current,
+      ) ?? null,
+    }), []);
+
+  const saveSidebarState = useCallback((
+    contextPackDir: string | null,
+    selection: ContextPackFocusFilterSelection | null,
+  ) => {
+    return client.saveContextPackSidebarState(contextPackDir, selection).then((result) => {
+      if (!result.ok) {
+        log.warn('context-pack-sidebar-state.save.failed', {
+          contextPackDir,
+          reason: result.error,
+        });
+      }
+    }).catch((err: unknown) => {
+      log.warn('context-pack-sidebar-state.save.failed', {
+        contextPackDir,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }, [client]);
+
+  const scheduleSidebarStateSave = useCallback((contextPackDir: string) => {
+    if (!contextPackDir) {
+      return;
+    }
+    if (sidebarSaveTimerRef.current) {
+      window.clearTimeout(sidebarSaveTimerRef.current);
+    }
+    // Capture the snapshot at schedule time so a later pack switch cannot
+    // race the debounced fire and overwrite this pack's saved snapshot with
+    // the new pack's live state.
+    const snapshot = currentSelectionSnapshot();
+    sidebarSaveTimerRef.current = window.setTimeout(() => {
+      sidebarSaveTimerRef.current = null;
+      void saveSidebarState(contextPackDir, snapshot);
+    }, 250);
+  }, [currentSelectionSnapshot, saveSidebarState]);
+
+  const loadFocusFiltersForPack = useCallback((contextPackDir: string) => {
+    const requestSeq = ++focusFilterRequestSeqRef.current;
+    if (!contextPackDir) {
+      setFocusFilters([]);
+      setFocusFilterPending(false);
+      return;
+    }
+    setFocusFilterPending(true);
+    void client.listFocusFilters(contextPackDir).then((result) => {
+      if (
+        requestSeq !== focusFilterRequestSeqRef.current ||
+        selectedContextPackDirRef.current !== contextPackDir
+      ) {
+        return;
+      }
+      if (result.ok && isFocusFiltersListResponse(result.response)) {
+        setFocusFilters(result.response.filters);
+        setFocusFilterError('');
+        return;
+      }
+      const reason = result.ok ? 'Focus filter list returned an unexpected response.' : result.error;
+      setFocusFilterError(reason);
+      setError(reason);
+    }).catch((err: unknown) => {
+      if (
+        requestSeq !== focusFilterRequestSeqRef.current ||
+        selectedContextPackDirRef.current !== contextPackDir
+      ) {
+        return;
+      }
+      const reason = err instanceof Error ? err.message : String(err);
+      setFocusFilterError(reason);
+      setError(reason);
+    }).finally(() => {
+      if (
+        requestSeq === focusFilterRequestSeqRef.current &&
+        selectedContextPackDirRef.current === contextPackDir
+      ) {
+        setFocusFilterPending(false);
+      }
+    });
+  }, [client]);
 
   const refreshCatalog = useCallback(
-    async ({ preferredContextPackDir, preserveFeedback }: RefreshOptions = {}) => {
+    async ({ preferredContextPackDir, preserveFeedback, preserveNoSelection }: RefreshOptions = {}) => {
       setRefreshPending(true);
 
       const callResult = await call(
@@ -201,15 +439,33 @@ export function useContextPackSelection(
         response.contextPacks,
         pendingSessionEntries,
       );
+      let persistedSidebarState: ContextPackSidebarPersistedState | null = null;
+      const usePersistedSidebarState = !sidebarStateHydratedRef.current;
+      // Spec: persisted sidebar state is read only on initial catalog load.
+      // Subsequent refreshes (delete, reseed, catalog-changed) keep the live
+      // ref-tracked selection without re-reading disk.
+      if (usePersistedSidebarState) {
+        const sidebarStateResult = await client.loadContextPackSidebarState();
+        if (sidebarStateResult.ok && isContextPackSidebarStateLoadResponse(sidebarStateResult.response)) {
+          persistedSidebarState = sidebarStateResult.response.state;
+        }
+      }
+      const persistedContextPackDir = usePersistedSidebarState && persistedSidebarState?.selectedContextPackDir
+        && mergedContextPacks.some((entry) => entry.contextPackDir === persistedSidebarState?.selectedContextPackDir)
+        ? persistedSidebarState.selectedContextPackDir
+        : undefined;
 
-      const nextSelectedContextPackDir = selectPreferredContextPackDir(
-        mergedContextPacks,
-        [
-          preferredContextPackDir,
-          selectedContextPackDirRef.current,
-          response.activeContextPackDir,
-        ],
-      );
+      const nextSelectedContextPackDir = preserveNoSelection
+        ? ''
+        : selectPreferredContextPackDir(
+            mergedContextPacks,
+            [
+              preferredContextPackDir,
+              persistedContextPackDir,
+              selectedContextPackDirRef.current,
+              response.activeContextPackDir,
+            ],
+          );
       const nextSelectedPack = mergedContextPacks.find(
         (entry) => entry.contextPackDir === nextSelectedContextPackDir,
       );
@@ -221,18 +477,45 @@ export function useContextPackSelection(
         contextPacks: mergedContextPacks,
       });
       setSessionCreatedEntries(pendingSessionEntries);
+      selectedContextPackDirRef.current = nextSelectedContextPackDir;
       setSelectedContextPackDir(nextSelectedContextPackDir);
+      sidebarStateHydratedRef.current = true;
+      const persistedSnapshot = usePersistedSidebarState && nextSelectedContextPackDir
+        ? persistedSidebarState?.selectionsByContextPackDir?.[nextSelectedContextPackDir]
+        : undefined;
+      const persistedRepoIds = persistedSnapshot
+        ? selectPreferredWorkingRepoIds(nextSelectedPack, [persistedSnapshot.selectedRepoIds])
+        : [];
+      const persistedFocusIds = persistedSnapshot
+        ? selectPreferredWorkingFocusIds(nextSelectedPack, [persistedSnapshot.selectedFocusIds])
+        : [];
+      const stalePersistedSnapshot = Boolean(
+        persistedSnapshot &&
+        (
+          (persistedSnapshot.selectedRepoIds.length > 0 && persistedRepoIds.length === 0) ||
+          (persistedSnapshot.selectedFocusIds.length > 0 && persistedFocusIds.length === 0)
+        ),
+      );
+      if (stalePersistedSnapshot) {
+        log.warn('context-pack-sidebar-state.restore.stale', {
+          contextPackDir: nextSelectedContextPackDir,
+        });
+      }
       setSelectedRepoIds((current) =>
-        selectPreferredWorkingRepoIds(nextSelectedPack, [
-          current,
-          nextSelectedPack?.lastAppliedSelectedRepoIds,
-        ]),
+        !stalePersistedSnapshot && persistedSnapshot
+          ? persistedRepoIds
+          : selectPreferredWorkingRepoIds(nextSelectedPack, [
+              current,
+              nextSelectedPack?.lastAppliedSelectedRepoIds,
+            ]),
       );
       setSelectedFocusIds((current) =>
-        selectPreferredWorkingFocusIds(nextSelectedPack, [
-          current,
-          nextSelectedPack?.lastAppliedSelectedFocusIds,
-        ]),
+        !stalePersistedSnapshot && persistedSnapshot
+          ? persistedFocusIds
+          : selectPreferredWorkingFocusIds(nextSelectedPack, [
+              current,
+              nextSelectedPack?.lastAppliedSelectedFocusIds,
+            ]),
       );
       setError('');
       if (!preserveFeedback) {
@@ -240,13 +523,15 @@ export function useContextPackSelection(
       }
       const applyCatalogDefaultDeepFocusState = () => {
         setSelectedDeepFocusState((current) => {
-          const next = selectPreferredDeepFocusState(nextSelectedPack, [null]);
+          const next = !stalePersistedSnapshot && persistedSnapshot
+            ? deepFocusStateFromSelection(persistedSnapshot)
+            : selectPreferredDeepFocusState(nextSelectedPack, [null]);
           return isDeepFocusStateEqual(current, next) ? current : next;
         });
       };
 
       // Try restoring deep focus selections from disk for the initial load.
-      if (!preserveCurrentDeepFocus && nextSelectedContextPackDir) {
+      if (!persistedSnapshot && !preserveCurrentDeepFocus && nextSelectedContextPackDir) {
         void client.loadDeepFocusSelections(nextSelectedContextPackDir).then((result) => {
           const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
             ? result.response.selections
@@ -272,16 +557,19 @@ export function useContextPackSelection(
         }).finally(() => setRefreshPending(false));
       } else {
         setSelectedDeepFocusState((current) => {
-          const next = selectPreferredDeepFocusState(
-            nextSelectedPack,
-            [preserveCurrentDeepFocus ? current : null],
-          );
+          const next = !stalePersistedSnapshot && persistedSnapshot
+            ? deepFocusStateFromSelection(persistedSnapshot)
+            : selectPreferredDeepFocusState(
+                nextSelectedPack,
+                [preserveCurrentDeepFocus ? current : null],
+              );
           return isDeepFocusStateEqual(current, next) ? current : next;
         });
         setRefreshPending(false);
       }
+      loadFocusFiltersForPack(nextSelectedContextPackDir);
     },
-    [client, call],
+    [client, call, loadFocusFiltersForPack],
   );
 
   const {
@@ -336,20 +624,21 @@ export function useContextPackSelection(
 
   const handleSelectContextPack = useCallback(
     (contextPackDir: string) => {
+      selectedContextPackDirRef.current = contextPackDir;
       setSelectedContextPackDir(contextPackDir);
+      void saveSidebarState(contextPackDir, null);
+      loadFocusFiltersForPack(contextPackDir);
       const selectedPack = catalogResponse?.contextPacks.find(
         (entry) => entry.contextPackDir === contextPackDir,
       );
-      setSelectedRepoIds(
-        selectPreferredWorkingRepoIds(selectedPack, [
-          selectedPack?.lastAppliedSelectedRepoIds,
-        ]),
-      );
-      setSelectedFocusIds(
-        selectPreferredWorkingFocusIds(selectedPack, [
-          selectedPack?.lastAppliedSelectedFocusIds,
-        ]),
-      );
+      const nextRepoIds = selectPreferredWorkingRepoIds(selectedPack, [
+        selectedPack?.lastAppliedSelectedRepoIds,
+      ]);
+      const nextFocusIds = selectPreferredWorkingFocusIds(selectedPack, [
+        selectedPack?.lastAppliedSelectedFocusIds,
+      ]);
+      setSelectedRepoIds(nextRepoIds);
+      setSelectedFocusIds(nextFocusIds);
       // Try to restore persisted deep focus selections; fall back to last-applied state.
       void client.loadDeepFocusSelections(contextPackDir).then((result) => {
         const loaded = result.ok && isDeepFocusLoadSelectionsResponse(result.response)
@@ -363,6 +652,12 @@ export function useContextPackSelection(
         setSelectedDeepFocusState((current) =>
           isDeepFocusStateEqual(current, next) ? current : next,
         );
+        void saveSidebarState(contextPackDir, buildSelectionSnapshot({
+          selectedRepoIds: nextRepoIds,
+          selectedFocusIds: nextFocusIds,
+          selectedDeepFocusState: next,
+          selectedPack,
+        }));
       }).catch((err: unknown) => {
         log.warn('deep-focus.selections.load.failed', {
           contextPackDir,
@@ -372,9 +667,15 @@ export function useContextPackSelection(
         setSelectedDeepFocusState((current) =>
           isDeepFocusStateEqual(current, next) ? current : next,
         );
+        void saveSidebarState(contextPackDir, buildSelectionSnapshot({
+          selectedRepoIds: nextRepoIds,
+          selectedFocusIds: nextFocusIds,
+          selectedDeepFocusState: next,
+          selectedPack,
+        }));
       });
     },
-    [catalogResponse, client],
+    [catalogResponse, client, loadFocusFiltersForPack, saveSidebarState],
   );
 
   const handleSelectWorkingFocus = useCallback(
@@ -382,18 +683,23 @@ export function useContextPackSelection(
       const selectedPack = catalogResponse?.contextPacks.find(
         (entry) => entry.contextPackDir === selectedContextPackDirRef.current,
       );
+      const packDir = selectedContextPackDirRef.current;
       if (selectedPack?.estateType === 'distributed-platform') {
-        setSelectedRepoIds((current) =>
-          toggleFocusSelection(selectedPack, current, focusId),
-        );
+        setSelectedRepoIds((current) => {
+          const next = toggleFocusSelection(selectedPack, current, focusId);
+          if (packDir) window.setTimeout(() => scheduleSidebarStateSave(packDir), 0);
+          return next;
+        });
         return;
       }
 
-      setSelectedFocusIds((current) =>
-        toggleFocusSelection(selectedPack, current, focusId),
-      );
+      setSelectedFocusIds((current) => {
+        const next = toggleFocusSelection(selectedPack, current, focusId);
+        if (packDir) window.setTimeout(() => scheduleSidebarStateSave(packDir), 0);
+        return next;
+      });
     },
-    [catalogResponse],
+    [catalogResponse, scheduleSidebarStateSave],
   );
 
   const handleCommitDeepFocusSelection = useCallback(
@@ -420,6 +726,14 @@ export function useContextPackSelection(
       setSelectedDeepFocusState(nextState);
       const packDir = selectedContextPackDirRef.current;
       if (packDir) {
+        void saveSidebarState(packDir, buildSelectionSnapshot({
+          selectedRepoIds: selectedRepoIdsRef.current,
+          selectedFocusIds: selectedFocusIdsRef.current,
+          selectedDeepFocusState: nextState,
+          selectedPack: catalogResponseRef.current?.contextPacks.find(
+            (entry) => entry.contextPackDir === packDir,
+          ) ?? null,
+        }));
         void client.saveDeepFocusSelections(packDir, nextState)
           .then((result) => {
             if (!result.ok) {
@@ -440,7 +754,7 @@ export function useContextPackSelection(
           });
       }
     },
-    [client],
+    [client, saveSidebarState],
   );
 
   const handleListRepoTree = useCallback(
@@ -469,6 +783,203 @@ export function useContextPackSelection(
     [client],
   );
 
+  const handleCreateFocusFilter = useCallback(async (name: string): Promise<boolean> => {
+    const contextPackDir = selectedContextPackDirRef.current;
+    if (!contextPackDir) return false;
+    const requestSeq = ++focusFilterRequestSeqRef.current;
+    setFocusFilterPending(true);
+    const result = await client.createFocusFilter(contextPackDir, name, currentSelectionSnapshot());
+    if (
+      requestSeq !== focusFilterRequestSeqRef.current ||
+      selectedContextPackDirRef.current !== contextPackDir
+    ) {
+      return false;
+    }
+    if (!result.ok) {
+      setFocusFilterError(result.error);
+      setError(result.error);
+      setFocusFilterPending(false);
+      return false;
+    }
+    if (isFocusFiltersCreateResponse(result.response)) {
+      setFocusFilters(result.response.filters);
+      setFocusFilterError('');
+      setError('');
+      setFocusFilterPending(false);
+      return true;
+    }
+    setFocusFilterPending(false);
+    return false;
+  }, [client, currentSelectionSnapshot]);
+
+  const handleDeleteFocusFilter = useCallback(async (filterId: string) => {
+    const contextPackDir = selectedContextPackDirRef.current;
+    if (!contextPackDir) return;
+    const requestSeq = ++focusFilterRequestSeqRef.current;
+    setFocusFilterPending(true);
+    const result = await client.deleteFocusFilter(contextPackDir, filterId);
+    if (
+      requestSeq !== focusFilterRequestSeqRef.current ||
+      selectedContextPackDirRef.current !== contextPackDir
+    ) {
+      return;
+    }
+    if (!result.ok) {
+      setFocusFilterError(result.error);
+      setError(result.error);
+      setFocusFilterPending(false);
+      return;
+    }
+    if (isFocusFiltersDeleteResponse(result.response)) {
+      setFocusFilters(result.response.filters);
+      setFocusFilterError('');
+      setError('');
+    }
+    setFocusFilterPending(false);
+  }, [client]);
+
+  const handleApplyFocusFilter = useCallback(async (filterId: string): Promise<boolean> => {
+    const selectedPack = catalogResponseRef.current?.contextPacks.find(
+      (entry) => entry.contextPackDir === selectedContextPackDirRef.current,
+    );
+    const filter = focusFilters.find((entry) => entry.id === filterId);
+    if (!selectedPack || !filter || filter.contextPackDir !== selectedPack.contextPackDir) {
+      return false;
+    }
+    const filteredRepoIds = selectPreferredWorkingRepoIds(selectedPack, [filter.selection.selectedRepoIds]);
+    const filteredFocusIds = selectPreferredWorkingFocusIds(selectedPack, [filter.selection.selectedFocusIds]);
+    const hasStaleTopLevelIds =
+      (filter.selection.selectedRepoIds.length > 0 && filteredRepoIds.length === 0) ||
+      (filter.selection.selectedFocusIds.length > 0 && filteredFocusIds.length === 0);
+    if (hasStaleTopLevelIds) {
+      const reason = 'This focus filter references repositories or folders that no longer exist in the selected context pack.';
+      setFocusFilterError(reason);
+      setError(reason);
+      return false;
+    }
+    if (filter.selection.deepFocusPrimaryRepoId || filter.selection.deepFocusPrimaryFocusId) {
+      const knownRepoIds = new Set(
+        selectedPack.focusTargets
+          .map((target) => target.repoId)
+          .filter((repoId): repoId is string => typeof repoId === 'string' && repoId.length > 0),
+      );
+      const knownFocusIds = new Set(selectedPack.focusTargets.map((target) => target.focusId));
+      if (
+        filter.selection.deepFocusPrimaryRepoId &&
+        !knownRepoIds.has(filter.selection.deepFocusPrimaryRepoId)
+      ) {
+        const reason = 'This Deep Focus filter references a primary repository that no longer exists.';
+        setFocusFilterError(reason);
+        setError(reason);
+        return false;
+      }
+      if (
+        filter.selection.deepFocusPrimaryFocusId &&
+        !knownFocusIds.has(filter.selection.deepFocusPrimaryFocusId)
+      ) {
+        const reason = 'This Deep Focus filter references a primary folder that no longer exists.';
+        setFocusFilterError(reason);
+        setError(reason);
+        return false;
+      }
+    }
+
+    const snapshot = cloneSelectionSnapshot(filter.selection);
+    const nextDeepFocusState = deepFocusStateFromSelection(snapshot);
+    const repositoryTypes = snapshot.repositoryTypes ?? {};
+    const repositoryTypeError = validateRepositoryTypesForPack(selectedPack, repositoryTypes);
+    if (repositoryTypeError) {
+      setFocusFilterError(repositoryTypeError);
+      setError(repositoryTypeError);
+      return false;
+    }
+    if (Object.keys(repositoryTypes).length > 0 && catalogResponseRef.current) {
+      const nextCatalogResponse = applyRepositoryTypesToCatalog(
+        catalogResponseRef.current,
+        filter.contextPackDir,
+        repositoryTypes,
+      );
+      catalogResponseRef.current = nextCatalogResponse;
+      setCatalogResponse(nextCatalogResponse);
+    }
+    setSelectedRepoIds(filteredRepoIds);
+    setSelectedFocusIds(filteredFocusIds);
+    setSelectedDeepFocusState(nextDeepFocusState);
+    // Sync refs synchronously so the chained runAction('apply') below sees the
+    // just-applied selection. The matching useEffect-based ref sync only fires
+    // after the next render, which is too late for the same-task chain.
+    selectedRepoIdsRef.current = filteredRepoIds;
+    selectedFocusIdsRef.current = filteredFocusIds;
+    selectedDeepFocusStateRef.current = nextDeepFocusState;
+    void saveSidebarState(filter.contextPackDir, snapshot);
+    const currentRepositoryTypes = new Map(
+      selectedPack.focusTargets.map((target) => [target.focusId, target.repositoryType]),
+    );
+    for (const [repoId, repositoryType] of Object.entries(repositoryTypes)) {
+      if (currentRepositoryTypes.get(repoId) === repositoryType) {
+        continue;
+      }
+      void client.setRepositoryType(filter.contextPackDir, repoId, repositoryType)
+        .then((result) => {
+          if (!result.ok) {
+            log.warn('context-pack.repository-type.save.failed', {
+              contextPackDir: filter.contextPackDir,
+              repoId,
+              repositoryType,
+              reason: result.error,
+            });
+            setError(result.error);
+          }
+        })
+        .catch((err: unknown) => {
+          const reason = err instanceof Error ? err.message : String(err);
+          log.warn('context-pack.repository-type.save.failed', {
+            contextPackDir: filter.contextPackDir,
+            repoId,
+            repositoryType,
+            reason,
+          });
+          setError(reason);
+        });
+    }
+    void client.saveDeepFocusSelections(filter.contextPackDir, nextDeepFocusState).then((result) => {
+      if (!result.ok) {
+        log.warn('deep-focus.selections.save.failed', {
+          contextPackDir: filter.contextPackDir,
+          reason: result.error,
+        });
+      }
+    }).catch((err: unknown) => {
+      log.warn('deep-focus.selections.save.failed', {
+        contextPackDir: filter.contextPackDir,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    });
+    setFocusFilterError('');
+    setError('');
+    return true;
+  }, [client, focusFilters, saveSidebarState]);
+
+  const handleDeleteContextPack = useCallback(async (contextPackDir: string): Promise<boolean> => {
+    const result = await client.deleteContextPack(contextPackDir);
+    if (!result.ok) {
+      setError(result.error);
+      return false;
+    }
+    focusFilterRequestSeqRef.current += 1;
+    setFocusFilters([]);
+    setFocusFilterPending(false);
+    setFocusFilterError('');
+    selectedContextPackDirRef.current = '';
+    setSelectedContextPackDir('');
+    setSelectedRepoIds([]);
+    setSelectedFocusIds([]);
+    setSelectedDeepFocusState(null);
+    await saveSidebarState(null, null);
+    await refreshCatalog({ preserveFeedback: true, preserveNoSelection: true });
+    return true;
+  }, [client, refreshCatalog, saveSidebarState]);
+
   return {
     contextPackSidebarProps: {
       contextPacks: catalogResponse?.contextPacks ?? [],
@@ -489,6 +1000,9 @@ export function useContextPackSelection(
       selectedSupportTargets:
         selectedDeepFocusState?.selectedSupportTargets
         ?? EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE.selectedSupportTargets,
+      focusFilters,
+      focusFilterPending,
+      focusFilterError,
       actionPending: refreshPending ? 'refresh' : actionPending,
       message,
       error,
@@ -497,6 +1011,10 @@ export function useContextPackSelection(
       onSelectContextPack: handleSelectContextPack,
       onSelectWorkingFocus: handleSelectWorkingFocus,
       onCommitDeepFocusSelection: handleCommitDeepFocusSelection,
+      onCreateFocusFilter: handleCreateFocusFilter,
+      onApplyFocusFilter: handleApplyFocusFilter,
+      onDeleteFocusFilter: handleDeleteFocusFilter,
+      onDeleteContextPack: handleDeleteContextPack,
       onListRepoTree: handleListRepoTree,
       onRefreshCatalog: () => refreshCatalog(),
       onOpenCreateModal: contextPackCreationModalProps.onOpen,

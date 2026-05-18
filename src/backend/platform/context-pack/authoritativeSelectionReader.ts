@@ -432,22 +432,6 @@ function toFocusTarget(value: unknown): FocusTarget | undefined {
   if (targetPath === undefined || !kind) {
     return undefined;
   }
-  return { path: targetPath, kind };
-}
-
-export function toPrimaryFocusTarget(value: unknown): PrimaryFocusTarget | undefined {
-  const target = toFocusTarget(value);
-  if (!target || !value || typeof value !== 'object') {
-    return undefined;
-  }
-  const candidate = value as Record<string, unknown>;
-  const role = candidate.role;
-  if (role !== undefined && role !== 'anchor' && role !== 'primary') {
-    return undefined;
-  }
-  // Read repoLocalPath / repoId / focusId from either snake_case
-  // (workspace-context-sync.json, Python-side) or camelCase (selections file
-  // / task sidecar, frontend-side).
   const rawRepoLocalPath = Object.prototype.hasOwnProperty.call(candidate, 'repo_local_path')
     ? candidate.repo_local_path
     : candidate.repoLocalPath;
@@ -466,6 +450,25 @@ export function toPrimaryFocusTarget(value: unknown): PrimaryFocusTarget | undef
   const focusId = typeof rawFocusId === 'string' && rawFocusId.length > 0
     ? rawFocusId
     : undefined;
+  return {
+    path: targetPath,
+    kind,
+    ...(repoLocalPath ? { repoLocalPath } : {}),
+    ...(repoId ? { repoId } : {}),
+    ...(focusId ? { focusId } : {}),
+  };
+}
+
+export function toPrimaryFocusTarget(value: unknown): PrimaryFocusTarget | undefined {
+  const target = toFocusTarget(value);
+  if (!target || !value || typeof value !== 'object') {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const role = candidate.role;
+  if (role !== undefined && role !== 'anchor' && role !== 'primary') {
+    return undefined;
+  }
   const rawTestTarget = Object.prototype.hasOwnProperty.call(candidate, 'test_target')
     ? candidate.test_target
     : candidate.testTarget;
@@ -476,9 +479,6 @@ export function toPrimaryFocusTarget(value: unknown): PrimaryFocusTarget | undef
   const supportTargets = toFocusTargetArray(rawSupportTargets);
   return {
     ...target,
-    ...(repoLocalPath ? { repoLocalPath } : {}),
-    ...(repoId ? { repoId } : {}),
-    ...(focusId ? { focusId } : {}),
     ...(role ? { role } : {}),
     ...(testTarget ? { testTarget } : {}),
     ...(supportTargets ? { supportTargets } : {}),

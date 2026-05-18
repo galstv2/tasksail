@@ -20,9 +20,9 @@ export const deepFocusStrings = {
     repoRootHeader: 'Whole repo',
   },
   emptySlots: {
-    globalTest: 'No test folder selected for all primary targets.',
+    globalTest: 'No test target selected for all primary targets.',
     globalSupport: 'No support folders selected for all primary targets.',
-    primaryTest: (name: string) => `No test folder selected for ${name}.`,
+    primaryTest: (name: string) => `No test target selected for ${name}.`,
     primarySupport: (name: string) => `No support folders selected for ${name}.`,
   },
   repoRootNotice: 'This primary target covers the whole tree. No extra tests or supports needed.',

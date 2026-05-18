@@ -6,12 +6,14 @@ import {
   computePopoverActions,
   computeRowBadges,
   detectPromotableScope,
+  isTestClassifiedRow,
   validateNestedScopeForUi,
 } from './SidebarDeepFocusUtils';
 import {
   selectParentOfPrimaryRows,
   selectSiblingSupportCandidates,
 } from './sidebarDeepFocusSelectors';
+import { applyScopedRoleAction } from './sidebarDeepFocusReducers';
 import {
   deriveDeepFocusEditorModel,
   type DeepFocusEditorModelInput,
@@ -359,6 +361,67 @@ describe('Deep Focus scope utilities', () => {
       'Add as support for repo root',
       'Add as support for all',
     ]);
+  });
+
+  it('allows Tools folder support when Platform is a repo-root primary', () => {
+    const state = makeDeepFocusState({
+      selectedFocusPath: '',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoId: 'platform',
+          repoLocalPath: '/repos/platform',
+        },
+      ],
+    });
+    const toolsRow = {
+      targetPath: 'Acme.Cli',
+      kind: 'directory' as const,
+      label: 'Acme.Cli',
+      topLevelId: 'tools',
+    };
+
+    expect(computePopoverActions(toolsRow, state, { kind: 'primary', index: 0 }).map((action) => action.label))
+      .toEqual(expect.arrayContaining(['Add as support for repo root', 'Add as support for all']));
+
+    const scoped = applyScopedRoleAction(
+      { selectedWorkingFocusIds: ['platform'], state, scopeCursor: { kind: 'primary', index: 0 } },
+      { type: 'add-primary-support', index: 0 },
+      {
+        topLevelId: 'tools',
+        target: { path: 'Acme.Cli', kind: 'directory', repoLocalPath: '/repos/tools' },
+        topLevelTargets: [
+          {
+            id: 'platform',
+            label: 'Platform',
+            rootPath: '',
+            repoLocalPath: '/repos/platform',
+            ancillaryAllowed: true,
+            systemLayer: 'backend',
+          },
+          {
+            id: 'tools',
+            label: 'Tools',
+            rootPath: '',
+            repoLocalPath: '/repos/tools',
+            ancillaryAllowed: true,
+            systemLayer: 'backend',
+          },
+        ],
+        deepFocusMode: 'distributed',
+      },
+    ).next.state;
+
+    expect(scoped.selectedFocusTargets?.[0]?.supportTargets).toEqual([{
+      path: 'Acme.Cli',
+      kind: 'directory',
+      repoLocalPath: '/repos/tools',
+      repoId: 'tools',
+    }]);
+    expect(validateNestedScopeForUi(scoped)).toEqual([]);
   });
 
   it('targets the deepest containing primary when nested coverage exists', () => {
@@ -805,6 +868,45 @@ describe('Deep Focus scope utilities', () => {
     ]);
   });
 
+  it('classifies explicit test metadata on file rows only when metadata says so', () => {
+    expect(isTestClassifiedRow({
+      kind: 'file',
+      label: 'externalMcpHandlers.test.ts',
+      isTest: true,
+    })).toBe(true);
+    expect(isTestClassifiedRow({
+      kind: 'file',
+      label: 'externalMcpHandlers.test.ts',
+      artifactType: 'test-code',
+    })).toBe(true);
+    expect(isTestClassifiedRow({
+      kind: 'file',
+      label: 'externalMcpHandlers.ts',
+      isTest: false,
+    })).toBe(false);
+  });
+
+  it('offers global and scoped test actions for classified test files', () => {
+    const testFile = {
+      targetPath: 'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+      kind: 'file' as const,
+      label: 'externalMcpHandlers.test.ts',
+      isTest: true,
+    };
+
+    expect(computePopoverActions(
+      testFile,
+      makeDeepFocusState(),
+      { kind: 'global' },
+    ).map((action) => action.label)).toContain('Use as test for all');
+
+    expect(computePopoverActions(
+      testFile,
+      makeDeepFocusState(),
+      { kind: 'primary', index: 0 },
+    ).map((action) => action.label)).toContain('Use as test for users.ts');
+  });
+
   it('rejects child primary targets and support under an existing folder primary target', () => {
     const state = makeDeepFocusState({
       selectedFocusTargets: [
@@ -1001,7 +1103,7 @@ describe('Deep Focus scope utilities', () => {
     expect(model.tree.emptyStateLabel).toBe('No items');
     expect(model.primaryTargetCount).toBe(0);
     expect(model.supportFileCount).toBe(0);
-    expect(model.testFolderStatusLabel).toBe('Test Folder: none');
+    expect(model.testFolderStatusLabel).toBe('Test Target: none');
   });
 
   it('derives a selected row with command actions', () => {
@@ -1015,6 +1117,21 @@ describe('Deep Focus scope utilities', () => {
     expect(model.selectedRow.id).toBe(row.id);
     expect(model.selectedRow.label).toBe(row.label);
     expect(model.selectedRow.commandList.map((action) => action.label)).toContain('Add Primary Target');
+  });
+
+  it('threads live tree test metadata into selected-row commands', () => {
+    const row = makeTreeRow('src/frontend/desktop/electron/externalMcpHandlers.test.ts', {
+      isTest: true,
+      artifactType: 'test-code',
+      pathKind: 'tests',
+    });
+    const model = deriveDeepFocusEditorModel(makeEditorModelInput({
+      draftState: makeDeepFocusState(),
+      currentRows: [row],
+      selectedRow: { row, index: 0 },
+    }));
+
+    expect(model.selectedRow.commandList.map((action) => action.label)).toContain('Use as Test for all primaries');
   });
 
   it('derives active search state and filtered rows', () => {

@@ -74,6 +74,11 @@ from .services.qmd_index_service import QmdIndexService
 from .services.record_cache import ScopedRecordCache
 from .services.report_service import ReportRenderer
 from .services.seeding_service import SeedingService, SeedRuntimeState
+from .test_classification import (
+    ARTIFACT_TYPE_TEST_CODE,  # noqa: F401 - re-exported for helper tests and callers
+    PATH_KIND_TESTS,  # noqa: F401 - re-exported for helper tests and callers
+    is_test_path,  # noqa: F401 - re-exported for helper tests and callers
+)
 from .transport.cli import RepoContextCli
 from .transport.http import (
     RepoContextHttpHandler,

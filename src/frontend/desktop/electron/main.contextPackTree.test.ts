@@ -8,6 +8,11 @@ import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import {
+  ARTIFACT_TYPE_TEST_CODE,
+  PATH_KIND_TESTS,
+  isTestPath,
+} from './contextPackTestClassification';
 import { executeContextPackListRepoTreeAction } from './main.contextPackTree';
 import type { ContextPackListRepoTreeResponse, DesktopInvokeResult } from '../src/shared/desktopContract';
 
@@ -82,6 +87,35 @@ describe('executeContextPackListRepoTreeAction', () => {
     return repoRoot;
   }
 
+  it('classifies common test path conventions without substring false positives', () => {
+    for (const sourcePath of [
+      'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+      'src/frontend/desktop/src/renderer/App.integration.test.tsx',
+      'tests/domains/repo_context/test_repo_context_app_helpers.py',
+      'internal/server/server_test.go',
+      'app/src/test/java/com/acme/CheckoutTest.java',
+      'spec/models/order_spec.rb',
+      'Features/CheckoutTests.cs',
+      'src/frontend/desktop/electron/tests',
+    ]) {
+      expect(isTestPath(sourcePath), sourcePath).toBe(true);
+    }
+
+    for (const sourcePath of [
+      'src/contest.ts',
+      'src/latest.ts',
+      'src/attest.py',
+      'src/testingUtilities.ts',
+      'src/protest_handler.py',
+      'src/testament.rs',
+      'src/Git.java',
+      'src/Transit.java',
+      'src/Permit.java',
+    ]) {
+      expect(isTestPath(sourcePath), sourcePath).toBe(false);
+    }
+  });
+
   it('lists tree entries with deny-list, gitignore, and operator ignore filtering', async () => {
     const repoRoot = await makeRepo();
 
@@ -123,13 +157,72 @@ describe('executeContextPackListRepoTreeAction', () => {
       truncated: false,
     });
     expect(response.entries).toEqual([
-      { name: 'a-dir', relativePath: 'a-dir', kind: 'directory', hasChildren: true },
-      { name: 'b-dir', relativePath: 'b-dir', kind: 'directory', hasChildren: true },
-      { name: '.gitignore', relativePath: '.gitignore', kind: 'file', hasChildren: false },
-      { name: 'a.ts', relativePath: 'a.ts', kind: 'file', hasChildren: false },
-      { name: 'b.ts', relativePath: 'b.ts', kind: 'file', hasChildren: false },
-      { name: 'keep.ts', relativePath: 'keep.ts', kind: 'file', hasChildren: false },
+      { name: 'a-dir', relativePath: 'a-dir', kind: 'directory', hasChildren: true, isTest: false },
+      { name: 'b-dir', relativePath: 'b-dir', kind: 'directory', hasChildren: true, isTest: false },
+      { name: '.gitignore', relativePath: '.gitignore', kind: 'file', hasChildren: false, isTest: false },
+      { name: 'a.ts', relativePath: 'a.ts', kind: 'file', hasChildren: false, isTest: false },
+      { name: 'b.ts', relativePath: 'b.ts', kind: 'file', hasChildren: false, isTest: false },
+      { name: 'keep.ts', relativePath: 'keep.ts', kind: 'file', hasChildren: false, isTest: false },
     ]);
+  });
+
+  it('marks colocated test files without marking neighboring source files', async () => {
+    const repoRoot = await makeRepo();
+    await mkdir(path.join(repoRoot, 'src', 'frontend', 'desktop', 'electron'), { recursive: true });
+    await writeFile(
+      path.join(repoRoot, 'src', 'frontend', 'desktop', 'electron', 'externalMcpHandlers.ts'),
+      'export {};\n',
+    );
+    await writeFile(
+      path.join(repoRoot, 'src', 'frontend', 'desktop', 'electron', 'externalMcpHandlers.test.ts'),
+      'import { test } from "vitest";\n',
+    );
+
+    const result = await executeContextPackListRepoTreeAction(
+      {
+        repoLocalPath: repoRoot,
+        relativePath: 'src/frontend/desktop/electron',
+      },
+      {
+        catalogProvider: async () => makeCatalogResponse(repoRoot),
+      },
+    );
+
+    const response = getTreeResponse(result);
+    expect(response.entries).toContainEqual({
+      name: 'externalMcpHandlers.ts',
+      relativePath: 'src/frontend/desktop/electron/externalMcpHandlers.ts',
+      kind: 'file',
+      hasChildren: false,
+      isTest: false,
+    });
+    expect(response.entries).toContainEqual({
+      name: 'externalMcpHandlers.test.ts',
+      relativePath: 'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+      kind: 'file',
+      hasChildren: false,
+      isTest: true,
+      artifactType: ARTIFACT_TYPE_TEST_CODE,
+      pathKind: PATH_KIND_TESTS,
+    });
+  });
+
+  it('does not expose ignored test files', async () => {
+    const repoRoot = await makeRepo();
+    await writeFile(path.join(repoRoot, 'visible.test.ts'), 'import { test } from "vitest";\n');
+    await writeFile(path.join(repoRoot, 'hidden.test.ts'), 'import { test } from "vitest";\n');
+    await writeFile(path.join(repoRoot, '.gitignore'), 'hidden.test.ts\n');
+
+    const result = await executeContextPackListRepoTreeAction(
+      { repoLocalPath: repoRoot },
+      {
+        catalogProvider: async () => makeCatalogResponse(repoRoot),
+      },
+    );
+
+    const names = getTreeResponse(result).entries.map((entry) => entry.name);
+    expect(names).toContain('visible.test.ts');
+    expect(names).not.toContain('hidden.test.ts');
   });
 
   it('returns an empty list for unknown repo roots or invalid relative paths', async () => {

@@ -18,6 +18,11 @@ from .config import (
     DEFAULT_EXCLUDED_DIRS,
     RepoContextConfig,
 )
+from .test_classification import (
+    ARTIFACT_TYPE_TEST_CODE,
+    PATH_KIND_TESTS,
+    is_test_path,
+)
 from .utils import (
     ensure_list_of_strings,
     normalize_layer,
@@ -85,8 +90,8 @@ def detect_artifact_type(path: Path) -> str:
     suffix = path.suffix.lower()
     lowered_parts = {part.lower() for part in path.parts}
     name = path.name.lower()
-    if "tests" in lowered_parts or name.startswith("test_") or name.endswith("_test.py"):
-        return "test-code"
+    if is_test_path(path):
+        return ARTIFACT_TYPE_TEST_CODE
     if suffix in {".yml", ".yaml", ".json", ".toml", ".ini", ".cfg"}:
         return "configuration"
     if suffix == ".sql":
@@ -103,8 +108,8 @@ def detect_artifact_type(path: Path) -> str:
 def detect_path_kind(path: Path) -> str:
     lowered_parts = {part.lower() for part in path.parts}
     suffix = path.suffix.lower()
-    if "tests" in lowered_parts:
-        return "tests"
+    if is_test_path(path):
+        return PATH_KIND_TESTS
     if "docs" in lowered_parts or suffix == ".md":
         return "docs"
     if suffix in {".yml", ".yaml", ".json", ".toml", ".ini", ".cfg"}:

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  ContextPackListRepoTreeResponse,
   DesktopActionResponse,
   DesktopInvokeResult,
   TerminalSetTaskScopeResponse,
@@ -22,6 +23,30 @@ describe('desktopContract', () => {
     expect(response.action).toBe('terminal.setTaskScope');
   });
 
+  it('accepts optional test metadata on repo tree responses', () => {
+    const response: ContextPackListRepoTreeResponse = {
+      action: 'contextPack.listRepoTree',
+      mode: 'read-only',
+      message: 'Listed repo tree entries.',
+      currentPath: 'src',
+      repoLocalPath: '/repo',
+      truncated: false,
+      entries: [
+        {
+          name: 'externalMcpHandlers.test.ts',
+          relativePath: 'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+          kind: 'file',
+          hasChildren: false,
+          isTest: true,
+          artifactType: 'test-code',
+          pathKind: 'tests',
+        },
+      ],
+    };
+
+    expect(response.entries[0]?.isTest).toBe(true);
+  });
+
   it('accepts planner submit requests without sourceState and with legacy complete sourceState', () => {
     expect(
       validateDesktopActionRequest({
@@ -35,6 +60,9 @@ describe('desktopContract', () => {
             desiredOutcome: 'Dropbox submission succeeds through the helper seam.',
             constraints: 'Keep validation within approved desktop contracts.',
             acceptanceSignals: 'Submitted path is surfaced in the UI.',
+            criticalRequirements: 'CR-1: Preserve desktop submit behavior.',
+            compatibilityRequirements: 'COMP-1: Keep legacy sourceState compatible.',
+            requiredValidation: 'VAL-1: Runtime validation accepts the draft.',
             parentTaskId: '',
             parentQmdRecordId: '',
             parentQmdScope: '',
@@ -60,6 +88,9 @@ describe('desktopContract', () => {
             desiredOutcome: 'Dropbox submission succeeds through the helper seam.',
             constraints: 'Keep validation within approved desktop contracts.',
             acceptanceSignals: 'Submitted path is surfaced in the UI.',
+            criticalRequirements: 'CR-1: Preserve desktop submit behavior.',
+            compatibilityRequirements: 'COMP-1: Keep legacy sourceState compatible.',
+            requiredValidation: 'VAL-1: Runtime validation accepts the draft.',
             parentTaskId: '',
             parentQmdRecordId: '',
             parentQmdScope: '',

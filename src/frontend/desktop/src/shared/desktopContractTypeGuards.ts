@@ -9,6 +9,10 @@ import type {
   ContextPackPreviewResponse,
   ContextPackReseedResponse,
   DeepFocusLoadSelectionsResponse,
+  FocusFiltersCreateResponse,
+  FocusFiltersDeleteResponse,
+  FocusFiltersListResponse,
+  ContextPackSidebarStateLoadResponse,
   PackSeedState,
   TaskBoardReadBoardResponse,
 } from './desktopContract';
@@ -108,6 +112,50 @@ export function isDeepFocusLoadSelectionsResponse(
     response !== null &&
     'action' in response &&
     response.action === 'deepFocus.loadSelections'
+  );
+}
+
+export function isFocusFiltersListResponse(
+  response: unknown,
+): response is FocusFiltersListResponse {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'action' in response &&
+    response.action === 'focusFilters.list'
+  );
+}
+
+export function isFocusFiltersCreateResponse(
+  response: unknown,
+): response is FocusFiltersCreateResponse {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'action' in response &&
+    response.action === 'focusFilters.create'
+  );
+}
+
+export function isFocusFiltersDeleteResponse(
+  response: unknown,
+): response is FocusFiltersDeleteResponse {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'action' in response &&
+    response.action === 'focusFilters.delete'
+  );
+}
+
+export function isContextPackSidebarStateLoadResponse(
+  response: unknown,
+): response is ContextPackSidebarStateLoadResponse {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'action' in response &&
+    response.action === 'contextPackSidebarState.load'
   );
 }
 

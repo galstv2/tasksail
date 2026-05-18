@@ -150,6 +150,9 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
     <section>
       <div data-testid="active-context-pack-dir">{result.contextPackSidebarProps.activeContextPackDir ?? 'none'}</div>
       <div data-testid="context-pack-count">{result.contextPackSidebarProps.contextPacks.length}</div>
+      <div data-testid="delete-blocked-by-active-task">
+        {String(result.contextPackSidebarProps.deleteBlockedByActiveTask)}
+      </div>
       <div data-testid="modal-open">{String(result.contextPackCreationModalProps.isOpen)}</div>
       <div data-testid="sidebar-collapsed">{String(result.sidebarCollapsed)}</div>
       <div data-testid="active-task-label">{result.activeTaskLabel ?? 'none'}</div>
@@ -212,6 +215,7 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('terminal-feed-task-scopes')).toHaveTextContent('0');
     expect(screen.getByTestId('terminal-feed-selected-task')).toHaveTextContent('all');
     expect(screen.getByTestId('terminal-feed-select-handler')).toHaveTextContent('true');
+    expect(screen.getByTestId('delete-blocked-by-active-task')).toHaveTextContent('true');
     expect(screen.getByTestId('active-task-label')).toHaveTextContent('Observe queue artifacts');
     expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
   });
@@ -268,5 +272,6 @@ describe('useAppShell', () => {
     await waitFor(() => {
       expect(screen.getByTestId('active-context-pack-dir')).toHaveTextContent('none');
     });
+    expect(screen.getByTestId('delete-blocked-by-active-task')).toHaveTextContent('false');
   });
 });

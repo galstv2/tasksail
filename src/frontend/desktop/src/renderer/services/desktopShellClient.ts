@@ -94,6 +94,12 @@ type DesktopShellClient = Pick<
   | 'saveDeepFocusSelections'
   | 'loadDeepFocusSelections'
   | 'clearDeepFocusSelections'
+  | 'listFocusFilters'
+  | 'createFocusFilter'
+  | 'deleteFocusFilter'
+  | 'loadContextPackSidebarState'
+  | 'saveContextPackSidebarState'
+  | 'deleteContextPack'
   | 'subscribeContextPackCatalogChanged'
 >;
 
@@ -221,6 +227,18 @@ export function createDesktopShellClient(
       readShell().loadDeepFocusSelections(contextPackDir),
     clearDeepFocusSelections: (contextPackDir) =>
       readShell().clearDeepFocusSelections(contextPackDir),
+    listFocusFilters: (contextPackDir) =>
+      readShell().listFocusFilters(contextPackDir),
+    createFocusFilter: (contextPackDir, name, selection) =>
+      readShell().createFocusFilter(contextPackDir, name, selection),
+    deleteFocusFilter: (contextPackDir, filterId) =>
+      readShell().deleteFocusFilter(contextPackDir, filterId),
+    loadContextPackSidebarState: () =>
+      readShell().loadContextPackSidebarState(),
+    saveContextPackSidebarState: (selectedContextPackDir, selection) =>
+      readShell().saveContextPackSidebarState(selectedContextPackDir, selection),
+    deleteContextPack: (contextPackDir) =>
+      readShell().deleteContextPack(contextPackDir),
     subscribeContextPackCatalogChanged: (listener) =>
       readShell().subscribeContextPackCatalogChanged(listener),
   };

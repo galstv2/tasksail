@@ -51,3 +51,18 @@ export {
   loadDeepFocusSelections,
   clearDeepFocusSelections,
 } from './contextPackActions/deepFocusSelections';
+
+export {
+  listFocusFilters,
+  createFocusFilter,
+  deleteFocusFilter,
+} from './contextPackActions/focusFilters';
+
+export {
+  loadContextPackSidebarState,
+  saveContextPackSidebarState,
+} from './contextPackActions/contextPackSidebarState';
+
+export {
+  executeContextPackDeleteAction,
+} from './contextPackActions/delete';

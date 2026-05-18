@@ -76,6 +76,7 @@ import {
   type FollowUpDirectSubmissionDraft,
   type ContextPackDeepFocusState,
   type ContextPackCatalogChangedEvent,
+  type ContextPackFocusFilterSelection,
 } from '../src/shared/desktopContract';
 import { LOG_EMIT_CHANNEL, type LogEmitPayload } from '../src/shared/desktopContractLogging';
 import { isRecord } from '../src/shared/desktopContractValidators';
@@ -355,6 +356,11 @@ export const desktopShellApi = {
   clearActiveContextPack: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'contextPack.clearActive',
+    }),
+  deleteContextPack: async (contextPackDir: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPack.delete',
+      payload: { contextPackDir },
     }),
   startPlannerSession: async (
     payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
@@ -669,6 +675,42 @@ export const desktopShellApi = {
       action: 'deepFocus.clearSelections',
       payload: { contextPackDir },
     }),
+  listFocusFilters: async (
+    contextPackDir: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'focusFilters.list',
+      payload: { contextPackDir },
+    }),
+  createFocusFilter: async (
+    contextPackDir: string,
+    name: string,
+    selection: ContextPackFocusFilterSelection,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'focusFilters.create',
+      payload: { contextPackDir, name, selection },
+    }),
+  deleteFocusFilter: async (
+    contextPackDir: string,
+    filterId: string,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'focusFilters.delete',
+      payload: { contextPackDir, filterId },
+    }),
+  loadContextPackSidebarState: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPackSidebarState.load',
+    }),
+  saveContextPackSidebarState: async (
+    selectedContextPackDir: string | null,
+    selection: ContextPackFocusFilterSelection | null,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'contextPackSidebarState.save',
+      payload: { selectedContextPackDir, selection },
+    }),
   cancelTask: async (taskId: string): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'cancel-task',
@@ -866,6 +908,7 @@ export type DesktopShellApi = {
     deepFocusSelection?: import('../src/shared/desktopContract').ContextPackSwitchDeepFocusSelection,
   ) => Promise<DesktopInvokeResult>;
   clearActiveContextPack: () => Promise<DesktopInvokeResult>;
+  deleteContextPack: (contextPackDir: string) => Promise<DesktopInvokeResult>;
   startPlannerSession: (
     payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
   ) => Promise<DesktopInvokeResult>;
@@ -955,6 +998,18 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   loadDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
   clearDeepFocusSelections: (contextPackDir: string) => Promise<DesktopInvokeResult>;
+  listFocusFilters: (contextPackDir: string) => Promise<DesktopInvokeResult>;
+  createFocusFilter: (
+    contextPackDir: string,
+    name: string,
+    selection: ContextPackFocusFilterSelection,
+  ) => Promise<DesktopInvokeResult>;
+  deleteFocusFilter: (contextPackDir: string, filterId: string) => Promise<DesktopInvokeResult>;
+  loadContextPackSidebarState: () => Promise<DesktopInvokeResult>;
+  saveContextPackSidebarState: (
+    selectedContextPackDir: string | null,
+    selection: ContextPackFocusFilterSelection | null,
+  ) => Promise<DesktopInvokeResult>;
   cancelTask: (taskId: string) => Promise<DesktopInvokeResult>;
   onStreamEvent: (
     callback: (event: import('../src/renderer/activityStream').StreamEvent) => void,

@@ -87,6 +87,9 @@ class TaskArchiveService:
             except ValueError:
                 logger.warning("Skipping unreadable archive record at %s", path)
                 continue
+            if not isinstance(payload, dict):
+                logger.debug("Skipping non-object archive record at %s", path)
+                continue
             rt = payload.get("record_type")
             if not rt:
                 continue

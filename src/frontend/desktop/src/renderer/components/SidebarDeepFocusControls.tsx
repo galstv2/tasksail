@@ -76,6 +76,7 @@ type SidebarDeepFocusControlsProps = {
     repoLocalPath: string,
     relativePath?: string,
   ) => Promise<ContextPackListRepoTreeResponse | null>;
+  onManageFocusFilters?: () => void;
   onDeepFocusEditorToggle?: (expanded: boolean) => void;
   editorOpen?: boolean;
 };
@@ -148,6 +149,7 @@ function SidebarDeepFocusControls({
   selectedSupportTargets,
   onCommitDeepFocusSelection,
   onListRepoTree,
+  onManageFocusFilters,
   onDeepFocusEditorToggle,
   editorOpen = false,
 }: SidebarDeepFocusControlsProps): JSX.Element {
@@ -407,16 +409,6 @@ function SidebarDeepFocusControls({
     if (!draftTopLevel && draftHasPrimaryScope) {
       setApplyError('Select a Primary target before applying.');
       return false;
-    }
-    if (draft.state.selectedTestTarget && draft.state.selectedTestTarget.kind === 'file') {
-      setApplyError('Test target must be a folder, not a file.');
-      return false;
-    }
-    for (const primary of draft.state.selectedFocusTargets ?? []) {
-      if (primary.testTarget?.kind === 'file') {
-        setApplyError('Test target must be a folder, not a file.');
-        return false;
-      }
     }
     if (validateNestedScopeForUi(draft.state).length > 0) {
       setApplyError(null);
@@ -878,7 +870,22 @@ function SidebarDeepFocusControls({
           data-testid={editorOpen ? 'deep-focus-editor' : 'deep-focus-summary'}
         >
           <div className="scope-card__header">
-            <span className="scope-card__title">Workspace Selection</span>
+            <div className="scope-card__header-top">
+              <span className="scope-card__title">Workspace Selection</span>
+              {editorOpen ? null : (
+                <button
+                  type="button"
+                  className="sidebar-icon-btn"
+                  aria-label="Manage focus filters"
+                  title="Manage focus filters"
+                  onClick={onManageFocusFilters}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+                    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+            </div>
             {editorOpen ? (
               <button
                 type="button"

@@ -192,9 +192,37 @@
 .modal-shell__footer {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
   padding: 0.55rem 1.1rem;
   border-top: 1px solid var(--ts-border);
   flex-shrink: 0;
+}
+
+.modal-shell__footer .action-button--primary {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  color: var(--ts-text-inverse);
+  font-weight: 600;
+  transition:
+    background var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    opacity var(--ts-duration) var(--ts-ease);
+}
+
+.modal-shell__footer .action-button--primary:hover:not(:disabled) {
+  background: var(--ts-accent-hover);
+  border-color: var(--ts-accent-hover);
+}
+
+.modal-shell__footer .action-button--primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.modal-shell__footer .action-button--primary:disabled {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  opacity: 0.45;
 }
 
 .modal-shell--terminal .modal-shell__footer {
@@ -209,4 +237,3 @@
   opacity: 0.4;
   margin-right: auto;
 }
-

@@ -1,8 +1,15 @@
 export type ContextPackFocusTargetKind = 'directory' | 'file';
+export type ContextPackFocusFilterRepositoryType = 'primary' | 'support';
+
+export const CONTEXT_PACK_TEST_ARTIFACT_TYPE = 'test-code';
+export const CONTEXT_PACK_TEST_PATH_KIND = 'tests';
 
 export type ContextPackDeepFocusTarget = {
   path: string;
   kind: ContextPackFocusTargetKind;
+  repoLocalPath?: string;
+  repoId?: string;
+  focusId?: string;
 };
 
 export type ContextPackPrimaryFocusTarget = ContextPackDeepFocusTarget & {
@@ -64,6 +71,35 @@ export type ContextPackDeepFocusState = {
   derivedReadonlyContextRoots?: ContextPackDeepFocusDerivedRoot[];
 };
 
+export type ContextPackFocusFilterSelection = {
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+  repositoryTypes?: Record<string, ContextPackFocusFilterRepositoryType>;
+  deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets: ContextPackPrimaryFocusTarget[];
+  selectedTestTarget: ContextPackDeepFocusTarget | null | undefined;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
+};
+
+export type ContextPackFocusFilter = {
+  id: string;
+  name: string;
+  contextPackDir: string;
+  createdAt: string;
+  updatedAt: string;
+  selection: ContextPackFocusFilterSelection;
+};
+
+export type ContextPackSidebarPersistedState = {
+  selectedContextPackDir: string | null;
+  updatedAt: string;
+  selectionsByContextPackDir: Record<string, ContextPackFocusFilterSelection>;
+};
+
 export type ContextPackListRepoTreePayload = {
   repoLocalPath: string;
   relativePath?: string;
@@ -74,6 +110,9 @@ export type ContextPackRepoTreeEntry = {
   relativePath: string;
   kind: 'directory' | 'file';
   hasChildren: boolean;
+  isTest?: boolean;
+  artifactType?: string;
+  pathKind?: string;
 };
 
 export type ContextPackListRepoTreeRequest = {
@@ -129,5 +168,75 @@ export type DeepFocusLoadSelectionsResponse = {
 export type DeepFocusClearSelectionsResponse = {
   action: 'deepFocus.clearSelections';
   mode: 'cleared';
+  message: string;
+};
+
+export type FocusFiltersListRequest = {
+  action: 'focusFilters.list';
+  payload: { contextPackDir: string };
+};
+
+export type FocusFiltersCreateRequest = {
+  action: 'focusFilters.create';
+  payload: {
+    contextPackDir: string;
+    name: string;
+    selection: ContextPackFocusFilterSelection;
+  };
+};
+
+export type FocusFiltersDeleteRequest = {
+  action: 'focusFilters.delete';
+  payload: {
+    contextPackDir: string;
+    filterId: string;
+  };
+};
+
+export type FocusFiltersListResponse = {
+  action: 'focusFilters.list';
+  mode: 'read-only';
+  filters: ContextPackFocusFilter[];
+  message: string;
+};
+
+export type FocusFiltersCreateResponse = {
+  action: 'focusFilters.create';
+  mode: 'created';
+  filter: ContextPackFocusFilter;
+  filters: ContextPackFocusFilter[];
+  message: string;
+};
+
+export type FocusFiltersDeleteResponse = {
+  action: 'focusFilters.delete';
+  mode: 'deleted';
+  filters: ContextPackFocusFilter[];
+  message: string;
+};
+
+export type ContextPackSidebarStateLoadRequest = {
+  action: 'contextPackSidebarState.load';
+  payload?: undefined;
+};
+
+export type ContextPackSidebarStateSaveRequest = {
+  action: 'contextPackSidebarState.save';
+  payload: {
+    selectedContextPackDir: string | null;
+    selection: ContextPackFocusFilterSelection | null;
+  };
+};
+
+export type ContextPackSidebarStateLoadResponse = {
+  action: 'contextPackSidebarState.load';
+  mode: 'read-only';
+  state: ContextPackSidebarPersistedState | null;
+  message: string;
+};
+
+export type ContextPackSidebarStateSaveResponse = {
+  action: 'contextPackSidebarState.save';
+  mode: 'saved';
   message: string;
 };

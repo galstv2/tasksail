@@ -119,3 +119,44 @@ describe('executeContextPackWorkspaceAction env-activation boundary', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('buildContextPackWorkspaceArgs', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('preserves repo identity on cross-repo Deep Focus support targets', async () => {
+    const { buildContextPackWorkspaceArgs } = await import('./workspace');
+
+    const args = buildContextPackWorkspaceArgs('apply', {
+      contextPackDir: '/contextpacks/demo',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      selectedFocusTargets: [{
+        path: '',
+        kind: 'directory',
+        role: 'anchor',
+        repoLocalPath: '/repos/platform',
+        repoId: 'platform',
+      }],
+      selectedSupportTargets: [{
+        path: 'Acme.Cli',
+        kind: 'directory',
+        repoLocalPath: '/repos/tools',
+        repoId: 'tools',
+      }],
+    } as ContextPackSwitchPayload);
+
+    const supportTargetIndex = args.indexOf('--selected-support-target');
+    expect(supportTargetIndex).toBeGreaterThanOrEqual(0);
+    expect(JSON.parse(args[supportTargetIndex + 1]!)).toEqual({
+      path: 'Acme.Cli',
+      kind: 'directory',
+      repo_local_path: '/repos/tools',
+      repo_id: 'tools',
+    });
+  });
+});

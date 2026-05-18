@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..test_classification import is_test_path
 from ..utils import unique_preserving_order
 
 _FRONTEND_CONFIG_FILENAMES = {
@@ -100,19 +101,7 @@ def _find_path_patterns(
 
 
 def _is_test_signal_path(source_path: str) -> bool:
-    path = Path(source_path)
-    lowered_parts = {part.lower() for part in path.parts}
-    lowered_name = path.name.lower()
-    lowered_path = path.as_posix().lower()
-    return (
-        "tests" in lowered_parts
-        or "test" in lowered_parts
-        or lowered_name.startswith("test_")
-        or "/__tests__/" in lowered_path
-        or lowered_name.endswith("_test.py")
-        or lowered_name.endswith(".spec.ts")
-        or lowered_name.endswith(".spec.tsx")
-    )
+    return is_test_path(source_path)
 
 
 def _find_per_repo_test_infrastructure(

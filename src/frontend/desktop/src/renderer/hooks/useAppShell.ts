@@ -147,14 +147,27 @@ export function useAppShell(
     plannerDeepFocusSelection,
   );
 
+  const deleteBlockedByActiveTask = Boolean(
+    observability?.activeTaskId
+    || observability?.activeTasks?.length
+    || observability?.operatorStatus?.activeTasks.length,
+  );
+
   const mergedSidebarProps = useMemo(
     () => ({
       ...contextPackSidebarProps,
+      deleteBlockedByActiveTask,
       collapsed: effectiveSidebarCollapsed,
       onToggleCollapse: toggleSidebar,
       onOpenPlannerModal: openPlannerModal,
     }),
-    [contextPackSidebarProps, effectiveSidebarCollapsed, toggleSidebar, openPlannerModal],
+    [
+      contextPackSidebarProps,
+      deleteBlockedByActiveTask,
+      effectiveSidebarCollapsed,
+      toggleSidebar,
+      openPlannerModal,
+    ],
   );
 
   const terminalFeedProps = useMemo(

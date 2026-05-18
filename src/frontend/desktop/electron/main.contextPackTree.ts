@@ -13,6 +13,11 @@ import type {
 
 import { REPO_ROOT } from './paths';
 import { listAvailableContextPacks } from './main.contextPackCatalog';
+import {
+  ARTIFACT_TYPE_TEST_CODE,
+  PATH_KIND_TESTS,
+  isTestPath,
+} from './contextPackTestClassification';
 
 const TREE_ENTRY_LIMIT = 500;
 const OPERATOR_IGNORE_PATH = '.platform-state/deep-focus-ignore.json';
@@ -391,7 +396,20 @@ export async function executeContextPackListRepoTreeAction(
       relativePath: joinRepoRelativePath(requestedCurrentPath, entry.name),
       kind: entry.isDirectory() ? 'directory' as const : 'file' as const,
       hasChildren: entry.isDirectory(),
-    }));
+    }))
+    .map((entry) => {
+      const isTest = isTestPath(entry.relativePath);
+      return {
+        ...entry,
+        isTest,
+        ...(isTest
+          ? {
+            artifactType: ARTIFACT_TYPE_TEST_CODE,
+            pathKind: PATH_KIND_TESTS,
+          }
+          : {}),
+      };
+    });
 
   const ignoredByGit = await checkIgnoredPaths(
     canonicalRepoLocalPath,

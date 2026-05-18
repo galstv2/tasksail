@@ -142,6 +142,20 @@ function primaryContainsTarget(
     && isDirectoryAncestorTarget(primary, target);
 }
 
+function attachTopLevelIdentity(
+  target: ContextPackDeepFocusTarget,
+  topLevelTarget: TopLevelTarget | undefined,
+  deepFocusMode: DeepFocusMode,
+): ContextPackDeepFocusTarget {
+  return {
+    ...target,
+    path: normalizeRelativePath(target.path),
+    ...(topLevelTarget?.repoLocalPath ? { repoLocalPath: topLevelTarget.repoLocalPath } : {}),
+    ...(deepFocusMode === 'distributed' && topLevelTarget ? { repoId: topLevelTarget.id } : {}),
+    ...(deepFocusMode === 'monolith' && topLevelTarget ? { focusId: topLevelTarget.id } : {}),
+  };
+}
+
 export type ScopedRoleActionContext = {
   topLevelId: string;
   target: ContextPackDeepFocusTarget;
@@ -165,7 +179,9 @@ export function applyScopedRoleAction(
   action: ScopedRoleAction,
   ctx: ScopedRoleActionContext,
 ): ScopedRoleActionResult {
-  const { topLevelId, target, topLevelTargets, deepFocusMode } = ctx;
+  const { topLevelId, target: rawTarget, topLevelTargets, deepFocusMode } = ctx;
+  const topLevelTarget = topLevelTargets.find((candidate) => candidate.id === topLevelId);
+  const target = attachTopLevelIdentity(rawTarget, topLevelTarget, deepFocusMode);
 
   if (action.type === 'make-primary') {
     const normalizedTarget = {
@@ -176,7 +192,6 @@ export function applyScopedRoleAction(
     // user makes a primary in a different top-level. Cross-repo selection is
     // additive; the validator handles overlap rules per-repo.
     const currentTargets = normalizePrimaryTargetRoles(current.state.selectedFocusTargets ?? []);
-    const topLevelTarget = topLevelTargets.find((candidate) => candidate.id === topLevelId);
     const currentAnchor = currentTargets.find((candidate) => candidate.role === 'anchor');
     const currentAnchorPath = currentAnchor ? normalizeRelativePath(currentAnchor.path) : null;
     const isImplicitMonolithRootAnchor = deepFocusMode === 'monolith'
@@ -319,7 +334,6 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'add-global-support') {
-    const topLevelTarget = topLevelTargets.find((candidate) => candidate.id === topLevelId);
     const supportCoveredByPrimary = (current.state.selectedFocusTargets ?? []).some((primary) =>
       primaryContainsTarget(primary, target, topLevelTarget, deepFocusMode));
     if (supportCoveredByPrimary) {
@@ -380,7 +394,6 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'add-primary-support') {
-    const topLevelTarget = topLevelTargets.find((candidate) => candidate.id === topLevelId);
     const supportCoveredByPrimary = (current.state.selectedFocusTargets ?? []).some((primary) =>
       primaryContainsTarget(primary, target, topLevelTarget, deepFocusMode));
     if (supportCoveredByPrimary) {

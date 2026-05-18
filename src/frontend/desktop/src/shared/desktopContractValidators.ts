@@ -36,6 +36,26 @@ export {
   validatePlannerFocusSnapshot,
 } from './desktopContractValidationCore';
 
+function validateFocusFilterRepositoryTypes(value: unknown): string[] {
+  if (!isRecord(value) || value.repositoryTypes === undefined) {
+    return [];
+  }
+  if (!isRecord(value.repositoryTypes)) {
+    return ['payload.selection.repositoryTypes must be an object when provided.'];
+  }
+
+  const errors: string[] = [];
+  for (const [repoId, repositoryType] of Object.entries(value.repositoryTypes)) {
+    if (!repoId.trim()) {
+      errors.push('payload.selection.repositoryTypes keys must be non-empty strings.');
+    }
+    if (repositoryType !== 'primary' && repositoryType !== 'support') {
+      errors.push(`payload.selection.repositoryTypes.${repoId} must be primary or support.`);
+    }
+  }
+  return errors;
+}
+
 export function isValidDesktopActionRequest(
   request: unknown,
 ): request is DesktopActionRequest {
@@ -57,6 +77,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'observability.readSnapshot':
     case 'contextPack.list':
     case 'contextPack.clearActive':
+    case 'contextPackSidebarState.load':
     case 'planner.endSession':
     case 'planner.saveDraft':
     case 'planner.readStagedDraft':
@@ -543,6 +564,67 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
       if (!isNonEmptyString(request.payload.contextPackDir)) {
         return ['payload.contextPackDir must be a non-empty string.'];
+      }
+      return [];
+    }
+    case 'focusFilters.list':
+    case 'focusFilters.delete': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be an absolute path string.');
+      }
+      if (
+        request.action === 'focusFilters.delete' &&
+        !isNonEmptyString(request.payload.filterId)
+      ) {
+        errors.push('payload.filterId must be a non-empty string.');
+      }
+      return errors;
+    }
+    case 'focusFilters.create': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be an absolute path string.');
+      }
+      if (!isNonEmptyString(request.payload.name)) {
+        errors.push('payload.name must be a non-empty string.');
+      }
+      if (!isRecord(request.payload.selection)) {
+        errors.push('payload.selection must be an object.');
+      } else {
+        errors.push(...validateFocusFilterRepositoryTypes(request.payload.selection));
+      }
+      return errors;
+    }
+    case 'contextPackSidebarState.save': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (
+        request.payload.selectedContextPackDir !== null &&
+        !isAbsolutePath(request.payload.selectedContextPackDir)
+      ) {
+        errors.push('payload.selectedContextPackDir must be null or an absolute path string.');
+      }
+      if (
+        request.payload.selection !== null &&
+        !isRecord(request.payload.selection)
+      ) {
+        errors.push('payload.selection must be null or an object.');
+      }
+      if (
+        request.payload.selection !== null &&
+        request.payload.selectedContextPackDir === null
+      ) {
+        errors.push('payload.selectedContextPackDir must be non-null when selection is present.');
+      }
+      return errors;
+    }
+    case 'contextPack.delete': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        return ['payload.contextPackDir must be an absolute path string.'];
       }
       return [];
     }

@@ -24,6 +24,9 @@ export interface ResolvedDeepFocusSelection {
     path: string;
     kind: FocusTargetKind;
     resolvedPath: string;
+    repoLocalPath?: string;
+    repoId?: string;
+    focusId?: string;
   };
   supportTargets?: NormalizedSupportTarget[];
   warnings?: string[];
@@ -69,6 +72,7 @@ export function resolveDeepFocusSelection(options: {
     primaryTarget,
     options.selection.selectedTestTarget,
     canonicalRoot,
+    options.declaredRepoRoots,
   );
   const supportTargets = resolveValidatedSupportTargets(
     options.primaryRepoRoot,
@@ -77,6 +81,7 @@ export function resolveDeepFocusSelection(options: {
     validatedTestTarget?.rawTarget,
     options.selection.selectedSupportTargets ?? [],
     canonicalRoot,
+    options.declaredRepoRoots,
   );
   const warnings = collectDeepFocusWarnings(resolvedPrimaryTargets.length > 0 ? resolvedPrimaryTargets : [primaryTarget], validatedTestTarget?.rawTarget);
 
@@ -155,6 +160,7 @@ function resolvePrimaryDeepFocusTargets(options: {
         estateType: options.estateType,
         legacyPrimaryFocusRelativePath: options.legacyPrimaryFocusRelativePath,
         canonicalRoot: targetRepoRoot.canonicalRoot,
+        declaredRepoRoots: options.declaredRepoRoots,
       }),
     });
   }
@@ -198,8 +204,13 @@ function resolveScopedFocusTargets(options: {
   estateType?: string;
   legacyPrimaryFocusRelativePath?: string;
   canonicalRoot?: string;
+  declaredRepoRoots?: string[];
 }): Pick<PrimaryFocusTarget, 'testTarget' | 'supportTargets'> {
-  if (!options.ownerTarget.path && (options.target.testTarget || (options.target.supportTargets?.length ?? 0) > 0)) {
+  const sameScopeScopedTargets = [
+    options.target.testTarget,
+    ...(options.target.supportTargets ?? []),
+  ].some((target) => target && targetsShareTopLevel(options.target, target));
+  if (!options.ownerTarget.path && sameScopeScopedTargets) {
     throw new Error(`Primary Deep Focus target "${options.target.path}" cannot carry scoped test or support targets because it selects the repo root.`);
   }
 
@@ -208,6 +219,7 @@ function resolveScopedFocusTargets(options: {
         ...options,
         scopedTarget: options.target.testTarget,
         label: `Scoped test target for primary "${options.target.path}"`,
+        declaredRepoRoots: options.declaredRepoRoots,
       })
     : undefined;
   const supportTargets = (options.target.supportTargets ?? []).map((supportTarget, index) =>
@@ -215,6 +227,7 @@ function resolveScopedFocusTargets(options: {
       ...options,
       scopedTarget: supportTarget,
       label: `Scoped support target[${index}] for primary "${options.target.path}"`,
+      declaredRepoRoots: options.declaredRepoRoots,
     }),
   );
 
@@ -231,12 +244,19 @@ function resolveScopedFocusTarget(options: {
   estateType?: string;
   legacyPrimaryFocusRelativePath?: string;
   canonicalRoot?: string;
+  declaredRepoRoots?: string[];
 }): FocusTarget {
+  const targetRepoRoot = resolveFocusTargetRepoRoot({
+    primaryRepoRoot: options.primaryRepoRoot,
+    target: options.scopedTarget,
+    declaredRepoRoots: options.declaredRepoRoots,
+    canonicalRoot: options.canonicalRoot,
+  });
   const resolved = resolveExistingFocusTarget(
-    options.primaryRepoRoot,
+    targetRepoRoot.repoRoot,
     options.scopedTarget,
     options.label,
-    options.canonicalRoot,
+    targetRepoRoot.canonicalRoot,
   );
   if (
     isMonolithEstateType(options.estateType)
@@ -248,7 +268,13 @@ function resolveScopedFocusTarget(options: {
       `${options.label} "${options.scopedTarget.path}" must stay within the selected monolith focus area "${options.legacyPrimaryFocusRelativePath}".`,
     );
   }
-  return { path: resolved.path, kind: resolved.kind ?? options.scopedTarget.kind };
+  return {
+    path: resolved.path,
+    kind: resolved.kind ?? options.scopedTarget.kind,
+    ...(options.scopedTarget.repoLocalPath ? { repoLocalPath: options.scopedTarget.repoLocalPath } : {}),
+    ...(options.scopedTarget.repoId ? { repoId: options.scopedTarget.repoId } : {}),
+    ...(options.scopedTarget.focusId ? { focusId: options.scopedTarget.focusId } : {}),
+  };
 }
 
 function resolvePrimaryDeepFocusTarget(options: {
@@ -337,6 +363,7 @@ function resolveValidatedTestTarget(
   primaryTarget: { path: string; kind?: FocusTargetKind },
   rawTestTarget?: FocusTarget | null,
   canonicalRoot?: string,
+  declaredRepoRoots?: string[],
 ): { rawTarget: FocusTarget; resolvedPath: string } | undefined {
   if (!rawTestTarget) {
     return undefined;
@@ -351,20 +378,48 @@ function resolveValidatedTestTarget(
     throw new Error(validation.reason);
   }
 
-  const resolved = resolveExistingFocusTarget(primaryRepoRoot, rawTestTarget, 'Deep Focus test target', canonicalRoot);
-  return { rawTarget: { path: resolved.path, kind: resolved.kind ?? rawTestTarget.kind }, resolvedPath: resolved.resolvedPath };
+  const targetRepoRoot = resolveFocusTargetRepoRoot({
+    primaryRepoRoot,
+    target: rawTestTarget,
+    declaredRepoRoots,
+    canonicalRoot,
+  });
+  const resolved = resolveExistingFocusTarget(
+    targetRepoRoot.repoRoot,
+    rawTestTarget,
+    'Deep Focus test target',
+    targetRepoRoot.canonicalRoot,
+  );
+  return {
+    rawTarget: {
+      path: resolved.path,
+      kind: resolved.kind ?? rawTestTarget.kind,
+      ...(rawTestTarget.repoLocalPath ? { repoLocalPath: rawTestTarget.repoLocalPath } : {}),
+      ...(rawTestTarget.repoId ? { repoId: rawTestTarget.repoId } : {}),
+      ...(rawTestTarget.focusId ? { focusId: rawTestTarget.focusId } : {}),
+    },
+    resolvedPath: resolved.resolvedPath,
+  };
 }
 
 function dedupeResolvedTestTarget(
-  primaryTarget: { path: string; kind?: FocusTargetKind },
+  primaryTarget: FocusTarget,
   testTarget?: { rawTarget: FocusTarget; resolvedPath: string },
-): { path: string; kind: FocusTargetKind; resolvedPath: string } | undefined {
+): {
+  path: string;
+  kind: FocusTargetKind;
+  resolvedPath: string;
+  repoLocalPath?: string;
+  repoId?: string;
+  focusId?: string;
+} | undefined {
   if (!testTarget) {
     return undefined;
   }
 
   const primaryKind = primaryTarget.kind ?? 'directory';
-  if (doesTargetCover(primaryTarget.path, primaryKind, testTarget.rawTarget.path)) {
+  if (targetsShareTopLevel(primaryTarget, testTarget.rawTarget)
+    && doesTargetCover(primaryTarget.path, primaryKind, testTarget.rawTarget.path)) {
     return undefined;
   }
 
@@ -372,6 +427,9 @@ function dedupeResolvedTestTarget(
     path: testTarget.rawTarget.path,
     kind: testTarget.rawTarget.kind,
     resolvedPath: testTarget.resolvedPath,
+    ...(testTarget.rawTarget.repoLocalPath ? { repoLocalPath: testTarget.rawTarget.repoLocalPath } : {}),
+    ...(testTarget.rawTarget.repoId ? { repoId: testTarget.rawTarget.repoId } : {}),
+    ...(testTarget.rawTarget.focusId ? { focusId: testTarget.rawTarget.focusId } : {}),
   };
 }
 
@@ -382,10 +440,28 @@ function resolveValidatedSupportTargets(
   rawTestTarget: FocusTarget | undefined,
   rawSupportTargets: FocusTarget[],
   canonicalRoot?: string,
+  declaredRepoRoots?: string[],
 ): NormalizedSupportTarget[] {
   const validatedTargets = rawSupportTargets.map((target) => {
-    const resolved = resolveExistingFocusTarget(primaryRepoRoot, target, 'Deep Focus support target', canonicalRoot);
-    return { path: resolved.path, kind: resolved.kind ?? target.kind };
+    const supportRepoRoot = resolveFocusTargetRepoRoot({
+      primaryRepoRoot,
+      target,
+      declaredRepoRoots,
+      canonicalRoot,
+    });
+    const resolved = resolveExistingFocusTarget(
+      supportRepoRoot.repoRoot,
+      target,
+      'Deep Focus support target',
+      supportRepoRoot.canonicalRoot,
+    );
+    return {
+      path: resolved.path,
+      kind: resolved.kind ?? target.kind,
+      ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+      ...(target.repoId ? { repoId: target.repoId } : {}),
+      ...(target.focusId ? { focusId: target.focusId } : {}),
+    };
   });
 
   return normalizeSupportTargets({
@@ -395,6 +471,35 @@ function resolveValidatedSupportTargets(
     testTarget: rawTestTarget,
     rawTargets: validatedTargets,
   });
+}
+
+function resolveFocusTargetRepoRoot(options: {
+  primaryRepoRoot: string;
+  target: FocusTarget;
+  declaredRepoRoots: string[] | undefined;
+  canonicalRoot?: string;
+}): { repoRoot: string; canonicalRoot: string } {
+  if (!options.target.repoLocalPath) {
+    return {
+      repoRoot: options.primaryRepoRoot,
+      canonicalRoot: options.canonicalRoot ?? realpathSync(options.primaryRepoRoot),
+    };
+  }
+  const resolvedTargetRoot = realpathSync(options.target.repoLocalPath);
+  const declaredRoots = options.declaredRepoRoots?.map((root) => realpathSync(root)) ?? [];
+  if (declaredRoots.length > 0 && !declaredRoots.includes(resolvedTargetRoot)) {
+    throw new Error(`Deep Focus target repoLocalPath "${options.target.repoLocalPath}" is not declared in the context pack.`);
+  }
+  return { repoRoot: resolvedTargetRoot, canonicalRoot: resolvedTargetRoot };
+}
+
+function targetsShareTopLevel(left: FocusTarget, right: FocusTarget): boolean {
+  const leftIdentifiers = [left.repoLocalPath, left.repoId, left.focusId].filter(Boolean);
+  const rightIdentifiers = [right.repoLocalPath, right.repoId, right.focusId].filter(Boolean);
+  if (leftIdentifiers.length === 0 || rightIdentifiers.length === 0) {
+    return true;
+  }
+  return leftIdentifiers.some((identifier) => rightIdentifiers.includes(identifier));
 }
 
 function resolveExistingFocusTarget(

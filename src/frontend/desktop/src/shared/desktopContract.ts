@@ -22,6 +22,16 @@ import type {
   DeepFocusLoadSelectionsResponse,
   DeepFocusClearSelectionsRequest,
   DeepFocusClearSelectionsResponse,
+  FocusFiltersListRequest,
+  FocusFiltersListResponse,
+  FocusFiltersCreateRequest,
+  FocusFiltersCreateResponse,
+  FocusFiltersDeleteRequest,
+  FocusFiltersDeleteResponse,
+  ContextPackSidebarStateLoadRequest,
+  ContextPackSidebarStateLoadResponse,
+  ContextPackSidebarStateSaveRequest,
+  ContextPackSidebarStateSaveResponse,
 } from './desktopContractDeepFocus';
 import type {
   ContextPackActivationRequest,
@@ -30,6 +40,8 @@ import type {
   ContextPackApplyResponse,
   ContextPackClearRequest,
   ContextPackClearResponse,
+  ContextPackDeleteRequest,
+  ContextPackDeleteResponse,
   ContextPackCreateRequest,
   ContextPackCreateResponse,
   ContextPackPreflightError,
@@ -109,6 +121,7 @@ export const DESKTOP_ACTION_NAMES = [
   'contextPack.previewSwitch',
   'contextPack.applySwitch',
   'contextPack.clearActive',
+  'contextPack.delete',
   'contextPack.activate',
   'contextPack.setRepositoryType',
   'contextPack.setRepoCategory',
@@ -156,6 +169,11 @@ export const DESKTOP_ACTION_NAMES = [
   'deepFocus.saveSelections',
   'deepFocus.loadSelections',
   'deepFocus.clearSelections',
+  'focusFilters.list',
+  'focusFilters.create',
+  'focusFilters.delete',
+  'contextPackSidebarState.load',
+  'contextPackSidebarState.save',
   'terminal.setTaskScope',
   'cancel-task',
 ] as const;
@@ -918,6 +936,7 @@ export type DesktopActionRequest =
   | ContextPackPreviewRequest
   | ContextPackApplyRequest
   | ContextPackClearRequest
+  | ContextPackDeleteRequest
   | ContextPackActivationRequest
   | ContextPackSetRepositoryTypeRequest
   | ContextPackSetRepoCategoryRequest
@@ -965,6 +984,11 @@ export type DesktopActionRequest =
   | DeepFocusSaveSelectionsRequest
   | DeepFocusLoadSelectionsRequest
   | DeepFocusClearSelectionsRequest
+  | FocusFiltersListRequest
+  | FocusFiltersCreateRequest
+  | FocusFiltersDeleteRequest
+  | ContextPackSidebarStateLoadRequest
+  | ContextPackSidebarStateSaveRequest
   | TerminalSetTaskScopeRequest
   | CancelTaskRequest;
 
@@ -991,6 +1015,7 @@ export type DesktopActionResponse =
   | ContextPackPreviewResponse
   | ContextPackApplyResponse
   | ContextPackClearResponse
+  | ContextPackDeleteResponse
   | ContextPackActivationResponse
   | ContextPackSetRepositoryTypeResponse
   | ContextPackSetRepoCategoryResponse
@@ -1035,6 +1060,11 @@ export type DesktopActionResponse =
   | DeepFocusSaveSelectionsResponse
   | DeepFocusLoadSelectionsResponse
   | DeepFocusClearSelectionsResponse
+  | FocusFiltersListResponse
+  | FocusFiltersCreateResponse
+  | FocusFiltersDeleteResponse
+  | ContextPackSidebarStateLoadResponse
+  | ContextPackSidebarStateSaveResponse
   | TerminalSetTaskScopeResponse
   | CancelTaskResponse;
 

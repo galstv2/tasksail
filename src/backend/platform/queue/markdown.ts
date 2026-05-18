@@ -261,6 +261,9 @@ export interface TaskContextPackBinding {
 export interface TaskContextPackTarget {
   path: string;
   kind: 'directory' | 'file';
+  repoLocalPath?: string;
+  repoId?: string;
+  focusId?: string;
 }
 
 export type ContextPackBindingResult =

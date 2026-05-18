@@ -38,7 +38,6 @@ import {
   createDefaultDesktopActionHandlers,
   type DesktopActionHandlers,
 } from './main.desktopActionHandlers';
-import { listActivePipelines } from '../../../backend/platform/agent-runner/pipelineSupervisor.js';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
 
@@ -487,14 +486,6 @@ export async function handleDesktopAction(
     case 'contextPack.previewSwitch':
       return resolvedHandlers.previewContextPackSwitch(request.payload);
     case 'contextPack.applySwitch': {
-      // §5.3 active-task guard: block context-pack switching while a pipeline is running.
-      if (listActivePipelines().length > 0) {
-        return {
-          ok: false,
-          action: 'contextPack.applySwitch',
-          error: 'Cannot switch context pack while a pipeline is active. Cancel the running task first.',
-        };
-      }
       const result = await resolvedHandlers.applyContextPackSwitch(request.payload);
       if (result.ok) {
         await refreshCurrentActiveContextPackTaskScope(resolvedHandlers.listContextPacks);
@@ -508,14 +499,6 @@ export async function handleDesktopAction(
       return result;
     }
     case 'contextPack.clearActive': {
-      // §5.3 active-task guard: block clearing active context pack while a pipeline is running.
-      if (listActivePipelines().length > 0) {
-        return {
-          ok: false,
-          action: 'contextPack.clearActive',
-          error: 'Cannot clear active context pack while a pipeline is active. Cancel the running task first.',
-        };
-      }
       const result = await resolvedHandlers.clearActiveContextPack();
       if (result.ok) {
         await refreshCurrentActiveContextPackTaskScope(resolvedHandlers.listContextPacks);
@@ -528,6 +511,8 @@ export async function handleDesktopAction(
       }
       return result;
     }
+    case 'contextPack.delete':
+      return resolvedHandlers.deleteContextPack(request.payload);
     case 'planner.pickMarkdownFile':
       return resolvedHandlers.pickMarkdownFile();
     case 'planner.listArchivedTasks':
@@ -645,6 +630,16 @@ export async function handleDesktopAction(
       return resolvedHandlers.loadDeepFocusSelections(request.payload);
     case 'deepFocus.clearSelections':
       return resolvedHandlers.clearDeepFocusSelections(request.payload);
+    case 'focusFilters.list':
+      return resolvedHandlers.listFocusFilters(request.payload);
+    case 'focusFilters.create':
+      return resolvedHandlers.createFocusFilter(request.payload);
+    case 'focusFilters.delete':
+      return resolvedHandlers.deleteFocusFilter(request.payload);
+    case 'contextPackSidebarState.load':
+      return resolvedHandlers.loadContextPackSidebarState();
+    case 'contextPackSidebarState.save':
+      return resolvedHandlers.saveContextPackSidebarState(request.payload);
     case 'terminal.setTaskScope':
       if (typeof context?.webContentsId !== 'number') {
         return {

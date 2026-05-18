@@ -1,10 +1,12 @@
-import type {
-  ContextPackCatalogEntry,
-  ContextPackDeepFocusDerivedRoot,
-  ContextPackDeepFocusState,
-  ContextPackDeepFocusTarget,
-  ContextPackFocusTargetKind,
-  ContextPackPrimaryFocusTarget,
+import {
+  CONTEXT_PACK_TEST_ARTIFACT_TYPE,
+  CONTEXT_PACK_TEST_PATH_KIND,
+  type ContextPackCatalogEntry,
+  type ContextPackDeepFocusDerivedRoot,
+  type ContextPackDeepFocusState,
+  type ContextPackDeepFocusTarget,
+  type ContextPackFocusTargetKind,
+  type ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
 import { createLogger } from '../log/logger';
 import { deepFocusStrings } from './SidebarDeepFocusStrings';
@@ -79,6 +81,9 @@ type BadgeRow = {
   kind: ContextPackFocusTargetKind;
   systemLayer?: string | null;
   label?: string;
+  isTest?: boolean;
+  artifactType?: string;
+  pathKind?: string;
   topLevelId?: string;
   isTopLevel?: boolean;
   activeTopLevelId?: string | null;
@@ -96,7 +101,15 @@ export function isTestClassifiedRow(row: {
   kind: ContextPackFocusTargetKind;
   systemLayer?: string | null;
   label?: string;
+  isTest?: boolean;
+  artifactType?: string;
+  pathKind?: string;
 }): boolean {
+  if (row.isTest === true) return true;
+  if (
+    row.artifactType === CONTEXT_PACK_TEST_ARTIFACT_TYPE
+    || row.pathKind === CONTEXT_PACK_TEST_PATH_KIND
+  ) return true;
   if (row.kind !== 'directory') return false;
   if (row.systemLayer === 'test') return true;
   return row.label != null && TEST_DIR_NAME_PATTERN.test(row.label);
@@ -354,7 +367,7 @@ export function isSameTarget(
   right: ContextPackDeepFocusTarget | null | undefined,
 ): boolean {
   if (!left || !right) return false;
-  return left.path === right.path && left.kind === right.kind;
+  return left.path === right.path && left.kind === right.kind && targetsShareTopLevel(left, right);
 }
 
 export function countSupportFiles(
@@ -443,17 +456,33 @@ function isStrictAncestorPath(candidatePath: string, childPath: string): boolean
 }
 
 export function isDirectoryAncestorTarget(
-  ancestor: Pick<ContextPackDeepFocusTarget, 'path' | 'kind'>,
-  candidate: Pick<ContextPackDeepFocusTarget, 'path' | 'kind'>,
+  ancestor: Pick<ContextPackDeepFocusTarget, 'path' | 'kind' | 'repoLocalPath' | 'repoId' | 'focusId'>,
+  candidate: Pick<ContextPackDeepFocusTarget, 'path' | 'kind' | 'repoLocalPath' | 'repoId' | 'focusId'>,
 ): boolean {
-  return ancestor.kind === 'directory'
+  return targetsShareTopLevel(ancestor, candidate)
+    && ancestor.kind === 'directory'
     && isStrictAncestorPath(ancestor.path, candidate.path);
+}
+
+function targetsShareTopLevel(
+  left: Pick<ContextPackDeepFocusTarget, 'repoLocalPath' | 'repoId' | 'focusId'>,
+  right: Pick<ContextPackDeepFocusTarget, 'repoLocalPath' | 'repoId' | 'focusId'>,
+): boolean {
+  const leftIdentifiers = [left.repoLocalPath, left.repoId, left.focusId].filter(Boolean);
+  const rightIdentifiers = [right.repoLocalPath, right.repoId, right.focusId].filter(Boolean);
+  if (leftIdentifiers.length === 0 || rightIdentifiers.length === 0) {
+    return true;
+  }
+  return leftIdentifiers.some((identifier) => rightIdentifiers.includes(identifier));
 }
 
 export function targetsOverlap(
   left: ContextPackDeepFocusTarget,
   right: ContextPackDeepFocusTarget,
 ): boolean {
+  if (!targetsShareTopLevel(left, right)) {
+    return false;
+  }
   return (
     left.path === right.path
     || pathContains(left.path, right.path)
@@ -648,6 +677,9 @@ export function findPrimaryContainingRow(
     kind: ContextPackFocusTargetKind;
     systemLayer?: string | null;
     label?: string;
+    isTest?: boolean;
+    artifactType?: string;
+    pathKind?: string;
     topLevelId?: string;
     isTopLevel?: boolean;
     activeTopLevelId?: string | null;
@@ -665,9 +697,16 @@ export function findPrimaryContainingRow(
 }
 
 function primaryWritableTarget(primary: ContextPackPrimaryFocusTarget): ContextPackDeepFocusTarget {
-  return primary.kind === 'file'
-    ? { path: parentPath(primary.path), kind: 'directory' }
-    : primary;
+  if (primary.kind !== 'file') {
+    return primary;
+  }
+  return {
+    path: parentPath(primary.path),
+    kind: 'directory',
+    ...(primary.repoLocalPath ? { repoLocalPath: primary.repoLocalPath } : {}),
+    ...(primary.repoId ? { repoId: primary.repoId } : {}),
+    ...(primary.focusId ? { focusId: primary.focusId } : {}),
+  };
 }
 
 export function computeRowBadges(
@@ -690,13 +729,20 @@ export function computeRowBadges(
     );
   }
 
-  if (cursor.kind === 'primary' && currentPrimary) {
-    if (isSameRowTarget(currentPrimary.testTarget, rowTarget, row)) {
-      badges.push({ kind: 'test', label: 'T', ariaLabel: 'Scoped test target' });
-    }
-    if ((currentPrimary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget, row))) {
-      badges.push({ kind: 'support', label: 'S', ariaLabel: 'Scoped support target' });
-    }
+  const onPrimaryCursor = cursor.kind === 'primary' && currentPrimary;
+  const isPerPrimaryTest = onPrimaryCursor
+    && isSameRowTarget(currentPrimary.testTarget, rowTarget, row);
+  const isPerPrimarySupport = onPrimaryCursor
+    && (currentPrimary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget, row));
+  const isGlobalTest = isSameRowTarget(state.selectedTestTarget, rowTarget, row);
+  const isGlobalSupport = state.selectedSupportTargets.some((target) =>
+    isSameRowTarget(target, rowTarget, row));
+
+  if (isPerPrimaryTest || isGlobalTest) {
+    badges.push({ kind: 'test', label: 'T', ariaLabel: 'Scoped test target' });
+  }
+  if (isPerPrimarySupport || isGlobalSupport) {
+    badges.push({ kind: 'support', label: 'S', ariaLabel: 'Scoped support target' });
   }
 
   return badges.slice(0, 2);
@@ -896,11 +942,13 @@ export function validateNestedScopeForUi(state: ContextPackDeepFocusState): Scop
       // Mirrors backend rule `scoped-fields-on-repo-root-primary`
       // (deepFocusNormalization.ts ~159). A repo-root primary covers the whole
       // tree; nested test/support folders are nonsensical relative to it.
-      if (primary.testTarget) {
+      if (primary.testTarget && targetsShareTopLevel(primary, primary.testTarget)) {
         errors.push({ scope, field: 'testTarget', reason: 'scoped-fields-on-repo-root-primary' });
       }
-      (primary.supportTargets ?? []).forEach((_, supportIndex) => {
-        errors.push({ scope, field: 'supportTargets', index: supportIndex, reason: 'scoped-fields-on-repo-root-primary' });
+      (primary.supportTargets ?? []).forEach((supportTarget, supportIndex) => {
+        if (targetsShareTopLevel(primary, supportTarget)) {
+          errors.push({ scope, field: 'supportTargets', index: supportIndex, reason: 'scoped-fields-on-repo-root-primary' });
+        }
       });
     }
     const containingPrimaryIndex = primaries.findIndex((candidate, index) =>

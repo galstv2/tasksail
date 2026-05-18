@@ -34,6 +34,9 @@ export type TreeRowData = {
   isTopLevel: boolean;
   ancillaryAllowed: boolean;
   systemLayer: string | null;
+  isTest?: boolean;
+  artifactType?: string;
+  pathKind?: string;
   depth: number;
 };
 
@@ -145,6 +148,9 @@ export function DeepFocusTreeRow({
     kind: row.kind,
     systemLayer: row.systemLayer,
     label: row.label,
+    isTest: row.isTest,
+    artifactType: row.artifactType,
+    pathKind: row.pathKind,
   });
   const isPrimary = badges.some((badge) => badge.kind === 'primary');
   const isTest = badges.some((badge) => badge.kind === 'test');
@@ -199,7 +205,7 @@ export function DeepFocusTreeRow({
             {isTestLayer ? (
               <span className="deep-focus-row__test-glyph">
                 <TestGlyph />
-                <span className="deep-focus-visually-hidden">Test folder</span>
+                <span className="deep-focus-visually-hidden">Test target</span>
               </span>
             ) : null}
             {isSupportContextParent && supportContextPrimaryLabel ? (

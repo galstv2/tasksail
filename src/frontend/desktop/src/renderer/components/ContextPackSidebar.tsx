@@ -6,6 +6,7 @@ import type {
   ContextPackListRepoTreeResponse,
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
+  ContextPackFocusFilter,
 } from '../../shared/desktopContract';
 import type { OpenContextPackCreationModal } from '../contextPackCreationTypes';
 import ContextPackSidebarCompact from './ContextPackSidebarCompact';
@@ -26,6 +27,9 @@ export type ContextPackSidebarProps = {
   selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget?: ContextPackDeepFocusTarget | null;
   selectedSupportTargets?: ContextPackDeepFocusTarget[];
+  focusFilters?: ContextPackFocusFilter[];
+  focusFilterPending?: boolean;
+  focusFilterError?: string;
   actionPending: 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed' | null;
   message: string;
   error: string;
@@ -41,6 +45,11 @@ export type ContextPackSidebarProps = {
   onPreviewSwitch: () => void | Promise<void>;
   onApplySwitch: () => void | Promise<void>;
   onClearActive: () => void | Promise<void>;
+  onDeleteContextPack?: (contextPackDir: string) => boolean | Promise<boolean>;
+  deleteBlockedByActiveTask?: boolean;
+  onCreateFocusFilter?: (name: string) => Promise<boolean>;
+  onApplyFocusFilter?: (filterId: string) => boolean | Promise<boolean>;
+  onDeleteFocusFilter?: (filterId: string) => void | Promise<void>;
   showMultiPrimaryWarning: boolean;
   onDismissMultiPrimaryWarning: () => void;
   /** True when an apply was blocked because the selected pack is bootstrap-empty. */

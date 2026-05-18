@@ -1431,6 +1431,28 @@ describe('resolveFocusedRepoRoot', () => {
     ]);
   });
 
+  it('collects planner context roots from target-specific repoLocalPath metadata', () => {
+    expect(collectFocusedRepoTargetDirectoryRoots({
+      primaryRepoRoot: '/repos/platform',
+      primaryFocusTargets: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          supportTargets: [{ path: 'docs', kind: 'directory', repoLocalPath: '/repos/tools' }],
+        },
+      ],
+      testTarget: { path: 'Acme.Cli.Tests', kind: 'directory', repoLocalPath: '/repos/tools' },
+      supportTargets: [{ path: 'Acme.Cli', kind: 'directory', effectiveScope: 'full-directory', repoLocalPath: '/repos/tools' }],
+    })).toEqual([
+      '/repos/platform',
+      '/repos/tools/docs',
+      '/repos/tools/Acme.Cli.Tests',
+      '/repos/tools/Acme.Cli',
+    ]);
+  });
+
   it('collects a file focus parent directory as the primary planner context root', () => {
     expect(collectFocusedRepoTargetDirectoryRoots({
       primaryRepoRoot: '/repos/backend',

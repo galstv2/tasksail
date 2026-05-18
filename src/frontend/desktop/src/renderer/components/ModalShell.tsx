@@ -28,6 +28,10 @@ export type ModalShellProps = {
 
 const EXIT_DURATION_MS = 150;
 
+export function ModalShellEscHint(): JSX.Element {
+  return <span className="modal-shell__footer-esc">ESC to close</span>;
+}
+
 export default function ModalShell({
   isOpen,
   onClose,

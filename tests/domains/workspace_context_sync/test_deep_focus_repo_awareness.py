@@ -217,6 +217,49 @@ def test_derive_deep_focus_roots_includes_repo_local_path_per_root() -> None:
     ]
 
 
+def test_global_support_target_uses_its_own_repo_identity() -> None:
+    result = normalize_deep_focus_selection(
+        deep_focus_enabled=True,
+        deep_focus_primary_repo_id="platform",
+        selected_focus_path="",
+        selected_focus_target_kind="directory",
+        selected_focus_targets=[
+            {
+                "path": "",
+                "kind": "directory",
+                "role": "anchor",
+                "repo_local_path": "/repos/platform",
+                "repo_id": "platform",
+            }
+        ],
+        selected_support_targets=[
+            {
+                "path": "Acme.Cli",
+                "kind": "directory",
+                "repoLocalPath": "/repos/tools",
+                "repoId": "tools",
+            }
+        ],
+    )
+
+    assert result["selected_support_targets"] == [
+        {
+            "path": "Acme.Cli",
+            "kind": "directory",
+            "repo_local_path": "/repos/tools",
+            "repo_id": "tools",
+        }
+    ]
+    assert result["derived_readonly_context_roots"] == [
+        {
+            "path": "Acme.Cli",
+            "kind": "directory",
+            "reason": "support-target",
+            "repoLocalPath": "/repos/tools",
+        }
+    ]
+
+
 def test_dedupe_does_not_collapse_same_path_across_different_repos() -> None:
     roots = dedupe_roots(
         [

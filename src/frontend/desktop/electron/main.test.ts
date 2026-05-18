@@ -994,7 +994,7 @@ describe('electron main bootstrap', () => {
     );
   });
 
-  it('keeps context-pack switch and clear guarded while pipelines are active', async () => {
+  it('allows context-pack switch and clear while pipelines are active', async () => {
     vi.resetModules();
     const refreshCurrentActiveContextPackTaskScope = vi.fn();
     const resetStreamState = vi.fn();
@@ -1023,8 +1023,94 @@ describe('electron main bootstrap', () => {
     }));
 
     const { handleDesktopAction } = await import('./main');
-    const applyContextPackSwitch = vi.fn();
-    const clearActiveContextPack = vi.fn();
+    const applyContextPackSwitch = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'contextPack.applySwitch' as const,
+        mode: 'applied' as const,
+        message: 'Applied.',
+        commandPath: '/repo/src/backend/scripts/python/activate-context-pack-helper.py',
+        result: {
+          ok: true,
+          wrapperAction: 'apply' as const,
+          stage: 'applied',
+          status: 'ok',
+          activation: { performed: true, exitCode: 0, output: '' },
+          envStateCleared: false,
+          error: null,
+          contextPackId: 'pack-a',
+          contextPackDir: '/packs/pack-a',
+          workspaceFile: null,
+          stateFile: null,
+          scopeMode: 'focused' as const,
+          selectedRepoIds: [],
+          selectedFocusIds: [],
+          warnings: [],
+          foldersToAdd: [],
+          foldersToRemove: [],
+          managedFolders: [],
+          targetFolders: [],
+          lastSyncedAt: null,
+          deepFocusEnabled: false,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      },
+    }));
+    const clearActiveContextPack = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'contextPack.clearActive' as const,
+        mode: 'cleared' as const,
+        message: 'Cleared.',
+        commandPath: '/repo/src/backend/scripts/python/activate-context-pack-helper.py',
+        result: {
+          ok: true,
+          wrapperAction: 'clear' as const,
+          stage: 'cleared',
+          status: 'ok',
+          activation: { performed: false, exitCode: null, output: '' },
+          envStateCleared: true,
+          error: null,
+          contextPackId: null,
+          contextPackDir: null,
+          workspaceFile: null,
+          stateFile: null,
+          scopeMode: null,
+          selectedRepoIds: [],
+          selectedFocusIds: [],
+          warnings: [],
+          foldersToAdd: [],
+          foldersToRemove: [],
+          managedFolders: [],
+          targetFolders: [],
+          lastSyncedAt: null,
+          deepFocusEnabled: false,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      },
+    }));
+    const listContextPacks = vi.fn(async () => ({
+      action: 'contextPack.list' as const,
+      mode: 'read-only' as const,
+      message: 'listed',
+      activeContextPackDir: '/packs/pack-a',
+      configuredPaths: [],
+      searchRoots: [],
+      recentContextPackDirs: [],
+      contextPacks: [],
+    }));
 
     await expect(
       handleDesktopAction(
@@ -1037,22 +1123,22 @@ describe('electron main bootstrap', () => {
             selectedFocusIds: [],
           },
         },
-        { applyContextPackSwitch },
+        { applyContextPackSwitch, listContextPacks },
       ),
-    ).resolves.toEqual(expect.objectContaining({ ok: false }));
+    ).resolves.toEqual(expect.objectContaining({ ok: true }));
     await expect(
       handleDesktopAction(
         { action: 'contextPack.clearActive' },
-        { clearActiveContextPack },
+        { clearActiveContextPack, listContextPacks },
       ),
-    ).resolves.toEqual(expect.objectContaining({ ok: false }));
+    ).resolves.toEqual(expect.objectContaining({ ok: true }));
 
-    expect(applyContextPackSwitch).not.toHaveBeenCalled();
-    expect(clearActiveContextPack).not.toHaveBeenCalled();
-    expect(refreshCurrentActiveContextPackTaskScope).not.toHaveBeenCalled();
-    expect(resetStreamState).not.toHaveBeenCalled();
-    expect(resetRuntimeStreamState).not.toHaveBeenCalled();
-    expect(emitStreamEvent).not.toHaveBeenCalled();
+    expect(applyContextPackSwitch).toHaveBeenCalledOnce();
+    expect(clearActiveContextPack).toHaveBeenCalledOnce();
+    expect(refreshCurrentActiveContextPackTaskScope).toHaveBeenCalledTimes(2);
+    expect(resetStreamState).toHaveBeenCalledTimes(2);
+    expect(resetRuntimeStreamState).toHaveBeenCalledTimes(2);
+    expect(emitStreamEvent).toHaveBeenCalledTimes(2);
   });
 
   it('does not auto-start the pipeline when move to pending does not activate a task', async () => {

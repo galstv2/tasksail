@@ -253,8 +253,27 @@ export function ContextPackSelectionContent({
         {contextPackSidebarProps.selectedSupportTargets?.map((target) => `${target.path}:${target.kind}`).join(',')
           || 'none'}
       </div>
+      <div data-testid="selected-focus-targets">
+        {contextPackSidebarProps.selectedFocusTargets?.map((target) =>
+          `${target.repoId ?? target.focusId ?? 'unknown'}:${target.role ?? 'none'}:${target.path}:${(target.supportTargets ?? []).map((support) => support.path).join('|')}`,
+        ).join(',')
+          || 'none'}
+      </div>
       <div data-testid="message">{contextPackSidebarProps.message}</div>
       <div data-testid="error">{contextPackSidebarProps.error || 'no-error'}</div>
+      <div data-testid="focus-filter-names">
+        {contextPackSidebarProps.focusFilters?.map((filter) => filter.name).join(',') || 'none'}
+      </div>
+      <div data-testid="focus-filter-pending">
+        {contextPackSidebarProps.focusFilterPending ? 'true' : 'false'}
+      </div>
+      <div data-testid="repository-types">
+        {contextPackSidebarProps.contextPacks
+          .find((entry) => entry.contextPackDir === contextPackSidebarProps.selectedContextPackDir)
+          ?.focusTargets
+          .map((target) => `${target.focusId}:${target.repositoryType ?? 'none'}`)
+          .join(',') || 'none'}
+      </div>
       <div data-testid="result-stage">
         {contextPackSidebarProps.lastResult?.stage || 'no-result'}
       </div>
@@ -303,6 +322,12 @@ export function ContextPackSelectionContent({
         }
       >
         Select identity focus
+      </button>
+      <button
+        type="button"
+        onClick={() => contextPackSidebarProps.onSelectWorkingFocus('platform')}
+      >
+        Select platform focus
       </button>
       <button
         type="button"
@@ -381,6 +406,36 @@ export function ContextPackSelectionContent({
         onClick={() => void contextPackSidebarProps.onClearActive()}
       >
         Run clear
+      </button>
+      <button
+        type="button"
+        onClick={() => void contextPackSidebarProps.onDeleteContextPack?.(contextPackSidebarProps.selectedContextPackDir)}
+      >
+        Delete selected pack
+      </button>
+      <button
+        type="button"
+        onClick={() => void contextPackSidebarProps.onApplyFocusFilter?.('both-primary-filter')}
+      >
+        Apply both primary filter
+      </button>
+      <button
+        type="button"
+        onClick={() => void contextPackSidebarProps.onApplyFocusFilter?.('tools-support-filter')}
+      >
+        Apply tools support filter
+      </button>
+      <button
+        type="button"
+        onClick={() => void contextPackSidebarProps.onApplyFocusFilter?.('deep-focus-filter')}
+      >
+        Apply deep focus filter
+      </button>
+      <button
+        type="button"
+        onClick={() => void contextPackSidebarProps.onCreateFocusFilter?.('Saved filter')}
+      >
+        Create focus filter
       </button>
       <button
         type="button"

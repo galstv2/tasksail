@@ -4,6 +4,8 @@ import { buildCompactSidebarModel } from '../selectors/contextPackSidebarModel';
 import { classNames } from '../utils/classNames';
 import type { ContextPackSidebarProps } from './ContextPackSidebar';
 import { RefreshIcon } from './creation-steps/icons';
+import ContextPackDeleteConfirmModal from './ContextPackDeleteConfirmModal';
+import FocusFilterModal from './FocusFilterModal';
 import SidebarPackSelector from './SidebarPackSelector';
 import SidebarScopeControls from './SidebarScopeControls';
 
@@ -24,6 +26,9 @@ function ContextPackSidebarExpanded({
   selectedFocusTargets,
   selectedTestTarget,
   selectedSupportTargets,
+  focusFilters = [],
+  focusFilterPending = false,
+  focusFilterError = '',
   actionPending,
   message,
   error,
@@ -38,6 +43,11 @@ function ContextPackSidebarExpanded({
   onPreviewSwitch,
   onApplySwitch,
   onClearActive,
+  onDeleteContextPack,
+  deleteBlockedByActiveTask = false,
+  onCreateFocusFilter,
+  onApplyFocusFilter,
+  onDeleteFocusFilter,
   showMultiPrimaryWarning,
   onDismissMultiPrimaryWarning,
   bootstrapEmptyConfirmPending,
@@ -49,6 +59,9 @@ function ContextPackSidebarExpanded({
   const [deepFocusExpanded, setDeepFocusExpanded] = useState(false);
   const [deepFocusClosing, setDeepFocusClosing] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [focusFilterModalOpen, setFocusFilterModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
   const activePack = contextPacks.find((entry) => entry.isActive);
   const selectedPack = contextPacks.find(
     (entry) => entry.contextPackDir === selectedContextPackDir,
@@ -61,9 +74,14 @@ function ContextPackSidebarExpanded({
   const selectedWorkingFocusIds = deepFocusOverride
     ? [deepFocusOverride]
     : baseWorkingFocusIds;
-  const hasSelection = selectedContextPackDir.length > 0;
-  const hasActiveContextPack = Boolean(activeContextPackDir);
+  const hasSelection = Boolean(selectedPack);
+  const selectedPackIsActive = selectedPack?.isActive === true;
+  const selectedPackIsInactive = Boolean(selectedPack) && !selectedPackIsActive;
   const isBusy = actionPending !== null;
+  const deleteDisabled = isBusy || deleteBlockedByActiveTask;
+  const deleteTitle = deleteBlockedByActiveTask
+    ? 'Complete or fail active tasks before deleting a context pack.'
+    : 'Delete context pack';
   const sidebarModel = buildCompactSidebarModel({
     contextPacks,
     activeContextPackDir,
@@ -78,6 +96,8 @@ function ContextPackSidebarExpanded({
     setDeepFocusExpanded(false);
     setDeepFocusClosing(false);
     setEditorOpen(false);
+    setFocusFilterModalOpen(false);
+    setDeleteModalOpen(false);
   }, [selectedContextPackDir]);
 
   useEffect(() => {
@@ -216,12 +236,13 @@ function ContextPackSidebarExpanded({
             focusHint={sidebarModel.focusHint}
             onSelectWorkingFocus={onSelectWorkingFocus}
             onToggleRepositoryType={onToggleRepositoryType}
-             onCommitDeepFocusSelection={onCommitDeepFocusSelection}
-             onListRepoTree={onListRepoTree}
-             onDeepFocusEditorToggle={handleDeepFocusEditorToggle}
-             editorOpen={editorOpen}
-             sidebarModel={sidebarModel}
-           />
+            onCommitDeepFocusSelection={onCommitDeepFocusSelection}
+            onListRepoTree={onListRepoTree}
+            onManageFocusFilters={() => setFocusFilterModalOpen(true)}
+            onDeepFocusEditorToggle={handleDeepFocusEditorToggle}
+            editorOpen={editorOpen}
+            sidebarModel={sidebarModel}
+          />
         ) : null}
       </div>
 
@@ -269,17 +290,32 @@ function ContextPackSidebarExpanded({
               <RefreshIcon size={13} />
               <span>{actionPending === 'reseed' ? 'Reseeding\u2026' : 'Reseed'}</span>
             </button>
-            <button
-              type="button"
-              className="sidebar-toolbar-btn"
-              disabled={!hasActiveContextPack || isBusy}
-              onClick={() => void onClearActive()}
-              aria-label="Clear pack"
-              title="Clear active context pack"
-            >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3L3 9h10L8 3z" fill="currentColor"/><rect x="3" y="11" width="10" height="1.5" rx="0.5" fill="currentColor"/></svg>
-              <span>Eject</span>
-            </button>
+            {selectedPackIsActive ? (
+              <button
+                type="button"
+                className="sidebar-toolbar-btn"
+                disabled={isBusy}
+                onClick={() => void onClearActive()}
+                aria-label="Clear pack"
+                title="Clear active context pack"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3L3 9h10L8 3z" fill="currentColor"/><rect x="3" y="11" width="10" height="1.5" rx="0.5" fill="currentColor"/></svg>
+                <span>Eject</span>
+              </button>
+            ) : null}
+            {selectedPackIsInactive ? (
+              <button
+                type="button"
+                className="sidebar-toolbar-btn sidebar-toolbar-btn--danger"
+                disabled={deleteDisabled}
+                onClick={() => setDeleteModalOpen(true)}
+                aria-label="Delete context pack"
+                title={deleteTitle}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><path d="M5 4V3h6v1M3.5 5h9M5 6.5l.4 6h5.2l.4-6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <span>Delete</span>
+              </button>
+            ) : null}
             {selectedPack?.restoreAvailable ? (
               <button
                 type="button"
@@ -301,7 +337,7 @@ function ContextPackSidebarExpanded({
             <button
               type="button"
               className="sidebar-plan-btn"
-              disabled={!hasActiveContextPack || isBusy}
+              disabled={!hasSelection || isBusy}
               onClick={onOpenPlannerModal}
               title="Open planner"
               data-testid="planner-open-btn"
@@ -363,6 +399,66 @@ function ContextPackSidebarExpanded({
           </div>
         </div>
       )}
+      <FocusFilterModal
+        isOpen={focusFilterModalOpen && Boolean(selectedPack)}
+        selectedPack={selectedPack}
+        filters={focusFilters}
+        currentSelection={{
+          selectedRepoIds,
+          selectedFocusIds,
+          repositoryTypes: Object.fromEntries(
+            (selectedPack?.focusTargets ?? [])
+              .filter((target) =>
+                (selectedRepoIds.includes(target.focusId) || selectedFocusIds.includes(target.focusId)) &&
+                target.repositoryType,
+              )
+              .map((target) => [target.focusId, target.repositoryType!]),
+          ),
+          deepFocusEnabled: deepFocusEnabled ?? false,
+          deepFocusPrimaryRepoId: deepFocusPrimaryRepoId ?? null,
+          deepFocusPrimaryFocusId: deepFocusPrimaryFocusId ?? null,
+          selectedFocusPath: selectedFocusPath ?? null,
+          selectedFocusTargetKind: selectedFocusTargetKind ?? null,
+          selectedFocusTargets: selectedFocusTargets ?? [],
+          selectedTestTarget,
+          selectedSupportTargets: selectedSupportTargets ?? [],
+        }}
+        pending={focusFilterPending}
+        error={focusFilterError}
+        onClose={() => setFocusFilterModalOpen(false)}
+        onSave={(name) => onCreateFocusFilter?.(name) ?? Promise.resolve(false)}
+        onApply={async (filterId): Promise<boolean> => {
+          if (!onApplyFocusFilter) return false;
+          const applied = await onApplyFocusFilter(filterId);
+          if (applied) {
+            // Mirror clicking the sidebar Apply button so the just-loaded
+            // selection is persisted via client.applyContextPackSwitch.
+            await onApplySwitch();
+          }
+          return applied;
+        }}
+        onDelete={(filterId) => onDeleteFocusFilter?.(filterId)}
+      />
+      <ContextPackDeleteConfirmModal
+        isOpen={deleteModalOpen && Boolean(selectedPack)}
+        selectedPack={selectedPack}
+        repoRoot={repoRoot}
+        pending={isBusy || deletePending || deleteBlockedByActiveTask}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={async () => {
+          if (!selectedPack || !onDeleteContextPack || deleteBlockedByActiveTask) return;
+          setDeletePending(true);
+          try {
+            const deleted = await onDeleteContextPack(selectedPack.contextPackDir);
+            if (deleted) {
+              setDeleteModalOpen(false);
+              setFocusFilterModalOpen(false);
+            }
+          } finally {
+            setDeletePending(false);
+          }
+        }}
+      />
       </aside>
     </>
   );

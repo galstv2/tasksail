@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from src.backend.mcp.repo_context_mcp import app as repo_context_app
+from src.backend.mcp.repo_context_mcp.services import discovery_service
 
 
 class RepoContextAppHelperTests(unittest.TestCase):
@@ -164,7 +165,7 @@ class RepoContextAppHelperTests(unittest.TestCase):
         )
         self.assertEqual(
             repo_context_app.detect_artifact_type(Path("tests/test_main.py")),
-            "test-code",
+            repo_context_app.ARTIFACT_TYPE_TEST_CODE,
         )
         self.assertEqual(
             repo_context_app.detect_artifact_type(
@@ -197,6 +198,64 @@ class RepoContextAppHelperTests(unittest.TestCase):
             "Headline",
         )
         self.assertEqual(repo_context_app.read_preview(binary_path), "")
+
+    def test_test_classification_covers_common_language_conventions(
+        self,
+    ) -> None:
+        positive_paths = [
+            "src/frontend/desktop/electron/externalMcpHandlers.test.ts",
+            "src/frontend/desktop/src/renderer/App.integration.test.tsx",
+            "tests/domains/repo_context/test_repo_context_app_helpers.py",
+            "internal/server/server_test.go",
+            "app/src/test/java/com/acme/CheckoutTest.java",
+            "spec/models/order_spec.rb",
+            "Features/CheckoutTests.cs",
+            "src/frontend/desktop/electron/tests",
+            "src/foo_spec.py",
+            "lib/foo_test.cpp",
+            "test-ui.R",
+        ]
+        negative_paths = [
+            "src/contest.ts",
+            "src/latest.ts",
+            "src/attest.py",
+            "src/testingUtilities.ts",
+            "src/protest_handler.py",
+            "src/testament.rs",
+            "src/Git.java",
+            "src/Transit.java",
+            "src/Permit.java",
+        ]
+
+        for path in positive_paths:
+            with self.subTest(path=path):
+                self.assertTrue(repo_context_app.is_test_path(path))
+
+        for path in negative_paths:
+            with self.subTest(path=path):
+                self.assertFalse(repo_context_app.is_test_path(path))
+
+        colocated_test = Path(
+            "src/frontend/desktop/electron/externalMcpHandlers.test.ts"
+        )
+        self.assertEqual(
+            repo_context_app.detect_artifact_type(colocated_test),
+            repo_context_app.ARTIFACT_TYPE_TEST_CODE,
+        )
+        self.assertEqual(
+            repo_context_app.detect_path_kind(colocated_test),
+            repo_context_app.PATH_KIND_TESTS,
+        )
+        self.assertTrue(
+            discovery_service._is_test_signal_path(  # noqa: SLF001
+                "src/frontend/desktop/electron/externalMcpHandlers.test.ts"
+            )
+        )
+        self.assertTrue(
+            discovery_service._is_test_signal_path(  # noqa: SLF001
+                "src/frontend/desktop/src/renderer/App.integration.test.tsx"
+            )
+        )
 
     def test_iter_scan_files_truncates_and_deduplicates_targets(self) -> None:
         workspace = self.make_temp_dir()
@@ -263,6 +322,33 @@ class RepoContextAppHelperTests(unittest.TestCase):
         self.assertTrue(artifact["is_public_surface"])
         self.assertEqual(artifact["summary"], "Deploy Runbook")
         self.assertEqual(artifact["created_at"], "2026-03-01T00:00:00Z")
+
+        test_artifact = repo_context_app.create_artifact_record(
+            repo,
+            source_root,
+            "ref-123",
+            "src/frontend/desktop/electron/externalMcpHandlers.test.ts",
+            "2026-03-07T00:00:00Z",
+            workspace / "test-record.json",
+            preview="test preview",
+        )
+        self.assertEqual(
+            test_artifact["artifact_type"],
+            repo_context_app.ARTIFACT_TYPE_TEST_CODE,
+        )
+        self.assertEqual(
+            test_artifact["path_kind"],
+            repo_context_app.PATH_KIND_TESTS,
+        )
+        self.assertEqual(test_artifact["system_layer"], "backend")
+        self.assertIn(
+            f"artifact:{repo_context_app.ARTIFACT_TYPE_TEST_CODE}",
+            test_artifact["tags"],
+        )
+        self.assertIn(
+            f"path-kind:{repo_context_app.PATH_KIND_TESTS}",
+            test_artifact["tags"],
+        )
 
         summary_record = repo_context_app.create_summary_record(
             repo,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import * as matchers from '@testing-library/jest-dom/matchers';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
@@ -87,9 +87,16 @@ describe('ContextPackSidebarExpanded', () => {
   });
 
   it('disables action buttons when no selection', () => {
-    render(<ContextPackSidebarExpanded {...defaultProps} selectedContextPackDir="" />);
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        activeContextPackDir="/packs/active-pack"
+        selectedContextPackDir=""
+      />,
+    );
     expect(screen.getByLabelText('Apply pack')).toBeDisabled();
     expect(screen.getByLabelText('Preview pack')).toBeDisabled();
+    expect(screen.getByTestId('planner-open-btn')).toBeDisabled();
   });
 
   it('enables action buttons with selection', () => {
@@ -103,6 +110,20 @@ describe('ContextPackSidebarExpanded', () => {
     );
     expect(screen.getByLabelText('Apply pack')).not.toBeDisabled();
     expect(screen.getByLabelText('Preview pack')).not.toBeDisabled();
+  });
+
+  it('opens the Focus Filters modal from Workspace Selection', () => {
+    const packs = [makePack()];
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Manage focus filters'));
+    expect(screen.getByRole('dialog', { name: 'Focus Filters' })).toBeInTheDocument();
   });
 
   it('shows Applying… when apply is pending', () => {
@@ -137,20 +158,96 @@ describe('ContextPackSidebarExpanded', () => {
     expect(screen.getByLabelText('Refresh packs')).toBeDisabled();
   });
 
-  it('renders Reseed and Clear toolbar buttons', () => {
-    render(<ContextPackSidebarExpanded {...defaultProps} />);
+  it('renders Reseed and Clear toolbar buttons for an active selected pack', () => {
+    const packs = [makePack({ isActive: true })];
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        activeContextPackDir="/packs/my-pack"
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
     expect(screen.getByLabelText('Reseed pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Clear pack')).toBeInTheDocument();
   });
 
-  it('disables Clear when no active context pack is applied', () => {
+  it('does not render Clear when no context pack is selected', () => {
     render(<ContextPackSidebarExpanded {...defaultProps} activeContextPackDir={null} />);
-    expect(screen.getByLabelText('Clear pack')).toBeDisabled();
+    expect(screen.queryByLabelText('Clear pack')).not.toBeInTheDocument();
   });
 
-  it('enables Clear when an active context pack exists', () => {
-    render(<ContextPackSidebarExpanded {...defaultProps} activeContextPackDir="/packs/my-pack" />);
+  it('enables Clear when the selected context pack is active', () => {
+    const packs = [makePack({ isActive: true })];
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        activeContextPackDir="/packs/my-pack"
+        selectedContextPackDir="/packs/my-pack"
+      />,
+    );
     expect(screen.getByLabelText('Clear pack')).not.toBeDisabled();
+  });
+
+  it('renders Delete for an inactive selected pack and keeps the modal open on delete failure', async () => {
+    const packs = [makePack({ isActive: false })];
+    const onDeleteContextPack = vi.fn().mockResolvedValue(false);
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+        onDeleteContextPack={onDeleteContextPack}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Delete context pack'));
+    expect(screen.getByRole('dialog', { name: 'Delete context pack' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await screen.findByRole('dialog', { name: 'Delete context pack' });
+    expect(onDeleteContextPack).toHaveBeenCalledWith('/packs/my-pack');
+  });
+
+  it('disables Delete for an inactive selected pack while a task is active', () => {
+    const packs = [makePack({ isActive: false })];
+    const onDeleteContextPack = vi.fn();
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+        deleteBlockedByActiveTask
+        onDeleteContextPack={onDeleteContextPack}
+      />,
+    );
+
+    const deleteButton = screen.getByLabelText('Delete context pack');
+    expect(deleteButton).toBeDisabled();
+    fireEvent.click(deleteButton);
+    expect(screen.queryByRole('dialog', { name: 'Delete context pack' })).not.toBeInTheDocument();
+    expect(onDeleteContextPack).not.toHaveBeenCalled();
+  });
+
+  it('closes the delete modal after a successful delete', async () => {
+    const packs = [makePack({ isActive: false })];
+    const onDeleteContextPack = vi.fn().mockResolvedValue(true);
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+        onDeleteContextPack={onDeleteContextPack}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Delete context pack'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Delete context pack' })).not.toBeInTheDocument();
+    });
   });
 
   it('renders generic primary selection warning copy', () => {

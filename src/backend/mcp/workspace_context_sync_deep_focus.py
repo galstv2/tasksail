@@ -97,7 +97,7 @@ def load_deep_focus_selection_from_state(state: dict[str, Any]) -> dict[str, Any
 
 def normalize_deep_focus_target(
     value: Any, *, field_name: str
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -109,7 +109,19 @@ def normalize_deep_focus_target(
         raise ValueError(f"{field_name}.path must be a string")
     if kind not in TARGET_KINDS:
         raise ValueError(f"{field_name}.kind must be directory or file")
-    return {"path": path, "kind": kind}
+    normalized: dict[str, Any] = {"path": path, "kind": kind}
+    for snake_key, camel_key in (
+        ("repo_local_path", "repoLocalPath"),
+        ("repo_id", "repoId"),
+        ("focus_id", "focusId"),
+    ):
+        raw_identity = value.get(snake_key, value.get(camel_key))
+        if raw_identity is None:
+            continue
+        if not isinstance(raw_identity, str):
+            raise ValueError(f"{field_name}.{snake_key} must be a string")
+        normalized[snake_key] = raw_identity
+    return normalized
 
 
 def extract_deep_focus_fields(source: dict[str, Any]) -> dict[str, Any]:
@@ -134,7 +146,7 @@ def extract_deep_focus_fields(source: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_deep_focus_targets(
     value: Any, *, field_name: str
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     if value is None:
         return []
     if not isinstance(value, list):
@@ -239,8 +251,8 @@ def derive_deep_focus_roots(
     selected_focus_path: str | None,
     selected_focus_target_kind: str | None,
     selected_focus_targets: list[dict[str, Any]],
-    selected_test_target: dict[str, str] | None,
-    selected_support_targets: list[dict[str, str]],
+    selected_test_target: dict[str, Any] | None,
+    selected_support_targets: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
     writable_roots: list[dict[str, Any]] = []
     readonly_roots: list[dict[str, Any]] = []
@@ -302,12 +314,18 @@ def derive_deep_focus_roots(
             )
         primary_test_target = primary_target.get("test_target")
         if isinstance(primary_test_target, dict):
+            test_repo_local_path = primary_test_target.get("repo_local_path")
+            test_identity = (
+                {"repoLocalPath": test_repo_local_path}
+                if isinstance(test_repo_local_path, str)
+                else root_identity
+            )
             writable_roots.append(
                 {
                     "path": normalize_relative_path(primary_test_target["path"]),
                     "kind": primary_test_target["kind"],
                     "reason": "scoped-test-target",
-                    **root_identity,
+                    **test_identity,
                 }
             )
         primary_support_targets = primary_target.get("support_targets")
@@ -315,18 +333,27 @@ def derive_deep_focus_roots(
             for target in primary_support_targets:
                 if not isinstance(target, dict):
                     continue
+                support_repo_local_path = target.get("repo_local_path")
+                support_identity = (
+                    {"repoLocalPath": support_repo_local_path}
+                    if isinstance(support_repo_local_path, str)
+                    else root_identity
+                )
                 readonly_roots.append(
                     {
                         "path": normalize_relative_path(target["path"]),
                         "kind": target["kind"],
                         "reason": "scoped-support-target",
-                        **root_identity,
+                        **support_identity,
                     }
                 )
 
     if selected_test_target is not None:
+        selected_test_repo_local_path = selected_test_target.get("repo_local_path")
         anchor_identity = (
-            {"repoLocalPath": anchor_repo_local_path}
+            {"repoLocalPath": selected_test_repo_local_path}
+            if isinstance(selected_test_repo_local_path, str)
+            else {"repoLocalPath": anchor_repo_local_path}
             if isinstance(anchor_repo_local_path, str)
             else {}
         )
@@ -340,8 +367,11 @@ def derive_deep_focus_roots(
         )
 
     for target in selected_support_targets:
+        support_repo_local_path = target.get("repo_local_path")
         anchor_identity = (
-            {"repoLocalPath": anchor_repo_local_path}
+            {"repoLocalPath": support_repo_local_path}
+            if isinstance(support_repo_local_path, str)
+            else {"repoLocalPath": anchor_repo_local_path}
             if isinstance(anchor_repo_local_path, str)
             else {}
         )

@@ -214,7 +214,12 @@ describe('applyScopedRoleAction make-primary multi-repo', () => {
     expect(next.state.selectedFocusTargets?.[0]).toEqual(expect.objectContaining({
       path: 'src/app',
       kind: 'directory',
-      supportTargets: [{ path: 'src', kind: 'directory' }],
+      supportTargets: [expect.objectContaining({
+        path: 'src',
+        kind: 'directory',
+        repoLocalPath: '/repos/tools',
+        repoId: 'tools',
+      })],
     }));
   });
 
@@ -332,6 +337,18 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
   const PRIMARY_PLATFORM: ContextPackPrimaryFocusTarget = {
     path: 'src/web', kind: 'directory', role: 'primary', repoLocalPath: '/repos/platform', repoId: 'platform',
   };
+  const toolsScopedTarget = (path: string, kind: 'directory' | 'file' = 'directory') => ({
+    path,
+    kind,
+    repoLocalPath: '/repos/tools',
+    repoId: 'tools',
+  });
+  const platformScopedTarget = (path: string, kind: 'directory' | 'file' = 'directory') => ({
+    path,
+    kind,
+    repoLocalPath: '/repos/platform',
+    repoId: 'platform',
+  });
 
   it('add-global-support strips the path from every per-primary supportTargets bucket', () => {
     // Set up a state where `lib/shared` already lives under primary-tools.
@@ -346,7 +363,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
       deepFocusMode: 'distributed',
     }).next;
 
-    expect(next.state.selectedSupportTargets).toEqual([{ path: 'lib/shared', kind: 'directory' }]);
+    expect(next.state.selectedSupportTargets).toEqual([toolsScopedTarget('lib/shared')]);
     expect(next.state.selectedFocusTargets?.[0]?.supportTargets ?? []).toEqual([]);
     expect(next.state.selectedFocusTargets?.[1]?.supportTargets ?? []).toEqual([]);
   });
@@ -365,7 +382,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
 
     expect(next.state.selectedSupportTargets).toEqual([]);
     expect(next.state.selectedFocusTargets?.[0]?.supportTargets).toEqual([
-      { path: 'lib/shared', kind: 'directory' },
+      toolsScopedTarget('lib/shared'),
     ]);
   });
 
@@ -387,7 +404,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
       { path: 'lib/shared', kind: 'directory' },
     ]);
     expect(next.state.selectedFocusTargets?.[1]?.supportTargets).toEqual([
-      { path: 'lib/shared', kind: 'directory' },
+      platformScopedTarget('lib/shared'),
     ]);
     expect(next.state.selectedSupportTargets).toEqual([]);
   });
@@ -410,7 +427,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
       deepFocusMode: 'distributed',
     }).next;
 
-    expect(next.state.selectedTestTarget).toEqual(sharedTest);
+    expect(next.state.selectedTestTarget).toEqual(toolsScopedTarget('tests/shared'));
     expect(next.state.selectedFocusTargets?.[0]?.testTarget).toBeUndefined();
     expect(next.state.selectedFocusTargets?.[1]?.testTarget).toBeUndefined();
     expect(next.scopeCursor).toEqual({ kind: 'global' });
@@ -434,7 +451,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
       deepFocusMode: 'distributed',
     }).next;
 
-    expect(next.state.selectedTestTarget).toEqual(target);
+    expect(next.state.selectedTestTarget).toEqual(toolsScopedTarget('tests/shared'));
     expect(next.state.selectedSupportTargets).toEqual([]);
   });
 
@@ -472,7 +489,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
       deepFocusMode: 'distributed',
     }).next;
 
-    expect(next.state.selectedSupportTargets).toEqual([shared]);
+    expect(next.state.selectedSupportTargets).toEqual([toolsScopedTarget('lib/shared')]);
     expect(next.state.selectedFocusTargets?.[0]?.supportTargets ?? []).toEqual([]);
     expect(next.state.selectedFocusTargets?.[1]?.supportTargets ?? []).toEqual([]);
     expect(next.scopeCursor).toEqual({ kind: 'global' });
@@ -501,7 +518,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
     }).next;
 
     expect(next.state.selectedTestTarget).toBeUndefined();
-    expect(next.state.selectedSupportTargets).toEqual([target]);
+    expect(next.state.selectedSupportTargets).toEqual([toolsScopedTarget('lib/shared')]);
   });
 
   it('promote-support-to-global is a no-op when the target is already in the global support bucket', () => {
@@ -532,7 +549,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
     }).next;
 
     expect(promoted.state.selectedSupportTargets).toEqual([
-      { path: 'assets/icons', kind: 'directory' },
+      toolsScopedTarget('assets/icons'),
     ]);
     expect(promoted.state.selectedFocusTargets?.[0]?.supportTargets ?? []).toEqual([]);
 
@@ -546,7 +563,7 @@ describe('applyScopedRoleAction support-scope mutual exclusion (spec §5.2 / §1
 
     expect(demoted.state.selectedSupportTargets).toEqual([]);
     expect(demoted.state.selectedFocusTargets?.[0]?.supportTargets).toEqual([
-      { path: 'assets/icons', kind: 'directory' },
+      toolsScopedTarget('assets/icons'),
     ]);
   });
 });

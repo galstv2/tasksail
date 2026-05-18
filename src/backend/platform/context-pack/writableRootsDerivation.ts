@@ -19,7 +19,7 @@ export function deriveWritableRootsFromFocusedSelection(options: {
   primaryFocusRelativePath?: string;
   primaryFocusTargetKind?: FocusTargetKind;
   primaryFocusTargets?: PrimaryFocusTarget[];
-  testTarget?: { path: string; kind: FocusTargetKind };
+  testTarget?: { path: string; kind: FocusTargetKind; repoLocalPath?: string };
   supportTargets?: NormalizedSupportTarget[];
 }): {
   writableRoots: WritableRoot[];
@@ -150,7 +150,11 @@ export function deriveWritableRootsFromFocusedSelection(options: {
     }
     if (target.testTarget) {
       addWritableRoot({
-        ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+        ...(target.testTarget.repoLocalPath
+          ? { repoLocalPath: target.testTarget.repoLocalPath }
+          : target.repoLocalPath
+            ? { repoLocalPath: target.repoLocalPath }
+            : {}),
         path: target.testTarget.path,
         kind: target.testTarget.kind,
         reason: 'scoped-test-target',
@@ -159,7 +163,11 @@ export function deriveWritableRootsFromFocusedSelection(options: {
     }
     for (const supportTarget of target.supportTargets ?? []) {
       addReadonlyContextRoot({
-        ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+        ...(supportTarget.repoLocalPath
+          ? { repoLocalPath: supportTarget.repoLocalPath }
+          : target.repoLocalPath
+            ? { repoLocalPath: target.repoLocalPath }
+            : {}),
         path: supportTarget.path,
         kind: supportTarget.kind,
         reason: 'scoped-support-target',
@@ -170,7 +178,11 @@ export function deriveWritableRootsFromFocusedSelection(options: {
 
   if (options.testTarget) {
     addWritableRoot({
-      ...(anchorRepoLocalPath ? { repoLocalPath: anchorRepoLocalPath } : {}),
+      ...(options.testTarget.repoLocalPath
+        ? { repoLocalPath: options.testTarget.repoLocalPath }
+        : anchorRepoLocalPath
+          ? { repoLocalPath: anchorRepoLocalPath }
+          : {}),
       path: options.testTarget.path,
       kind: options.testTarget.kind,
       reason: 'test-target',
@@ -179,7 +191,11 @@ export function deriveWritableRootsFromFocusedSelection(options: {
 
   for (const supportTarget of options.supportTargets ?? []) {
     addReadonlyContextRoot({
-      ...(anchorRepoLocalPath ? { repoLocalPath: anchorRepoLocalPath } : {}),
+      ...(supportTarget.repoLocalPath
+        ? { repoLocalPath: supportTarget.repoLocalPath }
+        : anchorRepoLocalPath
+          ? { repoLocalPath: anchorRepoLocalPath }
+          : {}),
       path: supportTarget.path,
       kind: supportTarget.kind,
       reason: 'support-target',

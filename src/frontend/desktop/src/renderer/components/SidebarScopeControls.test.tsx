@@ -554,8 +554,20 @@ describe('SidebarScopeControls', () => {
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         selectedFocusPath: 'src',
-        selectedTestTarget: { path: 'tests', kind: 'directory' },
-        selectedSupportTargets: [{ path: 'lib', kind: 'directory' }],
+        selectedTestTarget: expect.objectContaining({
+          path: 'tests',
+          kind: 'directory',
+          repoLocalPath: '/tmp/repo-1',
+          repoId: 'repo-1',
+        }),
+        selectedSupportTargets: [
+          expect.objectContaining({
+            path: 'lib',
+            kind: 'directory',
+            repoLocalPath: '/tmp/repo-1',
+            repoId: 'repo-1',
+          }),
+        ],
       }),
     );
   });
@@ -628,8 +640,20 @@ describe('SidebarScopeControls', () => {
     expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         selectedFocusPath: 'src',
-        selectedTestTarget: { path: 'tests', kind: 'directory' },
-        selectedSupportTargets: [{ path: 'lib', kind: 'directory' }],
+        selectedTestTarget: expect.objectContaining({
+          path: 'tests',
+          kind: 'directory',
+          repoLocalPath: '/tmp/repo-1',
+          repoId: 'repo-1',
+        }),
+        selectedSupportTargets: [
+          expect.objectContaining({
+            path: 'lib',
+            kind: 'directory',
+            repoLocalPath: '/tmp/repo-1',
+            repoId: 'repo-1',
+          }),
+        ],
       }),
     );
   });
@@ -759,7 +783,12 @@ describe('SidebarScopeControls', () => {
         selectedFocusTargets: [
           expect.objectContaining({
             supportTargets: [
-              { path: 'src/api/auth', kind: 'directory' },
+              expect.objectContaining({
+                path: 'src/api/auth',
+                kind: 'directory',
+                repoLocalPath: '/tmp/repo-1',
+                repoId: 'repo-1',
+              }),
             ],
           }),
         ],
@@ -958,6 +987,81 @@ describe('SidebarScopeControls', () => {
 
     fireEvent.mouseUp(srcRow);
     vi.useRealTimers();
+  });
+
+  it('commits a classified test file as a global test target', async () => {
+    const onCommitDeepFocusSelection = vi.fn();
+    const onListRepoTree = vi.fn().mockResolvedValue({
+      action: 'contextPack.listRepoTree',
+      mode: 'read-only',
+      message: 'Listed repo tree entries.',
+      entries: [
+        {
+          name: 'externalMcpHandlers.ts',
+          relativePath: 'src/frontend/desktop/electron/externalMcpHandlers.ts',
+          kind: 'file',
+          hasChildren: false,
+          isTest: false,
+        },
+        {
+          name: 'externalMcpHandlers.test.ts',
+          relativePath: 'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+          kind: 'file',
+          hasChildren: false,
+          isTest: true,
+          artifactType: 'test-code',
+          pathKind: 'tests',
+        },
+      ],
+      currentPath: '',
+      repoLocalPath: '/tmp/repo-1',
+      truncated: false,
+    });
+
+    render(
+      <ScopeControlsWithEditor
+        {...defaultProps}
+        selectedPack={makePack({ estateType: 'distributed-platform' })}
+        selectedWorkingFocusIds={['repo-1']}
+        deepFocusEnabled
+        deepFocusPrimaryRepoId="repo-1"
+        selectedFocusPath="src/frontend/desktop/electron/externalMcpHandlers.ts"
+        selectedFocusTargetKind="file"
+        selectedFocusTargets={[
+          {
+            path: 'src/frontend/desktop/electron/externalMcpHandlers.ts',
+            kind: 'file',
+            role: 'anchor',
+            repoId: 'repo-1',
+            repoLocalPath: '/tmp/repo-1',
+          },
+        ]}
+        onCommitDeepFocusSelection={onCommitDeepFocusSelection}
+        onListRepoTree={onListRepoTree}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Scope' }));
+    const repoRow = screen.getAllByText('Frontend')[0]?.closest('[role="button"]');
+    expect(repoRow).not.toBeNull();
+    fireEvent.click(repoRow!.querySelector('.deep-focus-row__chevron') as Element);
+    const tree = await screen.findByRole('list', { name: 'Deep Focus tree' });
+    const testRow = within(tree).getByText('externalMcpHandlers.test.ts').closest('[role="button"]')!;
+
+    fireEvent.click(testRow);
+    fireEvent.click(within(screen.getByRole('region', { name: 'Selected row actions' }))
+      .getByRole('button', { name: 'Use as Test for all primaries' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(screen.queryByText('Test target must be a folder, not a file.')).not.toBeInTheDocument();
+    expect(onCommitDeepFocusSelection).toHaveBeenCalledWith(expect.objectContaining({
+      selectedTestTarget: expect.objectContaining({
+        path: 'src/frontend/desktop/electron/externalMcpHandlers.test.ts',
+        kind: 'file',
+        repoLocalPath: '/tmp/repo-1',
+        repoId: 'repo-1',
+      }),
+    }));
   });
 
   it('keeps scoped details out of an edit footer while preserving tree context', async () => {

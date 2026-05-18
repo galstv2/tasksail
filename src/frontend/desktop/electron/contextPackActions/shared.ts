@@ -114,6 +114,9 @@ export function normalizeDeepFocusTarget(target: FocusTarget): FocusTarget {
   return {
     path: normalizeRelativePath(target.path),
     kind: target.kind,
+    ...(target.repoLocalPath ? { repoLocalPath: target.repoLocalPath } : {}),
+    ...(target.repoId ? { repoId: target.repoId } : {}),
+    ...(target.focusId ? { focusId: target.focusId } : {}),
   };
 }
 
@@ -166,7 +169,13 @@ export function mirrorSinglePrimaryScopedFields(
 }
 
 export function toWorkspaceSyncTarget(target: FocusTarget): Record<string, unknown> {
-  return { path: target.path, kind: target.kind };
+  return {
+    path: target.path,
+    kind: target.kind,
+    ...(target.repoLocalPath ? { repo_local_path: target.repoLocalPath } : {}),
+    ...(target.repoId ? { repo_id: target.repoId } : {}),
+    ...(target.focusId ? { focus_id: target.focusId } : {}),
+  };
 }
 
 export function toWorkspaceSyncPrimaryTarget(target: ContextPackPrimaryFocusTarget): Record<string, unknown> {
@@ -178,7 +187,8 @@ export function toWorkspaceSyncPrimaryTarget(target: ContextPackPrimaryFocusTarg
     ...(target.repoId ? { repo_id: target.repoId } : {}),
     ...(target.focusId ? { focus_id: target.focusId } : {}),
     ...(target.role ? { role: target.role } : {}),
-    ...(testTarget !== undefined ? { test_target: testTarget } : {}),
+    ...(testTarget !== undefined && testTarget !== null ? { test_target: toWorkspaceSyncTarget(testTarget) } : {}),
+    ...(testTarget === null ? { test_target: null } : {}),
     ...(target.supportTargets && target.supportTargets.length > 0
       ? { support_targets: target.supportTargets.map(toWorkspaceSyncTarget) }
       : {}),
