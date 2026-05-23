@@ -1,8 +1,8 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { existsSync, realpathSync } from 'node:fs';
 import { extractMarkdownSection } from '../core/index.js';
 import { SECTION_NAMES } from '../workflow-policy/contracts/sectionNames.js';
+import { normalizeActivationRepoRoot as normalizeRepoRoot } from './branchChainActivation.js';
 import { withDirLock } from './dirLock.js';
 import {
   readChildTaskChains,
@@ -10,7 +10,9 @@ import {
   type ChildTaskChainsState,
   type ChildTaskCompletedBranchHandoff,
 } from './childTaskChains.js';
-import { extractBranchChainBinding, parseBranchChainBinding, type TaskBranchChainBinding } from './markdown.js';
+import { extractBranchChainBinding, isNonEmptyString, parseBranchChainBinding, type TaskBranchChainBinding } from './markdown.js';
+
+export { normalizeRepoRoot };
 
 export type { ChildTaskCompletedBranchHandoff };
 
@@ -41,6 +43,21 @@ export interface BranchHandoffForChildChainCloseout {
     target_branch?: string | null;
   };
 }
+
+type NormalizedBranchChainRepo = {
+  repo: TaskBranchChainBinding['repos'][number];
+  normalizedRepoRoot: string;
+};
+
+type NormalizedFreshBranchHandoff = {
+  handoff: BranchHandoffForChildChainCloseout;
+  normalizedRepoRoot: string;
+};
+
+type NormalizedCompletedBranchHandoff = {
+  handoff: ChildTaskCompletedBranchHandoff;
+  normalizedRepoRoot: string;
+};
 
 export async function prepareChildTaskChainCloseout(args: {
   repoRoot: string;
@@ -271,20 +288,25 @@ function convertMatchingHandoffs(
   prepared: PreparedChildTaskChainCloseout,
   handoffs: readonly BranchHandoffForChildChainCloseout[],
 ): ChildTaskCompletedBranchHandoff[] {
-  const remaining = [...handoffs];
+  const repos = normalizeBranchChainRepos(prepared.branchChain.repos);
+  const remaining: NormalizedFreshBranchHandoff[] = handoffs.map((handoff) => ({
+    handoff,
+    normalizedRepoRoot: normalizeRepoRoot(handoff.repo_root),
+  }));
   const completed: ChildTaskCompletedBranchHandoff[] = [];
-  for (const repo of prepared.branchChain.repos) {
+  for (const repoEntry of repos) {
     const matches = remaining
-      .map((handoff, index) => ({ handoff, index }))
-      .filter(({ handoff }) =>
-        normalizeRepoRoot(handoff.repo_root) === normalizeRepoRoot(repo.repoRoot)
-        && handoff.branch === repo.chainSourceBranch
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) =>
+        entry.normalizedRepoRoot === repoEntry.normalizedRepoRoot
+        && entry.handoff.branch === repoEntry.repo.chainSourceBranch
       );
     if (matches.length !== 1) {
-      throw new Error(`child-task-chain-closeout-branch-handoff-mismatch for task "${prepared.taskId}": expected one handoff for ${repo.repoRoot} ${repo.chainSourceBranch}`);
+      throw new Error(`child-task-chain-closeout-branch-handoff-mismatch for task "${prepared.taskId}": expected one handoff for ${repoEntry.repo.repoRoot} ${repoEntry.repo.chainSourceBranch}`);
     }
-    const [{ handoff, index }] = matches;
-    if (!isValidBranchHandoff(handoff) || handoff.branch === repo.targetBranch) {
+    const [{ entry, index }] = matches;
+    const { handoff } = entry;
+    if (!isValidBranchHandoff(handoff) || handoff.branch === repoEntry.repo.targetBranch) {
       throw new Error(`child-task-chain-closeout-branch-handoff-mismatch for task "${prepared.taskId}": invalid handoff`);
     }
     remaining.splice(index, 1);
@@ -328,19 +350,23 @@ function validateCompletedHandoffsMatchBranchChain(
   branchChain: TaskBranchChainBinding,
   handoffs: readonly ChildTaskCompletedBranchHandoff[],
 ): void {
-  const remaining = [...handoffs];
-  for (const repo of branchChain.repos) {
+  const repos = normalizeBranchChainRepos(branchChain.repos);
+  const remaining: NormalizedCompletedBranchHandoff[] = handoffs.map((handoff) => ({
+    handoff,
+    normalizedRepoRoot: normalizeRepoRoot(handoff.repoRoot),
+  }));
+  for (const repoEntry of repos) {
     const matches = remaining
-      .map((handoff, index) => ({ handoff, index }))
-      .filter(({ handoff }) =>
-        normalizeRepoRoot(handoff.repoRoot) === normalizeRepoRoot(repo.repoRoot)
-        && handoff.chainSourceBranch === repo.chainSourceBranch
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) =>
+        entry.normalizedRepoRoot === repoEntry.normalizedRepoRoot
+        && entry.handoff.chainSourceBranch === repoEntry.repo.chainSourceBranch
       );
     if (matches.length !== 1) {
       throw new Error(`child-task-chain-closeout-sentinel-invalid for task "${taskId}": branch handoff mismatch`);
     }
-    const [{ handoff, index }] = matches;
-    if (handoff.chainSourceBranch === repo.targetBranch) {
+    const [{ entry, index }] = matches;
+    if (entry.handoff.chainSourceBranch === repoEntry.repo.targetBranch) {
       throw new Error(`child-task-chain-closeout-sentinel-invalid for task "${taskId}": targetBranch recorded as source`);
     }
     remaining.splice(index, 1);
@@ -348,6 +374,15 @@ function validateCompletedHandoffsMatchBranchChain(
   if (remaining.length > 0) {
     throw new Error(`child-task-chain-closeout-sentinel-invalid for task "${taskId}": extra branch handoff`);
   }
+}
+
+function normalizeBranchChainRepos(
+  repos: readonly TaskBranchChainBinding['repos'][number][],
+): NormalizedBranchChainRepo[] {
+  return repos.map((repo) => ({
+    repo,
+    normalizedRepoRoot: normalizeRepoRoot(repo.repoRoot),
+  }));
 }
 
 function isValidBranchHandoff(handoff: BranchHandoffForChildChainCloseout): boolean {
@@ -397,16 +432,4 @@ async function withChildTaskChainsLock<T>(
   const stateDir = path.join(repoRoot, '.platform-state');
   await mkdir(stateDir, { recursive: true });
   return withDirLock(path.join(stateDir, 'child-task-chains.lock'), operationName, fn);
-}
-
-export function normalizeRepoRoot(input: string): string {
-  try {
-    return existsSync(input) ? realpathSync(input) : path.resolve(input);
-  } catch {
-    return path.resolve(input);
-  }
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '';
 }

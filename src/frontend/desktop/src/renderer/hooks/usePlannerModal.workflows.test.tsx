@@ -796,6 +796,7 @@ describe('usePlannerModal file and child-task workflows', () => {
         rootTaskId: 'ROOT-1',
         followUpReason: 'Operator correction.',
       },
+      lilyPersonalityId: 'balanced',
       parentTaskBranchView: {
         schemaVersion: 1,
         parentTaskId: parent.taskId,

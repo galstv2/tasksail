@@ -1,6 +1,7 @@
 import type {
   ArchivedTaskEntry,
   PlannerChildTaskExecutionScope,
+  PlannerLilyPersonalityId,
   PlannerLilyPlanningReloadScope,
   PlannerParentBranchViewRequest,
   PlannerReadParentChainArchiveBundleResponse,
@@ -35,12 +36,13 @@ export async function restartChildPlannerWithScope(args: {
   task: ArchivedTaskEntry;
   childScope: PlannerChildTaskExecutionScope;
   reloadScope: PlannerLilyPlanningReloadScope;
+  lilyPersonalityId: PlannerLilyPersonalityId;
   parentContextBundle?: PlannerReadParentContextBundleResponse['bundle'];
   onBeforeStart: () => void;
   onStatus?: (message: string) => void;
   onStarted: (sessionId: string, starterPrompt: string) => void;
 }): Promise<void> {
-  const { client, task, childScope, reloadScope, parentContextBundle, onBeforeStart, onStatus, onStarted } = args;
+  const { client, task, childScope, reloadScope, lilyPersonalityId, parentContextBundle, onBeforeStart, onStatus, onStarted } = args;
   if (!task.plannerFocusSnapshot) {
     throw new Error('This archived parent task has no saved planner focus and cannot be used as a parent. Refresh the parent list and try again.');
   }
@@ -61,6 +63,7 @@ export async function restartChildPlannerWithScope(args: {
   onBeforeStart();
   const start = await client.startPlannerSession({
     contextPackDir: task.plannerFocusSnapshot.contextPackDir,
+    lilyPersonalityId,
     childTaskFocusSnapshot: task.plannerFocusSnapshot,
     childTaskLineage: {
       parentTaskId: task.taskId,

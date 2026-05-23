@@ -67,14 +67,14 @@ export function buildChildTaskStarterPrompt(args: {
     (scopeSections ? `${scopeSections}\n\n` : '') +
     (chainSections ? `${chainSections}\n\n` : '') +
     (contentSections ? `${contentSections}\n\n` : '') +
-    'Ask the operator what continuation, extension, or follow-up outcome they need before finalizing the child-task intake.\n\n' +
+    'Ask the Guide what continuation, extension, or follow-up outcome they need before finalizing the child-task intake.\n\n' +
     'Rules:\n' +
     '- Fill or refine only the H1 task title and editable sections in the staged document.\n' +
     '- Use the immediate parent context only as read-only background for this child task.\n' +
     '- Do NOT change Task Lineage, Context Pack Binding, Branch Chain, or Source metadata.\n' +
-    '- The Guide will provide or you should ask for: Request Summary, Desired Outcome, ' +
-    'Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
-    '- Ask follow-up questions for any missing required content. Do not guess or fabricate.\n' +
+    '- You own translating the conversation into Request Summary, Desired Outcome, Constraints, Acceptance Signals, Parent Task Carry-Forward Summary, and Suggested Routing / Planner Notes.\n' +
+    '- Ask natural follow-up questions for missing facts. Do not ask the Guide to fill section-by-section intake fields or present a required-fields form.\n' +
+    '- Do not guess or fabricate missing content.\n' +
     `- ${DRAFT_WRITE_CAUTION}`
   );
 }
@@ -220,14 +220,17 @@ export function buildMarkdownReviewPrompt(filename: string, content: string): st
     wrapAttachedFile(content) +
     '\n\n' +
     'Compare this file against AgentWorkSpace/templates/planning-intake.md. ' +
+    'This is the standard planner review path, not an active child-task workflow. ' +
     'Use it only as supporting context for the editable planning sections in the already-staged shell. ' +
     'Identify which editable required sections are missing or insufficient. ' +
     'The required sections are: Request Summary, Desired Outcome, and Acceptance Signals. ' +
     'Acceptance Signals must contain at least one bullet or numbered item. ' +
-    'If this is a child-task flow, Parent Task Carry-Forward Summary must also be non-empty.\n\n' +
+    'An empty Parent Task Carry-Forward Summary is valid in this standard flow; do not ask whether this is a child task. ' +
+    'Only the dedicated child-task workflow requires Parent Task Carry-Forward Summary to be non-empty.\n\n' +
     'Do not validate or rewrite platform-owned lineage, context-pack binding, or source sections. You may improve only the H1 task title and editable planning sections. ' +
     'If any editable required sections are missing or incomplete, ask me follow-up questions ' +
-    'to fill in the gaps. Do not guess or fabricate content for missing sections.\n\n' +
+    'to fill in the gaps. Do not guess or fabricate content for missing sections. ' +
+    'If you have everything you need to draft the spec, say that the intake is ready and the Draft Spec button can be clicked.\n\n' +
     DRAFT_WRITE_CAUTION
   );
 }

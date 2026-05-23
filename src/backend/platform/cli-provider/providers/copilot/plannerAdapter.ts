@@ -10,6 +10,7 @@ import type {
 } from '../../types.js';
 import { REPO_EXECUTOR_DENY_FLOOR } from './denyRules.js';
 import { buildCopilotEnv } from './envMapper.js';
+import { applyCopilotPlannerPersonality } from './plannerPersonality.js';
 
 const PLANNER_ALLOW_TOOLS = ['write'];
 // Planner runs as artifact-author with the repo-executor destructive-shell
@@ -347,11 +348,18 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
     '--stream', 'on',
   ];
 
-  if (options.prompt !== undefined) {
+  const shouldApplyPlannerPersonality = options.promptMode === 'interactive' && !options.resumeSessionId;
+  const plannerPrompt = options.prompt === undefined
+    ? undefined
+    : shouldApplyPlannerPersonality
+      ? applyCopilotPlannerPersonality(options.prompt, options.lilyPersonalityId)
+      : options.prompt;
+
+  if (plannerPrompt !== undefined) {
     if (options.promptMode === 'interactive') {
-      args.push('-i', options.prompt);
+      args.push('-i', plannerPrompt);
     } else {
-      args.push('--prompt', options.prompt);
+      args.push('--prompt', plannerPrompt);
     }
   }
 

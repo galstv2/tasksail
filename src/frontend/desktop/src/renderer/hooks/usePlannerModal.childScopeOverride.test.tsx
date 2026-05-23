@@ -156,6 +156,9 @@ describe('usePlannerModal child scope override', () => {
       result.current.plannerModalProps.onSelectParentTask?.(createStandardArchivedTask());
     });
     await waitFor(() => expect(result.current.plannerModalProps.childScopePanelProps).toBeDefined());
+    act(() => {
+      result.current.plannerModalProps.onLilyPersonalityChange?.('clinical');
+    });
     act(() => result.current.plannerModalProps.onOpenChildScopePanel?.());
 
     const savedScope = result.current.plannerModalProps.childScopePanelProps!.childScope;
@@ -169,6 +172,7 @@ describe('usePlannerModal child scope override', () => {
 
     await waitFor(() => expect(result.current.plannerModalProps.childScopeStatusLabel).toBe('Child scope adjusted'));
     expect(startPlannerSession).toHaveBeenLastCalledWith(expect.objectContaining({
+      lilyPersonalityId: 'clinical',
       childTaskExecutionScope: expect.objectContaining({ selectedRepoIds: ['support'] }),
       lilyPlanningReloadScope: expect.objectContaining({
         purpose: 'lily-planning-read-context',

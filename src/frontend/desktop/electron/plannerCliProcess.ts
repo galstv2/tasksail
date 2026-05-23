@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { getActiveProvider, type CliProvider } from '../../../backend/platform/cli-provider/index.js';
 import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import type { PlannerLilyPersonalityId } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import type { PlannerCliInvocation } from './plannerSession.types';
 
@@ -27,6 +28,7 @@ export type BuildPlannerCliInvocationOptions = {
   contextPackBoundaryEnforced?: boolean;
   additionalEnv?: NodeJS.ProcessEnv;
   focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
+  lilyPersonalityId?: PlannerLilyPersonalityId;
 };
 
 let cachedPlannerRegistryEntry: { registryPath: string; plannerAgentId: string; entry: PlannerAgentRegistryEntry } | null = null;
@@ -120,6 +122,7 @@ export function buildPlannerCliInvocation(
     contextPackBoundaryEnforced,
     workingDirectory: options.workingDirectory ?? REPO_ROOT,
     focusEnv: options.focusEnv,
+    lilyPersonalityId: options.lilyPersonalityId,
   });
 
   if (!launchSpec) {

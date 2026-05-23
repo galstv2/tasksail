@@ -22,6 +22,7 @@ import {
   type PlannerChildTaskLineage,
   type PlannerChildTaskExecutionScope,
   type PlannerFocusSnapshot,
+  type PlannerLilyPersonalityId,
   type PlannerLilyPlanningReloadScope,
   type PlannerParentBranchViewRequest,
   type PlannerParentBranchViewStatus,
@@ -82,6 +83,7 @@ export async function startSession(
   childTaskExecutionScope?: PlannerChildTaskExecutionScope,
   lilyPlanningReloadScope?: PlannerLilyPlanningReloadScope,
   parentTaskBranchView?: PlannerParentBranchViewRequest,
+  lilyPersonalityId?: PlannerLilyPersonalityId,
 ): Promise<{ sessionId: string; created: boolean; parentBranchViewStatus?: PlannerParentBranchViewStatus }> {
   if (broker.isSessionActive()) {
     return broker.startSession();
@@ -159,7 +161,7 @@ export async function startSession(
   // session once the broker confirms a newly created session.
   let result: ReturnType<typeof broker.startSession>;
   try {
-    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv });
+    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv, lilyPersonalityId: lilyPersonalityId ?? 'balanced' });
   } catch (error: unknown) {
     if (parentBranchViewSession) {
       await cleanupParentBranchViewSession(parentBranchViewSession);
@@ -218,6 +220,31 @@ export async function startSession(
     });
     throw error;
   }
+}
+
+export async function updateSessionPersonality(
+  lilyPersonalityId: PlannerLilyPersonalityId,
+): Promise<{
+  action: 'planner.updateSessionPersonality';
+  mode: 'updated';
+  accepted: true;
+  message: string;
+  lilyPersonalityId: PlannerLilyPersonalityId;
+}> {
+  const result = broker.updateSessionPersonality(lilyPersonalityId);
+  if (result === 'no-session') {
+    throw new Error('No active planner session to update personality.');
+  }
+  if (result === 'locked') {
+    throw new Error('Planner personality is locked after the first message.');
+  }
+  return {
+    action: 'planner.updateSessionPersonality',
+    mode: 'updated',
+    accepted: true,
+    message: 'Planner personality updated.',
+    lilyPersonalityId,
+  };
 }
 
 async function buildFocusedRepoFromLilyPlanningReloadScope(

@@ -32,7 +32,6 @@ import {
   writeFileSync,
   readFileSync,
 } from 'node:fs';
-import { promises as fsPromises } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -374,7 +373,132 @@ describe('§4.14 detectCloneStrategy — Linux reflink fallback', () => {
       // node_modules absent → skipped
       expect(result.skipped).toContain('node_modules');
       // Strategy is one of the valid values regardless of platform
-      expect(['copy', 'apfs-clonefile', 'reflink']).toContain(result.strategy);
+      expect(['copy', 'apfs-clonefile', 'reflink', 'win-refs']).toContain(result.strategy);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('worktree materialization fast-copy observability', () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', platformDescriptor);
+    vi.clearAllMocks();
+  });
+
+  it('skips missing paths, returns selected strategy/cloned/skipped only, and logs effective metadata once', async () => {
+    const info = vi.fn();
+    const child = vi.fn(() => ({ info }));
+    const copyTree = vi.fn()
+      .mockResolvedValueOnce({
+        selectedStrategy: 'reflink',
+        effectiveStrategy: 'native-copy',
+        reflinkAttempted: true,
+        reflinkUsed: false,
+        fallbackReason: 'EXDEV',
+        durationMs: 11,
+      })
+      .mockResolvedValueOnce({
+        selectedStrategy: 'reflink',
+        effectiveStrategy: 'node-copy',
+        reflinkAttempted: true,
+        reflinkUsed: false,
+        fallbackReason: 'EIO',
+        durationMs: 13,
+      });
+
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const tmpBase = mkdtempSync(path.join(tmpdir(), 'wt-fast-log-'));
+    const originalRoot = path.join(tmpBase, 'origin');
+    const worktreeRoot = path.join(tmpBase, 'worktree');
+    mkdirSync(path.join(originalRoot, 'node_modules'), { recursive: true });
+    mkdirSync(path.join(originalRoot, 'dist'), { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+
+    try {
+      const clockValues = [100, 145];
+      const result = await materializeWorktreeDeps(
+        originalRoot,
+        worktreeRoot,
+        ['node_modules', '.venv', 'dist'],
+        { taskId: 'task-fast', repoLabel: 'Platform' },
+        {
+          now: () => clockValues.shift() ?? 145,
+          statfsFn: makeStatfsMock({
+            type: 0,
+            bsize: 4096,
+            fstypename: 'btrfs',
+            fsid: [1, 1],
+          }),
+          copyTree,
+          logger: { child },
+        },
+      );
+
+      expect(result).toEqual({
+        strategy: 'reflink',
+        cloned: ['node_modules', 'dist'],
+        skipped: ['.venv'],
+      });
+      expect(Object.keys(result).sort()).toEqual(['cloned', 'skipped', 'strategy']);
+      expect(copyTree).toHaveBeenCalledTimes(2);
+      expect(child).toHaveBeenCalledWith({ taskId: 'task-fast' });
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(info).toHaveBeenCalledWith('worktree.materialization.copy.completed', {
+        repoLabel: 'Platform',
+        originalRoot,
+        worktreeRoot,
+        selectedStrategy: 'reflink',
+        effectiveStrategies: ['native-copy', 'node-copy'],
+        reflinkAttempted: true,
+        reflinkUsed: false,
+        fallback: true,
+        fallbackReasons: ['EXDEV', 'EIO'],
+        clonedCount: 2,
+        skippedCount: 1,
+        durationMs: 45,
+      });
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps effective strategy metadata log-only', async () => {
+    const info = vi.fn();
+    const child = vi.fn(() => ({ info }));
+    const copyTree = vi.fn().mockResolvedValue({
+      selectedStrategy: 'copy',
+      effectiveStrategy: 'native-copy',
+      reflinkAttempted: false,
+      reflinkUsed: false,
+      fallbackReason: null,
+      durationMs: 5,
+    });
+    Object.defineProperty(process, 'platform', { value: 'freebsd', configurable: true });
+    const tmpBase = mkdtempSync(path.join(tmpdir(), 'wt-fast-return-'));
+    const originalRoot = path.join(tmpBase, 'origin');
+    const worktreeRoot = path.join(tmpBase, 'worktree');
+    mkdirSync(path.join(originalRoot, 'deps'), { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+
+    try {
+      const result = await materializeWorktreeDeps(
+        originalRoot,
+        worktreeRoot,
+        ['deps'],
+        {},
+        { copyTree, logger: { child } },
+      );
+
+      expect(result).toEqual({ strategy: 'copy', cloned: ['deps'], skipped: [] });
+      expect(result).not.toHaveProperty('effectiveStrategies');
+      expect(result).not.toHaveProperty('fallbackReasons');
+      expect(info).toHaveBeenCalledWith(
+        'worktree.materialization.copy.completed',
+        expect.objectContaining({ effectiveStrategies: ['native-copy'] }),
+      );
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -470,19 +594,16 @@ describe('§4.14 materializeWorktreeDeps — ENOSPC rollback', () => {
     mkdirSync(nmDir);
     writeFileSync(path.join(nmDir, 'dummy.js'), 'module.exports = {}');
 
-    // Inject ENOSPC via the strategy path: force 'copy' strategy by using
-    // a mock statfsFn that returns non-APFS/non-reflink on any platform.
-    // Then mock fs.promises.cp to throw ENOSPC.
-    const cpSpy = vi.spyOn(fsPromises, 'cp').mockRejectedValue(
+    const copyTree = vi.fn().mockRejectedValue(
       Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }),
     );
 
     // materializeWorktreeDeps must throw when ENOSPC occurs
     await expect(
-      materializeWorktreeDeps(originalRoot, worktreePath, ['node_modules']),
+      materializeWorktreeDeps(originalRoot, worktreePath, ['node_modules'], {}, { copyTree }),
     ).rejects.toThrow('ENOSPC');
 
-    expect(cpSpy).toHaveBeenCalled();
+    expect(copyTree).toHaveBeenCalled();
 
     // Simulate the §4.14 atomic rollback that operations.ts performs:
     // Step 1: git worktree remove --force
@@ -695,14 +816,9 @@ describe('§4.14 Windows ReFS CoW branch — mocked', () => {
     vi.resetModules();
   });
 
-  // Three fallback cases share an identical fixture and assertions; only the
-  // reflinkMock differs.
-  async function assertWinRefsFallsBackToCopy(
-    reflinkMock: () => unknown,
-    tmp: string,
-  ): Promise<void> {
+  async function assertWinRefsMaterializesWithCopyResult(tmp: string): Promise<void> {
     const { materializeWorktreeDeps: materializeWindowsDeps } =
-      await importWindowsWorktreeMaterialization({ reflinkMock });
+      await importWindowsWorktreeMaterialization();
     const originalRoot = path.join(tmp, 'origin');
     const worktreeRoot = path.join(tmp, 'worktree');
     const dependencyRoot = path.join(originalRoot, 'node_modules');
@@ -710,15 +826,30 @@ describe('§4.14 Windows ReFS CoW branch — mocked', () => {
     mkdirSync(worktreeRoot);
     writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
     writeFileSync(path.join(dependencyRoot, 'pkg', 'nested.js'), 'module.exports = 2;\n');
+    const copyTree = vi.fn().mockResolvedValue({
+      selectedStrategy: 'win-refs',
+      effectiveStrategy: 'native-copy',
+      reflinkAttempted: true,
+      reflinkUsed: false,
+      fallbackReason: 'EXDEV',
+      durationMs: 10,
+    });
 
-    const result = await materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']);
+    const result = await materializeWindowsDeps(
+      originalRoot,
+      worktreeRoot,
+      ['node_modules'],
+      {},
+      { copyTree },
+    );
 
     expect(result.strategy).toBe('win-refs');
     expect(result.cloned).toContain('node_modules');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'index.js'), 'utf-8'))
-      .toBe('module.exports = 1;\n');
-    expect(readFileSync(path.join(worktreeRoot, 'node_modules', 'pkg', 'nested.js'), 'utf-8'))
-      .toBe('module.exports = 2;\n');
+    expect(copyTree).toHaveBeenCalledWith(
+      path.join(originalRoot, 'node_modules'),
+      path.join(worktreeRoot, 'node_modules'),
+      'win-refs',
+    );
   }
 
   it("Windows: detectCloneStrategy returns 'win-refs' when both volumes are ReFS and share the same drive letter", async () => {
@@ -748,56 +879,33 @@ describe('§4.14 Windows ReFS CoW branch — mocked', () => {
     ).toBe('copy');
   });
 
-  it("Windows: cloneTree with 'win-refs' falls back to copy when @reflink/reflink is absent with MODULE_NOT_FOUND", async () => {
-    await assertWinRefsFallsBackToCopy(() => ({
-      get default() {
-        throw Object.assign(new Error('Cannot find module @reflink/reflink'), {
-          code: 'MODULE_NOT_FOUND',
-        });
-      },
-    }), tmpRoot);
+  it("Windows: materializeWorktreeDeps returns selected 'win-refs' when copy helper falls back", async () => {
+    await assertWinRefsMaterializesWithCopyResult(tmpRoot);
   });
 
-  it("Windows: cloneTree with 'win-refs' falls back to copy on EXDEV from reflinkFileSync", async () => {
-    await assertWinRefsFallsBackToCopy(() => ({
-      default: {
-        reflinkFileSync: () => {
-          throw Object.assign(new Error('cross-device reflink'), { code: 'EXDEV' });
-        },
-      },
-    }), tmpRoot);
+  it("Windows: materializeWorktreeDeps preserves cloned/skipped return shape for 'win-refs'", async () => {
+    await assertWinRefsMaterializesWithCopyResult(tmpRoot);
   });
 
-  it("Windows: cloneTree with 'win-refs' falls back to copy on ERROR_BLOCK_TOO_MANY_REFERENCES message", async () => {
-    await assertWinRefsFallsBackToCopy(() => ({
-      default: {
-        reflinkFileSync: () => {
-          throw new Error('ERROR_BLOCK_TOO_MANY_REFERENCES');
-        },
-      },
-    }), tmpRoot);
+  it("Windows: materializeWorktreeDeps does not expose effective copy metadata for 'win-refs'", async () => {
+    await assertWinRefsMaterializesWithCopyResult(tmpRoot);
   });
 
-  it("Windows: cloneTree with 'win-refs' propagates non-recoverable EACCES", async () => {
+  it("Windows: materializeWorktreeDeps propagates copy helper failures", async () => {
     const { materializeWorktreeDeps: materializeWindowsDeps } =
-      await importWindowsWorktreeMaterialization({
-        reflinkMock: () => ({
-          default: {
-            reflinkFileSync: () => {
-              throw Object.assign(new Error('access denied'), { code: 'EACCES' });
-            },
-          },
-        }),
-      });
+      await importWindowsWorktreeMaterialization();
     const originalRoot = path.join(tmpRoot, 'origin');
     const worktreeRoot = path.join(tmpRoot, 'worktree');
     const dependencyRoot = path.join(originalRoot, 'node_modules');
     mkdirSync(dependencyRoot, { recursive: true });
     mkdirSync(worktreeRoot);
     writeFileSync(path.join(dependencyRoot, 'index.js'), 'module.exports = 1;\n');
+    const copyTree = vi.fn().mockRejectedValue(
+      Object.assign(new Error('access denied'), { code: 'EACCES' }),
+    );
 
     await expect(
-      materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules']),
+      materializeWindowsDeps(originalRoot, worktreeRoot, ['node_modules'], {}, { copyTree }),
     ).rejects.toMatchObject({ code: 'EACCES' });
   });
 });

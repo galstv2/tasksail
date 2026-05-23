@@ -6,6 +6,8 @@
 
 This repository is the control plane for a repo-based local agent workflow on Windows, macOS, and Linux. It owns the workflow instructions, prompts, queue, handoffs, implementation slices, runtime guardrails, and closeout artifacts.
 
+When a role is launched for a task with an active Context Pack Binding, that context pack is the task subject. This control-plane repository description is operating context only. Do not recommend, plan, or execute work against this repository's queue, workflow policy, agent runner, prompts, or platform infrastructure unless the active context pack points at this repository or the Guide explicitly asks for platform workflow changes.
+
 ## Team Roster
 
 Use roster names in handoffs. Canonical source: `.github/agents/registry.json`.

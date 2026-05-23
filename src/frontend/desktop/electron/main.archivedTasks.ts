@@ -121,6 +121,10 @@ type BranchHandoffReadResult = {
   handoffs?: ArchivedTaskBranchHandoff[];
   availability: ArchivedTaskBranchChainAvailability;
 };
+type ParentContextArtifactDiscovery = {
+  parentContextArtifacts: ArchivedTaskParentContextArtifacts;
+  handoffArtifactsManifestPath: string | null;
+};
 
 function trimString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -268,28 +272,33 @@ function normalizeAutoMerge(value: unknown): ArchivedTaskBranchHandoff['autoMerg
 
 async function discoverParentContextArtifacts(
   archiveArtifactDir: string | null,
-): Promise<ArchivedTaskParentContextArtifacts> {
+): Promise<ParentContextArtifactDiscovery> {
   if (!archiveArtifactDir) {
     return {
-      status: 'legacy-flat-archive',
-      archiveArtifactDir: null,
-      handoffsDir: null,
-      implementationStepsDir: null,
-      handoffs: [],
-      implementationSteps: [],
-      missing: [],
+      parentContextArtifacts: {
+        status: 'legacy-flat-archive',
+        archiveArtifactDir: null,
+        handoffsDir: null,
+        implementationStepsDir: null,
+        handoffs: [],
+        implementationSteps: [],
+        missing: [],
+      },
+      handoffArtifactsManifestPath: null,
     };
   }
 
-  const handoffsDir = await existingDirectory(join(archiveArtifactDir, 'handoffs'));
-  const implementationStepsDir = await existingDirectory(join(archiveArtifactDir, 'ImplementationSteps'));
-  const handoffArtifactsManifestPath = await existingRegularFile(
-    join(archiveArtifactDir, 'handoff-artifacts-manifest.json'),
-  );
-  const handoffs = handoffsDir ? await readHandoffContextFiles(archiveArtifactDir, handoffsDir) : [];
-  const implementationSteps = implementationStepsDir
-    ? await readImplementationStepFiles(archiveArtifactDir, implementationStepsDir)
-    : [];
+  const [handoffsDir, implementationStepsDir, handoffArtifactsManifestPath] = await Promise.all([
+    existingDirectory(join(archiveArtifactDir, 'handoffs')),
+    existingDirectory(join(archiveArtifactDir, 'ImplementationSteps')),
+    existingRegularFile(join(archiveArtifactDir, 'handoff-artifacts-manifest.json')),
+  ]);
+  const [handoffs, implementationSteps] = await Promise.all([
+    handoffsDir ? readHandoffContextFiles(archiveArtifactDir, handoffsDir) : Promise.resolve([]),
+    implementationStepsDir
+      ? readImplementationStepFiles(archiveArtifactDir, implementationStepsDir)
+      : Promise.resolve([]),
+  ]);
   const missing = [
     ...(handoffsDir ? [] : ['handoffs']),
     ...(implementationStepsDir ? [] : ['ImplementationSteps']),
@@ -297,13 +306,16 @@ async function discoverParentContextArtifacts(
   ];
 
   return {
-    status: handoffs.length > 0 || implementationSteps.length > 0 ? 'available' : 'missing-artifacts',
-    archiveArtifactDir,
-    handoffsDir,
-    implementationStepsDir,
-    handoffs,
-    implementationSteps,
-    missing,
+    parentContextArtifacts: {
+      status: handoffs.length > 0 || implementationSteps.length > 0 ? 'available' : 'missing-artifacts',
+      archiveArtifactDir,
+      handoffsDir,
+      implementationStepsDir,
+      handoffs,
+      implementationSteps,
+      missing,
+    },
+    handoffArtifactsManifestPath,
   };
 }
 
@@ -802,10 +814,10 @@ export async function listArchivedTasksAction(
           const branchHandoffRead = normalizeBranchHandoffs(sidecar.branch_handoffs);
           const branchHandoffs = branchHandoffRead.handoffs;
           const artifactInfo = archiveArtifactInfo(candidate);
-          const parentContextArtifacts = await discoverParentContextArtifacts(artifactInfo.archiveArtifactDir);
-          const handoffArtifactsManifestPath = artifactInfo.archiveArtifactDir
-            ? await existingRegularFile(join(artifactInfo.archiveArtifactDir, 'handoff-artifacts-manifest.json'))
-            : null;
+          const {
+            parentContextArtifacts,
+            handoffArtifactsManifestPath,
+          } = await discoverParentContextArtifacts(artifactInfo.archiveArtifactDir);
           const childDepth = childDepthFromSidecar(sidecar.child_depth);
           const childChain = childChainForTask(childChainStateRead.state, taskId);
           const rootTaskId = sidecar.root_task_id || taskId;

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readTextFile, safeJsonParse, writeTextFileAtomic } from '../core/index.js';
-import { parseBranchChainBinding, type TaskBranchChainBinding } from './markdown.js';
+import { isNonEmptyString, parseBranchChainBinding, type TaskBranchChainBinding } from './markdown.js';
 import { isRepositoryTypesRecord, type ContextPackRepositoryTypes } from './repositoryTypes.js';
 export const CHILD_TASK_CHAINS_SCHEMA_VERSION = 1;
 export type ChildTaskChainTaskState = 'planned' | 'pending' | 'active' | 'completed' | 'failed';
@@ -365,7 +365,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 function isNullableString(value: unknown): value is string | null { return value === null || typeof value === 'string'; }
 function isStringArray(value: unknown): value is string[] { return Array.isArray(value) && value.every((item) => typeof item === 'string'); }
-function isNonEmptyString(value: unknown): value is string { return typeof value === 'string' && value.trim() !== ''; }
 function isIsoString(value: unknown): value is string { return isNonEmptyString(value) && !Number.isNaN(Date.parse(value)); }
 function invalidSchema(): never {
   throw new Error('child-task-chains-invalid-schema: invalid child task chain state');

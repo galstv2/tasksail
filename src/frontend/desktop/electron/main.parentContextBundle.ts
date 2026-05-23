@@ -10,7 +10,7 @@ import type {
   PlannerReadParentContextBundleRequest,
   PlannerReadParentContextBundleResponse,
 } from '../src/shared/desktopContract';
-import { utf8SafeSlice } from './main.archiveBundleShared';
+import { isInsideOrEqual, utf8SafeSlice } from './main.archiveBundleShared';
 import { createLogger } from './log/logger';
 import { listArchivedTasksAction } from './main.archivedTasks';
 import type { ContextPackLister } from './main.contextPackTaskVisibility';
@@ -32,12 +32,6 @@ type Payload = PlannerReadParentContextBundleRequest['payload'];
 
 function invalid(error: string): DesktopInvokeResult {
   return { ok: false, action: 'planner.readParentContextBundle', error };
-}
-
-function isInside(root: string, filePath: string): boolean {
-  const resolvedRoot = path.resolve(root);
-  const resolvedFile = path.resolve(filePath);
-  return resolvedFile.startsWith(`${resolvedRoot}${path.sep}`);
 }
 
 function orderedFiles(
@@ -127,7 +121,7 @@ export async function readParentContextBundleAction(
   let truncated = false;
 
   for (const { kind, entry } of orderedFiles(artifacts.handoffs, artifacts.implementationSteps)) {
-    if (!isInside(archiveArtifactDir, entry.path)) {
+    if (!isInsideOrEqual(archiveArtifactDir, entry.path)) {
       warnSkipped('path-escape', entry.path, parentTaskId);
       warnings.push(`Skipped ${entry.relativePath}: path escapes artifact directory.`);
       continue;

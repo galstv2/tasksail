@@ -403,6 +403,37 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(onDisk.materialization).not.toHaveProperty('composeProjectName');
   });
 
+  it('reads sidecars with materialization.strategy win-refs', () => {
+    const taskId = 'win-refs-materialization';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: {
+          strategy: 'win-refs',
+          cloned: ['node_modules'],
+          skipped: [],
+        },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.materialization.strategy).toBe('win-refs');
+    expect(result.materialization.cloned).toEqual(['node_modules']);
+  });
+
   it('B7-data: reads a v2 sidecar with per-binding mergedAt/mergedVia and surfaces them verbatim', () => {
     const taskId = 'b7-v2-sidecar';
     const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);

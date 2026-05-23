@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 
 import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import type { PlannerLilyPersonalityId } from '../src/shared/desktopContract';
 import { PlannerEventParser } from './plannerEventParser';
 import {
   spawnPlannerCliProcess,
@@ -23,6 +24,7 @@ function isWindowsPlatform(): boolean {
 }
 
 export type PlannerSendResult = 'sent' | 'no-session' | 'busy';
+export type PlannerPersonalityUpdateResult = 'updated' | 'no-session' | 'locked';
 
 type PlannerEventEmitter = (event: PlannerStreamEvent) => void;
 
@@ -42,6 +44,7 @@ type PlannerSessionRecord = {
   contextPackRoots: string[] | null;
   workingDirectory: string | null;
   focusEnv: Omit<GenericAgentEnv, 'model' | 'agentId'> | null;
+  lilyPersonalityId: PlannerLilyPersonalityId;
 };
 
 type PendingTurn = {
@@ -106,6 +109,7 @@ export class PlannerSessionBroker {
     allowedRoots?: string[];
     workingDirectory?: string;
     focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
+    lilyPersonalityId?: PlannerLilyPersonalityId;
   }): { sessionId: string; created: boolean } {
     if (this.session && this.session.state.brokerStatus !== 'failed') {
       this.session.endingSession = false;
@@ -135,12 +139,25 @@ export class PlannerSessionBroker {
       workingDirectory: options?.workingDirectory ?? null,
       // Captured once at session start; planner sessions are stable scopes.
       focusEnv: options?.focusEnv ?? null,
+      lilyPersonalityId: options?.lilyPersonalityId ?? 'balanced',
     };
     this.observation = {
       ...createPlannerBrokerObservation(),
       sessionId,
     };
     return { sessionId, created: true };
+  }
+
+  updateSessionPersonality(lilyPersonalityId: PlannerLilyPersonalityId): PlannerPersonalityUpdateResult {
+    const session = this.session;
+    if (!session) {
+      return 'no-session';
+    }
+    if (session.bootstrapConsumed || session.activeTurnPromise || session.activeProcess) {
+      return 'locked';
+    }
+    session.lilyPersonalityId = lilyPersonalityId;
+    return 'updated';
   }
 
   async sendMessage(text: string): Promise<PlannerSendResult> {
@@ -311,6 +328,7 @@ export class PlannerSessionBroker {
       contextPackBoundaryEnforced: session.contextPackRoots !== null,
       additionalEnv: session.contextPackDir ? { ACTIVE_CONTEXT_PACK_DIR: session.contextPackDir } : undefined,
       focusEnv: session.focusEnv ?? undefined,
+      lilyPersonalityId: session.lilyPersonalityId,
     });
     session.activeProcess = child;
     this.observation = {

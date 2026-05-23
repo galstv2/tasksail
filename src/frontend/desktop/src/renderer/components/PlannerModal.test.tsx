@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import PlannerModal from './PlannerModal';
@@ -9,6 +9,7 @@ import { createLocalDraft } from '../plannerComposer';
 import type { PlannerConversationMessage } from '../plannerComposer';
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
 });
 
@@ -130,6 +131,37 @@ describe('PlannerModal', () => {
     fireEvent.change(textarea, { target: { value: 'Plan a billing feature' } });
     fireEvent.click(screen.getByLabelText('Send message'));
     expect(onSendMessage).toHaveBeenCalledWith('Plan a billing feature');
+  });
+
+  it('renders and changes the Lily personality control before the first message', () => {
+    const onLilyPersonalityChange = vi.fn();
+    render(<PlannerModal {...makeProps({ lilyPersonalityId: 'balanced', onLilyPersonalityChange })} />);
+
+    expect(screen.getByRole('button', { name: 'Balanced planning style' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Clinical planning style' }));
+    expect(onLilyPersonalityChange).toHaveBeenCalledWith('clinical');
+  });
+
+  it('removes personality buttons after the first message and exposes the locked copy', () => {
+    const onLilyPersonalityChange = vi.fn();
+    render(<PlannerModal {...makeProps({
+      lilyPersonalityId: 'clinical',
+      personalityLocked: true,
+      onLilyPersonalityChange,
+    })} />);
+
+    expect(screen.getByText('Style locked — start a new conversation to switch.')).toBeInTheDocument();
+    // Defense in depth: locked tray unmounts the buttons entirely so no stray
+    // click handler can fire — the operator cannot interact with a control
+    // that no longer exists in the DOM.
+    expect(screen.queryByRole('button', { name: 'Balanced planning style' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clinical planning style' })).not.toBeInTheDocument();
+    expect(onLilyPersonalityChange).not.toHaveBeenCalled();
+  });
+
+  it('renders renderer-only busy badge labels', () => {
+    render(<PlannerModal {...makeProps({ sessionStatus: 'busy', busyBadgeLabel: 'synthesizing' })} />);
+    expect(screen.getByLabelText('Session busy')).toHaveTextContent('synthesizing');
   });
 
   it('Preview Plan button calls the preview handler', () => {
@@ -528,7 +560,7 @@ describe('PlannerModal', () => {
       <PlannerModal
         {...makeProps({
           sessionStatus: 'active',
-          onFinalizeSpec: vi.fn(),
+          onFinalizeSpec: vi.fn().mockResolvedValue(true),
           stagedDraft: null,
         })}
       />,
@@ -537,8 +569,8 @@ describe('PlannerModal', () => {
     expect(screen.getByRole('button', { name: 'Finalize Spec' })).toBeDisabled();
   });
 
-  it('enables Finalize Spec when a staged draft exists', () => {
-    const onFinalizeSpec = vi.fn();
+  it('enables Finalize Spec when a staged draft exists', async () => {
+    const onFinalizeSpec = vi.fn().mockResolvedValue(true);
 
     render(
       <PlannerModal
@@ -554,7 +586,55 @@ describe('PlannerModal', () => {
     expect(finalizeButton).toBeEnabled();
 
     fireEvent.click(finalizeButton);
-    expect(onFinalizeSpec).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onFinalizeSpec).toHaveBeenCalledOnce());
+  });
+
+  it('does not show Submitted when Finalize Spec fails', async () => {
+    const onFinalizeSpec = vi.fn().mockResolvedValue(false);
+
+    render(
+      <PlannerModal
+        {...makeProps({
+          sessionStatus: 'active',
+          onFinalizeSpec,
+          stagedDraft: { filename: 'draft.md', content: '# Draft', modifiedAt: new Date().toISOString() },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize Spec' }));
+
+    await waitFor(() => expect(onFinalizeSpec).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Finalize Spec' })).toBeEnabled());
+    expect(screen.queryByRole('status', { name: 'Task submitted' })).not.toBeInTheDocument();
+  });
+
+  it('times out Finalize Spec when the backend does not respond', async () => {
+    vi.useFakeTimers();
+    const onFinalizeSpec = vi.fn(() => new Promise<boolean>(() => {}));
+
+    render(
+      <PlannerModal
+        {...makeProps({
+          sessionStatus: 'active',
+          onFinalizeSpec,
+          stagedDraft: { filename: 'draft.md', content: '# Draft', modifiedAt: new Date().toISOString() },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize Spec' }));
+    expect(screen.getByRole('button', { name: 'Finalizing…' })).toBeDisabled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Finalization is taking longer than expected. The task may not have been submitted. Check logs and retry.',
+    );
+    expect(screen.getByRole('button', { name: 'Finalize Spec' })).toBeEnabled();
+    expect(screen.queryByRole('status', { name: 'Task submitted' })).not.toBeInTheDocument();
   });
 
   it('enables Finalize Spec when session failed but staged draft exists', () => {
@@ -562,7 +642,7 @@ describe('PlannerModal', () => {
       <PlannerModal
         {...makeProps({
           sessionStatus: 'failed',
-          onFinalizeSpec: vi.fn(),
+          onFinalizeSpec: vi.fn().mockResolvedValue(true),
           stagedDraft: { filename: 'draft.md', content: '# Draft', modifiedAt: new Date().toISOString() },
         })}
       />,

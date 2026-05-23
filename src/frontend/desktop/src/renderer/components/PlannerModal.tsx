@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ArchivedTaskChildParentBlockedTip, ArchivedTaskEntry, ContextPackCatalogEntry, ContextPackFocusFilterSelection, MarkdownFileSelection, PlannerFocusValidationIssue, PlannerListConversationHistorySummary, StagedDraftContent } from '../../shared/desktopContract';
+import type { ArchivedTaskChildParentBlockedTip, ArchivedTaskEntry, ContextPackCatalogEntry, ContextPackFocusFilterSelection, MarkdownFileSelection, PlannerFocusValidationIssue, PlannerLilyPersonalityId, PlannerListConversationHistorySummary, StagedDraftContent } from '../../shared/desktopContract';
 import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } from '../plannerComposer';
 import { classNames } from '../utils/classNames';
 import { BackIcon, CloseIcon } from './creation-steps/icons';
@@ -41,6 +41,10 @@ export type PlannerModalProps = {
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
   sessionStatus?: PlannerSessionStatus;
+  lilyPersonalityId?: PlannerLilyPersonalityId;
+  personalityLocked?: boolean;
+  onLilyPersonalityChange?: (id: PlannerLilyPersonalityId) => void;
+  busyBadgeLabel?: 'thinking' | 'spinning' | 'synthesizing' | 'pondering' | 'musing' | 'analyzing' | 'evaluating' | 'reviewing' | 'checking';
   onReconnect?: () => void;
   awaitingDraft?: boolean;
   stagedDraft?: StagedDraftContent | null;
@@ -48,7 +52,7 @@ export type PlannerModalProps = {
   plannerFocusValidationIssues?: PlannerFocusValidationIssue[];
   onViewDraft?: () => void;
   onRefreshDraft?: () => Promise<void>;
-  onFinalizeSpec?: () => void;
+  onFinalizeSpec?: () => Promise<boolean>;
   selectedMarkdownFile?: MarkdownFileSelection | null;
   onPickMarkdownFile?: () => void;
   onClearSelectedFile?: () => void;
@@ -82,12 +86,15 @@ const SUBMITTED_EXIT_MS = 400;
 const STAGING_POLL_INTERVAL_MS = 150;
 /** Safety-net upper bound (ms) before the modal closes regardless of `.staging` state. */
 const STAGING_AWAIT_TIMEOUT_MS = 10_000;
+const FINALIZE_SPEC_TIMEOUT_MS = 30_000;
+const FINALIZE_SPEC_TIMEOUT_MESSAGE = 'Finalization is taking longer than expected. The task may not have been submitted. Check logs and retry.';
 
 const LILY_GREETING = "Hi there! I'm Lily, the planning specialist. Let's figure out what you need.";
 const DEFAULT_COMPOSER_PLACEHOLDER = 'Start a conversation with Lily to begin planning your task.';
 const CHILD_PARENT_COMPOSER_PLACEHOLDER = 'Tell Lily what this child task should continue, change, or investigate.';
 const RECENT_COMPOSER_PLACEHOLDER = 'Continue this planning thread with Lily.';
 const CHILD_PARENT_REQUIRED_PLACEHOLDER = 'Select a parent task to begin child-task planning.';
+const PERSONALITY_LOCKED_COPY = 'Style locked — start a new conversation to switch.';
 
 function ScopeInfoIcon(): JSX.Element {
   return (
@@ -174,6 +181,10 @@ function PlannerModal({
   isStreaming,
   onSendMessage,
   sessionStatus,
+  lilyPersonalityId = 'balanced',
+  personalityLocked = false,
+  onLilyPersonalityChange,
+  busyBadgeLabel = 'thinking',
   onReconnect,
   awaitingDraft,
   stagedDraft,
@@ -209,6 +220,8 @@ function PlannerModal({
   const conversationRef = useRef<HTMLDivElement>(null);
   const [submitted, setSubmitted] = useState(false);
   const [submittedExiting, setSubmittedExiting] = useState(false);
+  const [finalizingSpec, setFinalizingSpec] = useState(false);
+  const [finalizeTimeoutError, setFinalizeTimeoutError] = useState('');
   const [draftPopoutOpen, setDraftPopoutOpen] = useState(false);
   const submittedAtRef = useRef<number | null>(null);
   const recentsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -345,9 +358,31 @@ function PlannerModal({
   }, [onConfirm]);
 
   const handleFinalizeWithSail = useCallback((): void => {
-    onFinalizeSpec?.();
-    setSubmitted(true);
-  }, [onFinalizeSpec]);
+    if (!onFinalizeSpec || finalizingSpec) return;
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    setFinalizingSpec(true);
+    setFinalizeTimeoutError('');
+    const timeoutPromise = new Promise<false>((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        setFinalizeTimeoutError(FINALIZE_SPEC_TIMEOUT_MESSAGE);
+        resolve(false);
+      }, FINALIZE_SPEC_TIMEOUT_MS);
+    });
+    void Promise.race([onFinalizeSpec(), timeoutPromise])
+      .then((ok) => {
+        if (ok) setSubmitted(true);
+      })
+      .catch(() => {
+        // Error presentation is owned by the hook via draftError; keep the modal open.
+      })
+      .finally(() => {
+        if (timeout) clearTimeout(timeout);
+        if (!timedOut) setFinalizeTimeoutError('');
+        setFinalizingSpec(false);
+      });
+  }, [finalizingSpec, onFinalizeSpec]);
 
   const handleUploadSpecWithSail = useCallback(async (): Promise<void> => {
     const ok = await onUploadSpec?.();
@@ -447,11 +482,48 @@ function PlannerModal({
                 )}
                 aria-label={`Session ${sessionStatus}`}
               >
-                {sessionStatus === 'busy' ? 'thinking' : sessionStatus}
+                {sessionStatus === 'busy' ? busyBadgeLabel : sessionStatus}
               </span>
             )}
           </div>
           <div className="planner-modal__header-right">
+            <div
+              className={classNames(
+                'planner-modal__personality-toggle',
+                personalityLocked && 'planner-modal__personality-toggle--locked',
+              )}
+              role="group"
+              aria-label="Planning style"
+              data-active={lilyPersonalityId}
+            >
+              {!personalityLocked && (
+                <span className="planner-modal__personality-thumb" aria-hidden="true" />
+              )}
+              {personalityLocked ? (
+                <span
+                  className="planner-modal__personality-lock-copy"
+                  title={PERSONALITY_LOCKED_COPY}
+                >
+                  {PERSONALITY_LOCKED_COPY}
+                </span>
+              ) : (
+                (['balanced', 'clinical'] as const).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={classNames(
+                      'planner-modal__personality-option',
+                      lilyPersonalityId === id && 'planner-modal__personality-option--active',
+                    )}
+                    onClick={() => onLilyPersonalityChange?.(id)}
+                    aria-pressed={lilyPersonalityId === id}
+                    aria-label={`${id === 'balanced' ? 'Balanced' : 'Clinical'} planning style`}
+                  >
+                    {id === 'balanced' ? 'Balanced' : 'Clinical'}
+                  </button>
+                ))
+              )}
+            </div>
             <button
               type="button"
               className={classNames('planner-modal__child-task-toggle', childTaskMode && 'planner-modal__child-task-toggle--active')}
@@ -618,9 +690,9 @@ function PlannerModal({
           </div>
         )}
 
-        {(contractError || draftError) && (
+        {(contractError || draftError || finalizeTimeoutError) && (
           <div className="planner-modal__error" role="alert">
-            <div>{contractError || draftError}</div>
+            <div>{contractError || draftError || finalizeTimeoutError}</div>
             {plannerFocusValidationIssues && plannerFocusValidationIssues.length > 0 && (
               <ul className="planner-modal__validation-issues">
                 {plannerFocusValidationIssues.map((issue, index) => (
@@ -726,10 +798,10 @@ function PlannerModal({
               type="button"
               className="action-button action-button--primary"
               onClick={handleFinalizeWithSail}
-              disabled={!!isStreaming || sessionStatus === 'busy' || !stagedDraft}
+              disabled={!!isStreaming || sessionStatus === 'busy' || !stagedDraft || finalizingSpec}
               title="Accept Lily's draft and submit to the task queue"
             >
-              Finalize Spec
+              {finalizingSpec ? 'Finalizing\u2026' : 'Finalize Spec'}
             </button>
           </div>
         ) : (

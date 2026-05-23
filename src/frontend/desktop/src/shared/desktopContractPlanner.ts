@@ -23,6 +23,7 @@ export type ComposerStage = 'compose' | 'preview' | 'confirm';
 
 export type PlannerTaskKind = 'standard' | 'child-task';
 export type SuggestedPath = 'sequential' | 'parallel';
+export type PlannerLilyPersonalityId = 'balanced' | 'clinical';
 
 export type PlannerEditableDraftModel = {
   summary: string;
@@ -115,6 +116,7 @@ export type PlannerSubmitResponse = {
 
 export interface PlannerStartSessionPayload {
   contextPackDir: string;
+  lilyPersonalityId?: PlannerLilyPersonalityId;
   deepFocusSelection?: PlannerStartSessionDeepFocusSelection;
   replayConversationId?: string;
   childTaskFocusSnapshot?: PlannerFocusSnapshot;
@@ -255,6 +257,21 @@ export type PlannerStartSessionResponse = {
   sessionId: string;
   brokerStatus: PlannerBrokerStatus;
   parentBranchViewStatus?: PlannerParentBranchViewStatus;
+};
+
+export type PlannerUpdateSessionPersonalityRequest = {
+  action: 'planner.updateSessionPersonality';
+  payload: {
+    lilyPersonalityId: PlannerLilyPersonalityId;
+  };
+};
+
+export type PlannerUpdateSessionPersonalityResponse = {
+  action: 'planner.updateSessionPersonality';
+  mode: 'updated';
+  accepted: true;
+  message: string;
+  lilyPersonalityId: PlannerLilyPersonalityId;
 };
 
 export type PlannerSendMessageRequest = {

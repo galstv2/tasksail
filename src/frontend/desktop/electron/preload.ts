@@ -369,6 +369,13 @@ export const desktopShellApi = {
       action: 'planner.startSession',
       ...(payload ? { payload } : {}),
     }),
+  updatePlannerSessionPersonality: async (
+    payload: import('../src/shared/desktopContract').PlannerUpdateSessionPersonalityRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.updateSessionPersonality',
+      payload,
+    }),
   validateChildTaskFocus: async (
     payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
   ): Promise<DesktopInvokeResult> =>
@@ -932,6 +939,9 @@ export type DesktopShellApi = {
   deleteContextPack: (contextPackDir: string) => Promise<DesktopInvokeResult>;
   startPlannerSession: (
     payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
+  ) => Promise<DesktopInvokeResult>;
+  updatePlannerSessionPersonality: (
+    payload: import('../src/shared/desktopContract').PlannerUpdateSessionPersonalityRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   validateChildTaskFocus: (
     payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],

@@ -120,6 +120,18 @@ export async function handleDesktopAction(
         },
       };
     }
+    case 'planner.updateSessionPersonality': {
+      try {
+        const response = await resolvedHandlers.updatePlannerSessionPersonality(request.payload);
+        return { ok: true, response };
+      } catch (error) {
+        return {
+          ok: false,
+          action: 'planner.updateSessionPersonality',
+          error: error instanceof Error ? error.message : 'Failed to update planner personality.',
+        };
+      }
+    }
     case 'planner.validateChildTaskFocus': {
       try {
         const issues = await resolvedHandlers.validateChildTaskFocus(request.payload);
@@ -270,44 +282,6 @@ export async function handleDesktopAction(
       };
     }
     case 'planner.finalizeSpec': {
-      const brokerState = resolvedHandlers.getPlannerSessionState();
-      if (brokerState?.brokerStatus === 'running') {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: 'Planner session is still running a turn. Wait for draft generation to finish before finalizing.',
-        };
-      }
-      const activePlannerSessionId = plannerSession.getObservability().sessionId;
-      const stagedDraft = await readOwnedStagedDraft(activePlannerSessionId ?? undefined);
-      if (stagedDraft.error) {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: stagedDraft.error,
-        };
-      }
-      if (!stagedDraft.draft) {
-        if (brokerState?.brokerStatus === 'failed') {
-          return {
-            ok: false,
-            action: 'planner.finalizeSpec',
-            error: brokerState.error ?? 'Planner session failed before writing a staged draft. Reconnect or retry before finalizing.',
-          };
-        }
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: 'No staged draft to finalize. Use "View Draft" first.',
-        };
-      }
-      if (!stagedDraft.metadata) {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: 'No platform-owned staged planner metadata is available. Start a new planner session before finalizing.',
-        };
-      }
       const expectedTaskKind = (
         typeof request.payload === 'object' &&
         request.payload !== null &&
@@ -315,6 +289,43 @@ export async function handleDesktopAction(
       )
         ? (request.payload as { expectedTaskKind?: 'standard' | 'child-task' }).expectedTaskKind
         : undefined;
+      const brokerState = resolvedHandlers.getPlannerSessionState();
+      const activePlannerSessionId = plannerSession.getObservability().sessionId;
+      log.info('planner.finalizeSpec.started', {
+        expectedTaskKind: expectedTaskKind ?? null,
+        brokerStatus: brokerState?.brokerStatus ?? null,
+        sessionId: activePlannerSessionId ?? null,
+      });
+      const failFinalize = (error: string, extra: Record<string, unknown> = {}): DesktopInvokeResult => {
+        log.warn('planner.finalizeSpec.failed', {
+          expectedTaskKind: expectedTaskKind ?? null,
+          brokerStatus: brokerState?.brokerStatus ?? null,
+          sessionId: activePlannerSessionId ?? null,
+          reason: error,
+          ...extra,
+        });
+        return {
+          ok: false,
+          action: 'planner.finalizeSpec',
+          error,
+        };
+      };
+      if (brokerState?.brokerStatus === 'running') {
+        return failFinalize('Planner session is still running a turn. Wait for draft generation to finish before finalizing.');
+      }
+      const stagedDraft = await readOwnedStagedDraft(activePlannerSessionId ?? undefined);
+      if (stagedDraft.error) {
+        return failFinalize(stagedDraft.error);
+      }
+      if (!stagedDraft.draft) {
+        if (brokerState?.brokerStatus === 'failed') {
+          return failFinalize(brokerState.error ?? 'Planner session failed before writing a staged draft. Reconnect or retry before finalizing.');
+        }
+        return failFinalize('No staged draft to finalize. Use "View Draft" first.');
+      }
+      if (!stagedDraft.metadata) {
+        return failFinalize('No platform-owned staged planner metadata is available. Start a new planner session before finalizing.');
+      }
       const sections = parseMarkdownSections(stagedDraft.draft.content);
       const protectedMetadataError = validatePlannerProtectedMetadata(
         stagedDraft.draft.content,
@@ -323,11 +334,10 @@ export async function handleDesktopAction(
         sections,
       );
       if (protectedMetadataError) {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: protectedMetadataError,
-        };
+        return failFinalize(protectedMetadataError, {
+          taskKind: stagedDraft.metadata.lineage.taskKind,
+          failureStage: 'protected-metadata-validation',
+        });
       }
       const validationError = validatePlanningIntakeDraft(
         stagedDraft.draft.content,
@@ -335,11 +345,10 @@ export async function handleDesktopAction(
         sections,
       );
       if (validationError) {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: validationError,
-        };
+        return failFinalize(validationError, {
+          taskKind: stagedDraft.metadata.lineage.taskKind,
+          failureStage: 'intake-validation',
+        });
       }
       try {
         const editableDraft = parsePlannerEditableDraft(stagedDraft.draft.content, sections);
@@ -441,6 +450,12 @@ export async function handleDesktopAction(
           });
         }
         emitStreamEvent({ message: `Spec finalized to dropbox: ${basename(destinationPath)}`, source: 'planner.finalizeSpec', role: 'planner', severity: 'success' });
+        log.info('planner.finalizeSpec.succeeded', {
+          expectedTaskKind: expectedTaskKind ?? null,
+          taskKind: metadata.lineage.taskKind,
+          sessionId: activePlannerSessionId ?? null,
+          destinationFile: basename(destinationPath),
+        });
         return {
           ok: true,
           response: {
@@ -453,11 +468,10 @@ export async function handleDesktopAction(
           },
         };
       } catch (err: unknown) {
-        return {
-          ok: false,
-          action: 'planner.finalizeSpec',
-          error: err instanceof Error ? err.message : 'Failed to finalize the staged planner draft.',
-        };
+        return failFinalize(err instanceof Error ? err.message : 'Failed to finalize the staged planner draft.', {
+          taskKind: stagedDraft.metadata.lineage.taskKind,
+          failureStage: 'finalize-write',
+        });
       }
     }
     case 'queue.readStatus':

@@ -11,6 +11,7 @@ import {
   CONTEXT_PACK_DIRECTORY_PURPOSES,
   CONTEXT_PACK_DISCOVERY_MODES,
   PLANNER_FOCUS_VALIDATION_MODES,
+  PLANNER_LILY_PERSONALITY_IDS,
   REINFORCEMENT_FEEDBACK_TYPES,
   TASK_KINDS,
   isAbsolutePath,
@@ -56,6 +57,16 @@ function validateFocusFilterRepositoryTypes(value: unknown): string[] {
     }
   }
   return errors;
+}
+
+function validatePlannerLilyPersonalityId(value: unknown, path = 'payload.lilyPersonalityId'): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!isOneOf(value, PLANNER_LILY_PERSONALITY_IDS)) {
+    return [`${path} must be balanced or clinical.`];
+  }
+  return [];
 }
 
 function validatePlannerParentBranchView(value: unknown, snapshot: unknown): string[] {
@@ -179,6 +190,10 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (request.payload.contextPackDir !== undefined && !isString(request.payload.contextPackDir)) {
         return ['payload.contextPackDir must be a string when provided.'];
       }
+      const personalityErrors = validatePlannerLilyPersonalityId(request.payload.lilyPersonalityId);
+      if (personalityErrors.length > 0) {
+        return personalityErrors;
+      }
       if (request.payload.replayConversationId !== undefined && !isNonEmptyString(request.payload.replayConversationId)) {
         return ['payload.replayConversationId must be a non-empty string when provided.'];
       }
@@ -266,6 +281,15 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         ));
       }
       return errors;
+    }
+    case 'planner.updateSessionPersonality': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      if (request.payload.lilyPersonalityId === undefined) {
+        return ['payload.lilyPersonalityId must be balanced or clinical.'];
+      }
+      return validatePlannerLilyPersonalityId(request.payload.lilyPersonalityId);
     }
     case 'planner.validateChildTaskFocus': {
       if (!isRecord(request.payload)) {

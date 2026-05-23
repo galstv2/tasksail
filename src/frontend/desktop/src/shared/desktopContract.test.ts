@@ -15,8 +15,10 @@ import { validateDesktopActionRequest } from './desktopContractValidators';
 describe('desktopContract', () => {
   it('keeps planner.startSession approved with child execution scope payload typing', () => {
     expect(DESKTOP_ACTION_NAMES).toContain('planner.startSession');
+    expect(DESKTOP_ACTION_NAMES).toContain('planner.updateSessionPersonality');
     const payload: PlannerStartSessionPayload = {
       contextPackDir: '/tmp/context-packs/orders-estate',
+      lilyPersonalityId: 'clinical',
       childTaskExecutionScope: {
         contextPackDir: '/tmp/context-packs/orders-estate',
         contextPackId: 'orders-estate',
@@ -37,6 +39,7 @@ describe('desktopContract', () => {
 
     expect(payload.childTaskExecutionScope?.selectedRepoIds).toEqual(['orders-api']);
     expect(payload.childTaskExecutionScope?.repositoryTypes?.['orders-api']).toBe('primary');
+    expect(payload.lilyPersonalityId).toBe('clinical');
   });
 
   it('includes terminal.setTaskScope in the approved desktop actions', () => {

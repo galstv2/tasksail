@@ -32,6 +32,44 @@ describe('PlannerSessionBroker stream identity', () => {
     expect(broker.startSession({ sessionId: 'planner-fixed' })).toEqual({ sessionId: 'planner-fixed', created: true });
   });
 
+  it('defaults personality to balanced and allows pre-bootstrap updates only', async () => {
+    const child = createFakeChildProcess();
+    const spawnCliProcess = vi.fn(() => child);
+    const broker = new PlannerSessionBroker({
+      spawnCliProcess,
+      now: vi.fn()
+        .mockReturnValueOnce(701)
+        .mockReturnValueOnce(702),
+    });
+
+    broker.startSession();
+    expect(broker.updateSessionPersonality('clinical')).toBe('updated');
+
+    const sendPromise = broker.sendMessage('Hello');
+    await Promise.resolve();
+    expect(spawnCliProcess).toHaveBeenCalledWith(expect.objectContaining({
+      lilyPersonalityId: 'clinical',
+    }));
+    expect(broker.updateSessionPersonality('balanced')).toBe('locked');
+    child.emit('exit', 0);
+    await sendPromise;
+  });
+
+  it('passes balanced personality when omitted', async () => {
+    const child = createFakeChildProcess();
+    const spawnCliProcess = vi.fn(() => child);
+    const broker = new PlannerSessionBroker({ spawnCliProcess, now: vi.fn(() => 801) });
+
+    broker.startSession();
+    const sendPromise = broker.sendMessage('Hello');
+    await Promise.resolve();
+    expect(spawnCliProcess).toHaveBeenCalledWith(expect.objectContaining({
+      lilyPersonalityId: 'balanced',
+    }));
+    child.emit('exit', 0);
+    await sendPromise;
+  });
+
   it('adds sessionId to events and drops late events after endSession', async () => {
     const events: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();

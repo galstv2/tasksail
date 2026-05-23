@@ -23,6 +23,7 @@ import { statfsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 
+import { copyTreeFast, type CopyTreeFastResult } from './copyTreeFast.js';
 import {
   isLinuxPlatform,
   isMacOSPlatform,
@@ -47,8 +48,16 @@ export interface PreconditionResult {
 }
 
 interface CloneOutcome {
-  usedReflink: boolean;
-  fallbackReason?: string;
+  effectiveStrategy: CopyTreeFastResult['effectiveStrategy'];
+  fallbackReason: string | null;
+  reflinkUsed: boolean;
+}
+
+interface MaterializeWorktreeDepsTestDeps {
+  now?: () => number;
+  statfsFn?: StatfsSyncFn;
+  copyTree?: typeof copyTreeFast;
+  logger?: Pick<typeof log, 'child'>;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,108 +208,6 @@ export function detectCloneStrategy(
   }
 
   return 'copy';
-}
-
-// ---------------------------------------------------------------------------
-// Tree clone
-// ---------------------------------------------------------------------------
-
-/**
- * Walks `src` recursively and reflinks every file into `dst` using the
- * dynamically-imported `@reflink/reflink` package.
- */
-async function reflinkTreeWindows(src: string, dst: string): Promise<void> {
-  const mod = await import('@reflink/reflink');
-  // Defensive ESM/CJS interop. The package publishes CommonJS
-  // (`module.exports = { reflinkFile, reflinkFileSync }`). Modern Node
-  // surfaces those at the top level via static analysis, but the
-  // version-independent form is `(mod.default ?? mod)`. Do NOT collapse
-  // this to `mod.reflinkFileSync` — it ties us to a Node-version
-  // assumption that can silently break under different module-resolution
-  // modes (notably `verbatimModuleSyntax`/`module: nodenext`).
-  const reflinkExports = (mod as { default?: unknown }).default ?? mod;
-  const { reflinkFileSync } = reflinkExports as {
-    reflinkFileSync: (s: string, d: string) => number;
-  };
-  await walkAndReflink(src, dst, reflinkFileSync);
-}
-
-async function walkAndReflink(
-  src: string,
-  dst: string,
-  reflinkFileSync: (s: string, d: string) => number,
-): Promise<void> {
-  const entries = await fs.promises.readdir(src, { withFileTypes: true });
-  await fs.promises.mkdir(dst, { recursive: true });
-  // Sibling entries are independent — fan out per directory level. reflinkFileSync
-  // is synchronous so its CPU/IO is unchanged; the win is overlapping readdir,
-  // readlink, symlink, and recursive descent across siblings.
-  await Promise.all(entries.map(async (entry) => {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      await walkAndReflink(s, d, reflinkFileSync);
-    } else if (entry.isFile()) {
-      reflinkFileSync(s, d);
-    } else if (entry.isSymbolicLink()) {
-      const target = await fs.promises.readlink(s);
-      await fs.promises.symlink(target, d);
-    }
-  }));
-}
-
-function isReflinkRecoverable(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as NodeJS.ErrnoException).code;
-  const message = (err as Error).message ?? '';
-  return (
-    code === 'MODULE_NOT_FOUND' ||
-    code === 'ERR_MODULE_NOT_FOUND' ||
-    code === 'EXDEV' ||
-    code === 'ENOTSUP' ||
-    code === 'EOPNOTSUPP' ||
-    /ERROR_BLOCK_TOO_MANY_REFERENCES/i.test(message) ||
-    /cloning is not supported/i.test(message)
-  );
-}
-
-function reflinkFallbackReason(err: unknown): string {
-  if (!err || typeof err !== 'object') {
-    return 'unknown';
-  }
-  const code = (err as NodeJS.ErrnoException).code;
-  if (code) {
-    return code;
-  }
-  const message = (err as Error).message?.trim();
-  return message || 'unknown';
-}
-
-async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Promise<CloneOutcome> {
-  switch (strategy) {
-    case 'apfs-clonefile':
-      await execFile('cp', ['-cR', src, dst]);
-      return { usedReflink: true };
-    case 'reflink':
-      await execFile('cp', ['-r', '--reflink=auto', src, dst]);
-      return { usedReflink: true };
-    case 'win-refs':
-      try {
-        await reflinkTreeWindows(src, dst);
-        return { usedReflink: true };
-      } catch (err) {
-        if (isReflinkRecoverable(err)) {
-          await fs.promises.cp(src, dst, { recursive: true, force: true });
-          return { usedReflink: false, fallbackReason: reflinkFallbackReason(err) };
-        }
-        throw err;
-      }
-    case 'copy':
-      // Node fs.promises.cp is cross-platform (Windows-safe).
-      // Never shell out to `cp` on Windows.
-      await fs.promises.cp(src, dst, { recursive: true, force: true });
-      return { usedReflink: false };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -477,12 +384,17 @@ export async function materializeWorktreeDeps(
   worktreeRoot: string,
   pathsToClone: string[],
   logContext: { taskId?: string; repoLabel?: string } = {},
+  deps: MaterializeWorktreeDepsTestDeps = {},
 ): Promise<{ strategy: CloneStrategy; cloned: string[]; skipped: string[] }> {
   // F20: pass worktree parent dir so detectCloneStrategy can compare fsid for same-volume check.
-  const strategy = detectCloneStrategy(originalRepo, path.dirname(worktreeRoot));
+  const strategy = detectCloneStrategy(originalRepo, path.dirname(worktreeRoot), deps.statfsFn);
   const cloned: string[] = [];
   const skipped: string[] = [];
   const outcomes: CloneOutcome[] = [];
+  const now = deps.now ?? (() => Date.now());
+  const copyTree = deps.copyTree ?? copyTreeFast;
+  const logger = deps.logger ?? log;
+  const startedAt = now();
 
   for (const rel of pathsToClone) {
     const src = path.join(originalRepo, rel);
@@ -491,30 +403,48 @@ export async function materializeWorktreeDeps(
       skipped.push(rel);
       continue;
     }
-    outcomes.push(await cloneTree(src, dst, strategy));
+    const result = await copyTree(src, dst, strategy);
+    outcomes.push({
+      effectiveStrategy: result.effectiveStrategy,
+      fallbackReason: result.fallbackReason,
+      reflinkUsed: result.reflinkUsed,
+    });
     cloned.push(rel);
   }
 
-  const fallbackReasons = [...new Set(
+  const durationMs = Math.max(0, now() - startedAt);
+  const effectiveStrategies = uniqueFirstSeen(outcomes.map((outcome) => outcome.effectiveStrategy));
+  const fallbackReasons = uniqueFirstSeen(
     outcomes
       .map((outcome) => outcome.fallbackReason)
       .filter((reason): reason is string => Boolean(reason)),
-  )];
+  );
   const reflinkAttempted = strategy === 'apfs-clonefile' || strategy === 'reflink' || strategy === 'win-refs';
-  const reflinkUsed = outcomes.some((outcome) => outcome.usedReflink);
-  log.child({ taskId: logContext.taskId }).info('worktree.materialization.copy.completed', {
+  const reflinkUsed = outcomes.some((outcome) => outcome.reflinkUsed);
+  logger.child({ taskId: logContext.taskId }).info('worktree.materialization.copy.completed', {
     repoLabel: logContext.repoLabel,
     originalRoot: originalRepo,
     worktreeRoot,
     selectedStrategy: strategy,
-    effectiveStrategy: reflinkUsed && fallbackReasons.length === 0 ? strategy : 'copy',
+    effectiveStrategies,
     reflinkAttempted,
     reflinkUsed,
     fallback: fallbackReasons.length > 0,
     fallbackReasons,
     clonedCount: cloned.length,
     skippedCount: skipped.length,
+    durationMs,
   });
 
   return { strategy, cloned, skipped };
+}
+
+function uniqueFirstSeen<T>(values: readonly T[]): T[] {
+  const result: T[] = [];
+  for (const value of values) {
+    if (!result.includes(value)) {
+      result.push(value);
+    }
+  }
+  return result;
 }

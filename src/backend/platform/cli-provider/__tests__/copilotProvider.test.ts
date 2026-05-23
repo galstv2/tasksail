@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import type { AutonomyIntent, ProviderAgentProfile } from '../types.js';
 import { copilotProvider } from '../providers/copilot/index.js';
+import { applyCopilotPlannerPersonality } from '../providers/copilot/plannerPersonality.js';
 
 const profile: ProviderAgentProfile = {
   id: 'dalton',
@@ -308,6 +309,10 @@ describe('copilotProvider', () => {
     expect(spec!.args).toContain('--stream');
     expect(spec!.args).toContain('--resume=abc');
     expect(spec!.args).toContain('-i');
+    expect(spec!.args).toContain('--agent');
+    expect(spec!.args).toContain('planning-agent');
+    expect(spec!.args).not.toContain('planning-agent-clinical');
+    expect(spec!.args.at(spec!.args.indexOf('-i') + 1)).toBe('plan it');
 
     const parser = copilotProvider.createPlannerParser!()!;
     const results = parser.parseChunk('{"type":"assistant.turn_start","data":{"turnId":"turn-1"}}\n{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\n{"type":"result","sessionId":"sess","exitCode":0}\n');
@@ -318,5 +323,27 @@ describe('copilotProvider', () => {
       'planner.turn.completed',
     ]);
     expect(results[2].events[0]).toMatchObject({ cliSessionId: 'sess' });
+  });
+
+  it('injects selected planner personality prompts and defaults omissions to balanced', () => {
+    const balanced = applyCopilotPlannerPersonality('Plan this.', undefined);
+    expect(balanced).toContain('--- TASKSAIL RUNTIME PLANNING STYLE PROFILE ---');
+    expect(balanced).toContain('Use the Balanced Planning Specialist style.');
+    expect(balanced).toContain('Plan this.');
+
+    const clinical = applyCopilotPlannerPersonality('Plan this.', 'clinical');
+    expect(clinical).toContain('Use the Clinical Planning Specialist style.');
+    expect(clinical).toContain('Plan this.');
+  });
+
+  it('fails closed when an allowlisted planner personality prompt is missing or empty', () => {
+    const promptDir = path.join(repoRoot, '.github', 'copilot', 'prompts');
+    fs.mkdirSync(promptDir, { recursive: true });
+    expect(() => applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
+      .toThrow(/ENOENT|no such file/i);
+
+    fs.writeFileSync(path.join(promptDir, 'lily-personality-balanced.prompt.md'), '   ', 'utf-8');
+    expect(() => applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
+      .toThrow('Copilot planner personality prompt "balanced" is empty.');
   });
 });

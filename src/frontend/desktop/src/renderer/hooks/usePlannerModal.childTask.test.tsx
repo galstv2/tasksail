@@ -48,7 +48,7 @@ describe('usePlannerModal child-task flows', () => {
     expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
     expect(result.current.plannerModalProps.draft.title).toBe('');
     expect(endPlannerSession).toHaveBeenCalled();
-    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack' });
+    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack', lilyPersonalityId: 'balanced' });
   });
 
   it('validates a snapshot-backed parent against the active context pack before child-task start', async () => {
@@ -71,6 +71,9 @@ describe('usePlannerModal child-task flows', () => {
     const client = createClient({ validateChildTaskFocus, startPlannerSession });
     const { result } = renderPlannerModalHook(client, { activeContextPackDir: '/tmp/live-context-pack' });
 
+    act(() => {
+      result.current.plannerModalProps.onLilyPersonalityChange?.('clinical');
+    });
     await act(async () => {
       result.current.plannerModalProps.onSelectParentTask?.(parent);
     });
@@ -81,6 +84,7 @@ describe('usePlannerModal child-task flows', () => {
     });
     expect(startPlannerSession).toHaveBeenLastCalledWith(expect.objectContaining({
       contextPackDir: '/tmp/snapshot-context-pack',
+      lilyPersonalityId: 'clinical',
       childTaskFocusSnapshot: parent.plannerFocusSnapshot,
       childTaskLineage: expect.objectContaining({ parentTaskId: 'TASK-001' }),
     }));
@@ -124,6 +128,7 @@ describe('usePlannerModal child-task flows', () => {
 
     expect(startPlannerSession).toHaveBeenLastCalledWith({
       contextPackDir: '/tmp/live-context-pack',
+      lilyPersonalityId: 'balanced',
       deepFocusSelection: expect.objectContaining({ deepFocusEnabled: true }),
     });
     expect(startPlannerSession).not.toHaveBeenCalledWith(expect.objectContaining({

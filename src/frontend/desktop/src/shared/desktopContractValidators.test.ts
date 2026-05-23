@@ -149,7 +149,21 @@ describe('validateDesktopActionRequest', () => {
         action: 'planner.startSession',
         payload: {
           contextPackDir: '/tmp/context-packs/orders-estate',
+          lilyPersonalityId: 'balanced',
           replayConversationId: 'conversation-1',
+        },
+      })).toEqual([]);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
+          lilyPersonalityId: 'clinical',
+        },
+      })).toEqual([]);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: {
+          contextPackDir: '/tmp/context-packs/orders-estate',
         },
       })).toEqual([]);
     });
@@ -167,6 +181,10 @@ describe('validateDesktopActionRequest', () => {
         action: 'planner.startSession',
         payload: { replayConversationId: '' },
       })).toEqual(['payload.replayConversationId must be a non-empty string when provided.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { lilyPersonalityId: 'enthusiastic' },
+      })).toEqual(['payload.lilyPersonalityId must be balanced or clinical.']);
     });
 
     it('accepts child-task lineage with a valid focus snapshot', () => {
@@ -234,6 +252,30 @@ describe('validateDesktopActionRequest', () => {
           childTaskLineage: lineage,
         },
       })).toContain('payload.childTaskFocusSnapshot.primaryRepoRoot must be a non-empty string.');
+    });
+  });
+
+  describe('planner.updateSessionPersonality', () => {
+    it('accepts balanced and clinical personality ids', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.updateSessionPersonality',
+        payload: { lilyPersonalityId: 'balanced' },
+      })).toEqual([]);
+      expect(validateDesktopActionRequest({
+        action: 'planner.updateSessionPersonality',
+        payload: { lilyPersonalityId: 'clinical' },
+      })).toEqual([]);
+    });
+
+    it('rejects malformed personality update payloads', () => {
+      expect(validateDesktopActionRequest({
+        action: 'planner.updateSessionPersonality',
+        payload: undefined,
+      })).toEqual(['payload must be an object.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.updateSessionPersonality',
+        payload: { lilyPersonalityId: 'warm' },
+      })).toEqual(['payload.lilyPersonalityId must be balanced or clinical.']);
     });
   });
 

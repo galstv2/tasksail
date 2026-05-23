@@ -81,6 +81,7 @@ describe('electron preload bridge', () => {
         addModel: expect.any(Function),
         removeModel: expect.any(Function),
         describeActiveProvider: expect.any(Function),
+        updatePlannerSessionPersonality: expect.any(Function),
         log: expect.objectContaining({ emit: expect.any(Function) }),
       }),
     );

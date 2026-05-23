@@ -8,6 +8,7 @@ import type {
   MarkdownFileSelection,
   PlannerListConversationHistorySummary,
   PlannerFocusValidationIssue,
+  PlannerLilyPersonalityId,
   PlannerReadParentChainArchiveBundleResponse,
   PlannerReadParentContextBundleResponse,
   PlannerStartSessionDeepFocusSelection,
@@ -66,7 +67,15 @@ const EMPTY_DRAFT_SEED: PlannerDraftSeed = {
 const DRAFT_READ_POLL_INTERVAL_MS = 100;
 const DRAFT_READ_MAX_ATTEMPTS = 20;
 const MISSING_PARENT_FOCUS_ERROR = 'This archived parent task has no saved planner focus and cannot be used as a parent. Refresh the parent list and try again.';
+const BALANCED_BUSY_BADGE_LABELS = ['thinking', 'spinning', 'synthesizing', 'pondering', 'musing'] as const;
+const CLINICAL_BUSY_BADGE_LABELS = ['thinking', 'analyzing', 'evaluating', 'reviewing', 'checking'] as const;
+type BusyBadgeLabel = (typeof BALANCED_BUSY_BADGE_LABELS)[number] | (typeof CLINICAL_BUSY_BADGE_LABELS)[number];
 const log = createLogger('src/renderer/hooks/usePlannerModal');
+
+function chooseBusyBadgeLabel(personalityId: PlannerLilyPersonalityId): BusyBadgeLabel {
+  const labels = personalityId === 'clinical' ? CLINICAL_BUSY_BADGE_LABELS : BALANCED_BUSY_BADGE_LABELS;
+  return labels[Math.floor(Math.random() * labels.length)] ?? 'thinking';
+}
 
 function isSelectableArchivedParent(task: ArchivedTaskEntry): boolean {
   return Boolean(task.plannerFocusSnapshot && task.childParentEligibility?.eligible === true);
@@ -108,6 +117,10 @@ export function usePlannerModal(
   const parentArchivePreview = usePlannerParentArchivePreview(client);
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<PlannerSessionStatus>('idle');
+  const [selectedLilyPersonalityId, setSelectedLilyPersonalityId] = useState<PlannerLilyPersonalityId>('balanced');
+  const selectedLilyPersonalityIdRef = useRef<PlannerLilyPersonalityId>('balanced');
+  const [personalityLocked, setPersonalityLocked] = useState(false);
+  const [busyBadgeLabel, setBusyBadgeLabel] = useState<BusyBadgeLabel>('thinking');
   const startSession = useCallback(() => {
     expectedSessionIdRef.current = null;
     setSessionStatus('connecting');
@@ -121,6 +134,7 @@ export function usePlannerModal(
     }
     client.startPlannerSession({
       contextPackDir: activeContextPackDir,
+      lilyPersonalityId: selectedLilyPersonalityIdRef.current,
       ...(deepFocusSelection?.deepFocusEnabled === true ? { deepFocusSelection } : {}),
     })
       .then((result) => {
@@ -148,6 +162,10 @@ export function usePlannerModal(
     if (!hasActiveContextPack) {
       return;
     }
+    selectedLilyPersonalityIdRef.current = 'balanced';
+    setSelectedLilyPersonalityId('balanced');
+    setPersonalityLocked(false);
+    setBusyBadgeLabel('thinking');
     setPlannerModalOpen(true);
     startSession();
   }, [hasActiveContextPack, startSession]);
@@ -173,12 +191,36 @@ export function usePlannerModal(
     setReplayInFlight(false);
     setReplaySourceRecordId(null);
     setLoadingChildTaskParent(false);
+    selectedLilyPersonalityIdRef.current = 'balanced';
+    setSelectedLilyPersonalityId('balanced');
+    setPersonalityLocked(false);
+    setBusyBadgeLabel('thinking');
     client.endPlannerSession().catch((err: unknown) => {
       log.warn('planner.session.end.failed', {
         reason: err instanceof Error ? err.message : String(err),
       });
     });
   }, [client, plannerStream.clearConversation]);
+
+  const handleLilyPersonalityChange = useCallback((id: PlannerLilyPersonalityId): void => {
+    if (personalityLocked) {
+      return;
+    }
+    const previousId = selectedLilyPersonalityIdRef.current;
+    selectedLilyPersonalityIdRef.current = id;
+    setSelectedLilyPersonalityId(id);
+    void client.updatePlannerSessionPersonality({ lilyPersonalityId: id })
+      .then((result) => {
+        if (!result.ok) {
+          selectedLilyPersonalityIdRef.current = previousId;
+          setSelectedLilyPersonalityId(previousId);
+        }
+      })
+      .catch(() => {
+        selectedLilyPersonalityIdRef.current = previousId;
+        setSelectedLilyPersonalityId(previousId);
+      });
+  }, [client, personalityLocked]);
 
   const closePlannerModal = useCallback(() => {
     setPlannerModalOpen(false);
@@ -247,12 +289,13 @@ export function usePlannerModal(
       throw new Error(MISSING_PARENT_FOCUS_ERROR);
     }
     try {
-      await restartChildPlannerWithScope({
-        client,
-        task,
-        childScope: args.childScope,
-        reloadScope: args.reloadScope,
-        parentContextBundle: parentContextBundleRef.current,
+        await restartChildPlannerWithScope({
+          client,
+          task,
+          childScope: args.childScope,
+          reloadScope: args.reloadScope,
+          lilyPersonalityId: selectedLilyPersonalityIdRef.current,
+          parentContextBundle: parentContextBundleRef.current,
         onBeforeStart: () => {
           expectedSessionIdRef.current = null;
           plannerStream.clearConversation();
@@ -627,6 +670,7 @@ export function usePlannerModal(
           setDraftError(validation.response.message);
           const start = await client.startPlannerSession({
             contextPackDir: activeContextPackDir,
+            lilyPersonalityId: selectedLilyPersonalityIdRef.current,
             ...(deepFocusSelection?.deepFocusEnabled === true ? { deepFocusSelection } : {}),
           });
           if (!start.ok || start.response.action !== 'planner.startSession') {
@@ -641,6 +685,7 @@ export function usePlannerModal(
         }
         const start = await client.startPlannerSession({
           contextPackDir: task.plannerFocusSnapshot!.contextPackDir,
+          lilyPersonalityId: selectedLilyPersonalityIdRef.current,
           childTaskFocusSnapshot: task.plannerFocusSnapshot,
           childTaskLineage,
           parentTaskBranchView: buildParentTaskBranchViewRequest(task),
@@ -748,6 +793,7 @@ export function usePlannerModal(
 
         const start = await client.startPlannerSession({
           contextPackDir: record.sidecarSnapshot.contextPackBinding.contextPackDir,
+          lilyPersonalityId: selectedLilyPersonalityIdRef.current,
           replayConversationId: recordId,
         });
         if (!start.ok || start.response.action !== 'planner.startSession') {
@@ -776,6 +822,8 @@ export function usePlannerModal(
   const handleSendMessage = useCallback(
     (text: string): void => {
       void (async () => {
+        setPersonalityLocked(true);
+        setBusyBadgeLabel(chooseBusyBadgeLabel(selectedLilyPersonalityIdRef.current));
         let messageToSend = text;
         const attachedFile = selectedMarkdownFileRef.current;
 
@@ -884,23 +932,25 @@ export function usePlannerModal(
     }
   }, [client]);
 
-  const handleFinalizeSpec = useCallback(async (): Promise<void> => {
+  const handleFinalizeSpec = useCallback(async (): Promise<boolean> => {
     try {
       const result = await client.finalizeSpec(childTaskModeRef.current ? 'child-task' : undefined);
       if (!result.ok) {
         setDraftError(result.error);
-        return;
+        return false;
       }
       if (result.response.action !== 'planner.finalizeSpec') {
         setDraftError('Unexpected planner finalize response.');
-        return;
+        return false;
       }
       setAwaitingDraft(false);
       setDraftError('');
       setStagedDraft(null);
       setSessionStatus(result.response.brokerStatus === 'idle' ? 'idle' : 'active');
+      return true;
     } catch (error: unknown) {
       setDraftError(normalizeIpcThrownError(error, 'Spec finalization failed unexpectedly.'));
+      return false;
     }
   }, [client]);
 
@@ -1022,6 +1072,10 @@ export function usePlannerModal(
       onSelectConversation: handleSelectConversation,
       onReturnToBlank: handleReturnToBlank,
       sessionStatus,
+      lilyPersonalityId: selectedLilyPersonalityId,
+      personalityLocked,
+      onLilyPersonalityChange: handleLilyPersonalityChange,
+      busyBadgeLabel,
       onReconnect: startSession,
       awaitingDraft,
       stagedDraft,
@@ -1052,7 +1106,7 @@ export function usePlannerModal(
       childScopePanelProps: childScopeOverride.childScopePanelProps,
       parentArchivePreview,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, selectedLilyPersonalityId, personalityLocked, handleLilyPersonalityChange, busyBadgeLabel, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
   );
 
   return { plannerModalProps, openPlannerModal };

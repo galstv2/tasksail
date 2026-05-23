@@ -135,6 +135,61 @@ describe('child task chain closeout helper', () => {
     ])).toThrow('child-task-chain-closeout-branch-handoff-mismatch');
   });
 
+  it('matches fresh multi-repo handoffs by normalized root and source branch in Branch Chain order', async () => {
+    const toolsRoot = path.join(repoRoot, 'tools');
+    await mkdir(path.join(gitRoot, 'nested'), { recursive: true });
+    await mkdir(path.join(toolsRoot, 'nested'), { recursive: true });
+    const binding = branchChain([{
+      repoRoot: path.join(gitRoot, 'nested', '..'),
+      repoLabel: 'platform',
+      chainSourceBranch: 'task/platform',
+      parentSourceBranch: 'task/root',
+      parentBranchHead: 'base-platform',
+      targetBranch: 'main',
+    }, {
+      repoRoot: path.join(toolsRoot, 'nested', '..'),
+      repoLabel: 'tools',
+      chainSourceBranch: 'task/tools',
+      parentSourceBranch: 'task/root',
+      parentBranchHead: 'base-tools',
+      targetBranch: 'develop',
+    }]);
+    await writeChildTaskChains(repoRoot, stateFixture(binding));
+    const prepared = await prepareChildTaskChainCloseout({
+      repoRoot,
+      taskId: 'child',
+      content: markdown({ branchChainSection: formatBranchChainSection(binding) }),
+    });
+
+    const attached = attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: toolsRoot, repoLabel: 'tools', branch: 'task/tools', targetBranch: 'develop' }),
+      handoff({ repoRoot: gitRoot, repoLabel: 'platform', branch: 'task/platform', targetBranch: 'main' }),
+    ]);
+
+    expect(attached.completedBranchHandoffs).toEqual([
+      expect.objectContaining({
+        repoRoot: gitRoot,
+        repoLabel: 'platform',
+        chainSourceBranch: 'task/platform',
+      }),
+      expect.objectContaining({
+        repoRoot: toolsRoot,
+        repoLabel: 'tools',
+        chainSourceBranch: 'task/tools',
+      }),
+    ]);
+  });
+
+  it('rejects duplicate fresh handoffs for the same normalized root and source branch', async () => {
+    await mkdir(path.join(gitRoot, 'nested'), { recursive: true });
+    const prepared = await prepareChildTaskChainCloseout({ repoRoot, taskId: 'child', content: markdown() });
+
+    expect(() => attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: gitRoot, branch: 'task/root' }),
+      handoff({ repoRoot: path.join(gitRoot, 'nested', '..'), branch: 'task/root' }),
+    ])).toThrow('child-task-chain-closeout-branch-handoff-mismatch');
+  });
+
   it('marks the reserved current tip completed and preserves currentTipTaskId', async () => {
     const prepared = attachCompletedBranchHandoffs(
       (await prepareChildTaskChainCloseout({ repoRoot, taskId: 'child', content: markdown() }))!,
@@ -185,23 +240,69 @@ describe('child task chain closeout helper', () => {
       { ...payload.completedBranchHandoffs[0], chainSourceBranch: 'main' },
     ] })).toThrow('child-task-chain-closeout-sentinel-invalid');
   });
+
+  it('validates recovered multi-repo handoffs by normalized root and source branch', async () => {
+    const toolsRoot = path.join(repoRoot, 'tools');
+    await mkdir(path.join(gitRoot, 'nested'), { recursive: true });
+    await mkdir(path.join(toolsRoot, 'nested'), { recursive: true });
+    const binding = branchChain([{
+      repoRoot: path.join(gitRoot, 'nested', '..'),
+      repoLabel: 'platform',
+      chainSourceBranch: 'task/platform',
+      parentSourceBranch: 'task/root',
+      parentBranchHead: 'base-platform',
+      targetBranch: 'main',
+    }, {
+      repoRoot: path.join(toolsRoot, 'nested', '..'),
+      repoLabel: 'tools',
+      chainSourceBranch: 'task/tools',
+      parentSourceBranch: 'task/root',
+      parentBranchHead: 'base-tools',
+      targetBranch: 'develop',
+    }]);
+    const completedBranchHandoffs = [
+      completedHandoff({ repoRoot: toolsRoot, repoLabel: 'tools', chainSourceBranch: 'task/tools', targetBranch: 'develop' }),
+      completedHandoff({ repoRoot: gitRoot, repoLabel: 'platform', chainSourceBranch: 'task/platform', targetBranch: 'main' }),
+    ];
+    const payload = recoveredPayload({ branchChain: binding, completedBranchHandoffs });
+
+    expect(parseRecoveredChildTaskChainCloseout(payload)).toEqual(expect.objectContaining({
+      completedBranchHandoffs,
+    }));
+  });
+
+  it('rejects recovered duplicate handoffs for the same normalized root and source branch', async () => {
+    await mkdir(path.join(gitRoot, 'nested'), { recursive: true });
+    const payload = recoveredPayload({
+      completedBranchHandoffs: [
+        completedHandoff({ repoRoot: gitRoot, chainSourceBranch: 'task/root' }),
+        completedHandoff({ repoRoot: path.join(gitRoot, 'nested', '..'), chainSourceBranch: 'task/root' }),
+      ],
+    });
+
+    expect(() => parseRecoveredChildTaskChainCloseout(payload))
+      .toThrow('child-task-chain-closeout-sentinel-invalid');
+  });
 });
 
-function branchChain(repoRootForChain = gitRoot): TaskBranchChainBinding {
+function branchChain(repoRootForChain?: string | TaskBranchChainBinding['repos']): TaskBranchChainBinding {
+  const repos = Array.isArray(repoRootForChain)
+    ? repoRootForChain
+    : [{
+      repoRoot: repoRootForChain ?? gitRoot,
+      repoLabel: 'repo',
+      chainSourceBranch: 'task/root',
+      parentSourceBranch: 'task/root',
+      parentBranchHead: 'base',
+      targetBranch: 'main',
+    }];
   return {
     schemaVersion: 1,
     mode: 'continuation',
     rootTaskId: 'root',
     parentTaskId: 'root',
     depth: 1,
-    repos: [{
-      repoRoot: repoRootForChain,
-      repoLabel: 'repo',
-      chainSourceBranch: 'task/root',
-      parentSourceBranch: 'task/root',
-      parentBranchHead: 'base',
-      targetBranch: 'main',
-    }],
+    repos,
   };
 }
 
@@ -276,22 +377,48 @@ function markdown(options: {
   ].filter((line) => line !== null).join('\n');
 }
 
-function handoff(options: { repoRoot?: string; branch?: string } = {}): BranchHandoffForChildChainCloseout {
+function handoff(options: {
+  repoRoot?: string;
+  repoLabel?: string;
+  branch?: string;
+  targetBranch?: string;
+} = {}): BranchHandoffForChildChainCloseout {
   return {
     repo_root: options.repoRoot ?? gitRoot,
-    repo_label: 'repo',
+    repo_label: options.repoLabel ?? 'repo',
     branch: options.branch ?? 'task/root',
     base_commit_sha: 'base',
     head_commit_sha: 'head',
     commits_ahead: 1,
     status: 'ready-for-operator-review',
     auto_merge: {
-      target_branch: 'main',
+      target_branch: options.targetBranch ?? 'main',
     },
   };
 }
 
-function recoveredPayload() {
+function completedHandoff(options: {
+  repoRoot?: string;
+  repoLabel?: string;
+  chainSourceBranch?: string;
+  targetBranch?: string | null;
+} = {}) {
+  return {
+    repoRoot: options.repoRoot ?? gitRoot,
+    repoLabel: options.repoLabel ?? 'repo',
+    chainSourceBranch: options.chainSourceBranch ?? 'task/root',
+    baseCommitSha: 'base',
+    headCommitSha: 'head',
+    commitsAhead: 1,
+    status: 'ready-for-operator-review' as const,
+    targetBranch: options.targetBranch ?? 'main',
+  };
+}
+
+function recoveredPayload(options: {
+  branchChain?: TaskBranchChainBinding;
+  completedBranchHandoffs?: ReturnType<typeof completedHandoff>[];
+} = {}) {
   return {
     schemaVersion: 1 as const,
     source: 'fresh' as const,
@@ -300,19 +427,10 @@ function recoveredPayload() {
     parentTaskId: 'root',
     previousTaskId: 'root',
     depth: 1,
-    branchChain: branchChain(),
+    branchChain: options.branchChain ?? branchChain(),
     archivePath: path.join(repoRoot, 'contextpacks/demo/archive/tasks/2026/child/archive.md'),
     archiveArtifactDir: path.join(repoRoot, 'contextpacks/demo/archive/tasks/2026/child'),
-    completedBranchHandoffs: [{
-      repoRoot: gitRoot,
-      repoLabel: 'repo',
-      chainSourceBranch: 'task/root',
-      baseCommitSha: 'base',
-      headCommitSha: 'head',
-      commitsAhead: 1,
-      status: 'ready-for-operator-review' as const,
-      targetBranch: 'main',
-    }],
+    completedBranchHandoffs: options.completedBranchHandoffs ?? [completedHandoff()],
     preparedAt: now,
   };
 }

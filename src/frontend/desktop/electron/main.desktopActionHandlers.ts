@@ -119,6 +119,9 @@ export type DesktopActionHandlers = {
     created: boolean;
     parentBranchViewStatus?: import('../src/shared/desktopContract').PlannerParentBranchViewStatus;
   }>;
+  updatePlannerSessionPersonality: (
+    payload: import('../src/shared/desktopContract').PlannerUpdateSessionPersonalityRequest['payload'],
+  ) => Promise<import('../src/shared/desktopContract').PlannerUpdateSessionPersonalityResponse>;
   validateChildTaskFocus: (
     payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
   ) => Promise<import('../src/shared/desktopContract').PlannerFocusValidationIssue[]>;
@@ -318,8 +321,10 @@ export function createDefaultDesktopActionHandlers(
       payload?.childTaskExecutionScope,
       payload?.lilyPlanningReloadScope,
       payload?.parentTaskBranchView,
+      payload?.lilyPersonalityId,
     );
   },
+  updatePlannerSessionPersonality: (payload) => plannerSession.updateSessionPersonality(payload.lilyPersonalityId),
   validateChildTaskFocus: (payload) => validateChildTaskFocusSnapshot({
     repoRoot: REPO_ROOT,
     contextPackDir: payload.contextPackDir,

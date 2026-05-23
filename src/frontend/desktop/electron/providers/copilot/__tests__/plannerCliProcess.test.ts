@@ -25,6 +25,11 @@ function setPlatform(platform: NodeJS.Platform): () => void {
 
 const expectedProviderCommand = () => (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
 
+function plannerPromptArg(args: readonly string[]): string | undefined {
+  const promptIndex = args.findIndex((arg) => arg === '--prompt' || arg === '-i');
+  return promptIndex >= 0 ? args[promptIndex + 1] : undefined;
+}
+
 describe('buildPlannerCliInvocation', () => {
   it('builds the canonical planner JSONL invocation with required flags', () => {
     const invocation = buildPlannerCliInvocation({
@@ -61,9 +66,9 @@ describe('buildPlannerCliInvocation', () => {
       '--add-dir',
       `${REPO_ROOT}/AgentWorkSpace/templates`,
       '--disallow-temp-dir',
-      '--prompt',
-      'Reply with exactly READY.',
     ]));
+    expect(plannerPromptArg(invocation.args)).toBe('Reply with exactly READY.');
+    expect(plannerPromptArg(invocation.args)).not.toContain('.github/copilot/prompts');
     expect(invocation.env.RUN_ROLE_AGENT_ACTIVE_MODEL).toBe(getPlanningAgentRequiredModel());
     expect(invocation.env.COPILOT_MODEL).toBe(getPlanningAgentRequiredModel());
   });
@@ -99,9 +104,38 @@ describe('buildPlannerCliInvocation', () => {
       '--stream',
       'on',
       '-i',
-      'Reply with exactly READY.',
     ]));
     expect(invocation.args).not.toContain('--prompt');
+    expect(plannerPromptArg(invocation.args)).toContain('--- TASKSAIL RUNTIME PLANNING STYLE PROFILE ---');
+    expect(plannerPromptArg(invocation.args)).toContain('Use the Balanced Planning Specialist style.');
+    expect(plannerPromptArg(invocation.args)).toContain('Reply with exactly READY.');
+  });
+
+  it('passes only the personality id through the provider-neutral planner CLI seam', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan it clinically.',
+      promptMode: 'interactive',
+      lilyPersonalityId: 'clinical',
+    });
+
+    expect(plannerPromptArg(invocation.args)).toContain('Use the Clinical Planning Specialist style.');
+    expect(plannerPromptArg(invocation.args)).toContain('Plan it clinically.');
+    expect(invocation.prompt).toBe('Plan it clinically.');
+    expect(JSON.stringify(invocation)).not.toContain('.github/copilot/prompts');
+  });
+
+  it('keeps resumed planner prompts unchanged while preserving the planning agent id', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Continue with the raw operator turn.',
+      promptMode: 'interactive',
+      resumeSessionId: 'session-42',
+      lilyPersonalityId: 'clinical',
+    });
+
+    expect(invocation.agentId).toBe('planning-agent');
+    expect(invocation.args).toEqual(expect.arrayContaining(['--agent', 'planning-agent', '--resume=session-42']));
+    expect(plannerPromptArg(invocation.args)).toBe('Continue with the raw operator turn.');
+    expect(plannerPromptArg(invocation.args)).not.toContain('TASKSAIL RUNTIME PLANNING STYLE PROFILE');
   });
 
   it('propagates planner session ownership into the CLI environment', () => {
@@ -173,7 +207,7 @@ describe('spawnPlannerCliProcess', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expectedProviderCommand(),
-      expect.arrayContaining(['-i', 'Reply with exactly READY.']),
+      expect.arrayContaining(['-i', expect.stringContaining('Reply with exactly READY.')]),
       expect.objectContaining({
         cwd: REPO_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],

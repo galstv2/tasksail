@@ -36,6 +36,7 @@ const CONTEXT_PACK_SYSTEM_LAYERS = [
 ] as const;
 export const REINFORCEMENT_FEEDBACK_TYPES = ['none', 'positive', 'negative'] as const;
 export const PLANNER_FOCUS_VALIDATION_MODES = ['valid', 'fallback'] as const;
+export const PLANNER_LILY_PERSONALITY_IDS = ['balanced', 'clinical'] as const;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

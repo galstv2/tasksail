@@ -95,6 +95,8 @@ import type {
   PlannerStartSessionResponse,
   PlannerSubmitRequest,
   PlannerSubmitResponse,
+  PlannerUpdateSessionPersonalityRequest,
+  PlannerUpdateSessionPersonalityResponse,
   PlannerValidateChildTaskFocusRequest,
   PlannerValidateChildTaskFocusResponse,
   PlannerUploadSpecRequest,
@@ -107,6 +109,7 @@ import type {
 export const DESKTOP_ACTION_NAMES = [
   'planner.submitDraft',
   'planner.startSession',
+  'planner.updateSessionPersonality',
   'planner.validateChildTaskFocus',
   'planner.sendMessage',
   'planner.endSession',
@@ -925,6 +928,7 @@ export type TerminalSetTaskScopeResponse = {
 export type DesktopActionRequest =
   | PlannerSubmitRequest
   | PlannerStartSessionRequest
+  | PlannerUpdateSessionPersonalityRequest
   | PlannerValidateChildTaskFocusRequest
   | PlannerSendMessageRequest
   | PlannerEndSessionRequest
@@ -1007,6 +1011,7 @@ export type DesktopActionRequest =
 export type DesktopActionResponse =
   | PlannerSubmitResponse
   | PlannerStartSessionResponse
+  | PlannerUpdateSessionPersonalityResponse
   | PlannerValidateChildTaskFocusResponse
   | PlannerSendMessageResponse
   | PlannerEndSessionResponse

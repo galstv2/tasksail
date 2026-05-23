@@ -76,6 +76,7 @@ describe('usePlannerModal', () => {
 
     expect(startPlannerSession).toHaveBeenCalledWith({
       contextPackDir: '/tmp/test-context-pack',
+      lilyPersonalityId: 'balanced',
       deepFocusSelection,
     });
   });
@@ -94,7 +95,92 @@ describe('usePlannerModal', () => {
 
     expect(startPlannerSession).toHaveBeenCalledWith({
       contextPackDir: '/tmp/test-context-pack',
+      lilyPersonalityId: 'balanced',
     });
+  });
+
+  it('updates Lily personality before first message without restarting or clearing state', async () => {
+    const startPlannerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+    });
+    const updatePlannerSessionPersonality = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.updateSessionPersonality', mode: 'updated', accepted: true, message: 'Planner personality updated.', lilyPersonalityId: 'clinical' },
+    });
+    const endPlannerSession = vi.fn();
+    const client = createClient({ startPlannerSession, updatePlannerSessionPersonality, endPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    act(() => {
+      result.current.plannerModalProps.onLilyPersonalityChange?.('clinical');
+    });
+
+    expect(result.current.plannerModalProps.lilyPersonalityId).toBe('clinical');
+    expect(updatePlannerSessionPersonality).toHaveBeenCalledWith({ lilyPersonalityId: 'clinical' });
+    expect(startPlannerSession).toHaveBeenCalledTimes(1);
+    expect(endPlannerSession).not.toHaveBeenCalled();
+  });
+
+  it('locks Lily personality and keeps busy label renderer-only after the first message', async () => {
+    const updatePlannerSessionPersonality = vi.fn();
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.45);
+    const client = createClient({ updatePlannerSessionPersonality, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    act(() => {
+      result.current.plannerModalProps.onSendMessage('Plan billing.');
+    });
+    await waitFor(() => expect(sendPlannerMessage).toHaveBeenCalled());
+
+    expect(result.current.plannerModalProps.personalityLocked).toBe(true);
+    expect(result.current.plannerModalProps.busyBadgeLabel).toBe('synthesizing');
+
+    act(() => {
+      result.current.plannerModalProps.onLilyPersonalityChange?.('clinical');
+    });
+    expect(updatePlannerSessionPersonality).not.toHaveBeenCalled();
+    expect(sendPlannerMessage.mock.calls[0]?.[0]).not.toContain('synthesizing');
+    randomSpy.mockRestore();
+  });
+
+  it('uses clinical busy labels when Clinical is selected before the first message', async () => {
+    const updatePlannerSessionPersonality = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.updateSessionPersonality', mode: 'updated', accepted: true, message: 'Planner personality updated.', lilyPersonalityId: 'clinical' },
+    });
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.45);
+    const client = createClient({ updatePlannerSessionPersonality, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+    act(() => {
+      result.current.plannerModalProps.onLilyPersonalityChange?.('clinical');
+    });
+    act(() => {
+      result.current.plannerModalProps.onSendMessage('Review the request.');
+    });
+    await waitFor(() => expect(sendPlannerMessage).toHaveBeenCalled());
+
+    expect(result.current.plannerModalProps.busyBadgeLabel).toBe('evaluating');
+    expect(sendPlannerMessage.mock.calls[0]?.[0]).not.toContain('evaluating');
+    randomSpy.mockRestore();
   });
 
   it('logs planner session start failures', async () => {
@@ -335,6 +421,7 @@ describe('usePlannerModal', () => {
     expect(result.current.plannerModalProps.sessionStatus).toBe('connecting');
     expect(startPlannerSession).toHaveBeenLastCalledWith({
       contextPackDir: '/tmp/test-context-pack',
+      lilyPersonalityId: 'balanced',
       replayConversationId: 'conversation-1',
     });
     expect(endPlannerSession.mock.invocationCallOrder[0]).toBeLessThan(startPlannerSession.mock.invocationCallOrder[1]);
@@ -601,7 +688,7 @@ describe('usePlannerModal', () => {
 
     expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
     expect(endPlannerSession).toHaveBeenCalled();
-    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack' });
+    expect(startPlannerSession).toHaveBeenLastCalledWith({ contextPackDir: '/tmp/test-context-pack', lilyPersonalityId: 'balanced' });
   });
 
   it('onReturnToBlank is a no-op while replayInFlight is true', async () => {
@@ -792,10 +879,12 @@ describe('usePlannerModal', () => {
       result.current.openPlannerModal();
     });
 
+    let finalized = true;
     await act(async () => {
-      result.current.plannerModalProps.onFinalizeSpec!();
+      finalized = await result.current.plannerModalProps.onFinalizeSpec!();
     });
 
+    expect(finalized).toBe(false);
     expect(result.current.plannerModalProps.draftError).toBe('Finalize boom');
   });
 
@@ -883,10 +972,12 @@ describe('usePlannerModal', () => {
       result.current.openPlannerModal();
     });
 
+    let finalized = false;
     await act(async () => {
-      await result.current.plannerModalProps.onFinalizeSpec!();
+      finalized = await result.current.plannerModalProps.onFinalizeSpec!();
     });
 
+    expect(finalized).toBe(true);
     expect(result.current.plannerModalProps.sessionStatus).toBe('idle');
     expect(result.current.plannerModalProps.stagedDraft).toBeNull();
   });

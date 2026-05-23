@@ -498,6 +498,16 @@ export function installAppTestHarness(): void {
           brokerStatus: 'idle',
         },
       }),
+      updatePlannerSessionPersonality: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.updateSessionPersonality',
+          mode: 'updated',
+          accepted: true,
+          message: 'Planner personality updated.',
+          lilyPersonalityId: 'balanced',
+        },
+      }),
       validateChildTaskFocus: vi.fn().mockResolvedValue({
         ok: true,
         response: {

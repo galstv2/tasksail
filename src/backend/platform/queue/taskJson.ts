@@ -67,7 +67,7 @@ export interface TaskContextPackSelection {
 }
 
 export interface TaskMaterialization {
-  strategy: 'copy' | 'apfs-clonefile' | 'reflink';
+  strategy: 'copy' | 'apfs-clonefile' | 'reflink' | 'win-refs';
   cloned: string[];
   skipped: string[];
   composeProjectName?: string;

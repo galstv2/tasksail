@@ -239,7 +239,10 @@ export interface PlannerLaunchOptions {
    * owns model and agentId.
    */
   focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
+  lilyPersonalityId?: PlannerLilyPersonalityId;
 }
+
+export type PlannerLilyPersonalityId = 'balanced' | 'clinical';
 
 export interface PlannerLaunchSpec {
   agentId: string;

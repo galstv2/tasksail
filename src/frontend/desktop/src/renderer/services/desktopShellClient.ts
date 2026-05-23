@@ -46,6 +46,7 @@ type DesktopShellClient = Pick<
   | 'clearActiveContextPack'
   | 'activateContextPack'
   | 'startPlannerSession'
+  | 'updatePlannerSessionPersonality'
   | 'validateChildTaskFocus'
   | 'sendPlannerMessage'
   | 'endPlannerSession'
@@ -173,6 +174,8 @@ export function createDesktopShellClient(
     activateContextPack: (packId) => readShell().activateContextPack(packId),
     startPlannerSession: (payload?: PlannerStartSessionPayload) =>
       readShell().startPlannerSession(payload),
+    updatePlannerSessionPersonality: (payload) =>
+      readShell().updatePlannerSessionPersonality(payload),
     validateChildTaskFocus: (payload) =>
       readShell().validateChildTaskFocus(payload),
     sendPlannerMessage: (text, displayText) =>

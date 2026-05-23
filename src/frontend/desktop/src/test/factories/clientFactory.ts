@@ -150,6 +150,16 @@ export function createMockClient(
         ok: true,
         response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'planner-mock-1', brokerStatus: 'idle' },
       }),
+    updatePlannerSessionPersonality: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.updateSessionPersonality',
+        mode: 'updated',
+        accepted: true,
+        message: 'Planner personality updated.',
+        lilyPersonalityId: 'balanced',
+      },
+    }),
     validateChildTaskFocus: vi
       .fn()
       .mockResolvedValue({

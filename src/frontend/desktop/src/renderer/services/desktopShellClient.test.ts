@@ -153,6 +153,7 @@ describe('desktopShellClient', () => {
   it('forwards planner history and replay message arguments unchanged', async () => {
     const shell = {
       startPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.startSession' } }),
+      updatePlannerSessionPersonality: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.updateSessionPersonality' } }),
       sendPlannerMessage: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.sendMessage' } }),
       listPlannerConversationHistory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listConversationHistory' } }),
       hydratePlannerConversation: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.hydrateConversation' } }),
@@ -164,6 +165,7 @@ describe('desktopShellClient', () => {
       contextPackDir: '/tmp/context-packs/orders-estate',
       replayConversationId: 'conversation-1',
     });
+    await client.updatePlannerSessionPersonality({ lilyPersonalityId: 'clinical' });
     await client.sendPlannerMessage('Message sent to Lily.', 'Message shown in transcript.');
     await client.sendPlannerMessage('Plain message only.');
     await client.listPlannerConversationHistory();
@@ -173,6 +175,7 @@ describe('desktopShellClient', () => {
       contextPackDir: '/tmp/context-packs/orders-estate',
       replayConversationId: 'conversation-1',
     });
+    expect(shell.updatePlannerSessionPersonality).toHaveBeenCalledWith({ lilyPersonalityId: 'clinical' });
     expect(shell.sendPlannerMessage).toHaveBeenNthCalledWith(
       1,
       'Message sent to Lily.',
@@ -471,6 +474,7 @@ describe('desktopShellClient', () => {
         .mockResolvedValue({ ok: true, response: { action: 'contextPack.clearActive' } }),
       activateContextPack: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.activate' } }),
       startPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.startSession' } }),
+      updatePlannerSessionPersonality: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.updateSessionPersonality' } }),
       validateChildTaskFocus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.validateChildTaskFocus', mode: 'valid', message: 'Parent task focus is still valid.', issues: [] } }),
       sendPlannerMessage: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.sendMessage' } }),
       endPlannerSession: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.endSession' } }),
