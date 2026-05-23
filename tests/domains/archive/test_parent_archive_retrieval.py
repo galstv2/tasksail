@@ -192,6 +192,58 @@ class ParentArchiveRetrievalTests(unittest.TestCase):
             self.assertTrue(required_fields.issubset(summary.keys()))
             self.assertEqual(summary["parent_task_id"], "CAP-1000")
 
+    def test_parent_archive_lookup_ignores_json_array_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            context_pack_dir = Path(temp_root) / "context-pack"
+            scope = "qmd/context-packs/sample-org"
+            self.create_archive(
+                context_pack_dir,
+                scope=scope,
+                file_name="cap-1000.json",
+                record={
+                    "schema_version": "qmd-record/v1",
+                    "record_id": "task:platform:CAP-1000",
+                    "record_type": "task-archive",
+                    "task_id": "CAP-1000",
+                    "root_task_id": "CAP-1000",
+                    "task_title": "Parent With Branch Handoffs",
+                    "context_pack_id": "sample-org",
+                    "qmd_scope": scope,
+                    "repo_name": "tasksail",
+                    "workflow_status": "completed",
+                    "summary": "Completed parent task with sidecar handoffs.",
+                },
+            )
+            sidecar_path = (
+                context_pack_dir
+                / scope
+                / "archive/tasks/platform/2026/cap-1000/handoffs/branch-handoffs.json"
+            )
+            sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+            sidecar_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "repo_root": "/tmp/platform",
+                            "branch": "task/parent",
+                            "head_commit_sha": "abc123",
+                        }
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = self.run_carry_forward_summary(
+                Path(temp_root),
+                context_pack_dir=context_pack_dir,
+                parent_qmd_scope=scope,
+                parent_task_id="CAP-1000",
+            )
+
+            self.assertEqual(summary["parent_task_id"], "CAP-1000")
+            self.assertIn("sidecar handoffs", summary["task_summary"])
+
     def test_parent_archive_lookup_accepts_absolute_external_context_pack_dir(
         self,
     ) -> None:

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 
-import type { TaskBoardContentColumn, TaskBoardDeleteColumn } from '../../../shared/desktopContract';
+import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn } from '../../../shared/desktopContract';
 import type { TaskBoardState } from '../../hooks/useTaskBoard';
+import { formatLocalTimestamp } from '../../utils/localTimestamp';
 import TaskBoardColumn from './TaskBoardColumn';
 import TaskBoardCard from './TaskBoardCard';
 import TaskDetailModal from './TaskDetailModal';
@@ -45,6 +46,12 @@ type DeleteTarget = {
   column: TaskBoardDeleteColumn;
 };
 
+function archivedAtMs(task: ArchivedTaskEntry): number | null {
+  if (!task.archivedAt) return null;
+  const ms = new Date(task.archivedAt).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
 function TaskBoard({
   board,
   onReorderPending,
@@ -60,6 +67,18 @@ function TaskBoard({
   const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
   const [modalContent, setModalContent] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const sortedCompletedItems = useMemo(
+    () => board.completedItems
+      .map((item, index) => ({ item, index, ms: archivedAtMs(item) }))
+      .sort((left, right) => {
+        if (left.ms !== null && right.ms !== null && left.ms !== right.ms) return right.ms - left.ms;
+        if (left.ms !== null && right.ms === null) return -1;
+        if (left.ms === null && right.ms !== null) return 1;
+        return left.index - right.index;
+      })
+      .map((entry) => entry.item),
+    [board.completedItems],
+  );
 
   useEffect(() => {
     if (!selectedTask || !readTaskContent) {
@@ -276,12 +295,13 @@ function TaskBoard({
           {board.completedItems.length === 0 ? (
             <p className="task-board-column__empty">No items</p>
           ) : (
-            board.completedItems.map((item) => (
+            sortedCompletedItems.map((item) => (
               <TaskBoardCard
                 key={item.taskId}
                 fileName={`${item.taskId}.md`}
                 title={item.title}
                 taskId={item.taskId}
+                meta={item.archivedAt ? formatLocalTimestamp(item.archivedAt) : null}
                 onClick={() => handleCardClick(`${item.taskId}.md`, item.title, 'completed')}
               />
             ))

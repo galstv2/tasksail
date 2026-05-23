@@ -65,7 +65,7 @@ function replaceSectionBody(text: string, sectionName: string, body: string): st
 }
 
 function parseStatusForId(body: string, id: string): string | null {
-  const pattern = new RegExp(`\\b${id}:\\s*(.*)$`);
+  const pattern = new RegExp(`\\b${id}\\s*[:\\-\\u2013\\u2014]\\s*(.*)$`);
   const match = stripCommentsAndFences(body)
     .split(/\r?\n/)
     .map((candidate) => pattern.exec(candidate))
@@ -73,15 +73,11 @@ function parseStatusForId(body: string, id: string): string | null {
   if (!match) {
     return null;
   }
-  const afterId = (match[1] ?? '').trim();
-  if (afterId.includes(' - ')) {
-    return afterId.split(' - ')[0]!.trim().toLowerCase();
-  }
-  const lowered = afterId.toLowerCase();
+  const lowered = (match[1] ?? '').trim().toLowerCase().replace(/[\u2013\u2014]/g, '-');
   if (lowered.startsWith('not met')) {
     return 'not met';
   }
-  return lowered.split(/\s+/)[0] ?? null;
+  return /^(verified|advisory|pending|blocked|unmet|failed)\b/.exec(lowered)?.[1] ?? null;
 }
 
 function idsFromBody(body: string): string[] {

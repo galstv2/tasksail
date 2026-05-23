@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ArchivedTaskEntry, MarkdownFileSelection, PlannerFocusValidationIssue, PlannerListConversationHistorySummary, StagedDraftContent } from '../../shared/desktopContract';
+import type { ArchivedTaskChildParentBlockedTip, ArchivedTaskEntry, ContextPackCatalogEntry, ContextPackFocusFilterSelection, MarkdownFileSelection, PlannerFocusValidationIssue, PlannerListConversationHistorySummary, StagedDraftContent } from '../../shared/desktopContract';
 import type { ComposerStage, PlannerConversationMessage, PlannerDraftModel } from '../plannerComposer';
 import { classNames } from '../utils/classNames';
 import { BackIcon, CloseIcon } from './creation-steps/icons';
 import SailScreen from './SailScreen';
 import MarkdownView from './MarkdownView';
 import ModalShell from './ModalShell';
+import FocusSelectionSummaryCard from './FocusSelectionSummaryCard';
 import { RecentsTrigger } from './planner/RecentsTrigger';
 import { RecentsPopover } from './planner/RecentsPopover';
+import ParentTaskPicker from './planner/ParentTaskPicker';
+import { ParentArchivePreviewModal } from './planner/ParentArchivePreviewModal';
+import ChildScopeOverridePanel, { type ChildScopeOverridePanelProps } from './planner/ChildScopeOverridePanel';
+import type { usePlannerParentArchivePreview } from '../hooks/usePlannerParentArchivePreview';
+import { childScopeToFocusFilterSelection } from '../plannerChildScope';
 
 export type PlannerSessionStatus = 'idle' | 'connecting' | 'active' | 'busy' | 'failed';
 
@@ -49,12 +55,21 @@ export type PlannerModalProps = {
   childTaskMode?: boolean;
   onToggleChildTaskMode?: () => void;
   archivedTasks?: ArchivedTaskEntry[];
+  childParentBlockedTips?: ArchivedTaskChildParentBlockedTip[];
   archivedTaskTotalCount?: number;
   selectedParentTask?: ArchivedTaskEntry | null;
   onSelectParentTask?: (task: ArchivedTaskEntry) => void;
   loadingArchivedTasks?: boolean;
   loadingChildTaskParent?: boolean;
   childTaskBlocked?: boolean;
+  childScopeStatusLabel?: 'Using parent scope' | 'Child scope adjusted';
+  childScopeSummary?: string;
+  childScopeWarning?: string;
+  childScopePanelOpen?: boolean;
+  onOpenChildScopePanel?: () => void;
+  onCloseChildScopePanel?: () => void;
+  childScopePanelProps?: ChildScopeOverridePanelProps;
+  parentArchivePreview?: ReturnType<typeof usePlannerParentArchivePreview>;
   onUploadSpec?: () => Promise<boolean>;
   onDownloadTemplate?: () => void;
 };
@@ -69,6 +84,73 @@ const STAGING_POLL_INTERVAL_MS = 150;
 const STAGING_AWAIT_TIMEOUT_MS = 10_000;
 
 const LILY_GREETING = "Hi there! I'm Lily, the planning specialist. Let's figure out what you need.";
+const DEFAULT_COMPOSER_PLACEHOLDER = 'Start a conversation with Lily to begin planning your task.';
+const CHILD_PARENT_COMPOSER_PLACEHOLDER = 'Tell Lily what this child task should continue, change, or investigate.';
+const RECENT_COMPOSER_PLACEHOLDER = 'Continue this planning thread with Lily.';
+const CHILD_PARENT_REQUIRED_PLACEHOLDER = 'Select a parent task to begin child-task planning.';
+
+function ScopeInfoIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="8" cy="5.1" r="0.95" fill="currentColor" />
+      <rect x="7.15" y="7" width="1.7" height="4.7" rx="0.85" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ParentControlsChevron(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M4 6.5 L8 10.5 L12 6.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChildScopeSummaryAffordance({
+  selectedPack,
+  selection,
+  title,
+  flag,
+  cardClassName,
+}: {
+  selectedPack: ContextPackCatalogEntry | undefined;
+  selection: ContextPackFocusFilterSelection;
+  title: string;
+  flag: string;
+  cardClassName: string;
+}): JSX.Element {
+  const triggerLabel = `${title} details`;
+  return (
+    <span className="planner-modal__scope-summary-affordance">
+      <span className="planner-modal__scope-summary-label">{title}</span>
+      <button
+        type="button"
+        className="planner-modal__scope-summary-trigger"
+        aria-label={triggerLabel}
+        title={triggerLabel}
+      >
+        <ScopeInfoIcon />
+      </button>
+      <span className="planner-modal__scope-summary-popover">
+        <FocusSelectionSummaryCard
+          selectedPack={selectedPack}
+          selection={selection}
+          title={title}
+          flag={flag}
+          className={cardClassName}
+        />
+      </span>
+    </span>
+  );
+}
 
 function PlannerModal({
   isOpen,
@@ -106,12 +188,20 @@ function PlannerModal({
   childTaskMode,
   onToggleChildTaskMode,
   archivedTasks,
+  childParentBlockedTips,
   archivedTaskTotalCount,
   selectedParentTask,
   onSelectParentTask,
   loadingArchivedTasks,
   loadingChildTaskParent,
   childTaskBlocked,
+  childScopeStatusLabel,
+  childScopeSummary,
+  childScopeWarning,
+  childScopePanelOpen,
+  onOpenChildScopePanel,
+  childScopePanelProps,
+  parentArchivePreview,
   onUploadSpec,
   onDownloadTemplate,
 }: PlannerModalProps): JSX.Element | null {
@@ -124,6 +214,7 @@ function PlannerModal({
   const recentsTriggerRef = useRef<HTMLButtonElement>(null);
   const [recentsOpen, setRecentsOpen] = useState(false);
   const [replayingRecordId, setReplayingRecordId] = useState<string | null>(null);
+  const [parentControlsCollapsed, setParentControlsCollapsed] = useState(false);
 
   const replayingTitle = useMemo(() => {
     if (!replayingRecordId) return null;
@@ -150,6 +241,7 @@ function PlannerModal({
       setDraftPopoutOpen(false);
       setRecentsOpen(false);
       setReplayingRecordId(null);
+      setParentControlsCollapsed(false);
       submittedAtRef.current = null;
     }
   }, [isOpen]);
@@ -271,6 +363,23 @@ function PlannerModal({
   }
 
   if (!isOpen) return null;
+  const selectedChildTaskParent = childTaskMode && selectedParentTask ? selectedParentTask : null;
+  const parentScopeSummarySelection = childScopePanelProps
+    ? childScopeToFocusFilterSelection(childScopePanelProps.parentScope)
+    : null;
+  const adjustedChildScopeSummarySelection = childScopePanelProps && childScopeStatusLabel === 'Child scope adjusted'
+    ? childScopeToFocusFilterSelection(childScopePanelProps.childScope)
+    : null;
+  const showInlineChildScopeSummary = !adjustedChildScopeSummarySelection;
+  const parentControlsActuallyCollapsed = parentControlsCollapsed && Boolean(selectedChildTaskParent);
+  const hasOperatorMessage = messages.some((msg) => msg.role === 'operator');
+  const composerPlaceholder = childTaskBlocked
+    ? CHILD_PARENT_REQUIRED_PLACEHOLDER
+    : selectedChildTaskParent
+      ? CHILD_PARENT_COMPOSER_PLACEHOLDER
+      : replaySourceRecordId
+        ? RECENT_COMPOSER_PLACEHOLDER
+        : DEFAULT_COMPOSER_PLACEHOLDER;
 
   const bypassGroup = (
     <div className="planner-modal__bypass-group">
@@ -377,38 +486,114 @@ function PlannerModal({
         />
 
         {childTaskMode && (
-          <div className="planner-modal__parent-select" aria-label="Parent task selection">
-            <label htmlFor="parent-task-select">Parent task:</label>
-            <select
-              id="parent-task-select"
-              value={selectedParentTask?.taskId ?? ''}
-              onChange={(e) => {
-                const task = archivedTasks?.find((t) => t.taskId === e.target.value);
-                if (task) onSelectParentTask?.(task);
-              }}
-              disabled={loadingArchivedTasks || loadingChildTaskParent}
-            >
-              <option value="">
-                {loadingChildTaskParent
-                  ? 'Loading parent task...'
-                  : loadingArchivedTasks
-                  ? 'Loading archived tasks...'
-                  : archivedTasks && archivedTasks.length > 0
-                    ? 'Select a completed parent task...'
-                    : archivedTaskTotalCount && archivedTaskTotalCount > 0
-                      ? `${archivedTaskTotalCount} archived task${archivedTaskTotalCount === 1 ? '' : 's'} found, but none have a saved planner focus`
-                      : 'No completed tasks found in archive'}
-              </option>
-              {archivedTasks?.map((task) => (
-                <option key={task.taskId} value={task.taskId}>
-                  {task.title} ({task.year})
-                </option>
-              ))}
-            </select>
+          <div className="planner-modal__parent-card" id="planner-parent-controls" aria-label="Parent task context">
+            {parentControlsActuallyCollapsed ? (
+              <button
+                type="button"
+                className="planner-modal__parent-card-restore"
+                onClick={() => setParentControlsCollapsed(false)}
+                aria-expanded={false}
+                aria-controls="planner-parent-controls"
+                aria-label="Expand parent task controls"
+              >
+                <span className="planner-modal__parent-card-restore-chevron" aria-hidden="true">
+                  <ParentControlsChevron />
+                </span>
+                <span className="planner-modal__parent-card-restore-label">
+                  Parent task
+                  <strong>{selectedChildTaskParent?.title}</strong>
+                </span>
+                {childScopeStatusLabel ? (
+                  <span className="planner-modal__parent-card-restore-scope">{childScopeStatusLabel}</span>
+                ) : null}
+              </button>
+            ) : (
+            <>
+            <ParentTaskPicker
+              selectedTask={selectedParentTask}
+              tasks={archivedTasks ?? []}
+              blockedTips={childTaskMode ? childParentBlockedTips ?? [] : []}
+              totalCount={archivedTaskTotalCount ?? 0}
+              loadingArchivedTasks={loadingArchivedTasks}
+              loadingChildTaskParent={loadingChildTaskParent}
+              onSelectTask={(task) => onSelectParentTask?.(task)}
+            />
+            {selectedChildTaskParent ? (
+              <div className="planner-modal__parent-card-scope">
+                <div className="planner-modal__parent-card-scope-main" aria-label="Child task context">
+                  {showInlineChildScopeSummary && childScopeStatusLabel ? (
+                    <span className="planner-modal__child-task-scope">{childScopeStatusLabel}</span>
+                  ) : null}
+                  {showInlineChildScopeSummary && childScopeSummary ? (
+                    <span className="planner-modal__child-task-summary">{childScopeSummary}</span>
+                  ) : null}
+                  {childScopeWarning ? (
+                    <span className="planner-modal__child-scope-warning">{childScopeWarning}</span>
+                  ) : null}
+                  {(adjustedChildScopeSummarySelection || parentScopeSummarySelection) ? (
+                    <div className="planner-modal__scope-summary-affordances" aria-label="Child task scope details">
+                      {adjustedChildScopeSummarySelection ? (
+                        <ChildScopeSummaryAffordance
+                          selectedPack={childScopePanelProps?.selectedPack}
+                          selection={adjustedChildScopeSummarySelection}
+                          title="Adjusted child scope"
+                          flag="Execution"
+                          cardClassName="planner-modal__adjusted-scope-card"
+                        />
+                      ) : null}
+                      {parentScopeSummarySelection ? (
+                        <ChildScopeSummaryAffordance
+                          selectedPack={childScopePanelProps?.selectedPack}
+                          selection={parentScopeSummarySelection}
+                          title="Parent task scope"
+                          flag={parentScopeSummarySelection.deepFocusEnabled ? 'Deep Focus' : 'Archived'}
+                          cardClassName="planner-modal__parent-scope-card"
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="planner-modal__parent-card-actions">
+                  {onOpenChildScopePanel ? (
+                    <button type="button" className="planner-modal__secondary-btn" onClick={onOpenChildScopePanel}>
+                      Adjust child scope
+                    </button>
+                  ) : null}
+                  {selectedChildTaskParent.plannerFocusSnapshot && !loadingChildTaskParent && parentArchivePreview ? (
+                    <button
+                      type="button"
+                      className="planner-modal__secondary-btn"
+                      onClick={() => { void parentArchivePreview.openForTask(selectedChildTaskParent); }}
+                    >
+                      {parentArchivePreview.loading ? 'Loading archive...' : 'View parent archive'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="planner-modal__parent-card-collapse"
+                    onClick={() => setParentControlsCollapsed(true)}
+                    aria-expanded={true}
+                    aria-controls="planner-parent-controls"
+                    aria-label="Collapse parent task controls"
+                    title="Collapse to give the conversation more room"
+                  >
+                    <ParentControlsChevron />
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            </>
+            )}
           </div>
         )}
 
-        {isFollowUpDraft && (
+        {childTaskMode && childScopePanelOpen && childScopePanelProps ? (
+          <div className="planner-modal__child-scope-overlay" role="presentation">
+            <ChildScopeOverridePanel {...childScopePanelProps} />
+          </div>
+        ) : null}
+
+        {isFollowUpDraft && !selectedChildTaskParent && (
           <div className="planner-modal__followup-banner" aria-label="Follow-up lineage">
             Continuing from <strong>{draft.parentTaskId}</strong>
             {draft.rootTaskId && draft.rootTaskId !== draft.parentTaskId && (
@@ -417,7 +602,7 @@ function PlannerModal({
           </div>
         )}
 
-        {stageCopy && (
+        {stageCopy && !selectedChildTaskParent && (
           <div className="planner-modal__stage-bar">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/><path d="M8 5v3.5H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             <span>{stageCopy}</span>
@@ -498,7 +683,7 @@ function PlannerModal({
 
         <div className="planner-modal__composer">
           <textarea
-            placeholder={childTaskBlocked ? 'Select a parent task to begin child-task planning.' : messages.length === 0 ? 'Start a conversation with Lily to begin planning your task.' : ''}
+            placeholder={composerPlaceholder}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -518,11 +703,12 @@ function PlannerModal({
           <div className="planner-modal__actions">
             <span className="planner-modal__footer-esc">ESC to close</span>
             {bypassGroup}
+            <span className="planner-modal__action-divider" aria-hidden="true" />
             <button
               type="button"
               className="action-button"
               onClick={onViewDraft}
-              disabled={!!isStreaming || !!awaitingDraft || messages.length === 0}
+              disabled={!!isStreaming || !!awaitingDraft || !hasOperatorMessage}
               title="Ask Lily to write a planning spec from the conversation so far"
             >
               {awaitingDraft ? 'Drafting\u2026' : 'Draft Spec'}
@@ -550,6 +736,7 @@ function PlannerModal({
           <div className="planner-modal__actions">
             <span className="planner-modal__footer-esc">ESC to close</span>
             {bypassGroup}
+            <span className="planner-modal__action-divider" aria-hidden="true" />
             <button
               type="button"
               className="action-button"
@@ -593,6 +780,16 @@ function PlannerModal({
         <MarkdownView content={stagedDraft.content} />
       </ModalShell>
     )}
+    {parentArchivePreview ? (
+      <ParentArchivePreviewModal
+        isOpen={parentArchivePreview.open}
+        onClose={parentArchivePreview.close}
+        loading={parentArchivePreview.loading}
+        error={parentArchivePreview.error}
+        archive={parentArchivePreview.archive}
+        onRetry={parentArchivePreview.retry}
+      />
+    ) : null}
     </>
   );
 }

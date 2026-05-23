@@ -24,10 +24,12 @@ import {
   validateContextPackDirPayload,
   validateContextPackSwitchPayload,
   validateFollowUpDirectSubmissionDraft,
+  validatePlannerChildTaskExecutionScope,
   validatePlannerChildTaskLineage,
   validatePlannerDirectSubmissionDraft,
   validatePlannerFocusSnapshot,
   validatePlannerFocusValidationIssue,
+  validatePlannerLilyPlanningReloadScope,
 } from './desktopContractValidationCore';
 
 export {
@@ -51,6 +53,65 @@ function validateFocusFilterRepositoryTypes(value: unknown): string[] {
     }
     if (repositoryType !== 'primary' && repositoryType !== 'support') {
       errors.push(`payload.selection.repositoryTypes.${repoId} must be primary or support.`);
+    }
+  }
+  return errors;
+}
+
+function validatePlannerParentBranchView(value: unknown, snapshot: unknown): string[] {
+  const prefix = 'payload.parentTaskBranchView';
+  if (!isRecord(value)) {
+    return [`${prefix} must be an object.`];
+  }
+  const errors: string[] = [];
+  if (value.schemaVersion !== 1) {
+    errors.push(`${prefix}.schemaVersion must be 1.`);
+  }
+  if (!isNonEmptyString(value.parentTaskId)) {
+    errors.push(`${prefix}.parentTaskId must be a non-empty string.`);
+  }
+  if (!isNonEmptyString(value.contextPackDir)) {
+    errors.push(`${prefix}.contextPackDir must be a non-empty string.`);
+  }
+  if (!isNonEmptyString(value.contextPackId)) {
+    errors.push(`${prefix}.contextPackId must be a non-empty string.`);
+  }
+  if (isRecord(snapshot)) {
+    if (value.contextPackDir !== snapshot.contextPackDir) {
+      errors.push(`${prefix}.contextPackDir must match payload.childTaskFocusSnapshot.contextPackDir.`);
+    }
+    if (value.contextPackId !== snapshot.contextPackId) {
+      errors.push(`${prefix}.contextPackId must match payload.childTaskFocusSnapshot.contextPackId.`);
+    }
+  }
+  if (!isRecord(value.branchChainAvailability)) {
+    errors.push(`${prefix}.branchChainAvailability must be an object.`);
+  } else if (!isOneOf(value.branchChainAvailability.status, ['ready', 'missing-branch-handoffs', 'invalid-branch-handoffs'] as const)) {
+    errors.push(`${prefix}.branchChainAvailability.status must be ready, missing-branch-handoffs, or invalid-branch-handoffs.`);
+  } else if (value.branchChainAvailability.status === 'ready') {
+    if (!Array.isArray(value.branchHandoffs) || value.branchHandoffs.length === 0) {
+      errors.push(`${prefix}.branchHandoffs must be a non-empty array when branch handoffs are ready.`);
+    }
+  }
+  if (value.branchHandoffs !== undefined) {
+    if (!Array.isArray(value.branchHandoffs)) {
+      errors.push(`${prefix}.branchHandoffs must be an array when provided.`);
+    } else {
+      value.branchHandoffs.forEach((handoff, index) => {
+        const handoffPrefix = `${prefix}.branchHandoffs[${index}]`;
+        if (!isRecord(handoff)) {
+          errors.push(`${handoffPrefix} must be an object.`);
+          return;
+        }
+        for (const field of ['repoRoot', 'repoLabel', 'branch', 'baseCommitSha', 'headCommitSha', 'status'] as const) {
+          if (!isNonEmptyString(handoff[field])) {
+            errors.push(`${handoffPrefix}.${field} must be a non-empty string.`);
+          }
+        }
+        if (typeof handoff.commitsAhead !== 'number' || !Number.isFinite(handoff.commitsAhead)) {
+          errors.push(`${handoffPrefix}.commitsAhead must be a finite number.`);
+        }
+      });
     }
   }
   return errors;
@@ -126,6 +187,9 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       const hasDeepFocus = request.payload.deepFocusSelection !== undefined;
       const hasSnapshot = request.payload.childTaskFocusSnapshot !== undefined;
       const hasLineage = request.payload.childTaskLineage !== undefined;
+      const hasExecutionScope = request.payload.childTaskExecutionScope !== undefined;
+      const hasReloadScope = request.payload.lilyPlanningReloadScope !== undefined;
+      const hasParentBranchView = request.payload.parentTaskBranchView !== undefined;
       if (hasReplay && hasSnapshot) {
         errors.push('payload.replayConversationId cannot be combined with payload.childTaskFocusSnapshot.');
       }
@@ -138,11 +202,68 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (hasLineage && !hasSnapshot) {
         errors.push('payload.childTaskLineage requires payload.childTaskFocusSnapshot.');
       }
+      if (hasExecutionScope && !hasSnapshot) {
+        errors.push('payload.childTaskExecutionScope requires payload.childTaskFocusSnapshot.');
+      }
+      if (hasExecutionScope && !hasLineage) {
+        errors.push('payload.childTaskExecutionScope requires payload.childTaskLineage.');
+      }
+      if (hasReplay && hasExecutionScope) {
+        errors.push('payload.replayConversationId cannot be combined with payload.childTaskExecutionScope.');
+      }
+      if (hasDeepFocus && hasExecutionScope) {
+        errors.push('payload.deepFocusSelection cannot be combined with payload.childTaskExecutionScope.');
+      }
+      if (hasReloadScope && !hasSnapshot) {
+        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskFocusSnapshot.');
+      }
+      if (hasReloadScope && !hasLineage) {
+        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskLineage.');
+      }
+      if (hasReloadScope && !hasExecutionScope) {
+        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskExecutionScope.');
+      }
+      if (hasReplay && hasReloadScope) {
+        errors.push('payload.replayConversationId cannot be combined with payload.lilyPlanningReloadScope.');
+      }
+      if (hasDeepFocus && hasReloadScope) {
+        errors.push('payload.deepFocusSelection cannot be combined with payload.lilyPlanningReloadScope.');
+      }
+      if (hasParentBranchView && !hasSnapshot) {
+        errors.push('payload.parentTaskBranchView requires payload.childTaskFocusSnapshot.');
+      }
+      if (hasParentBranchView && !hasLineage) {
+        errors.push('payload.parentTaskBranchView requires payload.childTaskLineage.');
+      }
+      if (hasReplay && hasParentBranchView) {
+        errors.push('payload.replayConversationId cannot be combined with payload.parentTaskBranchView.');
+      }
+      if (hasDeepFocus && hasParentBranchView) {
+        errors.push('payload.deepFocusSelection cannot be combined with payload.parentTaskBranchView.');
+      }
       if (hasSnapshot) {
         errors.push(...validatePlannerFocusSnapshot(request.payload.childTaskFocusSnapshot));
       }
       if (hasLineage) {
         errors.push(...validatePlannerChildTaskLineage(request.payload.childTaskLineage));
+      }
+      if (hasExecutionScope) {
+        errors.push(...validatePlannerChildTaskExecutionScope(
+          request.payload.childTaskExecutionScope,
+          request.payload.childTaskFocusSnapshot,
+        ));
+      }
+      if (hasReloadScope) {
+        errors.push(...validatePlannerLilyPlanningReloadScope(
+          request.payload.lilyPlanningReloadScope,
+          request.payload.childTaskFocusSnapshot,
+        ));
+      }
+      if (hasParentBranchView) {
+        errors.push(...validatePlannerParentBranchView(
+          request.payload.parentTaskBranchView,
+          request.payload.childTaskFocusSnapshot,
+        ));
       }
       return errors;
     }
@@ -155,6 +276,30 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         errors.push('payload.contextPackDir must be a non-empty string.');
       }
       errors.push(...validatePlannerFocusSnapshot(request.payload.snapshot, 'payload.snapshot'));
+      return errors;
+    }
+    case 'planner.readParentContextBundle':
+    case 'planner.readParentChainArchiveBundle':
+    case 'planner.readParentArchiveMarkdown': {
+      if (!isRecord(request.payload)) {
+        return ['payload must be an object.'];
+      }
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.parentTaskId)) {
+        errors.push('payload.parentTaskId must be a non-empty string.');
+      }
+      if (
+        request.action === 'planner.readParentChainArchiveBundle'
+        && !isNonEmptyString(request.payload.rootTaskId)
+      ) {
+        errors.push('payload.rootTaskId must be a non-empty string.');
+      }
+      if (!isAbsolutePath(request.payload.contextPackDir)) {
+        errors.push('payload.contextPackDir must be an absolute path string.');
+      }
+      if (!isNonEmptyString(request.payload.contextPackId)) {
+        errors.push('payload.contextPackId must be a non-empty string.');
+      }
       return errors;
     }
     case 'planner.hydrateConversation': {

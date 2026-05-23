@@ -20,7 +20,7 @@ import {
   normalizeText,
   stripHtmlComments,
 } from '../matching.js';
-import { parseSections, resolveSemanticSection } from '../artifacts.js';
+import { parseSemanticSections, resolveSemanticSection } from '../artifacts.js';
 import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
@@ -225,7 +225,7 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
     return;
   }
 
-  const sections = parseSections(text);
+  const sections = parseSemanticSections(text);
 
   for (const sectionSpec of SPEC_REQUIRED_SECTION_SPECS) {
     const content = normalizeText(resolveSemanticSection(sections, sectionSpec).content);

@@ -123,4 +123,21 @@ describe('DeepFocusEditor action bar', () => {
       node.classList.contains('deep-focus-footer__actions'));
     expect(actionsIndex).toBe(0);
   });
+
+  it('mounts the selection builder affordance in the header search row', () => {
+    const { container } = renderEditor();
+    const searchRow = container.querySelector(
+      '.deep-focus-editor-header__search-row',
+    ) as HTMLElement;
+    const affordance = searchRow.querySelector(
+      '.deep-focus-selection-builder-affordance',
+    ) as HTMLElement;
+    const body = container.querySelector('.deep-focus-editor__body') as HTMLElement;
+
+    expect(affordance).not.toBeNull();
+    expect(within(searchRow).getByRole('button', { name: /Selection builder/ })).toBeInTheDocument();
+    expect(
+      affordance.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

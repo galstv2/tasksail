@@ -5,6 +5,7 @@ import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { withDirLock } from './dirLock.js';
+import { cleanupDeletedChildTaskChainTask } from './childTaskChainDeletion.js';
 import { cleanupStagedPlannerFocusSnapshot } from './plannerFocusSnapshotStaging.js';
 import { removeTask } from './taskRegistry.js';
 
@@ -23,15 +24,17 @@ export async function deleteDropboxItem(
 
   const deletedTaskId = queueName.replace(/\.md$/, '');
   await withDirLock(queuePaths.queueLockDir, 'Delete dropbox item', async () => {
-    try {
-      await unlink(targetPath);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`Delete dropbox item blocked: "${queueName}" does not exist in dropbox/.`);
+    await cleanupDeletedChildTaskChainTask(repoRoot, deletedTaskId, async () => {
+      try {
+        await unlink(targetPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`Delete dropbox item blocked: "${queueName}" does not exist in dropbox/.`);
+        }
+        throw err;
       }
-      throw err;
-    }
-    await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+      await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+    });
     try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
   });
 

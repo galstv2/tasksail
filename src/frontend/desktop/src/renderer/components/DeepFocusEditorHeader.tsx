@@ -1,6 +1,7 @@
 import type { ChangeEvent, RefObject } from 'react';
 
 import { DeepFocusBreadcrumb, type BreadcrumbItem } from './DeepFocusBreadcrumb';
+import { DeepFocusSelectionBuilderAffordance } from './DeepFocusSelectionBuilder';
 import type { DeepFocusEditorModel } from './useDeepFocusEditorModel';
 
 type BreadcrumbLayoutProps = {
@@ -74,6 +75,7 @@ export function DeepFocusEditorHeader({
             </button>
           ) : null}
         </div>
+        <DeepFocusSelectionBuilderAffordance model={model.selectionBuilder} />
         <button
           type="button"
           className="deep-focus-collapse-all"

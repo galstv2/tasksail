@@ -18,6 +18,18 @@ const REQUIREMENT_ID_PATTERN = /\b(?:CR|COMP|VAL)-\d{3}\b/g;
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const FENCE_OPEN_RE = /^(```|~~~)/;
 
+function normalizeDifficultyLevel(value: string): string {
+  const match = /^(easy|medium|hard)\b/i.exec(value.trim());
+  if (!match) return value.trim();
+  const lowered = match[1]!.toLowerCase();
+  return lowered.charAt(0).toUpperCase() + lowered.slice(1);
+}
+
+function normalizeReviewOutcome(lines: readonly string[]): string {
+  const normalized = normalizeText(lines).trim().toLowerCase();
+  return /^(pass|advisory|blocking)\b/.exec(normalized)?.[1] ?? normalized;
+}
+
 export async function evaluateCloseoutRules(validator: PolicyValidator): Promise<void> {
   validator.recordRule('closeout.final-summary-required');
   validator.recordRule('closeout.retrospective-required');
@@ -114,9 +126,9 @@ export async function evaluateCloseoutRules(validator: PolicyValidator): Promise
     const difficultyLines = finalSummary.sections['Difficulty Assessment'] ?? [];
     let difficultyLevel = '';
     for (const line of difficultyLines) {
-      const match = /^-\s+Difficulty Level:\s*(.*)$/.exec(line.trim());
+      const match = /^(?:[-*]\s*)?Difficulty Level\s*[:\-\u2013\u2014]\s*(.*)$/i.exec(line.trim());
       if (match) {
-        difficultyLevel = (match[1] ?? '').trim();
+        difficultyLevel = normalizeDifficultyLevel(match[1] ?? '');
         break;
       }
     }
@@ -180,7 +192,7 @@ function sortedRequirementIds(text: string): string[] {
 }
 
 function parseStatusForId(lines: readonly string[], id: string): string | null {
-  const pattern = new RegExp(`\\b${id}:\\s*(.*)$`);
+  const pattern = new RegExp(`\\b${id}\\s*[:\\-\\u2013\\u2014]\\s*(.*)$`);
   const match = stripCommentsAndFences(lines.join('\n'))
     .split(/\r?\n/)
     .map((candidate) => pattern.exec(candidate))
@@ -188,15 +200,11 @@ function parseStatusForId(lines: readonly string[], id: string): string | null {
   if (!match) {
     return null;
   }
-  const afterId = (match[1] ?? '').trim();
-  if (afterId.includes(' - ')) {
-    return afterId.split(' - ')[0]!.trim().toLowerCase();
-  }
-  const lowered = afterId.toLowerCase();
+  const lowered = (match[1] ?? '').trim().toLowerCase().replace(/[\u2013\u2014]/g, '-');
   if (lowered.startsWith('not met')) {
     return 'not met';
   }
-  return lowered.split(/\s+/)[0] ?? null;
+  return /^(verified|advisory|pending|blocked|unmet|failed)\b/.exec(lowered)?.[1] ?? null;
 }
 
 async function checkRequirementVerification(validator: PolicyValidator): Promise<void> {
@@ -217,7 +225,7 @@ async function checkRequirementVerification(validator: PolicyValidator): Promise
   if (!issuesArtifact.exists) {
     return;
   }
-  const reviewOutcome = normalizeText(issuesArtifact.sections['Review Outcome'] ?? []).trim().toLowerCase();
+  const reviewOutcome = normalizeReviewOutcome(issuesArtifact.sections['Review Outcome'] ?? []);
   if (reviewOutcome === 'blocking' || issuesHaveBlockingFindings(issuesArtifact.sections)) {
     return;
   }
@@ -297,11 +305,7 @@ async function checkQaReviewApproved(validator: PolicyValidator): Promise<void> 
     return;
   }
 
-  const reviewOutcome = normalizeText(
-    issuesArtifact.sections['Review Outcome'] ?? [],
-  )
-    .trim()
-    .toLowerCase();
+  const reviewOutcome = normalizeReviewOutcome(issuesArtifact.sections['Review Outcome'] ?? []);
 
   if (reviewOutcome === 'pass' || reviewOutcome === 'advisory') {
     return;

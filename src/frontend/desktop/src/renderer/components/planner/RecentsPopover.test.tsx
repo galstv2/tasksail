@@ -239,10 +239,10 @@ describe('RecentsPopover', () => {
     expect(screen.queryByText(/Couldn.t refresh/)).toBeNull();
   });
 
-  it('the primary line uses the truncating recents-row__primary class', () => {
+  it('the primary line uses the truncating planner-picker-row__title class', () => {
     render(<Harness records={makeRecords(1)} />);
     const primary = screen.getByText(/A very long historical conversation/);
-    expect(primary.className).toContain('recents-row__primary');
+    expect(primary.className).toContain('planner-picker-row__title');
   });
 
   it('positions the popover relative to the trigger when open', () => {

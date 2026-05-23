@@ -449,6 +449,7 @@ describe('SidebarScopeControls Deep Focus scope rail', () => {
     fireEvent.click(within(tree).getByText('tests').closest('[role="button"]')!);
     const actionBar = screen.getByRole('region', { name: 'Selected row actions' });
     expect(within(actionBar).getByRole('button', { name: 'Use as Test for AdminRoute.ts' })).toBeInTheDocument();
+    expect(within(actionBar).getByRole('button', { name: 'Use as Test for all primaries' })).toBeInTheDocument();
   });
 
   it('keeps legacy selection controls unmounted after closing and reopening the editor', async () => {
@@ -590,6 +591,7 @@ describe('SidebarScopeControls Deep Focus scope rail', () => {
       'deep-focus-summary.css',
       'deep-focus-tree-row.css',
       'deep-focus-scope-rail.css',
+      'deep-focus-selection-builder.css',
       'deep-focus-toolbar.css',
       'deep-focus-animations.css',
     ];

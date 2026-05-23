@@ -16,14 +16,24 @@ describe('startRealignmentAnalysisJob', () => {
   const repoRoot = path.join(process.cwd(), '.platform-state', 'test-realignment-supervisor');
   const contextPackDir = path.join(repoRoot, 'contextpacks', 'pack-a');
   const realignmentId = 'RA-1';
+  const originalLogDir = process.env.LOG_DIR;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     rmSync(repoRoot, { recursive: true, force: true });
     mkdirSync(contextPackDir, { recursive: true });
+    process.env.LOG_DIR = path.join(repoRoot, 'logs');
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
+    stderrSpy.mockRestore();
+    if (originalLogDir === undefined) {
+      delete process.env.LOG_DIR;
+    } else {
+      process.env.LOG_DIR = originalLogDir;
+    }
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
@@ -182,6 +192,45 @@ describe('startRealignmentAnalysisJob', () => {
     });
   });
 
+  it('logs unsuccessful analysis results with the receipt reason', async () => {
+    mocks.runRealignmentAnalysis.mockResolvedValueOnce({
+      passed: false,
+      realignmentId,
+      status: 'error',
+      reason: 'realignment_analysis_missing_required_section_failure_analysis',
+    });
+
+    await expect(startRealignmentAnalysisJob({
+      repoRoot,
+      contextPackDir,
+      realignmentId,
+    })).resolves.toMatchObject({ status: 'started' });
+
+    await vi.waitFor(() => {
+      expect(readReceipt()).toEqual(expect.objectContaining({
+        status: 'error',
+        reason: 'realignment_analysis_missing_required_section_failure_analysis',
+      }));
+      const line = stderrSpy.mock.calls
+        .map(([chunk]) => String(chunk))
+        .find((chunk) => chunk.includes('realignment_job.analysis_failed'));
+      expect(line).toBeTruthy();
+      const parsed = JSON.parse(line ?? '{}') as Record<string, unknown>;
+      expect(parsed).toMatchObject({
+        level: 'error',
+        module: 'platform/agent-runner/realignmentPhase/supervisor',
+        msg: 'realignment_job.analysis_failed',
+        extra: {
+          jobId: 'realignment:RA-1',
+          realignmentId,
+          status: 'error',
+          reason: 'realignment_analysis_missing_required_section_failure_analysis',
+          contextPackDir,
+        },
+      });
+    });
+  });
+
   it('forwards external MCP registry to the background analysis runner', async () => {
     const externalMcpRegistry = {
       schema_version: 1,
@@ -204,6 +253,7 @@ describe('startRealignmentAnalysisJob', () => {
       expect(mocks.runRealignmentAnalysis).toHaveBeenCalledWith(expect.objectContaining({
         externalMcpRegistry,
       }));
+      expect(readReceipt()).toEqual(expect.objectContaining({ status: 'archived' }));
     });
   });
 

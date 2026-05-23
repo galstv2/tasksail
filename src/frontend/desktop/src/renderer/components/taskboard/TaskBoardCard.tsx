@@ -10,6 +10,7 @@ export type TaskBoardCardProps = {
   isActive?: boolean;
   draggable?: boolean;
   sourceColumn?: string;
+  meta?: string | null;
   onClick?: () => void;
   onDelete?: () => void;
 };
@@ -21,6 +22,7 @@ function TaskBoardCard({
   isActive = false,
   draggable = false,
   sourceColumn,
+  meta,
   onClick,
   onDelete,
 }: TaskBoardCardProps): JSX.Element {
@@ -67,6 +69,7 @@ function TaskBoardCard({
       data-filename={fileName}
     >
       <span className="task-board-card__title">{title ?? fileName}</span>
+      {meta && <span className="task-board-card__meta">{meta}</span>}
       {taskId && <span className="task-board-card__id">{taskId}</span>}
       {isActive && <span className="task-board-card__badge">Active</span>}
       {onDelete && (

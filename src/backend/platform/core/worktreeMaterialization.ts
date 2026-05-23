@@ -29,8 +29,10 @@ import {
   isWindowsPlatform,
   windowsVolumesShareReFS,
 } from './platform.js';
+import { createLogger } from './logger.js';
 
 const execFile = promisify(execFileCb);
+const log = createLogger('platform/core/worktreeMaterialization');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,8 +42,13 @@ export type CloneStrategy = 'apfs-clonefile' | 'reflink' | 'win-refs' | 'copy';
 
 export interface PreconditionResult {
   ok: boolean;
-  reason?: 'empty-origin-repo' | 'branch-already-exists' | 'worktree-already-bound';
+  reason?: 'empty-origin-repo' | 'branch-already-exists' | 'worktree-already-bound' | 'branch-missing';
   detail?: string;
+}
+
+interface CloneOutcome {
+  usedReflink: boolean;
+  fallbackReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,22 +264,34 @@ function isReflinkRecoverable(err: unknown): boolean {
   );
 }
 
-async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Promise<void> {
+function reflinkFallbackReason(err: unknown): string {
+  if (!err || typeof err !== 'object') {
+    return 'unknown';
+  }
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code) {
+    return code;
+  }
+  const message = (err as Error).message?.trim();
+  return message || 'unknown';
+}
+
+async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Promise<CloneOutcome> {
   switch (strategy) {
     case 'apfs-clonefile':
       await execFile('cp', ['-cR', src, dst]);
-      return;
+      return { usedReflink: true };
     case 'reflink':
       await execFile('cp', ['-r', '--reflink=auto', src, dst]);
-      return;
+      return { usedReflink: true };
     case 'win-refs':
       try {
         await reflinkTreeWindows(src, dst);
-        return;
+        return { usedReflink: true };
       } catch (err) {
         if (isReflinkRecoverable(err)) {
           await fs.promises.cp(src, dst, { recursive: true, force: true });
-          return;
+          return { usedReflink: false, fallbackReason: reflinkFallbackReason(err) };
         }
         throw err;
       }
@@ -280,7 +299,7 @@ async function cloneTree(src: string, dst: string, strategy: CloneStrategy): Pro
       // Node fs.promises.cp is cross-platform (Windows-safe).
       // Never shell out to `cp` on Windows.
       await fs.promises.cp(src, dst, { recursive: true, force: true });
-      return;
+      return { usedReflink: false };
   }
 }
 
@@ -380,6 +399,68 @@ export async function preconditionsPass(
   return { ok: true };
 }
 
+export async function existingBranchPreconditionsPass(
+  originalRoot: string,
+  branchName: string,
+  worktreePath: string,
+): Promise<PreconditionResult> {
+  const branchRef = `refs/heads/${branchName}`;
+  try {
+    await execFile('git', [
+      '-C', originalRoot,
+      'rev-parse', '--verify', '--quiet', branchRef,
+    ]);
+  } catch {
+    return {
+      ok: false,
+      reason: 'branch-missing',
+      detail: `${branchRef} is missing in ${originalRoot}`,
+    };
+  }
+
+  let porcelain: string;
+  try {
+    const { stdout } = await execFile('git', [
+      '-C', originalRoot, 'worktree', 'list', '--porcelain',
+    ]);
+    porcelain = stdout;
+  } catch {
+    porcelain = '';
+  }
+
+  let resolvedWorktreePath: string;
+  try {
+    resolvedWorktreePath = existsSync(worktreePath)
+      ? fs.realpathSync(worktreePath)
+      : path.normalize(worktreePath);
+  } catch {
+    resolvedWorktreePath = path.normalize(worktreePath);
+  }
+
+  for (const block of porcelain.split('\n\n')) {
+    const lines = block.split('\n').filter(Boolean);
+    const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length).trim();
+    const branch = lines.find((l) => l.startsWith('branch '))?.slice('branch '.length).trim();
+
+    if (wtPath && path.normalize(wtPath) === resolvedWorktreePath) {
+      return {
+        ok: false,
+        reason: 'worktree-already-bound',
+        detail: `Worktree path ${worktreePath} is already registered in ${originalRoot}`,
+      };
+    }
+    if (branch === branchRef) {
+      return {
+        ok: false,
+        reason: 'worktree-already-bound',
+        detail: `Branch ${branchRef} is already checked out in a worktree of ${originalRoot}`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -395,11 +476,13 @@ export async function materializeWorktreeDeps(
   originalRepo: string,
   worktreeRoot: string,
   pathsToClone: string[],
+  logContext: { taskId?: string; repoLabel?: string } = {},
 ): Promise<{ strategy: CloneStrategy; cloned: string[]; skipped: string[] }> {
   // F20: pass worktree parent dir so detectCloneStrategy can compare fsid for same-volume check.
   const strategy = detectCloneStrategy(originalRepo, path.dirname(worktreeRoot));
   const cloned: string[] = [];
   const skipped: string[] = [];
+  const outcomes: CloneOutcome[] = [];
 
   for (const rel of pathsToClone) {
     const src = path.join(originalRepo, rel);
@@ -408,9 +491,30 @@ export async function materializeWorktreeDeps(
       skipped.push(rel);
       continue;
     }
-    await cloneTree(src, dst, strategy);
+    outcomes.push(await cloneTree(src, dst, strategy));
     cloned.push(rel);
   }
+
+  const fallbackReasons = [...new Set(
+    outcomes
+      .map((outcome) => outcome.fallbackReason)
+      .filter((reason): reason is string => Boolean(reason)),
+  )];
+  const reflinkAttempted = strategy === 'apfs-clonefile' || strategy === 'reflink' || strategy === 'win-refs';
+  const reflinkUsed = outcomes.some((outcome) => outcome.usedReflink);
+  log.child({ taskId: logContext.taskId }).info('worktree.materialization.copy.completed', {
+    repoLabel: logContext.repoLabel,
+    originalRoot: originalRepo,
+    worktreeRoot,
+    selectedStrategy: strategy,
+    effectiveStrategy: reflinkUsed && fallbackReasons.length === 0 ? strategy : 'copy',
+    reflinkAttempted,
+    reflinkUsed,
+    fallback: fallbackReasons.length > 0,
+    fallbackReasons,
+    clonedCount: cloned.length,
+    skippedCount: skipped.length,
+  });
 
   return { strategy, cloned, skipped };
 }

@@ -223,6 +223,57 @@ describe('queue progress events', () => {
     }
   });
 
+  it('P4 emits branch-conflict return-to-open without failure or activation progress', async () => {
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    const paths = seedQueue(tmpRoot, 'task-conflict');
+    initGitRepo(tmpRoot);
+    writePlatformConfig(tmpRoot, 2);
+    mkdirSync(paths.activeItemsDir, { recursive: true });
+    writeFileSync(path.join(paths.activeItemsDir, 'active-owner'), 'active-owner.md', 'utf-8');
+    const activeTaskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', 'active-owner');
+    mkdirSync(activeTaskDir, { recursive: true });
+    writeFileSync(path.join(activeTaskDir, '.task.json'), JSON.stringify({
+      schema_version: 2,
+      taskId: 'active-owner',
+      contextPackBinding: {
+        contextPackPath: null,
+        dataHostDir: null,
+        dataContainerDir: null,
+        repoBindings: [{
+          originalRoot: tmpRoot,
+          worktreeRoot: path.join(activeTaskDir, 'worktrees', path.basename(tmpRoot)),
+          worktreeBranch: 'task/task-conflict',
+          baseCommitSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmpRoot, encoding: 'utf-8' }).trim(),
+        }],
+      },
+      materialization: { strategy: 'copy', cloned: [], skipped: [] },
+      frozenAt: '2026-05-19T00:00:00Z',
+      finalizedAt: null,
+      state: 'active',
+    }), 'utf-8');
+
+    await expect(activateNextPendingItemIfReady({ paths, repoRoot: tmpRoot })).resolves.toEqual({
+      activated: false,
+      reason: 'branch-conflict-returned-open',
+    });
+
+    expect(stderrChunks().filter((line) => line.trim().length > 0)).toEqual([
+      '[queue] returned to open - branch conflict task-conflict blocked by active-owner on task/task-conflict\n',
+    ]);
+    expect(readLevel('info')).toEqual([
+      expect.objectContaining({
+        msg: 'queue.active.skipped',
+        task_id: 'task-conflict',
+        extra: expect.objectContaining({ reason: 'branch-conflict-returned-open' }),
+      }),
+    ]);
+    expect(readLevel('info')).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ msg: 'queue.error_items.moved', task_id: 'task-conflict' }),
+      expect.objectContaining({ msg: 'queue.active.activated', task_id: 'task-conflict' }),
+      expect.objectContaining({ msg: 'queue.task.failed', task_id: 'task-conflict' }),
+    ]));
+  });
+
   it('P4 emits activation-error from publishPendingItem catch-all with a compact reason', async () => {
     vi.doMock('../operations.js', () => ({
       moveDropboxItemsOnce: vi.fn().mockResolvedValue(1),
@@ -544,13 +595,13 @@ function seedQueue(repoRoot: string, taskId: string): ReturnType<typeof resolveQ
   return paths;
 }
 
-function writePlatformConfig(repoRoot: string): void {
+function writePlatformConfig(repoRoot: string, maxParallelTasks = 1): void {
   mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
   writeFileSync(path.join(repoRoot, '.platform-state', 'platform.json'), JSON.stringify({
     schema_version: 1,
     cli_provider: 'copilot',
     container_runtime: 'podman',
-    max_parallel_tasks: 1,
+    max_parallel_tasks: maxParallelTasks,
     retain_failed_task_worktrees: true,
     max_retained_failed_task_worktrees: 10,
     max_retry_generations_per_slug: 5,
@@ -565,7 +616,8 @@ function initGitRepo(repoRoot: string): void {
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoRoot });
   execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repoRoot });
   writeFileSync(path.join(repoRoot, 'README.md'), '# test\n');
-  execFileSync('git', ['add', 'README.md'], { cwd: repoRoot });
+  writeFileSync(path.join(repoRoot, '.gitignore'), 'AgentWorkSpace/\n.platform-state/\nruntime/\n');
+  execFileSync('git', ['add', 'README.md', '.gitignore'], { cwd: repoRoot });
   execFileSync('git', ['commit', '-m', 'initial'], { cwd: repoRoot, stdio: 'ignore' });
 }
 

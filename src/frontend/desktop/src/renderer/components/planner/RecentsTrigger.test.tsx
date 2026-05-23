@@ -35,14 +35,14 @@ describe('RecentsTrigger', () => {
     );
   });
 
-  it('renders "Recent · N" when records are present', () => {
+  it('renders "Recent Task" when records are present and keeps count in aria-label', () => {
     render(<RecentsTrigger {...makeProps({ count: 4 })} />);
     const btn = screen.getByRole('button');
     expect(btn).toHaveAttribute('aria-haspopup', 'listbox');
     expect(btn).toHaveAttribute('aria-expanded', 'false');
     expect(btn).toHaveAttribute('aria-controls', 'recents-listbox');
     expect(btn).toHaveAttribute('aria-label', 'Recent conversations, 4 available');
-    expect(btn.textContent?.replace(/\s+/g, ' ').trim()).toBe('Recent · 4');
+    expect(btn.textContent?.replace(/\s+/g, ' ').trim()).toBe('Recent Task');
   });
 
   it('renders the replay-aware label and goes non-interactive when replayInFlight', () => {

@@ -19,8 +19,8 @@
 
 .planner-modal {
   position: relative;
-  width: min(640px, 100%);
-  height: min(78vh, 660px);
+  width: min(768px, 100%);
+  height: min(792px, calc(100vh - 4rem));
   display: flex;
   flex-direction: column;
   border-radius: var(--ts-radius-xl);
@@ -385,7 +385,8 @@
   font: inherit;
   font-size: 0.88rem;
   line-height: 1.45;
-  min-height: 38px;
+  height: 82px;
+  min-height: 82px;
   box-sizing: border-box;
   transition: border-color var(--ts-duration) var(--ts-ease);
 }
@@ -452,46 +453,6 @@
 .planner-modal__child-task-toggle:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* ── §24.04  Parent task selection dropdown ───────────────────────────── */
-
-.planner-modal__parent-select {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.74rem;
-  color: var(--ts-text-soft);
-  background: var(--ts-accent-subtle);
-  border-bottom: 1px solid var(--ts-border);
-}
-
-.planner-modal__parent-select label {
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.planner-modal__parent-select select {
-  flex: 1;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-md);
-  padding: 0.25rem 0.4rem;
-  background: var(--ts-surface);
-  color: var(--ts-text);
-  font: inherit;
-  font-size: 0.74rem;
-  min-width: 0;
-}
-
-.planner-modal__parent-select select:focus {
-  outline: none;
-  border-color: var(--ts-accent);
-}
-
-.planner-modal__parent-select select:disabled {
-  opacity: 0.5;
 }
 
 /* ── §24.05  Attach button & selected file indicator ─────────────────── */
@@ -626,6 +587,15 @@
   margin-right: 0.25rem;
 }
 
+.planner-modal__action-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 16px;
+  background: var(--ts-border);
+  margin: 0 0.2rem;
+  flex-shrink: 0;
+}
+
 .planner-modal__bypass-group .action-button {
   font-size: 0.68rem;
   padding: 0.25rem 0.5rem;
@@ -681,6 +651,16 @@
   transition: color var(--ts-duration) var(--ts-ease),
               background var(--ts-duration) var(--ts-ease),
               opacity var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__session-status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.32rem;
+  flex-shrink: 0;
 }
 
 .planner-modal__session-status--connecting {

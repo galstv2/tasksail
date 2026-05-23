@@ -111,16 +111,26 @@ describe('RuntimeTerminalEvents', () => {
     await events.autoMergeDisabled();
     await events.autoMergeApplied({ repos: 'api:task/a->main' });
     await events.autoMergeSkipped({ detail: 'blocked: needs review' });
+    await events.autoMergeSkippedForChildTaskChain();
     await events.closeoutFinalized();
     await events.strandedCloseoutResumed({ drove: ['finalize-worktrees'] });
 
-    expect(readEvents('task-closeout')).toMatchObject([
+    const writtenEvents = readEvents('task-closeout');
+    expect(writtenEvents).toMatchObject([
       { eventId: 'auto_merge.disabled', source: 'runtime.closeout', role: 'pipeline' },
       { eventId: 'auto_merge.applied', source: 'runtime.closeout', role: 'pipeline' },
       { eventId: 'auto_merge.skipped', source: 'runtime.closeout', role: 'pipeline' },
+      {
+        eventId: 'auto_merge.skipped_child_chain',
+        source: 'runtime.closeout',
+        role: 'pipeline',
+        severity: 'warning',
+        message: 'Auto-merge skipped for child task chain: chain branches are manually integrated by the operator.',
+      },
       { eventId: 'closeout.finalized', source: 'runtime.closeout', role: 'pipeline' },
       { eventId: 'closeout.stranded.resumed', source: 'runtime.closeout', role: 'pipeline' },
     ]);
+    expect(writtenEvents.find((event) => event.eventId === 'auto_merge.skipped_child_chain')).not.toHaveProperty('extra');
   });
 
   it('writes queue state transition events', async () => {
@@ -151,6 +161,71 @@ describe('RuntimeTerminalEvents', () => {
         role: 'queue',
         severity: 'error',
         message: 'Moved pending item to failed.',
+      },
+    ]);
+  });
+
+  it('writes child-chain failure branch diagnostics', async () => {
+    const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-chain-fail');
+    const extra = { branch: 'task/root', status: 'completed' };
+
+    await events.childChainFailureBranchRollbackPreflightFailed(extra);
+    await events.childChainFailureBranchRollbackCompleted(extra);
+    await events.childChainFailureBranchRollbackFailed(extra);
+    await events.childChainFailureBranchDeleteSkipped(extra);
+
+    expect(readEvents('task-chain-fail')).toMatchObject([
+      {
+        eventId: 'child_chain_failure_branch.rollback_preflight_failed',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'error',
+      },
+      {
+        eventId: 'child_chain_failure_branch.rollback_completed',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'info',
+      },
+      {
+        eventId: 'child_chain_failure_branch.rollback_failed',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'error',
+      },
+      {
+        eventId: 'child_chain_failure_branch.branch_delete_skipped',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'warning',
+      },
+    ]);
+  });
+
+  it('writes branch-conflict return-to-open events as queue warnings', async () => {
+    await RuntimeTerminalEvents.forTask(repoRoot, 'task-conflict').activationReturnedToOpenBranchConflict({
+      conflictingTaskId: 'active-a',
+      repoLabel: 'api',
+      repoRoot: '/repo/api',
+      branch: 'task/root',
+      openItemPath: '/repo/AgentWorkSpace/dropbox/task-conflict.md',
+    });
+
+    expect(readEvents('task-conflict')).toEqual([
+      {
+        eventId: 'activation.returned-open.branch-conflict:task/root:active-a',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'warning',
+        message: 'Returned to open because active task active-a already owns branch task/root for repo api.',
+        createdAt: expect.any(String),
+        extra: {
+          conflictingTaskId: 'active-a',
+          repoLabel: 'api',
+          repoRoot: '/repo/api',
+          branch: 'task/root',
+          openItemPath: '/repo/AgentWorkSpace/dropbox/task-conflict.md',
+        },
       },
     ]);
   });

@@ -20,9 +20,10 @@ import {
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
 } from '../../../backend/platform/context-pack/focusedRepo.js';
-import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
+import { listAvailableContextPacks, readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { derivePlannerDraftTitle, derivePlannerScopeMode, isMonolithEstate } from './main.staging';
 import { REPO_ROOT } from './paths';
+import { resolveChildTaskChainCreationContext } from './main.childTaskChain';
 import {
   parseMarkdownSections,
   canonicalizeEditableDraftRequirements,
@@ -95,6 +96,8 @@ type ResolvedDirectSubmissionContext = {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
   deepFocusEnabled?: boolean;
+  deepFocusPrimaryRepoId?: string;
+  deepFocusPrimaryFocusId?: string;
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: 'directory' | 'file' | null;
   selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
@@ -199,6 +202,12 @@ async function resolveDirectSubmissionContext(
     selectedRepoIds,
     selectedFocusIds,
     deepFocusEnabled,
+    deepFocusPrimaryRepoId: deepFocusEnabled && !monolithEstate
+      ? focused.primaryRepoId || undefined
+      : undefined,
+    deepFocusPrimaryFocusId: deepFocusEnabled && monolithEstate
+      ? focused.primaryFocusId || undefined
+      : undefined,
     selectedFocusPath: deepFocusEnabled
       ? overlay?.selectedFocusPath ?? syncState.selectedFocusPath
       : null,
@@ -217,6 +226,29 @@ async function resolveDirectSubmissionContext(
       ? overlaySupportTargets ?? syncState.selectedSupportTargets
       : [],
     contextPackName: basename(contextPackDir),
+  };
+}
+
+function directContextPackBinding(context: ResolvedDirectSubmissionContext) {
+  return {
+    contextPackDir: context.contextPackDir,
+    contextPackId: context.contextPackId ?? '',
+    scopeMode: context.scopeMode ?? '',
+    primaryRepoId: context.primaryRepoId,
+    primaryFocusId: context.primaryFocusId,
+    deepFocusPrimaryRepoId: context.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: context.deepFocusPrimaryFocusId,
+    selectedRepoIds: context.selectedRepoIds,
+    selectedFocusIds: context.selectedFocusIds,
+    deepFocusEnabled: context.deepFocusEnabled === true,
+    selectedFocusPath: context.selectedFocusPath ?? null,
+    selectedFocusTargetKind: context.selectedFocusTargetKind ?? null,
+    selectedFocusTargets: context.selectedFocusTargets ?? [],
+    selectedTestTarget: context.selectedTestTarget ?? null,
+    selectedSupportTargets: context.selectedSupportTargets.map((target) => ({
+      ...target,
+      effectiveScope: 'full-directory' as const,
+    })),
   };
 }
 
@@ -430,6 +462,14 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
     options.parentTaskId,
     taskArchiveReader,
   );
+  const childExecutionScope = directContextPackBinding(context);
+  const chainContext = await resolveChildTaskChainCreationContext({
+    repoRoot: REPO_ROOT,
+    listContextPacks: listAvailableContextPacks,
+    parentTaskId: options.parentTaskId,
+    requestedRootTaskId: parentMetadata.rootTaskId,
+    childExecutionScope,
+  });
   const { destinationPath: filePath, activation } = await publishPendingItem({
     publish: () =>
       createFollowupTask({
@@ -462,6 +502,14 @@ taskArchiveReader: TaskArchiveReader = defaultTaskArchiveReader,
         selectedFocusTargets: context.selectedFocusTargets,
         selectedTestTarget: context.selectedTestTarget,
         selectedSupportTargets: context.selectedSupportTargets,
+        deepFocusPrimaryRepoId: context.deepFocusPrimaryRepoId,
+        deepFocusPrimaryFocusId: context.deepFocusPrimaryFocusId,
+        branchChain: chainContext.branchChain,
+        parentContextSnapshot: chainContext.parentContextSnapshot,
+        childExecutionScope: chainContext.childExecutionScope,
+        parentArchivePath: chainContext.parentArchivePath,
+        parentArchiveArtifactDir: chainContext.parentArchiveArtifactDir,
+        previousTaskId: chainContext.previousTaskId,
       }),
     repoRoot: REPO_ROOT,
     contextPackDir: context.contextPackDir,
@@ -569,12 +617,15 @@ function buildSidecarDropboxOptions(
     primaryFocusId: sidecar.contextPackBinding.primaryFocusId,
     selectedRepoIds: sidecar.contextPackBinding.selectedRepoIds,
     selectedFocusIds: sidecar.contextPackBinding.selectedFocusIds,
-    deepFocusEnabled: sidecar.deepFocusEnabled,
-    selectedFocusPath: sidecar.primaryFocusRelativePath,
-    selectedFocusTargetKind: sidecar.primaryFocusTargetKind,
-    selectedFocusTargets: sidecar.primaryFocusTargets,
-    selectedTestTarget: sidecar.selectedTestTarget,
-    selectedSupportTargets: sidecar.supportTargets,
+    repositoryTypes: sidecar.contextPackBinding.repositoryTypes,
+    deepFocusEnabled: sidecar.contextPackBinding.deepFocusEnabled,
+    deepFocusPrimaryRepoId: sidecar.contextPackBinding.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: sidecar.contextPackBinding.deepFocusPrimaryFocusId,
+    selectedFocusPath: sidecar.contextPackBinding.selectedFocusPath,
+    selectedFocusTargetKind: sidecar.contextPackBinding.selectedFocusTargetKind,
+    selectedFocusTargets: sidecar.contextPackBinding.selectedFocusTargets,
+    selectedTestTarget: sidecar.contextPackBinding.selectedTestTarget,
+    selectedSupportTargets: sidecar.contextPackBinding.selectedSupportTargets,
     repoRoot: REPO_ROOT,
   };
 }
@@ -586,6 +637,13 @@ async function submitUploadedSpecFromSidecar(
 ): Promise<{ filePath: string; title: string }> {
   const baseOptions = buildSidecarDropboxOptions(sidecar, editableDraft, title);
   if (sidecar.lineage.taskKind === 'child-task') {
+    const chainContext = await resolveChildTaskChainCreationContext({
+      repoRoot: REPO_ROOT,
+      listContextPacks: listAvailableContextPacks,
+      parentTaskId: sidecar.lineage.parentTaskId,
+      requestedRootTaskId: sidecar.lineage.rootTaskId,
+      childExecutionScope: sidecar.contextPackBinding,
+    });
     return {
       filePath: await createFollowupTask({
         ...baseOptions,
@@ -595,6 +653,14 @@ async function submitUploadedSpecFromSidecar(
         rootTaskId: sidecar.lineage.rootTaskId,
         followupReason: sidecar.lineage.followUpReason,
         carryForwardSummary: editableDraft.carryForwardSummary,
+        deepFocusPrimaryRepoId: sidecar.contextPackBinding.deepFocusPrimaryRepoId,
+        deepFocusPrimaryFocusId: sidecar.contextPackBinding.deepFocusPrimaryFocusId,
+        branchChain: chainContext.branchChain,
+        parentContextSnapshot: chainContext.parentContextSnapshot,
+        childExecutionScope: chainContext.childExecutionScope,
+        parentArchivePath: chainContext.parentArchivePath,
+        parentArchiveArtifactDir: chainContext.parentArchiveArtifactDir,
+        previousTaskId: chainContext.previousTaskId,
       }),
       title,
     };

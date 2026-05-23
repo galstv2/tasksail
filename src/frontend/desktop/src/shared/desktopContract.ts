@@ -77,6 +77,12 @@ import type {
   PlannerListArchivedTasksResponse,
   PlannerListConversationHistoryRequest,
   PlannerListConversationHistoryResponse,
+  PlannerReadParentContextBundleRequest,
+  PlannerReadParentContextBundleResponse,
+  PlannerReadParentChainArchiveBundleRequest,
+  PlannerReadParentChainArchiveBundleResponse,
+  PlannerReadParentArchiveMarkdownRequest,
+  PlannerReadParentArchiveMarkdownResponse,
   PlannerPickMarkdownFileRequest,
   PlannerPickMarkdownFileResponse,
   PlannerReadStagedDraftRequest,
@@ -127,6 +133,9 @@ export const DESKTOP_ACTION_NAMES = [
   'contextPack.setRepoCategory',
   'planner.pickMarkdownFile',
   'planner.listArchivedTasks',
+  'planner.readParentContextBundle',
+  'planner.readParentChainArchiveBundle',
+  'planner.readParentArchiveMarkdown',
   'planner.listConversationHistory',
   'planner.hydrateConversation',
   'planner.uploadSpec',
@@ -942,6 +951,9 @@ export type DesktopActionRequest =
   | ContextPackSetRepoCategoryRequest
   | PlannerPickMarkdownFileRequest
   | PlannerListArchivedTasksRequest
+  | PlannerReadParentContextBundleRequest
+  | PlannerReadParentChainArchiveBundleRequest
+  | PlannerReadParentArchiveMarkdownRequest
   | PlannerListConversationHistoryRequest
   | PlannerHydrateConversationRequest
   | PlannerUploadSpecRequest
@@ -1021,6 +1033,9 @@ export type DesktopActionResponse =
   | ContextPackSetRepoCategoryResponse
   | PlannerPickMarkdownFileResponse
   | PlannerListArchivedTasksResponse
+  | PlannerReadParentContextBundleResponse
+  | PlannerReadParentChainArchiveBundleResponse
+  | PlannerReadParentArchiveMarkdownResponse
   | PlannerListConversationHistoryResponse
   | PlannerHydrateConversationResponse
   | PlannerUploadSpecResponse

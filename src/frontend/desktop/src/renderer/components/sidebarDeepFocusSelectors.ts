@@ -8,16 +8,19 @@ import type {
 import type { TreeRowData } from './DeepFocusTreeRow';
 import {
   basename,
+  deepFocusTargetForRow,
   getPrimaryDisplayLabel,
   isSameTarget,
   normalizeRelativePath,
   parentPath,
+  primaryIdentityKey,
 } from './SidebarDeepFocusUtils';
 import type {
   DeepFocusMode,
   TopLevelTarget,
   TreeDirectoryListing,
 } from './SidebarDeepFocusControls.types';
+import { normalizePrimaryTargetRoles } from './sidebarDeepFocusReducers';
 
 export function buildTopLevelTargets(
   selectedPack: ContextPackCatalogEntry,
@@ -126,6 +129,34 @@ export type ScopeSummaryViewModel = {
   globalTest: ContextPackDeepFocusTarget | null;
   globalSupports: ContextPackDeepFocusTarget[];
   hasGlobalBlock: boolean;
+};
+
+export type DeepFocusSelectionBuilderPrimaryItem = {
+  key: string;
+  label: string;
+  title: string;
+};
+
+export type DeepFocusSelectionBuilderScopedItem = {
+  key: string;
+  label: string;
+  title: string;
+  kind: 'directory' | 'file';
+  scopeLabel: string;
+  scopeKind: 'global' | 'primary';
+  primaryKey: string | null;
+};
+
+export type DeepFocusSelectionBuilderViewModel = {
+  empty: boolean;
+  primaryItems: DeepFocusSelectionBuilderPrimaryItem[];
+  supportItems: DeepFocusSelectionBuilderScopedItem[];
+  testItems: DeepFocusSelectionBuilderScopedItem[];
+  counts: {
+    primary: number;
+    support: number;
+    test: number;
+  };
 };
 
 function buildTitleSentence(primaryCount: number, repoCount: number): string {
@@ -243,6 +274,97 @@ export function labelPrimaryForDisplay(
   return spansRepos ? `${repoBasename}/${label}` : label;
 }
 
+function scopedTargetLabel(target: ContextPackDeepFocusTarget): string {
+  const path = normalizeRelativePath(target.path);
+  if (path.length > 0) return basename(path);
+  if (target.kind === 'directory' && target.repoLocalPath) return basename(target.repoLocalPath);
+  return '/';
+}
+
+function scopedTargetTitle(target: ContextPackDeepFocusTarget, label: string): string {
+  const path = normalizeRelativePath(target.path);
+  return path.length > 0 ? path : label;
+}
+
+function scopedItemKey(
+  scopeKind: 'global' | 'primary',
+  primaryKey: string | null,
+  target: ContextPackDeepFocusTarget,
+): string {
+  return [
+    scopeKind,
+    primaryKey ?? 'global',
+    target.kind,
+    normalizeRelativePath(target.path),
+    target.repoLocalPath ?? '',
+    target.repoId ?? '',
+    target.focusId ?? '',
+  ].join('|');
+}
+
+function buildScopedBuilderItem(
+  target: ContextPackDeepFocusTarget,
+  scopeKind: 'global' | 'primary',
+  scopeLabel: string,
+  primaryKey: string | null,
+): DeepFocusSelectionBuilderScopedItem {
+  const label = scopedTargetLabel(target);
+  return {
+    key: scopedItemKey(scopeKind, primaryKey, target),
+    label,
+    title: scopedTargetTitle(target, label),
+    kind: target.kind,
+    scopeLabel,
+    scopeKind,
+    primaryKey,
+  };
+}
+
+export function buildDeepFocusSelectionBuilderViewModel(input: {
+  draftState: ContextPackDeepFocusState;
+  draftTopLevel: TopLevelTarget | null;
+}): DeepFocusSelectionBuilderViewModel {
+  const normalizedPrimaries = normalizePrimaryTargetRoles(input.draftState.selectedFocusTargets ?? []);
+  const spansRepos = primariesSpanMultipleRepos(normalizedPrimaries);
+  const primaryItems = normalizedPrimaries.map<DeepFocusSelectionBuilderPrimaryItem>((primary) => {
+    const label = labelPrimaryForDisplay(primary, spansRepos, input.draftTopLevel);
+    return {
+      key: primaryIdentityKey(primary),
+      label,
+      title: normalizeRelativePath(primary.path) || label,
+    };
+  });
+
+  const supportItems = (input.draftState.selectedSupportTargets ?? []).map((target) =>
+    buildScopedBuilderItem(target, 'global', 'All primaries', null));
+  const testItems = input.draftState.selectedTestTarget
+    ? [buildScopedBuilderItem(input.draftState.selectedTestTarget, 'global', 'All primaries', null)]
+    : [];
+
+  normalizedPrimaries.forEach((primary, index) => {
+    const primaryKey = primaryItems[index]!.key;
+    const scopeLabel = primaryItems[index]!.label;
+    (primary.supportTargets ?? []).forEach((target) => {
+      supportItems.push(buildScopedBuilderItem(target, 'primary', scopeLabel, primaryKey));
+    });
+    if (primary.testTarget) {
+      testItems.push(buildScopedBuilderItem(primary.testTarget, 'primary', scopeLabel, primaryKey));
+    }
+  });
+
+  return {
+    empty: primaryItems.length === 0 && supportItems.length === 0 && testItems.length === 0,
+    primaryItems,
+    supportItems,
+    testItems,
+    counts: {
+      primary: primaryItems.length,
+      support: supportItems.length,
+      test: testItems.length,
+    },
+  };
+}
+
 export function computeSelectionTraySummary(
   draftTopLevel: TopLevelTarget | null,
   draftState: ContextPackDeepFocusState,
@@ -351,30 +473,43 @@ export function selectParentOfPrimaryRows(
 
 export function selectSiblingSupportCandidates(
   state: ContextPackDeepFocusState,
-  parentTargetPath: string,
+  parentRow: TreeRowData,
+  deepFocusMode: DeepFocusMode,
   treeFlat: TreeRowData[],
 ): TreeRowData[] {
-  const assignedPaths = new Set<string>();
+  const assignedTargets: ContextPackDeepFocusTarget[] = [];
+  const parentTargetPath = normalizeRelativePath(parentRow.targetPath);
+  const parentTarget = deepFocusTargetForRow({ ...parentRow, deepFocusMode });
 
   (state.selectedFocusTargets ?? []).forEach((primary) => {
-    assignedPaths.add(normalizeRelativePath(primary.path));
+    assignedTargets.push(primary);
     if (primary.testTarget) {
-      assignedPaths.add(normalizeRelativePath(primary.testTarget.path));
+      assignedTargets.push(primary.testTarget);
     }
     (primary.supportTargets ?? []).forEach((supportTarget) => {
-      assignedPaths.add(normalizeRelativePath(supportTarget.path));
+      assignedTargets.push(supportTarget);
     });
   });
 
   if (state.selectedTestTarget) {
-    assignedPaths.add(normalizeRelativePath(state.selectedTestTarget.path));
+    assignedTargets.push(state.selectedTestTarget);
   }
   state.selectedSupportTargets.forEach((supportTarget) => {
-    assignedPaths.add(normalizeRelativePath(supportTarget.path));
+    assignedTargets.push(supportTarget);
   });
 
   return treeFlat.filter((row) => {
     const rowPath = normalizeRelativePath(row.targetPath);
-    return parentPath(rowPath) === parentTargetPath && !assignedPaths.has(rowPath);
+    const rowTarget = deepFocusTargetForRow({ ...row, deepFocusMode });
+    return parentPath(rowPath) === parentTargetPath
+      && isSameTarget(
+        {
+          ...rowTarget,
+          path: parentPath(rowTarget.path),
+          kind: 'directory',
+        },
+        parentTarget,
+      )
+      && !assignedTargets.some((assignedTarget) => isSameTarget(assignedTarget, rowTarget));
   });
 }

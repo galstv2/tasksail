@@ -179,6 +179,25 @@ function registryEntryToPendingItem(
   };
 }
 
+function archivedAtMs(task: ArchivedTaskEntry): number | null {
+  if (!task.archivedAt) return null;
+  const ms = new Date(task.archivedAt).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function newestArchivedTasks(tasks: ArchivedTaskEntry[], limit: number): ArchivedTaskEntry[] {
+  return tasks
+    .map((task, index) => ({ task, index, ms: archivedAtMs(task) }))
+    .sort((left, right) => {
+      if (left.ms !== null && right.ms !== null && left.ms !== right.ms) return right.ms - left.ms;
+      if (left.ms !== null && right.ms === null) return -1;
+      if (left.ms === null && right.ms !== null) return 1;
+      return left.index - right.index;
+    })
+    .slice(0, limit)
+    .map((entry) => entry.task);
+}
+
 export async function readTaskBoard(
   listContextPacks?: ContextPackLister,
   fsAdapter: ReadOnlyRepoFs = repoFs,
@@ -202,8 +221,10 @@ export async function readTaskBoard(
     if (listContextPacks && scope) {
       const archivedResult = await listArchivedTasksAction(listContextPacks, { scope });
       if (archivedResult.ok && 'tasks' in archivedResult.response) {
-        completedItems = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks
-          .slice(-10);
+        completedItems = newestArchivedTasks(
+          (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks,
+          10,
+        );
       }
     }
 

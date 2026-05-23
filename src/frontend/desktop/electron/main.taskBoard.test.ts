@@ -171,7 +171,7 @@ function taskEntry(
   };
 }
 
-function archivedTask(taskId: string): ArchivedTaskEntry {
+function archivedTask(taskId: string, archivedAt: string | null = null): ArchivedTaskEntry {
   return {
     taskId,
     title: `Archived ${taskId}`,
@@ -181,6 +181,7 @@ function archivedTask(taskId: string): ArchivedTaskEntry {
     followupReason: '',
     year: '2026',
     archivePath: `/repo/AgentWorkSpace/qmd/context-packs/pack-a/archive/tasks/2026/${taskId}/archive.md`,
+    archivedAt,
     contextPackName: 'pack-a',
   };
 }
@@ -277,6 +278,51 @@ describe('main.taskBoard', () => {
       listContextPacks,
       { scope: expect.objectContaining({ contextPackId: 'pack-a' }) },
     );
+  });
+
+  it('returns the newest completed tasks for the active context pack', async () => {
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Archived tasks found.',
+        tasks: [
+          archivedTask('DONE-OLD-01', '2026-05-01T12:00:00Z'),
+          archivedTask('DONE-NEWEST', '2026-05-22T19:00:00Z'),
+          archivedTask('DONE-OLD-02', '2026-05-02T12:00:00Z'),
+          archivedTask('DONE-09', '2026-05-09T12:00:00Z'),
+          archivedTask('DONE-10', '2026-05-10T12:00:00Z'),
+          archivedTask('DONE-11', '2026-05-11T12:00:00Z'),
+          archivedTask('DONE-12', '2026-05-12T12:00:00Z'),
+          archivedTask('DONE-13', '2026-05-13T12:00:00Z'),
+          archivedTask('DONE-14', '2026-05-14T12:00:00Z'),
+          archivedTask('DONE-15', '2026-05-15T12:00:00Z'),
+          archivedTask('DONE-16', '2026-05-16T12:00:00Z'),
+          archivedTask('DONE-17', '2026-05-17T12:00:00Z'),
+        ],
+      },
+    });
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.completedItems.map((item) => item.taskId)).toEqual([
+      'DONE-NEWEST',
+      'DONE-17',
+      'DONE-16',
+      'DONE-15',
+      'DONE-14',
+      'DONE-13',
+      'DONE-12',
+      'DONE-11',
+      'DONE-10',
+      'DONE-09',
+    ]);
   });
 
   it('returns empty task arrays when no active context pack exists', async () => {
@@ -527,6 +573,54 @@ describe('main.taskBoard', () => {
     expect(moveDropboxItemToPending).not.toHaveBeenCalled();
     expect(moveErrorItemToDropbox).not.toHaveBeenCalled();
     expect(requeueErrorItemImpl).not.toHaveBeenCalled();
+  });
+
+  it('surfaces child-chain cleanup preflight failures from deleteTask', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    deletePendingItem.mockRejectedValueOnce(new Error('child-task-chain-delete-cleanup-blocked-completed-task for task "PENDING-A": completed chain tasks must remain archived history'));
+
+    const result = await deleteTask({ column: 'pending', fileName: 'PENDING-A.md' }, vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'taskBoard.deleteTask',
+      error: expect.stringContaining('child-task-chain-delete-cleanup-blocked-completed-task'),
+    }));
+  });
+
+  it('surfaces child-chain cleanup write failures from deleteTask', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    deletePendingItem.mockRejectedValueOnce(new Error('EISDIR: illegal operation on a directory'));
+
+    const result = await deleteTask({ column: 'pending', fileName: 'PENDING-A.md' }, vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'taskBoard.deleteTask',
+      error: expect.stringContaining('EISDIR'),
+    }));
   });
 
   it('resolves context-pack scope and registry at most once per visible mutation handler', async () => {

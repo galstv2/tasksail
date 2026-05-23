@@ -19,6 +19,12 @@ import { readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
 import { createLogger } from './logger.js';
+import {
+  discardTaskBindingsWithOwnership,
+  finalizeFailedTaskBindingsWithOwnership,
+  removeTaskWorkspaceAndRuntime,
+  type ChainOwnedRollbackReport,
+} from './worktreeBranchOwnership.js';
 
 const execFile = promisify(execFileCb);
 const log = createLogger('platform/core/worktreeFinalize');
@@ -28,6 +34,11 @@ const log = createLogger('platform/core/worktreeFinalize');
 // ---------------------------------------------------------------------------
 
 export type FinalizeOutcome = 'completed' | 'failed';
+
+export interface FinalizeTaskWorktreesResult {
+  chainRollbackReport: ChainOwnedRollbackReport | null;
+  skipNextActivation: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -96,7 +107,7 @@ function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcom
  * Failure path with retain=true: preserve both worktree dir and branch for
  * operator inspection.
  *
- * Failure path with retain=false: remove worktree dir + delete branch.
+ * Failure path with retain=false: remove worktree dir + task-owned branch.
  *
  * MUST call `git worktree prune` after every `remove --force` to clear orphan
  * admin entries that would block a future `git worktree add` at the same path.
@@ -136,46 +147,12 @@ export async function finalizeWorktree(
     return;
   }
 
-  // retain_failed_task_worktrees=false: remove worktree dir + delete branch.
-  await removeWorktreeBindingHard(binding);
-}
-
-/**
- * Hard-tear down a single worktree binding: remove the worktree dir, prune
- * stale admin entries, and delete the branch. Best-effort throughout —
- * out-of-band removal of any of the three is tolerated.
- *
- * Shared by the failure+retain=false branch of `finalizeWorktree` and by
- * `discardRetainedTaskWorktrees` (the requeue-time complement).
- */
-async function removeWorktreeBindingHard(binding: TaskRepoBinding): Promise<void> {
-  try {
-    await execFile('git', [
-      '-C', binding.originalRoot,
-      'worktree', 'remove', '--force', binding.worktreeRoot,
-    ]);
-  } catch {
-    // Out-of-band removal already happened; proceed to prune.
-  }
-  try {
-    await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']);
-  } catch (err) {
-    log.warn('worktree.prune.failed', {
-      originalRoot: binding.originalRoot,
-      error: errorMessage(err),
-    });
-  }
-  try {
-    await execFile('git', [
-      '-C', binding.originalRoot,
-      'branch', '-D', binding.worktreeBranch,
-    ]);
-  } catch (err) {
-    log.warn('worktree.branch_delete.failed', {
-      branch: binding.worktreeBranch,
-      error: errorMessage(err),
-    });
-  }
+  await finalizeFailedTaskBindingsWithOwnership({
+    repoRoot,
+    taskId: binding.branchChainTaskId ?? path.basename(binding.worktreeBranch),
+    bindings: [binding],
+    retainFailedWorktree: false,
+  });
 }
 
 /**
@@ -210,18 +187,13 @@ export async function discardRetainedTaskWorktrees(
 ): Promise<void> {
   const taskJson = readTaskJsonSafe(taskId, repoRoot);
   if (taskJson) {
-    for (const binding of taskJson.contextPackBinding.repoBindings) {
-      await removeWorktreeBindingHard(binding);
-    }
+    await discardTaskBindingsWithOwnership({
+      repoRoot,
+      taskId,
+      bindings: taskJson.contextPackBinding.repoBindings,
+    });
   }
-  rmSync(
-    path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId),
-    { recursive: true, force: true },
-  );
-  rmSync(
-    runtimeTaskDir(taskId, repoRoot),
-    { recursive: true, force: true },
-  );
+  removeTaskWorkspaceAndRuntime(repoRoot, taskId);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,29 +254,17 @@ async function runRetentionEviction(
     // cap=0 evicts everything including the task just finalized.
     while (retainedTasks.length > cap) {
       const victim = retainedTasks.shift()!;
-      for (const binding of victim.bindings) {
-        // One-shot eviction: force the no-retain branch for this victim.
-        // All errors are swallowed — eviction is best-effort.
-        await execFile('git', [
-          '-C', binding.originalRoot,
-          'worktree', 'remove', '--force', binding.worktreeRoot,
-        ]).catch(() => {});
-        await execFile('git', ['-C', binding.originalRoot, 'worktree', 'prune']).catch(() => {});
-        await execFile('git', [
-          '-C', binding.originalRoot,
-          'branch', '-D', binding.worktreeBranch,
-        ]).catch((err: unknown) => {
-          log.warn('retention_eviction.branch_delete.failed', {
-            taskId: victim.taskId,
-            branch: binding.worktreeBranch,
-            error: errorMessage(err),
-          });
+      await discardTaskBindingsWithOwnership({
+        repoRoot,
+        taskId: victim.taskId,
+        bindings: victim.bindings,
+      }).catch((err: unknown) => {
+        log.warn('retention_eviction.discard.failed', {
+          taskId: victim.taskId,
+          error: errorMessage(err),
         });
-      }
-      rmSync(
-        path.join(tasksBaseDir, victim.taskId),
-        { recursive: true, force: true },
-      );
+      });
+      rmSync(path.join(tasksBaseDir, victim.taskId), { recursive: true, force: true });
     }
   } finally {
     await release();
@@ -334,13 +294,30 @@ export async function finalizeTaskWorktrees(
   outcome: FinalizeOutcome,
   repoRoot: string,
 ): Promise<void> {
+  await finalizeTaskWorktreesWithReport(taskId, outcome, repoRoot);
+}
+
+export async function finalizeTaskWorktreesWithReport(
+  taskId: string,
+  outcome: FinalizeOutcome,
+  repoRoot: string,
+): Promise<FinalizeTaskWorktreesResult> {
   // Tolerate missing sidecar: crash-recovery paths and legacy test fixtures
   // that seed a task without a .task.json still need runtime GC to run. The
   // binding loop below is a no-op when the sidecar is absent; persistTaskJson
   // synthesizes a minimal shell so finalizedAt is still stamped.
   const taskJson = readTaskJsonSafe(taskId, repoRoot);
 
-  if (taskJson) {
+  let failedOwnershipResult: Awaited<ReturnType<typeof finalizeFailedTaskBindingsWithOwnership>> | null = null;
+  if (taskJson && outcome === 'failed') {
+    const cfg = await getPlatformConfig(repoRoot);
+    failedOwnershipResult = await finalizeFailedTaskBindingsWithOwnership({
+      repoRoot,
+      taskId,
+      bindings: taskJson.contextPackBinding.repoBindings,
+      retainFailedWorktree: cfg.retain_failed_task_worktrees,
+    });
+  } else if (taskJson) {
     for (const binding of taskJson.contextPackBinding.repoBindings) {
       await finalizeWorktree(binding, outcome, repoRoot);
     }
@@ -363,7 +340,7 @@ export async function finalizeTaskWorktrees(
 
   if (outcome === 'completed') {
     rmSync(parentDir, { recursive: true, force: true });
-  } else if (outcome === 'failed' && !cfg.retain_failed_task_worktrees) {
+  } else if (outcome === 'failed' && !cfg.retain_failed_task_worktrees && !failedOwnershipResult?.preserveTaskState) {
     rmSync(parentDir, { recursive: true, force: true });
   }
 
@@ -383,13 +360,20 @@ export async function finalizeTaskWorktrees(
   }
 
   try {
-    await gcTaskRuntime(taskId, outcome, repoRoot);
+    if (!failedOwnershipResult?.preserveTaskState) {
+      await gcTaskRuntime(taskId, outcome, repoRoot);
+    }
   } catch (err) {
     log.warn('runtime_gc.failed', {
       taskId,
       error: errorMessage(err),
     });
   }
+
+  return {
+    chainRollbackReport: failedOwnershipResult?.chainRollbackReport ?? null,
+    skipNextActivation: failedOwnershipResult?.skipNextActivation ?? false,
+  };
 }
 
 // ---------------------------------------------------------------------------

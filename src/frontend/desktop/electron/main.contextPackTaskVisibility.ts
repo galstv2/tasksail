@@ -56,7 +56,7 @@ function extractTaskId(content: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
-function bindingMatchesScope(
+export function bindingMatchesScope(
   binding: {
     contextPackId?: string | null;
     contextPackDir?: string | null;
@@ -76,7 +76,7 @@ function bindingMatchesScope(
   return bindingContextPackDir === scope.contextPackDir;
 }
 
-function allRegistryEntries(registry: TaskRegistry): TaskRegistryEntry[] {
+export function allRegistryEntries(registry: TaskRegistry): TaskRegistryEntry[] {
   return Object.values(registry.tasks).flatMap((taskSet) => [
     ...taskSet.open,
     ...taskSet.pending,

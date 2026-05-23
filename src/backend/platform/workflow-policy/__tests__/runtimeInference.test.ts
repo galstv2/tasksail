@@ -134,6 +134,24 @@ describe('workflow-policy runtimeInference', () => {
     });
   });
 
+  it('does not resolve comment-only closeout ownership', async () => {
+    checkAgentArtifactCompletion.mockImplementation(async ({ agentId }: { agentId: string }) => (
+      agentId === 'product-manager'
+    ));
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Summary\n\n## Closeout Owner Agent ID\n\n<!-- keep -->\n',
+      'utf-8',
+    );
+
+    const inference = await evaluateRuntimeInference({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
+
+    expect(inference.nextAgent).toEqual({
+      agentId: 'software-engineer',
+      source: 'typescript runtime completion',
+    });
+  });
+
   it('falls back to completion-derived next agent and carries parallel approval', async () => {
     checkAgentArtifactCompletion.mockImplementation(async ({ agentId }: { agentId: string }) => (
       agentId === 'product-manager'

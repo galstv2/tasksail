@@ -14,7 +14,7 @@ import {
   TASK_REQUIRED_SECTIONS,
 } from '../models.js';
 import { extractBulletItems, normalizeText } from '../matching.js';
-import { parseSections } from '../artifacts.js';
+import { parseSemanticSections } from '../artifacts.js';
 import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
@@ -53,7 +53,7 @@ export async function evaluateTaskQualityRules(validator: PolicyValidator): Prom
     return;
   }
 
-  const sections = parseSections(text);
+  const sections = parseSemanticSections(text);
 
   for (const sectionName of TASK_REQUIRED_SECTIONS) {
     const content = normalizeText(sections[sectionName] ?? []);

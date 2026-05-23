@@ -14,6 +14,7 @@ import type { TaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
 import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
 import type { TaskContextPackBinding } from './markdown.js';
 import type { TaskContextPackSelection } from './taskJson.js';
+import { deriveStandardSelectionRoles } from './repositoryTypes.js';
 
 export interface WriteTaskPackSnapshotOptions {
   repoRoot: string;
@@ -42,6 +43,23 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
     : options.binding.primaryFocusId ?? options.selection.primaryFocusId ?? selectedFocusIds[0];
   const primaryRepoId = isMonolith ? undefined : rawPrimaryRepoId;
   const primaryFocusId = isMonolith ? rawPrimaryFocusId : undefined;
+  const distributedRoles = !isMonolith && !deepFocusEnabled && options.binding.repositoryTypes
+    ? deriveStandardSelectionRoles({
+        selectedIds: options.binding.selectedRepoIds,
+        repositoryTypes: options.binding.repositoryTypes,
+        scalarPrimaryId: options.binding.primaryRepoId,
+      })
+    : undefined;
+  const monolithRoles = isMonolith && !deepFocusEnabled && options.binding.repositoryTypes
+    ? deriveStandardSelectionRoles({
+        selectedIds: selectedFocusIds,
+        repositoryTypes: options.binding.repositoryTypes,
+        scalarPrimaryId: options.binding.primaryFocusId ?? options.selection.primaryFocusId,
+      })
+    : undefined;
+  if (distributedRoles && distributedRoles.primaryIds.length === 0) {
+    throw new Error(`Cannot write pack-snapshot.json for task "${options.taskId}": Selection Roles must include at least one primary selected repo.`);
+  }
 
   if (isMonolith && rawPrimaryRepoId) {
     throw new Error(`Cannot write pack-snapshot.json for task "${options.taskId}": Primary Repo ID is invalid for monolith context packs.`);
@@ -50,19 +68,28 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
     throw new Error(`Cannot write pack-snapshot.json for task "${options.taskId}": Primary Focus ID is invalid for distributed context packs.`);
   }
 
+  const effectivePrimaryRepoId = distributedRoles
+    ? (distributedRoles.primaryIds.includes(primaryRepoId ?? '') ? primaryRepoId : distributedRoles.primaryIds[0])
+    : primaryRepoId;
+  const effectivePrimaryFocusId = monolithRoles
+    ? (monolithRoles.primaryIds.includes(primaryFocusId ?? '') ? primaryFocusId : monolithRoles.primaryIds[0])
+    : primaryFocusId;
   const primary = isMonolith
-    ? resolveMonolithPrimary(manifest, options.contextPackDir, primaryFocusId, options.binding.selectedFocusIds, options.taskId)
-    : resolveDistributedPrimary(manifest, options.contextPackDir, primaryRepoId, options.binding.selectedRepoIds, options.taskId);
+    ? resolveMonolithPrimary(manifest, options.contextPackDir, effectivePrimaryFocusId, selectedFocusIds, options.taskId)
+    : resolveDistributedPrimary(manifest, options.contextPackDir, effectivePrimaryRepoId, options.binding.selectedRepoIds, options.taskId);
   const declaredRepoRoots = collectDeclaredRepoRoots(manifest, options.contextPackDir);
   const support = isMonolith
     ? []
-    : collectSupportRepos(manifest, options.contextPackDir, options.binding.selectedRepoIds, primary.repoId);
+    : collectSupportRepos(manifest, options.contextPackDir, distributedRoles?.supportIds ?? options.binding.selectedRepoIds, primary.repoId);
   const focusAreas = isMonolith
     ? collectFocusAreas(manifest, primary.focusId ?? '')
     : [];
   const standardMonolithPrimaryTargets = isMonolith && !deepFocusEnabled
-    ? buildStandardMonolithPrimaryTargets(manifest, selectedFocusIds, primary.repoRoot)
+    ? buildStandardMonolithPrimaryTargets(manifest, monolithRoles?.primaryIds ?? selectedFocusIds, primary.repoRoot)
     : undefined;
+  const standardMonolithSupportTargets = isMonolith && !deepFocusEnabled && monolithRoles
+    ? buildStandardMonolithSupportTargets(manifest, monolithRoles.supportIds, primary.repoRoot)
+    : [];
 
   const deepFocusSelection = {
     selectedRepoIds: [...options.selection.selectedRepoIds],
@@ -93,6 +120,22 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
   });
+  const distributedPrimaryWritableRoots = distributedRoles
+    ? distributedRoles.primaryIds
+        .map((repoId) => resolveDistributedPrimary(manifest, options.contextPackDir, repoId, options.binding.selectedRepoIds, options.taskId))
+        .map((repo) => ({
+          repoLocalPath: repo.repoRoot,
+          path: '',
+          kind: 'directory' as const,
+          reason: 'selected-primary' as const,
+        }))
+    : [];
+  const monolithSupportRoots = standardMonolithSupportTargets.length > 0
+    ? deriveWritableRootsFromFocusedSelection({
+        primaryFocusTargets: [],
+        supportTargets: standardMonolithSupportTargets,
+      }).readonlyContextRoots
+    : [];
 
   const snapshot: TaskPackSnapshot = {
     schemaVersion: 2,
@@ -119,9 +162,10 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
       primaryFocusTargets: deepFocus?.primaryFocusTargets ?? standardMonolithPrimaryTargets ?? options.selection.selectedFocusTargets ?? [],
       selectedTestTarget: deepFocus?.selectedTestTarget ?? options.selection.selectedTestTarget ?? null,
       supportTargets: deepFocus?.supportTargets ?? [],
-      writableRoots: derivedRoots.writableRoots,
+      writableRoots: [...derivedRoots.writableRoots, ...distributedPrimaryWritableRoots],
       readonlyContextRoots: [
         ...derivedRoots.readonlyContextRoots,
+        ...monolithSupportRoots,
         ...(deepFocusEnabled
           ? []
           : deriveStandardModeReadonlyRepoRoots({
@@ -217,6 +261,23 @@ function collectSupportRepos(manifest: Manifest, contextPackDir: string, selecte
       return repoRoot ? { repoId, repoRoot } : undefined;
     })
     .filter((repo): repo is { repoId: string; repoRoot: string } => repo !== undefined);
+}
+
+function buildStandardMonolithSupportTargets(
+  manifest: Manifest,
+  supportFocusIds: string[],
+  repoRoot: string,
+) {
+  const support = new Set(supportFocusIds);
+  return (manifest.focusable_areas ?? [])
+    .filter((area) => area.focus_id && support.has(area.focus_id) && area.relative_path?.trim())
+    .map((area) => ({
+      path: area.relative_path!.trim(),
+      kind: 'directory' as const,
+      repoLocalPath: repoRoot,
+      focusId: area.focus_id,
+      effectiveScope: 'full-directory' as const,
+    }));
 }
 
 function collectFocusAreas(manifest: Manifest, primaryFocusId: string) {

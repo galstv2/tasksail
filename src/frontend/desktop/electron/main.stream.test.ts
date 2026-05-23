@@ -62,6 +62,7 @@ describe('main.stream', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.useRealTimers();
     getAllWindows.mockReturnValue([
       {
         isDestroyed: () => false,
@@ -74,6 +75,28 @@ describe('main.stream', () => {
       contextPackDir: '/packs/pack-a',
       contextPackName: 'pack-a',
     };
+  });
+
+  it('emits ISO timestamps so renderer can format local 24-hour time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-23T04:19:27.000Z'));
+    const { emitStreamEvent } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {},
+    });
+
+    emitStreamEvent({
+      message: 'Planner session started.',
+      source: 'planner.startSession',
+      role: 'planner',
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({
+        timestamp: '2026-05-23T04:19:27.000Z',
+      }),
+    );
   });
 
   it('prefixes task-scoped terminal messages with a stable registry GUID per task', async () => {

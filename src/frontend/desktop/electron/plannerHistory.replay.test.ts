@@ -14,6 +14,7 @@ const beginPendingRecord = vi.fn();
 const appendPendingMessage = vi.fn();
 const discardPendingRecord = vi.fn();
 const readWorkspaceSyncStateSnapshot = vi.fn();
+const assertPlannerHistoryRecordHydratable = vi.fn();
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -36,6 +37,11 @@ vi.mock('./plannerHistory', () => ({
   beginPendingRecord,
   appendPendingMessage,
   discardPendingRecord,
+}));
+
+vi.mock('./plannerRecentChildTaskEligibility', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./plannerRecentChildTaskEligibility')>()),
+  assertPlannerHistoryRecordHydratable,
 }));
 
 vi.mock('../../../backend/platform/planner-history/store.js', () => ({
@@ -130,6 +136,14 @@ describe('planner history replay session bootstrap', () => {
     readWorkspaceSyncStateSnapshot.mockResolvedValue({
       activeContextPackDir: '/contextpacks/historical',
       activeContextPackId: 'historical',
+    });
+    assertPlannerHistoryRecordHydratable.mockResolvedValue({
+      visible: true,
+      reason: 'current-completed-tip',
+      taskId: 'historical',
+      rootTaskId: 'ROOT-1',
+      currentTipTaskId: 'historical',
+      currentTipState: 'completed',
     });
     const sidecar = buildReplaySidecar();
     getPlannerHistoryRecord.mockResolvedValue({
@@ -235,5 +249,78 @@ describe('planner history replay session bootstrap', () => {
     expect(lookupArgs.contextPackId).toBe('orders');
     expect(lookupArgs.contextPackId).not.toBe('live-renamed');
   });
-});
 
+  it('rejects stale child replay before staging, broker startup, or pending history mutation', async () => {
+    assertPlannerHistoryRecordHydratable.mockResolvedValueOnce({
+      visible: false,
+      reason: 'not-current-chain-tip',
+      taskId: 'historical',
+      rootTaskId: 'ROOT-1',
+      currentTipTaskId: 'newer-child',
+      currentTipState: 'completed',
+    });
+
+    const plannerSession = await import('./plannerSession');
+    await expect(
+      plannerSession.startSession('/contextpacks/live', undefined, 'source-record-session'),
+    ).rejects.toThrow('This child-task recent is no longer the current child-chain tip.');
+
+    expect(clearStagingArtifacts).not.toHaveBeenCalled();
+    expect(initializeStagedPlanningDraft).not.toHaveBeenCalled();
+    expect(brokerStartSession).not.toHaveBeenCalled();
+    expect(beginPendingRecord).not.toHaveBeenCalled();
+  });
+
+  it('rejects child replay when child-chain state is invalid before staging or broker startup', async () => {
+    assertPlannerHistoryRecordHydratable.mockResolvedValueOnce({
+      visible: false,
+      reason: 'child-chain-state-invalid',
+      taskId: 'historical',
+      rootTaskId: null,
+      currentTipTaskId: null,
+      currentTipState: null,
+    });
+
+    const plannerSession = await import('./plannerSession');
+    await expect(
+      plannerSession.startSession('/contextpacks/live', undefined, 'source-record-session'),
+    ).rejects.toThrow('Child-task recents are temporarily unavailable because child-task chain state is invalid.');
+
+    expect(clearStagingArtifacts).not.toHaveBeenCalled();
+    expect(initializeStagedPlanningDraft).not.toHaveBeenCalled();
+    expect(brokerStartSession).not.toHaveBeenCalled();
+    expect(beginPendingRecord).not.toHaveBeenCalled();
+  });
+
+  it('keeps standard replay unchanged and does not check child-chain eligibility', async () => {
+    const standardSidecar = {
+      ...buildReplaySidecar(),
+      lineage: {
+        taskKind: 'standard' as const,
+        parentTaskId: '',
+        rootTaskId: '',
+        parentQmdRecordId: '',
+        parentQmdScope: '',
+        followUpReason: '',
+      },
+    };
+    getPlannerHistoryRecord.mockResolvedValueOnce({
+      id: 'standard-record',
+      contextPackDir: '/contextpacks/historical',
+      contextPackId: 'historical',
+      createdAt: '2026-03-21T05:00:00Z',
+      title: standardSidecar.title,
+      finalizedDestinationPath: '/repo/dropbox/standard.md',
+      sidecarSnapshot: standardSidecar,
+      transcript: [],
+    });
+
+    const plannerSession = await import('./plannerSession');
+    await expect(
+      plannerSession.startSession('/contextpacks/live', undefined, 'standard-record'),
+    ).resolves.toEqual({ sessionId: 'planner-999', created: true });
+
+    expect(assertPlannerHistoryRecordHydratable).not.toHaveBeenCalled();
+    expect(brokerStartSession).toHaveBeenCalled();
+  });
+});

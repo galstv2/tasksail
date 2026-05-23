@@ -12,6 +12,7 @@ import type {
   EnvironmentStatusResponse,
   ObservabilitySnapshotResponse,
 } from '../../shared/desktopContract';
+import { formatLocalTime } from '../utils/localTimestamp';
 import ObservabilityLifecycleSection from './observability/ObservabilityLifecycleSection';
 import ArtifactReferencesSection from './observability/ArtifactReferencesSection';
 import GuardrailSummarySection from './observability/GuardrailSummarySection';
@@ -43,10 +44,9 @@ const ROLE_TABS: Array<{ value: StreamRole | 'all'; label: string }> = [
 
 function formatTime(timestamp: string): string {
   if (timestamp.includes('T')) {
-    const timePart = timestamp.split('T')[1];
-    return timePart ? timePart.slice(0, 8) : timestamp.slice(0, 8);
+    return formatLocalTime(timestamp) ?? timestamp.trim().slice(0, 8).trim();
   }
-  return timestamp.slice(0, 8);
+  return timestamp.trim().slice(0, 8).trim();
 }
 
 function TerminalLine({

@@ -719,126 +719,16 @@ describe('Deep Focus scope utilities', () => {
   });
 
   describe('detectPromotableScope', () => {
-    // Equivalence detection answers a single question: "is the user's per-primary
-    // assignment now functionally identical to a global assignment?" Promotion
-    // is then user-initiated rather than silent so we don't surprise them with
-    // forward-binding semantic changes (global also covers future primaries).
-    it('returns empty when fewer than 2 eligible primaries exist', () => {
-      // With one primary the universal-quantifier "every primary has X" is
-      // trivially satisfied after a single assignment; promoting would be
-      // premature, not a meaningful coalescing of intent.
-      const onePrimary = makeDeepFocusState({
-        selectedFocusTargets: [
-          {
-            path: 'src/api', kind: 'directory', role: 'anchor',
-            testTarget: { path: 'tests/api', kind: 'directory' },
-            supportTargets: [{ path: 'docs/api', kind: 'directory' }],
-          },
-        ],
-      });
-      expect(detectPromotableScope(onePrimary)).toEqual({ testTarget: null, supportTargets: [] });
-    });
-
-    it('excludes repo-root primaries from the eligibility count', () => {
-      // Spec rejects scoped fields on repo-root primaries, so they cannot
-      // contribute to or block equivalence. Two primaries where one is the
-      // repo root reduces to a single eligible primary → not promotable.
+    it('keeps automatic promotion affordances disabled', () => {
+      // Automatic promotion affordances are disabled by design under total selection exclusivity.
+      const shared = { path: 'tests/all', kind: 'directory' as const };
       const state = makeDeepFocusState({
         selectedFocusTargets: [
-          { path: '', kind: 'directory', role: 'anchor' },
-          {
-            path: 'src/api', kind: 'directory', role: 'primary',
-            testTarget: { path: 'tests/api', kind: 'directory' },
-          },
+          { path: 'src/api', kind: 'directory', role: 'anchor', testTarget: shared },
+          { path: 'src/web', kind: 'directory', role: 'primary', testTarget: shared },
         ],
       });
       expect(detectPromotableScope(state)).toEqual({ testTarget: null, supportTargets: [] });
-    });
-
-    it('detects a test target shared by every eligible primary', () => {
-      const shared = { path: 'tests/all', kind: 'directory' as const };
-      const state = makeDeepFocusState({
-        selectedFocusTargets: [
-          { path: 'src/api', kind: 'directory', role: 'anchor', testTarget: shared },
-          { path: 'src/web', kind: 'directory', role: 'primary', testTarget: shared },
-        ],
-      });
-      expect(detectPromotableScope(state)).toEqual({ testTarget: shared, supportTargets: [] });
-    });
-
-    it('skips test promotion when the candidate is already the global test target', () => {
-      // The point of promotion is to coalesce per-primary entries up to the
-      // global bucket. If the global bucket already holds it, there is nothing
-      // to coalesce — even if the per-primary entries also exist (a redundant
-      // state the gate now prevents).
-      const shared = { path: 'tests/all', kind: 'directory' as const };
-      const state = makeDeepFocusState({
-        selectedFocusTargets: [
-          { path: 'src/api', kind: 'directory', role: 'anchor', testTarget: shared },
-          { path: 'src/web', kind: 'directory', role: 'primary', testTarget: shared },
-        ],
-        selectedTestTarget: shared,
-      });
-      expect(detectPromotableScope(state).testTarget).toBeNull();
-    });
-
-    it('detects only support entries that every primary shares', () => {
-      // Per-primary supports may overlap partially across primaries; only the
-      // intersection is universally promotable. `lib/util` lives on both
-      // primaries; `lib/extra` lives on only one and stays per-primary.
-      const universal = { path: 'lib/util', kind: 'directory' as const };
-      const onlyOne = { path: 'lib/extra', kind: 'directory' as const };
-      const state = makeDeepFocusState({
-        selectedFocusTargets: [
-          {
-            path: 'src/api', kind: 'directory', role: 'anchor',
-            supportTargets: [universal, onlyOne],
-          },
-          {
-            path: 'src/web', kind: 'directory', role: 'primary',
-            supportTargets: [universal],
-          },
-        ],
-      });
-      expect(detectPromotableScope(state)).toEqual({
-        testTarget: null,
-        supportTargets: [universal],
-      });
-    });
-
-    it('skips support entries already in the global bucket', () => {
-      const dup = { path: 'lib/util', kind: 'directory' as const };
-      const state = makeDeepFocusState({
-        selectedFocusTargets: [
-          { path: 'src/api', kind: 'directory', role: 'anchor', supportTargets: [dup] },
-          { path: 'src/web', kind: 'directory', role: 'primary', supportTargets: [dup] },
-        ],
-        selectedSupportTargets: [dup],
-      });
-      expect(detectPromotableScope(state).supportTargets).toEqual([]);
-    });
-
-    it('detects test and support independently within the same state', () => {
-      // The two roles are evaluated separately — a state may be promotable
-      // for support but not test (or vice versa) without affecting the other.
-      const sharedSupport = { path: 'lib/util', kind: 'directory' as const };
-      const state = makeDeepFocusState({
-        selectedFocusTargets: [
-          {
-            path: 'src/api', kind: 'directory', role: 'anchor',
-            testTarget: { path: 'tests/api', kind: 'directory' },
-            supportTargets: [sharedSupport],
-          },
-          {
-            path: 'src/web', kind: 'directory', role: 'primary',
-            testTarget: { path: 'tests/web', kind: 'directory' },
-            supportTargets: [sharedSupport],
-          },
-        ],
-      });
-      const promotable = detectPromotableScope(state);
-      expect(promotable.testTarget).toBeNull();
-      expect(promotable.supportTargets).toEqual([sharedSupport]);
     });
   });
 
@@ -1067,7 +957,12 @@ describe('Deep Focus scope utilities', () => {
       makeTreeRow('src/api/profile.ts'),
       makeTreeRow('src/db/schema.ts'),
     ];
-    expect(selectSiblingSupportCandidates(makeDeepFocusState(), 'src/api', siblingRows).map((row) => row.targetPath))
+    expect(selectSiblingSupportCandidates(
+      makeDeepFocusState(),
+      makeTreeRow('src/api', { kind: 'directory', hasChildren: true }),
+      'distributed',
+      siblingRows,
+    ).map((row) => row.targetPath))
       .toEqual(['src/api/auth.ts', 'src/api/profile.ts']);
   });
 
@@ -1077,17 +972,22 @@ describe('Deep Focus scope utilities', () => {
       makeTreeRow('src/api/auth.ts'),
       makeTreeRow('src/api/profile.ts'),
     ];
-    expect(selectSiblingSupportCandidates(makeDeepFocusState({
-      selectedFocusTargets: [
-        { path: 'src/api/users.ts', kind: 'file', role: 'anchor' },
-        {
-          path: 'src/db/schema.ts',
-          kind: 'file',
-          role: 'primary',
-          supportTargets: [{ path: 'src/api/auth.ts', kind: 'file' }],
-        },
-      ],
-    }), 'src/api', treeFlat).map((row) => row.targetPath)).toEqual(['src/api/profile.ts']);
+    expect(selectSiblingSupportCandidates(
+      makeDeepFocusState({
+        selectedFocusTargets: [
+          { path: 'src/api/users.ts', kind: 'file', role: 'anchor' },
+          {
+            path: 'src/db/schema.ts',
+            kind: 'file',
+            role: 'primary',
+            supportTargets: [{ path: 'src/api/auth.ts', kind: 'file' }],
+          },
+        ],
+      }),
+      makeTreeRow('src/api', { kind: 'directory', hasChildren: true }),
+      'distributed',
+      treeFlat,
+    ).map((row) => row.targetPath)).toEqual(['src/api/profile.ts']);
   });
 
   it('derives the editor model empty state', () => {

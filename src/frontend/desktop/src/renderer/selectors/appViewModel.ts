@@ -211,7 +211,7 @@ export function deriveStageCopy(args: {
 }): string {
   if (args.isFollowUpDraft) {
     const followUpStageCopy: Record<ComposerStage, string> = {
-      compose: 'Compose a new child-task intake from preserved completed-task lineage.',
+      compose: 'Compose child-task intake.',
       preview:
         'Review the carry-forward child-task draft locally without creating a new queue item yet.',
       confirm:

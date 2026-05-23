@@ -79,11 +79,11 @@ describe('usePlannerModal child-task flows', () => {
       contextPackDir: '/tmp/live-context-pack',
       snapshot: parent.plannerFocusSnapshot,
     });
-    expect(startPlannerSession).toHaveBeenLastCalledWith({
+    expect(startPlannerSession).toHaveBeenLastCalledWith(expect.objectContaining({
       contextPackDir: '/tmp/snapshot-context-pack',
       childTaskFocusSnapshot: parent.plannerFocusSnapshot,
       childTaskLineage: expect.objectContaining({ parentTaskId: 'TASK-001' }),
-    });
+    }));
   });
 
   it('falls back to regular planner mode when parent focus validation fails', async () => {
@@ -339,6 +339,219 @@ describe('usePlannerModal child-task flows', () => {
     expect(prompt).toContain('Tighten the search heuristic.');
   });
 
+  it('reads selected parent bundle and includes it in the first operator message', async () => {
+    const readParentContextBundle = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.readParentContextBundle',
+        mode: 'loaded',
+        accepted: true,
+        message: 'Loaded.',
+        bundle: {
+          schemaVersion: 1,
+          parentTaskId: 'TASK-007',
+          rootTaskId: 'ROOT-007',
+          parentTaskTitle: 'Original parent',
+          archivePath: '/archive/TASK-007/archive.md',
+          archiveArtifactDir: '/archive/TASK-007',
+          status: 'available',
+          missing: [],
+          files: [{
+            kind: 'handoff',
+            fileName: 'intake.md',
+            relativePath: 'handoffs/intake.md',
+            sizeBytes: 14,
+            content: 'parent context',
+            truncated: false,
+          }],
+          totalBytes: 14,
+          truncated: false,
+          fallbackSummary: null,
+        },
+      },
+    });
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const client = createClient({ readParentContextBundle, sendPlannerMessage });
+    const parent = createArchivedTask({
+      taskId: 'TASK-007',
+      rootTaskId: 'ROOT-007',
+      plannerFocusSnapshot: createFocusSnapshot({
+        contextPackDir: '/tmp/selected-parent-pack',
+        contextPackId: 'selected-parent-pack',
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(parent);
+    });
+    await act(async () => {
+      result.current.plannerModalProps.onSendMessage('Start child work.');
+    });
+
+    expect(readParentContextBundle).toHaveBeenCalledWith({
+      parentTaskId: 'TASK-007',
+      contextPackDir: '/tmp/selected-parent-pack',
+      contextPackId: 'selected-parent-pack',
+    });
+    const [prompt] = sendPlannerMessage.mock.calls[0];
+    expect(prompt).toContain('Immediate Parent Context Bundle');
+    expect(prompt).toContain('parent context');
+  });
+
+  it('uses the selected child parent bundle for grandchild prompts', async () => {
+    const readParentContextBundle = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.readParentContextBundle',
+        mode: 'loaded',
+        accepted: true,
+        message: 'Loaded.',
+        bundle: {
+          schemaVersion: 1,
+          parentTaskId: 'TASK-CHILD',
+          rootTaskId: 'TASK-ROOT',
+          parentTaskTitle: 'Child parent',
+          archivePath: '/archive/TASK-CHILD/archive.md',
+          archiveArtifactDir: '/archive/TASK-CHILD',
+          status: 'available',
+          missing: [],
+          files: [{
+            kind: 'implementation-step',
+            fileName: '001-child.md',
+            relativePath: 'ImplementationSteps/001-child.md',
+            sizeBytes: 29,
+            content: 'selected child parent context',
+            truncated: false,
+          }],
+          totalBytes: 29,
+          truncated: false,
+          fallbackSummary: null,
+        },
+      },
+    });
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const client = createClient({ readParentContextBundle, sendPlannerMessage });
+    const parent = createArchivedTask({ taskId: 'TASK-CHILD', rootTaskId: 'TASK-ROOT', title: 'Child parent' });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(parent);
+    });
+    await act(async () => {
+      result.current.plannerModalProps.onSendMessage('Start grandchild.');
+    });
+
+    expect(readParentContextBundle).toHaveBeenCalledWith(expect.objectContaining({ parentTaskId: 'TASK-CHILD' }));
+    const [prompt] = sendPlannerMessage.mock.calls[0];
+    expect(prompt).toContain('selected child parent context');
+    expect(prompt).not.toContain('root context');
+  });
+
+  it('blocks child-task planner start when parent bundle reading fails', async () => {
+    const readParentContextBundle = vi.fn().mockResolvedValue({
+      ok: false,
+      action: 'planner.readParentContextBundle',
+      error: 'Archived parent task TASK-404 was not found.',
+    });
+    const startPlannerSession = vi.fn();
+    const sendPlannerMessage = vi.fn();
+    const client = createClient({ readParentContextBundle, startPlannerSession, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask({ taskId: 'TASK-404' }));
+    });
+
+    expect(readParentContextBundle).toHaveBeenCalled();
+    expect(startPlannerSession).not.toHaveBeenCalled();
+    expect(sendPlannerMessage).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.sessionStatus).toBe('failed');
+    expect(result.current.plannerModalProps.draftError).toBe('Archived parent task TASK-404 was not found.');
+  });
+
+  it('clears a deferred child-task starter prompt when a later parent bundle read fails', async () => {
+    const readParentContextBundle = vi.fn().mockImplementation(({ parentTaskId }) => {
+      if (parentTaskId === 'TASK-A') {
+        return Promise.resolve({
+          ok: true,
+          response: {
+            action: 'planner.readParentContextBundle',
+            mode: 'loaded',
+            accepted: true,
+            message: 'Loaded.',
+            bundle: {
+              schemaVersion: 1,
+              parentTaskId: 'TASK-A',
+              rootTaskId: 'TASK-A',
+              parentTaskTitle: 'Parent A',
+              archivePath: '/archive/TASK-A/archive.md',
+              archiveArtifactDir: '/archive/TASK-A',
+              status: 'available',
+              missing: [],
+              files: [{
+                kind: 'handoff',
+                fileName: 'intake.md',
+                relativePath: 'handoffs/intake.md',
+                sizeBytes: 28,
+                content: 'stale parent A context only',
+                truncated: false,
+              }],
+              totalBytes: 28,
+              truncated: false,
+              fallbackSummary: null,
+            },
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        action: 'planner.readParentContextBundle',
+        error: 'Parent B bundle read failed.',
+      });
+    });
+    const sendPlannerMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'planner.sendMessage', mode: 'sent', accepted: true, message: 'Sent.' },
+    });
+    const client = createClient({ readParentContextBundle, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask({ taskId: 'TASK-A', title: 'Parent A' }));
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.sessionStatus).toBe('active');
+    });
+    expect(sendPlannerMessage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask({ taskId: 'TASK-B', title: 'Parent B' }));
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.sessionStatus).toBe('failed');
+      expect(result.current.plannerModalProps.draftError).toBe('Parent B bundle read failed.');
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onSendMessage('Try after failed parent selection.');
+    });
+
+    expect(sendPlannerMessage).toHaveBeenCalledTimes(1);
+    const [message] = sendPlannerMessage.mock.calls[0];
+    expect(message).toBe('Try after failed parent selection.');
+    expect(message).not.toContain('Parent Task ID: TASK-A');
+    expect(message).not.toContain('stale parent A context only');
+    expect(result.current.plannerModalProps.sessionStatus).toBe('failed');
+    expect(result.current.plannerModalProps.draftError).toBe('Parent B bundle read failed.');
+  });
+
   it('valid child-task parent selection never includes deepFocusSelection alongside childTaskFocusSnapshot', async () => {
     const validateChildTaskFocus = vi.fn().mockResolvedValue({
       ok: true,
@@ -402,6 +615,201 @@ describe('usePlannerModal child-task flows', () => {
       ]);
     });
     expect(result.current.plannerModalProps.archivedTaskTotalCount).toBe(3);
+  });
+
+  it('shows only archived parents with planner focus and eligible child-chain parent metadata', async () => {
+    const listArchivedTasks = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Found.',
+        tasks: [
+          createArchivedTask({
+            taskId: 'ROOT',
+            childParentEligibility: {
+              eligible: false,
+              reason: 'not-current-chain-tip',
+              message: 'Only the current child-chain tip can be used as the next parent.',
+              rootTaskId: 'ROOT',
+              currentTipTaskId: 'TIP',
+              currentTipState: 'completed',
+            },
+          }),
+          createArchivedTask({
+            taskId: 'TIP',
+            rootTaskId: 'ROOT',
+            childParentEligibility: {
+              eligible: true,
+              reason: 'current-chain-tip',
+              message: 'This archived task is the completed current child-chain tip.',
+              rootTaskId: 'ROOT',
+              currentTipTaskId: 'TIP',
+              currentTipState: 'completed',
+            },
+          }),
+          createArchivedTask({
+            taskId: 'FIRST-ROOT',
+            rootTaskId: 'FIRST-ROOT',
+            childParentEligibility: {
+              eligible: true,
+              reason: 'standalone-root',
+              message: 'This standalone root task can start a child-task chain.',
+              rootTaskId: 'FIRST-ROOT',
+              currentTipTaskId: null,
+              currentTipState: null,
+            },
+          }),
+        ],
+      },
+    });
+    const { result } = renderPlannerModalHook(createClient({ listArchivedTasks }));
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.archivedTasks?.map((task) => task.taskId)).toEqual(['TIP', 'FIRST-ROOT']);
+    });
+    expect(result.current.plannerModalProps.archivedTaskTotalCount).toBe(3);
+    expect(window.desktopShell.log.emit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'planner.child-task-parent.filtered',
+      level: 'warn',
+      extra: { countsByReason: { 'not-current-chain-tip': 1 } },
+    }));
+  });
+
+  it.each(['planned', 'pending', 'active'] as const)('hides a previous parent when a %s child reserves the current tip', async (state) => {
+    const listArchivedTasks = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Found.',
+        tasks: [createArchivedTask({
+          taskId: 'PARENT',
+          childParentEligibility: {
+            eligible: false,
+            reason: 'reserved-by-unarchived-tip',
+            message: 'A planned, pending, or active child already reserves the next child-chain tip.',
+            rootTaskId: 'ROOT',
+            currentTipTaskId: 'RESERVED',
+            currentTipState: state,
+          },
+        })],
+      },
+    });
+    const { result } = renderPlannerModalHook(createClient({ listArchivedTasks }));
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
+      expect(result.current.plannerModalProps.draftError).toBe('Only the current child-chain tip can be used as the next parent.');
+    });
+  });
+
+  it('does not report chain-tip filtering when an eligible archived parent only lacks planner focus', async () => {
+    const listArchivedTasks = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Found.',
+        tasks: [createArchivedTask({
+          plannerFocusSnapshot: undefined,
+          childParentEligibility: {
+            eligible: true,
+            reason: 'standalone-root',
+            message: 'This standalone root task can start a child-task chain.',
+            rootTaskId: 'TASK-001',
+            currentTipTaskId: null,
+            currentTipState: null,
+          },
+        })],
+      },
+    });
+    const { result } = renderPlannerModalHook(createClient({ listArchivedTasks }));
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
+      expect(result.current.plannerModalProps.draftError).toBe('');
+    });
+    expect(window.desktopShell.log.emit).not.toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'planner.child-task-parent.filtered',
+    }));
+  });
+
+  it('surfaces invalid child-chain state and makes no parent selectable', async () => {
+    const listArchivedTasks = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'planner.listArchivedTasks',
+        mode: 'found',
+        message: 'Found.',
+        childChainStateStatus: { status: 'invalid', message: 'invalid state' },
+        tasks: [createArchivedTask({
+          childParentEligibility: {
+            eligible: false,
+            reason: 'child-chain-state-invalid',
+            message: 'Child-task chain state must be repaired before choosing a parent task.',
+            rootTaskId: 'ROOT',
+            currentTipTaskId: null,
+            currentTipState: null,
+          },
+        })],
+      },
+    });
+    const { result } = renderPlannerModalHook(createClient({ listArchivedTasks }));
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.archivedTasks).toEqual([]);
+      expect(result.current.plannerModalProps.draftError).toBe('Child-task chain state is invalid. Parent selection is temporarily unavailable until it is repaired.');
+    });
+  });
+
+  it('rejects direct selection of an ineligible archived parent without starting child-task reads', async () => {
+    const validateChildTaskFocus = vi.fn();
+    const readParentContextBundle = vi.fn();
+    const startPlannerSession = vi.fn();
+    const sendPlannerMessage = vi.fn();
+    const client = createClient({ validateChildTaskFocus, readParentContextBundle, startPlannerSession, sendPlannerMessage });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectParentTask?.(createArchivedTask({
+        childParentEligibility: {
+          eligible: false,
+          reason: 'not-current-chain-tip',
+          message: 'Only the current child-chain tip can be used as the next parent.',
+          rootTaskId: 'ROOT',
+          currentTipTaskId: 'TIP',
+          currentTipState: 'completed',
+        },
+      }));
+    });
+
+    expect(validateChildTaskFocus).not.toHaveBeenCalled();
+    expect(readParentContextBundle).not.toHaveBeenCalled();
+    expect(startPlannerSession).not.toHaveBeenCalled();
+    expect(sendPlannerMessage).not.toHaveBeenCalled();
+    expect(result.current.plannerModalProps.draftError).toBe('Only the current child-chain tip can be used as the next parent.');
+    expect(window.desktopShell.log.emit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'planner.child-task-parent.selection.rejected',
+      level: 'warn',
+      extra: { taskId: 'TASK-001', reason: 'not-current-chain-tip' },
+    }));
   });
 
   it('logs and surfaces archived task load failures', async () => {

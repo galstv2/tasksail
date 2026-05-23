@@ -228,6 +228,47 @@ describe('verifyTaskBranches', () => {
     expect(result.failures).toEqual([]);
   });
 
+  it('verifies secondary standard primary repo branches when they are absent from snapshot support', async () => {
+    const taskId = 'verify-two-primaries';
+    const platformRootRepo = path.join(platformRoot, 'origin', 'platform');
+    const toolsRoot = path.join(platformRoot, 'origin', 'tools');
+    const platformWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'platform');
+    const toolsWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'tools');
+    const platformBaseSha = initRepo(platformRootRepo);
+    const toolsBaseSha = initRepo(toolsRoot);
+    addWorktree(platformRootRepo, platformWorktree, `task/${taskId}`, platformBaseSha);
+    addWorktree(toolsRoot, toolsWorktree, `task/${taskId}`, toolsBaseSha);
+    commitInWorktree(platformWorktree, 'platform.ts');
+    writeTaskJson(platformRoot, taskId, [
+      {
+        originalRoot: platformRootRepo,
+        worktreeRoot: platformWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: platformBaseSha,
+      },
+      {
+        originalRoot: toolsRoot,
+        worktreeRoot: toolsWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: toolsBaseSha,
+      },
+    ]);
+    writePackSnapshot({
+      platformRoot,
+      taskId,
+      primaryRepoId: 'platform',
+      primaryRoot: platformRootRepo,
+      support: [],
+    });
+
+    const result = await verifyTaskBranches(platformRoot, taskId);
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.originalRoot).toBe(toolsRoot);
+    expect(result.failures[0]!.reason).toBe('no-commits-beyond-base');
+  });
+
   it('still requires commits on the selected primary branch when support advanced', async () => {
     const taskId = 'verify-primary-empty';
     const primaryRoot = path.join(platformRoot, 'origin', 'primary');

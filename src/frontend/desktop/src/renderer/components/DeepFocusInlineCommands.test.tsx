@@ -92,13 +92,29 @@ function commandList(input: DeepFocusEditorModelInput): PopoverAction[] {
 }
 
 describe('DeepFocusInlineCommands command-strip — scope-choice cluster (spec §6.1)', () => {
-  it('exposes both scoped and global support buttons when the cursor is on a primary', () => {
-    // Per-primary cursor → the "Just for <primary>" option appears alongside
-    // the "For all primaries" escape hatch. Showing both lets the user widen
-    // scope without re-clicking the cursor; the global cursor stays
-    // global-only (asserted in the next test).
+  it('hides the per-primary support button until at least two primaries exist', () => {
     const state = makeState({
       selectedFocusTargets: [makePrimary('src/api')],
+    });
+    const row = makeRow('src/lib');
+
+    const actions = commandList(
+      makeModelInput(row, state, { scopeCursor: { kind: 'primary', index: 0 } }),
+    );
+    const supportButtons = actions.filter((entry) =>
+      entry.action.type === 'add-primary-support'
+      || entry.action.type === 'add-global-support',
+    );
+
+    expect(supportButtons).toHaveLength(1);
+    const labels = supportButtons.map((entry) => entry.label);
+    expect(labels).toContain('Add as Support · For all primaries');
+    expect(supportButtons.every((entry) => !entry.disabled)).toBe(true);
+  });
+
+  it('exposes both scoped and global support buttons when the cursor is on one of multiple primaries', () => {
+    const state = makeState({
+      selectedFocusTargets: [makePrimary('src/api'), makePrimary('src/app')],
     });
     const row = makeRow('src/lib');
 
@@ -136,7 +152,37 @@ describe('DeepFocusInlineCommands command-strip — scope-choice cluster (spec �
     expect(supportButtons[0]?.disabled).toBeFalsy();
   });
 
-  it('labels the per-primary button as "Move to …" when the row currently lives in the global bucket', () => {
+  it('hides the per-primary test button until at least two primaries exist', () => {
+    const state = makeState({
+      selectedFocusTargets: [makePrimary('src/api')],
+    });
+    const row = makeRow('tests/api.test.ts', { kind: 'file', isTest: true });
+
+    const actions = commandList(
+      makeModelInput(row, state, { scopeCursor: { kind: 'primary', index: 0 } }),
+    );
+    const labels = actions.map((entry) => entry.label);
+
+    expect(labels).not.toContain('Use as Test for api');
+    expect(labels).toContain('Use as Test for all primaries');
+  });
+
+  it('shows the per-primary test button after a second primary is selected', () => {
+    const state = makeState({
+      selectedFocusTargets: [makePrimary('src/api'), makePrimary('src/app')],
+    });
+    const row = makeRow('tests/api.test.ts', { kind: 'file', isTest: true });
+
+    const actions = commandList(
+      makeModelInput(row, state, { scopeCursor: { kind: 'primary', index: 0 } }),
+    );
+    const labels = actions.map((entry) => entry.label);
+
+    expect(labels).toContain('Use as Test for api');
+    expect(labels).toContain('Use as Test for all primaries');
+  });
+
+  it('offers removal instead of moving when the row currently lives in the global bucket', () => {
     const sharedSupport = { path: 'src/lib', kind: 'directory' as const };
     const stateGlobal = makeState({
       selectedFocusTargets: [makePrimary('src/api')],
@@ -150,14 +196,15 @@ describe('DeepFocusInlineCommands command-strip — scope-choice cluster (spec �
       }),
     );
     const labelsFromGlobal = actionsFromGlobal.map((entry) => entry.label);
-    expect(labelsFromGlobal).toContain('Move to api');
-    // The global support button is hidden because the row already lives there
-    // (and the cursor is on a primary anyway, so the global cluster is hidden).
+    expect(labelsFromGlobal).toEqual(['Remove']);
+    // The target already has a support assignment. Per clear-before-reselect,
+    // changing support scope requires removal before choosing another scope.
+    expect(labelsFromGlobal).not.toContain('Move to api');
     expect(labelsFromGlobal).not.toContain('Add as Support · For all primaries');
     expect(labelsFromGlobal).not.toContain('Add as Support · Just for api');
   });
 
-  it('labels the global button as "Move to all primaries" when the row currently lives on a primary and the cursor is global', () => {
+  it('offers removal instead of moving when the row currently lives on a primary', () => {
     const sharedSupport = { path: 'src/lib', kind: 'directory' as const };
     const stateScoped = makeState({
       selectedFocusTargets: [
@@ -173,8 +220,10 @@ describe('DeepFocusInlineCommands command-strip — scope-choice cluster (spec �
       }),
     );
     const labelsFromScoped = actionsFromScoped.map((entry) => entry.label);
-    expect(labelsFromScoped).toContain('Move to all primaries');
-    // Per-primary buttons are hidden because the cursor is global.
+    expect(labelsFromScoped).toEqual(['Remove from Primary']);
+    // The target already has a support assignment. Per clear-before-reselect,
+    // changing support scope requires removal before choosing another scope.
+    expect(labelsFromScoped).not.toContain('Move to all primaries');
     expect(labelsFromScoped).not.toContain('Add as Support · Just for api');
     expect(labelsFromScoped).not.toContain('Add as Support · For all primaries');
   });

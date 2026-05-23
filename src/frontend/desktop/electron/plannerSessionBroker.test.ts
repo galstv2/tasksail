@@ -24,6 +24,14 @@ function createFakeChildProcess(): FakeChildProcess {
 }
 
 describe('PlannerSessionBroker stream identity', () => {
+  it('uses planner-now session IDs by default and caller-supplied IDs when provided', () => {
+    const broker = new PlannerSessionBroker({ now: vi.fn(() => 901) });
+
+    expect(broker.startSession()).toEqual({ sessionId: 'planner-901', created: true });
+    broker.endSession();
+    expect(broker.startSession({ sessionId: 'planner-fixed' })).toEqual({ sessionId: 'planner-fixed', created: true });
+  });
+
   it('adds sessionId to events and drops late events after endSession', async () => {
     const events: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();
@@ -59,4 +67,3 @@ describe('PlannerSessionBroker stream identity', () => {
     ]);
   });
 });
-

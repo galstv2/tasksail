@@ -4,6 +4,7 @@ import type {
 } from '../../shared/desktopContract';
 import {
   basename,
+  findDeepFocusTargetAssignment,
   getAnchorTarget,
   isDirectoryAncestorTarget,
   isSameTarget,
@@ -188,10 +189,16 @@ export function applyScopedRoleAction(
       ...target,
       path: normalizeRelativePath(target.path),
     };
+    const existingAssignment = findDeepFocusTargetAssignment(current.state, normalizedTarget);
+    if (existingAssignment && existingAssignment.slot !== 'primary') {
+      return { next: current };
+    }
     // Multi-repo accumulation (Phase 2): never wipe existing primaries when the
     // user makes a primary in a different top-level. Cross-repo selection is
     // additive; the validator handles overlap rules per-repo.
-    const currentTargets = normalizePrimaryTargetRoles(current.state.selectedFocusTargets ?? []);
+    const currentTargets = normalizePrimaryTargetRoles(
+      current.state.selectedFocusTargets ?? [],
+    );
     const currentAnchor = currentTargets.find((candidate) => candidate.role === 'anchor');
     const currentAnchorPath = currentAnchor ? normalizeRelativePath(currentAnchor.path) : null;
     const isImplicitMonolithRootAnchor = deepFocusMode === 'monolith'
@@ -318,6 +325,9 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'set-global-test') {
+    if (findDeepFocusTargetAssignment(current.state, target)) {
+      return { next: current };
+    }
     return {
       next: {
         ...current,
@@ -334,31 +344,20 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'add-global-support') {
+    if (findDeepFocusTargetAssignment(current.state, target)) {
+      return { next: current };
+    }
     const supportCoveredByPrimary = (current.state.selectedFocusTargets ?? []).some((primary) =>
       primaryContainsTarget(primary, target, topLevelTarget, deepFocusMode));
     if (supportCoveredByPrimary) {
       return { next: current };
     }
-    // Mutual exclusion (spec §5.2): a global support subsumes any per-primary
-    // copy of the same path. Strip from every primary's supportTargets before
-    // adding to globals so the path lives in exactly one bucket.
-    const cleanedState = removeSupportFromAllScopes(current.state, target, {
-      stripFromPrimaries: true,
-    });
-    const alreadySupport = cleanedState.selectedSupportTargets.some(
-      (candidate) => isSameTarget(candidate, target),
-    );
     return {
       next: {
         ...current,
         state: {
-          ...cleanedState,
-          selectedTestTarget: isSameTarget(cleanedState.selectedTestTarget, target)
-            ? undefined
-            : cleanedState.selectedTestTarget,
-          selectedSupportTargets: alreadySupport
-            ? cleanedState.selectedSupportTargets
-            : [...cleanedState.selectedSupportTargets, target],
+          ...current.state,
+          selectedSupportTargets: [...current.state.selectedSupportTargets, target],
         },
         scopeCursor: { kind: 'global' },
       },
@@ -384,6 +383,9 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'set-primary-test') {
+    if (findDeepFocusTargetAssignment(current.state, target)) {
+      return { next: current };
+    }
     return patchPrimaryAt(current, action.index, deepFocusMode, (candidate) => ({
       ...candidate,
       testTarget: target,
@@ -394,19 +396,15 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'add-primary-support') {
+    if (findDeepFocusTargetAssignment(current.state, target)) {
+      return { next: current };
+    }
     const supportCoveredByPrimary = (current.state.selectedFocusTargets ?? []).some((primary) =>
       primaryContainsTarget(primary, target, topLevelTarget, deepFocusMode));
     if (supportCoveredByPrimary) {
       return { next: current };
     }
-    // Mutual exclusion (spec §5.2 + §10): a per-primary support and a global
-    // copy of the same path cannot coexist. Strip from globals before adding
-    // to the chosen primary. Sibling primaries are intentionally left alone —
-    // cross-primary support sharing is a supported case (spec §10).
-    const cleanedState = removeSupportFromAllScopes(current.state, target, {
-      stripFromPrimaries: false,
-    });
-    return patchPrimaryAt({ ...current, state: cleanedState }, action.index, deepFocusMode, (candidate) => {
+    return patchPrimaryAt(current, action.index, deepFocusMode, (candidate) => {
       const supports = candidate.supportTargets ?? [];
       // "Newest narrower wins": if any existing support strictly contains the
       // new target, drop it so the narrower carve-out replaces the broader
@@ -437,96 +435,14 @@ export function applyScopedRoleAction(
   }
 
   if (action.type === 'promote-test-to-global') {
-    if (isSameTarget(current.state.selectedTestTarget, target)) {
-      return { next: current };
-    }
-    return {
-      next: {
-        ...current,
-        state: {
-          ...current.state,
-          selectedTestTarget: target,
-          selectedFocusTargets: (current.state.selectedFocusTargets ?? []).map((primary) =>
-            isSameTarget(primary.testTarget, target)
-              ? { ...primary, testTarget: undefined }
-              : primary,
-          ),
-          selectedSupportTargets: current.state.selectedSupportTargets.filter(
-            (entry) => !isSameTarget(entry, target),
-          ),
-        },
-        scopeCursor: { kind: 'global' },
-      },
-    };
+    return { next: current };
   }
 
   if (action.type === 'promote-support-to-global') {
-    if (current.state.selectedSupportTargets.some((entry) => isSameTarget(entry, target))) {
-      return { next: current };
-    }
-    const cleanedState = removeSupportFromAllScopes(current.state, target, {
-      stripFromPrimaries: true,
-    });
-    return {
-      next: {
-        ...current,
-        state: {
-          ...cleanedState,
-          selectedTestTarget: isSameTarget(cleanedState.selectedTestTarget, target)
-            ? undefined
-            : cleanedState.selectedTestTarget,
-          selectedSupportTargets: [...cleanedState.selectedSupportTargets, target],
-        },
-        scopeCursor: { kind: 'global' },
-      },
-    };
+    return { next: current };
   }
 
   return { next: current };
-}
-
-/**
- * Enforce the support-scope mutual-exclusion invariant: a path may live in
- * `selectedSupportTargets` (globals) OR in one-or-more `primary.supportTargets`,
- * but never in both. Called by `add-global-support` and `add-primary-support`
- * before they extend their own bucket.
- *
- * Asymmetric on purpose:
- * - `stripFromPrimaries: true`  — used by `add-global-support`: a global
- *   support subsumes every per-primary copy. Wipe primaries.
- * - `stripFromPrimaries: false` — used by `add-primary-support`: only globals
- *   conflict; cross-primary support sharing remains allowed (spec §10).
- */
-function removeSupportFromAllScopes(
-  state: ContextPackDeepFocusState,
-  target: ContextPackDeepFocusTarget,
-  options: { stripFromPrimaries: boolean },
-): ContextPackDeepFocusState {
-  const filteredGlobals = state.selectedSupportTargets.filter(
-    (candidate) => !isSameTarget(candidate, target),
-  );
-  const globalsChanged = filteredGlobals.length !== state.selectedSupportTargets.length;
-  if (!options.stripFromPrimaries) {
-    if (!globalsChanged) return state;
-    return { ...state, selectedSupportTargets: filteredGlobals };
-  }
-  const primaries = state.selectedFocusTargets ?? [];
-  const primariesChanged = primaries.some((primary) =>
-    (primary.supportTargets ?? []).some((supportTarget) => isSameTarget(supportTarget, target)),
-  );
-  if (!globalsChanged && !primariesChanged) return state;
-  return {
-    ...state,
-    selectedSupportTargets: globalsChanged ? filteredGlobals : state.selectedSupportTargets,
-    selectedFocusTargets: primariesChanged
-      ? primaries.map((primary) => ({
-          ...primary,
-          supportTargets: (primary.supportTargets ?? []).filter(
-            (supportTarget) => !isSameTarget(supportTarget, target),
-          ),
-        }))
-      : state.selectedFocusTargets,
-  };
 }
 
 function patchPrimaryAt(

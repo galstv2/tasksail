@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DeepFocusEditor } from './DeepFocusEditor';
 import { DeepFocusInfoTip } from './DeepFocusInfoTip';
+import { FocusFiltersIcon } from './FocusFiltersIcon';
 import type {
   ContextPackCatalogEntry,
   ContextPackDeepFocusState,
@@ -17,6 +18,7 @@ import type { VisibleTreeRow } from './DeepFocusTreeCanvas';
 import type { TreeRowData } from './DeepFocusTreeRow';
 import {
   basename,
+  deepFocusTargetForRow,
   formatRelativeTime,
   getAnchorTarget,
   normalizeRelativePath,
@@ -79,6 +81,7 @@ type SidebarDeepFocusControlsProps = {
   onManageFocusFilters?: () => void;
   onDeepFocusEditorToggle?: (expanded: boolean) => void;
   editorOpen?: boolean;
+  showFocusFilterButton?: boolean;
 };
 
 function areTargetsEqual(
@@ -152,6 +155,7 @@ function SidebarDeepFocusControls({
   onManageFocusFilters,
   onDeepFocusEditorToggle,
   editorOpen = false,
+  showFocusFilterButton = true,
 }: SidebarDeepFocusControlsProps): JSX.Element {
   const deepFocusMode: DeepFocusMode =
     selectedPack.estateType === 'distributed-platform' ? 'distributed' : 'monolith';
@@ -828,10 +832,13 @@ function SidebarDeepFocusControls({
     if (!focusedRow) {
       return null;
     }
-    const rowTarget: ContextPackDeepFocusTarget = {
-      path: normalizeRelativePath(focusedRow.targetPath),
+    const rowTarget = deepFocusTargetForRow({
+      targetPath: focusedRow.targetPath,
       kind: focusedRow.kind,
-    };
+      repoLocalPath: focusedRow.repoLocalPath,
+      topLevelId: focusedRow.topLevelId,
+      deepFocusMode,
+    });
     return (draft.state.selectedFocusTargets ?? []).find((target) =>
       isPrimaryForTopLevel(target, rowTarget, focusedRow.topLevelId, deepFocusMode),
     ) ?? null;
@@ -872,7 +879,7 @@ function SidebarDeepFocusControls({
           <div className="scope-card__header">
             <div className="scope-card__header-top">
               <span className="scope-card__title">Workspace Selection</span>
-              {editorOpen ? null : (
+              {!editorOpen && showFocusFilterButton && onManageFocusFilters ? (
                 <button
                   type="button"
                   className="sidebar-icon-btn"
@@ -880,11 +887,9 @@ function SidebarDeepFocusControls({
                   title="Manage focus filters"
                   onClick={onManageFocusFilters}
                 >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-                    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
+                  <FocusFiltersIcon />
                 </button>
-              )}
+              ) : null}
             </div>
             {editorOpen ? (
               <button
@@ -923,6 +928,7 @@ function SidebarDeepFocusControls({
           {!editorOpen ? (
             <DeepFocusSummary
               committedTopLevel={committedTopLevel}
+              topLevelTargets={topLevelTargets}
               committedPrimaries={committedPrimaries}
               selectedFocusPath={selectedFocusPath}
               selectedFocusTargetKind={selectedFocusTargetKind}

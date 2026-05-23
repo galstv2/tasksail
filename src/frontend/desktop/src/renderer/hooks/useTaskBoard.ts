@@ -83,6 +83,7 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
         response.dropboxItems,
         response.pendingItems,
         response.errorItems,
+        response.completedItems,
       ]);
       if (json === lastBoardJsonRef.current) return;
       lastBoardJsonRef.current = json;

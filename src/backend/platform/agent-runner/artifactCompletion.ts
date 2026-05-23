@@ -8,10 +8,10 @@ import {
 import {
   listSliceFiles as listWorkflowPolicySliceFiles,
   parseArtifactMetadata,
-  parseSections,
+  parseSemanticSections,
   resolveSemanticSection,
 } from '../workflow-policy/artifacts.js';
-import { normalizeAgentId, normalizeText, stripHtmlComments } from '../workflow-policy/matching.js';
+import { normalizeAgentId, normalizeText } from '../workflow-policy/matching.js';
 import { GENERATED_INTAKE_SPINE_RULE_IDS } from '../workflow-policy/rules/spec.js';
 import {
   ALLOWED_DIFFICULTY_LEVELS,
@@ -84,12 +84,19 @@ interface WorkspaceArtifact {
 
 function finalSummaryDifficultyLevel(artifact: WorkspaceArtifact): string {
   for (const line of artifact.sections['Difficulty Assessment'] ?? []) {
-    const match = /^-\s+Difficulty Level:\s*(.*)$/.exec(line.trim());
+    const match = /^(?:[-*]\s*)?Difficulty Level\s*[:\-\u2013\u2014]\s*(.*)$/i.exec(line.trim());
     if (match) {
-      return (match[1] ?? '').trim();
+      return normalizeDifficultyLevel(match[1] ?? '');
     }
   }
   return '';
+}
+
+function normalizeDifficultyLevel(value: string): string {
+  const match = /^(easy|medium|hard)\b/i.exec(value.trim());
+  if (!match) return value.trim();
+  const lowered = match[1]!.toLowerCase();
+  return lowered.charAt(0).toUpperCase() + lowered.slice(1);
 }
 
 function hasRealContent(artifact: WorkspaceArtifact): boolean {
@@ -104,14 +111,14 @@ function hasRealContent(artifact: WorkspaceArtifact): boolean {
 async function loadWorkspaceArtifactAtPath(absolutePath: string): Promise<WorkspaceArtifact> {
   const rawText = await readTextFile(absolutePath);
   const text = rawText ?? '';
-  const sections = parseSections(text);
+  const sections = parseSemanticSections(text);
   return {
     exists: rawText !== undefined,
     sections,
     ...parseArtifactMetadata(sections),
     hasSubstantiveContent: Object.entries(sections).some(([sectionName, lines]) => (
       !CONTENT_SECTION_EXCLUSIONS.has(sectionName)
-      && normalizeText(stripHtmlComments(lines)).length > 0
+      && normalizeText(lines).length > 0
     )),
   };
 }
@@ -133,7 +140,7 @@ function parallelOkHasActiveApproval(artifact: WorkspaceArtifact): boolean {
 }
 
 function parallelOkDecisionValue(artifact: WorkspaceArtifact): string {
-  return normalizeText(stripHtmlComments(artifact.sections.Decision ?? [])).toLowerCase();
+  return normalizeText(artifact.sections.Decision ?? []).toLowerCase();
 }
 
 function parallelOkDecisionRecorded(artifact: WorkspaceArtifact): boolean {
@@ -141,7 +148,7 @@ function parallelOkDecisionRecorded(artifact: WorkspaceArtifact): boolean {
 }
 
 function stripBoilerplate(lines: string[]): string[] {
-  return stripHtmlComments(lines).filter((line) => {
+  return lines.filter((line) => {
     const trimmed = line.trim();
     return !TEMPLATE_BOILERPLATE_RE.test(trimmed) && !PLACEHOLDER_ONLY_RE.test(trimmed);
   });
@@ -174,7 +181,7 @@ function describeSemanticSectionSpec(sectionKey: string): string {
 
 async function sliceMissingRequiredSections(slicePath: string): Promise<string[]> {
   const text = (await readTextFile(slicePath)) ?? '';
-  const sections = parseSections(text);
+  const sections = parseSemanticSections(text);
   return SLICE_REQUIRED_SECTION_SPECS.filter((sectionSpec) => (
     normalizeText(stripBoilerplate(resolveSemanticSection(sections, sectionSpec).content)).length === 0
   )).map((sectionSpec) => sectionSpec.key);
@@ -189,12 +196,12 @@ function issuesSectionsHaveFindings(sections: Record<string, string[]>): boolean
     if (ISSUES_NON_FINDING_SECTIONS.has(sectionName)) {
       return false;
     }
-    return normalizeText(stripHtmlComments(lines)).length > 0;
+    return normalizeText(lines).length > 0;
   });
 }
 
 function issuesHaveBlockingFindings(sections: Record<string, string[]>): boolean {
-  const severityText = normalizeText(stripHtmlComments(sections.Severity ?? [])).toLowerCase();
+  const severityText = normalizeText(sections.Severity ?? []).toLowerCase();
   return severityText.includes('blocking');
 }
 
@@ -224,7 +231,7 @@ function generatedRequirementIdsFromSpec(spec: WorkspaceArtifact): string[] {
   if (!intakeRequirements) {
     return [];
   }
-  return [...new Set(stripFencedCode(stripHtmlComments(intakeRequirements).join('\n')).match(REQUIREMENT_ID_PATTERN) ?? [])].sort();
+  return [...new Set(stripFencedCode(intakeRequirements.join('\n')).match(REQUIREMENT_ID_PATTERN) ?? [])].sort();
 }
 
 async function generatedRequirementIds(handoffsDir: string): Promise<string[]> {
@@ -236,23 +243,19 @@ async function generatedRequirementIds(handoffsDir: string): Promise<string[]> {
 }
 
 function parseRequirementStatus(lines: readonly string[], id: string): string | null {
-  const pattern = new RegExp(`\\b${id}:\\s*(.*)$`);
-  const match = stripFencedCode(stripHtmlComments(lines).join('\n'))
+  const pattern = new RegExp(`\\b${id}\\s*[:\\-\\u2013\\u2014]\\s*(.*)$`);
+  const match = stripFencedCode(lines.join('\n'))
     .split(/\r?\n/)
     .map((candidate) => pattern.exec(candidate))
     .find((candidate) => candidate !== null);
   if (!match) {
     return null;
   }
-  const afterId = (match[1] ?? '').trim();
-  if (afterId.includes(' - ')) {
-    return afterId.split(' - ')[0]!.trim().toLowerCase();
-  }
-  const lowered = afterId.toLowerCase();
+  const lowered = (match[1] ?? '').trim().toLowerCase().replace(/[\u2013\u2014]/g, '-');
   if (lowered.startsWith('not met')) {
     return 'not met';
   }
-  return lowered.split(/\s+/)[0] ?? null;
+  return /^(verified|advisory|pending|blocked|unmet|failed)\b/.exec(lowered)?.[1] ?? null;
 }
 
 function requirementVerificationComplete(finalSummary: WorkspaceArtifact, ids: readonly string[]): boolean {
@@ -260,7 +263,7 @@ function requirementVerificationComplete(finalSummary: WorkspaceArtifact, ids: r
     return true;
   }
   const lines = finalSummary.sections['Requirement Verification'];
-  if (!lines || !normalizeText(stripHtmlComments(lines))) {
+  if (!lines || !normalizeText(lines)) {
     return false;
   }
   return ids.every((id) => {
@@ -270,7 +273,8 @@ function requirementVerificationComplete(finalSummary: WorkspaceArtifact, ids: r
 }
 
 function issuesReviewOutcome(sections: Record<string, string[]>): string {
-  return normalizeText(stripHtmlComments(sections['Review Outcome'] ?? [])).trim().toLowerCase();
+  const normalized = normalizeText(sections['Review Outcome'] ?? []).trim().toLowerCase();
+  return /^(pass|advisory|blocking)\b/.exec(normalized)?.[1] ?? normalized;
 }
 
 async function qaIssuesStructured(handoffsDir: string): Promise<boolean> {
@@ -282,13 +286,13 @@ async function qaIssuesStructured(handoffsDir: string): Promise<boolean> {
     return true;
   }
   for (const sectionName of ['Finding', ...ISSUES_MD_REQUIRED_FINDING_SECTIONS]) {
-    if (!normalizeText(stripHtmlComments(issues.sections[sectionName] ?? []))) {
+    if (!normalizeText(issues.sections[sectionName] ?? [])) {
       return false;
     }
   }
   if (issuesHaveBlockingFindings(issues.sections)) {
     for (const sectionName of ISSUES_MD_ROUTING_AGENT_SECTIONS) {
-      if (!normalizeText(stripHtmlComments(issues.sections[sectionName] ?? []))) {
+      if (!normalizeText(issues.sections[sectionName] ?? [])) {
         return false;
       }
     }
@@ -306,14 +310,14 @@ export async function detectParallelOk(handoffsDir: string): Promise<boolean> {
   if (content === undefined) {
     return false;
   }
-  const sections = parseSections(content);
+  const sections = parseSemanticSections(content);
   return parallelOkHasActiveApproval({
     exists: true,
     sections,
     ...parseArtifactMetadata(sections),
     hasSubstantiveContent: Object.entries(sections).some(([sectionName, lines]) => (
       !CONTENT_SECTION_EXCLUSIONS.has(sectionName)
-      && normalizeText(stripHtmlComments(lines)).length > 0
+      && normalizeText(lines).length > 0
     )),
   });
 }
@@ -397,7 +401,7 @@ export async function checkAgentArtifactCompletion(options: {
     if (!retro.exists || !hasRealContent(retro)) {
       return false;
     }
-    const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
+    const owner = normalizeAgentId(normalizeText(finalSummary.sections['Closeout Owner Agent ID'] ?? []));
     if (owner !== 'qa') {
       return false;
     }
@@ -529,7 +533,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
     }
     const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
     if (finalSummary.exists) {
-      const owner = normalizeAgentId(normalizeText(stripHtmlComments(finalSummary.sections['Closeout Owner Agent ID'] ?? [])));
+      const owner = normalizeAgentId(normalizeText(finalSummary.sections['Closeout Owner Agent ID'] ?? []));
       if (owner !== 'qa') {
         missingParts.push(`- ${toPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: set Closeout Owner Agent ID to exactly 'qa'.`);
         pushShapeInstruction();

@@ -16,6 +16,7 @@ import { TestGlyph } from './DeepFocusGlyphs';
 
 type DeepFocusSummaryProps = {
   committedTopLevel: TopLevelTarget | null;
+  topLevelTargets?: TopLevelTarget[];
   committedPrimaries: ContextPackPrimaryFocusTarget[];
   selectedFocusPath: string | null;
   selectedFocusTargetKind: ContextPackFocusTargetKind | null;
@@ -87,28 +88,52 @@ function basenameOf(path: string): string {
   return slash < 0 ? norm : norm.slice(slash + 1);
 }
 
-function renderSupportList(targets: ContextPackDeepFocusTarget[]): JSX.Element {
+function targetFallbackLabel(target: ContextPackDeepFocusTarget, topLevelTargets: TopLevelTarget[]): string {
+  const topLevelId = target.repoId ?? target.focusId ?? null;
+  const topLevel = topLevelId ? topLevelTargets.find((entry) => entry.id === topLevelId) : null;
+  if (topLevel?.label) return topLevel.label;
+  if (target.kind === 'directory' && target.repoLocalPath) return basenameOf(target.repoLocalPath);
+  return target.repoId ?? target.focusId ?? '/';
+}
+
+function targetPreviewLabel(target: ContextPackDeepFocusTarget, topLevelTargets: TopLevelTarget[]): string {
+  const norm = normalizeRelativePath(target.path);
+  return norm.length > 0 ? basenameOf(norm) : targetFallbackLabel(target, topLevelTargets);
+}
+
+function renderTargetPath(target: ContextPackDeepFocusTarget, topLevelTargets: TopLevelTarget[]): JSX.Element {
+  const norm = normalizeRelativePath(target.path);
+  if (norm.length > 0) return renderPath(norm);
+  const label = targetFallbackLabel(target, topLevelTargets);
+  return (
+    <span className="deep-focus-summary__path" title={target.repoLocalPath ?? label}>
+      <span className="deep-focus-summary__path-basename">{label}</span>
+    </span>
+  );
+}
+
+function renderSupportList(targets: ContextPackDeepFocusTarget[], topLevelTargets: TopLevelTarget[]): JSX.Element {
   if (targets.length === 0) return <></>;
-  if (targets.length === 1) return renderPath(targets[0].path);
+  if (targets.length === 1) return renderTargetPath(targets[0], topLevelTargets);
   if (targets.length === 2) {
     return (
       <span className="deep-focus-summary__path-basename">
-        {basenameOf(targets[0].path)} · {basenameOf(targets[1].path)}
+        {targetPreviewLabel(targets[0], topLevelTargets)} · {targetPreviewLabel(targets[1], topLevelTargets)}
       </span>
     );
   }
   return (
     <span className="deep-focus-summary__path-basename">
-      {basenameOf(targets[0].path)} · {basenameOf(targets[1].path)} +{targets.length - 2}
+      {targetPreviewLabel(targets[0], topLevelTargets)} · {targetPreviewLabel(targets[1], topLevelTargets)} +{targets.length - 2}
     </span>
   );
 }
 
-function renderPreview(targets: ContextPackDeepFocusTarget[]): string {
+function renderPreview(targets: ContextPackDeepFocusTarget[], topLevelTargets: TopLevelTarget[]): string {
   if (targets.length <= 2) {
-    return targets.map((t) => basenameOf(t.path)).join(' · ');
+    return targets.map((target) => targetPreviewLabel(target, topLevelTargets)).join(' · ');
   }
-  return `${basenameOf(targets[0].path)} · ${basenameOf(targets[1].path)} +${targets.length - 2}`;
+  return `${targetPreviewLabel(targets[0], topLevelTargets)} · ${targetPreviewLabel(targets[1], topLevelTargets)} +${targets.length - 2}`;
 }
 
 function Indicator({
@@ -168,9 +193,11 @@ function PrimaryRowContents({ row }: { row: SummaryPrimaryRow }): JSX.Element {
 function SummaryPrimaryOverrides({
   id,
   row,
+  topLevelTargets,
 }: {
   id: string;
   row: SummaryPrimaryRow;
+  topLevelTargets: TopLevelTarget[];
 }): JSX.Element {
   return (
     <div
@@ -194,7 +221,7 @@ function SummaryPrimaryOverrides({
             className="deep-focus-summary__overrides-value"
             title={row.scopedSupports.map((target) => target.path).join('\n')}
           >
-            {renderSupportList(row.scopedSupports)}
+            {renderSupportList(row.scopedSupports, topLevelTargets)}
           </span>
         </div>
       ) : null}
@@ -234,8 +261,10 @@ function SummaryHeader({
 
 function SummaryPrimaryList({
   rows,
+  topLevelTargets,
 }: {
   rows: SummaryPrimaryRow[];
+  topLevelTargets: TopLevelTarget[];
 }): JSX.Element {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
@@ -278,7 +307,7 @@ function SummaryPrimaryList({
               </div>
             )}
             {row.expandable && isExpanded ? (
-              <SummaryPrimaryOverrides id={overridesId} row={row} />
+              <SummaryPrimaryOverrides id={overridesId} row={row} topLevelTargets={topLevelTargets} />
             ) : null}
           </li>
         );
@@ -290,9 +319,11 @@ function SummaryPrimaryList({
 function SummaryGlobals({
   globalTest,
   globalSupports,
+  topLevelTargets,
 }: {
   globalTest: ContextPackDeepFocusTarget | null;
   globalSupports: ContextPackDeepFocusTarget[];
+  topLevelTargets: TopLevelTarget[];
 }): JSX.Element | null {
   if (!globalTest && globalSupports.length === 0) return null;
   return (
@@ -301,21 +332,21 @@ function SummaryGlobals({
       {globalTest ? (
         <div className="deep-focus-summary__globals-row">
           <span className="deep-focus-summary__globals-label">Test</span>
-          <span className="deep-focus-summary__globals-value">{renderPath(globalTest.path)}</span>
+          <span className="deep-focus-summary__globals-value">{renderTargetPath(globalTest, topLevelTargets)}</span>
         </div>
       ) : null}
       {globalSupports.length > 0 ? (
         <div className="deep-focus-summary__globals-row">
           <span className="deep-focus-summary__globals-value">
             {globalSupports.length === 1
-              ? renderPath(globalSupports[0].path)
+              ? renderTargetPath(globalSupports[0], topLevelTargets)
               : `${globalSupports.length} folders`}
             {globalSupports.length > 1 ? (
               <span
                 className="deep-focus-summary__globals-preview"
                 title={globalSupports.map((target) => target.path).join('\n')}
               >
-                {renderPreview(globalSupports)}
+                {renderPreview(globalSupports, topLevelTargets)}
               </span>
             ) : null}
           </span>
@@ -327,6 +358,7 @@ function SummaryGlobals({
 
 export function DeepFocusSummary({
   committedTopLevel,
+  topLevelTargets = [],
   committedPrimaries,
   selectedFocusPath,
   selectedFocusTargetKind,
@@ -376,10 +408,11 @@ export function DeepFocusSummary({
           actionRef={actionRef}
           onOpenEditor={() => onOpenEditor()}
         />
-        <SummaryPrimaryList rows={viewModel.primaryRows} />
+        <SummaryPrimaryList rows={viewModel.primaryRows} topLevelTargets={topLevelTargets} />
         <SummaryGlobals
           globalTest={viewModel.globalTest}
           globalSupports={viewModel.globalSupports}
+          topLevelTargets={topLevelTargets}
         />
       </div>
     </section>

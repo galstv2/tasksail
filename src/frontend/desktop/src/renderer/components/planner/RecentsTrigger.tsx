@@ -70,7 +70,7 @@ export const RecentsTrigger = forwardRef<HTMLButtonElement, RecentsTriggerProps>
         aria-label={`Recent conversations, ${count} available`}
         onClick={onToggle}
       >
-        <span className="recents-trigger__label">{`Recent · ${count}`}</span>
+        <span className="recents-trigger__label">Recent Task</span>
       </button>
     );
   },

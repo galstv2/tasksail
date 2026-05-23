@@ -148,11 +148,41 @@ async function runJob(
       : {}),
   };
 
+  logUnsuccessfulResult(result, {
+    jobId,
+    contextPackDir: options.contextPackDir,
+  });
+
   try {
     await writeJobReceipt(options.repoRoot, options.realignmentId, finalReceipt);
   } catch (error) {
     log.warn('realignment_receipt.write_failed', { realignmentId: options.realignmentId, error: getErrorMessage(error) });
   }
+}
+
+function logUnsuccessfulResult(
+  result: RealignmentExecutionResult,
+  context: { jobId: string; contextPackDir: string },
+): void {
+  if (result.passed && result.status === 'archived') {
+    return;
+  }
+  if (result.status === 'skipped') {
+    return;
+  }
+
+  const extra = {
+    jobId: context.jobId,
+    realignmentId: result.realignmentId,
+    status: result.status,
+    reason: result.reason ?? null,
+    contextPackDir: context.contextPackDir,
+  };
+  if (result.status === 'error') {
+    log.error('realignment_job.analysis_failed', extra);
+    return;
+  }
+  log.warn('realignment_job.analysis_not_archived', extra);
 }
 
 async function writeJobReceipt(

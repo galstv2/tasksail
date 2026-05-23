@@ -17,6 +17,9 @@ type DesktopShellSource = Window['desktopShell'] & {
 
 type DirectPlannerDraft = import('../../shared/desktopContract').PlannerDirectSubmissionDraft;
 type PlannerStartSessionPayload = import('../../shared/desktopContract').PlannerStartSessionPayload;
+type PlannerReadParentContextBundlePayload = import('../../shared/desktopContract').PlannerReadParentContextBundleRequest['payload'];
+type PlannerReadParentChainArchiveBundlePayload = import('../../shared/desktopContract').PlannerReadParentChainArchiveBundleRequest['payload'];
+type PlannerReadParentArchiveMarkdownPayload = import('../../shared/desktopContract').PlannerReadParentArchiveMarkdownRequest['payload'];
 type DirectFollowUpDraft = import('../../shared/desktopContract').FollowUpDirectSubmissionDraft;
 type ComposerStage = import('../../shared/desktopContract').ComposerStage;
 
@@ -53,6 +56,9 @@ type DesktopShellClient = Pick<
   | 'uploadSpec'
   | 'getBypassTemplate'
   | 'listArchivedTasks'
+  | 'readParentContextBundle'
+  | 'readParentChainArchiveBundle'
+  | 'readParentArchiveMarkdown'
   | 'listPlannerConversationHistory'
   | 'hydratePlannerConversation'
   | 'listExternalMcpServers'
@@ -179,6 +185,12 @@ export function createDesktopShellClient(
     uploadSpec: (content, options) => readShell().uploadSpec(content, options),
     getBypassTemplate: () => readShell().getBypassTemplate(),
     listArchivedTasks: () => readShell().listArchivedTasks(),
+    readParentContextBundle: (payload: PlannerReadParentContextBundlePayload) =>
+      readShell().readParentContextBundle(payload),
+    readParentChainArchiveBundle: (payload: PlannerReadParentChainArchiveBundlePayload) =>
+      readShell().readParentChainArchiveBundle(payload),
+    readParentArchiveMarkdown: (payload: PlannerReadParentArchiveMarkdownPayload) =>
+      readShell().readParentArchiveMarkdown(payload),
     listPlannerConversationHistory: () =>
       readShell().listPlannerConversationHistory(),
     hydratePlannerConversation: (recordId) =>

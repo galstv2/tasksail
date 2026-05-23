@@ -121,8 +121,17 @@ function makeArchivedTask(overrides: Partial<ArchivedTaskEntry> = {}): ArchivedT
     followupReason: '',
     year: '2026',
     archivePath: '/archive/2026/task.md',
+    archivedAt: null,
     contextPackName: 'test-pack',
     plannerFocusSnapshot: makeFocusSnapshot(),
+    childParentEligibility: {
+      eligible: true,
+      reason: 'standalone-root',
+      message: '',
+      rootTaskId: 'TASK-001',
+      currentTipTaskId: null,
+      currentTipState: null,
+    },
     ...overrides,
   };
 }
@@ -787,6 +796,16 @@ describe('usePlannerModal file and child-task workflows', () => {
         rootTaskId: 'ROOT-1',
         followUpReason: 'Operator correction.',
       },
+      parentTaskBranchView: {
+        schemaVersion: 1,
+        parentTaskId: parent.taskId,
+        contextPackDir: parent.plannerFocusSnapshot!.contextPackDir,
+        contextPackId: parent.plannerFocusSnapshot!.contextPackId,
+        branchChainAvailability: {
+          status: 'missing-branch-handoffs',
+          message: 'Parent branch view unavailable: archived parent has no branch handoffs. Lily will use archived parent archive context only.',
+        },
+      },
     });
   });
 
@@ -954,9 +973,9 @@ describe('usePlannerModal file and child-task workflows', () => {
     });
     const firstCall = sendPlannerMessage.mock.calls[0]!;
     const sentText = firstCall[0] as string;
-    expect(sentText).toContain('child-task correction workflow');
+    expect(sentText).toContain('child-task continuation workflow');
     expect(sentText).toContain('Add search module');
-    expect(sentText).toContain('Do NOT change the platform-owned title, Task Lineage, Context Pack Binding, or Source metadata.');
+    expect(sentText).toContain('Do NOT change Task Lineage, Context Pack Binding, Branch Chain, or Source metadata.');
     expect(sentText).toContain('Operator message:');
     expect(sentText).toContain('Adjust the search algorithm.');
 
@@ -969,7 +988,7 @@ describe('usePlannerModal file and child-task workflows', () => {
     });
     const secondCall = sendPlannerMessage.mock.calls[1]!;
     const secondText = secondCall[0] as string;
-    expect(secondText).not.toContain('child-task correction workflow');
+    expect(secondText).not.toContain('child-task continuation workflow');
     expect(secondText).toContain('Follow-up question.');
   });
 
@@ -1035,7 +1054,7 @@ describe('usePlannerModal file and child-task workflows', () => {
     const reviewText = reviewCall![0] as string;
     expect(reviewText).toContain('child-task workflow');
     expect(reviewText).toContain('existing staged shell');
-    expect(reviewText).toContain('Do NOT validate or rewrite platform-owned title, lineage');
+    expect(reviewText).toContain('Do NOT validate or rewrite platform-owned lineage, context-pack binding, or source sections.');
     expect(reviewText).toContain('child-draft.md');
     expect(reviewText).toContain('Build on parent work.');
     expect(reviewText).toContain('Review this child-task draft.');
@@ -1124,7 +1143,7 @@ describe('buildMarkdownReviewPrompt', () => {
   it('keeps child-task review focused on editable sections', () => {
     const prompt = buildMarkdownReviewPrompt('draft.md', '# Draft');
     expect(prompt).toContain('Parent Task Carry-Forward Summary');
-    expect(prompt).toContain('Do not validate or rewrite platform-owned title, lineage');
+    expect(prompt).toContain('Do not validate or rewrite platform-owned lineage, context-pack binding, or source sections.');
   });
 });
 
@@ -1136,8 +1155,8 @@ describe('buildChildTaskStarterPrompt', () => {
       rootTaskId: 'TASK-001',
       parentQmdScope: 'qmd/context-packs/test-pack',
     });
-    expect(prompt).toContain('child-task correction workflow');
-    expect(prompt).toContain('staged planning document already contains the platform-owned title, lineage, context, and source shell');
+    expect(prompt).toContain('child-task continuation workflow');
+    expect(prompt).toContain('staged planning document already contains the editable H1 title plus the platform-owned lineage, context, and source shell');
     expect(prompt).toContain('Parent task title: Add search module');
     expect(prompt).toContain("The parent task's planner focus snapshot has been restored for this session.");
   });
@@ -1205,8 +1224,8 @@ describe('buildChildTaskStarterPrompt', () => {
       rootTaskId: 'TASK-001',
       parentQmdScope: 'scope',
     });
-    expect(prompt).toContain('Fill or refine only the editable sections');
-    expect(prompt).toContain('Do NOT change the platform-owned title, Task Lineage, Context Pack Binding, or Source metadata.');
+    expect(prompt).toContain('Fill or refine only the H1 task title and editable sections in the staged document.');
+    expect(prompt).toContain('Do NOT change Task Lineage, Context Pack Binding, Branch Chain, or Source metadata.');
   });
 
   it('differs from standard planning mode — contains child-task specifics', () => {
@@ -1216,7 +1235,7 @@ describe('buildChildTaskStarterPrompt', () => {
       rootTaskId: 'TASK-001',
       parentQmdScope: 'scope',
     });
-    expect(prompt).toContain('what specifically needs correction and why');
+    expect(prompt).toContain('what continuation, extension, or follow-up outcome they need');
     expect(prompt).toContain('child-task intake');
   });
 });
@@ -1225,7 +1244,7 @@ describe('buildChildTaskMarkdownReviewPrompt', () => {
   it('keeps child-task review focused on editable staged-shell sections', () => {
     const prompt = buildChildTaskMarkdownReviewPrompt('draft.md', '# Draft');
     expect(prompt).toContain('existing staged shell');
-    expect(prompt).toContain('Do NOT validate or rewrite platform-owned title, lineage, context-pack binding, or source sections.');
+    expect(prompt).toContain('Do NOT validate or rewrite platform-owned lineage, context-pack binding, or source sections.');
   });
 
   it('lists content sections that the file may fill', () => {

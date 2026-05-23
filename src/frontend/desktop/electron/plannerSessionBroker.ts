@@ -101,6 +101,7 @@ export class PlannerSessionBroker {
   }
 
   startSession(options?: {
+    sessionId?: string;
     contextPackDir?: string;
     allowedRoots?: string[];
     workingDirectory?: string;
@@ -120,7 +121,7 @@ export class PlannerSessionBroker {
       return { sessionId: this.session.sessionId, created: false };
     }
 
-    const sessionId = `planner-${this.now()}`;
+    const sessionId = options?.sessionId ?? `planner-${this.now()}`;
     this.session = {
       sessionId,
       state: createPlannerBrokerState(),

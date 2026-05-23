@@ -187,6 +187,29 @@ export class RuntimeTerminalEvents {
     });
   }
 
+  activationReturnedToOpenBranchConflict(input: {
+    conflictingTaskId: string;
+    repoLabel: string;
+    repoRoot: string;
+    branch: string;
+    openItemPath: string;
+  }): Promise<void> {
+    return this.append({
+      eventId: `activation.returned-open.branch-conflict:${input.branch}:${input.conflictingTaskId}`,
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'warning',
+      message: `Returned to open because active task ${input.conflictingTaskId} already owns branch ${input.branch} for repo ${input.repoLabel}.`,
+      extra: {
+        conflictingTaskId: input.conflictingTaskId,
+        repoLabel: input.repoLabel,
+        repoRoot: input.repoRoot,
+        branch: input.branch,
+        openItemPath: input.openItemPath,
+      },
+    });
+  }
+
   autoMergeDisabled(): Promise<void> {
     return this.append({
       eventId: 'auto_merge.disabled',
@@ -219,6 +242,16 @@ export class RuntimeTerminalEvents {
     });
   }
 
+  autoMergeSkippedForChildTaskChain(): Promise<void> {
+    return this.append({
+      eventId: 'auto_merge.skipped_child_chain',
+      source: 'runtime.closeout',
+      role: 'pipeline',
+      severity: 'warning',
+      message: 'Auto-merge skipped for child task chain: chain branches are manually integrated by the operator.',
+    });
+  }
+
   closeoutFinalized(): Promise<void> {
     return this.append({
       eventId: 'closeout.finalized',
@@ -237,6 +270,50 @@ export class RuntimeTerminalEvents {
       severity: 'error',
       message: `Moved to error-items: ${input.reason}.`,
       extra: { error_path: input.errorPath, reason: input.reason },
+    });
+  }
+
+  childChainFailureBranchRollbackPreflightFailed(extra: Record<string, unknown>): Promise<void> {
+    return this.append({
+      eventId: 'child_chain_failure_branch.rollback_preflight_failed',
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'error',
+      message: 'Child-chain branch rollback preflight failed.',
+      extra,
+    });
+  }
+
+  childChainFailureBranchRollbackCompleted(extra: Record<string, unknown>): Promise<void> {
+    return this.append({
+      eventId: 'child_chain_failure_branch.rollback_completed',
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'info',
+      message: 'Child-chain branch rollback completed.',
+      extra,
+    });
+  }
+
+  childChainFailureBranchRollbackFailed(extra: Record<string, unknown>): Promise<void> {
+    return this.append({
+      eventId: 'child_chain_failure_branch.rollback_failed',
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'error',
+      message: 'Child-chain branch rollback failed.',
+      extra,
+    });
+  }
+
+  childChainFailureBranchDeleteSkipped(extra: Record<string, unknown>): Promise<void> {
+    return this.append({
+      eventId: 'child_chain_failure_branch.branch_delete_skipped',
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'warning',
+      message: 'Skipped deleting chain-owned branch.',
+      extra,
     });
   }
 

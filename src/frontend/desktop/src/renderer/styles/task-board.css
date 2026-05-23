@@ -214,6 +214,15 @@
   text-overflow: ellipsis;
 }
 
+.task-board-card__meta {
+  color: var(--terminal-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .task-board-card__badge {
   display: inline-block;
   align-self: flex-start;

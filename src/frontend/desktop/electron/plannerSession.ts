@@ -12,14 +12,22 @@ import {
 } from '../../../backend/platform/context-pack/focusedRepo.js';
 import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
 import { getPlannerHistoryRecord } from '../../../backend/platform/planner-history/store.js';
-import type { PlannerStagingSidecar } from '../../../backend/platform/planner-history/types.js';
+import type {
+  PlannerStagingContextPackBinding,
+  PlannerStagingSidecar,
+} from '../../../backend/platform/planner-history/types.js';
 import { readTextFile, resolvePath, safeJsonParse } from '../../../backend/platform/core/index.js';
 import {
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   type PlannerChildTaskLineage,
+  type PlannerChildTaskExecutionScope,
   type PlannerFocusSnapshot,
+  type PlannerLilyPlanningReloadScope,
+  type PlannerParentBranchViewRequest,
+  type PlannerParentBranchViewStatus,
   type PlannerStartSessionDeepFocusSelection,
 } from '../src/shared/desktopContract';
+import { normalizeRepositoryTypesForSelection } from '../../../backend/platform/queue/repositoryTypes.js';
 import { PLANNER_SAVE_DRAFT_WORKFLOW, wrapFreshSessionMessage } from '../src/shared/plannerWorkflow';
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { REPO_ROOT } from './paths';
@@ -35,6 +43,12 @@ import {
   beginPendingRecord,
   discardPendingRecord,
 } from './plannerHistory';
+import { assertPlannerHistoryRecordHydratable, childTaskHydrateMessage } from './plannerRecentChildTaskEligibility';
+import {
+  cleanupPlannerParentBranchViewSession,
+  createPlannerParentBranchViewSession,
+  type PlannerParentBranchViewSession,
+} from './plannerParentBranchView';
 
 const log = createLogger('electron/plannerSession');
 
@@ -57,6 +71,7 @@ const broker = new PlannerSessionBroker({
 
 /** Tracks whether the first operator message has been sent in the current session. */
 let firstMessageSent = false;
+let activeParentBranchViewSession: PlannerParentBranchViewSession | null = null;
 
 export async function startSession(
   contextPackDir: string,
@@ -64,9 +79,25 @@ export async function startSession(
   replayConversationId?: string,
   childTaskFocusSnapshot?: PlannerFocusSnapshot,
   childTaskLineage?: PlannerChildTaskLineage,
-): Promise<{ sessionId: string; created: boolean }> {
+  childTaskExecutionScope?: PlannerChildTaskExecutionScope,
+  lilyPlanningReloadScope?: PlannerLilyPlanningReloadScope,
+  parentTaskBranchView?: PlannerParentBranchViewRequest,
+): Promise<{ sessionId: string; created: boolean; parentBranchViewStatus?: PlannerParentBranchViewStatus }> {
+  if (broker.isSessionActive()) {
+    return broker.startSession();
+  }
+  await cleanupActiveParentBranchViewSession();
   if (childTaskLineage && !childTaskFocusSnapshot) {
     throw new Error('Child-task planner sessions require a focus snapshot.');
+  }
+  if (lilyPlanningReloadScope && !childTaskExecutionScope) {
+    throw new Error('Lily Planning Reload Scope requires Child Execution Scope authority.');
+  }
+  if (lilyPlanningReloadScope && childTaskFocusSnapshot && (
+    lilyPlanningReloadScope.contextPackDir !== childTaskFocusSnapshot.contextPackDir
+    || lilyPlanningReloadScope.contextPackId !== childTaskFocusSnapshot.contextPackId
+  )) {
+    throw new Error('Lily Planning Reload Scope must match the selected parent context pack.');
   }
   const replayRecord = replayConversationId
     ? await getPlannerHistoryRecord({
@@ -79,30 +110,74 @@ export async function startSession(
   if (replayConversationId && !replayRecord) {
     throw new Error('Planner conversation history record was not found for replay.');
   }
+  if (replayRecord?.sidecarSnapshot.lineage.taskKind === 'child-task') {
+    const eligibility = await assertPlannerHistoryRecordHydratable(replayRecord, REPO_ROOT);
+    if (!eligibility.visible) {
+      throw new Error(childTaskHydrateMessage(eligibility));
+    }
+  }
   const effectiveContextPackDir = childTaskFocusSnapshot?.contextPackDir
     ?? replayRecord?.sidecarSnapshot.contextPackBinding.contextPackDir
     ?? contextPackDir;
-  const focused = replayRecord
+  const unrewrittenFocused = replayRecord
     ? buildReplayFocusedRepo(replayRecord.sidecarSnapshot)
+    : lilyPlanningReloadScope
+      ? await buildFocusedRepoFromLilyPlanningReloadScope(effectiveContextPackDir, lilyPlanningReloadScope, childTaskFocusSnapshot)
     : childTaskFocusSnapshot
       ? buildFocusedRepoFromSnapshot(childTaskFocusSnapshot)
       : uiSelection?.deepFocusEnabled === true
       ? await buildFocusedRepoFromUiSelection(contextPackDir, uiSelection)
       : await resolveSelectedPrimaryRepoRoot(contextPackDir, REPO_ROOT)
         ?? await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
+  const plannerSessionId = parentTaskBranchView && childTaskFocusSnapshot && childTaskLineage
+    ? `planner-${Date.now()}`
+    : undefined;
+  let runtimeFocused = unrewrittenFocused;
+  let parentBranchViewStatus: PlannerParentBranchViewStatus | undefined;
+  let parentBranchViewSession: PlannerParentBranchViewSession | undefined;
+  if (plannerSessionId) {
+    const parentBranchView = await createPlannerParentBranchViewSession({
+      plannerSessionId,
+      focused: unrewrittenFocused,
+      request: parentTaskBranchView,
+    });
+    runtimeFocused = parentBranchView.focused;
+    parentBranchViewStatus = parentBranchView.status;
+    parentBranchViewSession = parentBranchView.session;
+  }
   const allowedRoots = dedupeRoots([
     ...getPlanningAgentAllowedRoots(),
-    ...(focused?.visibleRepoRoots ?? []),
+    ...(runtimeFocused?.visibleRepoRoots ?? []),
     // Planner context roots include writable and read-only Deep Focus targets;
     // Dalton write authority is enforced separately from writableRoots.
-    ...(focused?.deepFocusEnabled === true ? collectFocusedRepoTargetDirectoryRoots(focused) : []),
+    ...(runtimeFocused?.deepFocusEnabled === true ? collectFocusedRepoTargetDirectoryRoots(runtimeFocused) : []),
   ]);
-  const focusEnv = focused ? toFocusEnv(focused, effectiveContextPackDir) : undefined;
-  const result = broker.startSession({ contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv });
+  const focusEnv = runtimeFocused ? toFocusEnv(runtimeFocused, effectiveContextPackDir) : undefined;
+  // A parent branch view session created above must be cleaned up if
+  // broker.startSession throws or reuses an existing session (created false),
+  // otherwise its worktrees would be orphaned. Only adopt it as the active
+  // session once the broker confirms a newly created session.
+  let result: ReturnType<typeof broker.startSession>;
+  try {
+    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv });
+  } catch (error: unknown) {
+    if (parentBranchViewSession) {
+      await cleanupParentBranchViewSession(parentBranchViewSession);
+    }
+    log.warn('planner.session.start.cleanup.failed', {
+      contextPackDir: effectiveContextPackDir,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   if (!result.created) {
+    if (parentBranchViewSession) {
+      await cleanupParentBranchViewSession(parentBranchViewSession);
+    }
     return result;
   }
+  activeParentBranchViewSession = parentBranchViewSession ?? null;
 
   firstMessageSent = false;
 
@@ -111,7 +186,7 @@ export async function startSession(
     const sidecarSnapshot = await initializeStagedPlanningDraft({
       sessionId: result.sessionId,
       contextPackDir: effectiveContextPackDir,
-      focusedRepo: toStagingFocusedRepo(focused),
+      focusedRepo: toStagingFocusedRepo(unrewrittenFocused),
       ...(replayRecord ? {
         title: replayRecord.sidecarSnapshot.title,
         lineage: replayRecord.sidecarSnapshot.lineage,
@@ -124,21 +199,156 @@ export async function startSession(
           ...childTaskLineage,
         },
         contextPackBinding: childTaskFocusSnapshot.contextPackBinding,
+        ...(childTaskExecutionScope ? {
+          childTaskExecutionScope: toStagingContextPackBinding(childTaskExecutionScope),
+        } : {}),
       } : {}),
     });
     if (sidecarSnapshot) {
       beginPendingRecord(result.sessionId, effectiveContextPackDir, sidecarSnapshot);
     }
-    return result;
+    return { ...result, parentBranchViewStatus };
   } catch (error: unknown) {
     broker.endSession();
     discardPendingRecord();
+    await cleanupActiveParentBranchViewSession();
     log.warn('planner.session.start.cleanup.failed', {
       contextPackDir: effectiveContextPackDir,
       reason: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }
+}
+
+async function buildFocusedRepoFromLilyPlanningReloadScope(
+  contextPackDir: string,
+  reloadScope: PlannerLilyPlanningReloadScope,
+  snapshot?: PlannerFocusSnapshot,
+): Promise<FocusedRepoResult> {
+  if (!reloadScope.deepFocusEnabled) {
+    const manifestFocused = await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
+    const manifestRoots = await resolveReloadScopeStandardRoots(contextPackDir, reloadScope);
+    const primaryRepoId = primaryIdFromRepositoryTypes(reloadScope.selectedRepoIds, reloadScope.repositoryTypes)
+      ?? snapshot?.primaryRepoId
+      ?? manifestFocused?.primaryRepoId
+      ?? '';
+    const primaryFocusId = primaryIdFromRepositoryTypes(reloadScope.selectedFocusIds, reloadScope.repositoryTypes)
+      ?? snapshot?.contextPackBinding.primaryFocusId
+      ?? manifestFocused?.primaryFocusId;
+    const primaryRepoRoot = (primaryRepoId ? manifestRoots.repoRootsById.get(primaryRepoId) : undefined)
+      ?? snapshot?.primaryRepoRoot
+      ?? manifestFocused?.primaryRepoRoot
+      ?? manifestRoots.visibleRepoRoots[0]
+      ?? REPO_ROOT;
+    return {
+      primaryRepoRoot,
+      visibleRepoRoots: dedupeRoots([primaryRepoRoot, ...manifestRoots.visibleRepoRoots]),
+      declaredRepoRoots: manifestRoots.declaredRepoRoots.length > 0
+        ? manifestRoots.declaredRepoRoots
+        : manifestFocused?.declaredRepoRoots ?? [primaryRepoRoot],
+      estateType: manifestFocused?.estateType ?? 'distributed-platform',
+      primaryRepoId,
+      primaryFocusId,
+      primaryFocusRelativePath: snapshot?.primaryFocusRelativePath ?? undefined,
+      deepFocusEnabled: false,
+      primaryFocusTargetKind: snapshot?.primaryFocusTargetKind ?? undefined,
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      selectedRepoIds: [...reloadScope.selectedRepoIds],
+      selectedFocusIds: [...reloadScope.selectedFocusIds],
+      authoritySource: 'workspace-sync-state',
+    };
+  }
+  return buildFocusedRepoFromUiSelection(contextPackDir, {
+    deepFocusEnabled: reloadScope.deepFocusEnabled,
+    deepFocusPrimaryRepoId: reloadScope.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: reloadScope.deepFocusPrimaryFocusId,
+    selectedFocusPath: reloadScope.selectedFocusPath,
+    selectedFocusTargetKind: reloadScope.selectedFocusTargetKind,
+    selectedFocusTargets: reloadScope.selectedFocusTargets,
+    selectedTestTarget: reloadScope.selectedTestTarget,
+    selectedSupportTargets: reloadScope.selectedSupportTargets,
+    selectedRepoIds: reloadScope.selectedRepoIds,
+    selectedFocusIds: reloadScope.selectedFocusIds,
+  });
+}
+
+async function resolveReloadScopeStandardRoots(
+  contextPackDir: string,
+  reloadScope: PlannerLilyPlanningReloadScope,
+): Promise<{ visibleRepoRoots: string[]; declaredRepoRoots: string[]; repoRootsById: Map<string, string> }> {
+  const resolvedPackDir = resolvePath(REPO_ROOT, contextPackDir);
+  const manifestPath = path.join(resolvedPackDir, 'qmd', 'repo-sources.json');
+  const content = await readTextFile(manifestPath);
+  if (content === undefined) {
+    return { visibleRepoRoots: [], declaredRepoRoots: [], repoRootsById: new Map() };
+  }
+  const manifest = safeJsonParse<Manifest>(content, manifestPath);
+  if (!manifest) {
+    return { visibleRepoRoots: [], declaredRepoRoots: [], repoRootsById: new Map() };
+  }
+  const repos = collectManifestRepos(manifest);
+  const declaredRepoRoots = repos
+    .map((repo) => resolveFirstLocalPath(repo, resolvedPackDir))
+    .filter((root): root is string => Boolean(root));
+  const repoById = new Map(
+    repos
+      .filter((repo) => typeof repo.repo_id === 'string' && repo.repo_id.trim())
+      .map((repo) => [repo.repo_id!.trim(), repo]),
+  );
+  const visibleRepoRoots = reloadScope.selectedRepoIds
+    .map((repoId) => resolveRepoRootById(repoById, repoId, resolvedPackDir))
+    .filter((root): root is string => Boolean(root));
+  const repoRootsById = new Map<string, string>();
+  for (const repoId of repoById.keys()) {
+    const root = resolveRepoRootById(repoById, repoId, resolvedPackDir);
+    if (root) {
+      repoRootsById.set(repoId, root);
+    }
+  }
+  return { visibleRepoRoots: dedupeRoots(visibleRepoRoots), declaredRepoRoots, repoRootsById };
+}
+
+function toStagingContextPackBinding(scope: PlannerChildTaskExecutionScope): PlannerStagingContextPackBinding {
+  const selectedAuthorityIds = scope.selectedRepoIds.length > 0 ? scope.selectedRepoIds : scope.selectedFocusIds;
+  const repositoryTypes = scope.deepFocusEnabled
+    ? undefined
+    : normalizeRepositoryTypesForSelection(scope.repositoryTypes, selectedAuthorityIds);
+  const primaryRepoId = scope.deepFocusEnabled
+    ? undefined
+    : primaryIdFromRepositoryTypes(scope.selectedRepoIds, repositoryTypes);
+  const primaryFocusId = scope.deepFocusEnabled
+    ? undefined
+    : primaryIdFromRepositoryTypes(scope.selectedFocusIds, repositoryTypes);
+  return {
+    contextPackDir: scope.contextPackDir,
+    contextPackId: scope.contextPackId,
+    scopeMode: scope.scopeMode,
+    ...(primaryRepoId ? { primaryRepoId } : {}),
+    ...(primaryFocusId ? { primaryFocusId } : {}),
+    ...(scope.deepFocusPrimaryRepoId ? { deepFocusPrimaryRepoId: scope.deepFocusPrimaryRepoId } : {}),
+    ...(scope.deepFocusPrimaryFocusId ? { deepFocusPrimaryFocusId: scope.deepFocusPrimaryFocusId } : {}),
+    selectedRepoIds: [...scope.selectedRepoIds],
+    selectedFocusIds: [...scope.selectedFocusIds],
+    ...(repositoryTypes ? { repositoryTypes } : {}),
+    deepFocusEnabled: scope.deepFocusEnabled,
+    selectedFocusPath: scope.selectedFocusPath,
+    selectedFocusTargetKind: scope.selectedFocusTargetKind,
+    selectedFocusTargets: scope.selectedFocusTargets.map((target) => ({ ...target })),
+    selectedTestTarget: scope.selectedTestTarget ? { ...scope.selectedTestTarget } : null,
+    selectedSupportTargets: scope.selectedSupportTargets.map((target) => ({
+      ...target,
+      effectiveScope: 'full-directory' as const,
+    })),
+  };
+}
+
+function primaryIdFromRepositoryTypes(
+  selectedIds: string[],
+  repositoryTypes?: Record<string, 'primary' | 'support'>,
+): string | undefined {
+  return selectedIds.find((id) => repositoryTypes?.[id] === 'primary') ?? selectedIds[0];
 }
 
 function buildReplayFocusedRepo(snapshot: PlannerStagingSidecar): FocusedRepoResult {
@@ -352,6 +562,7 @@ export async function endSession(): Promise<{ ended: boolean }> {
   const sessionId = broker.getObservability().sessionId;
   broker.endSession();
   discardPendingRecord();
+  await cleanupActiveParentBranchViewSession();
   if (!sessionId) {
     return { ended: false };
   }
@@ -365,6 +576,27 @@ export async function endSession(): Promise<{ ended: boolean }> {
     });
   }
   return { ended: true };
+}
+
+async function cleanupActiveParentBranchViewSession(): Promise<void> {
+  if (!activeParentBranchViewSession) {
+    return;
+  }
+  const session = activeParentBranchViewSession;
+  activeParentBranchViewSession = null;
+  await cleanupParentBranchViewSession(session);
+}
+
+async function cleanupParentBranchViewSession(session: PlannerParentBranchViewSession): Promise<void> {
+  try {
+    await cleanupPlannerParentBranchViewSession(session);
+  } catch (error: unknown) {
+    log.warn('planner.parent-branch-view.cleanup.failed', {
+      sessionId: session.plannerSessionId,
+      parentTaskId: session.parentTaskId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function saveDraft(): Promise<PlannerSendResult> {

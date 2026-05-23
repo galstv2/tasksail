@@ -62,6 +62,23 @@ export function parseSections(text: string | null | undefined): Record<string, s
   return sections;
 }
 
+export function stripHtmlCommentsFromSections(
+  sections: Record<string, string[]>,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(sections).map(([sectionName, lines]) => [
+      sectionName,
+      stripHtmlCommentsLines(lines),
+    ]),
+  );
+}
+
+export function parseSemanticSections(
+  text: string | null | undefined,
+): Record<string, string[]> {
+  return stripHtmlCommentsFromSections(parseSections(text));
+}
+
 export function parseMetadata(lines: readonly string[]): Record<string, string> {
   const values: Record<string, string> = {};
 
@@ -206,7 +223,8 @@ export async function loadWorkspaceArtifact(
 ): Promise<WorkspaceArtifact> {
   const absolutePath = path.join(rootDir, relativePath);
   const rawText = await readTextFile(absolutePath);
-  const sections = parseSections(rawText ?? '');
+  const rawSections = parseSections(rawText ?? '');
+  const sections = stripHtmlCommentsFromSections(rawSections);
 
   return {
     relativePath,

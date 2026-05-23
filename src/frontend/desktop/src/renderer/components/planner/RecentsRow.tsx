@@ -1,5 +1,6 @@
 import type { PlannerListConversationHistorySummary } from '../../../shared/desktopContractPlanner';
-import { formatRecentsTimestamp } from '../SidebarDeepFocusUtils';
+import { PlannerPickerRow } from './PlannerPickerRow';
+import { formatPlannerDropdownTimestamp } from './parentArchiveTimestamp';
 
 export interface RecentsRowProps {
   record: PlannerListConversationHistorySummary;
@@ -18,38 +19,25 @@ function buildTooltip(record: PlannerListConversationHistorySummary): string {
 export function RecentsRow(props: RecentsRowProps) {
   const { record, isActive, isFirst, onSelect, onHover } = props;
 
-  const className = [
-    'recents-row',
-    isFirst ? 'recents-row--first' : null,
-    isActive ? 'recents-row--active' : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const meta = (
+    <span className="planner-picker-row__time">
+      {formatPlannerDropdownTimestamp(record.createdAt) ?? record.createdAt}
+    </span>
+  );
 
   return (
-    <div
-      role="option"
-      id={`recents-row-${record.id}`}
-      aria-selected={isActive}
-      className={className}
-      onClick={onSelect}
-      onMouseEnter={onHover}
-      title={buildTooltip(record)}
-      data-testid={`recents-row-${record.id}`}
-    >
-      <div className="recents-row__primary">{record.title}</div>
-      <div className="recents-row__secondary">
-        {record.taskKind === 'child-task' && (
-          <span className="recents-row__chip">child-task</span>
-        )}
-        <span className="recents-row__repo">{record.primaryRepoId}</span>
-        <span className="recents-row__sep" aria-hidden="true">·</span>
-        <span className="recents-row__time">{formatRecentsTimestamp(record.createdAt)}</span>
-      </div>
-      <span className="recents-row__chevron" aria-hidden="true">
-        ›
-      </span>
-    </div>
+    <PlannerPickerRow
+      optionId={`recents-row-${record.id}`}
+      testId={`recents-row-${record.id}`}
+      title={record.title}
+      meta={meta}
+      chip={record.taskKind === 'child-task' ? 'child-task' : undefined}
+      tooltip={buildTooltip(record)}
+      isActive={isActive}
+      isFirst={isFirst}
+      onSelect={onSelect}
+      onHover={onHover}
+    />
   );
 }
 

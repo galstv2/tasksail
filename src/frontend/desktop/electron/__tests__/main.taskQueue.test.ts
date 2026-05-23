@@ -5,7 +5,12 @@ vi.mock('../main.stream', () => ({
 }));
 
 vi.mock('../main.contextPackCatalog', () => ({
+  listAvailableContextPacks: vi.fn(),
   readWorkspaceSyncStateSnapshot: vi.fn(),
+}));
+
+vi.mock('../main.childTaskChain', () => ({
+  resolveChildTaskChainCreationContext: vi.fn(),
 }));
 
 vi.mock('../../../../backend/platform/context-pack/focusedRepo.js', () => ({
@@ -39,6 +44,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 const { readWorkspaceSyncStateSnapshot } = await import('../main.contextPackCatalog');
+const { resolveChildTaskChainCreationContext } = await import('../main.childTaskChain');
 const { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } = await import('../../../../backend/platform/context-pack/focusedRepo.js');
 const { createDropboxTask } = await import('../../../../backend/platform/queue/createDropboxTask.js');
 const { createFollowupTask } = await import('../../../../backend/platform/queue/createFollowupTask.js');
@@ -152,6 +158,43 @@ function buildPlannerSidecar(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function mockResolvedChildTaskChainContext(parentTaskId = 'PARENT-123', rootTaskId = 'ROOT-001') {
+  const childExecutionScope = {
+    contextPackDir: '/context-packs/sample-pack',
+    contextPackId: 'sample-pack-id',
+    scopeMode: 'focus-selection',
+    primaryRepoId: 'immutable-repo',
+    primaryFocusId: 'immutable-focus',
+    selectedRepoIds: ['immutable-repo'],
+    selectedFocusIds: ['immutable-focus'],
+    deepFocusEnabled: true,
+    deepFocusPrimaryRepoId: null,
+    deepFocusPrimaryFocusId: null,
+    selectedFocusPath: 'immutable/focus',
+    selectedFocusTargetKind: 'directory' as const,
+    selectedFocusTargets: [],
+    selectedTestTarget: null,
+    selectedSupportTargets: [],
+  };
+  vi.mocked(resolveChildTaskChainCreationContext).mockResolvedValue({
+    branchChain: {
+      schemaVersion: 1,
+      mode: 'continuation',
+      rootTaskId,
+      parentTaskId,
+      depth: 1,
+      repos: [],
+    },
+    parentContextSnapshot: null,
+    childExecutionScope,
+    parentArchivePath: '/archive/parent.md',
+    parentArchiveArtifactDir: null,
+    previousTaskId: parentTaskId,
+    rootTaskId,
+    depth: 1,
+  });
+}
+
 describe('main.taskQueue direct submission hardening', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -187,6 +230,7 @@ describe('main.taskQueue direct submission hardening', () => {
       authoritySource: 'workspace-sync-state',
     });
     vi.mocked(resolveFocusedRepoRoot).mockResolvedValue(undefined);
+    mockResolvedChildTaskChainContext();
   });
 
   it('derives the canonical direct-submission title from the active context pack instead of trusting the renderer title', async () => {
@@ -411,7 +455,13 @@ Review child upload queue output.
       { plannerSidecar: sidecar },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.uploadSpec',
+        mode: 'submitted',
+      }),
+    });
     expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
       title: 'child_dropbox_planner',
       parentTaskId: 'PARENT-123',
@@ -578,6 +628,7 @@ Validation should be reviewed manually.
     vi.mocked(createFollowupTask).mockResolvedValue(
       '/repo/AgentWorkSpace/dropbox/20260307T183000Z_recent-child.md',
     );
+    mockResolvedChildTaskChainContext('RECENT-PARENT', 'RECENT-ROOT');
 
     await submitUploadedSpecHelper(
       buildUploadedSpec(`

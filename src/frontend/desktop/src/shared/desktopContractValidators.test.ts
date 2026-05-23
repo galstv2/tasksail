@@ -141,7 +141,7 @@ describe('validateDesktopActionRequest', () => {
       parentQmdRecordId: 'qmd-1',
       parentQmdScope: 'qmd/context-packs/orders-estate',
       rootTaskId: 'TASK-ROOT',
-      followUpReason: 'Correction requested through child-task mode.',
+      followUpReason: 'Continue from the archived parent task.',
     };
 
     it('accepts optional replayConversationId in the payload', () => {

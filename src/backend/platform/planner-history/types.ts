@@ -26,8 +26,11 @@ export type PlannerStagingContextPackBinding = {
   scopeMode: string;
   primaryRepoId?: string;
   primaryFocusId?: string;
+  deepFocusPrimaryRepoId?: string;
+  deepFocusPrimaryFocusId?: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  repositoryTypes?: Record<string, 'primary' | 'support'>;
   deepFocusEnabled: boolean;
   selectedFocusPath: string | null;
   selectedFocusTargetKind: FocusTargetKind | null;
@@ -54,6 +57,7 @@ export type PlannerStagingSidecar = {
   supportTargets: NormalizedSupportTarget[];
   lineage: PlannerStagingLineage;
   contextPackBinding: PlannerStagingContextPackBinding;
+  childTaskExecutionScope?: PlannerStagingContextPackBinding;
 };
 
 export interface PlannerConversationHistoryFile {
@@ -86,4 +90,3 @@ export class PlannerHistoryValidationError extends Error {
     super(message);
   }
 }
-

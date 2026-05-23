@@ -127,7 +127,7 @@ export function emitStreamEvent(options: StreamEventOptions): void {
   }
   const event: StreamEvent = {
     id: `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: new Date().toLocaleTimeString(),
+    timestamp: new Date().toISOString(),
     role: options.role,
     source: options.source,
     taskId: options.taskId ?? 'N/A',

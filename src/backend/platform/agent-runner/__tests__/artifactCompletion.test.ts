@@ -42,11 +42,11 @@ describe('artifactCompletion', () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
-  const writeQaArtifacts = (options: { closeoutOwner?: string; difficultyLevel?: string } = {}): void => {
-    const { closeoutOwner = 'qa', difficultyLevel = 'Medium' } = options;
+  const writeQaArtifacts = (options: { closeoutOwner?: string; difficultyLevel?: string; reviewOutcome?: string } = {}): void => {
+    const { closeoutOwner = 'qa', difficultyLevel = 'Medium', reviewOutcome = 'pass' } = options;
     writeFileSync(
       path.join(handoffsDir, 'issues.md'),
-      '# Issues\n\n## Review Outcome\n\npass\n',
+      `# Issues\n\n## Review Outcome\n\n${reviewOutcome}\n`,
       'utf-8',
     );
     writeFileSync(
@@ -588,6 +588,29 @@ describe('artifactCompletion', () => {
     })).resolves.toBe(false);
   });
 
+  it('accepts qa completion with natural review outcome and difficulty phrasing', async () => {
+    writeQaArtifacts({ reviewOutcome: 'Pass - no findings.' });
+    const finalSummaryPath = path.join(handoffsDir, 'final-summary.md');
+    writeFileSync(
+      finalSummaryPath,
+      '# Final Summary\n\n'
+      + '## Closeout Owner Agent ID\n\nqa\n\n'
+      + '## Completed Work\n\n- delivered fix\n\n'
+      + '## Key Design Decisions\n\n- kept contract aligned\n\n'
+      + '## Known Limitations\n\n- none\n\n'
+      + '## Task branches\n\n[]\n\n'
+      + '## Difficulty Assessment\n\nDifficulty Level - medium confidence\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(true);
+  });
+
   it('fails qa completion when generated requirement IDs are still pending', async () => {
     writeQaArtifacts();
     writeFileSync(
@@ -675,6 +698,34 @@ describe('artifactCompletion', () => {
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
       + '## Requirement Verification\n\n- CR-001: verified acceptance criteria passed.\n- VAL-001: advisory broad suite remains follow-up.\n\n'
+      + '## Task branches\n\n[]\n\n'
+      + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toBe(true);
+  });
+
+  it('accepts qa completion when generated requirement statuses use dash separators', async () => {
+    writeQaArtifacts();
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n- VAL-001: Run tests.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n'
+      + '## Closeout Owner Agent ID\n\nqa\n\n'
+      + '## Completed Work\n\n- delivered fix\n\n'
+      + '## Key Design Decisions\n\n- kept contract aligned\n\n'
+      + '## Known Limitations\n\n- none\n\n'
+      + '## Requirement Verification\n\n- CR-001 — verified—acceptance criteria passed.\n- VAL-001 - advisory - broad suite remains follow-up.\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',

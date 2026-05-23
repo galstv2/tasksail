@@ -22,7 +22,7 @@ import {
   normalizeIdentifier,
   normalizeText,
 } from '../matching.js';
-import { listSliceFiles, parseSections, resolveSemanticSection } from '../artifacts.js';
+import { listSliceFiles, parseSemanticSections, resolveSemanticSection } from '../artifacts.js';
 import { toHandoffKey } from '../validator.js';
 import { loadMarkdownContract } from '../contracts/markdownContract.js';
 import type { WorkspaceArtifact } from '../types.js';
@@ -79,7 +79,7 @@ export async function evaluateSliceQualityRules(validator: PolicyValidator): Pro
   for (const slicePath of sliceFiles) {
     const relative = path.relative(validator.rootDir, slicePath);
     const text = (await readTextFile(slicePath)) ?? '';
-    const sections = parseSections(text);
+    const sections = parseSemanticSections(text);
     validateSingleSlice(validator, relative, sections);
   }
 }
@@ -181,7 +181,7 @@ async function evaluateRequirementTraceabilityRules(
   for (const slicePath of sliceFiles) {
     const relative = path.relative(validator.rootDir, slicePath);
     const text = (await readTextFile(slicePath)) ?? '';
-    const sections = parseSections(text);
+    const sections = parseSemanticSections(text);
     authoredByArtifact.set(relative, extractRequirementIds(text));
     for (const id of extractRequirementIds(validationSurfaceLines(sections, VALIDATION_SLICE_SECTIONS))) {
       validationIds.add(id);

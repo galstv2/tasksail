@@ -5,6 +5,7 @@ import TerminalFeed from './TerminalFeed';
 import type { TerminalFeedProps } from './TerminalFeed';
 import type { StreamEvent } from '../activityStream';
 import { createObservabilitySnapshot } from '../../test';
+import { formatLocalTime } from '../utils/localTimestamp';
 
 afterEach(() => {
   cleanup();
@@ -97,6 +98,23 @@ describe('TerminalFeed', () => {
     expect(firstLine.querySelector('.terminal-timestamp')?.textContent).toBe('[10:05:30]');
     expect(firstLine.querySelector('.terminal-role')).toHaveClass('terminal-role--planner');
     expect(firstLine.querySelector('.terminal-message')?.textContent).toBe('Planning started');
+  });
+
+  it('renders ISO timestamps as local 24-hour time without bracket padding', () => {
+    renderFeed({
+      activityStream: [
+        makeEvent({
+          id: 'e1',
+          timestamp: '2026-05-23T04:17:00.000Z',
+          role: 'planner',
+          message: 'Planner session started.',
+        }),
+      ],
+    });
+
+    expect(document.querySelector('.terminal-timestamp')?.textContent).toBe(
+      `[${formatLocalTime('2026-05-23T04:17:00.000Z')}]`,
+    );
   });
 
   it('does not duplicate an actor already embedded in a task-scoped message', () => {

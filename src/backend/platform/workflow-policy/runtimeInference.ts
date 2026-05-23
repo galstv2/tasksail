@@ -1,17 +1,12 @@
 import path from 'node:path';
 import { readTextFile, resolvePaths } from '../core/index.js';
 import { checkAgentArtifactCompletion, detectParallelOk } from '../agent-runner/artifactCompletion.js';
+import { parseSemanticSections } from './artifacts.js';
+import { markdownSectionsHaveContent, normalizeAgentId, normalizeText } from './matching.js';
+import { CONTENT_SECTION_EXCLUSIONS } from './models.js';
 
 const ISSUES_MD_FILENAME = 'issues.md';
 const FINAL_SUMMARY_MD_FILENAME = 'final-summary.md';
-
-const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
-const AGENT_ID_ALIASES: Record<string, string> = {
-  lily: 'planning-agent',
-  alice: 'product-manager',
-  dalton: 'software-engineer',
-  ron: 'qa',
-};
 
 interface RuntimeInferenceArtifact {
   exists: boolean;
@@ -34,45 +29,15 @@ export interface RuntimeInferenceResult {
   };
 }
 
-function parseSections(text: string | null | undefined): Record<string, string[]> {
-  const sections: Record<string, string[]> = {};
-  let current: string | null = null;
-  for (const rawLine of (text ?? '').split('\n')) {
-    const match = /^##\s+(.*\S)\s*$/.exec(rawLine.trim());
-    if (match) {
-      current = match[1] ?? null;
-      if (current && !(current in sections)) {
-        sections[current] = [];
-      }
-      continue;
-    }
-    if (current) {
-      sections[current]!.push(rawLine.replace(/\n$/, ''));
-    }
-  }
-  return sections;
-}
-
-function normalizeText(lines: string[]): string {
-  return lines
-    .map((line) => line.replace(MULTILINE_HTML_COMMENT_RE, '').trim())
-    .filter((line) => line.length > 0)
-    .join('\n')
-    .trim();
-}
-
-function normalizeAgentId(value: string): string {
-  const normalized = value.replace(MULTILINE_HTML_COMMENT_RE, '').trim().toLowerCase();
-  return AGENT_ID_ALIASES[normalized] ?? normalized;
-}
-
 async function loadArtifact(absolutePath: string): Promise<RuntimeInferenceArtifact> {
   const rawText = await readTextFile(absolutePath);
-  const sections = parseSections(rawText ?? '');
+  const sections = parseSemanticSections(rawText ?? '');
   return {
     exists: rawText !== undefined,
     sections,
-    hasSubstantiveContent: Object.values(sections).some((lines) => normalizeText(lines).length > 0),
+    hasSubstantiveContent: markdownSectionsHaveContent(sections, {
+      excludedSections: CONTENT_SECTION_EXCLUSIONS,
+    }),
   };
 }
 

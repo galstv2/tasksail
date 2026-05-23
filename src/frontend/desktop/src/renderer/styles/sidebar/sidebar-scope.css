@@ -226,7 +226,6 @@
   font-weight: 600;
 }
 
-.focus-filter-modal__summary,
 .focus-filter-modal__empty,
 .focus-filter-modal__error {
   margin: 0;
@@ -285,6 +284,8 @@
 
 .focus-filter-modal__list {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 0.30rem;
   flex: 1;
   min-height: 0;
@@ -339,6 +340,11 @@
   background: var(--ts-accent-tint);
 }
 
+.focus-filter-modal__row--draft {
+  border-style: dashed;
+  background: var(--ts-surface-alt);
+}
+
 .focus-filter-modal__row-select {
   display: block;
   width: 100%;
@@ -350,6 +356,11 @@
   padding: 0 3.4rem 0 0;
   text-align: left;
   cursor: pointer;
+}
+
+.focus-filter-modal__row-select--static {
+  padding-right: 0;
+  cursor: default;
 }
 
 .focus-filter-modal__row-select:focus-visible {
@@ -430,6 +441,10 @@
 
 .focus-filter-modal__row--selected .focus-filter-modal__row-flag {
   color: var(--ts-accent);
+}
+
+.focus-filter-modal__row-flag--draft {
+  color: var(--ts-text-soft);
 }
 
 .focus-filter-modal__delete {

@@ -9,7 +9,7 @@ import {
   moveStagedPlannerFocusSnapshot,
   transferStagedSnapshotToActiveTask,
 } from './plannerFocusSnapshotStaging.js';
-import { withOriginLock, materializeWorktreeDeps, preconditionsPass } from '../core/worktreeMaterialization.js';
+import { withOriginLock, materializeWorktreeDeps } from '../core/worktreeMaterialization.js';
 import { readContextPackManifest, resolveFocusedRepoRoot } from '../context-pack/focusedRepo.js';
 import {
   resolveExistingManifestGitRoot,
@@ -50,7 +50,6 @@ import {
   mergeCompletingSentinelPayload,
   type DeferredRetrospectiveMarker,
 } from './completePendingItem.js';
-import type { TaskRepoBinding } from './taskJson.js';
 import { acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 import { writeTaskPackSnapshot } from './packSnapshot.js';
 import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
@@ -65,6 +64,14 @@ import {
   writeQueueOrderManifest,
 } from './queueOrderManifest.js';
 import { buildReadableTaskFileName, isGeneratedTaskFileName, stripGeneratedTaskPrefix } from './taskNames.js';
+import {
+  buildActivationBranchCandidatePlans,
+  finalizeActivationBranchPlans,
+  resolveTaskBranchChainForActivation,
+  type ActivationRollbackBinding,
+} from './branchChainActivation.js';
+import { findActivationBranchConflicts } from './activeBranchConflictGuard.js';
+import { returnPendingTaskToOpenForBranchConflict } from './branchConflictReturnToOpen.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('platform/queue/operations');
@@ -111,6 +118,9 @@ function extractBindingOrWarn(content: string | undefined, taskId?: string): Tas
     return result.binding;
   }
   if (result.kind === 'invalid') {
+    if (result.reason === 'malformed-repository-types') {
+      throw new Error(`Invalid Context Pack Binding${taskId ? ` for task "${taskId}"` : ''}: malformed-repository-types`);
+    }
     log.warn('context_pack_binding.invalid.ignored', { taskId, reason: result.reason });
   }
   return null;
@@ -580,6 +590,7 @@ export interface ActivateNextPendingItemOptions {
 export const ACTIVATION_GATE_REASON = {
   CONCURRENCY_CAP_REACHED: 'concurrency-cap-reached',
   ACTIVATION_BLOCKED_DIRTY_REPOS: 'activation-blocked-dirty-repos',
+  BRANCH_CONFLICT_RETURNED_OPEN: 'branch-conflict-returned-open',
   SHARED_MCP_BOOTSTRAP_FAILED: 'shared-mcp-bootstrap-failed',
   PIPELINE_SPAWN_FAILED: 'pipeline-spawn-failed',
 } as const;
@@ -655,7 +666,11 @@ export async function activateNextPendingItemIfReady(
     worktreeRoot: string;
     worktreeBranch: string;
     baseCommitSha: string;
+    branchOwnership: 'task-owned' | 'chain-owned';
+    branchChainRootTaskId?: string;
+    branchChainTaskId?: string;
   }> = [];
+  let rollbackBindings: ActivationRollbackBinding[] = [];
   let packSnapshotPath = '';
 
   const releaseActivation = await acquireDirLockOrThrow(paths.queueLockDir, 'Activation');
@@ -682,244 +697,307 @@ export async function activateNextPendingItemIfReady(
       return { activated: false, reason: ACTIVATION_GATE_REASON.CONCURRENCY_CAP_REACHED };
     }
 
-    // Skip already-active task IDs so parallel activations pick the next
-    // unstarted pending item rather than re-selecting the already-active one.
     const activeSet = new Set(currentActive);
-    nextItem = await nextPendingItemPath(pendingDir, undefined, activeSet);
-    if (!nextItem) return { activated: false };
+    let returnedOpenCount = 0;
+    while (true) {
+      nextItem = null;
+      taskId = '';
+      taskHandoffsDir = '';
+      taskImplStepsDir = '';
+      content = undefined;
+      activeMarkerPath = '';
+      repoBindings = [];
+      rollbackBindings = [];
+      packSnapshotPath = '';
 
-    // Resolve per-task paths early so readiness check uses the task-specific dir.
-    // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
-    // They are always "ready" (empty) for a new task since the directory won't exist yet.
-    taskId = path.basename(nextItem, '.md');
-    taskHandoffsDir = paths.taskHandoffs(taskId);
-    taskImplStepsDir = paths.taskImplementationSteps(taskId);
+      // Skip already-active task IDs so parallel activations pick the next
+      // unstarted pending item rather than re-selecting the already-active one.
+      nextItem = await nextPendingItemPath(pendingDir, undefined, activeSet);
+      if (!nextItem) {
+        return returnedOpenCount > 0
+          ? { activated: false, reason: ACTIVATION_GATE_REASON.BRANCH_CONFLICT_RETURNED_OPEN }
+          : { activated: false };
+      }
 
-    const isReady = await handoffWorkspaceIsReady(
-      taskHandoffsDir,
-      templatesDir,
-    );
-    if (!isReady) return { activated: false };
+      // Resolve per-task paths early so readiness check uses the task-specific dir.
+      // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
+      // They are always "ready" (empty) for a new task since the directory won't exist yet.
+      taskId = path.basename(nextItem, '.md');
+      taskHandoffsDir = paths.taskHandoffs(taskId);
+      taskImplStepsDir = paths.taskImplementationSteps(taskId);
 
-    // Read the queue item and initialize handoffs from it
-    content = await readTextFile(nextItem);
-    if (content === undefined) return { activated: false };
-  const taskTitle = extractTaskTitle(content) || path.basename(nextItem, '.md');
-  const queueName = path.basename(nextItem);
-  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-
-  const taskKind = extractLineageValue(content, 'Task Kind') || 'standard';
-  const parentTaskId = extractLineageValue(content, 'Parent Task ID');
-  const rootTaskId = extractLineageValue(content, 'Root Task ID');
-  const parentQmdRecordId = extractLineageValue(content, 'Parent QMD Record ID');
-  const parentQmdScope = extractLineageValue(content, 'Parent QMD Scope');
-  const followupReason = extractLineageValue(content, 'Follow-Up Reason');
-  const contextPackBinding = extractBindingOrWarn(content, taskId);
-
-  const metadata: Record<string, string> = {
-    'Task ID': taskId,
-    'Task Title': taskTitle,
-    'Initialized At (UTC)': now,
-    'Active Branch': 'unknown',
-    'Intake Source': `AgentWorkSpace/pendingitems/${queueName}`,
-  };
-
-  const lineage: Record<string, string> = {
-    'Task Kind': taskKind,
-    'Parent Task ID': parentTaskId,
-    'Root Task ID': rootTaskId,
-    'Parent QMD Record ID': parentQmdRecordId,
-    'Parent QMD Scope': parentQmdScope,
-    'Follow-Up Reason': followupReason,
-  };
-
-  const sections = {
-    ...buildProfessionalTaskSectionsFromIntake(content),
-    ...buildImplementationSpecSectionsFromIntake(content),
-  };
-
-  // The per-task active marker is written only after the task sidecar and
-  // handoff workspace have been materialized. If materialization fails, the
-  // pending item remains pending and no active marker is leaked.
-  await ensureDir(paths.activeItemsDir);
-  activeMarkerPath = path.join(paths.activeItemsDir, taskId);
-
-  // Lock precedence: 1 (queue lock; task sidecar write is part of activation critical section)
-  // §4.14 — Worktree + dependency materialization.
-  // For every visible repo root in the activating context pack: run `git worktree add`,
-  // CoW-clone dependency directories, and write real worktreeRoot into .task.json.
-  // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
-
-  const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
-
-  // Resolve the set of repo roots to materialize worktrees for.
-  // If a context pack is present, iterate its visibleRepoRoots.
-  // Otherwise fall back to the platform repo root only when there is no active
-  // context-pack workspace selection. This prevents recovered/unbound external
-  // tasks from silently materializing TaskSail itself as the worktree.
-  let visibleRepoRoots: string[] = [];
-  const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
-  if (cpDir) {
-    const reseed = await readReseedMarker(cpDir);
-    if (reseed) {
-      throw new Error(
-        `Refusing to activate task "${taskId}" against context pack "${cpDir}": ` +
-        `a reseed is in progress (started ${reseed.startedAt}, pid ${reseed.pid} on ${reseed.host}, ` +
-        `age ${Math.round(reseed.ageMs / 1000)}s). Retry once the reseed completes.`,
+      const isReady = await handoffWorkspaceIsReady(
+        taskHandoffsDir,
+        templatesDir,
       );
-    }
-    const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
-    visibleRepoRoots = materializationRootsFromBinding({
-      visibleRepoRoots: focused?.visibleRepoRoots ?? [],
-      binding: contextPackBinding,
-      taskId,
-    });
-    if (visibleRepoRoots.length === 0) {
-      throw new Error(
-        `Unable to resolve visible repo roots for context pack "${cpDir}" while activating task "${taskId}". ` +
-        'Refusing to fall back to the platform repo root.',
-      );
-    }
-  }
-  if (visibleRepoRoots.length === 0) {
-    const activeWorkspaceContextPackDir = await readActiveWorkspaceContextPackDir(repoRoot);
-    if (activeWorkspaceContextPackDir) {
-      throw new Error(
-        `Refusing to activate unbound task "${taskId}" against the platform repo root because ` +
-        `the active workspace context pack is "${activeWorkspaceContextPackDir}". ` +
-        'Requeue the task with a Context Pack Binding or clear the active context pack before running a platform-local task.',
-      );
-    }
-    visibleRepoRoots = [repoRoot];
-  }
+      if (!isReady) return { activated: false };
 
-  // Determine paths to clone from the context pack's taskMaterialization field.
-  // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
-  const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
+      // Read the queue item and initialize handoffs from it
+      content = await readTextFile(nextItem);
+      if (content === undefined) return { activated: false };
+      const taskTitle = extractTaskTitle(content) || path.basename(nextItem, '.md');
+      const queueName = path.basename(nextItem);
+      const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
-  const persistedGitRoots = await resolvePersistedGitRootsForActivation(cpDir, repoRoot);
-  const materializationOrigins = await resolveMaterializationOrigins(visibleRepoRoots, persistedGitRoots);
-  const dirtyRepos = await findDirtyTargetRepos(materializationOrigins);
-  if (dirtyRepos.length > 0) {
-    await failPendingActivationForDirtyRepos({
+      const taskKind = extractLineageValue(content, 'Task Kind') || 'standard';
+      const parentTaskId = extractLineageValue(content, 'Parent Task ID');
+      const rootTaskId = extractLineageValue(content, 'Root Task ID');
+      const branchChainBinding = resolveTaskBranchChainForActivation(
+        content,
+        taskId,
+        taskKind,
+        { parentTaskId, rootTaskId },
+      );
+      const parentQmdRecordId = extractLineageValue(content, 'Parent QMD Record ID');
+      const parentQmdScope = extractLineageValue(content, 'Parent QMD Scope');
+      const followupReason = extractLineageValue(content, 'Follow-Up Reason');
+      const contextPackBinding = extractBindingOrWarn(content, taskId);
+
+      const metadata: Record<string, string> = {
+        'Task ID': taskId,
+        'Task Title': taskTitle,
+        'Initialized At (UTC)': now,
+        'Active Branch': 'unknown',
+        'Intake Source': `AgentWorkSpace/pendingitems/${queueName}`,
+      };
+
+      const lineage: Record<string, string> = {
+        'Task Kind': taskKind,
+        'Parent Task ID': parentTaskId,
+        'Root Task ID': rootTaskId,
+        'Parent QMD Record ID': parentQmdRecordId,
+        'Parent QMD Scope': parentQmdScope,
+        'Follow-Up Reason': followupReason,
+      };
+
+      const sections = {
+        ...buildProfessionalTaskSectionsFromIntake(content),
+        ...buildImplementationSpecSectionsFromIntake(content),
+      };
+
+      // The per-task active marker is written only after the task sidecar and
+      // handoff workspace have been materialized. If materialization fails, the
+      // pending item remains pending and no active marker is leaked.
+      await ensureDir(paths.activeItemsDir);
+      activeMarkerPath = path.join(paths.activeItemsDir, taskId);
+
+      // Lock precedence: 1 (queue lock; task sidecar write is part of activation critical section)
+      // §4.14 — Worktree + dependency materialization.
+      // For every visible repo root in the activating context pack: run `git worktree add`,
+      // CoW-clone dependency directories, and write real worktreeRoot into .task.json.
+      // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
+
+      const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
+
+      // Resolve the set of repo roots to materialize worktrees for.
+      // If a context pack is present, iterate its visibleRepoRoots.
+      // Otherwise fall back to the platform repo root only when there is no active
+      // context-pack workspace selection. This prevents recovered/unbound external
+      // tasks from silently materializing TaskSail itself as the worktree.
+      let visibleRepoRoots: string[] = [];
+      const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
+      if (cpDir) {
+        const reseed = await readReseedMarker(cpDir);
+        if (reseed) {
+          throw new Error(
+            `Refusing to activate task "${taskId}" against context pack "${cpDir}": ` +
+            `a reseed is in progress (started ${reseed.startedAt}, pid ${reseed.pid} on ${reseed.host}, ` +
+            `age ${Math.round(reseed.ageMs / 1000)}s). Retry once the reseed completes.`,
+          );
+        }
+        const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
+        visibleRepoRoots = materializationRootsFromBinding({
+          visibleRepoRoots: focused?.visibleRepoRoots ?? [],
+          binding: contextPackBinding,
+          taskId,
+        });
+        if (visibleRepoRoots.length === 0) {
+          throw new Error(
+            `Unable to resolve visible repo roots for context pack "${cpDir}" while activating task "${taskId}". ` +
+            'Refusing to fall back to the platform repo root.',
+          );
+        }
+      }
+      if (visibleRepoRoots.length === 0) {
+        const activeWorkspaceContextPackDir = await readActiveWorkspaceContextPackDir(repoRoot);
+        if (activeWorkspaceContextPackDir) {
+          throw new Error(
+            `Refusing to activate unbound task "${taskId}" against the platform repo root because ` +
+            `the active workspace context pack is "${activeWorkspaceContextPackDir}". ` +
+            'Requeue the task with a Context Pack Binding or clear the active context pack before running a platform-local task.',
+          );
+        }
+        visibleRepoRoots = [repoRoot];
+      }
+
+      // Determine paths to clone from the context pack's taskMaterialization field.
+      // Defaults to DEFAULT_TASK_MATERIALIZATION_PATHS when field is absent.
+      const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
+
+      const persistedGitRoots = await resolvePersistedGitRootsForActivation(cpDir, repoRoot);
+      const materializationOrigins = await resolveMaterializationOrigins(visibleRepoRoots, persistedGitRoots);
+      const dirtyRepos = await findDirtyTargetRepos(materializationOrigins);
+      if (dirtyRepos.length > 0) {
+        await failPendingActivationForDirtyRepos({
+          repoRoot,
+          paths,
+          taskId,
+          pendingItemPath: nextItem,
+          content,
+          dirtyRepos,
+        });
+        return { activated: false, reason: ACTIVATION_GATE_REASON.ACTIVATION_BLOCKED_DIRTY_REPOS };
+      }
+
+      // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
+      // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
+      const repoLabels = await resolveRepoLabels(materializationOrigins);
+
+      const activationBranchCandidatePlans = await buildActivationBranchCandidatePlans({
+        taskId,
+        branchChainBinding,
+        materializationOrigins,
+        repoLabels,
+        repoRoot,
+      });
+      const branchConflicts = findActivationBranchConflicts({
+        repoRoot,
+        candidateTaskId: taskId,
+        activeTaskIds: currentActive,
+        activationBranchCandidatePlans,
+      });
+      if (branchConflicts.blocked) {
+        const firstConflict = branchConflicts.conflicts[0]!;
+        log.child({ taskId }).progress({
+          level: 'info',
+          event: 'queue.active.skipped',
+          extra: {
+            reason: ACTIVATION_GATE_REASON.BRANCH_CONFLICT_RETURNED_OPEN,
+            conflicting_task_id: firstConflict.conflictingTaskId,
+            repo_root: firstConflict.originalRoot,
+            repo_label: firstConflict.repoLabel,
+            branch: firstConflict.worktreeBranch,
+          },
+          text: `[queue] returned to open - branch conflict ${taskId} blocked by ${firstConflict.conflictingTaskId} on ${firstConflict.worktreeBranch}`,
+        });
+        const returned = await returnPendingTaskToOpenForBranchConflict({
+          repoRoot,
+          queuePaths: paths,
+          taskId,
+          queueName,
+          pendingItemPath: nextItem,
+          conflict: firstConflict,
+        });
+        await RuntimeTerminalEvents.forTask(repoRoot, taskId).activationReturnedToOpenBranchConflict({
+          conflictingTaskId: firstConflict.conflictingTaskId,
+          repoLabel: firstConflict.repoLabel,
+          repoRoot: firstConflict.originalRoot,
+          branch: firstConflict.worktreeBranch,
+          openItemPath: returned.openItemPath,
+        });
+        returnedOpenCount += 1;
+        continue;
+      }
+
+      const activationBranchPlans = await finalizeActivationBranchPlans({
+        taskId,
+        branchChainBinding,
+        materializationOrigins,
+        repoLabels,
+        repoRoot,
+        candidatePlans: activationBranchCandidatePlans,
+      });
+
+      await ensureDir(path.dirname(perTaskSidecarPath));
+
+      // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
+      repoBindings = [];
+      rollbackBindings = [];
+      let combinedMat: { strategy: string; cloned: string[]; skipped: string[] } = {
+        strategy: 'copy',
+        cloned: [],
+        skipped: [],
+      };
+
+  try {
+    for (const plan of activationBranchPlans) {
+      const repoBinding = {
+        originalRoot: plan.originalRoot,
+        worktreeRoot: plan.worktreeRootForBinding,
+        worktreeBranch: plan.worktreeBranch,
+        baseCommitSha: plan.baseCommitSha,
+        branchOwnership: plan.mode === 'chained' ? 'chain-owned' as const : 'task-owned' as const,
+        ...(plan.mode === 'chained' && branchChainBinding
+          ? {
+              branchChainRootTaskId: branchChainBinding.rootTaskId,
+              branchChainTaskId: taskId,
+            }
+          : {}),
+      };
+
+      if (!plan.addWorktree) {
+        repoBindings.push(repoBinding);
+        continue;
+      }
+
+      const mat = await withOriginLock(plan.originalRoot, async () => {
+        if (plan.createBranch) {
+          await execFileAsync('git', [
+            '-C', plan.originalRoot,
+            'worktree', 'add',
+            '-b', plan.worktreeBranch,
+            plan.worktreePath,
+            plan.baseCommitSha,
+          ]);
+        } else {
+          await execFileAsync('git', [
+            '-C', plan.originalRoot,
+            'worktree', 'add',
+            plan.worktreePath,
+            plan.worktreeBranch,
+          ]);
+        }
+        rollbackBindings.push({ repoBinding, createdBranch: plan.createBranch });
+        repoBindings.push(repoBinding);
+        return materializeWorktreeDeps(plan.originalRoot, plan.worktreePath, pathsToClone, {
+          taskId,
+          repoLabel: plan.repoLabel,
+        });
+      });
+
+      log.child({ taskId }).progress({
+        level: 'info',
+        event: 'queue.branch.created',
+        extra: {
+          branch: plan.worktreeBranch,
+          repo: plan.repoLabel,
+          worktree_root: plan.worktreePath,
+          materialization_strategy: mat.strategy,
+        },
+        text: `[pipeline] worktree ${plan.repoLabel} on ${plan.worktreeBranch}`,
+      });
+      await RuntimeTerminalEvents.forTask(repoRoot, taskId).branchCreated({
+        repo: plan.repoLabel,
+        branch: plan.worktreeBranch,
+        worktreeRoot: plan.worktreePath,
+        materializationStrategy: mat.strategy,
+      });
+
+      combinedMat = {
+        strategy: mat.strategy,
+        cloned: [...combinedMat.cloned, ...mat.cloned],
+        skipped: [...combinedMat.skipped, ...mat.skipped],
+      };
+    }
+  } catch (err) {
+    await rollbackActivationClaim({
       repoRoot,
       paths,
       taskId,
-      pendingItemPath: nextItem,
-      content,
-      dirtyRepos,
+      activeMarkerPath,
+      repoBindings: rollbackBindings,
     });
-    return { activated: false, reason: ACTIVATION_GATE_REASON.ACTIVATION_BLOCKED_DIRTY_REPOS };
-  }
-
-  await ensureDir(path.dirname(perTaskSidecarPath));
-
-  // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
-  // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
-  const repoLabels = await resolveRepoLabels(materializationOrigins);
-
-  // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
-  repoBindings = [];
-  let combinedMat: { strategy: string; cloned: string[]; skipped: string[] } = {
-    strategy: 'copy',
-    cloned: [],
-    skipped: [],
-  };
-
-  for (let i = 0; i < materializationOrigins.length; i++) {
-    const origin = materializationOrigins[i]!;
-    const originalRoot = origin.gitRoot;
-    const repoSlug = repoLabels[i]!;
-
-    // Resolve base commit SHA.
-    let baseCommitSha = '';
-    try {
-      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: originalRoot });
-      baseCommitSha = stdout.trim();
-    } catch {
-      // Non-git or bare tmpdir in tests — leave empty.
-    }
-
-    const worktreePath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', repoSlug);
-    const worktreeBranch = `task/${taskId}`;
-
-    // Check preconditions before git worktree add.
-    // Skip worktree creation when repo has no commits (e.g. bare tmpdir in tests).
-    const pre = await preconditionsPass(originalRoot, taskId, worktreePath);
-    if (!pre.ok) {
-      if (pre.reason === 'empty-origin-repo') {
-        // Non-git root or empty repo — fall back to using originalRoot as the worktreeRoot
-        // (L0 compatibility for contexts without git).
-        repoBindings.push({
-          originalRoot,
-          worktreeRoot: originalRoot,
-          worktreeBranch: worktreeBranch,
-          baseCommitSha,
-        });
-        continue;
-      }
-      // branch-already-exists or worktree-already-bound — fail activation.
-      throw new Error(`activation-precondition-failed: ${pre.reason}: ${pre.detail ?? ''}`);
-    }
-
-    // Run git worktree add + CoW clone inside the per-origin async lock.
-    // CRITICAL: MUST be wrapped in withOriginLock to serialise concurrent activations
-    // that share the same origin repo.
-    const mat = await withOriginLock(originalRoot, async () => {
-      await execFileAsync('git', [
-        '-C', originalRoot,
-        'worktree', 'add',
-        '-b', worktreeBranch,
-        worktreePath,
-        baseCommitSha,
-      ]);
-      try {
-        const result = await materializeWorktreeDeps(originalRoot, worktreePath, pathsToClone);
-        return result;
-      } catch (cloneErr) {
-        // §4.14 atomic rollback — 5 steps, in order, each swallows its own errors.
-        // Step 1: git worktree remove --force (detach admin record before branch delete)
-        await execFileAsync('git', ['-C', originalRoot, 'worktree', 'remove', '--force', worktreePath]).catch(() => {});
-        // Step 2: git branch -D (remove task/<taskId> from refs)
-        await execFileAsync('git', ['-C', originalRoot, 'branch', '-D', worktreeBranch]).catch(() => {});
-        // Step 3: fs.rm AgentWorkSpace/tasks/<taskId>/ (reclaim disk; critical on ENOSPC)
-        await rm(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId), { recursive: true, force: true }).catch(() => {});
-        // Step 4: unlink .active-items/<taskId> — marker may not yet exist; swallow errors.
-        await unlink(path.join(paths.activeItemsDir, taskId)).catch(() => {});
-        throw cloneErr;
-      }
-    });
-
-    log.child({ taskId }).progress({
-      level: 'info',
-      event: 'queue.branch.created',
-      extra: {
-        branch: worktreeBranch,
-        repo: repoSlug,
-        worktree_root: worktreePath,
-        materialization_strategy: mat.strategy,
-      },
-      text: `[pipeline] worktree ${repoSlug} on ${worktreeBranch}`,
-    });
-    await RuntimeTerminalEvents.forTask(repoRoot, taskId).branchCreated({
-      repo: repoSlug,
-      branch: worktreeBranch,
-      worktreeRoot: worktreePath,
-      materializationStrategy: mat.strategy,
-    });
-
-    combinedMat = {
-      strategy: mat.strategy,
-      cloned: [...combinedMat.cloned, ...mat.cloned],
-      skipped: [...combinedMat.skipped, ...mat.skipped],
-    };
-
-    repoBindings.push({
-      originalRoot,
-      worktreeRoot: worktreePath,
-      worktreeBranch: worktreeBranch,
-      baseCommitSha,
-    });
+    throw err;
   }
 
   const selection = contextPackBinding
@@ -929,6 +1007,9 @@ export async function activateNextPendingItemIfReady(
         scopeMode: contextPackBinding.scopeMode,
         selectedRepoIds: contextPackBinding.selectedRepoIds,
         selectedFocusIds: contextPackBinding.selectedFocusIds,
+        ...(contextPackBinding.deepFocusEnabled !== true && contextPackBinding.repositoryTypes
+          ? { repositoryTypes: { ...contextPackBinding.repositoryTypes } }
+          : {}),
         deepFocusEnabled: contextPackBinding.deepFocusEnabled,
         ...(contextPackBinding.deepFocusEnabled === true
           ? {
@@ -1032,6 +1113,8 @@ export async function activateNextPendingItemIfReady(
   try {
     await transitionTask(repoRoot, taskId, 'pending', 'active');
   } catch { /* best-effort */ }
+      break;
+    }
   } finally {
     await releaseActivation();
   }
@@ -1050,7 +1133,7 @@ export async function activateNextPendingItemIfReady(
         paths,
         taskId,
         activeMarkerPath,
-        repoBindings,
+        repoBindings: rollbackBindings,
       });
       const reason = 'shared-mcp-bootstrap-failed';
       log.child({ taskId }).progress({
@@ -1096,7 +1179,7 @@ export async function activateNextPendingItemIfReady(
       paths,
       taskId,
       activeMarkerPath,
-      repoBindings,
+      repoBindings: rollbackBindings,
     });
     log.error('pipeline.spawn.failed', err, { taskId });
     const reason = 'pipeline-spawn-failed';
@@ -1222,7 +1305,7 @@ async function rollbackActivationClaim(options: {
   paths: QueuePaths;
   taskId: string;
   activeMarkerPath: string;
-  repoBindings: TaskRepoBinding[];
+  repoBindings: ActivationRollbackBinding[];
 }): Promise<void> {
   const {
     repoRoot,
@@ -1232,7 +1315,8 @@ async function rollbackActivationClaim(options: {
     repoBindings,
   } = options;
 
-  for (const binding of repoBindings) {
+  for (const rollbackBinding of repoBindings) {
+    const binding = rollbackBinding.repoBinding;
     if (binding.worktreeRoot && binding.worktreeRoot !== binding.originalRoot) {
       await execFileAsync('git', [
         '-C', binding.originalRoot,
@@ -1240,7 +1324,7 @@ async function rollbackActivationClaim(options: {
       ]).catch(() => {});
       await execFileAsync('git', ['-C', binding.originalRoot, 'worktree', 'prune']).catch(() => {});
     }
-    if (binding.worktreeBranch) {
+    if (rollbackBinding.createdBranch && binding.worktreeBranch) {
       await execFileAsync('git', [
         '-C', binding.originalRoot,
         'branch', '-D', binding.worktreeBranch,

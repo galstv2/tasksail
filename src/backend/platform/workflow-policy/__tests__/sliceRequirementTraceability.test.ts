@@ -328,4 +328,18 @@ describe('slice requirement traceability', () => {
       expect.objectContaining({ rule_id: 'slice.requirement-id-covered', message: expect.stringContaining('VAL-001') }),
     ]));
   });
+
+  it('counts requirement IDs in real non-comment authored content', async () => {
+    const { repoRoot, handoffsDir, stepsDir } = setup();
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), implementationSpec({
+      requirementHandling: '- CR-001 handled globally.\n- COMP-001 handled globally.',
+      validationStrategy: '- VAL-001 is covered by focused tests.',
+    }), 'utf-8');
+    writeFileSync(path.join(stepsDir, 'slice-1.md'), sliceMarkdown({
+      coverage: '<!-- CR-999 must not count -->\n- CR-001',
+      validationCommands: '<!-- VAL-999 must not count -->\n```bash\npnpm run lint\n```\n- VAL-001',
+    }), 'utf-8');
+
+    await expect(runSliceRules(repoRoot, 'pre-slice')).resolves.toEqual([]);
+  });
 });

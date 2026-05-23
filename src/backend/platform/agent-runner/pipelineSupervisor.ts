@@ -16,6 +16,8 @@ import { CLOSEOUT_FAILURE_EXIT_CODE } from './pipeline/sequencer.js';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
 import { createLogger, writeProtocolStdout } from '../core/index.js';
 import { finalizeTaskWorktrees, sweepRuntimeGC } from '../core/worktreeFinalize.js';
+import { isChildChainSourceBranchProtected } from '../core/worktreeBranchOwnership.js';
+import { readChildTaskChains, type ChildTaskChainsState } from '../queue/childTaskChains.js';
 import { recoverStuckMidCompletion } from '../queue/recoverStuckMidCompletion.js';
 import { resumeCloseoutFromSentinel } from '../queue/resumeCloseout.js';
 
@@ -344,6 +346,17 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     );
 
     const taskBranches = branchOutput.trim().split('\n').filter(Boolean);
+    let childChainState: ChildTaskChainsState | undefined;
+    let childChainStateUnreadable = false;
+    try {
+      childChainState = await readChildTaskChains(repoRoot);
+    } catch (err) {
+      childChainStateUnreadable = true;
+      log.warn('startup_recovery.branch_delete.skipped', {
+        reason: 'child-chain-state-unreadable',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     for (const branch of taskBranches) {
       const branchTaskId = branch.replace(/^task\//, '');
       // Carveout: keep if any of (a) active marker, (b) pending item, (c) error-items, (d) completing sentinel
@@ -354,6 +367,32 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
         completingSentinelTaskIds.has(branchTaskId);
 
       if (!hasCarveout) {
+        if (childChainStateUnreadable) {
+          log.warn('startup_recovery.branch_delete.skipped', {
+            branch,
+            taskId: branchTaskId,
+            reason: 'child-chain-state-unreadable',
+          });
+          continue;
+        }
+        const protectedBranch = await isChildChainSourceBranchProtected({
+          repoRoot,
+          branch,
+          state: childChainState,
+        });
+        if (protectedBranch.protected) {
+          log.progress({
+            level: 'warn',
+            event: 'startup_recovery.branch_delete.skipped_child_chain',
+            extra: {
+              branch,
+              taskId: branchTaskId,
+              reason: 'child-chain-source-branch',
+            },
+            text: `[startup] preserved child-chain branch ${branch}`,
+          });
+          continue;
+        }
         if (existsSync(path.join(activeItemsDir, branchTaskId))) {
           log.warn('startup_recovery.branch_delete.skipped', {
             branch,

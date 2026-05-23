@@ -27,10 +27,17 @@ import { execFileSync } from 'node:child_process';
 // vi.mock calls are automatically hoisted to the top of the file.
 // ---------------------------------------------------------------------------
 
-vi.mock('../../core/worktreeFinalize.js', () => ({
-  finalizeTaskWorktrees: vi.fn().mockResolvedValue(undefined),
-  discardRetainedTaskWorktrees: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../../core/worktreeFinalize.js', () => {
+  const finalizeTaskWorktrees = vi.fn().mockResolvedValue(undefined);
+  return {
+    finalizeTaskWorktrees,
+    finalizeTaskWorktreesWithReport: vi.fn(async (...args: unknown[]) => {
+      await finalizeTaskWorktrees(...args);
+      return { chainRollbackReport: null, skipNextActivation: false };
+    }),
+    discardRetainedTaskWorktrees: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 vi.mock('../../platform-config/get.js', () => ({
   getPlatformConfig: vi.fn(),
@@ -1189,6 +1196,27 @@ describe('requeue-time disposal of retained worktrees', () => {
     // up the old-taskId entry before registering anything new, so there is no
     // orphan risk from leaving this entry under the same id.
     expect(await findRegistryEntry(repoRoot, taskId)).toEqual({ state: 'open' });
+  });
+
+  it('moveErrorItemToDropbox removes stale completing sentinel after rename', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-open-clears-completing';
+
+    mkdirSync(queuePaths.pendingDir, { recursive: true });
+    mkdirSync(queuePaths.dropboxDir, { recursive: true });
+    mkdirSync(queuePaths.activeItemsDir, { recursive: true });
+    makeErrorItem(queuePaths, taskId);
+    writeFileSync(
+      path.join(queuePaths.activeItemsDir, `${taskId}.completing`),
+      JSON.stringify({ ts: Date.now() }),
+      'utf-8',
+    );
+    seedFailedRegistryEntry(repoRoot, taskId);
+
+    await moveErrorItemToDropbox({ fileName: `${taskId}.md`, repoRoot });
+
+    expect(existsSync(path.join(queuePaths.dropboxDir, `${taskId}.md`))).toBe(true);
+    expect(existsSync(path.join(queuePaths.activeItemsDir, `${taskId}.completing`))).toBe(false);
   });
 
   it('moveErrorItemToDropbox does NOT discard if rename fails (source missing)', async () => {

@@ -2,11 +2,14 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
+  ArchivedTaskChildParentBlockedTip,
   ArchivedTaskEntry,
   LifecycleState,
   MarkdownFileSelection,
   PlannerListConversationHistorySummary,
   PlannerFocusValidationIssue,
+  PlannerReadParentChainArchiveBundleResponse,
+  PlannerReadParentContextBundleResponse,
   PlannerStartSessionDeepFocusSelection,
   StagedDraftContent,
 } from '../../shared/desktopContract';
@@ -16,7 +19,7 @@ import { PLANNER_FOCUS_FALLBACK_MESSAGE } from '../../shared/desktopContract';
 // don't sit in the modal forever. Hard errors (validation, IPC failures) are
 // still shown until the operator acts.
 const PLANNER_FOCUS_FALLBACK_DISMISS_MS = 5000;
-import type { PlannerConversationRecord, PlannerConversationTranscriptMessage, PlannerStagingSidecar } from '../../../../../backend/platform/planner-history/types.js';
+import type { PlannerConversationTranscriptMessage } from '../../../../../backend/platform/planner-history/types.js';
 import { buildChildTaskMarkdownReviewPrompt, buildChildTaskStarterPrompt, buildMarkdownReviewPrompt, PLANNER_SAVE_DRAFT_WORKFLOW } from '../../shared/plannerWorkflow';
 import type { PlannerModalProps, PlannerSessionStatus } from '../components/PlannerModal';
 import {
@@ -29,11 +32,19 @@ import {
   type PlannerDraftSeed,
 } from '../plannerComposer';
 import { buildAppViewModel } from '../selectors/appViewModel';
+import {
+  buildParentTaskBranchViewRequest,
+  PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE,
+  restartChildPlannerWithScope,
+} from '../plannerChildScopeSession';
+import { archivedTaskFromRecord, buildChildTaskLineage } from '../plannerArchivedTaskHelpers';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { createLogger } from '../log/logger';
 import { normalizeIpcThrownError } from '../services/ipcErrorHelpers';
 import { useFollowUpFlow } from './useFollowUpFlow';
+import { useChildTaskScopeOverride, type ChildTaskScopeCatalog, type SaveChildScopeArgs } from './useChildTaskScopeOverride';
 import { usePlannerFlow } from './usePlannerFlow';
+import { usePlannerParentArchivePreview } from './usePlannerParentArchivePreview';
 import type { ConversationMessage } from './usePlannerStream';
 import { usePlannerStream } from './usePlannerStream';
 
@@ -57,6 +68,20 @@ const DRAFT_READ_MAX_ATTEMPTS = 20;
 const MISSING_PARENT_FOCUS_ERROR = 'This archived parent task has no saved planner focus and cannot be used as a parent. Refresh the parent list and try again.';
 const log = createLogger('src/renderer/hooks/usePlannerModal');
 
+function isSelectableArchivedParent(task: ArchivedTaskEntry): boolean {
+  return Boolean(task.plannerFocusSnapshot && task.childParentEligibility?.eligible === true);
+}
+
+function childParentEligibilityCounts(tasks: ArchivedTaskEntry[]): Record<string, number> {
+  return tasks.reduce<Record<string, number>>((counts, task) => {
+    const eligibility = task.childParentEligibility;
+    if (eligibility?.eligible === false) {
+      counts[eligibility.reason] = (counts[eligibility.reason] ?? 0) + 1;
+    }
+    return counts;
+  }, {});
+}
+
 function toRendererMessage(message: PlannerConversationTranscriptMessage): ConversationMessage {
   return {
     id: message.id,
@@ -64,31 +89,6 @@ function toRendererMessage(message: PlannerConversationTranscriptMessage): Conve
     text: message.text,
     isStreaming: false,
     timestamp: message.timestamp,
-  };
-}
-
-function getContextPackName(sidecar: PlannerStagingSidecar): string {
-  const explicitId = sidecar.contextPackBinding.contextPackId.trim();
-  if (explicitId) {
-    return explicitId;
-  }
-  const parts = sidecar.contextPackBinding.contextPackDir.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? '';
-}
-
-function archivedTaskFromRecord(record: PlannerConversationRecord): ArchivedTaskEntry {
-  const lineage = record.sidecarSnapshot.lineage;
-  const fallbackParentTaskId = lineage.parentTaskId || record.id;
-  return {
-    taskId: fallbackParentTaskId,
-    title: lineage.parentTaskId || record.title,
-    summary: record.title,
-    rootTaskId: lineage.rootTaskId || fallbackParentTaskId,
-    qmdRecordId: lineage.parentQmdRecordId,
-    followupReason: lineage.followUpReason,
-    year: new Date(record.createdAt).getUTCFullYear().toString(),
-    archivePath: record.finalizedDestinationPath,
-    contextPackName: getContextPackName(record.sidecarSnapshot),
   };
 }
 
@@ -100,16 +100,21 @@ export function usePlannerModal(
   setContractError: Dispatch<SetStateAction<string>>,
   activeContextPackDir: string | null = null,
   deepFocusSelection?: PlannerStartSessionDeepFocusSelection,
+  childScopeCatalog?: ChildTaskScopeCatalog,
 ): UsePlannerModalResult {
   const expectedSessionIdRef = useRef<string | null>(null);
   const suppressNextArchivedFetchRef = useRef(false);
   const plannerStream = usePlannerStream({ expectedSessionIdRef });
+  const parentArchivePreview = usePlannerParentArchivePreview(client);
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<PlannerSessionStatus>('idle');
   const startSession = useCallback(() => {
     expectedSessionIdRef.current = null;
     setSessionStatus('connecting');
     setPlannerFocusValidationIssues([]);
+    pendingChildTaskStarterPromptRef.current = null;
+    parentContextBundleRef.current = undefined;
+    parentChainArchiveBundleRef.current = undefined;
     if (!activeContextPackDir) {
       setSessionStatus('failed');
       return;
@@ -157,8 +162,12 @@ export function usePlannerModal(
     setAwaitingDraft(false);
     setChildTaskMode(false);
     setSelectedParentTask(null);
+    setChildTaskParentReady(false);
     pendingChildTaskStarterPromptRef.current = null;
+    parentContextBundleRef.current = undefined;
+    parentChainArchiveBundleRef.current = undefined;
     setArchivedTasks([]);
+    setChildParentBlockedTips([]);
     setRecentConversations([]);
     setLoadingRecentConversations(false);
     setReplayInFlight(false);
@@ -200,9 +209,13 @@ export function usePlannerModal(
   // has had a chance to provide direction (and previously caused failures
   // when the staged draft and operator intent were not yet aligned).
   const pendingChildTaskStarterPromptRef = useRef<string | null>(null);
+  const parentContextBundleRef = useRef<PlannerReadParentContextBundleResponse['bundle'] | undefined>(undefined);
+  const parentChainArchiveBundleRef = useRef<PlannerReadParentChainArchiveBundleResponse['bundle'] | undefined>(undefined);
   const [archivedTasks, setArchivedTasks] = useState<ArchivedTaskEntry[]>([]);
+  const [childParentBlockedTips, setChildParentBlockedTips] = useState<ArchivedTaskChildParentBlockedTip[]>([]);
   const [loadingArchivedTasks, setLoadingArchivedTasks] = useState(false);
   const [loadingChildTaskParent, setLoadingChildTaskParent] = useState(false);
+  const [childTaskParentReady, setChildTaskParentReady] = useState(false);
 
   const [composerStage, setComposerStage] = useState<ComposerStage>('compose');
   const [draft, setDraft] = useState<PlannerDraftModel>(() => createLocalDraft(EMPTY_DRAFT_SEED));
@@ -228,6 +241,56 @@ export function usePlannerModal(
     client,
   });
 
+  const saveChildScopeOverride = useCallback(async (args: SaveChildScopeArgs): Promise<boolean> => {
+    const task = selectedParentTaskRef.current;
+    if (!task?.plannerFocusSnapshot) {
+      throw new Error(MISSING_PARENT_FOCUS_ERROR);
+    }
+    try {
+      await restartChildPlannerWithScope({
+        client,
+        task,
+        childScope: args.childScope,
+        reloadScope: args.reloadScope,
+        parentContextBundle: parentContextBundleRef.current,
+        onBeforeStart: () => {
+          expectedSessionIdRef.current = null;
+          plannerStream.clearConversation();
+          setStagedDraft(null);
+          setSelectedMarkdownFile(null);
+          setDraftError('');
+          setSessionStatus('connecting');
+        },
+        onStatus: (message) => plannerStream.sendMessage(message),
+        onStarted: (sessionId, starterPrompt) => {
+          expectedSessionIdRef.current = sessionId;
+          setSessionStatus('active');
+          pendingChildTaskStarterPromptRef.current = starterPrompt;
+        },
+      });
+      plannerStream.sendMessage('[Child scope adjusted — Lily reloaded with updated implementation scope and read-only parent context.]');
+      return true;
+    } catch (error: unknown) {
+      const reason = normalizeIpcThrownError(error, 'Failed to save child scope override.');
+      setDraftError(reason);
+      setSessionStatus('failed');
+      log.warn('planner.child-scope.override.failed', { taskId: task.taskId, reason });
+      throw new Error(reason);
+    }
+  }, [client, plannerStream]);
+
+  const childScopeOverride = useChildTaskScopeOverride({
+    catalog: childScopeCatalog,
+    selectedParentTask,
+    loadingChildTaskParent,
+    parentReady: childTaskParentReady,
+    onSaveChangedScope: saveChildScopeOverride,
+  });
+  useEffect(() => {
+    if (!plannerModalOpen || !childTaskMode) {
+      childScopeOverride.reset();
+    }
+  }, [plannerModalOpen, childTaskMode, childScopeOverride.reset]);
   const {
     planningEnabled,
     isFollowUpDraft,
@@ -312,6 +375,7 @@ export function usePlannerModal(
   useEffect(() => {
     if (!childTaskMode) {
       setArchivedTasks([]);
+      setChildParentBlockedTips([]);
       setSelectedParentTask(null);
       return;
     }
@@ -328,6 +392,20 @@ export function usePlannerModal(
         if (result.ok && 'response' in result && result.response.action === 'planner.listArchivedTasks') {
           const response = result.response as import('../../shared/desktopContract').PlannerListArchivedTasksResponse;
           setArchivedTasks(response.tasks);
+          setChildParentBlockedTips(response.childParentBlockedTips ?? []);
+          const chainStateValid = response.childChainStateStatus?.status !== 'invalid';
+          const hiddenCounts = childParentEligibilityCounts(response.tasks);
+          const hasHiddenByEligibility = Object.keys(hiddenCounts).length > 0;
+          if (chainStateValid && hasHiddenByEligibility) {
+            log.warn('planner.child-task-parent.filtered', { countsByReason: hiddenCounts });
+          }
+          if (!chainStateValid) {
+            setDraftError('Child-task chain state is invalid. Parent selection is temporarily unavailable until it is repaired.');
+            return;
+          }
+          if (response.tasks.length > 0 && hasHiddenByEligibility && !response.tasks.some(isSelectableArchivedParent)) {
+            setDraftError('Only the current child-chain tip can be used as the next parent.');
+          }
         }
       })
       .catch((error: unknown) => {
@@ -335,6 +413,7 @@ export function usePlannerModal(
         const message = normalizeIpcThrownError(error, 'Failed to load archived tasks.');
         log.warn('planner.archived-tasks.load.failed', { reason: message });
         setArchivedTasks([]);
+        setChildParentBlockedTips([]);
         setDraftError(message);
       })
       .finally(() => { if (!cancelled) setLoadingArchivedTasks(false); });
@@ -396,7 +475,7 @@ export function usePlannerModal(
 
   const childTaskBlocked = childTaskMode && !selectedParentTask;
   const selectableArchivedTasks = useMemo(
-    () => archivedTasks.filter((task) => task.plannerFocusSnapshot),
+    () => archivedTasks.filter(isSelectableArchivedParent),
     [archivedTasks],
   );
 
@@ -406,8 +485,12 @@ export function usePlannerModal(
         // Toggling off: reset draft back to standard
         setDraft(createLocalDraft(EMPTY_DRAFT_SEED));
         setSelectedParentTask(null);
+        setChildParentBlockedTips([]);
         setPlannerFocusValidationIssues([]);
         pendingChildTaskStarterPromptRef.current = null;
+        parentContextBundleRef.current = undefined;
+        parentChainArchiveBundleRef.current = undefined;
+        setChildTaskParentReady(false);
       }
       return !prev;
     });
@@ -423,12 +506,26 @@ export function usePlannerModal(
   }, [replayInFlight, resetPlannerState, startSession, fetchRecentConversations]);
 
   const handleSelectParentTask = useCallback((task: ArchivedTaskEntry) => {
+    pendingChildTaskStarterPromptRef.current = null;
     if (loadingChildTaskParent) return;
     setPlannerFocusValidationIssues([]);
+    childScopeOverride.reset();
+    parentContextBundleRef.current = undefined;
+    parentChainArchiveBundleRef.current = undefined;
+    setChildTaskParentReady(false);
+    if (task.childParentEligibility && !task.childParentEligibility.eligible) {
+      setDraftError(task.childParentEligibility.message);
+      log.warn('planner.child-task-parent.selection.rejected', {
+        taskId: task.taskId,
+        reason: task.childParentEligibility.reason,
+      });
+      return;
+    }
     if (!task.plannerFocusSnapshot) {
       setDraftError(MISSING_PARENT_FOCUS_ERROR);
       return;
     }
+    childScopeOverride.initializeFromParent(task);
 
     setSelectedParentTask(task);
     const followUpContext = normalizeArchivedTaskToFollowUpContext(task);
@@ -442,13 +539,7 @@ export function usePlannerModal(
     setAwaitingDraft(false);
     setSelectedMarkdownFile(null);
 
-    const childTaskLineage = {
-      parentTaskId: task.taskId,
-      parentQmdRecordId: task.qmdRecordId,
-      parentQmdScope: deriveParentQmdScope(task.contextPackName),
-      rootTaskId: task.rootTaskId || task.taskId,
-      followUpReason: task.followupReason || 'Correction requested through child-task mode.',
-    };
+    const childTaskLineage = buildChildTaskLineage(task);
 
     void (async () => {
       try {
@@ -476,6 +567,57 @@ export function usePlannerModal(
           setSessionStatus('failed');
           return;
         }
+        const parentContextBundleResult = validation.response.mode === 'valid'
+          ? await client.readParentContextBundle({
+            parentTaskId: task.taskId,
+            contextPackDir: task.plannerFocusSnapshot!.contextPackDir,
+            contextPackId: task.plannerFocusSnapshot!.contextPackId,
+          })
+          : null;
+        if (parentContextBundleResult && !parentContextBundleResult.ok) {
+          setDraftError(parentContextBundleResult.error ?? 'Failed to read parent context bundle.');
+          setSessionStatus('failed');
+          return;
+        }
+        if (
+          parentContextBundleResult?.ok
+          && parentContextBundleResult.response.action !== 'planner.readParentContextBundle'
+        ) {
+          setDraftError('Unexpected parent context bundle response.');
+          setSessionStatus('failed');
+          return;
+        }
+        parentContextBundleRef.current = parentContextBundleResult?.ok
+          ? (parentContextBundleResult.response as PlannerReadParentContextBundleResponse).bundle
+          : undefined;
+        const parentChainArchiveBundleResult = validation.response.mode === 'valid'
+          ? await client.readParentChainArchiveBundle({
+            parentTaskId: task.taskId,
+            rootTaskId: task.rootTaskId || task.taskId,
+            contextPackDir: task.plannerFocusSnapshot!.contextPackDir,
+            contextPackId: task.plannerFocusSnapshot!.contextPackId,
+          })
+          : null;
+        if (parentChainArchiveBundleResult && !parentChainArchiveBundleResult.ok) {
+          log.warn('planner.parent-chain-archive-bundle.read.failed', {
+            taskId: task.taskId,
+            reason: parentChainArchiveBundleResult.error ?? 'unknown',
+          });
+          setDraftError(parentChainArchiveBundleResult.error ?? 'Failed to read parent chain archive bundle.');
+          setSessionStatus('failed');
+          return;
+        }
+        if (
+          parentChainArchiveBundleResult?.ok
+          && parentChainArchiveBundleResult.response.action !== 'planner.readParentChainArchiveBundle'
+        ) {
+          setDraftError('Unexpected parent chain archive bundle response.');
+          setSessionStatus('failed');
+          return;
+        }
+        parentChainArchiveBundleRef.current = parentChainArchiveBundleResult?.ok
+          ? (parentChainArchiveBundleResult.response as PlannerReadParentChainArchiveBundleResponse).bundle
+          : undefined;
         await client.endPlannerSession();
         if (validation.response.mode === 'fallback') {
           setChildTaskMode(false);
@@ -501,6 +643,7 @@ export function usePlannerModal(
           contextPackDir: task.plannerFocusSnapshot!.contextPackDir,
           childTaskFocusSnapshot: task.plannerFocusSnapshot,
           childTaskLineage,
+          parentTaskBranchView: buildParentTaskBranchViewRequest(task),
         });
         if (!start.ok || start.response.action !== 'planner.startSession') {
           expectedSessionIdRef.current = null;
@@ -510,6 +653,10 @@ export function usePlannerModal(
         }
         expectedSessionIdRef.current = start.response.sessionId;
         setSessionStatus('active');
+        setChildTaskParentReady(true);
+        if (start.response.parentBranchViewStatus?.mode === 'skipped-missing-handoffs') {
+          plannerStream.sendMessage(PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE);
+        }
         // Defer the child-task starter prompt: build it now (so the parent
         // task content is captured at selection time), but do not send it
         // until the operator submits their first message. This keeps Lily
@@ -520,6 +667,8 @@ export function usePlannerModal(
           rootTaskId: task.rootTaskId || task.taskId,
           parentQmdScope: deriveParentQmdScope(task.contextPackName),
           parentTaskContent: task.parentTaskContent,
+          parentContextBundle: parentContextBundleRef.current,
+          parentChainArchiveBundle: parentChainArchiveBundleRef.current,
         });
         plannerStream.sendMessage(
           `[Child-task mode activated — continuing from ${task.title}. Send a message to begin.]`,
@@ -532,7 +681,7 @@ export function usePlannerModal(
         setLoadingChildTaskParent(false);
       }
     })();
-  }, [activeContextPackDir, client, deepFocusSelection, plannerStream, loadingChildTaskParent]);
+  }, [activeContextPackDir, childScopeOverride, client, deepFocusSelection, plannerStream, loadingChildTaskParent]);
 
   const handleSelectConversation = useCallback((recordId: string): void => {
     if (replayInFlight) {
@@ -542,6 +691,9 @@ export function usePlannerModal(
     setReplayInFlight(true);
     void (async () => {
       try {
+        pendingChildTaskStarterPromptRef.current = null;
+        parentContextBundleRef.current = undefined;
+        parentChainArchiveBundleRef.current = undefined;
         const hydrate = await client.hydratePlannerConversation(recordId);
         if (!hydrate.ok) {
           setDraftError(hydrate.error ?? 'Failed to load recent conversation.');
@@ -884,14 +1036,23 @@ export function usePlannerModal(
       childTaskMode,
       onToggleChildTaskMode: handleToggleChildTaskMode,
       archivedTasks: selectableArchivedTasks,
+      childParentBlockedTips,
       archivedTaskTotalCount: archivedTasks.length,
       selectedParentTask,
       onSelectParentTask: handleSelectParentTask,
       loadingArchivedTasks,
       loadingChildTaskParent,
       childTaskBlocked,
+      childScopeStatusLabel: childScopeOverride.childScopeStatusLabel,
+      childScopeSummary: childScopeOverride.childScopeSummary,
+      childScopeWarning: childScopeOverride.childScopeWarning,
+      childScopePanelOpen: childScopeOverride.childScopePanelOpen,
+      onOpenChildScopePanel: childScopeOverride.onOpenChildScopePanel,
+      onCloseChildScopePanel: childScopeOverride.onCloseChildScopePanel,
+      childScopePanelProps: childScopeOverride.childScopePanelProps,
+      parentArchivePreview,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
   );
 
   return { plannerModalProps, openPlannerModal };

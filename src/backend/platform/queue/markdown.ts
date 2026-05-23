@@ -3,6 +3,11 @@ import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.
 import { parseSections } from '../workflow-policy/artifacts.js';
 import { loadMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
 import { SECTION_NAMES } from '../workflow-policy/contracts/sectionNames.js';
+import {
+  parseRepositoryTypesJson,
+  stableStringifyRepositoryTypes,
+  type ContextPackRepositoryTypes,
+} from './repositoryTypes.js';
 
 const log = createLogger('platform/queue/markdown');
 
@@ -246,6 +251,7 @@ export interface TaskContextPackBinding {
   scopeMode: string;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  repositoryTypes?: ContextPackRepositoryTypes;
   deepFocusEnabled?: boolean;
   primaryRepoId?: string;
   primaryFocusId?: string;
@@ -270,10 +276,73 @@ export type ContextPackBindingResult =
   | { kind: 'absent' }
   | {
       kind: 'invalid';
-      reason: 'missing-context-pack-dir' | 'malformed-targets' | 'malformed-deep-focus';
+      reason: 'missing-context-pack-dir' | 'malformed-targets' | 'malformed-deep-focus' | 'malformed-repository-types';
       section: string;
     }
   | { kind: 'binding'; binding: TaskContextPackBinding };
+
+const BRANCH_CHAIN_SECTION_NAME = 'Branch Chain';
+
+export interface TaskBranchChainRepo {
+  repoRoot: string;
+  repoLabel: string;
+  chainSourceBranch: string;
+  parentSourceBranch: string;
+  parentBranchHead: string;
+  targetBranch: string | null;
+}
+
+export interface TaskBranchChainBinding {
+  schemaVersion: 1;
+  mode: 'continuation';
+  rootTaskId: string;
+  parentTaskId: string;
+  depth: number;
+  repos: TaskBranchChainRepo[];
+}
+
+export type BranchChainInvalidReason =
+  | 'missing-json-fence'
+  | 'malformed-json'
+  | 'invalid-schema';
+
+export type BranchChainBindingResult =
+  | { kind: 'absent' }
+  | { kind: 'invalid'; reason: BranchChainInvalidReason; section: string }
+  | { kind: 'binding'; binding: TaskBranchChainBinding };
+
+export function formatBranchChainSection(binding: TaskBranchChainBinding): string {
+  return [
+    `## ${BRANCH_CHAIN_SECTION_NAME}`,
+    '',
+    '```json',
+    JSON.stringify(normalizeBranchChainBinding(binding), null, 2),
+    '```',
+  ].join('\n');
+}
+
+export function extractBranchChainBinding(content: string): BranchChainBindingResult {
+  const section = extractMarkdownSection(content, BRANCH_CHAIN_SECTION_NAME);
+  if (!section.trim()) return { kind: 'absent' };
+
+  const jsonBlock = extractFirstJsonFence(section);
+  if (jsonBlock === null) {
+    return { kind: 'invalid', reason: 'missing-json-fence', section };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonBlock);
+  } catch {
+    return { kind: 'invalid', reason: 'malformed-json', section };
+  }
+
+  const binding = parseBranchChainBinding(parsed);
+  if (!binding) {
+    return { kind: 'invalid', reason: 'invalid-schema', section };
+  }
+  return { kind: 'binding', binding };
+}
 
 /**
  * Extract context pack binding from task markdown.
@@ -304,8 +373,16 @@ export function extractContextPackBinding(
   if (primaryFocusId) {
     binding.primaryFocusId = primaryFocusId;
   }
+  const repositoryTypesValue = optionalLabeledValue(section, 'Selection Roles');
+  const repositoryTypes = repositoryTypesValue ? parseRepositoryTypesJson(repositoryTypesValue) : undefined;
+  if (repositoryTypesValue && !repositoryTypes) {
+    return { kind: 'invalid', reason: 'malformed-repository-types', section };
+  }
 
   if (extractLabeledValue(section, 'Deep Focus Enabled', SECTION_NAMES.CONTEXT_PACK_BINDING) !== 'true') {
+    if (repositoryTypes) {
+      binding.repositoryTypes = repositoryTypes;
+    }
     return { kind: 'binding', binding };
   }
 
@@ -355,6 +432,7 @@ export function formatContextPackBindingSection(binding: {
   scopeMode?: string;
   selectedRepoIds?: string[];
   selectedFocusIds?: string[];
+  repositoryTypes?: ContextPackRepositoryTypes;
   deepFocusEnabled?: boolean;
   primaryRepoId?: string | null;
   primaryFocusId?: string | null;
@@ -393,6 +471,9 @@ export function formatContextPackBindingSection(binding: {
   }
   if (!isDeepFocus) {
     lines.push(`- Selected Focus IDs: ${(binding.selectedFocusIds ?? []).join(', ')}`);
+    if (binding.repositoryTypes && Object.keys(binding.repositoryTypes).length > 0) {
+      lines.push(`- Selection Roles: ${stableStringifyRepositoryTypes(binding.repositoryTypes)}`);
+    }
   }
 
   if (binding.deepFocusEnabled === true) {
@@ -421,6 +502,108 @@ export function formatContextPackBindingSection(binding: {
 
 function commaSplit(value: string): string[] {
   return value ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+}
+
+function normalizeBranchChainBinding(binding: TaskBranchChainBinding): TaskBranchChainBinding {
+  return {
+    schemaVersion: 1,
+    mode: 'continuation',
+    rootTaskId: binding.rootTaskId,
+    parentTaskId: binding.parentTaskId,
+    depth: binding.depth,
+    repos: binding.repos.map((repo) => ({
+      repoRoot: repo.repoRoot,
+      repoLabel: repo.repoLabel,
+      chainSourceBranch: repo.chainSourceBranch,
+      parentSourceBranch: repo.parentSourceBranch,
+      parentBranchHead: repo.parentBranchHead,
+      targetBranch: repo.targetBranch,
+    })),
+  };
+}
+
+function extractFirstJsonFence(section: string): string | null {
+  const lines = section.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const opener = lines[index]!.trim();
+    if (!opener.startsWith('```')) {
+      continue;
+    }
+    if (opener !== '```json' && opener !== '```') {
+      return null;
+    }
+    const body: string[] = [];
+    for (let closeIndex = index + 1; closeIndex < lines.length; closeIndex += 1) {
+      if (lines[closeIndex]!.trim() === '```') {
+        return body.join('\n');
+      }
+      body.push(lines[closeIndex]!);
+    }
+    return null;
+  }
+  return null;
+}
+
+export function parseBranchChainBinding(value: unknown): TaskBranchChainBinding | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.schemaVersion !== 1
+    || candidate.mode !== 'continuation'
+    || !isNonEmptyString(candidate.rootTaskId)
+    || !isNonEmptyString(candidate.parentTaskId)
+    || !Number.isInteger(candidate.depth)
+    || (candidate.depth as number) < 0
+    || !Array.isArray(candidate.repos)
+    || candidate.repos.length === 0
+  ) {
+    return null;
+  }
+
+  const repos = candidate.repos.map(parseBranchChainRepo);
+  if (repos.some((repo) => repo === null)) {
+    return null;
+  }
+
+  return {
+    schemaVersion: 1,
+    mode: 'continuation',
+    rootTaskId: candidate.rootTaskId,
+    parentTaskId: candidate.parentTaskId,
+    depth: candidate.depth as number,
+    repos: repos as TaskBranchChainRepo[],
+  };
+}
+
+function parseBranchChainRepo(value: unknown): TaskBranchChainRepo | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    !isNonEmptyString(candidate.repoRoot)
+    || !isNonEmptyString(candidate.repoLabel)
+    || !isNonEmptyString(candidate.chainSourceBranch)
+    || !isNonEmptyString(candidate.parentSourceBranch)
+    || !isNonEmptyString(candidate.parentBranchHead)
+    || !(candidate.targetBranch === null || isNonEmptyString(candidate.targetBranch))
+  ) {
+    return null;
+  }
+  return {
+    repoRoot: candidate.repoRoot,
+    repoLabel: candidate.repoLabel,
+    chainSourceBranch: candidate.chainSourceBranch,
+    parentSourceBranch: candidate.parentSourceBranch,
+    parentBranchHead: candidate.parentBranchHead,
+    targetBranch: candidate.targetBranch,
+  };
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
 }
 
 function optionalLabeledValue(section: string, label: string): string | undefined {

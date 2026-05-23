@@ -5,6 +5,7 @@ import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { withDirLock } from './dirLock.js';
+import { cleanupDeletedChildTaskChainTask } from './childTaskChainDeletion.js';
 import { removeTask } from './taskRegistry.js';
 
 export interface DeleteErrorItemOptions {
@@ -22,14 +23,16 @@ export async function deleteErrorItem(
 
   const deletedTaskId = queueName.replace(/\.md$/, '');
   await withDirLock(queuePaths.queueLockDir, 'Delete error item', async () => {
-    try {
-      await unlink(targetPath);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`Delete error item blocked: "${queueName}" does not exist in error-items/.`);
+    await cleanupDeletedChildTaskChainTask(repoRoot, deletedTaskId, async () => {
+      try {
+        await unlink(targetPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`Delete error item blocked: "${queueName}" does not exist in error-items/.`);
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
     try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
   });
 

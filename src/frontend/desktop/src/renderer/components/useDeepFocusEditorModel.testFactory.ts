@@ -22,6 +22,13 @@ export function makeDeepFocusEditorModel(
     search: { query: '', active: false },
     validation: { errors: [], hasFeedback: false },
     promotion: { testTarget: null, supportTargets: [] },
+    selectionBuilder: {
+      empty: true,
+      primaryItems: [],
+      supportItems: [],
+      testItems: [],
+      counts: { primary: 0, support: 0, test: 0 },
+    },
     ...overrides,
   };
 }

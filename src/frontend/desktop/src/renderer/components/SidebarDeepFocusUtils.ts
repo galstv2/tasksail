@@ -10,6 +10,7 @@ import {
 } from '../../shared/desktopContract';
 import { createLogger } from '../log/logger';
 import { deepFocusStrings } from './SidebarDeepFocusStrings';
+import type { DeepFocusMode } from './SidebarDeepFocusControls.types';
 
 export type EditScopeCursor =
   | { kind: 'global' }
@@ -76,17 +77,21 @@ export type ScopedValidationError = {
   };
 };
 
-type BadgeRow = {
+export type DeepFocusRowTargetInput = {
   targetPath: string;
   kind: ContextPackFocusTargetKind;
+  repoLocalPath?: string;
+  topLevelId?: string;
+  deepFocusMode?: DeepFocusMode;
+};
+
+type BadgeRow = DeepFocusRowTargetInput & {
   systemLayer?: string | null;
   label?: string;
   isTest?: boolean;
   artifactType?: string;
   pathKind?: string;
-  topLevelId?: string;
   isTopLevel?: boolean;
-  activeTopLevelId?: string | null;
 };
 
 const TEST_DIR_NAME_PATTERN = /^(__)?(tests?|specs?|e2e)(__)?$|[.\-_](tests?|specs?|e2e)$/i;
@@ -167,6 +172,107 @@ export function primaryIdentityKey(
     normalizeRelativePath(target.path),
     target.kind,
   ]);
+}
+
+export type DeepFocusTargetAssignmentSlot =
+  | 'primary'
+  | 'global-test'
+  | 'global-support'
+  | 'primary-test'
+  | 'primary-support';
+
+export type DeepFocusTargetAssignment = {
+  slot: DeepFocusTargetAssignmentSlot;
+  target: ContextPackDeepFocusTarget;
+  targetKey: string;
+  primaryIndex: number | null;
+  supportIndex: number | null;
+};
+
+export function deepFocusTargetSelectionKey(
+  target: Pick<ContextPackDeepFocusTarget, 'path' | 'kind' | 'repoLocalPath' | 'repoId' | 'focusId'>,
+): string {
+  return JSON.stringify([
+    target.repoLocalPath ?? '',
+    target.repoId ?? '',
+    target.focusId ?? '',
+    normalizeRelativePath(target.path),
+    target.kind,
+  ]);
+}
+
+function collectDeepFocusAssignments(
+  state: ContextPackDeepFocusState,
+): DeepFocusTargetAssignment[] {
+  const assignments: DeepFocusTargetAssignment[] = [];
+  const add = (
+    slot: DeepFocusTargetAssignmentSlot,
+    target: ContextPackDeepFocusTarget | null | undefined,
+    primaryIndex: number | null,
+    supportIndex: number | null,
+  ) => {
+    if (!target) return;
+    assignments.push({
+      slot,
+      target,
+      targetKey: deepFocusTargetSelectionKey(target),
+      primaryIndex,
+      supportIndex,
+    });
+  };
+
+  const primaries = state.selectedFocusTargets ?? [];
+  primaries.forEach((primary, primaryIndex) => {
+    add('primary', primary, primaryIndex, null);
+  });
+  add('global-test', state.selectedTestTarget, null, null);
+  primaries.forEach((primary, primaryIndex) => {
+    add('primary-test', primary.testTarget, primaryIndex, null);
+  });
+  (state.selectedSupportTargets ?? []).forEach((support, supportIndex) => {
+    add('global-support', support, null, supportIndex);
+  });
+  primaries.forEach((primary, primaryIndex) => {
+    (primary.supportTargets ?? []).forEach((support, supportIndex) => {
+      add('primary-support', support, primaryIndex, supportIndex);
+    });
+  });
+  return assignments;
+}
+
+export function findDeepFocusTargetAssignment(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+  options?: { ignore?: DeepFocusTargetAssignmentSlot[] },
+): DeepFocusTargetAssignment | null {
+  const ignored = new Set(options?.ignore ?? []);
+  return collectDeepFocusAssignments(state).find((assignment) =>
+    !ignored.has(assignment.slot) && isSameTarget(assignment.target, target)) ?? null;
+}
+
+export function targetHasAnySelectionRole(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return findDeepFocusTargetAssignment(state, target) !== null;
+}
+
+export function collectDuplicateDeepFocusAssignments(
+  state: ContextPackDeepFocusState,
+): DeepFocusTargetAssignment[] {
+  const winners: DeepFocusTargetAssignment[] = [];
+  const duplicates: DeepFocusTargetAssignment[] = [];
+
+  collectDeepFocusAssignments(state).forEach((assignment) => {
+    const winner = winners.find((candidate) => isSameTarget(candidate.target, assignment.target));
+    if (winner) {
+      duplicates.push(assignment);
+      return;
+    }
+    winners.push(assignment);
+  });
+
+  return duplicates;
 }
 
 function cloneDeepFocusTarget(
@@ -306,14 +412,22 @@ export function hydrateLegacyPrimaries(options: {
   };
 }
 
+function normalizeMigratedPrimaryRoles(
+  targets: ContextPackPrimaryFocusTarget[],
+): ContextPackPrimaryFocusTarget[] {
+  if (targets.length === 0) return [];
+  const explicitAnchorIndex = targets.findIndex((target) => target.role === 'anchor');
+  const anchorIndex = explicitAnchorIndex >= 0 ? explicitAnchorIndex : 0;
+  return targets.map((target, index) => ({
+    ...target,
+    role: index === anchorIndex ? 'anchor' : 'primary',
+  }));
+}
+
 /**
- * Enforce the support-scope mutual-exclusion invariant on persisted state
- * loaded from disk (spec §5.3). A path P found in both `selectedSupportTargets`
- * (globals) and any `primary.supportTargets` is removed from globals — the
- * per-primary placement is the more specific declaration and is preserved.
- *
- * Cross-primary sharing (same path in two distinct primaries) is intentional
- * and out of scope for this invariant; we leave it untouched.
+ * Enforce the persisted one-target-one-selection invariant on state loaded
+ * from disk. The first deterministic assignment wins; later duplicate primary,
+ * global test/support, and per-primary test/support assignments are removed.
  *
  * Returns the same state reference when no migration is needed so downstream
  * equality checks can skip re-renders.
@@ -321,27 +435,50 @@ export function hydrateLegacyPrimaries(options: {
 export function migrateSupportScopes(
   state: ContextPackDeepFocusState,
 ): ContextPackDeepFocusState {
-  const primaries = state.selectedFocusTargets ?? [];
-  const globals = state.selectedSupportTargets ?? [];
-  if (primaries.length === 0 || globals.length === 0) {
+  const duplicateAssignments = collectDuplicateDeepFocusAssignments(state);
+  if (duplicateAssignments.length === 0) {
     return state;
   }
 
-  const filteredGlobals = globals.filter(
-    (target) =>
-      !primaries.some((primary) =>
-        (primary.supportTargets ?? []).some((supportTarget) =>
-          isSameTarget(supportTarget, target),
-        ),
-      ),
+  const duplicateAssignmentSet = new Set(duplicateAssignments);
+  const keepAssignment = (
+    slot: DeepFocusTargetAssignmentSlot,
+    primaryIndex: number | null,
+    supportIndex: number | null,
+  ): boolean =>
+    !duplicateAssignments.some((assignment) =>
+      assignment.slot === slot
+      && assignment.primaryIndex === primaryIndex
+      && assignment.supportIndex === supportIndex);
+
+  const nextPrimaries = normalizeMigratedPrimaryRoles(
+    (state.selectedFocusTargets ?? [])
+      .map((primary, primaryIndex) => ({ primary, primaryIndex }))
+      .filter(({ primaryIndex }) => keepAssignment('primary', primaryIndex, null))
+      .map(({ primary, primaryIndex }) => ({
+        ...primary,
+        testTarget: keepAssignment('primary-test', primaryIndex, null)
+          ? primary.testTarget
+          : undefined,
+        supportTargets: (primary.supportTargets ?? []).filter((_, supportIndex) =>
+          keepAssignment('primary-support', primaryIndex, supportIndex)),
+      })),
   );
-  const removedCount = globals.length - filteredGlobals.length;
-  if (removedCount === 0) {
-    return state;
-  }
+  const nextGlobalSupport = (state.selectedSupportTargets ?? []).filter((_, supportIndex) =>
+    keepAssignment('global-support', null, supportIndex));
+  const nextGlobalTest = keepAssignment('global-test', null, null)
+    ? state.selectedTestTarget
+    : undefined;
 
-  log.warn('deep-focus.support-scopes.duplicate-globals.removed', { removedCount });
-  return { ...state, selectedSupportTargets: filteredGlobals };
+  log.warn('deep-focus.selections.duplicate-assignments.removed', {
+    removedCount: duplicateAssignmentSet.size,
+  });
+  return {
+    ...state,
+    selectedFocusTargets: nextPrimaries,
+    selectedTestTarget: nextGlobalTest,
+    selectedSupportTargets: nextGlobalSupport,
+  };
 }
 
 export function basename(path: string): string {
@@ -368,6 +505,53 @@ export function isSameTarget(
 ): boolean {
   if (!left || !right) return false;
   return left.path === right.path && left.kind === right.kind && targetsShareTopLevel(left, right);
+}
+
+export function targetIsPrimary(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return (state.selectedFocusTargets ?? []).some((primary) => isSameTarget(primary, target));
+}
+
+function targetIsGlobalTest(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return isSameTarget(state.selectedTestTarget, target);
+}
+
+function targetIsGlobalSupport(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return state.selectedSupportTargets.some((support) => isSameTarget(support, target));
+}
+
+function targetIsPrimaryTest(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return (state.selectedFocusTargets ?? []).some((primary) =>
+    isSameTarget(primary.testTarget, target));
+}
+
+function targetIsPrimarySupport(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return (state.selectedFocusTargets ?? []).some((primary) =>
+    (primary.supportTargets ?? []).some((support) => isSameTarget(support, target)));
+}
+
+export function targetHasAnySupportOrTestRole(
+  state: ContextPackDeepFocusState,
+  target: ContextPackDeepFocusTarget,
+): boolean {
+  return targetIsGlobalSupport(state, target)
+    || targetIsGlobalTest(state, target)
+    || targetIsPrimarySupport(state, target)
+    || targetIsPrimaryTest(state, target);
 }
 
 export function countSupportFiles(
@@ -410,36 +594,34 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     || target.isContentEditable;
 }
 
+export function deepFocusTargetForRow(row: DeepFocusRowTargetInput): ContextPackDeepFocusTarget {
+  const deepFocusMode = row.deepFocusMode ?? 'distributed';
+  const target: ContextPackDeepFocusTarget = {
+    path: normalizeRelativePath(row.targetPath),
+    kind: row.kind,
+    ...(row.repoLocalPath ? { repoLocalPath: row.repoLocalPath } : {}),
+  };
+  if (row.topLevelId && deepFocusMode === 'distributed') {
+    return { ...target, repoId: row.topLevelId };
+  }
+  if (row.topLevelId && deepFocusMode === 'monolith') {
+    return { ...target, focusId: row.topLevelId };
+  }
+  return target;
+}
+
 function isSameRowTarget(
   target: ContextPackDeepFocusTarget | null | undefined,
   rowTarget: ContextPackDeepFocusTarget,
-  row: BadgeRow,
 ): boolean {
-  if (!isSameTarget(target, rowTarget)) return false;
-  if (
-    row.isTopLevel
-    && rowTarget.path === ''
-    && rowTarget.kind === 'directory'
-    && row.activeTopLevelId
-  ) {
-    return row.topLevelId === row.activeTopLevelId;
-  }
-  return true;
+  return isSameTarget(target, rowTarget);
 }
 
 function isSamePrimaryRowTarget(
   target: ContextPackPrimaryFocusTarget | null | undefined,
   rowTarget: ContextPackDeepFocusTarget,
-  row: BadgeRow,
 ): boolean {
-  if (!isSameTarget(target, rowTarget)) return false;
-  if (!target?.repoLocalPath && !target?.repoId && !target?.focusId) {
-    return true;
-  }
-  if (!row.topLevelId) {
-    return true;
-  }
-  return target.repoId === row.topLevelId || target.focusId === row.topLevelId;
+  return isSameTarget(target, rowTarget);
 }
 
 export function pathContains(parentPath: string, childPath: string): boolean {
@@ -464,16 +646,43 @@ export function isDirectoryAncestorTarget(
     && isStrictAncestorPath(ancestor.path, candidate.path);
 }
 
-function targetsShareTopLevel(
-  left: Pick<ContextPackDeepFocusTarget, 'repoLocalPath' | 'repoId' | 'focusId'>,
-  right: Pick<ContextPackDeepFocusTarget, 'repoLocalPath' | 'repoId' | 'focusId'>,
-): boolean {
-  const leftIdentifiers = [left.repoLocalPath, left.repoId, left.focusId].filter(Boolean);
-  const rightIdentifiers = [right.repoLocalPath, right.repoId, right.focusId].filter(Boolean);
-  if (leftIdentifiers.length === 0 || rightIdentifiers.length === 0) {
+type TopLevelIdentity = Pick<ContextPackDeepFocusTarget, 'repoLocalPath' | 'repoId' | 'focusId'>;
+
+function topLevelIdentitiesMatch(left: TopLevelIdentity, right: TopLevelIdentity): boolean {
+  if (
+    (!left.repoLocalPath && !left.repoId && !left.focusId)
+    || (!right.repoLocalPath && !right.repoId && !right.focusId)
+  ) {
     return true;
   }
-  return leftIdentifiers.some((identifier) => rightIdentifiers.includes(identifier));
+  if (left.focusId || right.focusId) {
+    return Boolean(left.focusId && right.focusId && left.focusId === right.focusId);
+  }
+  if (left.repoId || right.repoId) {
+    return Boolean(left.repoId && right.repoId && left.repoId === right.repoId);
+  }
+  if (left.repoLocalPath || right.repoLocalPath) {
+    return Boolean(
+      left.repoLocalPath
+      && right.repoLocalPath
+      && left.repoLocalPath === right.repoLocalPath,
+    );
+  }
+  return true;
+}
+
+function targetsShareTopLevel(
+  left: TopLevelIdentity,
+  right: TopLevelIdentity,
+): boolean {
+  return topLevelIdentitiesMatch(left, right);
+}
+
+function primaryTargetsShareTopLevel(
+  left: ContextPackPrimaryFocusTarget,
+  right: ContextPackPrimaryFocusTarget,
+): boolean {
+  return topLevelIdentitiesMatch(left, right);
 }
 
 export function targetsOverlap(
@@ -600,41 +809,24 @@ function cursorPrimary(
     : undefined;
 }
 
-function isRepoRootPrimary(target: ContextPackPrimaryFocusTarget | undefined): boolean {
-  return target?.path === '' && target.kind === 'directory';
-}
-
 function primaryBelongsToRowTopLevel(
   primary: ContextPackPrimaryFocusTarget,
-  row: BadgeRow,
+  rowTarget: ContextPackDeepFocusTarget,
 ): boolean {
   if (!primary.repoLocalPath && !primary.repoId && !primary.focusId) {
     return true;
   }
-  if (!row.topLevelId) {
+  if (!rowTarget.repoLocalPath && !rowTarget.repoId && !rowTarget.focusId) {
     return true;
   }
-  return primary.repoId === row.topLevelId || primary.focusId === row.topLevelId;
-}
-
-function primaryTargetsShareTopLevel(
-  left: ContextPackPrimaryFocusTarget,
-  right: ContextPackPrimaryFocusTarget,
-): boolean {
-  const leftIdentifiers = [left.repoId, left.focusId, left.repoLocalPath].filter(Boolean);
-  const rightIdentifiers = [right.repoId, right.focusId, right.repoLocalPath].filter(Boolean);
-  if (leftIdentifiers.length === 0 || rightIdentifiers.length === 0) {
-    return true;
-  }
-  return leftIdentifiers.some((identifier) => rightIdentifiers.includes(identifier));
+  return targetsShareTopLevel(primary, rowTarget);
 }
 
 function primaryContainsRowTarget(
   primary: ContextPackPrimaryFocusTarget,
   rowTarget: ContextPackDeepFocusTarget,
-  row: BadgeRow,
 ): boolean {
-  return primaryBelongsToRowTopLevel(primary, row)
+  return primaryBelongsToRowTopLevel(primary, rowTarget)
     && isDirectoryAncestorTarget(primary, rowTarget);
 }
 
@@ -649,12 +841,11 @@ function primaryContainsRowTarget(
 function findDeepestContainingPrimaryIndex(
   primaries: ContextPackPrimaryFocusTarget[],
   rowTarget: ContextPackDeepFocusTarget,
-  row: BadgeRow,
 ): number {
   let deepestIndex = -1;
   let deepestLength = -1;
   primaries.forEach((primary, index) => {
-    if (!primaryContainsRowTarget(primary, rowTarget, row)) return;
+    if (!primaryContainsRowTarget(primary, rowTarget)) return;
     const length = normalizeRelativePath(primary.path).length;
     if (length > deepestLength) {
       deepestIndex = index;
@@ -672,27 +863,19 @@ function findDeepestContainingPrimaryIndex(
  */
 export function findPrimaryContainingRow(
   state: ContextPackDeepFocusState,
-  row: {
-    targetPath: string;
-    kind: ContextPackFocusTargetKind;
+  row: DeepFocusRowTargetInput & {
     systemLayer?: string | null;
     label?: string;
     isTest?: boolean;
     artifactType?: string;
     pathKind?: string;
-    topLevelId?: string;
     isTopLevel?: boolean;
-    activeTopLevelId?: string | null;
   },
 ): number {
-  const rowTarget: ContextPackDeepFocusTarget = {
-    path: normalizeRelativePath(row.targetPath),
-    kind: row.kind,
-  };
+  const rowTarget = deepFocusTargetForRow(row);
   return findDeepestContainingPrimaryIndex(
     state.selectedFocusTargets ?? [],
     rowTarget,
-    row,
   );
 }
 
@@ -714,15 +897,12 @@ export function computeRowBadges(
   state: ContextPackDeepFocusState,
   cursor: EditScopeCursor,
 ): TreeRowBadge[] {
-  const rowTarget: ContextPackDeepFocusTarget = {
-    path: normalizeRelativePath(row.targetPath),
-    kind: row.kind,
-  };
+  const rowTarget = deepFocusTargetForRow(row);
   const primaries = state.selectedFocusTargets ?? [];
   const badges: TreeRowBadge[] = [];
   const currentPrimary = cursorPrimary(state, cursor);
 
-  const primaryIndex = primaries.findIndex((target) => isSamePrimaryRowTarget(target, rowTarget, row));
+  const primaryIndex = primaries.findIndex((target) => isSamePrimaryRowTarget(target, rowTarget));
   if (primaryIndex >= 0) {
     badges.push(
       { kind: 'primary', label: 'P', ariaLabel: 'Primary target' },
@@ -731,12 +911,12 @@ export function computeRowBadges(
 
   const onPrimaryCursor = cursor.kind === 'primary' && currentPrimary;
   const isPerPrimaryTest = onPrimaryCursor
-    && isSameRowTarget(currentPrimary.testTarget, rowTarget, row);
+    && isSameRowTarget(currentPrimary.testTarget, rowTarget);
   const isPerPrimarySupport = onPrimaryCursor
-    && (currentPrimary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget, row));
-  const isGlobalTest = isSameRowTarget(state.selectedTestTarget, rowTarget, row);
+    && (currentPrimary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget));
+  const isGlobalTest = isSameRowTarget(state.selectedTestTarget, rowTarget);
   const isGlobalSupport = state.selectedSupportTargets.some((target) =>
-    isSameRowTarget(target, rowTarget, row));
+    isSameRowTarget(target, rowTarget));
 
   if (isPerPrimaryTest || isGlobalTest) {
     badges.push({ kind: 'test', label: 'T', ariaLabel: 'Scoped test target' });
@@ -753,14 +933,34 @@ export function computePopoverActions(
   state: ContextPackDeepFocusState,
   cursor: EditScopeCursor,
 ): PopoverAction[] {
-  const rowTarget: ContextPackDeepFocusTarget = {
-    path: normalizeRelativePath(row.targetPath),
-    kind: row.kind,
-  };
+  const rowTarget = deepFocusTargetForRow(row);
   const primaries = state.selectedFocusTargets ?? [];
-  const primaryIndex = primaries.findIndex((target) => isSamePrimaryRowTarget(target, rowTarget, row));
-  const containingPrimaryIndex = findDeepestContainingPrimaryIndex(primaries, rowTarget, row);
+  const existingAssignment = findDeepFocusTargetAssignment(state, rowTarget);
+  if (existingAssignment) {
+    if (existingAssignment.slot === 'primary' && existingAssignment.primaryIndex !== null) {
+      return [
+        { action: { type: 'remove-primary', index: existingAssignment.primaryIndex }, label: deepFocusStrings.popover.actions.removePrimary },
+      ];
+    }
+    if (existingAssignment.slot === 'global-test' || existingAssignment.slot === 'global-support') {
+      return [
+        { action: { type: 'remove-global' }, label: deepFocusStrings.popover.actions.removeGlobal },
+      ];
+    }
+    if (
+      (existingAssignment.slot === 'primary-test' || existingAssignment.slot === 'primary-support')
+      && existingAssignment.primaryIndex !== null
+    ) {
+      return [
+        { action: { type: 'remove-primary-member', index: existingAssignment.primaryIndex }, label: deepFocusStrings.popover.actions.removePrimaryMember(primaryName(primaries[existingAssignment.primaryIndex])) },
+      ];
+    }
+    return [];
+  }
+  const primaryIndex = primaries.findIndex((target) => isSamePrimaryRowTarget(target, rowTarget));
+  const containingPrimaryIndex = findDeepestContainingPrimaryIndex(primaries, rowTarget);
   const rowCoveredByPrimary = containingPrimaryIndex >= 0;
+  const rowIsPrimary = primaryIndex >= 0;
   // Shared global-bucket gates: a row already covered by the global test or
   // an existing global support entry cannot be re-added; same logic applies
   // whether the cursor is on a primary or on global. Computed once so the
@@ -769,8 +969,8 @@ export function computePopoverActions(
     && (isSameTarget(state.selectedTestTarget, rowTarget) || isDirectoryAncestorTarget(state.selectedTestTarget, rowTarget));
   const rowUnderGlobalSupport = state.selectedSupportTargets.some((supportTarget) =>
     isSameTarget(supportTarget, rowTarget) || isDirectoryAncestorTarget(supportTarget, rowTarget));
-  const rowIsGlobalTestTarget = isSameRowTarget(state.selectedTestTarget, rowTarget, row);
-  const rowIsGlobalSupportTarget = state.selectedSupportTargets.some((target) => isSameRowTarget(target, rowTarget, row));
+  const rowIsGlobalTestTarget = isSameRowTarget(state.selectedTestTarget, rowTarget);
+  const rowIsGlobalSupportTarget = state.selectedSupportTargets.some((target) => isSameRowTarget(target, rowTarget));
 
   if (cursor.kind === 'primary') {
     const primary = primaries[cursor.index];
@@ -803,7 +1003,7 @@ export function computePopoverActions(
     // Test selection is gated on the name-based heuristic in every scope —
     // the user explicitly does NOT want every folder inside a primary to be
     // a test candidate just because the parent is primary.
-    if (isTestClassifiedRow(row) && !rowIsGlobalTestTarget) {
+    if (isTestClassifiedRow(row) && !rowIsPrimary && !rowIsGlobalTestTarget) {
       actions.push({ action: { type: 'set-primary-test', index: cursor.index }, label: deepFocusStrings.popover.actions.setPrimaryTest(name) });
     }
     // Block add-as-support when the row is already covered by *any* primary's
@@ -817,12 +1017,12 @@ export function computePopoverActions(
       && (isSameTarget(primary.testTarget, rowTarget) || isDirectoryAncestorTarget(primary.testTarget, rowTarget));
     const rowUnderCursorSupport = (primary.supportTargets ?? []).some((supportTarget) =>
       isSameTarget(supportTarget, rowTarget) || isDirectoryAncestorTarget(supportTarget, rowTarget));
-    if (!rowCoveredByPrimary && !rowUnderCursorTest && !rowUnderCursorSupport) {
+    if (!rowIsPrimary && !rowCoveredByPrimary && !rowUnderCursorTest && !rowUnderCursorSupport) {
       actions.push({ action: { type: 'add-primary-support', index: cursor.index }, label: deepFocusStrings.popover.actions.addPrimarySupport(name) });
     }
     if (
-      isSameRowTarget(primary.testTarget, rowTarget, row)
-      || (primary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget, row))
+      isSameRowTarget(primary.testTarget, rowTarget)
+      || (primary.supportTargets ?? []).some((target) => isSameRowTarget(target, rowTarget))
     ) {
       actions.push({ action: { type: 'remove-primary-member', index: cursor.index }, label: deepFocusStrings.popover.actions.removePrimaryMember(name) });
     }
@@ -832,10 +1032,10 @@ export function computePopoverActions(
     // cursor. Same gating as the global-cursor branch below: test classified
     // for `set-global-test`; not already covered by global test/support and
     // not inside any primary writable area for `add-global-support`.
-    if (isTestClassifiedRow(row) && !rowIsGlobalTestTarget) {
+    if (isTestClassifiedRow(row) && !rowIsPrimary && !rowIsGlobalTestTarget) {
       actions.push({ action: { type: 'set-global-test' }, label: deepFocusStrings.popover.actions.setGlobalTest });
     }
-    if (!rowCoveredByPrimary && !rowUnderGlobalTest && !rowUnderGlobalSupport) {
+    if (!rowIsPrimary && !rowCoveredByPrimary && !rowUnderGlobalTest && !rowUnderGlobalSupport) {
       actions.push({ action: { type: 'add-global-support' }, label: deepFocusStrings.popover.actions.addGlobalSupport });
     }
     if (rowIsGlobalTestTarget || rowIsGlobalSupportTarget) {
@@ -868,10 +1068,10 @@ export function computePopoverActions(
     ...(!rowCoveredByPrimary
       ? [{ action: { type: 'make-primary' } as const, label: deepFocusStrings.popover.actions.makePrimary }]
       : []),
-    ...(hasPrimaries && isTestClassifiedRow(row)
+    ...(hasPrimaries && !rowIsPrimary && isTestClassifiedRow(row)
       ? [{ action: { type: 'set-global-test' } as const, label: deepFocusStrings.popover.actions.setGlobalTest }]
       : []),
-    ...(hasPrimaries && !rowCoveredByPrimary && !rowUnderGlobalTest && !rowUnderGlobalSupport
+    ...(hasPrimaries && !rowIsPrimary && !rowCoveredByPrimary && !rowUnderGlobalTest && !rowUnderGlobalSupport
       ? [{ action: { type: 'add-global-support' } as const, label: deepFocusStrings.popover.actions.addGlobalSupport }]
       : []),
     ...(rowIsGlobalTestTarget || rowIsGlobalSupportTarget
@@ -894,42 +1094,11 @@ export type PromotableScope = {
 const NO_PROMOTION: PromotableScope = { testTarget: null, supportTargets: [] };
 
 /**
- * Eligibility floor: at least 2 non-root primaries must exist. With one
- * primary the universal-quantifier ("every primary has X") is trivially true
- * after a single assignment, so promoting would be premature rather than a
- * meaningful coalescing of intent. Repo-root primaries are excluded because
- * the spec rejects scoped fields on them, so they cannot contribute to or
- * block equivalence.
+ * Total selection exclusivity requires explicit removal before changing a
+ * target's role or scope, so automatic promotion affordances stay disabled.
  */
-export function detectPromotableScope(state: ContextPackDeepFocusState): PromotableScope {
-  const primaries = state.selectedFocusTargets ?? [];
-  const eligible = primaries.filter((primary) => !isRepoRootPrimary(primary));
-  if (eligible.length < 2) return NO_PROMOTION;
-
-  let testCandidate: ContextPackDeepFocusTarget | null = null;
-  const firstTest = eligible[0]!.testTarget;
-  if (firstTest) {
-    const everyMatches = eligible.every((primary) =>
-      isSameTarget(primary.testTarget, firstTest));
-    const alreadyGlobal = isSameTarget(state.selectedTestTarget, firstTest);
-    if (everyMatches && !alreadyGlobal) {
-      testCandidate = firstTest;
-    }
-  }
-
-  const firstSupports = eligible[0]!.supportTargets ?? [];
-  const supportCandidates = firstSupports.filter((candidate) => {
-    const everyHas = eligible.every((primary) =>
-      (primary.supportTargets ?? []).some((entry) => isSameTarget(entry, candidate)));
-    if (!everyHas) return false;
-    const alreadyGlobal = state.selectedSupportTargets.some(
-      (entry) => isSameTarget(entry, candidate),
-    );
-    return !alreadyGlobal;
-  });
-
-  if (testCandidate === null && supportCandidates.length === 0) return NO_PROMOTION;
-  return { testTarget: testCandidate, supportTargets: supportCandidates };
+export function detectPromotableScope(_state: ContextPackDeepFocusState): PromotableScope {
+  return NO_PROMOTION;
 }
 
 export function validateNestedScopeForUi(state: ContextPackDeepFocusState): ScopedValidationError[] {

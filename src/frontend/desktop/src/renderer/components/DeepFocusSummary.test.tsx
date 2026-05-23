@@ -27,7 +27,18 @@ const TOOLS_TOP_LEVEL = {
   systemLayer: null,
 };
 
+const PLATFORM_TOP_LEVEL = {
+  id: 'platform',
+  label: 'Platform',
+  rootPath: '',
+  repoLocalPath: '/repos/platform',
+  ancillaryAllowed: false,
+  systemLayer: null,
+};
+
 function renderSummary({
+  committedTopLevel = TOOLS_TOP_LEVEL,
+  topLevelTargets = [TOOLS_TOP_LEVEL],
   committedPrimaries,
   selectedFocusPath = null,
   selectedFocusTargetKind = null,
@@ -36,6 +47,8 @@ function renderSummary({
   onOpenEditor = vi.fn(),
   actionRef,
 }: {
+  committedTopLevel?: typeof TOOLS_TOP_LEVEL | null;
+  topLevelTargets?: typeof TOOLS_TOP_LEVEL[];
   committedPrimaries: ContextPackPrimaryFocusTarget[];
   selectedFocusPath?: string | null;
   selectedFocusTargetKind?: ContextPackFocusTargetKind | null;
@@ -46,7 +59,8 @@ function renderSummary({
 }): { onOpenEditor: ReturnType<typeof vi.fn>; container: HTMLElement } {
   const result = render(
     <DeepFocusSummary
-      committedTopLevel={TOOLS_TOP_LEVEL}
+      committedTopLevel={committedTopLevel}
+      topLevelTargets={topLevelTargets}
       committedPrimaries={committedPrimaries}
       selectedFocusPath={selectedFocusPath}
       selectedFocusTargetKind={selectedFocusTargetKind}
@@ -74,6 +88,8 @@ describe('DeepFocusSummary', () => {
 
   it('renders header + one primary row with no globals or override hint for a single bare primary', () => {
     const { container } = renderSummary({
+      committedTopLevel: PLATFORM_TOP_LEVEL,
+      topLevelTargets: [PLATFORM_TOP_LEVEL, TOOLS_TOP_LEVEL],
       committedPrimaries: [
         {
           path: 'src',
@@ -95,6 +111,8 @@ describe('DeepFocusSummary', () => {
 
   it('uses repo prefix spans when primaries span multiple repos', () => {
     const { container } = renderSummary({
+      committedTopLevel: PLATFORM_TOP_LEVEL,
+      topLevelTargets: [PLATFORM_TOP_LEVEL, TOOLS_TOP_LEVEL],
       committedPrimaries: [
         {
           path: 'src',
@@ -273,6 +291,35 @@ describe('DeepFocusSummary', () => {
     expect(globals?.textContent).not.toContain('scoped.ts');
   });
 
+  it('labels whole-repo per-primary support by repo name instead of slash', () => {
+    const { container } = renderSummary({
+      committedPrimaries: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          supportTargets: [{
+            path: '',
+            kind: 'directory',
+            repoLocalPath: '/repos/tools',
+            repoId: 'tools',
+          }],
+        },
+      ],
+    });
+
+    const expandButton = container.querySelector(
+      '.deep-focus-summary__primary-row-button',
+    ) as HTMLButtonElement;
+    fireEvent.click(expandButton);
+
+    const overrides = container.querySelector('.deep-focus-summary__overrides');
+    expect(overrides?.textContent).toContain('Tools');
+    expect(overrides?.textContent).not.toContain('/');
+  });
+
   it('hides the globals section when there are no global supports or test target', () => {
     const { container } = renderSummary({
       committedPrimaries: [
@@ -312,6 +359,30 @@ describe('DeepFocusSummary', () => {
       globals?.querySelector('.deep-focus-summary__globals-eyebrow')?.textContent,
     ).toBe('Support for all primaries');
     expect(globals?.querySelector('.deep-focus-summary__globals-label')).toBeNull();
+  });
+
+  it('labels whole-repo global support by repo name instead of slash', () => {
+    const { container } = renderSummary({
+      committedPrimaries: [
+        {
+          path: '',
+          kind: 'directory',
+          role: 'anchor',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+        },
+      ],
+      selectedSupportTargets: [{
+        path: '',
+        kind: 'directory',
+        repoLocalPath: '/repos/tools',
+        repoId: 'tools',
+      }],
+    });
+
+    const globals = container.querySelector('.deep-focus-summary__globals');
+    expect(globals?.textContent).toContain('Tools');
+    expect(globals?.textContent).not.toContain('/');
   });
 
   it('summarizes legacy scalar primary scope as one primary target', () => {

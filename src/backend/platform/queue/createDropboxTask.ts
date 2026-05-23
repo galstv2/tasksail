@@ -8,9 +8,12 @@ import {
 } from '../core/index.js';
 import { assertValidTaskId, resolveQueuePaths } from './paths.js';
 import {
+  formatBranchChainSection,
   formatContextPackBindingSection,
+  type TaskBranchChainBinding,
   type TaskContextPackTarget,
 } from './markdown.js';
+import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { registerTask } from './taskRegistry.js';
 import { buildReadableTaskFileName } from './taskNames.js';
@@ -53,6 +56,8 @@ export interface CreateDropboxTaskOptions {
   selectedRepoIds?: string[];
   /** Selected focus IDs at submission time. */
   selectedFocusIds?: string[];
+  /** Standard-mode repository/focus role authority at submission time. */
+  repositoryTypes?: ContextPackRepositoryTypes;
   /** Primary repo ID at submission time. */
   primaryRepoId?: string | null;
   /** Primary focus ID at submission time. */
@@ -69,6 +74,9 @@ export interface CreateDropboxTaskOptions {
   selectedTestTarget?: TaskContextPackTarget | null;
   /** Normalized Deep Focus support targets. */
   selectedSupportTargets?: TaskContextPackTarget[];
+  branchChain?: TaskBranchChainBinding;
+  deepFocusPrimaryRepoId?: string | null;
+  deepFocusPrimaryFocusId?: string | null;
 }
 
 /**
@@ -107,6 +115,9 @@ export async function createDropboxTask(
 
   if (kind !== 'standard' && kind !== 'child-task') {
     throw new ValidationError('--task-kind must be standard or child-task.', { code: 'TASK_KIND_INVALID', category: 'user' });
+  }
+  if (options.branchChain && kind !== 'child-task') {
+    throw new ValidationError('Branch Chain metadata is only valid for child-task intake.', { code: 'BRANCH_CHAIN_TASK_KIND_INVALID', category: 'user' });
   }
 
   if (suggestedPath !== 'sequential' && suggestedPath !== 'parallel') {
@@ -176,13 +187,19 @@ export async function createDropboxTask(
     primaryFocusId: (options.primaryFocusId ?? '')?.trim() || undefined,
     selectedRepoIds: options.selectedRepoIds,
     selectedFocusIds: options.selectedFocusIds,
+    repositoryTypes: options.repositoryTypes,
     deepFocusEnabled: options.deepFocusEnabled,
+    deepFocusPrimaryRepoId: options.deepFocusPrimaryRepoId,
+    deepFocusPrimaryFocusId: options.deepFocusPrimaryFocusId,
     selectedFocusPath: options.selectedFocusPath,
     selectedFocusTargetKind: options.selectedFocusTargetKind,
     selectedFocusTargets: options.selectedFocusTargets,
     selectedTestTarget: options.selectedTestTarget,
     selectedSupportTargets: options.selectedSupportTargets,
   });
+  const branchChainDepthLine = kind === 'child-task' && options.branchChain
+    ? `- Depth: ${options.branchChain.depth}\n`
+    : '';
 
   const content = `# ${title}
 
@@ -191,13 +208,13 @@ export async function createDropboxTask(
 - Task Kind: ${kind}
 - Parent Task ID: ${parentTaskId}
 - Root Task ID: ${rootTaskId}
-- Parent QMD Record ID: ${parentQmdRecordId}
+${branchChainDepthLine}- Parent QMD Record ID: ${parentQmdRecordId}
 - Parent QMD Scope: ${parentQmdScope}
 - Follow-Up Reason: ${followupReason}
 
 ${bindingSection}
 
-## Request Summary
+${options.branchChain ? `${formatBranchChainSection(options.branchChain)}\n\n` : ''}## Request Summary
 
 ${summary}
 

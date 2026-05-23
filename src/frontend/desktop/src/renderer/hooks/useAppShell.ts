@@ -145,6 +145,12 @@ export function useAppShell(
     setContractError,
     contextPackSidebarProps.activeContextPackDir ?? null,
     plannerDeepFocusSelection,
+    {
+      contextPacks: contextPackSidebarProps.contextPacks,
+      activeContextPackDir: contextPackSidebarProps.activeContextPackDir,
+      selectedContextPackDir: contextPackSidebarProps.selectedContextPackDir,
+      onListRepoTree: contextPackSidebarProps.onListRepoTree,
+    },
   );
 
   const deleteBlockedByActiveTask = Boolean(

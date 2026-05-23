@@ -69,6 +69,22 @@ function makeFocusSnapshot(): PlannerFocusSnapshot {
   };
 }
 
+function makeArchivedParentTask() {
+  return {
+    taskId: 'TASK-001',
+    title: 'Add search',
+    summary: '',
+    rootTaskId: '',
+    qmdRecordId: '',
+    followupReason: '',
+    year: '2026',
+    archivePath: '/path',
+    archivedAt: null,
+    contextPackName: 'pack',
+    plannerFocusSnapshot: makeFocusSnapshot(),
+  };
+}
+
 describe('PlannerModal', () => {
   it('does not render when isOpen is false', () => {
     render(<PlannerModal {...makeProps({ isOpen: false })} />);
@@ -223,6 +239,29 @@ describe('PlannerModal', () => {
     expect(plannerMsg).toBeInTheDocument();
   });
 
+  it('keeps Draft Spec disabled until the operator sends a message', () => {
+    const { rerender } = render(
+      <PlannerModal {...makeProps({ sessionStatus: 'active', messages: [] })} />,
+    );
+    expect(screen.getByRole('button', { name: 'Draft Spec' })).toBeDisabled();
+
+    rerender(
+      <PlannerModal {...makeProps({
+        sessionStatus: 'active',
+        messages: [{ id: 'm1', role: 'planner', text: 'How can I help?' }],
+      })} />,
+    );
+    expect(screen.getByRole('button', { name: 'Draft Spec' })).toBeDisabled();
+
+    rerender(
+      <PlannerModal {...makeProps({
+        sessionStatus: 'active',
+        messages: [{ id: 'm2', role: 'operator', text: 'Build a billing feature' }],
+      })} />,
+    );
+    expect(screen.getByRole('button', { name: 'Draft Spec' })).toBeEnabled();
+  });
+
   it('does not render the recents trigger when there are zero records', () => {
     render(
       <PlannerModal
@@ -258,7 +297,7 @@ describe('PlannerModal', () => {
     );
 
     const trigger = screen.getByRole('button', { name: /Recent conversations, 3 available/ });
-    expect(trigger.textContent).toContain('Recent · 3');
+    expect(trigger.textContent).toContain('Recent Task');
 
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
@@ -366,13 +405,15 @@ describe('PlannerModal', () => {
         {...makeProps({
           childTaskMode: true,
           archivedTasks: [
-            { taskId: 'TASK-001', title: 'Add search', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
+            { taskId: 'TASK-001', title: 'Add search', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', archivedAt: null, contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
           ],
         })}
       />,
     );
     expect(screen.getByLabelText('Parent task selection')).toBeInTheDocument();
-    expect(screen.getByText('Add search (2026)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /select a completed parent task/i }));
+    expect(screen.getByText('Add search')).toBeInTheDocument();
+    expect(screen.getByText('2026')).toBeInTheDocument();
   });
 
   it('renders only the archived tasks it is given (filtering is owned by the hook)', () => {
@@ -381,13 +422,14 @@ describe('PlannerModal', () => {
         {...makeProps({
           childTaskMode: true,
           archivedTasks: [
-            { taskId: 'TASK-001', title: 'Modern parent', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
+            { taskId: 'TASK-001', title: 'Modern parent', summary: '', rootTaskId: '', qmdRecordId: '', followupReason: '', year: '2026', archivePath: '/path', archivedAt: null, contextPackName: 'pack', plannerFocusSnapshot: makeFocusSnapshot() },
           ],
         })}
       />,
     );
 
-    expect(screen.getByText('Modern parent (2026)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /select a completed parent task/i }));
+    expect(screen.getByText('Modern parent')).toBeInTheDocument();
   });
 
   it('shows an ineligible-archives placeholder when archives exist but none have planner focus snapshots', () => {
@@ -422,7 +464,7 @@ describe('PlannerModal', () => {
     render(<PlannerModal {...makeProps({ childTaskMode: true, loadingChildTaskParent: true })} />);
 
     expect(screen.getByText('Loading parent task...')).toBeInTheDocument();
-    expect(screen.getByRole('combobox')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /loading parent task/i })).toBeDisabled();
   });
 
   it('does not show parent task dropdown in standard mode', () => {
@@ -442,6 +484,42 @@ describe('PlannerModal', () => {
     expect(screen.getByLabelText('Planner message input')).toHaveAttribute(
       'placeholder',
       'Select a parent task to begin child-task planning.',
+    );
+  });
+
+  it('keeps the default placeholder even after conversation messages exist', () => {
+    render(<PlannerModal {...makeProps({
+      messages: [{ id: 'msg-1', role: 'planner', text: 'Ready.' }],
+    })} />);
+
+    expect(screen.getByLabelText('Planner message input')).toHaveAttribute(
+      'placeholder',
+      'Start a conversation with Lily to begin planning your task.',
+    );
+  });
+
+  it('shows child-task guidance when a parent task is selected', () => {
+    render(<PlannerModal {...makeProps({
+      childTaskMode: true,
+      selectedParentTask: makeArchivedParentTask(),
+      messages: [{ id: 'msg-1', role: 'planner', text: 'Child-task mode activated.' }],
+    })} />);
+
+    expect(screen.getByLabelText('Planner message input')).toHaveAttribute(
+      'placeholder',
+      'Tell Lily what this child task should continue, change, or investigate.',
+    );
+  });
+
+  it('shows recent-task guidance when replaying a recent conversation', () => {
+    render(<PlannerModal {...makeProps({
+      replaySourceRecordId: 'conversation-1',
+      messages: [{ id: 'msg-1', role: 'planner', text: 'Historical planning context.' }],
+    })} />);
+
+    expect(screen.getByLabelText('Planner message input')).toHaveAttribute(
+      'placeholder',
+      'Continue this planning thread with Lily.',
     );
   });
 

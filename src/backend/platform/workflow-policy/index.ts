@@ -77,7 +77,9 @@ export {
   parallelOkHasActiveApproval,
   parseMetadata,
   parseSections,
+  parseSemanticSections,
   resolveSemanticSection,
+  stripHtmlCommentsFromSections,
 } from './artifacts.js';
 
 export { formatJson, formatText } from './formatting.js';

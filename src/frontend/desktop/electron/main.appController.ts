@@ -26,6 +26,7 @@ import {
   cleanupStalePipelineState,
   schedulePipelineAutoStart,
 } from './main.startupRecovery';
+import { recoverPlannerParentBranchViewsOnStartup } from './plannerParentBranchView';
 import { refreshTerminalScopeCaches } from './main.terminalScopeRefresh';
 import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';
 import { DesktopActionRouter } from './main.desktopActionRouter';
@@ -88,6 +89,11 @@ export class ElectronAppController {
       await createWindow();
 
       await cleanupStalePipelineState();
+      await recoverPlannerParentBranchViewsOnStartup().catch((error: unknown) => {
+        log.warn('planner.parent-branch-view.recovery.failed', {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      });
       await refreshCurrentActiveContextPackTaskScope(listAvailableContextPacks);
       await refreshTerminalScopeCaches();
 

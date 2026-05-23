@@ -7,7 +7,7 @@
  *   3. createDefaultRuleEvaluators() wiring
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -480,6 +480,30 @@ describe('closeout rules — parity', () => {
     expect(result.violations.filter((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toHaveLength(0);
   });
 
+  it('pre-closeout tolerates natural review outcome and difficulty phrasing', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, { reviewOutcome: 'Pass - no findings.' });
+    const finalSummaryPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'final-summary.md');
+    writeFileSync(
+      finalSummaryPath,
+      readFileSync(finalSummaryPath, 'utf-8').replace('- Difficulty Level: Medium', 'Difficulty Level - medium confidence'),
+      'utf-8',
+    );
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id === 'closeout.qa-review-approved')).toBe(false);
+    expect(result.violations.some((v) => v.rule_id === 'closeout.difficulty-level-required')).toBe(false);
+  });
+
   it('pre-closeout fails when Requirement Verification is missing or blank', async () => {
     const repoRoot = makeRepoRoot();
     roots.push(repoRoot);
@@ -575,6 +599,25 @@ describe('closeout rules — parity', () => {
     const result = await validator.evaluate();
     expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-completed' && v.message.includes('CR-001'))).toBe(true);
     expect(result.violations.some((v) => v.rule_id === 'closeout.requirement-verification-no-blocked-status')).toBe(false);
+  });
+
+  it('pre-closeout accepts generated requirement statuses with dash separators', async () => {
+    const repoRoot = makeRepoRoot();
+    roots.push(repoRoot);
+    writeRegistry(repoRoot);
+    writeCloseoutFixture(repoRoot, {
+      requirementVerification: '- CR-001 — verified—acceptance covered.\n- VAL-001 - advisory - broad suite follow-up.',
+    });
+
+    const validator = new PolicyValidator({
+      rootDir: repoRoot,
+      mode: 'pre-closeout',
+      taskId: TEST_TASK_ID,
+      ruleEvaluators: createDefaultRuleEvaluators(),
+    });
+
+    const result = await validator.evaluate();
+    expect(result.violations.some((v) => v.rule_id.startsWith('closeout.requirement-verification'))).toBe(false);
   });
 
   it('pre-closeout fails blocked requirement statuses in non-blocking closeout', async () => {

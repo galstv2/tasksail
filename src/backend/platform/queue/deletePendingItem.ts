@@ -7,6 +7,7 @@ import { findRepoRoot } from '../core/index.js';
 import { discardRetainedTaskWorktrees } from '../core/worktreeFinalize.js';
 import { resolveQueuePaths } from './paths.js';
 import { removeFromQueueOrderManifest } from './operations.js';
+import { cleanupDeletedChildTaskChainTask } from './childTaskChainDeletion.js';
 import { cleanupStagedPlannerFocusSnapshot } from './plannerFocusSnapshotStaging.js';
 import { withDirLock } from './dirLock.js';
 import { removeTask } from './taskRegistry.js';
@@ -57,10 +58,12 @@ export async function deletePendingItem(
   }
 
   await withDirLock(queuePaths.queueLockDir, 'Delete pending item', async () => {
-    await unlink(targetPath);
-    await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+    await cleanupDeletedChildTaskChainTask(repoRoot, deletedTaskId, async () => {
+      await unlink(targetPath);
+      await cleanupStagedPlannerFocusSnapshot(repoRoot, deletedTaskId);
+      await removeFromQueueOrderManifest(queuePaths.queueOrderPath, queueName);
+    });
     try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
-    await removeFromQueueOrderManifest(queuePaths.queueOrderPath, queueName);
   });
 
   // Defense in depth: a pending item that is not the active task should not

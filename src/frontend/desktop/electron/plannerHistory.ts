@@ -22,6 +22,13 @@ import type {
 import { readWorkspaceSyncStateSnapshot } from './main.contextPackCatalog';
 import { REPO_ROOT } from './paths';
 import { createLogger } from './log/logger';
+import {
+  assertPlannerHistoryRecordHydratable,
+  childTaskHydrateMessage,
+  derivePlannerHistoryTaskId,
+  filterPlannerHistoryRecordsForRecents,
+  type RecentChildTaskFilterResult,
+} from './plannerRecentChildTaskEligibility';
 
 const log = createLogger('electron/plannerHistory');
 
@@ -127,7 +134,7 @@ export async function commitPendingRecordToHistory(
     transcript: pending.transcript.map((message) => ({ ...message })),
   };
   await upsertPlannerHistoryRecord({ repoRoot: REPO_ROOT, record });
-  const taskId = basename(record.finalizedDestinationPath, '.md');
+  const taskId = derivePlannerHistoryTaskId(record);
   try {
     await writeStagedPlannerFocusSnapshot({
       repoRoot: REPO_ROOT,
@@ -168,6 +175,18 @@ function toSummary(record: PlannerConversationRecord): PlannerListConversationHi
   };
 }
 
+function listHistoryMessage(filterResult: RecentChildTaskFilterResult): string {
+  if (filterResult.chainStateInvalid) {
+    return 'Some child-task recents are hidden because child-task chain state is invalid. Regular recents are still available.';
+  }
+  if (filterResult.hiddenChildTaskCount > 0) {
+    return 'Some child-task recents are hidden because only completed current child-chain tips can be replayed.';
+  }
+  return filterResult.visibleRecords.length > 0
+    ? `Found ${filterResult.visibleRecords.length} finalized planner conversation(s).`
+    : 'No finalized planner conversations for the active context pack.';
+}
+
 export async function listConversationHistoryAction(): Promise<DesktopInvokeResult> {
   try {
     const syncState = await readWorkspaceSyncStateSnapshot();
@@ -179,13 +198,21 @@ export async function listConversationHistoryAction(): Promise<DesktopInvokeResu
       contextPackDir: syncState.activeContextPackDir,
       contextPackId: syncState.activeContextPackId ?? undefined,
     });
+    const filterResult = await filterPlannerHistoryRecordsForRecents(records, REPO_ROOT);
+    if (filterResult.hiddenChildTaskCount > 0) {
+      log.warn('planner-history.recent-child-task.filtered', {
+        countsByReason: filterResult.countsByReason,
+        visibleCount: filterResult.visibleRecords.length,
+        hiddenChildTaskCount: filterResult.hiddenChildTaskCount,
+        contextPackDir: syncState.activeContextPackDir,
+        contextPackId: syncState.activeContextPackId ?? undefined,
+      });
+    }
     const response: PlannerListConversationHistoryResponse = {
       action: 'planner.listConversationHistory',
-      mode: records.length > 0 ? 'found' : 'empty',
-      message: records.length > 0
-        ? `Found ${records.length} finalized planner conversation(s).`
-        : 'No finalized planner conversations for the active context pack.',
-      conversations: records.map(toSummary),
+      mode: filterResult.visibleRecords.length > 0 ? 'found' : 'empty',
+      message: listHistoryMessage(filterResult),
+      conversations: filterResult.visibleRecords.map(toSummary),
     };
     return { ok: true, response };
   } catch (error: unknown) {
@@ -217,6 +244,25 @@ export async function hydrateConversationAction(
       contextPackId: syncState.activeContextPackId ?? undefined,
       recordId,
     });
+    if (record?.sidecarSnapshot.lineage.taskKind === 'child-task') {
+      const eligibility = await assertPlannerHistoryRecordHydratable(record, REPO_ROOT);
+      if (!eligibility.visible) {
+        log.warn('planner-history.recent-child-task.hydrate-rejected', {
+          recordId,
+          taskId: eligibility.taskId,
+          reason: eligibility.reason,
+          currentTipTaskId: eligibility.currentTipTaskId,
+          currentTipState: eligibility.currentTipState,
+        });
+        const response: PlannerHydrateConversationResponse = {
+          action: 'planner.hydrateConversation',
+          mode: 'not-found',
+          message: childTaskHydrateMessage(eligibility),
+          record: null,
+        };
+        return { ok: true, response };
+      }
+    }
     const response: PlannerHydrateConversationResponse = {
       action: 'planner.hydrateConversation',
       mode: record ? 'found' : 'not-found',

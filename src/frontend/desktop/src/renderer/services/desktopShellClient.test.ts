@@ -187,6 +187,55 @@ describe('desktopShellClient', () => {
     expect(shell.hydratePlannerConversation).toHaveBeenCalledWith('conversation-1');
   });
 
+  it('forwards parent context bundle payload unchanged through the shell seam', async () => {
+    const shell = {
+      readParentContextBundle: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentContextBundle' } }),
+    } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      parentTaskId: 'TASK-001',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    };
+
+    await client.readParentContextBundle(payload);
+
+    expect(shell.readParentContextBundle).toHaveBeenCalledWith(payload);
+  });
+
+  it('forwards parent chain archive bundle payload unchanged through the shell seam', async () => {
+    const shell = {
+      readParentChainArchiveBundle: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentChainArchiveBundle' } }),
+    } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      parentTaskId: 'TASK-001',
+      rootTaskId: 'TASK-ROOT',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    };
+
+    await client.readParentChainArchiveBundle(payload);
+
+    expect(shell.readParentChainArchiveBundle).toHaveBeenCalledWith(payload);
+  });
+
+  it('forwards parent archive markdown payload unchanged through the shell seam', async () => {
+    const shell = {
+      readParentArchiveMarkdown: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentArchiveMarkdown' } }),
+    } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      parentTaskId: 'TASK-001',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    };
+
+    await client.readParentArchiveMarkdown(payload);
+
+    expect(shell.readParentArchiveMarkdown).toHaveBeenCalledWith(payload);
+  });
+
   it('forwards validateChildTaskFocus payload unchanged through the shell seam', async () => {
     const validateChildTaskFocus = vi.fn().mockResolvedValue({
       ok: true,
@@ -432,6 +481,9 @@ describe('desktopShellClient', () => {
       uploadSpec: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.uploadSpec', mode: 'submitted', accepted: true, message: '', draftTitle: '', submittedPath: '', observationMode: true } }),
       getBypassTemplate: vi.fn().mockResolvedValue(''),
       listArchivedTasks: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listArchivedTasks', mode: 'empty', tasks: [] } }),
+      readParentContextBundle: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentContextBundle' } }),
+      readParentChainArchiveBundle: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentChainArchiveBundle' } }),
+      readParentArchiveMarkdown: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentArchiveMarkdown' } }),
       listPlannerConversationHistory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.listConversationHistory', mode: 'empty', conversations: [] } }),
       hydratePlannerConversation: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.hydrateConversation', mode: 'not-found', record: null } }),
       submitReinforcementFeedback: vi.fn().mockResolvedValue({ ok: true, response: { action: 'reinforcement.submitFeedback' } }),

@@ -173,6 +173,36 @@ describe('context pack binding markdown', () => {
     });
   });
 
+  it('formats and parses Selection Roles with stable key ordering for standard mode', () => {
+    const section = formatContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'repo-selection',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      repositoryTypes: { tools: 'primary', platform: 'primary' },
+    });
+
+    expect(section).toContain('- Selection Roles: {"platform":"primary","tools":"primary"}');
+    expect(expectBinding(section)).toMatchObject({
+      repositoryTypes: { platform: 'primary', tools: 'primary' },
+    });
+  });
+
+  it('rejects malformed Selection Roles fields', () => {
+    for (const value of ['not-json', '[]', '{"platform":"writer"}', '{"":"primary"}']) {
+      expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+- Selected Repo IDs: platform
+- Selection Roles: ${value}
+`)).toMatchObject({ kind: 'invalid', reason: 'malformed-repository-types' });
+    }
+  });
+
   it('returns invalid when selected focus targets are malformed', () => {
     expect(extractContextPackBinding(`# Task
 

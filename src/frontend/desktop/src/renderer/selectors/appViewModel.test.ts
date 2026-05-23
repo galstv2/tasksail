@@ -210,8 +210,8 @@ describe('appViewModel selectors', () => {
     expect(deriveStageCopy({ isFollowUpDraft: false, composerStage: 'preview' })).toContain(
       'queue-ready markdown shape',
     );
-    expect(deriveStageCopy({ isFollowUpDraft: true, composerStage: 'compose' })).toContain(
-      'completed-task lineage',
+    expect(deriveStageCopy({ isFollowUpDraft: true, composerStage: 'compose' })).toBe(
+      'Compose child-task intake.',
     );
   });
 

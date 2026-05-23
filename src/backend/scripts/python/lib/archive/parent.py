@@ -30,6 +30,8 @@ def find_parent_archive(
     matches: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(scope_dir.rglob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            continue
         if payload.get("record_type") != "task-archive":
             continue
         if parent_qmd_record_id and payload.get("record_id") == parent_qmd_record_id:

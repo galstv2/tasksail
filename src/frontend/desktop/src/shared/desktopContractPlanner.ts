@@ -1,5 +1,6 @@
 import type {
   ContextPackDeepFocusTarget,
+  ContextPackFocusFilterRepositoryType,
   ContextPackFocusTargetKind,
   ContextPackPrimaryFocusTarget,
 } from './desktopContractDeepFocus';
@@ -118,6 +119,9 @@ export interface PlannerStartSessionPayload {
   replayConversationId?: string;
   childTaskFocusSnapshot?: PlannerFocusSnapshot;
   childTaskLineage?: PlannerChildTaskLineage;
+  childTaskExecutionScope?: PlannerChildTaskExecutionScope;
+  lilyPlanningReloadScope?: PlannerLilyPlanningReloadScope;
+  parentTaskBranchView?: PlannerParentBranchViewRequest;
 }
 
 export interface PlannerStartSessionDeepFocusSelection {
@@ -132,6 +136,30 @@ export interface PlannerStartSessionDeepFocusSelection {
   selectedRepoIds: string[];
   selectedFocusIds: string[];
 }
+
+export type PlannerChildTaskExecutionScope = {
+  contextPackDir: string;
+  contextPackId: string;
+  scopeMode: string;
+  selectedRepoIds: string[];
+  selectedFocusIds: string[];
+  // Historical field name: distributed packs key this by repo ID, monolith packs key it by focus ID.
+  // Treat it as selected-scope target roles, not as a repo-only map.
+  repositoryTypes?: Record<string, ContextPackFocusFilterRepositoryType>;
+  deepFocusEnabled: boolean;
+  deepFocusPrimaryRepoId: string | null;
+  deepFocusPrimaryFocusId: string | null;
+  selectedFocusPath: string | null;
+  selectedFocusTargetKind: ContextPackFocusTargetKind | null;
+  selectedFocusTargets: ContextPackPrimaryFocusTarget[];
+  selectedTestTarget: ContextPackDeepFocusTarget | null;
+  selectedSupportTargets: ContextPackDeepFocusTarget[];
+};
+
+export type PlannerLilyPlanningReloadScope = PlannerChildTaskExecutionScope & {
+  schemaVersion: 1;
+  purpose: 'lily-planning-read-context';
+};
 
 export type PlannerFocusSnapshot = {
   version: 1;
@@ -196,6 +224,24 @@ export type PlannerChildTaskLineage = {
   followUpReason: string;
 };
 
+export type PlannerParentBranchViewRequest = {
+  schemaVersion: 1;
+  parentTaskId: string;
+  contextPackDir: string;
+  contextPackId: string;
+  branchChainAvailability: ArchivedTaskBranchChainAvailability;
+  branchHandoffs?: ArchivedTaskBranchHandoff[];
+};
+
+export type PlannerParentBranchViewStatus = {
+  mode: 'created' | 'skipped-missing-handoffs' | 'not-requested';
+  message: string;
+  worktreeCount: number;
+  warning?: string;
+};
+
+export const PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE = 'Parent branch view unavailable: archived parent has no branch handoffs. Lily will use archived parent archive context only.';
+
 export type PlannerStartSessionRequest = {
   action: 'planner.startSession';
   payload?: PlannerStartSessionPayload;
@@ -208,6 +254,7 @@ export type PlannerStartSessionResponse = {
   message: string;
   sessionId: string;
   brokerStatus: PlannerBrokerStatus;
+  parentBranchViewStatus?: PlannerParentBranchViewStatus;
 };
 
 export type PlannerSendMessageRequest = {
@@ -337,6 +384,64 @@ export type ArchivedTaskBranchHandoff = {
   };
 };
 
+export type ArchivedTaskParentContextFile = {
+  kind: 'handoff' | 'implementation-step';
+  fileName: string;
+  path: string;
+  relativePath: string;
+  sizeBytes: number;
+};
+
+export type ArchivedTaskParentContextArtifacts = {
+  status: 'available' | 'missing-artifacts' | 'legacy-flat-archive';
+  archiveArtifactDir: string | null;
+  handoffsDir: string | null;
+  implementationStepsDir: string | null;
+  handoffs: ArchivedTaskParentContextFile[];
+  implementationSteps: ArchivedTaskParentContextFile[];
+  missing: string[];
+};
+
+export type ArchivedTaskBranchChainAvailability = {
+  status: 'ready' | 'missing-branch-handoffs' | 'invalid-branch-handoffs';
+  message: string;
+};
+
+export type ArchivedTaskChildChainMetadata = {
+  rootTaskId: string;
+  parentTaskId: string | null;
+  previousTaskId: string | null;
+  depth: number;
+  state: 'planned' | 'pending' | 'active' | 'completed' | 'failed';
+  currentTipTaskId: string;
+  isCurrentTip: boolean;
+  archivePath: string | null;
+  archiveArtifactDir: string | null;
+  parentArchivePath: string | null;
+  parentArchiveArtifactDir: string | null;
+};
+
+export type ArchivedTaskChildChainStateStatus = {
+  status: 'invalid';
+  message: string;
+};
+
+export type ArchivedTaskChildParentEligibility = {
+  eligible: boolean;
+  reason:
+    | 'standalone-root'
+    | 'current-chain-tip'
+    | 'not-current-chain-tip'
+    | 'reserved-by-unarchived-tip'
+    | 'legacy-child-without-chain-state'
+    | 'chain-tip-state-not-completed'
+    | 'child-chain-state-invalid';
+  message: string;
+  rootTaskId: string;
+  currentTipTaskId: string | null;
+  currentTipState: 'planned' | 'pending' | 'active' | 'completed' | 'failed' | null;
+};
+
 export type ArchivedTaskEntry = {
   taskId: string;
   title: string;
@@ -346,10 +451,34 @@ export type ArchivedTaskEntry = {
   followupReason: string;
   year: string;
   archivePath: string;
+  archivedAt: string | null;
   contextPackName: string;
   branchHandoffs?: ArchivedTaskBranchHandoff[];
+  archiveLayout?: 'nested' | 'flat';
+  archiveArtifactDir?: string | null;
+  handoffsDir?: string | null;
+  implementationStepsDir?: string | null;
+  handoffArtifactsManifestPath?: string | null;
+  parentContextArtifacts?: ArchivedTaskParentContextArtifacts;
+  branchChainAvailability?: ArchivedTaskBranchChainAvailability;
+  childChain?: ArchivedTaskChildChainMetadata;
+  childParentEligibility?: ArchivedTaskChildParentEligibility;
+  parentTaskId?: string;
+  childDepth?: number;
+  parentResolution?: string;
   plannerFocusSnapshot?: PlannerFocusSnapshot;
   parentTaskContent?: ArchivedParentTaskContent;
+};
+
+export type ArchivedTaskChildParentBlockedTip = {
+  rootTaskId: string;
+  blockedParentTaskId: string | null;
+  currentTipTaskId: string;
+  chainState: 'planned' | 'pending' | 'active' | 'failed';
+  boardState: 'open' | 'pending' | 'active' | 'failed' | null;
+  title: string | null;
+  fileName: string | null;
+  message: string;
 };
 
 export type ArchivedParentTaskContent = {
@@ -372,6 +501,114 @@ export type PlannerListArchivedTasksResponse = {
   mode: 'found' | 'empty' | 'no-context-pack';
   message: string;
   tasks: ArchivedTaskEntry[];
+  childParentBlockedTips?: ArchivedTaskChildParentBlockedTip[];
+  childChainStateStatus?: ArchivedTaskChildChainStateStatus;
+};
+
+export type ArchivedParentContextBundleFile = {
+  kind: 'handoff' | 'implementation-step';
+  fileName: string;
+  relativePath: string;
+  sizeBytes: number;
+  content: string;
+  truncated: boolean;
+};
+
+export type ArchivedParentContextBundle = {
+  schemaVersion: 1;
+  parentTaskId: string;
+  rootTaskId: string;
+  parentTaskTitle: string;
+  archivePath: string;
+  archiveArtifactDir: string | null;
+  status: 'available' | 'missing-artifacts' | 'legacy-flat-archive';
+  missing: string[];
+  files: ArchivedParentContextBundleFile[];
+  totalBytes: number;
+  truncated: boolean;
+  fallbackSummary: ArchivedParentTaskContent | null;
+};
+
+export type PlannerReadParentContextBundleRequest = {
+  action: 'planner.readParentContextBundle';
+  payload: {
+    parentTaskId: string;
+    contextPackDir: string;
+    contextPackId: string;
+  };
+};
+
+export type PlannerReadParentContextBundleResponse = {
+  action: 'planner.readParentContextBundle';
+  mode: 'loaded';
+  accepted: true;
+  message: string;
+  bundle: ArchivedParentContextBundle;
+};
+
+export type ArchivedParentChainArchiveBundleTask = {
+  taskId: string;
+  title: string;
+  depth: number;
+  role: 'root' | 'child' | 'selected-parent' | 'root-selected-parent';
+  state: 'completed';
+  archivedAt: string | null;
+  archivePath: string;
+  sizeBytes: number;
+  content: string;
+  truncated: boolean;
+};
+
+export type ArchivedParentChainArchiveBundle = {
+  schemaVersion: 1;
+  parentTaskId: string;
+  rootTaskId: string;
+  currentTipTaskId: string | null;
+  status: 'available' | 'no-chain-state' | 'missing-archives';
+  tasks: ArchivedParentChainArchiveBundleTask[];
+  missingTaskIds: string[];
+  totalBytes: number;
+  truncated: boolean;
+};
+
+export type PlannerReadParentChainArchiveBundleRequest = {
+  action: 'planner.readParentChainArchiveBundle';
+  payload: {
+    parentTaskId: string;
+    rootTaskId: string;
+    contextPackDir: string;
+    contextPackId: string;
+  };
+};
+
+export type PlannerReadParentChainArchiveBundleResponse = {
+  action: 'planner.readParentChainArchiveBundle';
+  mode: 'loaded';
+  accepted: true;
+  message: string;
+  bundle: ArchivedParentChainArchiveBundle;
+};
+
+export type PlannerReadParentArchiveMarkdownRequest = {
+  action: 'planner.readParentArchiveMarkdown';
+  payload: {
+    parentTaskId: string;
+    contextPackDir: string;
+    contextPackId: string;
+  };
+};
+
+export type PlannerReadParentArchiveMarkdownResponse = {
+  action: 'planner.readParentArchiveMarkdown';
+  mode: 'loaded';
+  accepted: true;
+  message: string;
+  taskId: string;
+  title: string;
+  archivePath: string;
+  archivedAt: string | null;
+  content: string;
+  sizeBytes: number;
 };
 
 export type PlannerListConversationHistoryRequest = {

@@ -40,6 +40,7 @@ import {
 } from './main.desktopActionHandlers';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
+import { resolveChildTaskChainCreationContext } from './main.childTaskChain';
 
 const log = createLogger('electron/main');
 
@@ -104,7 +105,7 @@ export async function handleDesktopAction(
         },
       };
     case 'planner.startSession': {
-      const { sessionId } = await resolvedHandlers.startPlannerSession(request.payload);
+      const { sessionId, parentBranchViewStatus } = await resolvedHandlers.startPlannerSession(request.payload);
       emitStreamEvent({ message: 'Planner session started.', source: 'planner.startSession', role: 'planner' });
       return {
         ok: true,
@@ -115,6 +116,7 @@ export async function handleDesktopAction(
           message: 'Planner session started.',
           sessionId,
           brokerStatus: resolvedHandlers.getPlannerSessionState()?.brokerStatus ?? 'idle',
+          ...(parentBranchViewStatus ? { parentBranchViewStatus } : {}),
         },
       };
     }
@@ -344,6 +346,16 @@ export async function handleDesktopAction(
         const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
         const metadata = stagedDraft.metadata;
         const taskTitle = resolvePlannerTaskTitleFromDraft(stagedDraft.draft.content);
+        let chainContext;
+        if (metadata.lineage.taskKind === 'child-task') {
+          chainContext = await resolveChildTaskChainCreationContext({
+            repoRoot: REPO_ROOT,
+            listContextPacks: resolvedHandlers.listContextPacks,
+            parentTaskId: metadata.lineage.parentTaskId,
+            requestedRootTaskId: metadata.lineage.rootTaskId,
+            childExecutionScope: metadata.contextPackBinding,
+          });
+        }
         const destinationPath = metadata.lineage.taskKind === 'child-task'
           ? await createFollowupTask({
               title: taskTitle,
@@ -369,12 +381,21 @@ export async function handleDesktopAction(
               primaryFocusId: metadata.contextPackBinding.primaryFocusId,
               selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
               selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-              deepFocusEnabled: metadata.deepFocusEnabled,
-              selectedFocusPath: metadata.primaryFocusRelativePath,
-              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-              selectedFocusTargets: metadata.primaryFocusTargets,
-              selectedTestTarget: metadata.selectedTestTarget,
-              selectedSupportTargets: metadata.supportTargets,
+              repositoryTypes: metadata.contextPackBinding.repositoryTypes,
+              deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
+              selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
+              selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
+              selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
+              selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
+              selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
+              deepFocusPrimaryRepoId: metadata.contextPackBinding.deepFocusPrimaryRepoId,
+              deepFocusPrimaryFocusId: metadata.contextPackBinding.deepFocusPrimaryFocusId,
+              branchChain: chainContext?.branchChain,
+              parentContextSnapshot: chainContext?.parentContextSnapshot,
+              childExecutionScope: chainContext?.childExecutionScope,
+              parentArchivePath: chainContext?.parentArchivePath,
+              parentArchiveArtifactDir: chainContext?.parentArchiveArtifactDir,
+              previousTaskId: chainContext?.previousTaskId,
               repoRoot: REPO_ROOT,
             })
           : await createDropboxTask({
@@ -396,12 +417,13 @@ export async function handleDesktopAction(
               primaryFocusId: metadata.contextPackBinding.primaryFocusId,
               selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
               selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-              deepFocusEnabled: metadata.deepFocusEnabled,
-              selectedFocusPath: metadata.primaryFocusRelativePath,
-              selectedFocusTargetKind: metadata.primaryFocusTargetKind,
-              selectedFocusTargets: metadata.primaryFocusTargets,
-              selectedTestTarget: metadata.selectedTestTarget,
-              selectedSupportTargets: metadata.supportTargets,
+              repositoryTypes: metadata.contextPackBinding.repositoryTypes,
+              deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
+              selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
+              selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
+              selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
+              selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
+              selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
               repoRoot: REPO_ROOT,
             });
 
@@ -517,6 +539,12 @@ export async function handleDesktopAction(
       return resolvedHandlers.pickMarkdownFile();
     case 'planner.listArchivedTasks':
       return resolvedHandlers.listArchivedTasks();
+    case 'planner.readParentContextBundle':
+      return resolvedHandlers.readParentContextBundle(request.payload);
+    case 'planner.readParentChainArchiveBundle':
+      return resolvedHandlers.readParentChainArchiveBundle(request.payload);
+    case 'planner.readParentArchiveMarkdown':
+      return resolvedHandlers.readParentArchiveMarkdown(request.payload);
     case 'planner.listConversationHistory':
       return resolvedHandlers.listConversationHistory();
     case 'planner.hydrateConversation':

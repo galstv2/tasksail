@@ -891,6 +891,23 @@ Carry forward the parent constraints.
     vi.doMock('../../../backend/platform/queue/createFollowupTask.js', () => ({
       createFollowupTask,
     }));
+    vi.doMock('./main.childTaskChain', () => ({
+      resolveChildTaskChainCreationContext: vi.fn(async () => ({
+        branchChain: {
+          schemaVersion: 1,
+          mode: 'continuation',
+          rootTaskId: 'ROOT-001',
+          parentTaskId: 'CAP-001',
+          depth: 1,
+          repos: [],
+        },
+        parentContextSnapshot: null,
+        childExecutionScope: { contextPackDir: '/contextpacks/orders', contextPackId: 'orders' },
+        parentArchivePath: '/archive/parent.md',
+        parentArchiveArtifactDir: null,
+        previousTaskId: 'CAP-001',
+      })),
+    }));
     const { handleDesktopAction } = await import('./main');
 
     await expect(

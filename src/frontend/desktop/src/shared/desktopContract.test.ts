@@ -1,15 +1,44 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  ArchivedTaskChildParentBlockedTip,
   ContextPackListRepoTreeResponse,
   DesktopActionResponse,
   DesktopInvokeResult,
+  PlannerListArchivedTasksResponse,
+  PlannerStartSessionPayload,
   TerminalSetTaskScopeResponse,
 } from './desktopContract';
 import { DESKTOP_ACTION_NAMES } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
 
 describe('desktopContract', () => {
+  it('keeps planner.startSession approved with child execution scope payload typing', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('planner.startSession');
+    const payload: PlannerStartSessionPayload = {
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      childTaskExecutionScope: {
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+        scopeMode: 'focused',
+        selectedRepoIds: ['orders-api'],
+        selectedFocusIds: [],
+        repositoryTypes: { 'orders-api': 'primary' },
+        deepFocusEnabled: false,
+        deepFocusPrimaryRepoId: null,
+        deepFocusPrimaryFocusId: null,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    };
+
+    expect(payload.childTaskExecutionScope?.selectedRepoIds).toEqual(['orders-api']);
+    expect(payload.childTaskExecutionScope?.repositoryTypes?.['orders-api']).toBe('primary');
+  });
+
   it('includes terminal.setTaskScope in the approved desktop actions', () => {
     expect(DESKTOP_ACTION_NAMES).toContain('terminal.setTaskScope');
     const response: TerminalSetTaskScopeResponse = {
@@ -321,6 +350,31 @@ describe('desktopContract', () => {
         action: 'planner.listArchivedTasks',
       }),
     ).toEqual([]);
+  });
+
+  it('accepts planner.listArchivedTasks blocked child parent tip metadata', () => {
+    const blockedTips: ArchivedTaskChildParentBlockedTip[] = [
+      { rootTaskId: 'root-open', blockedParentTaskId: 'root-open', currentTipTaskId: 'child-open', chainState: 'planned', boardState: 'open', title: 'Open child', fileName: 'child-open.md', message: 'This chain already has a child task in progress or needing attention.' },
+      { rootTaskId: 'root-pending', blockedParentTaskId: 'root-pending', currentTipTaskId: 'child-pending', chainState: 'pending', boardState: 'pending', title: 'Pending child', fileName: 'child-pending.md', message: 'This chain already has a child task in progress or needing attention.' },
+      { rootTaskId: 'root-active', blockedParentTaskId: 'root-active', currentTipTaskId: 'child-active', chainState: 'active', boardState: 'active', title: 'Active child', fileName: 'child-active.md', message: 'This chain already has a child task in progress or needing attention.' },
+      { rootTaskId: 'root-failed', blockedParentTaskId: 'root-failed', currentTipTaskId: 'child-failed', chainState: 'failed', boardState: 'failed', title: 'Failed child', fileName: 'child-failed.md', message: 'This chain already has a child task in progress or needing attention.' },
+      { rootTaskId: 'root-missing', blockedParentTaskId: null, currentTipTaskId: 'child-missing', chainState: 'planned', boardState: null, title: null, fileName: null, message: 'This chain already has a child task in progress or needing attention.' },
+    ];
+    const response: PlannerListArchivedTasksResponse = {
+      action: 'planner.listArchivedTasks',
+      mode: 'found',
+      message: 'Found archived tasks.',
+      tasks: [],
+      childParentBlockedTips: blockedTips,
+    };
+
+    expect(response.childParentBlockedTips?.map((tip) => tip.boardState)).toEqual([
+      'open',
+      'pending',
+      'active',
+      'failed',
+      null,
+    ]);
   });
 
   it('accepts planner.finalizeSpec with optional expectedTaskKind payload', () => {

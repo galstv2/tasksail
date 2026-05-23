@@ -74,6 +74,43 @@ describe('prepopulateRequirementVerification', () => {
     await expect(readFinalSummary()).resolves.toContain('focused test passed');
   });
 
+  it('preserves verified evidence when status lines use dash separators', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n- VAL-001: Run tests.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Completed Work\n\n- done\n\n## Requirement Verification\n\n- CR-001 — verified — focused test passed.\n- VAL-001 - advisory - broad suite follow-up.\n\n## Task branches\n\n[]\n',
+      'utf-8',
+    );
+
+    await prepopulateRequirementVerification({ handoffsDir, repoRoot });
+
+    const finalSummary = await readFinalSummary();
+    expect(finalSummary).toContain('focused test passed');
+    expect(finalSummary).toContain('broad suite follow-up');
+    expect(finalSummary).not.toContain('pending - Ron must verify');
+  });
+
+  it('preserves verified evidence when status is joined to an em dash', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Completed Work\n\n- done\n\n## Requirement Verification\n\n- CR-001 — verified—focused test passed.\n\n## Task branches\n\n[]\n',
+      'utf-8',
+    );
+
+    await prepopulateRequirementVerification({ handoffsDir, repoRoot });
+
+    await expect(readFinalSummary()).resolves.toContain('verified—focused test passed');
+  });
+
   it('replaces stale or unknown IDs with the generated pending checklist', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),

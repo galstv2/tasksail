@@ -13,7 +13,9 @@ import {
   computePopoverActions,
   computeRowBadges,
   countSupportFiles,
+  deepFocusTargetForRow,
   detectPromotableScope,
+  findDeepFocusTargetAssignment,
   findPrimaryContainingRow,
   isSameTarget,
   normalizeRelativePath,
@@ -27,8 +29,10 @@ import {
 } from './SidebarDeepFocusUtils';
 import type { DeepFocusMode, TopLevelTarget } from './SidebarDeepFocusControls.types';
 import {
+  buildDeepFocusSelectionBuilderViewModel,
   selectSiblingSupportCandidates,
   treeExpansionKey,
+  type DeepFocusSelectionBuilderViewModel,
 } from './sidebarDeepFocusSelectors';
 
 export type DeepFocusParentSupportGhostState = {
@@ -89,6 +93,7 @@ export type DeepFocusEditorModel = {
     hasFeedback: boolean;
   };
   promotion: PromotableScope;
+  selectionBuilder: DeepFocusSelectionBuilderViewModel;
 };
 
 function primaryActionLabel(primary: ContextPackPrimaryFocusTarget): string {
@@ -98,12 +103,8 @@ function primaryActionLabel(primary: ContextPackPrimaryFocusTarget): string {
   return basename(normalizeRelativePath(primary.path));
 }
 
-function selectedRowTarget(row: TreeRowData): ContextPackDeepFocusTarget {
-  return {
-    path: normalizeRelativePath(row.targetPath),
-    kind: row.kind,
-    repoLocalPath: row.repoLocalPath,
-  };
+function selectedRowTarget(row: TreeRowData, deepFocusMode: DeepFocusMode): ContextPackDeepFocusTarget {
+  return deepFocusTargetForRow(selectedRowBadgeInput(row, deepFocusMode));
 }
 
 export function isPrimaryForTopLevel(
@@ -121,10 +122,11 @@ export function isPrimaryForTopLevel(
     : primary.focusId === topLevelId;
 }
 
-function selectedRowBadgeInput(row: TreeRowData, activeTopLevelId: string | null) {
+function selectedRowBadgeInput(row: TreeRowData, deepFocusMode: DeepFocusMode) {
   return {
     targetPath: row.targetPath,
     kind: row.kind,
+    repoLocalPath: row.repoLocalPath,
     systemLayer: row.systemLayer,
     label: row.label,
     isTest: row.isTest,
@@ -132,7 +134,7 @@ function selectedRowBadgeInput(row: TreeRowData, activeTopLevelId: string | null
     pathKind: row.pathKind,
     topLevelId: row.topLevelId,
     isTopLevel: row.isTopLevel,
-    activeTopLevelId,
+    deepFocusMode,
   };
 }
 
@@ -158,11 +160,12 @@ function buildCommandStripActions(
   row: TreeRowData,
   draftState: ContextPackDeepFocusState,
   scopeCursor: EditScopeCursor,
-  activeTopLevelId: string | null,
+  deepFocusMode: DeepFocusMode,
 ): PopoverAction[] {
   const primaries = draftState.selectedFocusTargets ?? [];
-  const rowInput = selectedRowBadgeInput(row, activeTopLevelId);
-  const rowTarget = selectedRowTarget(row);
+  const canChoosePerPrimaryScopedRole = primaries.length >= 2;
+  const rowInput = selectedRowBadgeInput(row, deepFocusMode);
+  const rowTarget = selectedRowTarget(row, deepFocusMode);
   const activePrimaryIndex = scopeCursor.kind === 'primary'
     && primaries[scopeCursor.index]
     ? scopeCursor.index
@@ -171,6 +174,7 @@ function buildCommandStripActions(
   // scope's actions appear. Per-primary cursor → only that primary's options.
   // Global cursor → only "all primaries" options.
   const allSourceActions = computePopoverActions(rowInput, draftState, scopeCursor);
+  const assignedTarget = findDeepFocusTargetAssignment(draftState, rowTarget);
   const seen = new Set<string>();
   const parentActions: PopoverAction[] = [];
   const primaryActions: PopoverAction[] = [];
@@ -178,6 +182,27 @@ function buildCommandStripActions(
   const globalActions: PopoverAction[] = [];
   const destructiveActions: PopoverAction[] = [];
   const rowPath = normalizeRelativePath(row.targetPath);
+
+  if (assignedTarget) {
+    const destructiveActions: PopoverAction[] = [];
+    allSourceActions.forEach(({ action }) => {
+      if (action.type === 'remove-primary') {
+        const targetPrimary = primaries[action.index];
+        const primaryName = targetPrimary ? primaryActionLabel(targetPrimary) : null;
+        const visibleLabel = primaryName ? `Remove ${primaryName} as Primary` : 'Remove as Primary';
+        appendAction(destructiveActions, seen, action, visibleLabel, visibleLabel);
+        return;
+      }
+      if (action.type === 'remove-primary-member') {
+        appendAction(destructiveActions, seen, action, 'Remove from Primary', 'Remove');
+        return;
+      }
+      if (action.type === 'remove-global') {
+        appendAction(destructiveActions, seen, action, 'Remove');
+      }
+    });
+    return destructiveActions;
+  }
 
   // Where does the row currently sit in the support buckets? Drives "Add as
   // Support · …" vs "Move to …" labels and lets us hide the button for the
@@ -208,7 +233,7 @@ function buildCommandStripActions(
     && parentPath(primaries[activePrimaryIndex]!.path) === rowPath
     ? activePrimaryIndex
     : -1;
-  if (parentPrimaryIndex >= 0) {
+  if (parentPrimaryIndex >= 0 && canChoosePerPrimaryScopedRole) {
     const parentPrimaryName = primaryActionLabel(primaries[parentPrimaryIndex]!);
     const movingFromGlobal = isCurrentlyGlobalSupport;
     appendAction(
@@ -231,6 +256,7 @@ function buildCommandStripActions(
 
   allSourceActions.forEach(({ action }) => {
     if (action.type === 'set-primary-test') {
+      if (!canChoosePerPrimaryScopedRole) return;
       const primary = primaries[action.index];
       if (primary) {
         const primaryName = primaryActionLabel(primary);
@@ -245,6 +271,7 @@ function buildCommandStripActions(
       return;
     }
     if (action.type === 'add-primary-support') {
+      if (!canChoosePerPrimaryScopedRole) return;
       const primary = primaries[action.index];
       if (!primary) return;
       // Hide the button for the scope the row already belongs to.
@@ -307,7 +334,7 @@ function buildCommandStripActions(
   ) {
     const containingPrimaryIndex = findPrimaryContainingRow(draftState, {
       ...row,
-      activeTopLevelId,
+      deepFocusMode,
     });
     if (containingPrimaryIndex >= 0) {
       const containingPrimaryName = primaryActionLabel(primaries[containingPrimaryIndex]!);
@@ -363,12 +390,16 @@ function buildCommandStripActions(
 function supportContextPrimaryLabel(
   row: TreeRowData,
   draftState: ContextPackDeepFocusState,
+  deepFocusMode: DeepFocusMode,
 ): string | null {
-  const rowTarget = selectedRowTarget(row);
+  const rowTarget = selectedRowTarget(row, deepFocusMode);
   const primary = draftState.selectedFocusTargets?.find((candidate) =>
     (candidate.supportTargets ?? []).some((supportTarget) =>
       isSameTarget(supportTarget, rowTarget)));
-  return primary ? primaryActionLabel(primary) : null;
+  if (primary) return primaryActionLabel(primary);
+  const isGlobalSupport = draftState.selectedSupportTargets.some((supportTarget) =>
+    isSameTarget(supportTarget, rowTarget));
+  return isGlobalSupport ? 'all primaries' : null;
 }
 
 function buildVisibleRows(input: DeepFocusEditorModelInput): VisibleTreeRow[] {
@@ -394,11 +425,11 @@ function buildVisibleRows(input: DeepFocusEditorModelInput): VisibleTreeRow[] {
       };
     }
 
-    const supportPrimaryLabel = supportContextPrimaryLabel(entry.row, input.draftState);
+    const supportPrimaryLabel = supportContextPrimaryLabel(entry.row, input.draftState, input.deepFocusMode);
     return {
       ...entry,
       badges: computeRowBadges(
-        selectedRowBadgeInput(entry.row, input.activeTopLevelId),
+        selectedRowBadgeInput(entry.row, input.deepFocusMode),
         input.draftState,
         input.scopeCursor,
       ),
@@ -416,17 +447,29 @@ function addGhostSupportRows(
   if (input.searchQuery.trim()) return rows;
   if (!input.parentSupportGhostState) return rows;
 
-  const parentIndex = rows.findIndex(({ row }) =>
-    normalizeRelativePath(row.targetPath) === input.parentSupportGhostState?.parentPath);
-  if (parentIndex < 0) return rows;
-
   const primary = input.draftState.selectedFocusTargets?.[input.parentSupportGhostState.primaryIndex];
   if (!primary) return rows;
+  const expectedParentTarget: ContextPackDeepFocusTarget = {
+    path: input.parentSupportGhostState.parentPath,
+    kind: 'directory',
+    ...(primary.repoLocalPath ? { repoLocalPath: primary.repoLocalPath } : {}),
+    ...(primary.repoId ? { repoId: primary.repoId } : {}),
+    ...(primary.focusId ? { focusId: primary.focusId } : {}),
+  };
+
+  const parentIndex = rows.findIndex(({ row }) =>
+    normalizeRelativePath(row.targetPath) === input.parentSupportGhostState?.parentPath
+    && isSameTarget(
+      deepFocusTargetForRow(selectedRowBadgeInput(row, input.deepFocusMode)),
+      expectedParentTarget,
+    ));
+  if (parentIndex < 0) return rows;
 
   const parentRow = rows[parentIndex]!.row;
   const siblingCandidates = selectSiblingSupportCandidates(
     input.draftState,
-    input.parentSupportGhostState.parentPath,
+    parentRow,
+    input.deepFocusMode,
     input.currentRows,
   );
   const ghostRows = siblingCandidates.map<VisibleTreeRow>((candidate, index) => ({
@@ -490,7 +533,7 @@ export function deriveDeepFocusEditorModel(input: DeepFocusEditorModelInput): De
       input.selectedRow.row,
       input.draftState,
       input.scopeCursor,
-      input.activeTopLevelId,
+      input.deepFocusMode,
     )
     : [];
 
@@ -526,6 +569,10 @@ export function deriveDeepFocusEditorModel(input: DeepFocusEditorModelInput): De
       hasFeedback: validationErrors.length > 0,
     },
     promotion: detectPromotableScope(input.draftState),
+    selectionBuilder: buildDeepFocusSelectionBuilderViewModel({
+      draftState: input.draftState,
+      draftTopLevel: input.draftTopLevel,
+    }),
   };
 }
 

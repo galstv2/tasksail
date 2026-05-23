@@ -17,7 +17,20 @@ import { verifyTaskBranches } from './branchVerification.js';
 import { readTaskJson, resolveTaskJsonPath } from './taskJson.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { stageAutoMergeCloseout, type AutoMergeResult, type AutoMergeBindingResult } from './autoMerge.js';
+import {
+  CHILD_CHAIN_AUTO_MERGE_SKIP_MESSAGE,
+  buildChildTaskChainCloseoutPolicy,
+  verifyChildChainSourceBranchesExist,
+} from './childTaskChainCloseoutValidation.js';
 import { evictPolicyResultCache } from '../agent-runner/guardrails.js';
+import {
+  advanceCompletedChildTaskChain,
+  attachCompletedBranchHandoffs,
+  parseRecoveredChildTaskChainCloseout,
+  prepareChildTaskChainCloseout,
+  resolveArchiveArtifactDir,
+  type PreparedChildTaskChainCloseout,
+} from './childTaskChainCloseout.js';
 
 const execFile = promisify(execFileCb);
 const log = createLogger('platform/queue/completePendingItem');
@@ -40,6 +53,8 @@ export interface CompletingSentinelPayload {
   contextPackDir?: string;
   retrospectiveSynced?: boolean;
   retrospectiveSyncError?: string;
+  childChainCloseout?: PreparedChildTaskChainCloseout;
+  childChainAdvanced?: boolean;
 }
 
 export interface DeferredRetrospectiveMarker {
@@ -152,10 +167,10 @@ async function buildBranchHandoffsForArchive(options: {
   taskId: string;
   handoffsDir: string;
   autoMergeResult: AutoMergeResult;
-}): Promise<void> {
+}): Promise<BranchHandoff[]> {
   const sidecarPath = resolveTaskJsonPath(options.taskId, options.repoRoot);
   if (!existsSync(sidecarPath)) {
-    return;
+    return [];
   }
 
   const taskJson = readTaskJson(options.taskId, options.repoRoot);
@@ -212,6 +227,7 @@ async function buildBranchHandoffsForArchive(options: {
     JSON.stringify(handoffs, null, 2) + '\n',
     'utf-8',
   );
+  return handoffs;
 }
 
 async function logAutoMergeResult(repoRoot: string, taskId: string, result: AutoMergeResult): Promise<void> {
@@ -246,6 +262,13 @@ async function logAutoMergeResult(repoRoot: string, taskId: string, result: Auto
     text: `[pipeline] auto-merge skipped - ${detail} [skip]`,
   });
   await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeSkipped({ detail });
+}
+
+function withAutoMergeDetailOverride(result: AutoMergeResult, detail: string): AutoMergeResult {
+  return {
+    ...result,
+    results: result.results.map((item) => ({ ...item, detail })),
+  };
 }
 
 /**
@@ -286,6 +309,53 @@ export async function completePendingItem(
   );
 
   try {
+    const activeItemsDir = queuePaths.activeItemsDir;
+    const sentinelPath = path.join(activeItemsDir, `${taskId}.completing`);
+    let childChainCloseout: PreparedChildTaskChainCloseout | null = null;
+    const sentinel = existsSync(sentinelPath) ? readCompletingSentinelPayload(sentinelPath) : null;
+    if (options.skipArchive && sentinel?.childChainCloseout) {
+      childChainCloseout = parseRecoveredChildTaskChainCloseout(sentinel.childChainCloseout);
+    } else {
+      const pendingPath = path.join(queuePaths.pendingDir, `${taskId}.md`);
+      if (existsSync(pendingPath)) {
+        childChainCloseout = await prepareChildTaskChainCloseout({
+          repoRoot,
+          taskId,
+          content: readFileSync(pendingPath, 'utf-8'),
+        });
+      }
+    }
+
+    let autoMergeResult: AutoMergeResult = { enabled: false, applied: false, results: [] };
+    const taskJsonPath = resolveTaskJsonPath(taskId, repoRoot);
+    const taskJson = existsSync(taskJsonPath) ? readTaskJson(taskId, repoRoot) : null;
+    if (
+      childChainCloseout
+      && childChainCloseout.source === 'fresh'
+      && childChainCloseout.branchChain.repos.length > 0
+    ) {
+      if (!taskJson) {
+        throw new Error(`child-task-chain-closeout-source-branch-mismatch for task "${taskId}": .task.json is missing`);
+      }
+      try {
+        await verifyChildChainSourceBranchesExist({
+          taskId,
+          prepared: childChainCloseout,
+          repoBindings: taskJson.contextPackBinding.repoBindings,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        log.warn('child-task-chain-closeout.source-branch-validation.failed', {
+          taskId,
+          repoRoots: childChainCloseout.branchChain.repos.map((repo) => repo.repoRoot),
+          repoLabels: childChainCloseout.branchChain.repos.map((repo) => repo.repoLabel),
+          branches: childChainCloseout.branchChain.repos.map((repo) => repo.chainSourceBranch),
+          reason,
+        });
+        throw err;
+      }
+    }
+
     // --- Step 0 (F38): idempotent pre-archival snapshot ---
     // Commits staged/unstaged changes in the per-task worktree to task/<taskId>.
     // 'nothing to commit' from git exits non-zero and is treated as success
@@ -308,26 +378,40 @@ export async function completePendingItem(
       );
     }
 
-    let autoMergeResult: AutoMergeResult = { enabled: false, applied: false, results: [] };
-    if (existsSync(resolveTaskJsonPath(taskId, repoRoot))) {
-      const taskJson = readTaskJson(taskId, repoRoot);
+    if (taskJson) {
       const platformConfig = await getPlatformConfig(repoRoot);
+      const childChainPolicy = buildChildTaskChainCloseoutPolicy({
+        childChainCloseout,
+        platformAutoMergeEnabled: platformConfig.auto_merge,
+      });
       autoMergeResult = await stageAutoMergeCloseout({
-        enabled: platformConfig.auto_merge,
+        enabled: childChainPolicy.effectiveAutoMergeEnabled,
         bindings: taskJson.contextPackBinding.repoBindings,
       });
-      await logAutoMergeResult(repoRoot, taskId, autoMergeResult);
+      if (childChainPolicy.autoMergeDetailOverride) {
+        autoMergeResult = withAutoMergeDetailOverride(autoMergeResult, childChainPolicy.autoMergeDetailOverride);
+      }
+      if (childChainPolicy.emitChildChainAutoMergeSkip) {
+        log.child({ taskId }).progress({
+          level: 'warn',
+          event: 'auto_merge.skipped_child_chain',
+          text: `[pipeline] ${CHILD_CHAIN_AUTO_MERGE_SKIP_MESSAGE} [skip]`,
+        });
+        await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeSkippedForChildTaskChain();
+      } else {
+        await logAutoMergeResult(repoRoot, taskId, autoMergeResult);
+      }
     }
 
-    await buildBranchHandoffsForArchive({
+    const branchHandoffs = await buildBranchHandoffsForArchive({
       repoRoot,
       taskId,
       handoffsDir: queuePaths.taskHandoffs(taskId),
       autoMergeResult,
     });
-
-    const activeItemsDir = queuePaths.activeItemsDir;
-    const sentinelPath = path.join(activeItemsDir, `${taskId}.completing`);
+    if (childChainCloseout && childChainCloseout.source === 'fresh') {
+      childChainCloseout = attachCompletedBranchHandoffs(childChainCloseout, branchHandoffs);
+    }
 
     // --- Step 1: idempotent sentinel write ---
     // Use pre-check + writeFileSync (NOT exclusive-create mode) so crash-recovery re-drives
@@ -381,11 +465,19 @@ export async function completePendingItem(
         ? archiveResult.data.record_md_path
         : null;
       resolvedArchiveMdPath = archivePath;
+      if (childChainCloseout) {
+        childChainCloseout = {
+          ...childChainCloseout,
+          archivePath,
+          archiveArtifactDir: resolveArchiveArtifactDir(archivePath),
+        };
+      }
       await terminalEvents.archiveCompleted();
       mergeCompletingSentinelPayload(sentinelPath, {
         archiveSucceeded: true,
         archivePath,
         contextPackDir,
+        ...(childChainCloseout ? { childChainCloseout } : {}),
       });
 
       // Sync retrospective metadata inside the lock window. On failure, demote
@@ -408,6 +500,16 @@ export async function completePendingItem(
       || options.skipRetrospectiveSync !== undefined
     ) {
       resolvedArchiveMdPath = options.recoveryArchivePath ?? null;
+      if (childChainCloseout) {
+        childChainCloseout = {
+          ...childChainCloseout,
+          archivePath: resolvedArchiveMdPath,
+          archiveArtifactDir: resolveArchiveArtifactDir(resolvedArchiveMdPath),
+        };
+        mergeCompletingSentinelPayload(sentinelPath, {
+          childChainCloseout,
+        });
+      }
 
       if (options.skipRetrospectiveSync === false) {
         const contextPackDir = options.contextPackDir
@@ -461,9 +563,26 @@ export async function completePendingItem(
         completedAt: new Date().toISOString(),
         archivePath: resolvedArchiveMdPath ?? null,
       });
-    } catch { /* best-effort */ }
+    } catch (err) {
+      if (!childChainCloseout) {
+        // Preserve legacy best-effort registry transition behavior.
+      } else {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`child-task-chain-closeout-registry-transition-failed for task "${taskId}": ${reason}`);
+      }
+    }
 
     evictPolicyResultCache(repoRoot, taskId);
+
+    if (childChainCloseout) {
+      try {
+        await advanceCompletedChildTaskChain(repoRoot, childChainCloseout);
+        mergeCompletingSentinelPayload(sentinelPath, { childChainAdvanced: true });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`child-task-chain-closeout-advance-failed for task "${taskId}": ${reason}`);
+      }
+    }
 
     // --- Step 5: unlink sentinel ---
     // Always attempt — even in the 'no-active-marker' branch (sentinel is present).

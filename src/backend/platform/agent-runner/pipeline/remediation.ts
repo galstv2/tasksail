@@ -32,10 +32,11 @@ async function readReviewOutcome(
   const outcomeText = extractMarkdownSection(content, 'Review Outcome');
   if (!outcomeText) return undefined;
 
-  const outcome = outcomeText
+  const normalized = outcomeText
     .replace(/<!--.*?-->/gs, '')
-    .replace(/\s+/g, '')
-    .toLowerCase();
+    .toLowerCase()
+    .trim();
+  const outcome = /^(pass|advisory|blocking)\b/.exec(normalized)?.[1] ?? normalized.replace(/\s+/g, '');
 
   return { outcome, content };
 }

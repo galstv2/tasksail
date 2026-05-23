@@ -21,7 +21,7 @@ import {
   INTAKE_REQUIRED_SECTIONS,
   METADATA_LINE,
 } from '../models.js';
-import { parseSections } from '../artifacts.js';
+import { parseSemanticSections } from '../artifacts.js';
 import type { PolicyValidator } from '../validator.js';
 
 const H1_HEADING = /^#\s+(.*\S)\s*$/m;
@@ -155,7 +155,7 @@ function validateSingleIntake(
     });
   }
 
-  const sections = parseSections(text);
+  const sections = parseSemanticSections(text);
 
   for (const sectionName of INTAKE_REQUIRED_SECTIONS) {
     const content = normalizeText(sections[sectionName] ?? []);

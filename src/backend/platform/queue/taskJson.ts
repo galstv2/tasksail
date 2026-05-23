@@ -10,6 +10,7 @@ import path from 'node:path';
 import { findRepoRoot } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import type { TaskContextPackTarget } from './markdown.js';
+import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
 
 // ---------------------------------------------------------------------------
 // Schema types
@@ -20,6 +21,9 @@ export interface TaskRepoBinding {
   worktreeRoot: string;
   worktreeBranch: string;
   baseCommitSha: string;
+  branchOwnership?: 'task-owned' | 'chain-owned';
+  branchChainRootTaskId?: string;
+  branchChainTaskId?: string;
   /**
    * §B7-data (schema v2): wall-clock timestamp at which B7-sweep first
    * observed the task branch as merged-into-head or branch-deleted in the
@@ -49,6 +53,7 @@ export interface TaskContextPackSelection {
   scopeMode: string | null;
   selectedRepoIds: string[];
   selectedFocusIds: string[];
+  repositoryTypes?: ContextPackRepositoryTypes;
   deepFocusEnabled?: boolean;
   deepFocusPrimaryRepoId?: string;
   deepFocusPrimaryFocusId?: string;

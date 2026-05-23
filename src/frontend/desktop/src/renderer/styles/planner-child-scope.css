@@ -1,0 +1,428 @@
+/* ── Parent context card — one grouped surface, Apple-style ───────────── */
+
+.planner-modal__parent-card {
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface);
+  animation: plannerParentCardIn 280ms var(--ts-spring) both;
+}
+
+@keyframes plannerParentCardIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Collapsed restore strip — reclaim vertical space for the chat ────── */
+
+.planner-modal__parent-card-restore {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--ts-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: plannerParentStripIn 200ms var(--ts-ease) both;
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__parent-card-restore:hover {
+  background: var(--ts-bg-hover);
+}
+
+.planner-modal__parent-card-restore:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.planner-modal__parent-card-restore-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--ts-text-soft);
+}
+
+.planner-modal__parent-card-restore-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.planner-modal__parent-card-restore-label strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.planner-modal__parent-card-restore-scope {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--ts-text-soft);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+@keyframes plannerParentStripIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Collapse chevron — tucked into the parent-card action row ───────── */
+
+.planner-modal__parent-card-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__parent-card-collapse svg {
+  transform: rotate(180deg);
+}
+
+.planner-modal__parent-card-collapse:hover {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.planner-modal__parent-card-collapse:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.planner-modal__parent-card-scope {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  padding: 0.4rem 0.85rem 0.45rem;
+  border-top: 1px solid var(--ts-border);
+}
+
+.planner-modal__parent-card-scope-main {
+  flex: 1 1 12rem;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--ts-text-muted);
+}
+
+.planner-modal__parent-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.planner-modal__parent-card-actions .planner-modal__secondary-btn {
+  color: var(--ts-accent);
+}
+
+.planner-modal__parent-card-actions .planner-modal__secondary-btn:hover:not(:disabled) {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-accent-hover);
+}
+
+.planner-modal__child-task-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.planner-modal__child-task-scope {
+  flex-shrink: 0;
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.planner-modal__parent-card-scope .planner-modal__child-scope-warning {
+  margin-top: 0;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-warning-tint);
+  color: var(--ts-warning);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal__parent-card,
+  .planner-modal__parent-card-restore {
+    animation: none;
+  }
+}
+
+.planner-modal__secondary-btn {
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: transparent;
+  color: var(--ts-text-muted);
+  padding: 0.26rem 0.5rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease);
+}
+
+.planner-modal__secondary-btn:hover:not(:disabled) {
+  background: var(--ts-bg-hover);
+  color: var(--ts-text);
+}
+
+.planner-modal__secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.planner-modal__scope-summary-affordances {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.planner-modal__scope-summary-affordance {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  color: var(--ts-text-muted);
+  font-weight: 600;
+}
+
+.planner-modal__scope-summary-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-modal__scope-summary-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  color: var(--ts-text-muted);
+  cursor: help;
+}
+
+.planner-modal__scope-summary-trigger svg {
+  flex: 0 0 auto;
+}
+
+.planner-modal__scope-summary-trigger:hover,
+.planner-modal__scope-summary-affordance:focus-within .planner-modal__scope-summary-trigger {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-text);
+}
+
+.planner-modal__scope-summary-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.planner-modal__scope-summary-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0.85rem;
+  z-index: var(--ts-z-popover);
+  width: min(31rem, calc(100% - 1.7rem));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-0.25rem);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.planner-modal__scope-summary-affordance:hover .planner-modal__scope-summary-popover,
+.planner-modal__scope-summary-affordance:focus-within .planner-modal__scope-summary-popover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.planner-modal__scope-summary-popover .focus-selection-summary-card {
+  margin: 0;
+  background: var(--ts-surface);
+  box-shadow:
+    0 14px 34px -14px rgba(15, 23, 42, 0.48),
+    0 0 0 1px var(--ts-border);
+}
+
+.planner-modal__scope-summary-popover .planner-modal__adjusted-scope-card {
+  border-color: color-mix(in srgb, var(--ts-accent) 42%, var(--ts-border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal__scope-summary-popover {
+    transition: visibility 0s linear 0.12s;
+    transform: none;
+  }
+
+  .planner-modal__scope-summary-affordance:hover .planner-modal__scope-summary-popover,
+  .planner-modal__scope-summary-affordance:focus-within .planner-modal__scope-summary-popover {
+    transition: none;
+    transform: none;
+  }
+}
+
+.planner-modal__child-scope-panel {
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface);
+  padding: 0.65rem 0.85rem;
+}
+
+.planner-modal__child-scope-overlay {
+  position: absolute;
+  inset: 48px 0 48px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--ts-surface) 96%, transparent);
+  border-top: 1px solid var(--ts-border);
+  border-bottom: 1px solid var(--ts-border);
+  box-shadow: var(--ts-shadow-lg);
+}
+
+.planner-modal__child-scope-overlay .planner-modal__child-scope-panel {
+  flex: 1;
+  min-height: 0;
+  border-bottom: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.planner-modal__child-scope-panel-header,
+.planner-modal__child-scope-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.planner-modal__child-scope-panel-title {
+  color: var(--ts-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.planner-modal__child-scope-panel-meta,
+.planner-modal__child-scope-warning,
+.planner-modal__child-scope-error {
+  margin-top: 0.2rem;
+  color: var(--ts-text-muted);
+  font-size: 0.72rem;
+}
+
+.planner-modal__child-scope-warning {
+  color: var(--ts-warning);
+}
+
+.planner-modal__child-scope-error {
+  color: var(--ts-error);
+  white-space: pre-line;
+}
+
+.planner-modal__child-scope-selector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(67vh, 43rem);
+  overflow: hidden;
+  margin-top: 0.55rem;
+}
+
+.planner-modal__child-scope-selector > .sidebar-section {
+  min-height: 0;
+  padding: 0;
+  border-bottom: none;
+}
+
+.planner-modal__child-scope-selector > .sidebar-selection-detail {
+  margin-top: 0.75rem;
+  padding: 0.15rem 0 0;
+  gap: 0.25rem;
+}
+
+.planner-modal__child-scope-selector .scope-card {
+  min-height: 0;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="standard"] .scope-card,
+.planner-modal__child-scope-selector[data-scope-mode="standard"] .scope-card__focus {
+  display: flex;
+  flex-direction: column;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="standard"] .scope-focus-list {
+  max-height: min(41vh, 24rem);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] {
+  flex: 1;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] > .sidebar-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] .deep-focus-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  max-height: min(58vh, 38rem);
+  overflow: hidden;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] .deep-focus-editor,
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] .deep-focus-editor__body {
+  min-height: 0;
+}
+
+.planner-modal__child-scope-selector[data-scope-mode="deep-focus"] .deep-focus-list {
+  max-height: min(38vh, 26rem);
+  overflow-y: auto;
+}
+
+.planner-modal__child-scope-actions {
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-top: 0.55rem;
+}

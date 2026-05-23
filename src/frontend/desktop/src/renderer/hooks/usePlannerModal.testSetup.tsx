@@ -12,6 +12,7 @@ import type {
   PlannerListConversationHistorySummary,
   PlannerStartSessionDeepFocusSelection,
   PlannerStreamEvent,
+  ContextPackCatalogEntry,
 } from '../../shared/desktopContract';
 import type { PlannerConversationRecord } from '../../../../../backend/platform/planner-history/types.js';
 import {
@@ -156,8 +157,17 @@ export function createArchivedTask(overrides: Partial<ArchivedTaskEntry> = {}): 
     followupReason: 'Follow-up',
     year: '2026',
     archivePath: '/repo/archive/task.md',
+    archivedAt: '2026-05-17T08:42:11Z',
     contextPackName: 'test-pack',
     plannerFocusSnapshot: createFocusSnapshot(),
+    childParentEligibility: {
+      eligible: true,
+      reason: 'current-chain-tip',
+      message: 'This archived task is the completed current child-chain tip.',
+      rootTaskId: 'TASK-ROOT',
+      currentTipTaskId: 'TASK-001',
+      currentTipState: 'completed',
+    },
     ...overrides,
   };
 }
@@ -211,6 +221,7 @@ export function renderPlannerModalHook(
     hasActiveContextPack?: boolean;
     activeContextPackDir?: string | null;
     deepFocusSelection?: PlannerStartSessionDeepFocusSelection;
+    childScopeContextPacks?: ContextPackCatalogEntry[];
   },
 ) {
   const c = client ?? createClient();
@@ -229,6 +240,12 @@ export function renderPlannerModalHook(
         setContractError,
         activeDir,
         options?.deepFocusSelection,
+        {
+          contextPacks: options?.childScopeContextPacks ?? [],
+          activeContextPackDir: activeDir,
+          selectedContextPackDir: activeDir ?? '',
+          onListRepoTree: vi.fn(),
+        },
       );
     },
     { wrapper: makeWrapper(c) },

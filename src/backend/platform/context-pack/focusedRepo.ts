@@ -453,7 +453,7 @@ function reconstructFocusedRepoResult(
   const selectedFocusIds: string[] = [...snapshot.selectedFocusIds];
   return {
     primaryRepoRoot: snapshot.primary.repoRoot,
-    visibleRepoRoots: [snapshot.primary.repoRoot, ...snapshot.support.map((repo) => repo.repoRoot)],
+    visibleRepoRoots: collectSnapshotRuntimeRepoRoots(snapshot),
     declaredRepoRoots: [...snapshot.declaredRepoRoots],
     estateType: snapshot.estateType,
     primaryRepoId: resolvePrimaryRepoIdForResult(snapshot),
@@ -475,6 +475,39 @@ function reconstructFocusedRepoResult(
     selectedFocusIds,
     authoritySource,
   };
+}
+
+function collectSnapshotRuntimeRepoRoots(snapshot: TaskPackSnapshot): string[] {
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  const addRoot = (value: string | null | undefined): void => {
+    const root = value?.trim();
+    if (!root) return;
+    const key = path.resolve(root);
+    if (seen.has(key)) return;
+    seen.add(key);
+    roots.push(root);
+  };
+
+  addRoot(snapshot.primary.repoRoot);
+  for (const repo of snapshot.support) {
+    addRoot(repo.repoRoot);
+  }
+  for (const root of snapshot.deepFocus.writableRoots) {
+    addRoot(root.repoLocalPath);
+  }
+  for (const root of snapshot.deepFocus.readonlyContextRoots) {
+    addRoot(root.repoLocalPath);
+  }
+  for (const target of snapshot.deepFocus.primaryFocusTargets) {
+    addRoot(target.repoLocalPath);
+  }
+  for (const target of snapshot.deepFocus.supportTargets) {
+    addRoot(target.repoLocalPath);
+  }
+  addRoot(snapshot.deepFocus.selectedTestTarget?.repoLocalPath);
+
+  return roots;
 }
 
 /**

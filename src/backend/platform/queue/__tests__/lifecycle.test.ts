@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   mkdtempSync,
   rmSync,
@@ -17,6 +17,14 @@ import {
 import { resolveQueuePaths, HANDOFF_FILES, SLICE_TEMPLATE_FILENAME } from '../paths.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+
+vi.mock('../../agent-runner/pipelineSupervisor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-runner/pipelineSupervisor.js')>();
+  return {
+    ...actual,
+    startPipeline: vi.fn().mockResolvedValue({ started: true }),
+  };
+});
 
 async function stopPipelinesStartedByTest(): Promise<void> {
   await Promise.all(

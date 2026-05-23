@@ -433,6 +433,27 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listArchivedTasks',
     }),
+  readParentContextBundle: async (
+    payload: import('../src/shared/desktopContract').PlannerReadParentContextBundleRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentContextBundle',
+      payload,
+    }),
+  readParentChainArchiveBundle: async (
+    payload: import('../src/shared/desktopContract').PlannerReadParentChainArchiveBundleRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentChainArchiveBundle',
+      payload,
+    }),
+  readParentArchiveMarkdown: async (
+    payload: import('../src/shared/desktopContract').PlannerReadParentArchiveMarkdownRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentArchiveMarkdown',
+      payload,
+    }),
   listPlannerConversationHistory: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listConversationHistory',
@@ -933,6 +954,15 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   getBypassTemplate: () => Promise<string>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
+  readParentContextBundle: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentContextBundleRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  readParentChainArchiveBundle: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentChainArchiveBundleRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  readParentArchiveMarkdown: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentArchiveMarkdownRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   listPlannerConversationHistory: () => Promise<DesktopInvokeResult>;
   hydratePlannerConversation: (recordId: string) => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (

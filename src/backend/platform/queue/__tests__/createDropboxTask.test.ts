@@ -163,6 +163,115 @@ describe('createDropboxTask', () => {
     expect(content).toContain('- Selected Focus IDs: api');
   });
 
+  it('omits Branch Chain for standard tasks and child tasks without branchChain', async () => {
+    const standardPath = await createDropboxTask({ title: 'Standard Task', repoRoot: tmpRoot });
+    const childPath = await createDropboxTask({
+      title: 'Child Task',
+      kind: 'child-task',
+      parentTaskId: 'PARENT-1',
+      rootTaskId: 'PARENT-1',
+      parentQmdScope: 'qmd/context-packs/test',
+      followupReason: 'Continue',
+      carryForwardSummary: 'Parent context',
+      repoRoot: tmpRoot,
+    });
+
+    expect(readFileSync(standardPath, 'utf-8')).not.toContain('## Branch Chain');
+    expect(readFileSync(childPath, 'utf-8')).not.toContain('## Branch Chain');
+  });
+
+  it('writes Branch Chain before Request Summary for child tasks', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Chained Child',
+      kind: 'child-task',
+      parentTaskId: 'PARENT-1',
+      rootTaskId: 'PARENT-1',
+      parentQmdScope: 'qmd/context-packs/test',
+      followupReason: 'Continue',
+      carryForwardSummary: 'Parent context',
+      repoRoot: tmpRoot,
+      branchChain: {
+        schemaVersion: 1,
+        mode: 'continuation',
+        rootTaskId: 'PARENT-1',
+        parentTaskId: 'PARENT-1',
+        depth: 1,
+        repos: [{
+          repoRoot: '/repo',
+          repoLabel: 'Repo',
+          chainSourceBranch: 'parent-branch',
+          parentSourceBranch: 'parent-branch',
+          parentBranchHead: 'abc123',
+          targetBranch: 'main',
+        }],
+      },
+    });
+
+    const content = readFileSync(outputPath, 'utf-8');
+    expect(content.indexOf('## Context Pack Binding')).toBeLessThan(content.indexOf('## Branch Chain'));
+    expect(content.indexOf('## Branch Chain')).toBeLessThan(content.indexOf('## Request Summary'));
+    expect(content).toContain('- Depth: 1');
+    expect(content).toContain('"chainSourceBranch": "parent-branch"');
+  });
+
+  it('rejects Branch Chain for standard tasks', async () => {
+    await expect(createDropboxTask({
+      title: 'Invalid Standard',
+      repoRoot: tmpRoot,
+      branchChain: {
+        schemaVersion: 1,
+        mode: 'continuation',
+        rootTaskId: 'ROOT',
+        parentTaskId: 'PARENT',
+        depth: 1,
+        repos: [{
+          repoRoot: '/repo',
+          repoLabel: 'Repo',
+          chainSourceBranch: 'branch',
+          parentSourceBranch: 'branch',
+          parentBranchHead: 'abc',
+          targetBranch: null,
+        }],
+      },
+    })).rejects.toMatchObject({ code: 'BRANCH_CHAIN_TASK_KIND_INVALID' });
+  });
+
+  it('writes Deep Focus primary scalar IDs when provided', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Deep Focus Scalars',
+      repoRoot: tmpRoot,
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'orders-api',
+      deepFocusPrimaryFocusId: 'orders-service',
+      selectedFocusPath: 'src/orders',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [],
+      selectedSupportTargets: [],
+    });
+
+    const content = readFileSync(outputPath, 'utf-8');
+    expect(content).toContain('- Deep Focus Primary Repo ID: orders-api');
+    expect(content).toContain('- Deep Focus Primary Focus ID: orders-service');
+  });
+
+  it('writes standard Selection Roles metadata when provided', async () => {
+    const outputPath = await createDropboxTask({
+      title: 'Selection Roles Task',
+      repoRoot: tmpRoot,
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'repo-selection',
+      primaryRepoId: 'platform',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      repositoryTypes: { platform: 'primary', tools: 'primary' },
+    });
+
+    expect(readFileSync(outputPath, 'utf-8')).toContain(
+      '- Selection Roles: {"platform":"primary","tools":"primary"}',
+    );
+  });
+
   it('generates a timestamped filename', async () => {
     const outputPath = await createDropboxTask({
       title: 'Timestamped',

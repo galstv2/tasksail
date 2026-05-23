@@ -123,6 +123,7 @@ describe('plannerComposer helpers', () => {
       followupReason: '',
       year: '2026',
       archivePath: '/archive/2026/task.md',
+      archivedAt: null,
       contextPackName: 'live-test-context-pack',
     });
 
@@ -146,6 +147,7 @@ describe('plannerComposer helpers', () => {
       followupReason: '',
       year: '2026',
       archivePath: '/archive/2026/task.md',
+      archivedAt: null,
       contextPackName: 'test-pack',
     });
     const draft = createFollowUpDraft(context);
@@ -174,6 +176,9 @@ describe('plannerComposer helpers', () => {
       summary: 'Prepare the platform submission payload.',
       desiredOutcome: 'IPC payload excludes renderer-owned title fields.',
       constraints: '',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '',
       parentTaskId: '',
       parentQmdRecordId: '',
@@ -207,6 +212,9 @@ describe('plannerComposer helpers', () => {
       summary: 'Create the follow-up payload.',
       desiredOutcome: 'Follow-up IPC payload excludes renderer-owned title fields.',
       constraints: '',
+      criticalRequirements: 'None',
+      compatibilityRequirements: 'None',
+      requiredValidation: 'None',
       acceptanceSignals: '',
       parentTaskId: 'TASK-001',
       parentQmdRecordId: 'QMD-001',

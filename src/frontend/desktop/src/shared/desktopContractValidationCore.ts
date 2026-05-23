@@ -268,6 +268,114 @@ export function validatePlannerChildTaskLineage(value: unknown): string[] {
   return errors;
 }
 
+function remapPayloadPrefix(errors: string[], fieldName: string): string[] {
+  return errors.map((error) => error.replace(/^payload\./, `${fieldName}.`));
+}
+
+export function validatePlannerChildTaskExecutionScope(value: unknown, parentSnapshot?: unknown, fieldName = 'payload.childTaskExecutionScope'): string[] {
+  if (!isRecord(value)) {
+    return [`${fieldName} must be an object.`];
+  }
+
+  const errors: string[] = [];
+  for (const key of ['contextPackDir', 'contextPackId', 'scopeMode'] as const) {
+    if (!isNonEmptyString(value[key])) {
+      errors.push(`${fieldName}.${key} must be a non-empty string.`);
+    }
+  }
+  if (isRecord(parentSnapshot) && isNonEmptyString(parentSnapshot.contextPackDir) && value.contextPackDir !== parentSnapshot.contextPackDir) {
+    errors.push(`${fieldName}.contextPackDir must match payload.childTaskFocusSnapshot.contextPackDir.`);
+  }
+  if (isRecord(parentSnapshot) && isNonEmptyString(parentSnapshot.contextPackId) && value.contextPackId !== parentSnapshot.contextPackId) {
+    errors.push(`${fieldName}.contextPackId must match payload.childTaskFocusSnapshot.contextPackId.`);
+  }
+  for (const key of ['selectedRepoIds', 'selectedFocusIds'] as const) {
+    errors.push(...(value[key] === undefined
+      ? [`${fieldName}.${key} must be an array.`]
+      : remapPayloadPrefix(validateSelectedIds(value[key], key), fieldName).map((error) => error.replace(' must be an array when provided.', ' must be an array.'))));
+  }
+  if (value.repositoryTypes !== undefined) {
+    if (!isRecord(value.repositoryTypes)) {
+      errors.push(`${fieldName}.repositoryTypes must be an object when provided.`);
+    } else {
+      for (const [focusId, repositoryType] of Object.entries(value.repositoryTypes)) {
+        if (!focusId.trim()) {
+          errors.push(`${fieldName}.repositoryTypes keys must be non-empty strings.`);
+        }
+        if (repositoryType !== 'primary' && repositoryType !== 'support') {
+          errors.push(`${fieldName}.repositoryTypes.${focusId} must be primary or support.`);
+        }
+      }
+    }
+  }
+  if (typeof value.deepFocusEnabled !== 'boolean') {
+    errors.push(`${fieldName}.deepFocusEnabled must be a boolean.`);
+  }
+  for (const key of ['deepFocusPrimaryRepoId', 'deepFocusPrimaryFocusId'] as const) {
+    if (value[key] === undefined || (value[key] !== null && !isNonEmptyString(value[key]))) {
+      errors.push(`${fieldName}.${key} must be a non-empty string or null.`);
+    }
+  }
+  if (value.selectedFocusPath === undefined || (value.selectedFocusPath !== null && !isString(value.selectedFocusPath))) {
+    errors.push(`${fieldName}.selectedFocusPath must be a string or null.`);
+  }
+  if (value.selectedFocusTargetKind === undefined || (value.selectedFocusTargetKind !== null && !isOneOf(value.selectedFocusTargetKind, CONTEXT_PACK_FOCUS_TARGET_KINDS))) {
+    errors.push(`${fieldName}.selectedFocusTargetKind must be directory, file, or null.`);
+  }
+  errors.push(...(value.selectedFocusTargets === undefined
+    ? [`${fieldName}.selectedFocusTargets must be an array.`]
+    : validatePrimaryFocusTargetList(value.selectedFocusTargets, `${fieldName}.selectedFocusTargets`)));
+  if (value.selectedTestTarget === undefined) {
+    errors.push(`${fieldName}.selectedTestTarget must be an object or null.`);
+  } else if (value.selectedTestTarget !== null) {
+    errors.push(...validateDeepFocusTarget(value.selectedTestTarget, `${fieldName}.selectedTestTarget`));
+  }
+  errors.push(...(value.selectedSupportTargets === undefined
+    ? [`${fieldName}.selectedSupportTargets must be an array.`]
+    : validateDeepFocusTargetList(value.selectedSupportTargets, `${fieldName}.selectedSupportTargets`)));
+
+  if (value.deepFocusEnabled === false) {
+    for (const key of ['deepFocusPrimaryRepoId', 'deepFocusPrimaryFocusId', 'selectedFocusPath', 'selectedFocusTargetKind', 'selectedTestTarget'] as const) {
+      if (value[key] !== null) {
+        errors.push(`${fieldName}.${key} must be null when ${fieldName}.deepFocusEnabled is false.`);
+      }
+    }
+    for (const key of ['selectedFocusTargets', 'selectedSupportTargets'] as const) {
+      if (Array.isArray(value[key]) && value[key].length > 0) {
+        errors.push(`${fieldName}.${key} must be empty when ${fieldName}.deepFocusEnabled is false.`);
+      }
+    }
+  }
+
+  if (value.deepFocusEnabled === true) {
+    const hasRepoAnchor = isNonEmptyString(value.deepFocusPrimaryRepoId);
+    const hasFocusAnchor = isNonEmptyString(value.deepFocusPrimaryFocusId);
+    if (hasRepoAnchor && hasFocusAnchor) {
+      errors.push(`${fieldName}.deepFocusPrimaryRepoId and ${fieldName}.deepFocusPrimaryFocusId cannot both be set.`);
+    }
+    if (Array.isArray(value.selectedFocusTargets) && value.selectedFocusTargets.length > 0) {
+      if (!hasRepoAnchor && !hasFocusAnchor) {
+        errors.push(`${fieldName}.deepFocusPrimaryRepoId or ${fieldName}.deepFocusPrimaryFocusId is required when Deep Focus primaries are selected.`);
+      }
+      errors.push(...remapPayloadPrefix(validateDeepFocusSwitchFields(value), fieldName));
+    }
+  }
+
+  return errors;
+}
+
+export function validatePlannerLilyPlanningReloadScope(value: unknown, parentSnapshot?: unknown): string[] {
+  const fieldName = 'payload.lilyPlanningReloadScope';
+  if (!isRecord(value)) {
+    return [`${fieldName} must be an object.`];
+  }
+  return [
+    ...(value.schemaVersion === 1 ? [] : [`${fieldName}.schemaVersion must be 1.`]),
+    ...(value.purpose === 'lily-planning-read-context' ? [] : [`${fieldName}.purpose must be lily-planning-read-context.`]),
+    ...validatePlannerChildTaskExecutionScope(value, parentSnapshot, fieldName),
+  ];
+}
+
 export function validatePlannerFocusValidationIssue(value: unknown, fieldName: string): string[] {
   if (!isRecord(value)) {
     return [`${fieldName} must be an object.`];

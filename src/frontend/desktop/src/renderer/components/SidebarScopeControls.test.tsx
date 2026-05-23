@@ -683,6 +683,7 @@ describe('SidebarScopeControls', () => {
         selectedFocusTargetKind="file"
         selectedFocusTargets={[
           { path: 'src/api/users.ts', kind: 'file', role: 'anchor' },
+          { path: 'tests/integration', kind: 'directory', role: 'primary' },
         ]}
         onListRepoTree={onListRepoTree}
       />,
@@ -740,6 +741,7 @@ describe('SidebarScopeControls', () => {
         selectedFocusTargetKind="directory"
         selectedFocusTargets={[
           { path: 'src/api/users', kind: 'directory', role: 'anchor' },
+          { path: 'tests/integration', kind: 'directory', role: 'primary' },
         ]}
         onCommitDeepFocusSelection={onCommitDeepFocusSelection}
         onListRepoTree={onListRepoTree}
@@ -791,6 +793,7 @@ describe('SidebarScopeControls', () => {
               }),
             ],
           }),
+          expect.any(Object),
         ],
       }),
     );
@@ -826,6 +829,7 @@ describe('SidebarScopeControls', () => {
         selectedFocusTargetKind="directory"
         selectedFocusTargets={[
           { path: 'src/api/users', kind: 'directory', role: 'anchor' },
+          { path: 'tests/integration', kind: 'directory', role: 'primary' },
         ]}
         onListRepoTree={onListRepoTree}
       />,

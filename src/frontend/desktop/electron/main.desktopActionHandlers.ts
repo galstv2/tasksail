@@ -36,6 +36,9 @@ import {
   writeInstructionFile,
 } from './agentInstructionsHandlers';
 import { listArchivedTasksAction } from './main.archivedTasks';
+import { readParentContextBundleAction } from './main.parentContextBundle';
+import { readParentChainArchiveBundleAction } from './main.parentChainArchiveBundle';
+import { readParentArchiveMarkdownAction } from './main.parentArchiveMarkdown';
 import {
   readTaskBoard,
   readTaskContent as readTaskContentImpl,
@@ -111,7 +114,11 @@ export type DesktopActionHandlers = {
   submitFollowUp: (draft: FollowUpDirectSubmissionDraft) => Promise<DesktopInvokeResult>;
   startPlannerSession: (
     payload?: import('../src/shared/desktopContract').PlannerStartSessionPayload,
-  ) => Promise<{ sessionId: string; created: boolean }>;
+  ) => Promise<{
+    sessionId: string;
+    created: boolean;
+    parentBranchViewStatus?: import('../src/shared/desktopContract').PlannerParentBranchViewStatus;
+  }>;
   validateChildTaskFocus: (
     payload: import('../src/shared/desktopContract').PlannerValidateChildTaskFocusRequest['payload'],
   ) => Promise<import('../src/shared/desktopContract').PlannerFocusValidationIssue[]>;
@@ -153,6 +160,15 @@ export type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   pickMarkdownFile: () => Promise<DesktopInvokeResult>;
   listArchivedTasks: () => Promise<DesktopInvokeResult>;
+  readParentContextBundle: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentContextBundleRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  readParentChainArchiveBundle: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentChainArchiveBundleRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  readParentArchiveMarkdown: (
+    payload: import('../src/shared/desktopContract').PlannerReadParentArchiveMarkdownRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   listConversationHistory: () => Promise<DesktopInvokeResult>;
   hydrateConversation: (recordId: string) => Promise<DesktopInvokeResult>;
   submitReinforcementFeedback: (
@@ -299,6 +315,9 @@ export function createDefaultDesktopActionHandlers(
       payload?.replayConversationId,
       payload?.childTaskFocusSnapshot,
       payload?.childTaskLineage,
+      payload?.childTaskExecutionScope,
+      payload?.lilyPlanningReloadScope,
+      payload?.parentTaskBranchView,
     );
   },
   validateChildTaskFocus: (payload) => validateChildTaskFocusSnapshot({
@@ -349,6 +368,9 @@ export function createDefaultDesktopActionHandlers(
   deleteContextPack: (payload) => executeContextPackDeleteAction(payload),
   pickMarkdownFile: () => pickMarkdownFileAction(),
   listArchivedTasks: () => listArchivedTasksAction(listAvailableContextPacks),
+  readParentContextBundle: (payload) => readParentContextBundleAction(listAvailableContextPacks, payload),
+  readParentChainArchiveBundle: (payload) => readParentChainArchiveBundleAction(listAvailableContextPacks, payload),
+  readParentArchiveMarkdown: (payload) => readParentArchiveMarkdownAction(listAvailableContextPacks, payload),
   listConversationHistory: () => listConversationHistoryAction(),
   hydrateConversation: (recordId) => hydrateConversationAction(recordId),
   submitReinforcementFeedback: async (payload) => {

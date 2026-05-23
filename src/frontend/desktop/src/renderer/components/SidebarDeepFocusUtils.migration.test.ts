@@ -23,7 +23,7 @@ import type {
   ContextPackDeepFocusState,
   ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
-import { migrateSupportScopes } from './SidebarDeepFocusUtils';
+import { deepFocusTargetSelectionKey, migrateSupportScopes } from './SidebarDeepFocusUtils';
 
 function makeState(
   overrides: Partial<ContextPackDeepFocusState> = {},
@@ -96,7 +96,7 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     expect(logEmit).not.toHaveBeenCalled();
   });
 
-  it('drops a globally-listed support that also lives on a primary, preferring the per-primary placement', () => {
+  it('drops per-primary support that also lives globally, preserving deterministic global-support precedence', () => {
     const duplicated = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -112,17 +112,18 @@ describe('migrateSupportScopes (spec §5.3)', () => {
 
     expect(next).not.toBe(state);
     expect(next.selectedSupportTargets).toEqual([
+      duplicated,
       { path: 'src/lib/log.ts', kind: 'file' },
     ]);
-    expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([duplicated]);
+    expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([]);
     expect(logEmit).toHaveBeenCalledTimes(1);
     expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
-      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
+      msg: 'deep-focus.selections.duplicate-assignments.removed',
       extra: { removedCount: 1 },
     }));
   });
 
-  it('preserves cross-primary sharing (same path on two primaries is intentional, not a duplicate)', () => {
+  it('repairs cross-primary duplicate support by preserving the first primary-support assignment', () => {
     const shared = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -134,13 +135,15 @@ describe('migrateSupportScopes (spec §5.3)', () => {
 
     const next = migrateSupportScopes(state);
 
-    expect(next).toBe(state);
     expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([shared]);
-    expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([shared]);
-    expect(logEmit).not.toHaveBeenCalled();
+    expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([]);
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'deep-focus.selections.duplicate-assignments.removed',
+      extra: { removedCount: 1 },
+    }));
   });
 
-  it('drops globals when path lives on N≥1 primaries (combined rule §5.3-3)', () => {
+  it('preserves global support and removes later per-primary support duplicates', () => {
     const shared = { path: 'src/lib/format.ts', kind: 'file' as const };
     const state = makeState({
       selectedFocusTargets: [
@@ -152,12 +155,12 @@ describe('migrateSupportScopes (spec §5.3)', () => {
 
     const next = migrateSupportScopes(state);
 
-    expect(next.selectedSupportTargets).toEqual([]);
-    expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([shared]);
-    expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([shared]);
+    expect(next.selectedSupportTargets).toEqual([shared]);
+    expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([]);
+    expect(next.selectedFocusTargets?.[1]?.supportTargets).toEqual([]);
     expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
-      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
-      extra: { removedCount: 1 },
+      msg: 'deep-focus.selections.duplicate-assignments.removed',
+      extra: { removedCount: 2 },
     }));
   });
 
@@ -173,10 +176,11 @@ describe('migrateSupportScopes (spec §5.3)', () => {
 
     const next = migrateSupportScopes(state);
 
-    expect(next.selectedSupportTargets).toEqual([]);
+    expect(next.selectedSupportTargets).toEqual([a, b]);
+    expect(next.selectedFocusTargets?.[0]?.supportTargets).toEqual([]);
     expect(logEmit).toHaveBeenCalledTimes(1);
     expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
-      msg: 'deep-focus.support-scopes.duplicate-globals.removed',
+      msg: 'deep-focus.selections.duplicate-assignments.removed',
       extra: { removedCount: 2 },
     }));
   });
@@ -195,5 +199,77 @@ describe('migrateSupportScopes (spec §5.3)', () => {
 
     expect(next).toBe(state);
     expect(logEmit).not.toHaveBeenCalled();
+  });
+
+  it('repairs duplicate primary records and normalizes the remaining primary role', () => {
+    const duplicate = makePrimary('src/api/users.ts', { role: 'primary' });
+    const state = makeState({
+      selectedFocusTargets: [
+        makePrimary('src/api/users.ts', { role: 'primary' }),
+        duplicate,
+      ],
+    });
+
+    const next = migrateSupportScopes(state);
+
+    expect(next.selectedFocusTargets).toHaveLength(1);
+    expect(next.selectedFocusTargets?.[0]?.role).toBe('anchor');
+    expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
+      msg: 'deep-focus.selections.duplicate-assignments.removed',
+      extra: { removedCount: 1 },
+    }));
+  });
+
+  it('repairs primary plus global test duplicates by preserving the primary assignment', () => {
+    const duplicate = makePrimary('src/api/users.ts');
+    const state = makeState({
+      selectedFocusTargets: [duplicate],
+      selectedTestTarget: { path: duplicate.path, kind: duplicate.kind, repoId: duplicate.repoId, repoLocalPath: duplicate.repoLocalPath },
+    });
+
+    const next = migrateSupportScopes(state);
+
+    expect(next.selectedFocusTargets).toEqual([duplicate]);
+    expect(next.selectedTestTarget).toBeUndefined();
+  });
+
+  it('repairs global test plus per-primary test duplicates by preserving the global test', () => {
+    const testTarget = { path: 'src/tests', kind: 'directory' as const };
+    const state = makeState({
+      selectedFocusTargets: [makePrimary('src/api/users.ts', { testTarget })],
+      selectedTestTarget: testTarget,
+    });
+
+    const next = migrateSupportScopes(state);
+
+    expect(next.selectedTestTarget).toEqual(testTarget);
+    expect(next.selectedFocusTargets?.[0]?.testTarget).toBeUndefined();
+  });
+
+  it('repairs support plus test duplicates according to slot precedence', () => {
+    const duplicate = { path: 'src/tests', kind: 'directory' as const };
+    const state = makeState({
+      selectedFocusTargets: [makePrimary('src/api/users.ts')],
+      selectedTestTarget: duplicate,
+      selectedSupportTargets: [duplicate],
+    });
+
+    const next = migrateSupportScopes(state);
+
+    expect(next.selectedTestTarget).toEqual(duplicate);
+    expect(next.selectedSupportTargets).toEqual([]);
+  });
+
+  it('preserves same path in different identity scopes and exposes the canonical key', () => {
+    const repoOne = { path: 'src/api', kind: 'directory' as const, repoLocalPath: '/tmp/repo-1', repoId: 'repo-1' };
+    const repoTwo = { path: 'src/api', kind: 'directory' as const, repoLocalPath: '/tmp/repo-2', repoId: 'repo-2' };
+    const state = makeState({
+      selectedSupportTargets: [repoOne, repoTwo],
+    });
+
+    const next = migrateSupportScopes(state);
+
+    expect(next).toBe(state);
+    expect(deepFocusTargetSelectionKey(repoOne)).not.toBe(deepFocusTargetSelectionKey(repoTwo));
   });
 });

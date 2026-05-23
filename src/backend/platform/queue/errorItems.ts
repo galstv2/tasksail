@@ -18,8 +18,9 @@ import {
 import { withDirLock } from './dirLock.js';
 import { removeTask, transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
-import { discardRetainedTaskWorktrees, finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
+import { discardRetainedTaskWorktrees, finalizeTaskWorktreesWithReport } from '../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import { markChildTaskChainTaskFailed, resetFailedChildTaskChainTaskToPlanned } from './childTaskChainFailure.js';
 import {
   buildAddPathspec,
   buildAllowOverridesPathspec,
@@ -394,7 +395,7 @@ export async function moveFailedItemToErrorItems(options: {
 
   // §4.15: finalize all worktrees for this task only. This also stamps
   // .task.json.state = "failed" and finalizedAt.
-  await finalizeTaskWorktrees(taskId, 'failed', root);
+  const finalizeResult = await finalizeTaskWorktreesWithReport(taskId, 'failed', root);
 
   await withDirLock(queuePaths.queueLockDir, 'Move failed item', async () => {
     try {
@@ -449,17 +450,37 @@ export async function moveFailedItemToErrorItems(options: {
     reason: moveReason,
   });
 
+  let childChainFailureMarked = false;
+  try {
+    const marked = await markChildTaskChainTaskFailed({ repoRoot: root, taskId });
+    childChainFailureMarked = marked.marked;
+  } catch (err) {
+    log.error('child_task_chain_failure.mark_failed.failed', err, {
+      taskId,
+      rollbackStatus: finalizeResult.chainRollbackReport?.status ?? null,
+    });
+    throw err;
+  }
+
   // Singleton-handoffs reset block DELETED (lines 260-262 in pre-§4.14A code).
   // Under the parallel model the per-task copy is at AgentWorkSpace/tasks/<taskId>/handoffs/
   // and is reaped by finalizeTaskWorktrees above. Touching the shared handoffs dir
   // here would be a blast-radius violation against peer tasks.
 
   let nextActiveItem: string | null = null;
-  const activateResult = await activateNextPendingItemIfReady({
-    paths: queuePaths,
-    repoRoot: root,
-  });
-  nextActiveItem = activateResult.activated ? activateResult.activatedTaskId ?? null : null;
+  if (!finalizeResult.skipNextActivation) {
+    const activateResult = await activateNextPendingItemIfReady({
+      paths: queuePaths,
+      repoRoot: root,
+    });
+    nextActiveItem = activateResult.activated ? activateResult.activatedTaskId ?? null : null;
+  } else {
+    log.warn('queue.auto_activation.skipped_after_child_chain_rollback_failure', {
+      taskId,
+      childChainFailureMarked,
+      rollbackStatus: finalizeResult.chainRollbackReport?.status ?? null,
+    });
+  }
 
   return {
     movedItem: activeItem,
@@ -617,6 +638,12 @@ export async function moveErrorItemToDropbox(options: {
   const movedTaskId = options.fileName.replace(/\.md$/, '');
   await withDirLock(queuePaths.queueLockDir, 'Move error item to dropbox', async () => {
     await rename(sourcePath, destPath);
+    try {
+      await resetFailedChildTaskChainTaskToPlanned({ repoRoot: root, taskId: movedTaskId });
+    } catch (err) {
+      log.error('child_task_chain_failure.reset_to_planned.failed', err, { taskId: movedTaskId });
+      throw err;
+    }
     // Transition failed → open so the Task Board surfaces the file in the open
     // column without waiting for a process restart. Downstream consumers
     // (moveDropboxItemToPending, deleteDropboxItem) clean up this entry under
@@ -624,6 +651,13 @@ export async function moveErrorItemToDropbox(options: {
     try {
       await transitionTask(root, movedTaskId, 'failed', 'open');
     } catch { /* best-effort */ }
+    try {
+      await unlink(path.join(queuePaths.activeItemsDir, `${movedTaskId}.completing`));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
+    }
   });
 
   // Discard retained worktree/branch/dirs for the failed task. The dropbox

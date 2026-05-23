@@ -59,6 +59,9 @@ describe('electron preload bridge', () => {
         activateContextPack: expect.any(Function),
         pickMarkdownFile: expect.any(Function),
         listArchivedTasks: expect.any(Function),
+        readParentContextBundle: expect.any(Function),
+        readParentChainArchiveBundle: expect.any(Function),
+        readParentArchiveMarkdown: expect.any(Function),
         listPlannerConversationHistory: expect.any(Function),
         hydratePlannerConversation: expect.any(Function),
         submitReinforcementFeedback: expect.any(Function),
@@ -229,6 +232,22 @@ describe('electron preload bridge', () => {
     await desktopShellApi.hydratePlannerConversation('conversation-1');
     await desktopShellApi.pickMarkdownFile();
     await desktopShellApi.listArchivedTasks();
+    await desktopShellApi.readParentContextBundle({
+      parentTaskId: 'TASK-001',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    });
+    await desktopShellApi.readParentChainArchiveBundle({
+      parentTaskId: 'TASK-001',
+      rootTaskId: 'TASK-ROOT',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    });
+    await desktopShellApi.readParentArchiveMarkdown({
+      parentTaskId: 'TASK-001',
+      contextPackDir: '/tmp/context-packs/orders-estate',
+      contextPackId: 'orders-estate',
+    });
     await desktopShellApi.finalizeSpec('child-task');
     await desktopShellApi.submitReinforcementFeedback({
       contextPackDir: '/tmp/context-packs/orders-estate',
@@ -411,6 +430,31 @@ describe('electron preload bridge', () => {
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.listArchivedTasks',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentContextBundle',
+      payload: {
+        parentTaskId: 'TASK-001',
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentChainArchiveBundle',
+      payload: {
+        parentTaskId: 'TASK-001',
+        rootTaskId: 'TASK-ROOT',
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'planner.readParentArchiveMarkdown',
+      payload: {
+        parentTaskId: 'TASK-001',
+        contextPackDir: '/tmp/context-packs/orders-estate',
+        contextPackId: 'orders-estate',
+      },
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'planner.finalizeSpec',

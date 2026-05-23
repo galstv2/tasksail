@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import type { PlannerListConversationHistorySummary } from '../../../shared/desktopContractPlanner';
 import { RecentsRow } from './RecentsRow';
+import { formatPlannerDropdownTimestamp } from './parentArchiveTimestamp';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -32,7 +33,7 @@ function makeRecord(
 }
 
 describe('RecentsRow', () => {
-  it('renders primary title, repo id, and relative time', () => {
+  it('renders primary title and local timestamp', () => {
     render(
       <RecentsRow
         record={makeRecord()}
@@ -43,8 +44,8 @@ describe('RecentsRow', () => {
       />,
     );
     expect(screen.getByText('Refactor queue advancement gating subsystem')).toBeInTheDocument();
-    expect(screen.getByText('acme-svc')).toBeInTheDocument();
-    expect(screen.getByText('2h')).toBeInTheDocument();
+    expect(screen.queryByText('acme-svc')).toBeNull();
+    expect(screen.getByText(formatPlannerDropdownTimestamp('2026-05-04T12:30:00')!)).toBeInTheDocument();
   });
 
   it('omits the taskKind chip for standard records', () => {
@@ -122,7 +123,7 @@ describe('RecentsRow', () => {
       />,
     );
     expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option').className).toContain('recents-row--active');
+    expect(screen.getByRole('option').className).toContain('planner-picker-row--active');
   });
 
   it('emits onSelect on click', () => {
@@ -165,7 +166,7 @@ describe('RecentsRow', () => {
         onHover={vi.fn()}
       />,
     );
-    expect(screen.getByRole('option').className).toContain('recents-row--first');
+    expect(screen.getByRole('option').className).toContain('planner-picker-row--first');
   });
 
   it('omits the first modifier for non-first rows', () => {
@@ -178,7 +179,7 @@ describe('RecentsRow', () => {
         onHover={vi.fn()}
       />,
     );
-    expect(screen.getByRole('option').className).not.toContain('recents-row--first');
+    expect(screen.getByRole('option').className).not.toContain('planner-picker-row--first');
   });
 
   it('uses the record id in the option dom id (for aria-activedescendant)', () => {

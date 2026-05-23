@@ -71,27 +71,27 @@ function renderFocusFilterModal(
 }
 
 describe('FocusFilterModal', () => {
-  it('renders through ModalShell and clears the name after a successful save', async () => {
+  it('renders through ModalShell and clears the name after a successful filter creation', async () => {
     const onSave = vi.fn().mockResolvedValue(true);
     renderFocusFilterModal({ onSave });
     expect(screen.getByRole('dialog', { name: 'Focus Filters' })).toBeInTheDocument();
     expect(screen.getByText('Focus Filters')).toBeInTheDocument();
     const input = screen.getByLabelText('Filter name');
     fireEvent.change(input, { target: { value: 'Primary API' } });
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByText('Create filter'));
     expect(onSave).toHaveBeenCalledWith('Primary API');
     await waitFor(() => {
       expect(input).toHaveValue('');
     });
   });
 
-  it('keeps the typed name when save fails', async () => {
+  it('keeps the typed name when filter creation fails', async () => {
     const onSave = vi.fn().mockResolvedValue(false);
     renderFocusFilterModal({ onSave });
 
     const input = screen.getByLabelText('Filter name');
     fireEvent.change(input, { target: { value: 'Primary API' } });
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByText('Create filter'));
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith('Primary API');
@@ -278,10 +278,10 @@ describe('FocusFilterModal', () => {
     expect(Array.from(footer!.children)).toEqual([escHint, cancel, apply]);
   });
 
-  it('renders Save as visually active when a unique name is entered', () => {
+  it('renders Create filter as visually active when a unique name is entered', () => {
     renderFocusFilterModal();
 
-    const save = screen.getByRole('button', { name: 'Save' });
+    const save = screen.getByRole('button', { name: 'Create filter' });
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Primary API' } });
     expect(save).not.toBeDisabled();
@@ -290,7 +290,7 @@ describe('FocusFilterModal', () => {
     expect(sidebarScopeCss).toContain('background: var(--ts-accent-subtle);');
   });
 
-  it('disables Save for duplicate filter names case-insensitively', () => {
+  it('disables Create filter for duplicate filter names case-insensitively', () => {
     const onSave = vi.fn().mockResolvedValue(true);
     renderFocusFilterModal({
       filters: [{
@@ -305,14 +305,14 @@ describe('FocusFilterModal', () => {
     });
 
     fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'primary api' } });
-    const save = screen.getByRole('button', { name: 'Save' });
+    const save = screen.getByRole('button', { name: 'Create filter' });
     expect(save).toBeDisabled();
     expect(screen.getByText('A filter with that name already exists.')).toBeInTheDocument();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('disables Save for duplicate selections', () => {
+  it('disables Create filter for duplicate selections', () => {
     const onSave = vi.fn().mockResolvedValue(true);
     renderFocusFilterModal({
       filters: [{
@@ -334,29 +334,40 @@ describe('FocusFilterModal', () => {
     });
 
     fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Different name' } });
-    const save = screen.getByRole('button', { name: 'Save' });
+    const save = screen.getByRole('button', { name: 'Create filter' });
     expect(save).toBeDisabled();
     expect(screen.getByText('Already saved as “Existing API”.')).toBeInTheDocument();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('disables Save for an empty Deep Focus selection even when a name is entered', () => {
+  it('disables Create filter for an empty Deep Focus selection even when a name is entered', () => {
     const onSave = vi.fn().mockResolvedValue(true);
     renderFocusFilterModal({
       currentSelection: deepFocusSelection,
       onSave,
     });
 
-    expect(screen.getByText('Deep Focus · Primary — · Test — · Support 0')).toBeInTheDocument();
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(row).toHaveClass('focus-filter-modal__row--draft');
+    expect(row).toHaveAttribute('data-mode', 'deep-focus');
+    expect(within(row!).getByText('Not saved')).toBeInTheDocument();
+    expect(within(row!).getByText('Primary')).toBeInTheDocument();
+    expect(within(row!).getByText('Test')).toBeInTheDocument();
+    expect(within(row!).getByText('Support')).toBeInTheDocument();
+    expect(within(row!).getAllByText('—')).toHaveLength(3);
     fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Empty focus' } });
-    const save = screen.getByRole('button', { name: 'Save' });
+    const save = screen.getByRole('button', { name: 'Create filter' });
     expect(save).toBeDisabled();
+    expect(screen.getByText(
+      'Select at least one repository, folder, or Deep Focus target before creating a filter.',
+    )).toBeInTheDocument();
     fireEvent.click(save);
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('enables Save for Deep Focus when any Deep Focus slot is selected', () => {
+  it('enables Create filter for Deep Focus when any Deep Focus slot is selected', () => {
     renderFocusFilterModal({
       currentSelection: {
         ...deepFocusSelection,
@@ -365,7 +376,7 @@ describe('FocusFilterModal', () => {
     });
 
     fireEvent.change(screen.getByLabelText('Filter name'), { target: { value: 'Support docs' } });
-    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Create filter' })).not.toBeDisabled();
   });
 
   it('pins ModalShell footer primary styling to the accent treatment', () => {
@@ -385,7 +396,9 @@ describe('FocusFilterModal', () => {
   it('uses em-dash placeholders for empty Deep Focus primary and test slots', () => {
     renderFocusFilterModal({ currentSelection: deepFocusSelection });
 
-    expect(screen.getByText('Deep Focus · Primary — · Test — · Support 0')).toBeInTheDocument();
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getAllByText('—')).toHaveLength(3);
     expect(screen.queryByText(/No Primary/)).not.toBeInTheDocument();
     expect(screen.queryByText(/No Test/)).not.toBeInTheDocument();
   });
@@ -414,7 +427,14 @@ describe('FocusFilterModal', () => {
       },
     });
 
-    expect(screen.getByText('Deep Focus · Primary set · Test set · Support 2')).toBeInTheDocument();
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('Primary')).toBeInTheDocument();
+    expect(within(row!).getByText('api')).toBeInTheDocument();
+    expect(within(row!).getByText('Test')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: tests')).toBeInTheDocument();
+    expect(within(row!).getByText('Support')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: docs, Global: scripts')).toBeInTheDocument();
   });
 
   it('keeps the filter-name input keyboard-focusable and backed by the focus-ring CSS contract', () => {
@@ -460,6 +480,15 @@ describe('FocusFilterModal', () => {
     );
     expect(sidebarScopeCss).not.toContain('.focus-filter-modal__scope-chip');
     expect(sidebarScopeCss).not.toContain('.focus-filter-modal__mode-tag');
+  });
+
+  it('keeps saved filter rows content-sized instead of stretching to fill the modal', () => {
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__list\s*\{[^}]*grid-auto-rows:\s*max-content/,
+    );
+    expect(sidebarScopeCss).toMatch(
+      /\.focus-filter-modal__list\s*\{[^}]*align-content:\s*start/,
+    );
   });
 
   it('distinguishes deep focus rows with a left-edge accent stripe', () => {

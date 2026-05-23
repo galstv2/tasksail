@@ -1,18 +1,27 @@
 /**
  * Archived task listing for the planner child-task parent selection dropdown.
  */
-import { mkdir as fsMkdir, open as fsOpen, readdir as fsReadDir, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { lstat as fsLstat, mkdir as fsMkdir, open as fsOpen, readdir as fsReadDir, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { basename, dirname, join, relative } from 'node:path';
 
 import type {
+  ArchivedTaskBranchChainAvailability,
   ArchivedTaskBranchHandoff,
+  ArchivedTaskChildParentEligibility,
   ArchivedTaskEntry,
+  ArchivedTaskParentContextArtifacts,
+  ArchivedTaskParentContextFile,
   ContextPackListResponse,
   DesktopInvokeResult,
   PlannerListArchivedTasksResponse,
 } from '../src/shared/desktopContract';
 import { validatePlannerFocusSnapshot } from '../src/shared/desktopContractValidators';
+import { createLogger } from '../../../backend/platform/core/index.js';
+import { readChildTaskChains, type ChildTaskChainsState } from '../../../backend/platform/queue/childTaskChains.js';
+import { loadTaskRegistry, type TaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 import { REPO_ROOT } from './paths';
+import { buildChildParentBlockedTips, hasChildParentBlockedTipCandidates } from './childParentBlockedTips';
 import {
   resolveActiveContextPackTaskScope,
   type ActiveContextPackTaskScope,
@@ -25,6 +34,20 @@ type ArchiveCandidate = {
 };
 
 const HEAD_BYTES = 2048;
+const log = createLogger('desktop/main.archivedTasks');
+const HANDOFF_CONTEXT_FILE_ORDER = [
+  'intake.md',
+  'implementation-spec.md',
+  'final-summary.md',
+  'issues.md',
+  'parallel-ok.md',
+] as const;
+const REQUIRED_HANDOFF_CONTEXT_FILES = new Set<string>([
+  'intake.md',
+  'implementation-spec.md',
+  'final-summary.md',
+]);
+const OPTIONAL_HANDOFF_CONTEXT_FILES = new Set<string>(['issues.md', 'parallel-ok.md']);
 
 async function readFileHead(filePath: string): Promise<string> {
   const handle = await fsOpen(filePath, 'r');
@@ -39,6 +62,17 @@ async function readFileHead(filePath: string): Promise<string> {
 
 function archiveLayoutForMarkdown(mdPath: string): 'flat' | 'nested' {
   return basename(mdPath) === 'archive.md' ? 'nested' : 'flat';
+}
+
+function archiveArtifactInfo(candidate: ArchiveCandidate): {
+  archiveLayout: 'flat' | 'nested';
+  archiveArtifactDir: string | null;
+} {
+  const archiveLayout = archiveLayoutForMarkdown(candidate.mdPath);
+  return {
+    archiveLayout,
+    archiveArtifactDir: archiveLayout === 'nested' ? dirname(candidate.mdPath) : null,
+  };
 }
 
 function archiveJsonPath(mdPath: string): string {
@@ -67,7 +101,12 @@ type JsonSidecar = {
   record_id?: string;
   task_id?: string;
   root_task_id?: string;
+  parent_task_id?: string;
+  child_depth?: unknown;
+  parent_resolution?: string;
   followup_reason?: string;
+  indexed_at?: string;
+  created_at?: string;
   completed_work_summary?: string;
   task_summary?: string;
   key_decisions?: unknown;
@@ -78,11 +117,54 @@ type JsonSidecar = {
 };
 
 type PlannerFocusSnapshot = NonNullable<ArchivedTaskEntry['plannerFocusSnapshot']>;
+type BranchHandoffReadResult = {
+  handoffs?: ArchivedTaskBranchHandoff[];
+  availability: ArchivedTaskBranchChainAvailability;
+};
 
 function trimString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function parseArchiveBasenameTimestamp(value: string): string | null {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})t(\d{2})(\d{2})(\d{2})z/iu);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString() !== iso.replace('Z', '.000Z')
+    ? null
+    : iso;
+}
+
+async function archivedAtForCandidate(candidate: ArchiveCandidate, sidecar: JsonSidecar): Promise<string | null> {
+  const indexedAt = trimString(sidecar.indexed_at);
+  if (indexedAt) return indexedAt;
+  const createdAt = trimString(sidecar.created_at);
+  if (createdAt) return createdAt;
+
+  const layout = archiveLayoutForMarkdown(candidate.mdPath);
+  const basenameToParse = layout === 'nested'
+    ? basename(dirname(candidate.mdPath))
+    : basename(candidate.mdPath, '.md');
+  const parsed = parseArchiveBasenameTimestamp(basenameToParse);
+  if (parsed) return parsed;
+
+  try {
+    const stat = await fsLstat(candidate.mdPath);
+    if (!stat.isSymbolicLink() && stat.isFile()) {
+      return stat.mtime.toISOString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
 }
 
 function trimStringArray(value: unknown): string[] | undefined {
@@ -94,33 +176,46 @@ function trimStringArray(value: unknown): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-function normalizeBranchHandoffs(value: unknown): ArchivedTaskBranchHandoff[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
+function normalizeBranchHandoffs(value: unknown): BranchHandoffReadResult {
+  if (value === undefined || value === null) {
+    return {
+      availability: {
+        status: 'missing-branch-handoffs',
+        message: 'Archive sidecar does not include branch_handoffs.',
+      },
+    };
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    return invalidBranchHandoffs('Archive sidecar branch_handoffs is not a non-empty array.');
   }
   const handoffs: ArchivedTaskBranchHandoff[] = [];
   for (const item of value) {
     if (!item || typeof item !== 'object') {
-      continue;
+      return invalidBranchHandoffs('Archive sidecar branch_handoffs contains a non-object entry.');
     }
     const raw = item as Record<string, unknown>;
     if (
-      typeof raw.repo_root !== 'string' ||
-      typeof raw.repo_label !== 'string' ||
-      typeof raw.branch !== 'string' ||
-      typeof raw.base_commit_sha !== 'string' ||
-      typeof raw.head_commit_sha !== 'string' ||
-      typeof raw.status !== 'string'
+      !isNonEmptyString(raw.repo_root) ||
+      !isNonEmptyString(raw.repo_label) ||
+      !isNonEmptyString(raw.branch) ||
+      !isNonEmptyString(raw.base_commit_sha) ||
+      !isNonEmptyString(raw.head_commit_sha) ||
+      !isNonEmptyString(raw.status)
     ) {
-      continue;
+      return invalidBranchHandoffs('Archive sidecar branch_handoffs contains an entry missing required fields.');
     }
     const commitsAhead = typeof raw.commits_ahead === 'number'
       ? raw.commits_ahead
-      : Number(raw.commits_ahead);
+      : isNonEmptyString(raw.commits_ahead)
+        ? Number(raw.commits_ahead.trim())
+        : Number.NaN;
     if (!Number.isFinite(commitsAhead)) {
-      continue;
+      return invalidBranchHandoffs('Archive sidecar branch_handoffs contains invalid commits_ahead.');
     }
     const autoMerge = normalizeAutoMerge(raw.auto_merge);
+    if (raw.auto_merge !== undefined && !autoMerge) {
+      return invalidBranchHandoffs('Archive sidecar branch_handoffs contains invalid auto_merge data.');
+    }
     handoffs.push({
       repoRoot: raw.repo_root,
       repoLabel: raw.repo_label,
@@ -132,7 +227,22 @@ function normalizeBranchHandoffs(value: unknown): ArchivedTaskBranchHandoff[] | 
       ...(autoMerge ? { autoMerge } : {}),
     });
   }
-  return handoffs.length > 0 ? handoffs : undefined;
+  return {
+    handoffs,
+    availability: {
+      status: 'ready',
+      message: 'Archive sidecar contains valid branch_handoffs.',
+    },
+  };
+}
+
+function invalidBranchHandoffs(message: string): BranchHandoffReadResult {
+  return {
+    availability: {
+      status: 'invalid-branch-handoffs',
+      message,
+    },
+  };
 }
 
 function normalizeAutoMerge(value: unknown): ArchivedTaskBranchHandoff['autoMerge'] | undefined {
@@ -154,6 +264,133 @@ function normalizeAutoMerge(value: unknown): ArchivedTaskBranchHandoff['autoMerg
     targetBranch: raw.target_branch,
     detail: raw.detail,
   };
+}
+
+async function discoverParentContextArtifacts(
+  archiveArtifactDir: string | null,
+): Promise<ArchivedTaskParentContextArtifacts> {
+  if (!archiveArtifactDir) {
+    return {
+      status: 'legacy-flat-archive',
+      archiveArtifactDir: null,
+      handoffsDir: null,
+      implementationStepsDir: null,
+      handoffs: [],
+      implementationSteps: [],
+      missing: [],
+    };
+  }
+
+  const handoffsDir = await existingDirectory(join(archiveArtifactDir, 'handoffs'));
+  const implementationStepsDir = await existingDirectory(join(archiveArtifactDir, 'ImplementationSteps'));
+  const handoffArtifactsManifestPath = await existingRegularFile(
+    join(archiveArtifactDir, 'handoff-artifacts-manifest.json'),
+  );
+  const handoffs = handoffsDir ? await readHandoffContextFiles(archiveArtifactDir, handoffsDir) : [];
+  const implementationSteps = implementationStepsDir
+    ? await readImplementationStepFiles(archiveArtifactDir, implementationStepsDir)
+    : [];
+  const missing = [
+    ...(handoffsDir ? [] : ['handoffs']),
+    ...(implementationStepsDir ? [] : ['ImplementationSteps']),
+    ...(handoffArtifactsManifestPath ? [] : ['handoff-artifacts-manifest.json']),
+  ];
+
+  return {
+    status: handoffs.length > 0 || implementationSteps.length > 0 ? 'available' : 'missing-artifacts',
+    archiveArtifactDir,
+    handoffsDir,
+    implementationStepsDir,
+    handoffs,
+    implementationSteps,
+    missing,
+  };
+}
+
+async function existingDirectory(dirPath: string): Promise<string | null> {
+  try {
+    return (await fsLstat(dirPath)).isDirectory() ? dirPath : null;
+  } catch {
+    return null;
+  }
+}
+
+async function existingRegularFile(filePath: string): Promise<string | null> {
+  try {
+    return (await fsLstat(filePath)).isFile() ? filePath : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readHandoffContextFiles(
+  archiveArtifactDir: string,
+  handoffsDir: string,
+): Promise<ArchivedTaskParentContextFile[]> {
+  const entries = await safeReadDir(handoffsDir);
+  const byName = new Map(entries.filter((entry) => entry.isFile()).map((entry) => [entry.name, entry]));
+  const files: ArchivedTaskParentContextFile[] = [];
+  for (const fileName of HANDOFF_CONTEXT_FILE_ORDER) {
+    if (!byName.has(fileName)) continue;
+    if (OPTIONAL_HANDOFF_CONTEXT_FILES.has(fileName) && !(await isSubstantiveHandoff(join(handoffsDir, fileName)))) {
+      continue;
+    }
+    if (!REQUIRED_HANDOFF_CONTEXT_FILES.has(fileName) && !OPTIONAL_HANDOFF_CONTEXT_FILES.has(fileName)) {
+      continue;
+    }
+    const contextFile = await buildParentContextFile('handoff', archiveArtifactDir, join(handoffsDir, fileName));
+    if (contextFile) files.push(contextFile);
+  }
+  return files;
+}
+
+async function readImplementationStepFiles(
+  archiveArtifactDir: string,
+  implementationStepsDir: string,
+): Promise<ArchivedTaskParentContextFile[]> {
+  const entries = await safeReadDir(implementationStepsDir);
+  const files: ArchivedTaskParentContextFile[] = [];
+  for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name))) {
+    const contextFile = await buildParentContextFile(
+      'implementation-step',
+      archiveArtifactDir,
+      join(implementationStepsDir, entry.name),
+    );
+    if (contextFile) files.push(contextFile);
+  }
+  return files;
+}
+
+async function safeReadDir(dirPath: string): Promise<Dirent[]> {
+  try {
+    return await fsReadDir(dirPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+async function buildParentContextFile(
+  kind: ArchivedTaskParentContextFile['kind'],
+  archiveArtifactDir: string,
+  filePath: string,
+): Promise<ArchivedTaskParentContextFile | null> {
+  const meta = await fsLstat(filePath);
+  if (!meta.isFile()) return null;
+  return {
+    kind,
+    fileName: basename(filePath),
+    path: filePath,
+    relativePath: relative(archiveArtifactDir, filePath).split('\\').join('/'),
+    sizeBytes: meta.size,
+  };
+}
+
+async function isSubstantiveHandoff(filePath: string): Promise<boolean> {
+  const withoutComments = (await fsReadFile(filePath, 'utf-8')).replace(/<!--[\s\S]*?-->/g, '');
+  return withoutComments
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .some((line) => line !== '' && !/^#{1,6}\s/.test(line));
 }
 
 async function readJsonSidecar(mdPath: string): Promise<JsonSidecar> {
@@ -285,6 +522,192 @@ function buildParentTaskContent(
   return content;
 }
 
+async function readChildChainStateForListing(): Promise<{
+  state: ChildTaskChainsState | null;
+  status?: NonNullable<PlannerListArchivedTasksResponse['childChainStateStatus']>;
+}> {
+  try {
+    return { state: await readChildTaskChains(REPO_ROOT) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn('archived-tasks.child-chain-state.invalid', { error: message });
+    return {
+      state: null,
+      status: { status: 'invalid', message },
+    };
+  }
+}
+
+async function readTaskRegistryForBlockedTips(
+  activeScope: ActiveContextPackTaskScope,
+  childChainState: ChildTaskChainsState | null,
+): Promise<TaskRegistry | null> {
+  if (!childChainState || !hasChildParentBlockedTipCandidates(childChainState, activeScope)) {
+    return null;
+  }
+  try {
+    return await loadTaskRegistry(REPO_ROOT);
+  } catch (error) {
+    log.warn('archived-tasks.child-parent-blocked-tips.registry-unavailable', {
+      contextPackId: activeScope.contextPackId,
+      contextPackDir: activeScope.contextPackDir,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function attachChildParentBlockedTips(
+  response: PlannerListArchivedTasksResponse,
+  activeScope: ActiveContextPackTaskScope,
+  childChainState: ChildTaskChainsState | null,
+  taskRegistry: TaskRegistry | null,
+): PlannerListArchivedTasksResponse {
+  if (!childChainState) return response;
+  const childParentBlockedTips = buildChildParentBlockedTips({
+    state: childChainState,
+    archiveTasks: response.tasks,
+    taskRegistry,
+    scope: activeScope,
+  });
+  if (childParentBlockedTips.length === 0) return response;
+  log.info('archived-tasks.child-parent-blocked-tips.emitted', {
+    count: childParentBlockedTips.length,
+    contextPackId: activeScope.contextPackId,
+    contextPackDir: activeScope.contextPackDir,
+    tips: childParentBlockedTips.map((tip) => ({
+      rootTaskId: tip.rootTaskId,
+      currentTipTaskId: tip.currentTipTaskId,
+      chainState: tip.chainState,
+      boardState: tip.boardState,
+    })),
+  });
+  return { ...response, childParentBlockedTips };
+}
+
+function childChainForTask(
+  state: ChildTaskChainsState | null,
+  taskId: string,
+): ArchivedTaskEntry['childChain'] {
+  const task = state?.tasks[taskId];
+  if (!task) return undefined;
+  const chain = state?.chains[task.rootTaskId];
+  if (!chain) return undefined;
+  return {
+    rootTaskId: task.rootTaskId,
+    parentTaskId: task.parentTaskId,
+    previousTaskId: task.previousTaskId,
+    depth: task.depth,
+    state: task.state,
+    currentTipTaskId: chain.currentTipTaskId,
+    isCurrentTip: chain.currentTipTaskId === taskId,
+    archivePath: task.archivePath,
+    archiveArtifactDir: task.archiveArtifactDir,
+    parentArchivePath: task.parentArchivePath,
+    parentArchiveArtifactDir: task.parentArchiveArtifactDir,
+  };
+}
+
+function childParentEligibilityForTask(args: {
+  state: ChildTaskChainsState | null;
+  stateStatus?: NonNullable<PlannerListArchivedTasksResponse['childChainStateStatus']>;
+  taskId: string;
+  rootTaskId: string;
+  parentTaskId?: string;
+}): ArchivedTaskChildParentEligibility {
+  const resolvedRootTaskId = args.rootTaskId.trim() || args.taskId;
+  if (args.stateStatus?.status === 'invalid') {
+    return {
+      eligible: false,
+      reason: 'child-chain-state-invalid',
+      message: 'Child-task chain state must be repaired before choosing a parent task.',
+      rootTaskId: resolvedRootTaskId,
+      currentTipTaskId: null,
+      currentTipState: null,
+    };
+  }
+
+  const task = args.state?.tasks[args.taskId];
+  if (task) {
+    const chain = args.state?.chains[task.rootTaskId];
+    const currentTipTaskId = chain?.currentTipTaskId ?? null;
+    const currentTipState = currentTipTaskId ? args.state?.tasks[currentTipTaskId]?.state ?? null : null;
+    if (!chain) {
+      return {
+        eligible: false,
+        reason: 'not-current-chain-tip',
+        message: 'This archived task is not the current child-chain tip.',
+        rootTaskId: task.rootTaskId,
+        currentTipTaskId,
+        currentTipState,
+      };
+    }
+    if (chain.currentTipTaskId === args.taskId) {
+      if (task.state === 'completed') {
+        return {
+          eligible: true,
+          reason: 'current-chain-tip',
+          message: 'This archived task is the completed current child-chain tip.',
+          rootTaskId: task.rootTaskId,
+          currentTipTaskId: chain.currentTipTaskId,
+          currentTipState: task.state,
+        };
+      }
+      return {
+        eligible: false,
+        reason: 'chain-tip-state-not-completed',
+        message: 'The current child-chain tip is not completed yet.',
+        rootTaskId: task.rootTaskId,
+        currentTipTaskId: chain.currentTipTaskId,
+        currentTipState: task.state,
+      };
+    }
+    if (currentTipState && currentTipState !== 'completed') {
+      return {
+        eligible: false,
+        reason: 'reserved-by-unarchived-tip',
+        message: 'A non-completed child already reserves the next child-chain tip.',
+        rootTaskId: task.rootTaskId,
+        currentTipTaskId: chain.currentTipTaskId,
+        currentTipState,
+      };
+    }
+    return {
+      eligible: false,
+      reason: 'not-current-chain-tip',
+      message: 'Only the current child-chain tip can be used as the next parent.',
+      rootTaskId: task.rootTaskId,
+      currentTipTaskId: chain.currentTipTaskId,
+      currentTipState,
+    };
+  }
+
+  const parentTaskId = args.parentTaskId?.trim();
+  const isStandaloneRoot = !parentTaskId && (!args.rootTaskId.trim() || args.rootTaskId === args.taskId);
+  if (isStandaloneRoot) {
+    return {
+      eligible: true,
+      reason: 'standalone-root',
+      message: 'This standalone root task can start a child-task chain.',
+      rootTaskId: args.taskId,
+      currentTipTaskId: null,
+      currentTipState: null,
+    };
+  }
+  return {
+    eligible: false,
+    reason: 'legacy-child-without-chain-state',
+    message: 'Legacy archived child tasks without child-chain state cannot start a new chain.',
+    rootTaskId: resolvedRootTaskId,
+    currentTipTaskId: null,
+    currentTipState: null,
+  };
+}
+
+function childDepthFromSidecar(value: unknown): number | undefined {
+  return Number.isInteger(value) && (value as number) >= 0 ? value as number : undefined;
+}
+
 export async function listArchivedTasksAction(
   listContextPacks: ContextPackLister,
   options?: { scope?: ActiveContextPackTaskScope | null },
@@ -304,6 +727,8 @@ export async function listArchivedTasksAction(
     }
 
     const { contextPackName } = activeScope;
+    const childChainStateRead = await readChildChainStateForListing();
+    const taskRegistryForBlockedTips = await readTaskRegistryForBlockedTips(activeScope, childChainStateRead.state);
     const archiveRoot = join(
       REPO_ROOT,
       'AgentWorkSpace',
@@ -326,8 +751,12 @@ export async function listArchivedTasksAction(
         mode: 'empty',
         message: `No task archive found for context pack ${contextPackName}.`,
         tasks: [],
+        ...(childChainStateRead.status ? { childChainStateStatus: childChainStateRead.status } : {}),
       };
-      return { ok: true, response };
+      return {
+        ok: true,
+        response: attachChildParentBlockedTips(response, activeScope, childChainStateRead.state, taskRegistryForBlockedTips),
+      };
     }
 
     const tasks: ArchivedTaskEntry[] = [];
@@ -369,7 +798,25 @@ export async function listArchivedTasksAction(
           const taskId = sidecar.task_id || extractTaskId(head) || candidate.fallbackName;
           const title = extractTitle(head) || candidate.fallbackName;
           const summary = sidecar.completed_work_summary || sidecar.task_summary || '';
-          const branchHandoffs = normalizeBranchHandoffs(sidecar.branch_handoffs);
+          const archivedAt = await archivedAtForCandidate(candidate, sidecar);
+          const branchHandoffRead = normalizeBranchHandoffs(sidecar.branch_handoffs);
+          const branchHandoffs = branchHandoffRead.handoffs;
+          const artifactInfo = archiveArtifactInfo(candidate);
+          const parentContextArtifacts = await discoverParentContextArtifacts(artifactInfo.archiveArtifactDir);
+          const handoffArtifactsManifestPath = artifactInfo.archiveArtifactDir
+            ? await existingRegularFile(join(artifactInfo.archiveArtifactDir, 'handoff-artifacts-manifest.json'))
+            : null;
+          const childDepth = childDepthFromSidecar(sidecar.child_depth);
+          const childChain = childChainForTask(childChainStateRead.state, taskId);
+          const rootTaskId = sidecar.root_task_id || taskId;
+          const parentTaskId = trimString(sidecar.parent_task_id);
+          const childParentEligibility = childParentEligibilityForTask({
+            state: childChainStateRead.state,
+            stateStatus: childChainStateRead.status,
+            taskId,
+            rootTaskId,
+            ...(parentTaskId ? { parentTaskId } : {}),
+          });
           const plannerFocusSnapshot = existingPlannerFocusSnapshot ?? synthesizePlannerFocusSnapshot({
             archivedContextPackDir: join(REPO_ROOT, 'contextpacks', contextPackName),
             contextPackName,
@@ -387,13 +834,25 @@ export async function listArchivedTasksAction(
             taskId,
             title,
             summary,
-            rootTaskId: sidecar.root_task_id || taskId,
+            rootTaskId,
             qmdRecordId: sidecar.record_id || '',
             followupReason: sidecar.followup_reason || '',
             year,
             archivePath: candidate.mdPath,
+            archivedAt,
             contextPackName,
-            branchHandoffs,
+            ...artifactInfo,
+            handoffsDir: parentContextArtifacts.handoffsDir,
+            implementationStepsDir: parentContextArtifacts.implementationStepsDir,
+            handoffArtifactsManifestPath,
+            parentContextArtifacts,
+            branchChainAvailability: branchHandoffRead.availability,
+            ...(branchHandoffs ? { branchHandoffs } : {}),
+            ...(parentTaskId ? { parentTaskId } : {}),
+            ...(childDepth !== undefined ? { childDepth } : {}),
+            ...(trimString(sidecar.parent_resolution) ? { parentResolution: trimString(sidecar.parent_resolution) } : {}),
+            ...(childChain ? { childChain } : {}),
+            childParentEligibility,
             ...(plannerFocusSnapshot ? { plannerFocusSnapshot } : {}),
             parentTaskContent: buildParentTaskContent(title, sidecar),
           });
@@ -409,8 +868,23 @@ export async function listArchivedTasksAction(
         mode: 'empty',
         message: `No archived completed tasks found for context pack ${contextPackName}.`,
         tasks: [],
+        ...(childChainStateRead.status ? { childChainStateStatus: childChainStateRead.status } : {}),
       };
-      return { ok: true, response };
+      return {
+        ok: true,
+        response: attachChildParentBlockedTips(response, activeScope, childChainStateRead.state, taskRegistryForBlockedTips),
+      };
+    }
+
+    const hiddenByReason = tasks.reduce<Record<string, number>>((counts, task) => {
+      const eligibility = task.childParentEligibility;
+      if (eligibility?.eligible === false) {
+        counts[eligibility.reason] = (counts[eligibility.reason] ?? 0) + 1;
+      }
+      return counts;
+    }, {});
+    if (Object.keys(hiddenByReason).length > 0) {
+      log.info('archived-tasks.child-parent-eligibility.filtered', { countsByReason: hiddenByReason });
     }
 
     const response: PlannerListArchivedTasksResponse = {
@@ -418,8 +892,12 @@ export async function listArchivedTasksAction(
       mode: 'found',
       message: `Found ${tasks.length} archived task(s) in ${contextPackName}.`,
       tasks,
+      ...(childChainStateRead.status ? { childChainStateStatus: childChainStateRead.status } : {}),
     };
-    return { ok: true, response };
+    return {
+      ok: true,
+      response: attachChildParentBlockedTips(response, activeScope, childChainStateRead.state, taskRegistryForBlockedTips),
+    };
   } catch (error: unknown) {
     return {
       ok: false,

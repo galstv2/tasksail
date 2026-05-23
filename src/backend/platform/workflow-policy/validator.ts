@@ -4,7 +4,7 @@ import { loadNamedAgentTeam } from './agents.js';
 import {
   inferContextPackDir,
   loadWorkspaceArtifact,
-  parseSections,
+  parseSemanticSections,
   resolveSemanticSection,
 } from './artifacts.js';
 import {
@@ -329,7 +329,7 @@ export class PolicyValidator {
     slicePath: string,
   ): Promise<{ ready: boolean; missingSections: string[]; sliceId: string }> {
     const text = (await readTextFile(slicePath)) ?? '';
-    const sections = parseSections(text);
+    const sections = parseSemanticSections(text);
     const missingSections = SLICE_REQUIRED_SECTION_SPECS
       .filter((sectionSpec) => (
         normalizeText(resolveSemanticSection(sections, sectionSpec).content).length === 0
