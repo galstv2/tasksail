@@ -1,10 +1,6 @@
 import type {
-  ArchivedTaskEntry,
-  PlannerChildTaskExecutionScope,
-  PlannerLilyPersonalityId,
-  PlannerLilyPlanningReloadScope,
-  PlannerParentBranchViewRequest,
-  PlannerReadParentChainArchiveBundleResponse,
+  ArchivedTaskEntry, PlannerChildTaskExecutionScope, PlannerFocusSnapshot, PlannerLilyPersonalityId,
+  PlannerLilyPlanningReloadScope, PlannerParentBranchViewRequest, PlannerReadParentChainArchiveBundleResponse,
   PlannerReadParentContextBundleResponse,
 } from '../shared/desktopContract';
 import { PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE } from '../shared/desktopContract';
@@ -14,9 +10,20 @@ import { deriveParentQmdScope } from './plannerComposer';
 
 export { PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE };
 
+type ParentBranchHandoffCoverageGap = {
+  parentTaskId: string; contextPackId: string; estateType: 'distributed-platform' | 'monolith' | 'unknown';
+  expectedPrimaryRepoCount: number; branchHandoffCount: number; missingPrimaryRepoIds: string[];
+};
+
 export function buildParentTaskBranchViewRequest(task: ArchivedTaskEntry): PlannerParentBranchViewRequest | undefined {
   if (!task.plannerFocusSnapshot) {
     return undefined;
+  }
+  try {
+    const coverageGap = assessParentBranchHandoffCoverage(task);
+    if (coverageGap) emitParentBranchHandoffCoverageWarning(coverageGap);
+  } catch {
+    console.warn('plannerParentBranchView.coverage.assessment-failed', { parentTaskId: task.taskId });
   }
   return {
     schemaVersion: 1,
@@ -29,6 +36,80 @@ export function buildParentTaskBranchViewRequest(task: ArchivedTaskEntry): Plann
     },
     ...(task.branchHandoffs?.length ? { branchHandoffs: task.branchHandoffs } : {}),
   };
+}
+
+function assessParentBranchHandoffCoverage(task: ArchivedTaskEntry): ParentBranchHandoffCoverageGap | null {
+  const snapshot = task.plannerFocusSnapshot;
+  if (!snapshot || task.branchChainAvailability?.status !== 'ready') {
+    return null;
+  }
+  const binding = snapshot.contextPackBinding;
+  const estateType = inferEstateType(binding);
+  const expectedPrimaryRepoCount = countExpectedPrimaryRepos(binding, estateType);
+  const branchHandoffCount = new Set((task.branchHandoffs ?? []).map((handoff) => handoff.repoRoot).filter(Boolean)).size;
+  if (expectedPrimaryRepoCount <= branchHandoffCount) {
+    return null;
+  }
+  return {
+    parentTaskId: task.taskId,
+    contextPackId: snapshot.contextPackId,
+    estateType,
+    expectedPrimaryRepoCount,
+    branchHandoffCount,
+    missingPrimaryRepoIds: deriveMissingPrimaryRepoIds(binding, task.branchHandoffs ?? []),
+  };
+}
+
+function emitParentBranchHandoffCoverageWarning(gap: ParentBranchHandoffCoverageGap): void {
+  console.warn('plannerParentBranchView.coverage.partial', gap);
+}
+
+function inferEstateType(binding: PlannerFocusSnapshot['contextPackBinding']): ParentBranchHandoffCoverageGap['estateType'] {
+  if (binding.selectedRepoIds.length > 0
+    || Boolean(binding.primaryRepoId)
+    || Boolean(binding.deepFocusPrimaryRepoId)
+    || binding.selectedFocusTargets.some((target) => Boolean(target.repoId))) return 'distributed-platform';
+  return binding.selectedFocusIds.length > 0
+    || Boolean(binding.primaryFocusId)
+    || Boolean(binding.deepFocusPrimaryFocusId)
+    || binding.selectedFocusTargets.some((target) => Boolean(target.focusId))
+    ? 'monolith'
+    : 'unknown';
+}
+function countExpectedPrimaryRepos(binding: PlannerFocusSnapshot['contextPackBinding'], estateType: ParentBranchHandoffCoverageGap['estateType']): number {
+  if (binding.deepFocusEnabled) {
+    if (estateType === 'monolith') {
+      return Number(binding.selectedFocusTargets.length > 0
+        || binding.selectedFocusIds.length > 0
+        || Boolean(binding.deepFocusPrimaryFocusId)
+        || Boolean(binding.primaryFocusId));
+    }
+    const identities = new Set<string>();
+    for (const target of binding.selectedFocusTargets) {
+      const identity = target.repoId ?? target.repoLocalPath ?? binding.deepFocusPrimaryRepoId ?? binding.primaryRepoId;
+      if (identity) identities.add(identity);
+    }
+    return identities.size || Number(Boolean(binding.deepFocusPrimaryRepoId || binding.primaryRepoId));
+  }
+  if (estateType === 'monolith') {
+    if (binding.selectedFocusIds.length === 0) return 0;
+    if (!binding.repositoryTypes) return 1;
+    return binding.selectedFocusIds.some((id) => binding.repositoryTypes?.[id] === 'primary') ? 1 : 0;
+  }
+  if (binding.selectedRepoIds.length === 0) return 0;
+  if (!binding.repositoryTypes) return binding.selectedRepoIds.length;
+  return binding.selectedRepoIds.filter((id) => binding.repositoryTypes?.[id] === 'primary').length;
+}
+function deriveMissingPrimaryRepoIds(binding: PlannerFocusSnapshot['contextPackBinding'], handoffs: NonNullable<ArchivedTaskEntry['branchHandoffs']>): string[] {
+  if (!binding.deepFocusEnabled || binding.selectedFocusTargets.length === 0) return [];
+  const primaryTargets = binding.selectedFocusTargets.filter((target) => target.repoId && target.repoLocalPath);
+  if (primaryTargets.length !== binding.selectedFocusTargets.length) return [];
+  const handoffRoots = new Set(handoffs.map((handoff) => handoff.repoRoot));
+  const missing = new Set<string>();
+  for (const target of primaryTargets) {
+    if (!handoffRoots.has(target.repoLocalPath!)) missing.add(target.repoId!);
+  }
+  return [...missing];
 }
 
 export async function restartChildPlannerWithScope(args: {

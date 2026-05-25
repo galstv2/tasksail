@@ -38,7 +38,7 @@ Implement the assigned work with disciplined, minimal, testable changes.
 ## Required Input
 
 - Task instructions, acceptance criteria, and slice content are in your launch prompt
-- Source files and tests in the current repo (you are already in the target repo)
+- Source files and tests in the current task worktree repo
 
 ## Required Output
 
@@ -65,7 +65,7 @@ Implement the assigned work with disciplined, minimal, testable changes.
 
 `COPILOT_READONLY_CONTEXT_ROOTS_JSON` is a JSON array of `{ path, kind, reason }` objects. You may read these paths for grounding but must not write to them.
 
-Your CWD is set to the active focused repo root. Note: if a worktree is active, this CWD will be the worktree path, not the original repo path. Treat the CWD as authoritative regardless.
+Your CWD is set to the active task worktree root. Treat the CWD as authoritative.
 
 Do not write to the TaskSail platform repo. The boundary system enforces this; the rule here is for your understanding.
 

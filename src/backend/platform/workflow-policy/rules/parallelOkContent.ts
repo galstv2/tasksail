@@ -12,6 +12,7 @@ import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
 const ARTIFACT = toHandoffKey('parallel-ok.md');
+const SLICE_ID_PATTERN = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.md)\b/g;
 
 function shouldFire(validator: PolicyValidator): boolean {
   return (
@@ -54,14 +55,14 @@ function checkIndependentSlices(
   validator: PolicyValidator,
   artifact: WorkspaceArtifact,
 ): void {
-  const items = extractBulletItems(artifact.sections['Independent Slices'] ?? []);
+  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? []);
   if (!items.length) {
     validator.addViolation({
       rule_id: 'parallel-ok.independent-slices-has-items',
       artifact: ARTIFACT,
       message:
         'Independent Slices section must list orchestrated slice IDs when Complex execution is approved.',
-      remediation: `Add bullet items listing slice IDs Dalton can orchestrate to the Independent Slices section in ${ARTIFACT}.`,
+      remediation: `Add slice IDs Dalton can orchestrate to the Independent Slices section in ${ARTIFACT}.`,
     });
   }
 }
@@ -86,7 +87,7 @@ async function checkSlicesExist(
   validator: PolicyValidator,
   artifact: WorkspaceArtifact,
 ): Promise<void> {
-  const items = extractBulletItems(artifact.sections['Independent Slices'] ?? []);
+  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? []);
   if (!items.length) {
     return;
   }
@@ -99,7 +100,7 @@ async function checkSlicesExist(
   const stepsDirRelative = path.relative(validator.rootDir, stepsDir);
 
   for (const item of items) {
-    const sliceId = item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '') ?? '';
+    const sliceId = item.trim().replace(/\.md$/i, '');
     if (sliceId && !existingIds.has(sliceId)) {
       validator.addViolation({
         rule_id: 'parallel-ok.slices-exist',
@@ -110,4 +111,16 @@ async function checkSlicesExist(
       });
     }
   }
+}
+
+function independentSliceItems(lines: readonly string[]): string[] {
+  const bulletItems = extractBulletItems(lines)
+    .map((item) => item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '').replace(/\.md$/i, '') ?? '')
+    .filter(Boolean);
+  if (bulletItems.length > 0) {
+    return [...new Set(bulletItems)];
+  }
+  const content = normalizeText(lines);
+  const matches = content.match(SLICE_ID_PATTERN) ?? [];
+  return [...new Set(matches.map((match) => match.replace(/\.md$/i, '')))];
 }

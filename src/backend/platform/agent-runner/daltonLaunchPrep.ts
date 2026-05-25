@@ -3,8 +3,9 @@ import { existsSync } from 'node:fs';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import type { RunRoleAgentOptions, AutonomyIntent } from './types.js';
 import type { RunSummary } from './processLifecycle.js';
+import type { AgentLifecycleProgressInput } from '../core/taskProgressEvents.js';
 import { readTextFile } from '../core/io.js';
-import { createLogger, getErrorMessage } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, getErrorMessage } from '../core/index.js';
 import {
   captureChangedPathsSnapshot,
   validateDaltonBoundaryChanges,
@@ -104,6 +105,7 @@ export async function validateDaltonPostRunBoundary(options: {
 export function buildArtifactCleanupPrompt(options: {
   artifactPrompt: string;
   policyFailureDetails?: string;
+  forbiddenPathTokens: readonly string[];
 }): string {
   const sections = [
     'Your previous run did not leave the workflow ready for the next role.',
@@ -111,7 +113,16 @@ export function buildArtifactCleanupPrompt(options: {
   if (options.policyFailureDetails?.trim()) {
     sections.push('', `Blocking workflow-policy details: ${options.policyFailureDetails.trim()}`);
   }
-  sections.push('', options.artifactPrompt.trim());
+  sections.push(
+    '',
+    'Use only the exact absolute artifact paths listed below.',
+    'Do not write literal provider placeholder paths. Forbidden path tokens:',
+    ...options.forbiddenPathTokens.map((token) => `- ${token}`),
+    'Do not use shell commands to create workflow artifact directories; the platform creates those directories before this cleanup pass.',
+    'If a write fails, report the exact listed path and the failure. Do not guess alternate workspace paths.',
+    '',
+    options.artifactPrompt.trim(),
+  );
   return sections.join('\n');
 }
 
@@ -211,6 +222,7 @@ function confinementReceiptBoundaryContext(focused: FocusedRepoResult): {
 
 export interface ConfinementValidationDeps {
   repoRoot: string;
+  taskId?: string;
   agentId: RunRoleAgentOptions['agentId'];
   activeModel: string;
   focused: FocusedRepoResult;
@@ -239,12 +251,14 @@ export interface ConfinementValidationDeps {
   runAgentSessionForConfinementRetry?: (args: string[], promptAudit: Record<string, unknown>, metadata: {
     launchPhase: 'Confinement retry';
     retryOfLaunchId: string;
+    launchId?: string;
   }) => Promise<{
     runSummary: RunSummary;
     greedyStopTriggered: boolean;
     sessionReceiptFile: string | null;
   }>;
   initialLaunchId?: string;
+  createConfinementRetryLaunchId?: () => string;
   /** Update the lastPromptAudit tracking variable. */
   setLastPromptAudit: (audit: {
     promptPath: string | null;
@@ -262,6 +276,16 @@ export interface ConfinementValidationDeps {
 export async function handleDaltonConfinementValidation(
   deps: ConfinementValidationDeps,
 ): Promise<{ runSummary: RunSummary; exitCode: number } | undefined> {
+  const emitConfinementRetryEvent = async (type: 'agent.confinement_retry.started' | 'agent.confinement_retry.completed' | 'agent.confinement_retry.failed', input: AgentLifecycleProgressInput): Promise<void> => {
+    if (!deps.taskId) return;
+    if (type === 'agent.confinement_retry.started') {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: deps.taskId }), repoRoot: deps.repoRoot, taskId: deps.taskId, event: { type: 'agent.confinement_retry.started', input } });
+    } else if (type === 'agent.confinement_retry.completed') {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: deps.taskId }), repoRoot: deps.repoRoot, taskId: deps.taskId, event: { type: 'agent.confinement_retry.completed', input } });
+    } else {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: deps.taskId }), repoRoot: deps.repoRoot, taskId: deps.taskId, event: { type: 'agent.confinement_retry.failed', input } });
+    }
+  };
   try {
     await validateDaltonPostRunBoundary({
       platformRepoRoot: deps.repoRoot,
@@ -300,6 +324,13 @@ export async function handleDaltonConfinementValidation(
       agentId: deps.agentId,
       violationPathCount: error.violationPaths.length,
     });
+    const retryLaunchId = deps.createConfinementRetryLaunchId?.();
+    const retryProgressInput = {
+      agentId: deps.agentId,
+      launchId: retryLaunchId ?? deps.initialLaunchId ?? 'unknown',
+      displayPhase: 'confinement-retry' as const,
+    };
+    await emitConfinementRetryEvent('agent.confinement_retry.started', retryProgressInput);
     const retrySession = deps.runAgentSessionForConfinementRetry && deps.initialLaunchId
       ? await deps.runAgentSessionForConfinementRetry(
           retryBuilt.cliArgs,
@@ -307,6 +338,7 @@ export async function handleDaltonConfinementValidation(
           {
             launchPhase: 'Confinement retry',
             retryOfLaunchId: deps.initialLaunchId,
+            ...(retryLaunchId ? { launchId: retryLaunchId } : {}),
           },
         )
       : await deps.runAgentSessionForRetry(
@@ -316,6 +348,7 @@ export async function handleDaltonConfinementValidation(
     const retryRunSummary = retrySession.runSummary;
     deps.resetArtifactCompletionCache();
     if (retryRunSummary.exitCode !== 0) {
+      await emitConfinementRetryEvent('agent.confinement_retry.failed', retryProgressInput);
       await deps.writeLaunchGuardrailReceipt({
         schema_version: 1,
         status: 'failed',
@@ -343,6 +376,7 @@ export async function handleDaltonConfinementValidation(
         agentSpawnedAtMs: deps.agentSpawnedAtMs,
       });
     } catch (retryError: unknown) {
+      await emitConfinementRetryEvent('agent.confinement_retry.failed', retryProgressInput);
       const violationPaths = retryError instanceof DaltonConfinementError
         ? retryError.violationPaths
         : [];
@@ -362,6 +396,7 @@ export async function handleDaltonConfinementValidation(
       throw retryError;
     }
 
+    await emitConfinementRetryEvent('agent.confinement_retry.completed', retryProgressInput);
     return { runSummary: retryRunSummary, exitCode: retryRunSummary.exitCode };
   }
 }

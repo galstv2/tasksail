@@ -81,6 +81,16 @@ def task_archive_markdown_path(
     return task_archive_dir(context_pack_dir, qmd_scope, year, task_id) / "archive.md"
 
 
+def task_archive_terminal_events_path(
+    context_pack_dir: Path,
+    qmd_scope: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the canonical task archive terminal events path."""
+    return task_archive_dir(context_pack_dir, qmd_scope, year, task_id) / "terminal-events.json"
+
+
 def task_archive_planner_focus_snapshot_path(
     context_pack_dir: Path,
     qmd_scope: str,
@@ -129,6 +139,16 @@ def agent_mirror_task_archive_markdown_path(
 ) -> Path:
     """Return the AgentWorkSpace mirror task archive markdown path."""
     return agent_mirror_task_archive_dir(repo_root, context_pack_name, year, task_id) / "archive.md"
+
+
+def agent_mirror_task_archive_terminal_events_path(
+    repo_root: Path,
+    context_pack_name: str,
+    year: str,
+    task_id: str,
+) -> Path:
+    """Return the AgentWorkSpace mirror terminal events path."""
+    return agent_mirror_task_archive_dir(repo_root, context_pack_name, year, task_id) / "terminal-events.json"
 
 
 def agent_mirror_task_archive_planner_focus_snapshot_path(

@@ -15,6 +15,7 @@ export type {
   PreparedMcpLaunch,
   ProviderAgentProfile,
   ProviderPromptKind,
+  ProviderRuntimeManifestEnvVar,
   ResolvedMcpServer,
   ResolvedToolPolicy,
   RunSummary,

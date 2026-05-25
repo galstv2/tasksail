@@ -75,6 +75,43 @@ export type { InitializeTaskOptions } from './newTask.js';
 
 export { getQueueStatus } from './queueStatus.js';
 export type { QueueStatusResult } from './queueStatus.js';
+export {
+  ACTIVATION_PROGRESS_PHASES,
+  clearActivationProgress,
+  listActivationProgressMarkerFileNames,
+  readActivationProgressRecord,
+  readActivationProgressRecords,
+  sweepActivationProgressMarkers,
+  writeActivationProgress,
+} from './activationProgress.js';
+export type {
+  ActivationProgressPhase,
+  ActivationProgressRecord,
+} from './activationProgress.js';
+
+export {
+  clearKillRequest,
+  executeRequestedTaskKill,
+  handleActivationKillCheckpoint,
+  killTask,
+  markKillCleanupAttemptFailed,
+  markKillCleanupAttemptStarted,
+  observeKillRequest,
+  requestTaskKill,
+  sweepStaleKillRequests,
+  writeKillRequest,
+} from './killTask.js';
+export type {
+  TaskKillCleanupFailureCode,
+  TaskKillCleanupStatus,
+  TaskKillRequest,
+  TaskKillRequestAccepted,
+} from './killTask.js';
+
+export {
+  movePendingItemToDropbox,
+  movePendingItemToDropboxAlreadyLocked,
+} from './pendingReturnToOpen.js';
 
 export { completePendingItem } from './completePendingItem.js';
 export type { CompletePendingItemOptions } from './completePendingItem.js';

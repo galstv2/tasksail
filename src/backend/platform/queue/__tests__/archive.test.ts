@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { PythonRunError } from '../../core/types.js';
 
 vi.mock('../policyValidation.js', () => ({
@@ -26,6 +29,7 @@ const mockAssertPolicyPasses = vi.mocked(assertPolicyPasses);
 
 describe('fileTaskArchive', () => {
   const originalTaskId = process.env.TASKSAIL_TASK_ID;
+  const tempRoots: string[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -33,11 +37,49 @@ describe('fileTaskArchive', () => {
   });
 
   afterEach(() => {
+    for (const tempRoot of tempRoots.splice(0)) {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
     if (originalTaskId === undefined) {
       delete process.env.TASKSAIL_TASK_ID;
     } else {
       process.env.TASKSAIL_TASK_ID = originalTaskId;
     }
+  });
+
+  it('normalizes prose retrospective contributions before pre-archive validation', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'archive-retro-normalize-'));
+    tempRoots.push(repoRoot);
+    const taskId = 'task-abc';
+    const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'handoffs');
+    const retrospectivePath = path.join(handoffsDir, 'retrospective-input.md');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(retrospectivePath, [
+      '# Retrospective Input',
+      '',
+      "## Ron's Contribution (QA and Closeout)",
+      'Ron validated the task.',
+      '',
+    ].join('\n'), 'utf-8');
+    mockRunPython.mockResolvedValue({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
+    mockAssertPolicyPasses.mockImplementationOnce(async () => {
+      expect(readFileSync(retrospectivePath, 'utf-8')).toContain(
+        "## Ron's Contribution (QA and Closeout)\n\n- Ron validated the task.",
+      );
+    });
+
+    await fileTaskArchive({
+      contextPackDir: '/packs/pack-a',
+      taskId,
+      repoRoot,
+    });
+
+    expect(mockAssertPolicyPasses).toHaveBeenCalledTimes(1);
+    expect(mockRunPython).toHaveBeenCalledTimes(1);
   });
 
   it('runs pre-archive validation before invoking the Python archive script', async () => {

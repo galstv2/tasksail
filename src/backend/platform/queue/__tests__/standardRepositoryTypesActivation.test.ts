@@ -94,7 +94,7 @@ describe('standard Selection Roles activation', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('writes selection.repositoryTypes and pack snapshot writable roots before pipeline start', async () => {
+  it('materializes selected tools primary and platform support roots from Selection Roles before pipeline start', async () => {
     const platformRepo = path.join(repoRoot, 'platform-repo');
     const toolsRepo = path.join(repoRoot, 'tools-repo');
     initGitRepo(repoRoot);
@@ -120,10 +120,10 @@ describe('standard Selection Roles activation', () => {
       contextPackDir: packDir,
       contextPackId: 'orders',
       scopeMode: 'repo-selection',
-      primaryRepoId: 'platform',
-      selectedRepoIds: ['platform', 'tools'],
+      primaryRepoId: 'tools',
+      selectedRepoIds: ['tools', 'platform'],
       selectedFocusIds: [],
-      repositoryTypes: { platform: 'primary', tools: 'primary' },
+      repositoryTypes: { tools: 'primary', platform: 'support' },
     })));
 
     const { activateNextPendingItemIfReady } = await import('../operations.js');
@@ -131,13 +131,29 @@ describe('standard Selection Roles activation', () => {
       .resolves.toEqual({ activated: true, activatedTaskId: taskId });
 
     const taskJson = JSON.parse(readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json'), 'utf-8'));
-    expect(taskJson.contextPackBinding.selection.repositoryTypes).toEqual({ platform: 'primary', tools: 'primary' });
+    expect(taskJson.contextPackBinding.selection.repositoryTypes).toEqual({ tools: 'primary', platform: 'support' });
+    expect(taskJson.contextPackBinding.repoBindings.map((binding: { originalRoot: string }) => binding.originalRoot)).toEqual([
+      realpathSync(toolsRepo),
+      realpathSync(platformRepo),
+    ]);
+    expect(taskJson.contextPackBinding.repoBindings.map((binding: { worktreeRoot: string }) => path.basename(binding.worktreeRoot))).toEqual([
+      'tools-repo',
+      'platform-repo',
+    ]);
     const snapshot = JSON.parse(readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'pack-snapshot.json'), 'utf-8'));
-    expect(snapshot.support).toEqual([]);
+    expect(snapshot.primary.repoId).toBe('tools');
+    expect(snapshot.support).toEqual([{ repoId: 'platform', repoRoot: realpathSync(platformRepo) }]);
     expect(snapshot.deepFocus.writableRoots).toEqual(expect.arrayContaining([
-      { repoLocalPath: realpathSync(platformRepo), path: '', kind: 'directory', reason: 'selected-primary' },
       { repoLocalPath: realpathSync(toolsRepo), path: '', kind: 'directory', reason: 'selected-primary' },
     ]));
+    expect(snapshot.deepFocus.writableRoots).not.toEqual(expect.arrayContaining([
+      { repoLocalPath: realpathSync(platformRepo), path: '', kind: 'directory', reason: 'selected-primary' },
+    ]));
+    for (const selectedRoot of [snapshot.primary.repoRoot, ...snapshot.support.map((repo: { repoRoot: string }) => repo.repoRoot)]) {
+      expect(taskJson.contextPackBinding.repoBindings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ originalRoot: selectedRoot }),
+      ]));
+    }
   });
 
   it('rejects malformed present Selection Roles before runtime sidecars are written', async () => {

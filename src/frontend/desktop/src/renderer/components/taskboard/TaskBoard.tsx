@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 
-import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn } from '../../../shared/desktopContract';
+import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn, TaskBoardPendingItem } from '../../../shared/desktopContract';
 import type { TaskBoardState } from '../../hooks/useTaskBoard';
-import { formatLocalTimestamp } from '../../utils/localTimestamp';
+import { formatLocalTimeShort, formatRelativeDay } from '../../utils/localTimestamp';
 import TaskBoardColumn from './TaskBoardColumn';
 import TaskBoardCard from './TaskBoardCard';
 import TaskDetailModal from './TaskDetailModal';
@@ -15,7 +15,9 @@ export type TaskBoardProps = {
   onRequeueErrorItem: (fileName: string, insertAtIndex: number) => Promise<void>;
   onDeleteTask?: (fileName: string, column: TaskBoardDeleteColumn) => Promise<boolean>;
   onMoveToPending?: (fileName: string, insertAtIndex: number) => Promise<void>;
-  onMoveToOpen?: (fileName: string) => Promise<void>;
+  onMoveToOpen?: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<void>;
+  onKillTask?: (fileName: string, taskId: string) => Promise<void>;
+  onRetryKillCleanup?: (fileName: string, taskId: string) => Promise<void>;
   readTaskContent?: (fileName: string, column: TaskBoardContentColumn) => Promise<string | null>;
 };
 
@@ -46,10 +48,66 @@ type DeleteTarget = {
   column: TaskBoardDeleteColumn;
 };
 
+type KillTarget = {
+  fileName: string;
+  taskId: string;
+  title: string | null;
+};
+
+const ACTIVATION_PHASE_LABELS = {
+  claimed: 'Activating',
+  validating: 'Checking task',
+  'preparing-worktree': 'Creating worktree',
+  'materializing-worktree': 'Copying workspace files',
+  'initializing-task': 'Preparing task files',
+  'starting-pipeline': 'Starting pipeline',
+} as const;
+
+function isPinnedPendingState(state: TaskBoardPendingItem['state']): boolean {
+  return state === 'active' || state === 'activating' || state === 'stopping';
+}
+
 function archivedAtMs(task: ArchivedTaskEntry): number | null {
   if (!task.archivedAt) return null;
   const ms = new Date(task.archivedAt).getTime();
   return Number.isNaN(ms) ? null : ms;
+}
+
+// Completed meta: "14:37 · Today" / "12:48 · Yesterday" / "14:37 · May 22".
+// Falls back to whichever piece is available if either is unparseable.
+function completedMeta(archivedAt: string | null | undefined): string | null {
+  if (!archivedAt) return null;
+  const time = formatLocalTimeShort(archivedAt);
+  const day = formatRelativeDay(archivedAt);
+  if (time && day) return `${time} · ${day}`;
+  return time ?? day ?? null;
+}
+
+// Active/Activating meta: "Active · Started 14:37" or
+// "Activating · Copying workspace files · 14:37". When activationStartedAt
+// is missing we still surface the state word so the meta line is never empty.
+function pendingMeta(item: TaskBoardPendingItem): string | null {
+  if (item.state === 'pending') return null;
+  const startedAt = item.activationStartedAt
+    ? formatLocalTimeShort(item.activationStartedAt)
+    : null;
+  if (item.state === 'active') {
+    return startedAt ? `Active · Started ${startedAt}` : 'Active';
+  }
+  if (item.state === 'stopping') {
+    if (item.stopCleanupStatus === 'failed') {
+      return 'Stopping · Cleanup needs attention';
+    }
+    const requestedAt = item.stopRequestedAt
+      ? formatLocalTimeShort(item.stopRequestedAt)
+      : null;
+    return requestedAt ? `Stopping · Requested ${requestedAt}` : 'Stopping';
+  }
+  const phaseLabel = item.activationPhase
+    ? ACTIVATION_PHASE_LABELS[item.activationPhase]
+    : 'Activating';
+  if (startedAt) return `Activating · ${phaseLabel} · ${startedAt}`;
+  return `Activating · ${phaseLabel}`;
 }
 
 function TaskBoard({
@@ -59,6 +117,8 @@ function TaskBoard({
   onDeleteTask,
   onMoveToPending,
   onMoveToOpen,
+  onKillTask,
+  onRetryKillCleanup,
   readTaskContent,
 }: TaskBoardProps): JSX.Element {
   const [dropActive, setDropActive] = useState(false);
@@ -67,6 +127,7 @@ function TaskBoard({
   const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
   const [modalContent, setModalContent] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [killTarget, setKillTarget] = useState<KillTarget | null>(null);
   const sortedCompletedItems = useMemo(
     () => board.completedItems
       .map((item, index) => ({ item, index, ms: archivedAtMs(item) }))
@@ -124,8 +185,8 @@ function TaskBoard({
       const sourceColumn = e.dataTransfer.getData(DND_MIME_SOURCE_COLUMN);
       if (!fileName) return;
 
-      if (sourceColumn === 'error') {
-        void onMoveToOpen?.(fileName);
+      if (sourceColumn === 'error' || sourceColumn === 'pending') {
+        void onMoveToOpen?.(fileName, sourceColumn);
       }
     },
     [onMoveToOpen],
@@ -154,16 +215,16 @@ function TaskBoard({
       if (!pendingColumnEl) return;
       const dropIndex = computeDropIndex(e, pendingColumnEl);
 
-      const activeItem = board.pendingItems.find((item) => item.state === 'active');
+      const pinnedCount = board.pendingItems.filter((item) => isPinnedPendingState(item.state)).length;
 
       if (sourceColumn === 'open') {
-        const safeIndex = activeItem ? Math.max(dropIndex, 1) : dropIndex;
+        const safeIndex = Math.max(dropIndex, pinnedCount);
         void onMoveToPending?.(fileName, safeIndex);
         return;
       }
 
       if (sourceColumn === 'error') {
-        const safeIndex = activeItem ? Math.max(dropIndex, 1) : dropIndex;
+        const safeIndex = Math.max(dropIndex, pinnedCount);
         void onRequeueErrorItem(fileName, safeIndex);
         return;
       }
@@ -174,12 +235,15 @@ function TaskBoard({
         const clampedIndex = Math.min(dropIndex, filtered.length);
         filtered.splice(clampedIndex, 0, fileName);
 
-        // Pin active item to position 0
-        if (activeItem) {
-          const activeIdx = filtered.indexOf(activeItem.fileName);
-          if (activeIdx > 0) {
-            filtered.splice(activeIdx, 1);
-            filtered.unshift(activeItem.fileName);
+        // Pin active and activating items above normal pending rows.
+        const pinnedNames = board.pendingItems
+          .filter((item) => isPinnedPendingState(item.state))
+          .map((item) => item.fileName);
+        for (const pinnedName of [...pinnedNames].reverse()) {
+          const pinnedIdx = filtered.indexOf(pinnedName);
+          if (pinnedIdx > 0) {
+            filtered.splice(pinnedIdx, 1);
+            filtered.unshift(pinnedName);
           }
         }
         void onReorderPending(filtered);
@@ -190,9 +254,11 @@ function TaskBoard({
 
   const sortedPendingItems = useMemo(
     () =>
-      [...board.pendingItems].sort((a, b) =>
-        a.state === 'active' ? -1 : b.state === 'active' ? 1 : 0,
-      ),
+      [...board.pendingItems].sort((a, b) => {
+        const pa = isPinnedPendingState(a.state);
+        const pb = isPinnedPendingState(b.state);
+        return pa === pb ? 0 : pa ? -1 : 1;
+      }),
     [board.pendingItems],
   );
 
@@ -263,10 +329,20 @@ function TaskBoard({
                 title={item.title}
                 taskId={item.taskId}
                 isActive={item.state === 'active'}
-                draggable={item.state !== 'active'}
+                isActivating={item.state === 'activating'}
+                isStopping={item.state === 'stopping'}
+                isCleanupAttention={item.state === 'stopping' && item.stopCleanupStatus === 'failed'}
+                meta={pendingMeta(item)}
+                draggable={item.state === 'pending'}
                 sourceColumn="pending"
                 onClick={() => handleCardClick(item.fileName, item.title, 'pending')}
-                onDelete={onDeleteTask && item.state !== 'active' ? () => setDeleteTarget({ fileName: item.fileName, title: item.title, column: 'pending' }) : undefined}
+                onDelete={onDeleteTask && item.state === 'pending' ? () => setDeleteTarget({ fileName: item.fileName, title: item.title, column: 'pending' }) : undefined}
+                onStop={onKillTask && item.taskId && (item.state === 'active' || item.state === 'activating')
+                  ? () => setKillTarget({ fileName: item.fileName, taskId: item.taskId!, title: item.title })
+                  : undefined}
+                onRetryCleanup={onRetryKillCleanup && item.taskId && item.state === 'stopping' && item.stopCleanupStatus === 'failed' && item.stopCleanupRetryable
+                  ? () => { void onRetryKillCleanup(item.fileName, item.taskId!); }
+                  : undefined}
               />
             ))
           )}
@@ -301,7 +377,7 @@ function TaskBoard({
                 fileName={`${item.taskId}.md`}
                 title={item.title}
                 taskId={item.taskId}
-                meta={item.archivedAt ? formatLocalTimestamp(item.archivedAt) : null}
+                meta={completedMeta(item.archivedAt)}
                 onClick={() => handleCardClick(`${item.taskId}.md`, item.title, 'completed')}
               />
             ))
@@ -344,6 +420,36 @@ function TaskBoard({
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {killTarget && (
+        <div className="task-board-confirm__overlay" onClick={() => setKillTarget(null)}>
+          <div className="task-board-confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="task-board-confirm__title">Stop this task?</p>
+            <p className="task-board-confirm__hint">
+              This will stop the task, run failure cleanup, and move it to Failed.
+            </p>
+            <div className="task-board-confirm__actions">
+              <button
+                className="task-board-confirm__btn"
+                onClick={() => setKillTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="task-board-confirm__btn task-board-confirm__btn--danger"
+                onClick={() => {
+                  if (!killTarget || !onKillTask) return;
+                  const target = killTarget;
+                  setKillTarget(null);
+                  void onKillTask(target.fileName, target.taskId).catch(() => {});
+                }}
+              >
+                Stop task
               </button>
             </div>
           </div>

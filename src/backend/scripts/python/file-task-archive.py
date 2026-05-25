@@ -42,6 +42,7 @@ from lib.archive.storage import (
     agent_mirror_task_archive_json_path,
     agent_mirror_task_archive_markdown_path,
     agent_mirror_task_archive_planner_focus_snapshot_path,
+    agent_mirror_task_archive_terminal_events_path,
     correction_memo_storage_path,
     previous_correction_memo_path,
     resolve_scope_path,
@@ -49,6 +50,7 @@ from lib.archive.storage import (
     sidecar_record_path,
     task_archive_markdown_path,
     task_archive_planner_focus_snapshot_path,
+    task_archive_terminal_events_path,
 )
 from lib.archive.task_summary import build_task_archive_markdown
 from lib.counters.task_completion_counter import TaskCompletionCounter
@@ -237,6 +239,26 @@ def _promote_handoff_artifacts(staging_dir: Path, archive_task_dir: Path) -> Non
         raise ValueError(f"Archive artifact promotion failed for {archive_task_dir}: {exc}") from exc
 
 
+def _copy_terminal_events_snapshot_to_archive(
+    repo_root: Path,
+    staging_dir: Path,
+    task_id: str,
+) -> str | None:
+    source = repo_root / ".platform-state" / "runtime" / "tasks" / task_id / "terminal-events.json"
+    if not source.exists():
+        return None
+    try:
+        with source.open("r", encoding="utf-8") as handle:
+            parsed = json.load(handle)
+    except Exception as exc:
+        raise ValueError(f"Runtime terminal event snapshot is invalid for task {task_id}: {exc}") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("events"), list):
+        raise ValueError(f"Runtime terminal event snapshot is invalid for task {task_id}: expected object with events list")
+    destination = staging_dir / "terminal-events.json"
+    shutil.copy2(source, destination)
+    return "terminal-events.json"
+
+
 def main(argv: list[str] | None = None) -> int:
     configure_logging(stack="py", service="file-task-archive")
     try:
@@ -411,6 +433,18 @@ def main(argv: list[str] | None = None) -> int:
 
             _step("task_summary_md", _write_task_summary_md)
 
+            terminal_events_snapshot_path: str | None = None
+
+            def _write_terminal_events_snapshot() -> None:
+                nonlocal terminal_events_snapshot_path
+                terminal_events_snapshot_path = _copy_terminal_events_snapshot_to_archive(
+                    repo_root,
+                    staging_dir,
+                    payload["task_id"],
+                )
+
+            _step("terminal_events_snapshot", _write_terminal_events_snapshot)
+
             # Agent-facing mirror: agents run with CWD confined to AgentWorkSpace/,
             # so they cannot read the canonical archive under contextpacks/. We copy
             # archive.json, archive.md, the staged handoffs/ and ImplementationSteps/
@@ -449,6 +483,19 @@ def main(argv: list[str] | None = None) -> int:
                         str(staged_md),
                         str(
                             agent_mirror_task_archive_markdown_path(
+                                repo_root,
+                                context_pack_dir.name,
+                                year,
+                                payload["task_id"],
+                            )
+                        ),
+                    )
+                staged_terminal_events = staging_dir / "terminal-events.json"
+                if staged_terminal_events.exists():
+                    shutil.copy2(
+                        str(staged_terminal_events),
+                        str(
+                            agent_mirror_task_archive_terminal_events_path(
                                 repo_root,
                                 context_pack_dir.name,
                                 year,
@@ -579,6 +626,17 @@ def main(argv: list[str] | None = None) -> int:
         staged_md = staging_dir / "archive.md"
         if staged_md.exists():
             shutil.copy2(str(staged_md), str(record_md_path))
+        staged_terminal_events = staging_dir / "terminal-events.json"
+        if staged_terminal_events.exists():
+            shutil.copy2(
+                str(staged_terminal_events),
+                str(task_archive_terminal_events_path(
+                    context_pack_dir,
+                    qmd_scope,
+                    payload["indexed_at"][:4],
+                    payload["task_id"],
+                )),
+            )
         _promote_handoff_artifacts(staging_dir, record_path.parent)
         shutil.rmtree(staging_dir, ignore_errors=True)
 

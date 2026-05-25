@@ -1,9 +1,13 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import {
   createLogger,
+  emitTaskProgressEvent,
+  ensureDir,
   newSpanId,
+  normalizeAgentLaunchPhase,
   resolvePaths,
   writeProtocolStdout,
 } from '../core/index.js';
@@ -11,14 +15,20 @@ import type { RunRoleAgentOptions, AgentRunResult } from './types.js';
 import { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } from './metadata.js';
 import { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } from './autonomy.js';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from './environment.js';
-import { runRuntimePolicyCheck, guardrailReceiptPath, writeGuardrailReceipt } from './guardrails.js';
+import { runRuntimePolicyCheck, writeUniqueGuardrailReceipt } from './guardrails.js';
 import {
   explainSelectedPrimaryBoundaryFailure,
   resolveFocusedRepoRoot,
   resolveSelectedPrimaryRepoRoot,
 } from '../context-pack/focusedRepo.js';
 import { readTextFile } from '../core/io.js';
-import { buildAgentArtifactRemediationPrompt, checkAgentArtifactCompletion } from './artifactCompletion.js';
+import {
+  boundedArtifactCompletionReasons,
+  buildAgentArtifactRemediationPrompt,
+  checkAgentArtifactCompletionDetails,
+  formatIncompleteArtifactReasons,
+  type AgentArtifactCompletionDetails,
+} from './artifactCompletion.js';
 import { computeRuntimeFactsSourceSignature } from './runtimeFacts.js';
 import {
   runAgentSession,
@@ -56,8 +66,21 @@ import {
 } from './recoveryPasses.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { ProviderPromptKind, ResolvedMcpServer } from '../cli-provider/index.js';
+import type { AgentId } from '../core/index.js';
+import type { AgentLifecycleProgressInput } from '../core/taskProgressEvents.js';
 import { resolveContextPackContainerPath, runtimeRequiresContainerPaths } from '../container/sharedMcp.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import { loadTaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
+import { assertTaskWorktreeBindingsCoverSnapshot } from '../context-pack/taskWorktreeSelection.js';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
+import {
+  assertNoOriginalTargetRootsInAgentLaunch,
+  assertNoOriginalTargetRootsInTaskArtifacts,
+} from './agentRootContainment.js';
+import {
+  buildAgentRuntimePathManifest,
+  prependRuntimePathManifestToPrompt,
+} from './agentRuntimePathManifest.js';
 
 function launchPromptKind(agentId: RunRoleAgentOptions['agentId']): ProviderPromptKind {
   return agentId === 'lily'
@@ -73,6 +96,40 @@ function formatDryRunOutput(
   command: string,
 ): string {
   return `${command}\n`;
+}
+
+async function ensureCleanupArtifactDirs(paths: { handoffs: string; implementationSteps: string }): Promise<void> {
+  await Promise.all([
+    ensureDir(paths.handoffs),
+    ensureDir(paths.implementationSteps),
+  ]);
+}
+
+async function prepopulateRequirementVerificationForRonLaunch(
+  options: RunRoleAgentOptions,
+  paths: { handoffs: string; repoRoot: string },
+  behavior: { skipWhenPromptOverride: boolean } = { skipWhenPromptOverride: true },
+): Promise<void> {
+  if (
+    options.agentId !== 'ron'
+    || (behavior.skipWhenPromptOverride && options.promptOverride)
+    || options.launchPhase === 'Retrospective'
+  ) {
+    return;
+  }
+  await prepopulateRequirementVerification({
+    handoffsDir: paths.handoffs,
+    repoRoot: paths.repoRoot,
+  });
+}
+
+function forbiddenArtifactCleanupPathTokens(repoRoot: string): string[] {
+  const envVars = getActiveProvider(repoRoot).promptPathEnvVars();
+  return [
+    `$${envVars.handoffsDir}`,
+    `$${envVars.implStepsDir}`,
+    'AgentWorkSpace/tasks/active',
+  ];
 }
 
 async function resolveLaunchPrompt(
@@ -127,6 +184,9 @@ const NEXT_AGENT_BY_CURRENT: Partial<Record<RunRoleAgentOptions['agentId'], RunR
   alice: 'dalton',
   dalton: 'ron',
 };
+
+const AGENT_LIFECYCLE_EVENT_TYPES = [{ type: 'agent.artifact_check.started' }, { type: 'agent.artifact_check.completed' }, { type: 'agent.artifact_check.failed' }, { type: 'agent.cleanup.started' }, { type: 'agent.cleanup.completed' }, { type: 'agent.cleanup.failed' }, { type: 'agent.policy_check.started' }, { type: 'agent.policy_check.completed' }, { type: 'agent.policy_check.failed' }, { type: 'agent.policy_remediation.started' }, { type: 'agent.policy_remediation.completed' }, { type: 'agent.policy_remediation.failed' }] as const;
+type AgentLifecycleEventType = typeof AGENT_LIFECYCLE_EVENT_TYPES[number]['type'];
 
 let roleLaunchCounter = 0;
 
@@ -212,19 +272,19 @@ export async function runRoleAgent(
     );
     if (policyResult.exitCode !== 0) {
       const failureDetails = extractPolicyFailureDetails(policyResult);
-      const receiptPath = guardrailReceiptPath(
-        paths.repoRoot,
-        options.agentId,
-        options.taskId,
-      );
-      await writeGuardrailReceipt(receiptPath, {
-        schema_version: 1,
-        status: 'failed',
-        agent_id: options.agentId,
-        model: activeModel,
-        violations: failureDetails,
-        policy_stdout: policyResult.stdout,
-        policy_stderr: policyResult.stderr,
+      await writeUniqueGuardrailReceipt({
+        repoRoot: paths.repoRoot,
+        agentId: options.agentId,
+        taskId: options.taskId,
+        data: {
+          schema_version: 1,
+          status: 'failed',
+          agent_id: options.agentId,
+          model: activeModel,
+          violations: failureDetails,
+          policy_stdout: policyResult.stdout,
+          policy_stderr: policyResult.stderr,
+        },
       });
       throw new Error(
         `Workflow policy check failed for agent "${options.agentId}": ${failureDetails}`,
@@ -410,12 +470,16 @@ export async function runRoleAgent(
       ? `${prompt.trim()}\n\n${reinforcementOverlay}`
       : prompt
   );
+  let agentRuntimePathManifest: ReturnType<typeof buildAgentRuntimePathManifest>;
   const materializePrompt = (
     prompt: string,
     promptPath: string | null,
     promptSource: 'file' | 'override',
   ) => provider.materializePrompt({
-    prompt: appendReinforcementOverlay(prompt),
+    prompt: prependRuntimePathManifestToPrompt({
+      prompt: appendReinforcementOverlay(prompt),
+      manifest: agentRuntimePathManifest,
+    }),
     promptPath,
     promptSource,
     profile,
@@ -423,6 +487,7 @@ export async function runRoleAgent(
     includeGlobalInstructions,
   });
   const runPromptOverrideSession = async (overridePrompt: string, overrideLaunchPhase?: string) => {
+    const overrideLaunchId = createRoleLaunchId();
     const overridePromptResult = materializePrompt(overridePrompt, null, 'override');
     const overrideArgs = [...argsResult.args, '-p', overridePromptResult.effectivePrompt];
     const overridePromptAudit = buildPromptAudit({
@@ -432,6 +497,15 @@ export async function runRoleAgent(
       effectivePrompt: overridePromptResult.effectivePrompt,
     });
     lastPromptAudit = overridePromptAudit;
+    lastReceiptLaunchId = overrideLaunchId;
+    if (overrideLaunchPhase != null) {
+      lastReceiptLaunchPhase = overrideLaunchPhase;
+    }
+    if (overrideLaunchPhase === 'Artifact Cleanup') {
+      await emitAgentLifecycleEvent('agent.cleanup.started');
+    } else if (overrideLaunchPhase === 'Policy Remediation') {
+      await emitAgentLifecycleEvent('agent.policy_remediation.started');
+    }
     const overrideSession = await runAgentSession({
       repoRoot: paths.repoRoot,
       cliArgs: overrideArgs,
@@ -442,6 +516,7 @@ export async function runRoleAgent(
       abortSignal: options.abortSignal,
       session: {
         ...sessionInfo,
+        launchId: overrideLaunchId,
         ...(overrideLaunchPhase != null ? { launchPhase: overrideLaunchPhase } : {}),
         promptAudit: overridePromptAudit,
       },
@@ -451,16 +526,6 @@ export async function runRoleAgent(
       session: overrideSession,
     };
   };
-  const promptResult = materializePrompt(launchPrompt.prompt, launchPrompt.promptPath, launchPrompt.promptSource);
-  const effectivePrompt = promptResult.effectivePrompt;
-  const promptAudit = buildPromptAudit({
-    promptPath: launchPrompt.promptPath,
-    promptSource: launchPrompt.promptSource,
-    inlineAgentContext: promptResult.inlineAgentContext,
-    effectivePrompt,
-  });
-  cliArgs.push('-p', effectivePrompt);
-
   const wallClockTimeoutS = options.wallClockBudget ?? profile.wallClockTimeoutS;
   const idleTimeoutS = options.idleTimeout ?? profile.idleTimeoutS;
 
@@ -491,6 +556,13 @@ export async function runRoleAgent(
     };
   }
 
+  const launchTaskSidecar = options.taskId
+    ? readTaskJsonSafe(options.taskId, paths.repoRoot)
+    : null;
+  const launchSnapshot = options.contextPackDir && options.taskId && launchTaskSidecar
+    ? await loadTaskPackSnapshot(paths.repoRoot, options.taskId)
+    : undefined;
+
   const agentEnv = buildAgentEnvironment(
     profile,
     containerContextPackDir ?? options.contextPackDir,
@@ -500,13 +572,22 @@ export async function runRoleAgent(
       wallClockTimeoutS,
       focused,
       ...(sharedMcp ? { mcp: sharedMcp } : {}),
+      ...(launchSnapshot ? { snapshot: launchSnapshot } : {}),
     },
     options.taskId,
   );
 
   // 5b. Dry-run: print command and return before launch-time side effects.
   if (options.dryRun) {
-    const cmd = formatAgentCommand(paths.repoRoot, cliArgs);
+    const dryRunPromptResult = provider.materializePrompt({
+      prompt: appendReinforcementOverlay(launchPrompt.prompt),
+      promptPath: launchPrompt.promptPath,
+      promptSource: launchPrompt.promptSource,
+      profile,
+      launchContext,
+      includeGlobalInstructions,
+    });
+    const cmd = formatAgentCommand(paths.repoRoot, [...cliArgs, '-p', dryRunPromptResult.effectivePrompt]);
     writeProtocolStdout(formatDryRunOutput(cmd));
     return {
       exitCode: 0,
@@ -522,15 +603,54 @@ export async function runRoleAgent(
     };
   }
 
-  const externalMcpLaunchContext = await mergeExternalMcpLaunchEnvironment({
+  const emitRoleProgressEvent = async (event: Parameters<typeof emitTaskProgressEvent>[0]['event']): Promise<void> => {
+    if (!options.taskId) return;
+    await emitTaskProgressEvent({
+      logger: launchLog,
+      repoRoot: paths.repoRoot,
+      taskId: options.taskId,
+      event,
+    }).catch(() => {});
+  };
+  const currentAgentLifecycleInput = (): AgentLifecycleProgressInput => ({
     agentId: options.agentId,
-    repoRoot: paths.repoRoot,
-    taskId: options.taskId ?? '',
-    agentEnv,
-    internalMcpServer,
-    spanId,
-    abortSignal: options.abortSignal,
+    launchId: lastReceiptLaunchId,
+    displayPhase: normalizeAgentLaunchPhase({ agentId: options.agentId, launchPhase: lastReceiptLaunchPhase }),
   });
+  const emitAgentLifecycleEvent = async (type: AgentLifecycleEventType): Promise<void> => {
+    await emitRoleProgressEvent({ type, input: currentAgentLifecycleInput() });
+  };
+  const emitMcpProgressEvent = async (eventType: 'mcp.checked' | 'mcp.degraded' | 'mcp.failed', status: string, selectedCount = 0, excludedCount = 0): Promise<void> => {
+    const normalizedStatus = status === 'available' || status === 'degraded' || status === 'failed' || status === 'not-applicable' || status === 'unavailable' || status === 'not-run'
+      ? status
+      : 'failed';
+    const input = {
+      agentId: options.agentId,
+      status: normalizedStatus,
+      injectionEnabled: eventType !== 'mcp.failed',
+      selectedServerCount: selectedCount,
+      excludedServerCount: excludedCount,
+    } as const;
+    if (eventType === 'mcp.checked') await emitRoleProgressEvent({ type: 'mcp.checked', input });
+    else if (eventType === 'mcp.degraded') await emitRoleProgressEvent({ type: 'mcp.degraded', input });
+    else await emitRoleProgressEvent({ type: 'mcp.failed', input });
+  };
+
+  let externalMcpLaunchContext: PreparedAgentMcpLaunchContext | undefined;
+  try {
+    externalMcpLaunchContext = await mergeExternalMcpLaunchEnvironment({
+      agentId: options.agentId,
+      repoRoot: paths.repoRoot,
+      taskId: options.taskId ?? '',
+      agentEnv,
+      internalMcpServer,
+      spanId,
+      abortSignal: options.abortSignal,
+    });
+  } catch (err) {
+    await emitMcpProgressEvent('mcp.failed', 'failed');
+    throw err;
+  }
   if (externalMcpLaunchContext?.injectionEnabled) {
     const configFilePath = (externalMcpLaunchContext as PreparedAgentMcpLaunchContext).configFilePath;
     if (configFilePath) {
@@ -540,6 +660,15 @@ export async function runRoleAgent(
     }
   }
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
+  const mcpEventType = mcpLaunch.status === 'degraded' || mcpLaunch.status === 'unavailable'
+    ? 'mcp.degraded'
+    : 'mcp.checked';
+  await emitMcpProgressEvent(
+    mcpEventType,
+    mcpLaunch.status,
+    mcpLaunch.selectedServerIds.length,
+    mcpLaunch.excludedServerIds.length,
+  );
   logExternalMcpLaunchStatus(options.agentId, mcpLaunch, {
     taskId: options.taskId,
     providerId: provider.id,
@@ -558,6 +687,38 @@ export async function runRoleAgent(
       externalMcpLaunchContext,
     ),
   );
+  if (options.contextPackDir && options.taskId && launchTaskSidecar && launchSnapshot) {
+    assertTaskWorktreeBindingsCoverSnapshot({
+      taskId: options.taskId,
+      snapshot: launchSnapshot,
+      repoBindings: launchTaskSidecar.contextPackBinding.repoBindings,
+      phase: options.agentId === 'ron' ? 'qa-diff' : 'agent-launch',
+    });
+    assertNoOriginalTargetRootsInAgentLaunch({
+      taskId: options.taskId,
+      agentId: options.agentId,
+      surface: {
+        focused,
+        allowedDirs: autonomyArgs.allowedDirs,
+        agentCwd,
+        env: agentEnv,
+        mcpLaunchContext: externalMcpLaunchContext,
+      },
+      repoBindings: launchTaskSidecar.contextPackBinding.repoBindings,
+      platformRepoRoot: paths.repoRoot,
+      contextPackDir: options.contextPackDir,
+    });
+    if (enforcesSelectedPrimaryBoundary) {
+      assertNoOriginalTargetRootsInTaskArtifacts({
+        taskId: options.taskId,
+        agentId: options.agentId,
+        repoBindings: launchTaskSidecar.contextPackBinding.repoBindings,
+        platformRepoRoot: paths.repoRoot,
+        contextPackDir: options.contextPackDir,
+        artifacts: await readAgentExecutableArtifactsForContainment(paths.handoffs, paths.implementationSteps),
+      });
+    }
+  }
 
   // Preflight: verify that critical env-var paths are reachable before
   // launching the agent. A missing handoffs dir means the agent will
@@ -586,37 +747,61 @@ export async function runRoleAgent(
     abortSignal: options.abortSignal,
   });
 
-  if (options.agentId === 'ron' && !options.promptOverride && options.launchPhase !== 'Retrospective') {
-    await prepopulateRequirementVerification({
-      handoffsDir: paths.handoffs,
-      repoRoot: paths.repoRoot,
-    });
-  }
+  await prepopulateRequirementVerificationForRonLaunch(options, paths);
+
+  agentRuntimePathManifest = buildAgentRuntimePathManifest({
+    agentId: options.agentId,
+    launchPhase: options.launchPhase,
+    agentCwd,
+    env: agentEnv,
+    providerEnvVars: provider.runtimeManifestEnvVars(),
+  });
+  const promptResult = materializePrompt(launchPrompt.prompt, launchPrompt.promptPath, launchPrompt.promptSource);
+  const effectivePrompt = promptResult.effectivePrompt;
+  const promptAudit = buildPromptAudit({
+    promptPath: launchPrompt.promptPath,
+    promptSource: launchPrompt.promptSource,
+    inlineAgentContext: promptResult.inlineAgentContext,
+    effectivePrompt,
+  });
+  cliArgs.push('-p', effectivePrompt);
 
   let artifactCompletionSignature = '';
-  let artifactCompletionResult: boolean | undefined;
-  let artifactCompletionInFlight: Promise<boolean> | null = null;
+  let artifactCompletionResult: AgentArtifactCompletionDetails | undefined;
+  let artifactCompletionInFlight: Promise<AgentArtifactCompletionDetails> | null = null;
   const COMPLETE_SIGNATURE = '__complete__';
   const resetArtifactCompletionCache = (): void => {
     artifactCompletionSignature = '';
     artifactCompletionResult = undefined;
     artifactCompletionInFlight = null;
   };
-  const artifactCompletionCheck = async (): Promise<boolean> => {
+  const artifactCompletionDetailsCheck = async (): Promise<AgentArtifactCompletionDetails> => {
+    const emitArtifactCheckResult = async (complete: boolean): Promise<void> => {
+      if (complete) {
+        await emitAgentLifecycleEvent('agent.artifact_check.completed');
+      }
+    };
+    if (profile.registryId === 'qa') {
+      await prepopulateRequirementVerificationForRonLaunch(options, paths, { skipWhenPromptOverride: false });
+    }
     if (artifactCompletionInFlight) {
       return artifactCompletionInFlight;
     }
     if (artifactCompletionResult === undefined) {
-      artifactCompletionInFlight = checkAgentArtifactCompletion({
+      await emitAgentLifecycleEvent('agent.artifact_check.started');
+      artifactCompletionInFlight = checkAgentArtifactCompletionDetails({
         agentId: profile.registryId,
         handoffsDir: paths.handoffs,
         implStepsDir: paths.implementationSteps,
         repoRoot: paths.repoRoot,
         taskId: options.taskId,
         abortSignal: options.abortSignal,
-      }).then((result) => {
+      }).then(async (result) => {
         artifactCompletionResult = result;
-        artifactCompletionSignature = result ? COMPLETE_SIGNATURE : '';
+        artifactCompletionSignature = result.complete ? COMPLETE_SIGNATURE : '';
+        if (result.complete) {
+          await emitArtifactCheckResult(true);
+        }
         return result;
       }).finally(() => {
         artifactCompletionInFlight = null;
@@ -637,27 +822,36 @@ export async function runRoleAgent(
       return artifactCompletionResult;
     }
     artifactCompletionSignature = signature;
-    artifactCompletionInFlight = checkAgentArtifactCompletion({
+    await emitAgentLifecycleEvent('agent.artifact_check.started');
+    artifactCompletionInFlight = checkAgentArtifactCompletionDetails({
       agentId: profile.registryId,
       handoffsDir: paths.handoffs,
       implStepsDir: paths.implementationSteps,
       repoRoot: paths.repoRoot,
       taskId: options.taskId,
       abortSignal: options.abortSignal,
-    }).then((result) => {
+    }).then(async (result) => {
       artifactCompletionResult = result;
+      if (result.complete) {
+        await emitArtifactCheckResult(true);
+      }
       return result;
     }).finally(() => {
       artifactCompletionInFlight = null;
     });
     return artifactCompletionInFlight;
   };
+  const artifactCompletionCheck = async (): Promise<boolean> => (
+    (await artifactCompletionDetailsCheck()).complete
+  );
+  const artifactCompletionReceiptReasons = async (): Promise<string[]> => (
+    boundedArtifactCompletionReasons((await artifactCompletionDetailsCheck()).reasons)
+  );
+  const artifactCompletionErrorSuffix = async (): Promise<string> => (
+    formatIncompleteArtifactReasons((await artifactCompletionDetailsCheck()).reasons)
+  );
 
-  // Compute launchId at invocation time: epochMs-pid-counter is collision-resistant
-  // within any single host process lifetime. Fleet-mode (§4.12) launches multiple
-  // concurrent sub-Daltons with the same agentId — each must get its own launchId
-  // so their receipts do not overwrite each other and §5.2 recoverOnStartup can
-  // enumerate all pids per task and detect which are still alive.
+  // Fleet sub-Daltons share agentId; each launch needs a unique receipt identity.
   const launchId = createRoleLaunchId();
   const sessionInfo = {
     taskRuntime: paths.taskRuntime,
@@ -667,6 +861,8 @@ export async function runRoleAgent(
     displayName: profile.displayName,
     launchPhase: options.launchPhase,
   };
+  let lastReceiptLaunchId = launchId;
+  let lastReceiptLaunchPhase = options.launchPhase;
 
   const daltonAgentSpawnedAtMs = enforcesSelectedPrimaryBoundary && focused && preRunBoundarySnapshot
     ? Date.now()
@@ -706,24 +902,61 @@ export async function runRoleAgent(
   }
 
   const durationMs = Date.now() - startTime;
-  const receiptPath = guardrailReceiptPath(
-    paths.repoRoot,
-    options.agentId,
-    options.taskId,
-  );
   let lastPromptAudit = promptAudit;
   const writeLaunchGuardrailReceipt = async (data: Record<string, unknown>): Promise<void> => {
-    await writeGuardrailReceipt(receiptPath, {
-      ...data,
-      prompt_audit: {
-        prompt_path: lastPromptAudit.promptPath,
-        prompt_source: lastPromptAudit.promptSource,
-        inline_agent_context: lastPromptAudit.inlineAgentContext,
-        effective_prompt_sha256: lastPromptAudit.effectivePromptSha256,
+    await writeUniqueGuardrailReceipt({
+      repoRoot: paths.repoRoot,
+      agentId: options.agentId,
+      taskId: options.taskId,
+      launchId: lastReceiptLaunchId,
+      launchPhase: lastReceiptLaunchPhase,
+      data: {
+        ...data,
+        prompt_audit: {
+          prompt_path: lastPromptAudit.promptPath,
+          prompt_source: lastPromptAudit.promptSource,
+          inline_agent_context: lastPromptAudit.inlineAgentContext,
+          effective_prompt_sha256: lastPromptAudit.effectivePromptSha256,
+        },
       },
     });
+    const status = typeof data.status === 'string' ? data.status : '';
+    const terminationReason = typeof data.termination_reason === 'string' ? data.termination_reason : undefined;
+    const displayPhase = normalizeAgentLaunchPhase({ agentId: options.agentId, launchPhase: lastReceiptLaunchPhase });
+    const boundedTerminationReason: 'artifact-incomplete' | 'next-role-blocked' | 'workflow-policy-blocked' | 'policy-blocked' | 'denied' | 'failed' | undefined = terminationReason === 'artifact-incomplete' || terminationReason === 'next-role-blocked' || terminationReason === 'workflow-policy-blocked' || terminationReason === 'policy-blocked' || terminationReason === 'denied' || terminationReason === 'failed'
+      ? terminationReason
+      : undefined;
+    const input = {
+      agentId: options.agentId,
+      launchId: lastReceiptLaunchId,
+      displayPhase,
+      ...(boundedTerminationReason ? { terminationReason: boundedTerminationReason } : {}),
+    };
+    if (status === 'passed' || status === 'allowed') {
+      await emitRoleProgressEvent({ type: 'guardrail.receipt.allowed', input });
+    } else if (terminationReason === 'artifact-incomplete') {
+      await emitRoleProgressEvent({ type: 'guardrail.receipt.artifact_incomplete', input });
+    } else if (terminationReason === 'next-role-blocked' || terminationReason === 'workflow-policy-blocked' || terminationReason === 'policy-blocked') {
+      await emitRoleProgressEvent({ type: 'guardrail.receipt.policy_blocked', input });
+    } else if (status === 'failed' || status === 'denied') {
+      await emitRoleProgressEvent({ type: 'guardrail.receipt.denied', input });
+    } else {
+      await emitRoleProgressEvent({ type: 'guardrail.receipt.malformed', input });
+    }
   };
-
+  const runRuntimePolicyCheckWithEvents = async (nextAgentId: string) => {
+    await emitAgentLifecycleEvent('agent.policy_check.started');
+    const result = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId as AgentId, 'runtime', options.taskId);
+    await emitAgentLifecycleEvent(result.exitCode === 0 ? 'agent.policy_check.completed' : 'agent.policy_check.failed');
+    return result;
+  };
+  const acceptNonZeroCompletedCleanup = async (receiptFile: string | null, complete: boolean): Promise<void> => {
+    if (runSummary.exitCode === 0 || !complete) return;
+    launchLog.warn('agent.cleanup.nonzero_exit_artifacts_complete', { launchId: lastReceiptLaunchId, exitCode: runSummary.exitCode, terminationReason: runSummary.terminationReason });
+    runSummary = { ...runSummary, exitCode: 0, terminationReason: 'exited' };
+    exitCode = 0;
+    await correctSessionReceipt(receiptFile, options.agentId);
+  };
   if (exitCode !== 0 && isRecoverableDeniedActionExit(runSummary)) {
     const artifactsCompleteAfterDeniedExit = isDaltonFamilyAgent(options.agentId) || await artifactCompletionCheck();
     if (artifactsCompleteAfterDeniedExit) {
@@ -751,7 +984,10 @@ export async function runRoleAgent(
         inlineAgentContext: continuationPromptResult.inlineAgentContext,
         effectivePrompt: continuationPromptResult.effectivePrompt,
       });
+      const continuationLaunchId = createRoleLaunchId();
       lastPromptAudit = continuationPromptAudit;
+      lastReceiptLaunchId = continuationLaunchId;
+      lastReceiptLaunchPhase = options.launchPhase;
       const continuationSession = await runAgentSession({
         repoRoot: paths.repoRoot,
         cliArgs: continuationArgs,
@@ -762,6 +998,7 @@ export async function runRoleAgent(
         abortSignal: options.abortSignal,
         session: {
           ...sessionInfo,
+          launchId: continuationLaunchId,
           promptAudit: continuationPromptAudit,
         },
         greedyStopOnArtifactCompletion: options.agentId === 'alice' || options.agentId === 'ron'
@@ -852,6 +1089,9 @@ export async function runRoleAgent(
         });
       },
       runAgentSessionForConfinementRetry: async (args, promptAudit, metadata) => {
+        const retryLaunchId = metadata.launchId ?? createRoleLaunchId();
+        lastReceiptLaunchId = retryLaunchId;
+        lastReceiptLaunchPhase = metadata.launchPhase;
         return runAgentSession({
           repoRoot: paths.repoRoot,
           cliArgs: args,
@@ -862,7 +1102,7 @@ export async function runRoleAgent(
           abortSignal: options.abortSignal,
           session: {
             ...sessionInfo,
-            launchId: createRoleLaunchId(),
+            launchId: retryLaunchId,
             launchPhase: metadata.launchPhase,
             retryOfLaunchId: metadata.retryOfLaunchId,
             promptAudit: promptAudit as {
@@ -874,6 +1114,7 @@ export async function runRoleAgent(
           },
         });
       },
+      createConfinementRetryLaunchId: createRoleLaunchId,
       setLastPromptAudit: (audit) => { lastPromptAudit = audit; },
     });
     if (confinementResult) {
@@ -889,7 +1130,7 @@ export async function runRoleAgent(
 
   if (options.agentId === 'alice') {
     let nextPolicyResult = artifactsComplete && nextAgentId
-      ? await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId)
+      ? await runRuntimePolicyCheckWithEvents(nextAgentId)
       : undefined;
     const nextPolicyBlocked = nextPolicyResult !== undefined && nextPolicyResult.exitCode !== 0;
     if (!artifactsComplete || nextPolicyBlocked) {
@@ -902,6 +1143,7 @@ export async function runRoleAgent(
         abortSignal: options.abortSignal,
         policyViolationRuleIds: nextPolicyResult ? extractPolicyViolationRuleIds(nextPolicyResult) : [],
       });
+      const artifactCompletionReasons = artifactsComplete ? [] : await artifactCompletionReceiptReasons();
       const policyFailureDetails = nextPolicyBlocked && nextPolicyResult
         ? extractPolicyFailureDetails(nextPolicyResult)
         : undefined;
@@ -918,6 +1160,7 @@ export async function runRoleAgent(
           signal_code: runSummary.signalCode,
           stdout_tail: runSummary.stdoutTail,
           stderr_tail: stderrTail,
+          ...(artifactsComplete ? {} : { artifact_completion_reasons: artifactCompletionReasons }),
         });
         if (artifactsComplete) {
           throw new Error(
@@ -930,14 +1173,31 @@ export async function runRoleAgent(
         );
       }
 
+      await writeLaunchGuardrailReceipt({
+        schema_version: 1,
+        status: 'failed',
+        agent_id: options.agentId,
+        model: activeModel,
+        exit_code: 0,
+        termination_reason: artifactsComplete ? 'next-role-blocked' : 'artifact-incomplete',
+        signal_code: runSummary.signalCode,
+        stdout_tail: runSummary.stdoutTail,
+        stderr_tail: policyFailureDetails ?? runSummary.stderrTail,
+        ...(artifactsComplete ? {} : { artifact_completion_reasons: artifactCompletionReasons }),
+      });
       const cleanupPrompt = buildArtifactCleanupPrompt({
         artifactPrompt,
         policyFailureDetails,
+        forbiddenPathTokens: forbiddenArtifactCleanupPathTokens(paths.repoRoot),
       });
+      await ensureCleanupArtifactDirs(paths);
       const cleanupSession = await runPromptOverrideSession(cleanupPrompt, 'Artifact Cleanup');
       runSummary = cleanupSession.session.runSummary;
       resetArtifactCompletionCache();
+      artifactsComplete = await artifactCompletionCheck();
+      await acceptNonZeroCompletedCleanup(cleanupSession.session.sessionReceiptFile, artifactsComplete);
       if (runSummary.exitCode !== 0) {
+        await emitAgentLifecycleEvent('agent.cleanup.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -954,9 +1214,9 @@ export async function runRoleAgent(
           runSummary,
         );
       }
-
-      artifactsComplete = await artifactCompletionCheck();
       if (!artifactsComplete) {
+        const reasonText = await artifactCompletionErrorSuffix();
+        await emitAgentLifecycleEvent('agent.cleanup.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -967,15 +1227,20 @@ export async function runRoleAgent(
           signal_code: runSummary.signalCode,
           stdout_tail: runSummary.stdoutTail,
           stderr_tail: runSummary.stderrTail,
+          artifact_completion_reasons: await artifactCompletionReceiptReasons(),
         });
         throw agentErrorWithTails(
-          `Agent "${options.agentId}" cleanup pass still left required workflow artifacts incomplete.`,
+          [
+            `Agent "${options.agentId}" cleanup pass still left required workflow artifacts incomplete.`,
+            reasonText,
+          ].filter(Boolean).join('\n'),
           runSummary,
         );
       }
+      await emitAgentLifecycleEvent('agent.cleanup.completed');
 
       if (nextAgentId) {
-        nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
+        nextPolicyResult = await runRuntimePolicyCheckWithEvents(nextAgentId);
         if (nextPolicyResult.exitCode !== 0) {
           const finalFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
           await writeLaunchGuardrailReceipt({
@@ -997,6 +1262,8 @@ export async function runRoleAgent(
     }
   } else if (!artifactsComplete) {
     if (options.agentId === 'ron') {
+      await prepopulateRequirementVerificationForRonLaunch(options, paths, { skipWhenPromptOverride: false });
+      resetArtifactCompletionCache();
       const artifactPrompt = await buildAgentArtifactRemediationPrompt({
         agentId: profile.registryId,
         handoffsDir: paths.handoffs,
@@ -1005,6 +1272,7 @@ export async function runRoleAgent(
         taskId: options.taskId,
         abortSignal: options.abortSignal,
       });
+      const artifactCompletionReasons = await artifactCompletionReceiptReasons();
       if (!hasConcreteArtifactRemediation(artifactPrompt)) {
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
@@ -1016,18 +1284,37 @@ export async function runRoleAgent(
           signal_code: runSummary.signalCode,
           stdout_tail: runSummary.stdoutTail,
           stderr_tail: runSummary.stderrTail,
+          artifact_completion_reasons: artifactCompletionReasons,
         });
         throw agentErrorWithTails(
           `Agent "${options.agentId}" exited successfully with incomplete artifacts, but no concrete incomplete ${incompleteArtifactOwnerLabel(options.agentId)} artifacts were detected.`,
           runSummary,
         );
       }
-      const cleanupSession = await runPromptOverrideSession(buildArtifactCleanupPrompt({
+      await writeLaunchGuardrailReceipt({
+        schema_version: 1,
+        status: 'failed',
+        agent_id: options.agentId,
+        model: activeModel,
+        exit_code: 0,
+        termination_reason: 'artifact-incomplete',
+        signal_code: runSummary.signalCode,
+        stdout_tail: runSummary.stdoutTail,
+        stderr_tail: runSummary.stderrTail,
+        artifact_completion_reasons: artifactCompletionReasons,
+      });
+      const cleanupPrompt = buildArtifactCleanupPrompt({
         artifactPrompt,
-      }), 'Artifact Cleanup');
+        forbiddenPathTokens: forbiddenArtifactCleanupPathTokens(paths.repoRoot),
+      });
+      await ensureCleanupArtifactDirs(paths);
+      const cleanupSession = await runPromptOverrideSession(cleanupPrompt, 'Artifact Cleanup');
       runSummary = cleanupSession.session.runSummary;
       resetArtifactCompletionCache();
+      const artifactsCompleteAfterCleanup = await artifactCompletionCheck();
+      await acceptNonZeroCompletedCleanup(cleanupSession.session.sessionReceiptFile, artifactsCompleteAfterCleanup);
       if (runSummary.exitCode !== 0) {
+        await emitAgentLifecycleEvent('agent.cleanup.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -1044,8 +1331,9 @@ export async function runRoleAgent(
           runSummary,
         );
       }
-      const artifactsCompleteAfterCleanup = await artifactCompletionCheck();
       if (!artifactsCompleteAfterCleanup) {
+        const reasonText = await artifactCompletionErrorSuffix();
+        await emitAgentLifecycleEvent('agent.cleanup.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -1056,12 +1344,17 @@ export async function runRoleAgent(
           signal_code: runSummary.signalCode,
           stdout_tail: runSummary.stdoutTail,
           stderr_tail: runSummary.stderrTail,
+          artifact_completion_reasons: await artifactCompletionReceiptReasons(),
         });
         throw agentErrorWithTails(
-          `Agent "${options.agentId}" cleanup pass still left required workflow artifacts incomplete.`,
+          [
+            `Agent "${options.agentId}" cleanup pass still left required workflow artifacts incomplete.`,
+            reasonText,
+          ].filter(Boolean).join('\n'),
           runSummary,
         );
       }
+      await emitAgentLifecycleEvent('agent.cleanup.completed');
     } else {
       await writeLaunchGuardrailReceipt({
         schema_version: 1,
@@ -1082,11 +1375,10 @@ export async function runRoleAgent(
   }
 
   if (options.agentId !== 'alice' && nextAgentId && !options.skipWorkflowValidation) {
-    let nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
+    let nextPolicyResult = await runRuntimePolicyCheckWithEvents(nextAgentId);
     if (nextPolicyResult.exitCode !== 0) {
       const nextFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
-      let shouldRetryCurrentAgent = true;
-      let remediationPrompt = [
+      const remediationPrompt = [
         'Your previous run did not leave the workflow ready for the next role.',
         '',
         `Blocking workflow-policy details: ${nextFailureDetails}`,
@@ -1094,26 +1386,11 @@ export async function runRoleAgent(
         'Fix only the missing handoff artifacts or validation evidence required for handoff.',
         'Do not repeat unrelated work. Do not leave placeholder-only sections.',
       ].join('\n');
-      if (!shouldRetryCurrentAgent) {
-        await writeLaunchGuardrailReceipt({
-          schema_version: 1,
-          status: 'failed',
-          agent_id: options.agentId,
-          model: activeModel,
-          exit_code: 0,
-          termination_reason: 'next-role-blocked',
-          signal_code: runSummary.signalCode,
-          stdout_tail: runSummary.stdoutTail,
-          stderr_tail: nextFailureDetails,
-        });
-        throw new Error(
-          `Workflow policy check failed for next agent "${nextAgentId}" after agent "${options.agentId}" completed, but no concrete incomplete ${incompleteArtifactOwnerLabel(options.agentId)} artifacts were detected: ${nextFailureDetails}`,
-        );
-      }
       const remediationSession = await runPromptOverrideSession(remediationPrompt, 'Policy Remediation');
       runSummary = remediationSession.session.runSummary;
       resetArtifactCompletionCache();
       if (runSummary.exitCode !== 0) {
+        await emitAgentLifecycleEvent('agent.policy_remediation.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -1133,6 +1410,7 @@ export async function runRoleAgent(
 
       const artifactsCompleteAfterRemediation = await artifactCompletionCheck();
       if (!artifactsCompleteAfterRemediation) {
+        await emitAgentLifecycleEvent('agent.policy_remediation.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -1150,9 +1428,10 @@ export async function runRoleAgent(
         );
       }
 
-      nextPolicyResult = await runRuntimePolicyCheck(paths.repoRoot, nextAgentId, 'runtime', options.taskId);
+      nextPolicyResult = await runRuntimePolicyCheckWithEvents(nextAgentId);
       if (nextPolicyResult.exitCode !== 0) {
         const finalFailureDetails = extractPolicyFailureDetails(nextPolicyResult);
+        await emitAgentLifecycleEvent('agent.policy_remediation.failed');
         await writeLaunchGuardrailReceipt({
           schema_version: 1,
           status: 'failed',
@@ -1168,6 +1447,7 @@ export async function runRoleAgent(
           `Workflow policy check failed for next agent "${nextAgentId}" after agent "${options.agentId}" completed: ${finalFailureDetails}`,
         );
       }
+      await emitAgentLifecycleEvent('agent.policy_remediation.completed');
     }
   }
 
@@ -1189,4 +1469,31 @@ export async function runRoleAgent(
     durationMs,
     mcpLaunch,
   };
+}
+
+async function readAgentExecutableArtifactsForContainment(
+  handoffsDir: string,
+  implementationStepsDir: string,
+): Promise<Array<{ path: string; category: 'implementation-spec' | 'implementation-step'; content: string }>> {
+  const artifacts: Array<{ path: string; category: 'implementation-spec' | 'implementation-step'; content: string }> = [];
+  const implementationSpecPath = path.join(handoffsDir, 'implementation-spec.md');
+  const implementationSpec = await readTextFile(implementationSpecPath);
+  if (implementationSpec !== undefined) {
+    artifacts.push({ path: implementationSpecPath, category: 'implementation-spec', content: implementationSpec });
+  }
+  let entries: string[] = [];
+  try {
+    entries = await readdir(implementationStepsDir);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+  }
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith('.md')) continue;
+    const artifactPath = path.join(implementationStepsDir, entry);
+    const content = await readTextFile(artifactPath);
+    if (content !== undefined) {
+      artifacts.push({ path: artifactPath, category: 'implementation-step', content });
+    }
+  }
+  return artifacts;
 }

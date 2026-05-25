@@ -7,8 +7,10 @@ import type { AgentProfile } from './types.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
 import { resolvePaths } from '../core/index.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
+import type { TaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { AutonomyIntent, BuildArgsResult } from '../cli-provider/index.js';
+import { projectAgentRepoBindings } from './agentRootContainment.js';
 
 /**
  * Build the environment variables object for an agent invocation process.
@@ -31,6 +33,13 @@ export function buildAgentEnvironment(
      * headers rendered by the active provider.
      */
     mcp?: { port: number; url: string };
+    /**
+     * Pack snapshot already loaded by the caller. Used to project repoId/role
+     * identity onto task repo bindings. When omitted, projection falls back to
+     * worktree basename — callers that need identity-aware projection (the
+     * agent launch path) must supply this from `loadTaskPackSnapshot`.
+     */
+    snapshot?: TaskPackSnapshot;
   },
   taskId?: string,
 ): Record<string, string> {
@@ -97,19 +106,26 @@ export function buildAgentEnvironment(
 
     // Surface branch names and worktree roots for QA closeout and SWE git
     // commands. Reads .task.json.contextPackBinding.repoBindings[]; injects
-    // TASKSAIL_TASK_BRANCHES (originalRoot → branch) and TASKSAIL_TASK_WORKTREES
-    // (originalRoot → worktreeRoot). If the serialized JSON exceeds the 8192-
+    // TASKSAIL_TASK_BRANCHES (repoId/role → branch) and TASKSAIL_TASK_WORKTREES
+    // (repoId/role → worktreeRoot). If the serialized JSON exceeds the 8192-
     // byte Windows env-block ceiling, spills to <name>_FILE instead.
     if (taskId) {
       const taskSidecar = readTaskJsonSafe(taskId, effectiveRepoRoot);
       if (taskSidecar && taskSidecar.contextPackBinding.repoBindings.length > 0) {
-        const branches = taskSidecar.contextPackBinding.repoBindings.map((rb) => ({
-          originalRoot: rb.originalRoot,
-          branch: rb.worktreeBranch,
+        const projectedBindings = projectAgentRepoBindings({
+          repoBindings: taskSidecar.contextPackBinding.repoBindings,
+          snapshot: options?.snapshot,
+        });
+        const branches = projectedBindings.map((binding) => ({
+          repoId: binding.repoId,
+          role: binding.role,
+          branch: binding.branch,
+          worktreeRoot: binding.worktreeRoot,
         }));
-        const worktrees = taskSidecar.contextPackBinding.repoBindings.map((rb) => ({
-          originalRoot: rb.originalRoot,
-          worktreeRoot: rb.worktreeRoot,
+        const worktrees = projectedBindings.map((binding) => ({
+          repoId: binding.repoId,
+          role: binding.role,
+          worktreeRoot: binding.worktreeRoot,
         }));
         emitTaskListEnv({
           env,

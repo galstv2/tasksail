@@ -3,7 +3,7 @@
  * for the Kanban board UI, and delegates reorder/requeue to backend queue modules.
  */
 import { watch, type FSWatcher } from 'node:fs';
-import { readFile as fsReadFile, unlink as fsUnlink } from 'node:fs/promises';
+import { readFile as fsReadFile, readdir, unlink as fsUnlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { BrowserWindow } from 'electron';
 
@@ -17,7 +17,10 @@ import type {
   TaskBoardDeleteTaskRequest,
   TaskBoardMoveToOpenRequest,
   TaskBoardMoveToPendingRequest,
+  TaskBoardKillTaskRequest,
+  TaskBoardRetryKillCleanupRequest,
   TaskBoardItem,
+  TaskBoardPendingItem,
   TaskBoardReadBoardResponse,
   TaskBoardReadTaskContentRequest,
   TaskBoardReorderPendingRequest,
@@ -45,7 +48,13 @@ import {
   deleteErrorItem,
   moveDropboxItemToPending,
   moveErrorItemToDropbox,
+  movePendingItemToDropbox,
+  executeRequestedTaskKill,
+  observeKillRequest,
+  requestTaskKill,
+  readActivationProgressRecords,
 } from '../../../backend/platform/queue';
+import { createLogger, getErrorMessage } from '../../../backend/platform/core';
 import { listArchivedTasksAction } from './main.archivedTasks';
 import {
   loadTaskRegistry,
@@ -53,11 +62,14 @@ import {
   type TaskRegistry,
   type TaskRegistryEntry,
 } from '../../../backend/platform/queue/taskRegistry.js';
+import { listActivePipelines } from '../../../backend/platform/agent-runner/pipelineSupervisor.js';
 
 const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
+const log = createLogger('desktop/main.taskBoard');
+const scheduledKillCleanups = new Set<string>();
 
 function registryEntryToItem(entry: TaskRegistryEntry): TaskBoardItem {
   return {
@@ -91,7 +103,9 @@ function visibleTaskMutationError(
     | 'taskBoard.requeueErrorItem'
     | 'taskBoard.deleteTask'
     | 'taskBoard.moveToPending'
-    | 'taskBoard.moveToOpen',
+    | 'taskBoard.moveToOpen'
+    | 'taskBoard.killTask'
+    | 'taskBoard.retryKillCleanup',
   fileName: string,
 ): DesktopInvokeResult {
   return {
@@ -170,13 +184,115 @@ async function resolveVisibleMutationContext(
 
 function registryEntryToPendingItem(
   entry: TaskRegistryEntry,
-): TaskBoardItem & { state: 'active' | 'pending' } {
+): TaskBoardPendingItem {
   return {
     fileName: entry.fileName,
     taskId: entry.taskId,
     title: entry.title,
     state: entry.state === 'active' ? 'active' : 'pending',
   };
+}
+
+type ActivationProgressForBoard = Awaited<ReturnType<typeof readActivationProgressRecords>>[number];
+type KillRequestForBoard = NonNullable<Awaited<ReturnType<typeof observeKillRequest>>>;
+
+function overlayActivationProgress(
+  item: TaskBoardPendingItem,
+  progress: Map<string, ActivationProgressForBoard>,
+): TaskBoardPendingItem {
+  if (!item.taskId) return item;
+  const marker = progress.get(item.taskId);
+  if (!marker) return item;
+  return {
+    ...item,
+    state: 'activating',
+    activationPhase: marker.phase,
+    activationStartedAt: marker.startedAt,
+    activationUpdatedAt: marker.updatedAt,
+  };
+}
+
+// Active items lose their activation-progress marker once the pipeline starts,
+// so activationStartedAt is unset by overlayActivationProgress. The in-process
+// pipeline supervisor still has the spawn timestamp — surface it here so the
+// UI can render "Active · Started HH:MM".
+function overlayActivePipelineStartedAt(
+  item: TaskBoardPendingItem,
+  pipelineStartedAt: Map<string, string>,
+): TaskBoardPendingItem {
+  if (item.state !== 'active' || !item.taskId || item.activationStartedAt) return item;
+  const startedAt = pipelineStartedAt.get(item.taskId);
+  return startedAt ? { ...item, activationStartedAt: startedAt } : item;
+}
+
+async function readValidKillRequestsForBoard(queuePaths: ReturnType<typeof resolveQueuePaths>): Promise<KillRequestForBoard[]> {
+  let entries: string[];
+  try {
+    entries = (await readdir(queuePaths.killRequestsDir))
+      .filter((entry) => entry.endsWith('.json') && !entry.startsWith('.'))
+      .sort();
+  } catch {
+    return [];
+  }
+  const records = await Promise.all(entries.map(async (entry) => {
+    const taskId = entry.replace(/\.json$/, '');
+    return observeKillRequest({ killRequestsDir: queuePaths.killRequestsDir, taskId });
+  }));
+  return records.filter((record): record is KillRequestForBoard => record !== null);
+}
+
+function overlayStoppingFromKillRequests(
+  item: TaskBoardPendingItem,
+  killRequests: Map<string, KillRequestForBoard>,
+): TaskBoardPendingItem {
+  if (!item.taskId || item.state === 'pending') return item;
+  const marker = killRequests.get(item.taskId);
+  if (!marker) return item;
+  return {
+    ...item,
+    state: 'stopping',
+    stopRequestedAt: marker.requestedAt,
+    ...(marker.cleanupStatus === 'failed'
+      ? {
+          stopCleanupStatus: 'failed' as const,
+          stopCleanupFailedAt: marker.cleanupLastFailedAt,
+          stopCleanupErrorCode: marker.cleanupLastErrorCode,
+          stopCleanupMessage: marker.cleanupLastErrorMessage,
+          stopCleanupRetryable: true,
+        }
+      : {}),
+  };
+}
+
+function sendBoardResponseToWindows(response: TaskBoardReadBoardResponse): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(DESKTOP_SHELL_TASK_BOARD_CHANNEL, response);
+    }
+  }
+}
+
+async function broadcastTaskBoardUpdate(listContextPacks?: ContextPackLister): Promise<void> {
+  try {
+    const result = await readTaskBoard(listContextPacks);
+    if (!result.ok) return;
+    sendBoardResponseToWindows(result.response as TaskBoardReadBoardResponse);
+  } catch {
+    // Filesystem may be in a transient state — next event will retry.
+  }
+}
+
+function scheduleRequestedTaskKillCleanup(taskId: string, listContextPacks?: ContextPackLister): void {
+  if (scheduledKillCleanups.has(taskId)) return;
+  scheduledKillCleanups.add(taskId);
+  void executeRequestedTaskKill({ repoRoot: REPO_ROOT, taskId })
+    .catch((error: unknown) => {
+      log.error('task_kill.background_cleanup_failed', error instanceof Error ? error : new Error(getErrorMessage(error)), { taskId });
+    })
+    .finally(() => {
+      scheduledKillCleanups.delete(taskId);
+      void broadcastTaskBoardUpdate(listContextPacks);
+    });
 }
 
 function archivedAtMs(task: ArchivedTaskEntry): number | null {
@@ -207,6 +323,17 @@ export async function readTaskBoard(
     const hasRegistryData = Object.keys(registry.tasks).length > 0;
     const scope = listContextPacks
       ? await resolveActiveContextPackTaskScope(listContextPacks)
+      : null;
+    const queuePaths = resolveQueuePaths(REPO_ROOT);
+    const [activationProgressRecords, killRequestRecords] = await Promise.all([
+      readActivationProgressRecords(queuePaths),
+      readValidKillRequestsForBoard(queuePaths),
+    ]);
+    const activationProgress = activationProgressRecords.length > 0
+      ? new Map(activationProgressRecords.map((record) => [record.taskId, record]))
+      : null;
+    const killRequests = killRequestRecords.length > 0
+      ? new Map(killRequestRecords.map((record) => [record.taskId, record]))
       : null;
 
     // QMD is the system of record for completed tasks. The registry's
@@ -249,14 +376,25 @@ export async function readTaskBoard(
         ...tasks.active.map(registryEntryToPendingItem),
         ...tasks.pending.map(registryEntryToPendingItem),
       ];
+      const pipelineStartedAt = new Map(
+        listActivePipelines().map((entry) => [entry.taskId, entry.startedAt]),
+      );
+      const withActivation = activationProgress
+        ? pendingItems.map((item) => overlayActivationProgress(item, activationProgress))
+        : pendingItems;
+      const displayPendingItems = withActivation.map((item) =>
+        overlayActivePipelineStartedAt(item, pipelineStartedAt),
+      ).map((item) =>
+        killRequests ? overlayStoppingFromKillRequests(item, killRequests) : item,
+      );
       const errorItems = tasks.failed.map(registryEntryToItem);
 
       const response: TaskBoardReadBoardResponse = {
         action: 'taskBoard.readBoard',
         mode: 'read-only',
-        message: `${dropboxItems.length} open, ${pendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
+        message: `${dropboxItems.length} open, ${displayPendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
         dropboxItems,
-        pendingItems,
+        pendingItems: displayPendingItems,
         errorItems,
         completedItems,
       };
@@ -291,7 +429,7 @@ export async function readTaskBoard(
     ]);
     const dropboxItems = boardItemsFromVisibleMarkdownItems(dropboxRaw);
 
-    const activeFileName = activeTaskIds[0] ? `${activeTaskIds[0]}.md` : null;
+    const activeTaskIdSet = new Set(activeTaskIds);
 
     const orderManifest = await readQueueOrderManifest(resolveQueuePaths(REPO_ROOT).queueOrderPath);
     const orderMap = new Map(orderManifest.map((name, i) => [name, i]));
@@ -302,19 +440,30 @@ export async function readTaskBoard(
       return a.fileName.localeCompare(b.fileName);
     });
 
-    const pendingItems = sortedPending.map((item) => ({
+    const pendingItems = sortedPending.map((item): TaskBoardPendingItem => ({
       ...item,
-      state: (item.fileName === activeFileName ? 'active' : 'pending') as 'active' | 'pending',
+      state: (item.taskId && activeTaskIdSet.has(item.taskId) ? 'active' : 'pending') as 'active' | 'pending',
     }));
+    const pipelineStartedAt = new Map(
+      listActivePipelines().map((entry) => [entry.taskId, entry.startedAt]),
+    );
+    const withActivation = activationProgress
+      ? pendingItems.map((item) => overlayActivationProgress(item, activationProgress))
+      : pendingItems;
+    const displayPendingItems = withActivation.map((item) =>
+      overlayActivePipelineStartedAt(item, pipelineStartedAt),
+    ).map((item) =>
+      killRequests ? overlayStoppingFromKillRequests(item, killRequests) : item,
+    );
 
     const errorItems = boardItemsFromVisibleMarkdownItems(errorRaw);
 
     const response: TaskBoardReadBoardResponse = {
       action: 'taskBoard.readBoard',
       mode: 'read-only',
-      message: `${dropboxItems.length} open, ${pendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
+      message: `${dropboxItems.length} open, ${displayPendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
       dropboxItems,
-      pendingItems,
+      pendingItems: displayPendingItems,
       errorItems,
       completedItems,
     };
@@ -695,20 +844,35 @@ export async function moveToOpen(
   listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
+    const sourceColumn = payload.sourceColumn ?? 'error';
     const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    const column = sourceColumn === 'pending' ? 'pending' : 'error';
+    const dir = sourceColumn === 'pending' ? PENDING_DIR : ERROR_ITEMS_DIR;
     if (!mutationContext || !(await isFileVisibleForScope({
       fileName: payload.fileName,
-      dir: ERROR_ITEMS_DIR,
-      column: 'error',
+      dir,
+      column,
       scope: mutationContext.scope,
       registry: mutationContext.registry,
     }))) {
       return visibleTaskMutationError('taskBoard.moveToOpen', payload.fileName);
     }
-    const result = await moveErrorItemToDropbox({
-      fileName: payload.fileName,
-      repoRoot: REPO_ROOT,
-    });
+    if (sourceColumn === 'pending') {
+      const visibleEntry = findVisibleRegistryEntryForColumn('pending', payload.fileName, mutationContext.scope, mutationContext.registry);
+      if (visibleEntry?.state === 'active') {
+        return { ok: false, action: 'taskBoard.moveToOpen', error: 'Active tasks cannot be returned to open.' };
+      }
+    }
+    const result = sourceColumn === 'pending'
+      ? await movePendingItemToDropbox({
+          fileName: payload.fileName,
+          repoRoot: REPO_ROOT,
+          reason: 'operator-drag-return-open',
+        })
+      : await moveErrorItemToDropbox({
+          fileName: payload.fileName,
+          repoRoot: REPO_ROOT,
+        });
     return {
       ok: true,
       response: {
@@ -727,6 +891,109 @@ export async function moveToOpen(
   }
 }
 
+export async function killTask(
+  payload: TaskBoardKillTaskRequest['payload'],
+  listContextPacks?: ContextPackLister,
+): Promise<DesktopInvokeResult> {
+  try {
+    const board = await readTaskBoard(listContextPacks);
+    const pendingItems = board.ok && 'pendingItems' in board.response
+      ? board.response.pendingItems
+      : [];
+    const visiblePending = pendingItems.find((item) => item.fileName === payload.fileName && item.taskId === payload.taskId);
+    if (!visiblePending) {
+      return visibleTaskMutationError('taskBoard.killTask', payload.fileName);
+    }
+    if (visiblePending.state !== 'active' && visiblePending.state !== 'activating') {
+      return {
+        ok: false,
+        action: 'taskBoard.killTask',
+        error: 'Only active or activating pending tasks can be stopped.',
+      };
+    }
+    const result = await requestTaskKill({ repoRoot: REPO_ROOT, taskId: payload.taskId });
+    await broadcastTaskBoardUpdate(listContextPacks);
+    scheduleRequestedTaskKillCleanup(payload.taskId, listContextPacks);
+    return {
+      ok: true,
+      response: {
+        action: 'taskBoard.killTask' as const,
+        mode: 'kill-requested' as const,
+        message: result.message,
+        taskId: result.taskId,
+      },
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      action: 'taskBoard.killTask',
+      error: error instanceof Error ? error.message : 'Failed to stop task.',
+    };
+  }
+}
+
+export async function retryKillCleanup(
+  payload: TaskBoardRetryKillCleanupRequest['payload'],
+  listContextPacks?: ContextPackLister,
+): Promise<DesktopInvokeResult> {
+  try {
+    const board = await readTaskBoard(listContextPacks);
+    const pendingItems = board.ok && 'pendingItems' in board.response
+      ? board.response.pendingItems
+      : [];
+    const visiblePending = pendingItems.find((item) => item.fileName === payload.fileName && item.taskId === payload.taskId);
+    if (!visiblePending) {
+      return visibleTaskMutationError('taskBoard.retryKillCleanup', payload.fileName);
+    }
+    if (
+      visiblePending.state !== 'stopping'
+      || visiblePending.stopCleanupStatus !== 'failed'
+      || visiblePending.stopCleanupRetryable !== true
+    ) {
+      return {
+        ok: false,
+        action: 'taskBoard.retryKillCleanup',
+        error: 'Only failed cleanup Stopping tasks can retry cleanup.',
+      };
+    }
+    const queuePaths = resolveQueuePaths(REPO_ROOT);
+    const marker = await observeKillRequest({ killRequestsDir: queuePaths.killRequestsDir, taskId: payload.taskId });
+    if (!marker || marker.cleanupStatus !== 'failed') {
+      return {
+        ok: false,
+        action: 'taskBoard.retryKillCleanup',
+        error: 'Stop cleanup marker is no longer retryable.',
+      };
+    }
+    const alreadyScheduled = scheduledKillCleanups.has(payload.taskId);
+    scheduleRequestedTaskKillCleanup(payload.taskId, listContextPacks);
+    log.info('task_kill.retry_cleanup_scheduled', {
+      taskId: payload.taskId,
+      cleanupAttemptCount: marker.cleanupAttemptCount,
+      cleanupLastErrorCode: marker.cleanupLastErrorCode,
+      coalesced: alreadyScheduled,
+    });
+    if (board.ok && board.response.action === 'taskBoard.readBoard') {
+      sendBoardResponseToWindows(board.response as TaskBoardReadBoardResponse);
+    }
+    return {
+      ok: true,
+      response: {
+        action: 'taskBoard.retryKillCleanup' as const,
+        mode: 'cleanup-retry-scheduled' as const,
+        message: `Retry cleanup scheduled for task: ${payload.taskId}.`,
+        taskId: payload.taskId,
+      },
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      action: 'taskBoard.retryKillCleanup',
+      error: error instanceof Error ? error.message : 'Failed to retry cleanup.',
+    };
+  }
+}
+
 /**
  * Watch the three task directories and broadcast board updates to all
  * renderer windows when files change. Uses a 150ms debounce to coalesce
@@ -740,30 +1007,25 @@ export function startTaskBoardWatcher(
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   const watchers: FSWatcher[] = [];
 
-  const broadcastUpdate = async (): Promise<void> => {
-    try {
-      const result = await readTaskBoard(listContextPacks);
-      if (!result.ok) return;
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) {
-          win.webContents.send(DESKTOP_SHELL_TASK_BOARD_CHANNEL, result.response);
-        }
-      }
-    } catch {
-      // Filesystem may be in a transient state — next event will retry
-    }
-  };
-
   const onFsChange = (): void => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => void broadcastUpdate(), 150);
+    debounceTimer = setTimeout(() => void broadcastTaskBoardUpdate(listContextPacks), 150);
   };
 
   // Watch the registry file and the three queue directories.
   // The registry is the primary source; directories are watched as a safety net
   // for manual file placement and legacy flows.
+  const queuePaths = resolveQueuePaths(REPO_ROOT);
   const registryFile = getRegistryPath(REPO_ROOT);
-  for (const target of [registryFile, DROPBOX_DIR, PENDING_DIR, ERROR_ITEMS_DIR]) {
+  for (const target of [
+    registryFile,
+    DROPBOX_DIR,
+    PENDING_DIR,
+    ERROR_ITEMS_DIR,
+    queuePaths.killRequestsDir,
+    queuePaths.activeItemsDir,
+    queuePaths.activatingItemsDir,
+  ]) {
     try {
       watchers.push(watch(target, { persistent: false }, onFsChange));
     } catch {

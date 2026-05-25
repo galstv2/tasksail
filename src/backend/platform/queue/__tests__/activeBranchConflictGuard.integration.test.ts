@@ -180,10 +180,18 @@ describe('active branch conflict guard activation integration', () => {
     expect(existsSync(path.join(paths.activeItemsDir, 'child-a'))).toBe(false);
     expect(git(repoRoot, ['branch', '--list', 'task/child-a'])).toBe('');
     expect(startPipeline).not.toHaveBeenCalled();
-    expect(readRuntimeEvents(repoRoot, 'child-a')[0]).toMatchObject({
-      eventId: 'activation.returned-open.branch-conflict:task/root:active-a',
-      severity: 'warning',
-    });
+    expect(readRuntimeEvents(repoRoot, 'child-a')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventId: 'queue.active.skipped:branch-conflict-returned-open',
+          severity: 'warning',
+        }),
+        expect.objectContaining({
+          eventId: 'activation.returned-open.branch-conflict:task/root:active-a',
+          severity: 'warning',
+        }),
+      ]),
+    );
     const registry = await loadTaskRegistry(repoRoot);
     expect(registry.tasks._unbound?.open.map((entry) => entry.taskId)).toContain('child-a');
 

@@ -2,8 +2,15 @@ import path from 'node:path';
 import { createLogger } from './logger.js';
 import { ensureDir, readTextFile, writeTextFileAtomic } from './io.js';
 import { withTaskTerminalEventsLock } from './taskTerminalEventsLock.js';
+import {
+  formatTaskAgentDisplayName,
+  formatTaskAgentLaunchMessage,
+  normalizeTaskAgentLaunchOutcome,
+  type TaskAgentLaunchOutcome,
+  type TaskAgentLaunchPhase,
+} from './taskTerminalEventContracts.js';
 
-export type RuntimeTerminalEventRole = 'queue' | 'pipeline';
+export type RuntimeTerminalEventRole = 'queue' | 'pipeline' | 'system' | 'agent';
 export type RuntimeTerminalEventSeverity = 'info' | 'success' | 'warning' | 'error';
 
 const log = createLogger('platform/core/runtimeTerminalEvents');
@@ -15,7 +22,9 @@ interface RuntimeTerminalEventInput {
   source: string;
   role: RuntimeTerminalEventRole;
   severity: RuntimeTerminalEventSeverity;
+  visible: boolean;
   message: string;
+  actorName?: string;
   extra?: Record<string, unknown>;
 }
 
@@ -43,8 +52,10 @@ async function appendRuntimeTerminalEvent(
     source: input.source,
     role: input.role,
     severity: input.severity,
+    visible: input.visible,
     message: input.message,
     createdAt: new Date().toISOString(),
+    ...(input.actorName ? { actorName: input.actorName } : {}),
     ...(input.extra ? { extra: input.extra } : {}),
   };
 
@@ -97,6 +108,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.branch',
       role: 'pipeline',
       severity: 'info',
+      visible: true,
       message: `Created worktree for ${input.repo} on branch ${input.branch}.`,
       extra: {
         repo: input.repo,
@@ -113,6 +125,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'info',
+      visible: true,
       message: 'Archiving task.',
     });
   }
@@ -123,6 +136,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'success',
+      visible: true,
       message: 'Task archived.',
     });
   }
@@ -133,6 +147,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'error',
+      visible: true,
       message: 'Task archival failed.',
     });
   }
@@ -143,7 +158,81 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'info',
+      visible: true,
       message: 'Moved pending item to active.',
+    });
+  }
+
+  agentLaunchStarted(input: {
+    agentId: string;
+    launchId: string;
+    launchPhase?: string | null;
+    displayPhase?: TaskAgentLaunchPhase;
+    displayName?: string;
+    childPid: number | null;
+    modelId: string;
+  }): Promise<void> {
+    const displayPhase = input.displayPhase ?? 'initial';
+    const displayName = input.displayName ?? formatTaskAgentDisplayName({ agentId: input.agentId, phase: displayPhase });
+    return this.append({
+      eventId: `agent.launch.started:${input.agentId}:${displayPhase}:${input.launchId}`,
+      source: 'runtime.agent',
+      role: 'agent',
+      severity: 'info',
+      visible: true,
+      message: formatTaskAgentLaunchMessage({
+        displayName,
+        outcome: 'running',
+      }),
+      extra: {
+        agentId: input.agentId,
+        launchId: input.launchId,
+        launchPhase: input.launchPhase ?? null,
+        displayPhase,
+        childPid: input.childPid,
+        modelId: input.modelId,
+      },
+    });
+  }
+
+  agentLaunchTerminal(input: {
+    agentId: string;
+    launchId: string;
+    launchPhase?: string | null;
+    displayPhase?: TaskAgentLaunchPhase;
+    displayName?: string;
+    childPid: number | null;
+    status?: 'success' | 'failure' | 'killed' | 'timeout';
+    outcome?: TaskAgentLaunchOutcome;
+    durationMs: number;
+    exitCode: number | null;
+  }): Promise<void> {
+    const displayPhase = input.displayPhase ?? 'initial';
+    const displayName = input.displayName ?? formatTaskAgentDisplayName({ agentId: input.agentId, phase: displayPhase });
+    const outcome = input.outcome ?? normalizeTaskAgentLaunchOutcome({
+      processStatus: input.status,
+      exitCode: input.exitCode,
+    });
+    return this.append({
+      eventId: `agent.launch.terminal:${input.agentId}:${displayPhase}:${input.launchId}`,
+      source: 'runtime.agent',
+      role: 'agent',
+      severity: outcome === 'completed' ? 'success' : 'error',
+      visible: true,
+      message: formatTaskAgentLaunchMessage({
+        displayName,
+        outcome,
+      }),
+      extra: {
+        agentId: input.agentId,
+        launchId: input.launchId,
+        launchPhase: input.launchPhase ?? null,
+        displayPhase,
+        childPid: input.childPid,
+        outcome,
+        durationMs: input.durationMs,
+        exitCode: input.exitCode,
+      },
     });
   }
 
@@ -153,6 +242,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'success',
+      visible: true,
       message: 'Moved pending item to completed.',
     });
   }
@@ -163,6 +253,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'error',
+      visible: true,
       message: 'Moved pending item to failed.',
     });
   }
@@ -178,6 +269,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'error',
+      visible: true,
       message: `Unable to activate ${input.taskTitle} due to uncommitted changes in target ${repoNoun} ${input.repoLabels.join(', ')}, please resolve and try again.`,
       extra: {
         repoLabels: input.repoLabels,
@@ -199,6 +291,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'warning',
+      visible: true,
       message: `Returned to open because active task ${input.conflictingTaskId} already owns branch ${input.branch} for repo ${input.repoLabel}.`,
       extra: {
         conflictingTaskId: input.conflictingTaskId,
@@ -210,12 +303,63 @@ export class RuntimeTerminalEvents {
     });
   }
 
+  activationSkipped(input: { reason: string }): Promise<void> {
+    return this.append({
+      eventId: `queue.active.skipped:${input.reason}`,
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'warning',
+      visible: true,
+      message: `Activation skipped: ${input.reason}.`,
+      extra: { reason: input.reason },
+    });
+  }
+
+  pipelinePhase(input: {
+    phase: string;
+    priorPhase: string | null;
+  }): Promise<void> {
+    const formatPipelinePhaseDisplayLabel = (phase: string): string => (
+      phase.startsWith('test-capture') ? phase.replace(/^test-capture/u, 'code-capture') : phase
+    );
+    const phaseLabel = formatPipelinePhaseDisplayLabel(input.phase);
+    const priorPhaseLabel = input.priorPhase ? formatPipelinePhaseDisplayLabel(input.priorPhase) : null;
+    const transition = input.priorPhase
+      ? { id: `${input.priorPhase}->${input.phase}`, label: `${priorPhaseLabel} -> ${phaseLabel}` }
+      : { id: input.phase, label: phaseLabel };
+    const displayMessage = `Pipeline phase: ${transition.label}.`;
+    return this.append({
+      eventId: `pipeline.phase:${transition.id}`,
+      source: 'runtime.pipeline',
+      role: 'pipeline',
+      severity: 'info',
+      visible: true,
+      message: displayMessage,
+      extra: {
+        phase: input.phase,
+        priorPhase: input.priorPhase,
+      },
+    });
+  }
+
+  daltonVerificationLaunching(): Promise<void> {
+    return this.append({
+      eventId: 'dalton_verification.launching',
+      source: 'runtime.pipeline',
+      role: 'pipeline',
+      severity: 'info',
+      visible: true,
+      message: 'Dalton verification launching.',
+    });
+  }
+
   autoMergeDisabled(): Promise<void> {
     return this.append({
       eventId: 'auto_merge.disabled',
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'info',
+      visible: true,
       message: 'Auto-merge disabled.',
     });
   }
@@ -226,6 +370,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'success',
+      visible: true,
       message: `Auto-merge applied ${input.repos}.`,
       extra: { repos: input.repos },
     });
@@ -237,6 +382,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'warning',
+      visible: true,
       message: `Auto-merge skipped: ${input.detail}.`,
       extra: { detail: input.detail },
     });
@@ -248,6 +394,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'warning',
+      visible: true,
       message: 'Auto-merge skipped for child task chain: chain branches are manually integrated by the operator.',
     });
   }
@@ -258,6 +405,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'success',
+      visible: false,
       message: 'Closeout finalized.',
     });
   }
@@ -268,6 +416,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'error',
+      visible: true,
       message: `Moved to error-items: ${input.reason}.`,
       extra: { error_path: input.errorPath, reason: input.reason },
     });
@@ -279,6 +428,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'error',
+      visible: true,
       message: 'Child-chain branch rollback preflight failed.',
       extra,
     });
@@ -290,6 +440,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'info',
+      visible: true,
       message: 'Child-chain branch rollback completed.',
       extra,
     });
@@ -301,6 +452,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'error',
+      visible: true,
       message: 'Child-chain branch rollback failed.',
       extra,
     });
@@ -312,6 +464,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.queue',
       role: 'queue',
       severity: 'warning',
+      visible: true,
       message: 'Skipped deleting chain-owned branch.',
       extra,
     });
@@ -323,6 +476,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'warning',
+      visible: true,
       message: 'Resumed stranded closeout.',
       extra: { drove: input.drove },
     });
@@ -334,9 +488,14 @@ export class RuntimeTerminalEvents {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'warning',
+      visible: true,
       message: 'Closeout remediation launching.',
       extra: { reason: input.reason },
     });
+  }
+
+  lifecycleEvent(input: Omit<RuntimeTerminalEventInput, 'repoRoot' | 'taskId'>): Promise<void> {
+    return this.append(input);
   }
 
   private async append(input: Omit<RuntimeTerminalEventInput, 'repoRoot' | 'taskId'>): Promise<void> {

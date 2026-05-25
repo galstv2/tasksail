@@ -18,6 +18,10 @@ import {
 import { agentErrorWithTails } from './recoveryPasses.js';
 import { createRoleLaunchId, sha256Hex } from './roleAgent.js';
 import { buildReinforcementOverlay } from './reinforcementOverlay.js';
+import {
+  buildAgentRuntimePathManifest,
+  prependRuntimePathManifestToPrompt,
+} from './agentRuntimePathManifest.js';
 import type { AgentMcpLaunchStatus } from './types.js';
 
 const log = createLogger('platform/agent-runner/standaloneRoleAgent');
@@ -94,15 +98,6 @@ export async function runStandaloneRoleAgent(
   };
   const argsResult = buildAgentArgs(options.repoRoot, profile, autonomyIntent, { launchContext });
   const cliArgs = [...argsResult.args];
-  const promptResult = provider.materializePrompt({
-    prompt: promptWithOverlay,
-    promptPath: null,
-    promptSource: 'override',
-    profile,
-    launchContext,
-    includeGlobalInstructions: profile.autonomyProfile !== 'repo-executor',
-  });
-  cliArgs.push('-p', promptResult.effectivePrompt);
 
   const wallClockTimeoutS = options.wallClockBudget ?? profile.wallClockTimeoutS;
   const idleTimeoutS = options.idleTimeout ?? profile.idleTimeoutS;
@@ -153,10 +148,11 @@ export async function runStandaloneRoleAgent(
     internalMcpServer,
     abortSignal: options.abortSignal,
   });
+  let mcpConfigArgsToAppend: string[] = [];
   if (externalMcpLaunchContext?.injectionEnabled) {
     const configFilePath = (externalMcpLaunchContext as PreparedAgentMcpLaunchContext).configFilePath;
     if (configFilePath) {
-      cliArgs.push(...provider.mcpConfigArgs(configFilePath));
+      mcpConfigArgsToAppend = provider.mcpConfigArgs(configFilePath);
     } else {
       log.warn('external_mcp.config_path.missing', { agentId: options.agentId });
     }
@@ -176,6 +172,24 @@ export async function runStandaloneRoleAgent(
       externalMcpLaunchContext,
     ),
   );
+
+  const manifest = buildAgentRuntimePathManifest({
+    agentId: options.agentId,
+    launchPhase: options.launchPhase,
+    agentCwd: options.repoRoot,
+    env: agentEnv,
+    providerEnvVars: provider.runtimeManifestEnvVars(),
+  });
+  const promptResult = provider.materializePrompt({
+    prompt: prependRuntimePathManifestToPrompt({ prompt: promptWithOverlay, manifest }),
+    promptPath: null,
+    promptSource: 'override',
+    profile,
+    launchContext,
+    includeGlobalInstructions: profile.autonomyProfile !== 'repo-executor',
+  });
+  cliArgs.push('-p', promptResult.effectivePrompt);
+  cliArgs.push(...mcpConfigArgsToAppend);
 
   const launchId = createRoleLaunchId();
   const promptAudit = {

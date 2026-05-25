@@ -711,6 +711,31 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isNonEmptyString(request.payload.fileName)) {
         errors.push('payload.fileName must be a non-empty string.');
       }
+      if (
+        request.payload.sourceColumn !== undefined
+        && !isOneOf(request.payload.sourceColumn, ['error', 'pending'] as const)
+      ) {
+        errors.push('payload.sourceColumn must be one of: error, pending.');
+      }
+      return errors;
+    }
+    case 'taskBoard.killTask':
+    case 'taskBoard.retryKillCleanup': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.fileName) || !request.payload.fileName.endsWith('.md')) {
+        errors.push('payload.fileName must be a non-empty markdown file name.');
+      }
+      if (!isNonEmptyString(request.payload.taskId)) {
+        errors.push('payload.taskId must be a non-empty string.');
+      }
+      if (
+        typeof request.payload.fileName === 'string'
+        && typeof request.payload.taskId === 'string'
+        && request.payload.fileName.replace(/\.md$/, '') !== request.payload.taskId
+      ) {
+        errors.push('payload.taskId must match payload.fileName without the .md suffix.');
+      }
       return errors;
     }
     case 'services.readStatus':

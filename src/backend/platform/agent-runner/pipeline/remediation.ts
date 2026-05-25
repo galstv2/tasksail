@@ -1,4 +1,4 @@
-import { createLogger, newSpanId, readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
+import { createLogger, emitTaskProgressEvent, newSpanId, readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
@@ -250,8 +250,10 @@ export async function remediationRunQaLoop(options: {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const issuesFile = path.join(paths.handoffs, 'issues.md');
   let blockingFindingsRemain = false;
+  await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.started' } });
 
   for (let cycle = 0; cycle < maxCycles; cycle++) {
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.cycle_started', input: { cycle: cycle + 1 } } });
     const priorFindings = await readTextFile(issuesFile);
 
     const remediationPrompt = await buildRemediationDaltonPrompt(
@@ -289,6 +291,7 @@ export async function remediationRunQaLoop(options: {
     });
     const { runTestCaptureWithPhaseTracking } = await sequencer();
     const capture = await runTestCaptureWithPhaseTracking({
+      repoRoot: paths.repoRoot,
       taskRuntime: paths.taskRuntime,
       implementationStepsDir: paths.implementationSteps,
       captureCwd,
@@ -326,12 +329,15 @@ export async function remediationRunQaLoop(options: {
     }
 
     blockingFindingsRemain = await remediationHasBlockingFindings(paths.handoffs);
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.cycle_completed', input: { cycle: cycle + 1 } } });
     if (!blockingFindingsRemain) {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.completed' } });
       return;
     }
   }
 
   if (blockingFindingsRemain) {
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.exhausted', input: { cycle: maxCycles } } });
     throw new Error(
       `QA remediation exhausted ${maxCycles} cycle(s) and blocking findings remain.`,
     );

@@ -44,6 +44,10 @@ Dalton Verify (`software-engineer-verify`) is an out-of-band verification instan
 - Honor degraded or excluded-server context when present; do not assume every configured external MCP is usable in the current session.
 - Do not claim an external MCP was consulted unless you actually used the corresponding MCP tool during the current run.
 
+## Runtime Path Manifest
+
+Environment variable names in instructions are symbolic references. Resolve them through the Runtime Path Manifest for the current launch, and never write `$NAME` or `$NAME/...` literally.
+
 ## Workflow Sequence
 
 Standard path only. Fast path is retired.
@@ -61,7 +65,6 @@ If Ron blocks, the remediation loop is `Ron → Dalton → Ron`. On pass or advi
 Durable workflow artifacts:
 
 - `$COPILOT_HANDOFFS_DIR/intake.md`
-- `$COPILOT_HANDOFFS_DIR/professional-task.md`
 - `$COPILOT_HANDOFFS_DIR/implementation-spec.md`
 - `$COPILOT_IMPL_STEPS_DIR/slice-N.md`
 - `$COPILOT_HANDOFFS_DIR/parallel-ok.md`

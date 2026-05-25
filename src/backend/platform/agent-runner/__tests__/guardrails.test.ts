@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -32,6 +32,7 @@ const {
   guardrailReceiptPath,
   policyResultCache,
   runRuntimePolicyCheck,
+  writeUniqueGuardrailReceipt,
 } = await import('../guardrails.js');
 
 describe('guardrails runtime policy cache', () => {
@@ -349,5 +350,168 @@ describe('guardrails per-task receipt isolation', () => {
 
     // Same taskId and same inputs → cache hit → only one real call
     expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes first, second, and third same-agent receipts without overwriting', async () => {
+    const guardrailsDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails');
+    mkdirSync(guardrailsDir, { recursive: true });
+
+    const first = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed', sequence: 1 },
+      launchId: 'launch-1',
+      launchPhase: 'Initial',
+    });
+    const second = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed', sequence: 2 },
+      launchId: 'launch-2',
+      launchPhase: 'Artifact Cleanup',
+    });
+    const third = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed', sequence: 3 },
+    });
+
+    expect(path.basename(first)).toBe('alice.json');
+    expect(path.basename(second)).toBe('alice-2.json');
+    expect(path.basename(third)).toBe('alice-3.json');
+    await expect(readFile(first, 'utf-8')).resolves.toContain('"sequence": 1');
+    await expect(readFile(second, 'utf-8')).resolves.toContain('"launch_phase": "Artifact Cleanup"');
+  });
+
+  it('preserves Dalton and Ron same-agent receipt history without overwriting', async () => {
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails'), { recursive: true });
+
+    for (const agentId of ['dalton', 'ron'] as const) {
+      const first = await writeUniqueGuardrailReceipt({
+        repoRoot,
+        agentId,
+        taskId: 'task-aaa',
+        data: { schema_version: 1, status: 'failed', pass: 1 },
+      });
+      const second = await writeUniqueGuardrailReceipt({
+        repoRoot,
+        agentId,
+        taskId: 'task-aaa',
+        data: { schema_version: 1, status: 'failed', pass: 2 },
+        launchPhase: 'Artifact Cleanup',
+      });
+      const third = await writeUniqueGuardrailReceipt({
+        repoRoot,
+        agentId,
+        taskId: 'task-aaa',
+        data: { schema_version: 1, status: 'failed', pass: 3 },
+      });
+
+      expect(path.basename(first)).toBe(`${agentId}.json`);
+      expect(path.basename(second)).toBe(`${agentId}-2.json`);
+      expect(path.basename(third)).toBe(`${agentId}-3.json`);
+      await expect(readFile(first, 'utf-8')).resolves.toContain('"pass": 1');
+      await expect(readFile(second, 'utf-8')).resolves.toContain('"launch_phase": "Artifact Cleanup"');
+      await expect(readFile(third, 'utf-8')).resolves.toContain('"pass": 3');
+    }
+  });
+
+  it('keeps different agents and tasks on independent receipt sequences', async () => {
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails'), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-bbb', 'guardrails'), { recursive: true });
+
+    await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    });
+    const daltonFirst = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'dalton',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    });
+    const ronFirst = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'ron',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    });
+    const aliceOtherTask = await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-bbb',
+      data: { schema_version: 1, status: 'failed' },
+    });
+
+    expect(path.basename(daltonFirst)).toBe('dalton.json');
+    expect(path.basename(ronFirst)).toBe('ron.json');
+    expect(path.basename(aliceOtherTask)).toBe('alice.json');
+    expect(aliceOtherTask).toContain(path.join('tasks', 'task-bbb', 'guardrails'));
+  });
+
+  it('handles concurrent same-agent receipt writes without clobbering', async () => {
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails'), { recursive: true });
+
+    const written = await Promise.all(Array.from({ length: 5 }, (_, index) => writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed', index },
+    })));
+
+    expect(new Set(written).size).toBe(5);
+    expect(written.map((filePath) => path.basename(filePath)).sort()).toEqual([
+      'alice-2.json',
+      'alice-3.json',
+      'alice-4.json',
+      'alice-5.json',
+      'alice.json',
+    ]);
+  });
+
+  it('throws after sixteen occupied same-agent receipt candidates', async () => {
+    const guardrailsDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails');
+    mkdirSync(guardrailsDir, { recursive: true });
+    for (let attempt = 1; attempt <= 16; attempt += 1) {
+      const basename = attempt === 1 ? 'alice.json' : `alice-${attempt}.json`;
+      writeFileSync(path.join(guardrailsDir, basename), '{}\n', 'utf-8');
+    }
+
+    await expect(writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    })).rejects.toThrow(/alice-16\.json/);
+  });
+
+  it('reruns policy when a suffixed guardrail receipt is added', async () => {
+    mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
+    writeFileSync(path.join(repoRoot, '.github', 'agents', 'registry.json'), '{}\n', 'utf-8');
+    mkdirSync(path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-aaa', 'guardrails'), { recursive: true });
+    writeRuntimeWorkflowFacts.mockResolvedValue({});
+    evaluateWorkflowPolicy.mockResolvedValue({ stdout: '{}', stderr: '', exitCode: 0 });
+
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', 'task-aaa');
+    await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    });
+    await writeUniqueGuardrailReceipt({
+      repoRoot,
+      agentId: 'alice',
+      taskId: 'task-aaa',
+      data: { schema_version: 1, status: 'failed' },
+    });
+    await runRuntimePolicyCheck(repoRoot, 'alice', 'runtime', 'task-aaa');
+
+    expect(evaluateWorkflowPolicy).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,6 +4,7 @@ export {
   resolvePath,
   ensurePathWithinDropbox,
   isPathWithinBoundary,
+  canonicalRoot,
   logsDir,
   logFile,
   taskAgentLogFile,
@@ -103,6 +104,22 @@ export {
   type RuntimeTerminalEventSeverity,
 } from './runtimeTerminalEvents.js';
 
+export {
+  emitTaskProgressEvent,
+  formatTaskAgentDisplayName,
+  normalizeTaskAgentLaunchOutcome,
+  type ChildChainFailureBranchProgressInput,
+  type TaskProgressEvent,
+  type TaskProgressEventType,
+} from './taskProgressEvents.js';
+
+export {
+  normalizeAgentLaunchPhase,
+  formatTaskAgentLaunchMessage,
+  type TaskAgentLaunchOutcome,
+  type TaskAgentLaunchPhase,
+} from './taskTerminalEventContracts.js';
+
 export { detectPythonBin, runPython } from './pythonRunner.js';
 
 export { isRecord, isMissingPathError } from './guards.js';
@@ -114,6 +131,7 @@ export type {
   PlatformPaths,
   AutonomyProfile,
   AgentId,
+  AgentRunStatus,
   ContainerBackend,
   ContainerEngineHost,
 } from './types.js';

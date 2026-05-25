@@ -477,7 +477,7 @@ function reconstructFocusedRepoResult(
   };
 }
 
-function collectSnapshotRuntimeRepoRoots(snapshot: TaskPackSnapshot): string[] {
+export function collectSnapshotRuntimeRepoRoots(snapshot: TaskPackSnapshot): string[] {
   const roots: string[] = [];
   const seen = new Set<string>();
   const addRoot = (value: string | null | undefined): void => {

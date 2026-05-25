@@ -15,7 +15,6 @@ import {
   CODE_FENCE_PATTERN,
   COMMAND_LINE_PATTERN,
   TABLE_ROW_PATTERN,
-  extractBulletItems,
   normalizeIdentifier,
   normalizeText,
   stripHtmlComments,
@@ -254,27 +253,27 @@ export async function evaluateSpecQualityRules(validator: PolicyValidator): Prom
     }
   }
 
-  const goalsItems = extractBulletItems(
+  const goalsContent = normalizeText(
     resolveSemanticSection(sections, findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'goals')).content,
   );
-  if (!goalsItems.length) {
+  if (!goalsContent) {
     validator.addViolation({
       rule_id: 'spec.goals-measurable',
       artifact: SPEC_RELATIVE_PATH,
-      message: 'Goals must contain at least one numbered or bullet item.',
-      remediation: `Add numbered or bulleted goals content to ${SPEC_RELATIVE_PATH}.`,
+      message: 'Goals must contain substantive content.',
+      remediation: `Add substantive goals content to ${SPEC_RELATIVE_PATH}.`,
     });
   }
 
-  const nonGoalsItems = extractBulletItems(
+  const nonGoalsContent = normalizeText(
     resolveSemanticSection(sections, findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'non-goals')).content,
   );
-  if (!nonGoalsItems.length) {
+  if (!nonGoalsContent) {
     validator.addViolation({
       rule_id: 'spec.non-goals-present',
       artifact: SPEC_RELATIVE_PATH,
-      message: 'Non-Goals must contain at least one numbered or bullet item.',
-      remediation: `Add numbered or bulleted non-goals content to ${SPEC_RELATIVE_PATH}.`,
+      message: 'Non-Goals must contain substantive content.',
+      remediation: `Add substantive non-goals content to ${SPEC_RELATIVE_PATH}.`,
     });
   }
 

@@ -251,7 +251,7 @@ describe('Ron closeout template structure', () => {
     expect(HANDOFF_TEMPLATE_SPECS['final-summary.md'].sections).toContain('Requirement Verification');
     expect(HANDOFF_TEMPLATE_SPECS['final-summary.md'].sections).toContain('Task branches');
     expect(qaInstructions).toContain('## Task branches');
-    expect(artifactCompletion).toContain("sections['Task branches']");
+    expect(artifactCompletion).toContain("sectionValue(finalSummary, 'Task branches')");
   });
 
   it('keeps issues template guidance tied to generated requirement IDs and top-level Review Outcome', () => {

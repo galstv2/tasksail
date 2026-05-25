@@ -1,6 +1,15 @@
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { createLogger, getErrorMessage } from '../core/index.js';
+import {
+  createLogger,
+  emitTaskProgressEvent,
+  formatTaskAgentDisplayName,
+  getErrorMessage,
+  normalizeAgentLaunchPhase,
+  normalizeTaskAgentLaunchOutcome,
+  type TaskAgentLaunchOutcome,
+} from '../core/index.js';
+import type { AgentRunStatus } from '../core/index.js';
 import type { RunRoleAgentOptions, AgentMcpLaunchStatus } from './types.js';
 import { launchAgent, waitForAgentDetailed } from './processLifecycle.js';
 import {
@@ -25,6 +34,13 @@ export type PreparedAgentMcpLaunchContext = ExternalMcpLaunchContext & {
 export type { ExternalMcpLaunchContext };
 
 let internalMcpLaunchCounter = 0;
+
+type AgentSessionTerminalProjection = {
+  progressStatus: AgentRunStatus;
+  outcome: TaskAgentLaunchOutcome;
+  terminalStatus: 'completed' | 'failed';
+  exitCode: number;
+};
 
 export async function refreshQaCodeDiff(options: {
   agentId: RunRoleAgentOptions['agentId'];
@@ -287,26 +303,14 @@ export async function runAgentSession(options: {
         agentId: options.session.agentId,
         taskId: progressTaskId,
         launchId: options.session.launchId,
+        launchPhase: options.session.launchPhase ?? null,
+        displayPhase: normalizeAgentLaunchPhase({
+          agentId: options.session.agentId,
+          launchPhase: options.session.launchPhase,
+        }),
         modelId: options.env['RUN_ROLE_AGENT_ACTIVE_MODEL'] || 'unknown',
       }
     : undefined;
-
-  if (progressIdentity) {
-    log.child({
-      taskId: progressIdentity.taskId,
-      agentId: progressIdentity.agentId,
-      providerId: progressIdentity.providerId,
-    }).progress({
-      level: 'info',
-      event: 'agent.launch.started',
-      extra: {
-        child_pid: child.pid ?? null,
-        launch_id: progressIdentity.launchId,
-        model_id: progressIdentity.modelId,
-      },
-      text: `[agent] started ${progressIdentity.agentId}  pid=${child.pid ?? 'unknown'}  model=${progressIdentity.modelId}`,
-    });
-  }
 
   // Write session start receipt for the runtime stream watcher.
   let sessionReceiptFile: string | undefined;
@@ -353,7 +357,33 @@ export async function runAgentSession(options: {
       // Non-fatal — the terminal feed just won't show the start event.
     }
   }
-
+  if (progressIdentity) {
+    await emitTaskProgressEvent({
+      logger: log.child({
+        taskId: progressIdentity.taskId,
+        agentId: progressIdentity.agentId,
+        providerId: progressIdentity.providerId,
+      }),
+      repoRoot: options.repoRoot,
+      taskId: progressIdentity.taskId,
+      event: {
+        type: 'agent.launch.started',
+        input: {
+          agentId: progressIdentity.agentId,
+          providerId: progressIdentity.providerId,
+          launchId: progressIdentity.launchId,
+          launchPhase: progressIdentity.launchPhase,
+          displayPhase: progressIdentity.displayPhase,
+          displayName: formatTaskAgentDisplayName({
+            agentId: progressIdentity.agentId,
+            phase: progressIdentity.displayPhase,
+          }),
+          childPid: child.pid ?? null,
+          modelId: progressIdentity.modelId,
+        },
+      },
+    });
+  }
   let greedyStopTriggered = false;
   let greedyMonitorError: unknown;
   let greedyCheckInFlight = false;
@@ -407,22 +437,35 @@ export async function runAgentSession(options: {
     await stopHeartbeat();
   }
   const durationMs = Date.now() - launchStartedAt;
-  const status = deriveAgentRunStatus(runSummary);
+  const terminalProjection = projectAgentSessionTerminal({ runSummary, greedyStopTriggered });
   if (progressIdentity) {
-    log.child({
+    await emitTaskProgressEvent({
+      logger: log.child({
+        taskId: progressIdentity.taskId,
+        agentId: progressIdentity.agentId,
+        providerId: progressIdentity.providerId,
+      }),
+      repoRoot: options.repoRoot,
       taskId: progressIdentity.taskId,
-      agentId: progressIdentity.agentId,
-      providerId: progressIdentity.providerId,
-    }).progress({
-      level: 'info',
-      event: 'agent.launch.terminal',
-      extra: {
-        child_pid: child.pid ?? null,
-        status,
-        duration_ms: durationMs,
-        exit_code: runSummary.exitCode,
+      event: {
+        type: 'agent.launch.terminal',
+        input: {
+          agentId: progressIdentity.agentId,
+          providerId: progressIdentity.providerId,
+          launchId: progressIdentity.launchId,
+          launchPhase: progressIdentity.launchPhase,
+          displayPhase: progressIdentity.displayPhase,
+          displayName: formatTaskAgentDisplayName({
+            agentId: progressIdentity.agentId,
+            phase: progressIdentity.displayPhase,
+          }),
+          childPid: child.pid ?? null,
+          status: terminalProjection.progressStatus,
+          outcome: terminalProjection.outcome,
+          durationMs,
+          exitCode: terminalProjection.exitCode,
+        },
       },
-      text: `[agent] exited ${progressIdentity.agentId}  ${status}  in ${Math.round(durationMs / 1000)}s${status === 'success' ? ' [ok]' : status === 'failure' ? ' [fail]' : ''}`,
     });
   }
   // Write session terminal receipt for the runtime stream watcher.
@@ -431,8 +474,8 @@ export async function runAgentSession(options: {
       await writeSessionTerminalReceipt({
         receiptPath: sessionReceiptFile,
         agentId: options.session.agentId,
-        terminalStatus: runSummary.exitCode === 0 ? 'completed' : 'failed',
-        exitCode: runSummary.exitCode,
+        terminalStatus: terminalProjection.terminalStatus,
+        exitCode: terminalProjection.exitCode,
       });
     } catch {
       // Non-fatal — the terminal feed just won't show the end event.
@@ -451,7 +494,7 @@ export async function runAgentSession(options: {
 
 function deriveAgentRunStatus(
   result: Awaited<ReturnType<typeof waitForAgentDetailed>>,
-): 'success' | 'failure' | 'killed' | 'timeout' {
+): AgentRunStatus {
   if (
     result.terminationReason === 'wall-clock-timeout'
     || result.terminationReason === 'idle-timeout'
@@ -462,4 +505,28 @@ function deriveAgentRunStatus(
     return 'killed';
   }
   return result.exitCode === 0 ? 'success' : 'failure';
+}
+
+export function projectAgentSessionTerminal(input: {
+  runSummary: Awaited<ReturnType<typeof waitForAgentDetailed>>;
+  greedyStopTriggered: boolean;
+}): AgentSessionTerminalProjection {
+  if (input.greedyStopTriggered) {
+    return {
+      progressStatus: 'success',
+      outcome: 'completed',
+      terminalStatus: 'completed',
+      exitCode: 0,
+    };
+  }
+  const progressStatus = deriveAgentRunStatus(input.runSummary);
+  return {
+    progressStatus,
+    outcome: normalizeTaskAgentLaunchOutcome({
+      processStatus: progressStatus,
+      exitCode: input.runSummary.exitCode,
+    }),
+    terminalStatus: input.runSummary.exitCode === 0 ? 'completed' : 'failed',
+    exitCode: input.runSummary.exitCode,
+  };
 }

@@ -15,6 +15,8 @@ import type {
   ContextPackSidebarStateLoadResponse,
   PackSeedState,
   TaskBoardReadBoardResponse,
+  TaskBoardKillTaskResponse,
+  TaskBoardRetryKillCleanupResponse,
 } from './desktopContract';
 import { isRecord } from './desktopContractValidators';
 
@@ -169,13 +171,63 @@ export function isPackSeedState(value: unknown): value is PackSeedState {
   return value === 'seeded' || value === 'bootstrap-empty';
 }
 
+const TASK_BOARD_PENDING_STATES = ['active', 'activating', 'pending', 'stopping'] as const;
+const TASK_BOARD_STOP_CLEANUP_CODES = [
+  'unproven-stopped',
+  'failed-item-cleanup-failed',
+  'activation-cleanup-failed',
+  'unexpected-cleanup-error',
+] as const;
+
+function isTaskBoardPendingItem(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.fileName !== 'string') return false;
+  if (value.taskId !== null && typeof value.taskId !== 'string') return false;
+  if (value.title !== null && typeof value.title !== 'string') return false;
+  if (!TASK_BOARD_PENDING_STATES.includes(value.state as typeof TASK_BOARD_PENDING_STATES[number])) return false;
+  if (value.stopCleanupStatus !== undefined && value.stopCleanupStatus !== 'failed') return false;
+  if (
+    value.stopCleanupErrorCode !== undefined
+    && !TASK_BOARD_STOP_CLEANUP_CODES.includes(value.stopCleanupErrorCode as typeof TASK_BOARD_STOP_CLEANUP_CODES[number])
+  ) {
+    return false;
+  }
+  if (value.stopCleanupFailedAt !== undefined && typeof value.stopCleanupFailedAt !== 'string') return false;
+  if (value.stopCleanupMessage !== undefined && typeof value.stopCleanupMessage !== 'string') return false;
+  if (value.stopCleanupRetryable !== undefined && typeof value.stopCleanupRetryable !== 'boolean') return false;
+  return true;
+}
+
 export function isTaskBoardReadBoardResponse(
   response: unknown,
 ): response is TaskBoardReadBoardResponse {
-  return (
-    typeof response === 'object' &&
-    response !== null &&
-    'action' in response &&
-    response.action === 'taskBoard.readBoard'
-  );
+  if (!isRecord(response)) return false;
+  if (response.action !== 'taskBoard.readBoard') return false;
+  if (!Array.isArray(response.dropboxItems)) return false;
+  if (!Array.isArray(response.pendingItems)) return false;
+  if (!Array.isArray(response.errorItems)) return false;
+  if (!Array.isArray(response.completedItems)) return false;
+  return response.pendingItems.every(isTaskBoardPendingItem);
+}
+
+export function isTaskBoardKillTaskResponse(
+  response: unknown,
+): response is TaskBoardKillTaskResponse {
+  if (!isRecord(response)) return false;
+  if (response.action !== 'taskBoard.killTask') return false;
+  if (response.mode !== 'failed' && response.mode !== 'kill-requested') return false;
+  if (typeof response.message !== 'string' || typeof response.taskId !== 'string') return false;
+  if (response.movedItem !== undefined && typeof response.movedItem !== 'string') return false;
+  if (response.nextActiveItem !== undefined && response.nextActiveItem !== null && typeof response.nextActiveItem !== 'string') return false;
+  return true;
+}
+
+export function isTaskBoardRetryKillCleanupResponse(
+  response: unknown,
+): response is TaskBoardRetryKillCleanupResponse {
+  if (!isRecord(response)) return false;
+  return response.action === 'taskBoard.retryKillCleanup'
+    && response.mode === 'cleanup-retry-scheduled'
+    && typeof response.message === 'string'
+    && typeof response.taskId === 'string';
 }

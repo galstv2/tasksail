@@ -61,20 +61,41 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + `## Difficulty Assessment\n\n- Difficulty Level: ${difficultyLevel}\n`,
       'utf-8',
     );
   };
 
+  const completeImplementationSpec = (): string => '# Implementation Spec\n\n'
+    + '## Problem and Outcome\n\n'
+    + '### Problem Statement\n\nCLI help and unknown command behavior needs clearer guidance.\n\n'
+    + '### Goals\n\n- Add clear help and unknown command guidance.\n\n'
+    + '### Non-Goals\n\n- Do not change unrelated CLI behavior.\n\n'
+    + '## Current State and Boundaries\n\n'
+    + '### Codebase Analysis\n\n- Commands.cs owns command dispatch.\n\n'
+    + '### Dependency Analysis\n\n| Dependency | Impact |\n| --- | --- |\n| tools CLI | direct |\n\n'
+    + '### Change Boundaries\n\n- Keep changes in CLI command handling and tests.\n\n'
+    + '## Implementation Plan\n\n'
+    + '### Architecture Summary\n\nUse the existing command registry and output path.\n\n'
+    + '### Touched Systems\n\n- tools CLI\n\n'
+    + '### Proposed Structure\n\n- Add help command and tests.\n\n'
+    + '## Validation and Evidence\n\n'
+    + '### Validation Strategy\n\n```bash\npytest -q\n```\n\n'
+    + '## Change Surface\n\n'
+    + '### Files or Areas Likely to Change\n\n- crud.py\n';
+
   it('allows explicit sequential parallel-ok artifacts for product manager completion', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -103,11 +124,11 @@ describe('artifactCompletion', () => {
   it('requires an explicit parallel-ok decision before product manager can complete', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -135,7 +156,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -159,11 +180,11 @@ describe('artifactCompletion', () => {
   it('treats placeholder-only slice sections as incomplete for product manager completion', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nTBD\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -187,11 +208,11 @@ describe('artifactCompletion', () => {
   it('names missing product-manager slice sections in remediation prompt', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n## Purpose\n\nAdd search support.\n\n## Depends On\n\nNone.\n',
       'utf-8',
     );
@@ -203,16 +224,23 @@ describe('artifactCompletion', () => {
       repoRoot,
     });
 
-    expect(prompt).toContain('slice-search.md');
+    expect(prompt).toContain('slice-1.md');
     expect(prompt).toContain('Scope');
     expect(prompt).toContain('Validation Commands / Validation');
     expect(prompt).toContain('Acceptance and Validation');
+    expect(prompt).toContain('Product-manager artifact repair protocol');
+    expect(prompt).toContain('rebuild this malformed slice');
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'templates', 'slice-template.md'));
+    expect(prompt).toContain('preserve every seeded ## and ### heading');
+    expect(prompt).toContain('remove custom replacement headings such as ## Steps, ## Validation, or ## Notes');
+    expect(prompt).toContain('## Guards and Coordination');
+    expect(prompt).toContain('### Guards');
   });
 
   it('accepts workflow-policy section aliases when checking product-manager slice readiness', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
@@ -221,7 +249,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Objective\n\nAdd search support.\n\n'
       + '## Dependencies\n\nNone.\n\n'
@@ -245,7 +273,7 @@ describe('artifactCompletion', () => {
   it('accepts validation commands nested under the Acceptance and Validation container', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
@@ -254,7 +282,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -279,7 +307,7 @@ describe('artifactCompletion', () => {
   it('requires the final product-manager slice to be runtime ready', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n\n## Validation Strategy\n\n```bash\npytest -q\n```\n\n## Files or Areas Likely to Change\n\n- crud.py\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
@@ -288,7 +316,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -301,7 +329,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice2.md'),
+      path.join(implStepsDir, 'slice-2.md'),
       '# Slice Template\n\n## Purpose\n<!-- placeholder -->\n',
       'utf-8',
     );
@@ -314,10 +342,10 @@ describe('artifactCompletion', () => {
     })).resolves.toBe(false);
 
     writeFileSync(
-      path.join(implStepsDir, 'slice2.md'),
+      path.join(implStepsDir, 'slice-2.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nFinish CRUD tests.\n\n'
-      + '## Depends On\n\nslice-search\n\n'
+      + '## Depends On\n\nslice-1\n\n'
       + '## Scope\n\n- add search assertions\n\n'
       + '## Files\n\n- test_crud.py: extend tests\n\n'
       + '## Acceptance Criteria\n\n- search coverage passes\n\n'
@@ -337,7 +365,7 @@ describe('artifactCompletion', () => {
 
   it('tells product manager to complete implementation-spec before routing parallel or sequential work', async () => {
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -364,7 +392,7 @@ describe('artifactCompletion', () => {
   it('gives Alice concrete cleanup instructions for generated intake spine policy failures', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
@@ -373,7 +401,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -395,8 +423,9 @@ describe('artifactCompletion', () => {
       policyViolationRuleIds: ['spec.intake-requirements-critical-matches'],
     });
 
-    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/implementation-spec.md');
-    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/intake.md');
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'implementation-spec.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'intake.md'));
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
     expect(prompt).toContain('## Intake Requirements');
     expect(prompt).toContain(
       'restore the generated ## Intake Requirements section from intake.md. Do not reinterpret, summarize, reorder, or weaken the copied Critical Requirements, Compatibility Requirements, or Required Validation content. Leave authored planning sections otherwise unchanged unless needed to keep markdown structure valid.',
@@ -406,7 +435,7 @@ describe('artifactCompletion', () => {
   it('does not create cleanup instructions for unrelated policy failures alone', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      '# Implementation Spec\n\n## Goals\n\n- add query helpers\n',
+      completeImplementationSpec(),
       'utf-8',
     );
     writeFileSync(
@@ -415,7 +444,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -438,6 +467,29 @@ describe('artifactCompletion', () => {
     });
 
     expect(prompt).toBe('');
+  });
+
+  it('uses only concrete absolute product-manager remediation paths', async () => {
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'implementation-spec.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'parallel-ok.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'templates', 'slice-template.md'));
+    expect(prompt).toContain('slice-<number>.md file or files');
+    expect(prompt).toContain('copying');
+    expect(prompt).toContain('preserving every seeded ## and ### heading');
+    expect(prompt).toContain('TASKSAIL_TASK_WORKTREES_FILE');
+    expect(prompt).not.toContain('sliceN.md');
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR');
+    expect(prompt).not.toContain('AgentWorkSpace/tasks/active');
   });
 
   it.each([
@@ -478,8 +530,10 @@ describe('artifactCompletion', () => {
       policyViolationRuleIds: [ruleId],
     });
 
-    expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/implementation-spec.md');
-    expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/');
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'implementation-spec.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'ImplementationSteps'));
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR');
     expect(prompt).toContain('## Intake Requirements');
     expect(prompt).toContain('### Requirement Handling');
     expect(prompt).toContain('### Requirement Coverage');
@@ -496,7 +550,7 @@ describe('artifactCompletion', () => {
       'utf-8',
     );
     writeFileSync(
-      path.join(implStepsDir, 'slice-search.md'),
+      path.join(implStepsDir, 'slice-1.md'),
       '# Slice Template\n\n'
       + '## Purpose\n\nAdd search support.\n\n'
       + '## Depends On\n\nNone.\n\n'
@@ -598,6 +652,9 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\nDifficulty Level - medium confidence\n',
       'utf-8',
@@ -625,7 +682,10 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
-      + '## Requirement Verification\n\n- CR-001: pending - Ron must verify before pass/advisory closeout.\n- VAL-001: verified - focused tests passed.\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
+      + '## Requirement Verification\n\n- CR-001: pending\n- VAL-001: verified - focused tests passed.\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
@@ -669,7 +729,10 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
       + '## Requirement Verification\n\n<!-- - CR-001: verified - hidden -->\n\n```text\n- CR-001: verified - hidden\n```\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
@@ -697,7 +760,10 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
       + '## Requirement Verification\n\n- CR-001: verified acceptance criteria passed.\n- VAL-001: advisory broad suite remains follow-up.\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
@@ -725,7 +791,10 @@ describe('artifactCompletion', () => {
       + '## Completed Work\n\n- delivered fix\n\n'
       + '## Key Design Decisions\n\n- kept contract aligned\n\n'
       + '## Known Limitations\n\n- none\n\n'
+      + '## Test Result Summary\n\nFocused checks passed.\n\n'
       + '## Requirement Verification\n\n- CR-001 — verified—acceptance criteria passed.\n- VAL-001 - advisory - broad suite remains follow-up.\n\n'
+      + '## Test Status\n\npassed\n\n'
+      + '## QA Status\n\npassed\n\n'
       + '## Task branches\n\n[]\n\n'
       + '## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
@@ -757,6 +826,34 @@ describe('artifactCompletion', () => {
 
     expect(prompt).toContain('populate ## Requirement Verification');
     expect(prompt).toContain('replace each pending with verified or advisory');
+  });
+
+  it('uses only concrete absolute qa remediation paths', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'issues.md'),
+      '# Issues\n\n## Review Outcome\n\nneeds value\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nsoftware-engineer\n',
+      'utf-8',
+    );
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'qa',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'final-summary.md'));
+    expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'retrospective-input.md'));
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR');
+    expect(prompt).not.toContain('AgentWorkSpace/tasks/active');
   });
 
   it('fails qa completion when issues.md lacks top-level Review Outcome', async () => {
@@ -803,7 +900,7 @@ describe('artifactCompletion', () => {
     writeQaArtifacts();
     writeFileSync(
       path.join(handoffsDir, 'final-summary.md'),
-      '# Final Summary\n\n## Task Metadata\n\n- Closeout Owner Agent ID: qa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      '# Final Summary\n\n## Task Metadata\n\n- Closeout Owner Agent ID: qa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Test Result Summary\n\nFocused checks passed.\n\n## Test Status\n\npassed\n\n## QA Status\n\npassed\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
 
@@ -819,7 +916,7 @@ describe('artifactCompletion', () => {
     writeQaArtifacts();
     writeFileSync(
       path.join(handoffsDir, 'final-summary.md'),
-      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Test Result Summary\n\nFocused checks passed.\n\n## Test Status\n\npassed\n\n## QA Status\n\npassed\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
 
@@ -835,7 +932,7 @@ describe('artifactCompletion', () => {
     writeQaArtifacts();
     writeFileSync(
       path.join(handoffsDir, 'final-summary.md'),
-      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Test Result Summary\n\nFocused checks passed.\n\n## Test Status\n\npassed\n\n## QA Status\n\npassed\n\n## Task Branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
 
@@ -848,7 +945,8 @@ describe('artifactCompletion', () => {
     });
 
     expect(prompt).toContain('preserve every top-level ## heading from the seeded template');
-    expect(prompt).toContain('Do not move Closeout Owner Agent ID, Review Outcome, or Task branches into Task Metadata or a custom summary');
+    expect(prompt).toContain('Do not move Review Outcome or Task branches into Task Metadata or a custom summary');
+    expect(prompt).toContain('Leave platform-owned Closeout Owner Agent ID unchanged');
   });
 
   it('mentions difficulty remediation when qa final summary is otherwise complete', async () => {
@@ -884,7 +982,7 @@ describe('artifactCompletion', () => {
     );
     writeFileSync(
       path.join(perTaskHandoffs, 'final-summary.md'),
-      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Completed Work\n\n- done\n\n## Key Design Decisions\n\n- choice\n\n## Known Limitations\n\n- none\n\n## Test Result Summary\n\nFocused checks passed.\n\n## Test Status\n\npassed\n\n## QA Status\n\npassed\n\n## Task branches\n\n[]\n\n## Difficulty Assessment\n\n- Difficulty Level: Medium\n',
       'utf-8',
     );
 

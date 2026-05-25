@@ -106,4 +106,168 @@ describe('useTaskBoard', () => {
       }));
     });
   });
+
+  it('optimistically marks a killed row as stopping', async () => {
+    const client = createMockClient({
+      readTaskBoard: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{ fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' }],
+          errorItems: [],
+          completedItems: [],
+        },
+      }),
+      killTask: vi.fn(() => new Promise<never>(() => {})),
+    });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+    await waitFor(() => expect(result.current.board.pendingItems[0]?.state).toBe('active'));
+
+    act(() => {
+      void result.current.killTask('ACTIVE.md', 'ACTIVE');
+    });
+
+    expect(result.current.board.pendingItems[0]).toMatchObject({
+      taskId: 'ACTIVE',
+      state: 'stopping',
+      stopRequestedAt: expect.any(String),
+    });
+  });
+
+  it('refreshes to roll back optimistic stopping when kill IPC throws', async () => {
+    const readTaskBoard = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{ fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' }],
+          errorItems: [],
+          completedItems: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{ fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' }],
+          errorItems: [],
+          completedItems: [],
+        },
+      });
+    const client = createMockClient({
+      readTaskBoard,
+      killTask: vi.fn().mockRejectedValue(new Error('Stop failed.')),
+    });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+    await waitFor(() => expect(result.current.board.pendingItems[0]?.state).toBe('active'));
+
+    await act(async () => {
+      await result.current.killTask('ACTIVE.md', 'ACTIVE');
+    });
+
+    expect(readTaskBoard).toHaveBeenCalledTimes(2);
+    expect(result.current.board.pendingItems[0]?.state).toBe('active');
+  });
+
+  it('refreshes to roll back optimistic stopping when kill IPC returns ok false', async () => {
+    const readTaskBoard = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{ fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' }],
+          errorItems: [],
+          completedItems: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{ fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' }],
+          errorItems: [],
+          completedItems: [],
+        },
+      });
+    const client = createMockClient({
+      readTaskBoard,
+      killTask: vi.fn().mockResolvedValue({
+        ok: false,
+        action: 'taskBoard.killTask',
+        error: 'No longer active.',
+      }),
+    });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+    await waitFor(() => expect(result.current.board.pendingItems[0]?.state).toBe('active'));
+
+    await act(async () => {
+      await result.current.killTask('ACTIVE.md', 'ACTIVE');
+    });
+
+    expect(readTaskBoard).toHaveBeenCalledTimes(2);
+    expect(result.current.board.pendingItems[0]?.state).toBe('active');
+  });
+
+  it('calls retry cleanup and refreshes when retry IPC fails', async () => {
+    const readTaskBoard = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [{
+            fileName: 'ACTIVE.md',
+            taskId: 'ACTIVE',
+            title: 'Active',
+            state: 'stopping',
+            stopCleanupStatus: 'failed',
+            stopCleanupRetryable: true,
+          }],
+          errorItems: [],
+          completedItems: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readBoard',
+          mode: 'read-only',
+          message: '0 open, 1 pending, 0 failed, 0 completed.',
+          dropboxItems: [],
+          pendingItems: [],
+          errorItems: [],
+          completedItems: [],
+        },
+      });
+    const client = createMockClient({
+      readTaskBoard,
+      retryKillCleanup: vi.fn().mockRejectedValue(new Error('Retry failed.')),
+    });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+    await waitFor(() => expect(result.current.board.pendingItems[0]?.state).toBe('stopping'));
+
+    await act(async () => {
+      await result.current.retryKillCleanup('ACTIVE.md', 'ACTIVE');
+    });
+
+    expect(client.retryKillCleanup).toHaveBeenCalledWith('ACTIVE.md', 'ACTIVE');
+    expect(readTaskBoard).toHaveBeenCalledTimes(2);
+  });
 });

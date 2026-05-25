@@ -47,6 +47,8 @@ import {
   deleteTask as deleteTaskAction,
   moveToPending as moveToPendingAction,
   moveToOpen as moveToOpenAction,
+  killTask as killTaskAction,
+  retryKillCleanup as retryKillCleanupAction,
 } from './main.taskBoard';
 import {
   submitDraftViaDropboxHelper,
@@ -260,6 +262,12 @@ export type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   moveToOpen: (
     payload: import('../src/shared/desktopContract').TaskBoardMoveToOpenRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  killTask: (
+    payload: import('../src/shared/desktopContract').TaskBoardKillTaskRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  retryKillCleanup: (
+    payload: import('../src/shared/desktopContract').TaskBoardRetryKillCleanupRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   saveDeepFocusSelections: (
     payload: import('../src/shared/desktopContract').DeepFocusSaveSelectionsRequest['payload'],
@@ -625,6 +633,8 @@ export function createDefaultDesktopActionHandlers(
     return result;
   },
   moveToOpen: (payload) => moveToOpenAction(payload, listAvailableContextPacks),
+  killTask: (payload) => killTaskAction(payload, listAvailableContextPacks),
+  retryKillCleanup: (payload) => retryKillCleanupAction(payload, listAvailableContextPacks),
   activateContextPack: async (payload) => {
     const catalog = await listAvailableContextPacks();
     const entry = catalog.contextPacks.find((p) => p.contextPackId === payload.packId);

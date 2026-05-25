@@ -13,7 +13,7 @@ import {
   TASK_RECOMMENDED_SECTIONS,
   TASK_REQUIRED_SECTIONS,
 } from '../models.js';
-import { extractBulletItems, normalizeText } from '../matching.js';
+import { normalizeText } from '../matching.js';
 import { parseSemanticSections } from '../artifacts.js';
 import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
@@ -80,23 +80,23 @@ export async function evaluateTaskQualityRules(validator: PolicyValidator): Prom
     }
   }
 
-  const acItems = extractBulletItems(sections['Acceptance Criteria'] ?? []);
-  if (!acItems.length) {
+  const acContent = normalizeText(sections['Acceptance Criteria'] ?? []);
+  if (!acContent) {
     validator.addViolation({
       rule_id: 'task.acceptance-criteria-measurable',
       artifact: TASK_RELATIVE_PATH,
-      message: 'Acceptance Criteria must contain at least one bullet or numbered item.',
-      remediation: `Add bulleted or numbered acceptance criteria to '## Acceptance Criteria' in ${TASK_RELATIVE_PATH}.`,
+      message: 'Acceptance Criteria must contain substantive content.',
+      remediation: `Add substantive acceptance criteria to '## Acceptance Criteria' in ${TASK_RELATIVE_PATH}.`,
     });
   }
 
-  const ngItems = extractBulletItems(sections['Non-Goals'] ?? []);
-  if (!ngItems.length) {
+  const ngContent = normalizeText(sections['Non-Goals'] ?? []);
+  if (!ngContent) {
     validator.addViolation({
       rule_id: 'task.non-goals-present',
       artifact: TASK_RELATIVE_PATH,
-      message: 'Non-Goals must contain at least one bullet or numbered item.',
-      remediation: `Add bulleted or numbered non-goals to '## Non-Goals' in ${TASK_RELATIVE_PATH}.`,
+      message: 'Non-Goals must contain substantive content.',
+      remediation: `Add substantive non-goals to '## Non-Goals' in ${TASK_RELATIVE_PATH}.`,
     });
   }
 

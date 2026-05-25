@@ -333,7 +333,7 @@ export type PlannerReadStagedDraftResponse = {
 export type PlannerFinalizeSpecRequest = {
   action: 'planner.finalizeSpec';
   payload?: {
-    expectedTaskKind?: 'standard' | 'child-task';
+    expectedTaskKind?: PlannerTaskKind;
   };
 };
 

@@ -6,6 +6,8 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import { Readable } from 'node:stream';
+import { resolveQueuePaths } from '../../queue/paths.js';
+import { writeActivationProgress } from '../../queue/activationProgress.js';
 
 // ---------------------------------------------------------------------------
 // Mocks (must be hoisted before imports)
@@ -181,6 +183,29 @@ describe('pipelineSupervisor', () => {
     expect(active).toHaveLength(2);
     expect(active.map((e) => e.taskId).sort()).toEqual(['task-a', 'task-b']);
     expect(active[0]!.pid).toBeGreaterThan(0);
+  });
+
+  it('stopPipeline waits for an in-flight start before stopping with caller-owned cleanup', async () => {
+    const child = makeChildStub({ pid: 77771 });
+    let resolveSpawn!: (value: typeof child) => void;
+    spawnPipelineForTaskMock.mockReturnValue(new Promise((resolve) => {
+      resolveSpawn = resolve;
+    }));
+
+    const { startPipeline, stopPipeline } = await import('../pipelineSupervisor.js');
+
+    const startPromise = startPipeline('task-starting', repoRoot);
+    const stopPromise = stopPipeline('task-starting', 100, { cleanupOwner: 'caller' });
+    resolveSpawn(child);
+    await expect(startPromise).resolves.toEqual({ status: 'started', pid: child.pid });
+    child.triggerExit(0);
+
+    await expect(stopPromise).resolves.toEqual({ status: 'stopped-graceful' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(moveFailedItemToErrorItemsMock).not.toHaveBeenCalledWith({
+      repoRoot,
+      taskId: 'task-starting',
+    });
   });
 
   it('routes child exit promise failures through the task failure path', async () => {
@@ -535,6 +560,65 @@ describe('pipelineSupervisor', () => {
       expect(String(warnSpy.mock.calls.flat().join('\n'))).toContain('startup_recovery.completion_unproven');
       expect(existsSync(path.join(activeItemsDir, taskId))).toBe(false);
       expect(existsSync(path.join(activeItemsDir, `${taskId}.completing`))).toBe(false);
+    });
+  });
+
+  describe('activation progress startup recovery', () => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'tasksail-recover-activating-'));
+    });
+
+    afterEach(async () => {
+      await rm(tmpRoot, { recursive: true, force: true });
+      vi.restoreAllMocks();
+    });
+
+    it('removes stale activating marker for pending markdown without moving task state', async () => {
+      const paths = resolveQueuePaths(tmpRoot);
+      mkdirSync(paths.pendingDir, { recursive: true });
+      writeFileSync(path.join(paths.pendingDir, 'task-pending.md'), '# Pending\n');
+      await writeActivationProgress(paths, {
+        taskId: 'task-pending',
+        queueName: 'task-pending.md',
+        title: null,
+        phase: 'validating',
+        startedAt: '2026-05-23T10:00:00Z',
+      });
+
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpRoot);
+
+      expect(existsSync(path.join(paths.activatingItemsDir, 'task-pending.json'))).toBe(false);
+      expect(existsSync(path.join(paths.pendingDir, 'task-pending.md'))).toBe(true);
+      expect(moveFailedItemToErrorItemsMock).not.toHaveBeenCalledWith(expect.objectContaining({
+        taskId: 'task-pending',
+      }));
+    });
+
+    it('removes activating marker when active marker exists and lets active recovery own the task', async () => {
+      const paths = resolveQueuePaths(tmpRoot);
+      mkdirSync(paths.pendingDir, { recursive: true });
+      mkdirSync(paths.activeItemsDir, { recursive: true });
+      writeFileSync(path.join(paths.pendingDir, 'task-active.md'), '# Active\n');
+      writeFileSync(path.join(paths.activeItemsDir, 'task-active'), 'task-active.md');
+      await writeActivationProgress(paths, {
+        taskId: 'task-active',
+        queueName: 'task-active.md',
+        title: null,
+        phase: 'starting-pipeline',
+        startedAt: '2026-05-23T10:00:00Z',
+      });
+
+      const { recoverOnStartup } = await import('../pipelineSupervisor.js');
+      await recoverOnStartup(tmpRoot);
+
+      expect(existsSync(path.join(paths.activatingItemsDir, 'task-active.json'))).toBe(false);
+      expect(moveFailedItemToErrorItemsMock).toHaveBeenCalledWith(expect.objectContaining({
+        repoRoot: tmpRoot,
+        taskId: 'task-active',
+      }));
     });
   });
 });

@@ -519,6 +519,8 @@ describe('desktopShellClient', () => {
       deleteTask: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.deleteTask', mode: 'deleted', message: 'Deleted.', fileName: 'task.md', column: 'open' } }),
       moveToPending: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.moveToPending', mode: 'moved', message: 'Moved.', movedItem: 'task.md' } }),
       moveToOpen: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.moveToOpen', mode: 'moved', message: 'Moved.', movedItem: 'task.md' } }),
+      killTask: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.killTask', mode: 'kill-requested', message: 'Stop requested.', taskId: 'task' } }),
+      retryKillCleanup: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.retryKillCleanup', mode: 'cleanup-retry-scheduled', message: 'Retry cleanup scheduled.', taskId: 'task' } }),
       setRepositoryType: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepositoryType', mode: 'updated', message: 'Updated.' } }),
       setRepoCategory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.setRepoCategory', mode: 'updated', message: 'Updated.' } }),
       getBackendServiceStatus: vi.fn().mockResolvedValue({ ok: true, response: { action: 'services.readStatus', mode: 'observed', status: 'idle', lastCheckedAt: null, error: null, message: 'Idle.' } }),

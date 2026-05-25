@@ -21,6 +21,7 @@ const COPILOT_PERSONALITY_PROMPTS: Record<PlannerLilyPersonalityId, CopilotPlann
     promptFile: 'lily-personality-clinical.prompt.md',
   },
 };
+const personalityPromptCache = new Map<string, string>();
 
 let cachedDefaultRepoRoot: string | null = null;
 function defaultRepoRoot(): string {
@@ -34,11 +35,21 @@ function resolvePersonalityPrompt(repoRoot: string, id: PlannerLilyPersonalityId
   return path.join(repoRoot, '.github', 'copilot', 'prompts', COPILOT_PERSONALITY_PROMPTS[id].promptFile);
 }
 
+function personalityPromptCacheKey(repoRoot: string, id: PlannerLilyPersonalityId): string {
+  return `${repoRoot}\0${id}`;
+}
+
 function readPersonalityPrompt(repoRoot: string, id: PlannerLilyPersonalityId): string {
+  const cacheKey = personalityPromptCacheKey(repoRoot, id);
+  const cached = personalityPromptCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const prompt = readFileSync(resolvePersonalityPrompt(repoRoot, id), 'utf-8').trim();
   if (!prompt) {
     throw new Error(`Copilot planner personality prompt "${id}" is empty.`);
   }
+  personalityPromptCache.set(cacheKey, prompt);
   return prompt;
 }
 

@@ -19,7 +19,6 @@ export class DaltonConfinementError extends Error {
   }
 }
 
-const ALLOWED_PLATFORM_WRITE_PATHS = [] as const;
 const SAFETY_SKEW_MS = 2000;
 
 export async function captureChangedPathsSnapshot(
@@ -99,21 +98,22 @@ function isAllowedChangedPath(options: {
     return false;
   }
 
-  if (options.repoRoot === options.platformRepoRoot) {
-    return ALLOWED_PLATFORM_WRITE_PATHS.includes(normalizedPath as (typeof ALLOWED_PLATFORM_WRITE_PATHS)[number]);
-  }
-
   const isPrimaryRepo = options.repoRoot === options.focused.primaryRepoRoot;
-  const isVisibleRepo = options.focused.visibleRepoRoots.includes(options.repoRoot);
-  if (!isPrimaryRepo && !isVisibleRepo) {
-    return false;
-  }
 
   if (options.focused.writableRoots?.length) {
     const writableRootsForRepo = options.focused.writableRoots.filter((root) =>
       root.repoLocalPath === options.repoRoot || (isPrimaryRepo && root.repoLocalPath === undefined),
     );
     return writableRootsForRepo.some((root) => isWithinRelativeRoot(normalizedPath, root));
+  }
+
+  if (options.repoRoot === options.platformRepoRoot && !isPrimaryRepo) {
+    return false;
+  }
+
+  const isVisibleRepo = options.focused.visibleRepoRoots.includes(options.repoRoot);
+  if (!isPrimaryRepo && !isVisibleRepo) {
+    return false;
   }
 
   if (!isPrimaryRepo) {

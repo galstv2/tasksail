@@ -8,7 +8,7 @@ import {
   getErrorMessage,
   newSpanId,
   STANDARD_AGENT_ORDER,
-  RuntimeTerminalEvents,
+  emitTaskProgressEvent,
 } from '../../core/index.js';
 import type { AgentId } from '../../core/index.js';
 import path from 'node:path';
@@ -561,32 +561,49 @@ export async function runTestCaptureWithPhaseTracking(options: {
   captureCwd: string | null | undefined;
   abortSignal?: AbortSignal;
   pipelineTaskId?: string;
+  repoRoot?: string;
 }): Promise<{ results: TestCaptureResult[]; skipped: boolean }> {
-  const emitPipelinePhaseProgress = (
+  const emitPipelinePhaseProgress = async (
     nextPhase: string,
     priorPhase: string | null = null,
-  ): void => {
+  ): Promise<void> => {
     if (!options.pipelineTaskId) {
       return;
     }
-    log.child({ taskId: options.pipelineTaskId }).progress({
-      level: 'info',
-      event: 'pipeline.phase',
-      extra: { phase: nextPhase, prior_phase: priorPhase },
-      text: `[pipeline] ${priorPhase ? `${priorPhase} -> ${nextPhase}` : nextPhase}`,
+    if (!options.repoRoot) {
+      return;
+    }
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId: options.pipelineTaskId }),
+      repoRoot: options.repoRoot,
+      taskId: options.pipelineTaskId,
+      event: { type: 'pipeline.phase', input: { phase: nextPhase, priorPhase } },
     });
+  };
+  const emitTestCaptureEvent = async (type: 'test_capture.started' | 'test_capture.completed' | 'test_capture.skipped'): Promise<void> => {
+    if (!options.pipelineTaskId || !options.repoRoot) return;
+    if (type === 'test_capture.started') {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.pipelineTaskId }), repoRoot: options.repoRoot, taskId: options.pipelineTaskId, event: { type: 'test_capture.started' } });
+    } else if (type === 'test_capture.completed') {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.pipelineTaskId }), repoRoot: options.repoRoot, taskId: options.pipelineTaskId, event: { type: 'test_capture.completed' } });
+    } else {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.pipelineTaskId }), repoRoot: options.repoRoot, taskId: options.pipelineTaskId, event: { type: 'test_capture.skipped' } });
+    }
   };
 
   if (options.captureCwd) {
     await writePipelinePhase(options.taskRuntime, 'test-capture-started');
-    emitPipelinePhaseProgress('test-capture-started');
+    await emitPipelinePhaseProgress('test-capture-started');
+    await emitTestCaptureEvent('test_capture.started');
     const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal);
     await writePipelinePhase(options.taskRuntime, 'test-capture-completed');
-    emitPipelinePhaseProgress('test-capture-completed', 'test-capture-started');
+    await emitPipelinePhaseProgress('test-capture-completed', 'test-capture-started');
+    await emitTestCaptureEvent('test_capture.completed');
     return { results, skipped: false };
   }
   await writePipelinePhase(options.taskRuntime, 'test-capture-skipped');
-  emitPipelinePhaseProgress('test-capture-skipped');
+  await emitPipelinePhaseProgress('test-capture-skipped');
+  await emitTestCaptureEvent('test_capture.skipped');
   return { results: [], skipped: true };
 }
 
@@ -713,10 +730,12 @@ async function runRetrospectivePhaseIfNeeded(options: {
   agentTimings: Record<string, number>;
 }): Promise<void> {
   if (!(await shouldRunRetrospectivePhase(options.handoffsDir))) {
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.skipped' } });
     return;
   }
   if (!options.contextPackDir) {
     log.warn('retrospective_phase.skipped', { reason: 'no-active-context-pack' });
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.skipped' } });
     return;
   }
 
@@ -728,6 +747,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
   });
   if (!bundle.some((entry) => !entry.isCurrentTask)) {
     log.warn('retrospective_phase.skipped', { reason: 'no-prior-cycle-context' });
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.skipped' } });
     return;
   }
 
@@ -737,6 +757,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
     externalMcpRegistry: options.externalMcpRegistry,
   });
   const retrospectiveStart = Date.now();
+  await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.started' } });
   const retrospectiveResult = await runRoleAgent({
     agentId: 'ron',
     repoRoot: options.repoRoot,
@@ -747,7 +768,11 @@ async function runRetrospectivePhaseIfNeeded(options: {
     abortSignal: options.abortSignal,
     promptOverride: retrospectivePrompt,
     launchPhase: 'Retrospective',
+  }).catch(async (err) => {
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.failed' } });
+    throw err;
   });
+  await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.completed' } });
   options.agentMcpStatuses['ron-retrospective'] = retrospectiveResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
   options.agentTimings['ron-retrospective'] = Math.round((Date.now() - retrospectiveStart) / 1000);
 }
@@ -784,6 +809,12 @@ export async function runPipelineSequence(
     ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
     workflowPath = await detectWorkflowPath(paths.handoffs);
     const agentOrder = selectAgentOrder(options);
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId: pipelineTaskId }),
+      repoRoot: paths.repoRoot,
+      taskId: pipelineTaskId,
+      event: { type: 'pipeline.agent_order.selected' },
+    });
 
     const prewarmStart = Date.now();
     await prewarmPipelineContext(
@@ -849,10 +880,11 @@ export async function runPipelineSequence(
             joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
           );
           if (verificationPrompt) {
-            log.child({ taskId: pipelineTaskId }).progress({
-              level: 'info',
-              event: 'dalton_verification.launching',
-              text: '[pipeline] dalton verification launching',
+            await emitTaskProgressEvent({
+              logger: log.child({ taskId: pipelineTaskId }),
+              repoRoot: paths.repoRoot,
+              taskId: pipelineTaskId,
+              event: { type: 'dalton_verification.launching' },
             });
             const verifyStart = Date.now();
             const verificationResult = await runRoleAgent({
@@ -892,6 +924,7 @@ export async function runPipelineSequence(
         }
       }
       const capture = await runTestCaptureWithPhaseTracking({
+        repoRoot: paths.repoRoot,
         taskRuntime: paths.taskRuntime,
         implementationStepsDir: paths.implementationSteps,
         captureCwd: testCaptureCwd,
@@ -964,6 +997,7 @@ export async function runPipelineSequence(
               contextPackDir: effectiveContextPackDir,
               abortSignal: abortController.signal,
               promptOverride: cleanupPrompt,
+              launchPhase: 'Artifact Cleanup',
             });
             agentMcpStatuses['dalton'] = cleanupResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
           }
@@ -980,6 +1014,12 @@ export async function runPipelineSequence(
 
       let agentPromptOverride: string | undefined;
       if (agentId === 'dalton') {
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId: pipelineTaskId }),
+          repoRoot: paths.repoRoot,
+          taskId: pipelineTaskId,
+          event: { type: 'pipeline.dalton_mode.selected' },
+        });
         agentPromptOverride = await buildSimpleDaltonPrompt(
           paths.implementationSteps,
           paths.handoffs,
@@ -1077,16 +1117,12 @@ export async function runPipelineSequence(
       const policyDetails = [preCloseoutCheck.stdout, preCloseoutCheck.stderr]
         .filter(Boolean).join('\n').trim();
       const reason = 'queue-advance-policy-blocked';
-      log.child({ taskId: pipelineTaskId }).progress({
-        level: 'info',
-        event: 'closeout_remediation.launching',
-        extra: { reason },
-        text: `[pipeline] closeout remediation — ${reason}`,
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId: pipelineTaskId }),
+        repoRoot: paths.repoRoot,
+        taskId: pipelineTaskId,
+        event: { type: 'closeout_remediation.launching', input: { reason } },
       });
-      await RuntimeTerminalEvents.forTask(
-        paths.repoRoot,
-        pipelineTaskId,
-      ).closeoutRemediationLaunching({ reason });
       try {
         await runRoleAgent({
           agentId: 'ron',
@@ -1114,6 +1150,12 @@ export async function runPipelineSequence(
     }
 
     try {
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId: pipelineTaskId }),
+        repoRoot: paths.repoRoot,
+        taskId: pipelineTaskId,
+        event: { type: 'closeout.started' },
+      });
       await completePendingItem({ taskId: pipelineTaskId, repoRoot: paths.repoRoot, contextPackDir: effectiveContextPackDir });
     } catch (err) {
       const closeoutError = err instanceof Error ? err.message : String(err);
@@ -1157,6 +1199,12 @@ export async function runPipelineSequence(
       },
     };
 
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId: pipelineTaskId }),
+      repoRoot: paths.repoRoot,
+      taskId: pipelineTaskId,
+      event: killed ? { type: 'pipeline.killed', input: { reason: 'killed' } } : { type: 'pipeline.failed', input: { reason: 'failed' } },
+    });
     await writePipelineReceipt(paths.taskRuntime, failureReceipt);
     await handlePipelineFailure(paths.repoRoot, effectiveContextPackDir, options.taskId);
 

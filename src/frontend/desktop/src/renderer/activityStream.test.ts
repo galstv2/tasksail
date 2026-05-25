@@ -91,7 +91,7 @@ describe('activityStream helpers', () => {
         taskShortGuid: null,
         taskTitle: null,
         severity: 'info',
-        message: 'Capturing test evidence.',
+        message: 'Code capture started.',
       },
       {
         id: 'pipeline-success',
@@ -103,7 +103,7 @@ describe('activityStream helpers', () => {
         taskShortGuid: null,
         taskTitle: null,
         severity: 'success',
-        message: 'Captured test evidence.',
+        message: 'Code capture completed.',
       },
       {
         id: 'pipeline-warning',
@@ -115,7 +115,7 @@ describe('activityStream helpers', () => {
         taskShortGuid: null,
         taskTitle: null,
         severity: 'warning',
-        message: 'Test capture skipped.',
+        message: 'Code capture skipped.',
       },
       {
         id: 'workflow-warning',

@@ -81,7 +81,12 @@ export {
 // Artifact completion
 export {
   checkAgentArtifactCompletion,
+  checkAgentArtifactCompletionDetails,
   buildAgentArtifactRemediationPrompt,
+} from './artifactCompletion.js';
+export type {
+  AgentArtifactCompletionDetails,
+  AgentArtifactCompletionOptions,
 } from './artifactCompletion.js';
 
 // Runtime facts

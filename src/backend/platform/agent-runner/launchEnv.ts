@@ -1,3 +1,15 @@
+// Many of these names also appear in
+// agentRuntimePathManifest.ts::PLATFORM_RUNTIME_MANIFEST_ENV_VARS, which renders
+// them to the agent in the prompt-visible Runtime Path Manifest. This list is the
+// launcher-side filter (scrub the operator shell so platform values win); that
+// list is the prompt-visible display surface for the agent. When adding a new
+// TASKSAIL_*, ACTIVE_CONTEXT_PACK_*, RUN_ROLE_AGENT_AUTONOMY_*, EXTERNAL_MCP_*,
+// or REPO_CONTEXT_MCP_* env key here, decide whether it also belongs in the
+// manifest. Some keys are intentionally launcher-only and must NOT be added to
+// the manifest: RUN_ROLE_AGENT_ACTIVE_MODEL (model choice is not shown to the
+// agent), RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS (internal control flag), and the
+// scalar RUN_ROLE_AGENT_AUTONOMY_* descriptor fields whose content is already
+// covered by the structured RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON entry.
 const TASKSAIL_LAUNCH_CONTROLLED_ENV_KEYS = [
   'ACTIVE_CONTEXT_PACK_DIR',
   'ACTIVE_CONTEXT_PACK_HOST_DIR',

@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { RuntimeTerminalEvents, createLogger, moveFile, readTextFile, ensureDir, findRepoRoot, copyFileSafe, resolvePath } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, moveFile, readTextFile, ensureDir, findRepoRoot, copyFileSafe, resolvePath } from '../core/index.js';
 import {
   cleanupActivePlannerFocusSnapshot,
   moveStagedPlannerFocusSnapshot,
@@ -54,6 +54,10 @@ import { acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 import { writeTaskPackSnapshot } from './packSnapshot.js';
 import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js';
 import {
+  assertTaskWorktreeBindingsCoverSnapshot,
+  resolveSelectedMaterializationRoots,
+} from '../context-pack/taskWorktreeSelection.js';
+import {
   findDirtyTargetRepos,
   failPendingActivationForDirtyRepos,
   resolveRepoLabels,
@@ -72,6 +76,17 @@ import {
 } from './branchChainActivation.js';
 import { findActivationBranchConflicts } from './activeBranchConflictGuard.js';
 import { returnPendingTaskToOpenForBranchConflict } from './branchConflictReturnToOpen.js';
+import {
+  clearActivationProgress,
+  writeActivationProgress,
+  type ActivationProgressPhase,
+} from './activationProgress.js';
+import { emitActivationTerminalProgress } from './activationTerminalProgress.js';
+import {
+  handleActivationKillCheckpoint,
+  observeKillRequest,
+} from './killTask.js';
+import { normalizeSelectedRepoPathsInText } from './taskVisiblePathNormalization.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('platform/queue/operations');
@@ -211,42 +226,6 @@ async function resolvePersistedGitRootsForActivation(
   return result;
 }
 
-function materializationRootsFromBinding(options: {
-  visibleRepoRoots: readonly string[];
-  binding: TaskContextPackBinding | null;
-  taskId: string;
-}): string[] {
-  const roots: string[] = [];
-  const seen = new Set<string>();
-  const append = (root: string): void => {
-    const resolved = resolveExistingRepoRootForActivation(root);
-    if (seen.has(resolved)) {
-      return;
-    }
-    seen.add(resolved);
-    roots.push(resolved);
-  };
-
-  for (const root of options.visibleRepoRoots) {
-    append(root);
-  }
-
-  for (const [index, target] of (options.binding?.selectedFocusTargets ?? []).entries()) {
-    const selectedRoot = target.repoLocalPath?.trim();
-    if (!selectedRoot) {
-      continue;
-    }
-    if (!existsSync(selectedRoot)) {
-      throw new Error(
-        `activation-selected-repo-missing: selectedFocusTargets[${index}].repoLocalPath "${selectedRoot}" does not exist for task "${options.taskId}"`,
-      );
-    }
-    append(selectedRoot);
-  }
-
-  return roots;
-}
-
 function isDeferredRetrospectiveMarker(value: unknown): value is DeferredRetrospectiveMarker {
   if (!value || typeof value !== 'object') return false;
   const marker = value as Partial<DeferredRetrospectiveMarker>;
@@ -342,14 +321,11 @@ async function resumeOrphanCompletingSentinels(
     const taskId = entry.replace(/\.completing$/, '');
     const result = await resumeCloseoutFromSentinel(taskId, repoRoot);
     if (result.status === 'completed') {
-      log.child({ taskId }).progress({
-        level: 'warn',
-        event: 'closeout.stranded.resumed',
-        extra: { drove: result.drove },
-        text: `[pipeline] resumed stranded closeout for ${taskId}`,
-      });
-      await RuntimeTerminalEvents.forTask(repoRoot, taskId).strandedCloseoutResumed({
-        drove: result.drove,
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'closeout.stranded.resumed', input: { drove: result.drove } },
       });
     }
   }
@@ -593,6 +569,7 @@ export const ACTIVATION_GATE_REASON = {
   BRANCH_CONFLICT_RETURNED_OPEN: 'branch-conflict-returned-open',
   SHARED_MCP_BOOTSTRAP_FAILED: 'shared-mcp-bootstrap-failed',
   PIPELINE_SPAWN_FAILED: 'pipeline-spawn-failed',
+  OPERATOR_KILL_REQUESTED: 'operator-kill-requested',
 } as const;
 
 export type ActivationGateReason =
@@ -661,6 +638,9 @@ export async function activateNextPendingItemIfReady(
   let taskImplStepsDir = '';
   let content: string | undefined;
   let activeMarkerPath = '';
+  let activationQueueName = '';
+  let activationTaskTitle: string | null = null;
+  let activationStartedAt = '';
   let repoBindings: Array<{
     originalRoot: string;
     worktreeRoot: string;
@@ -672,6 +652,66 @@ export async function activateNextPendingItemIfReady(
   }> = [];
   let rollbackBindings: ActivationRollbackBinding[] = [];
   let packSnapshotPath = '';
+  const writeProgress = async (
+    phase: ActivationProgressPhase,
+    metadata: {
+      repoLabel?: string;
+      originalRoot?: string;
+      branch?: string;
+      worktreeRoot?: string;
+    } = {},
+  ): Promise<void> => {
+    if (!taskId || !activationQueueName || !activationStartedAt) return;
+    try {
+      await writeActivationProgress(paths, {
+        taskId,
+        queueName: activationQueueName,
+        title: activationTaskTitle,
+        phase,
+        startedAt: activationStartedAt,
+        ...metadata,
+      });
+    } catch (err: unknown) {
+      log.warn('activation_progress.write_failed', {
+        taskId,
+        queueName: activationQueueName,
+        phase,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+  const clearProgress = async (reason: string): Promise<void> => {
+    if (!taskId) return;
+    try {
+      await clearActivationProgress(paths, taskId);
+    } catch (err: unknown) {
+      log.warn('activation_progress.clear_failed', {
+        taskId,
+        queueName: activationQueueName,
+        reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+  const checkpointKill = async (
+    phase: 'pre-worktree' | 'post-materialization' | 'post-sidecar' | 'post-artifacts' | 'pre-pipeline',
+  ): Promise<boolean> => {
+    if (!taskId || !nextItem) return false;
+    if (!await observeKillRequest({ killRequestsDir: paths.killRequestsDir, taskId })) return false;
+    const includeSidecar = phase === 'post-sidecar' || phase === 'post-artifacts' || phase === 'pre-pipeline';
+    await handleActivationKillCheckpoint({
+      repoRoot, paths, taskId,
+      pendingItemPath: nextItem,
+      phase, rollbackBindings,
+      ...(phase === 'pre-pipeline' ? { activeMarkerPath } : {}),
+      ...(includeSidecar
+        ? { sidecarPath: perTaskSidecarPathForKill(), packSnapshotPath: packSnapshotPath || undefined }
+        : {}),
+    });
+    return true;
+  };
+  const perTaskSidecarPathForKill = (): string | undefined =>
+    taskId ? path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json') : undefined;
 
   const releaseActivation = await acquireDirLockOrThrow(paths.queueLockDir, 'Activation');
   try {
@@ -706,6 +746,9 @@ export async function activateNextPendingItemIfReady(
       taskImplStepsDir = '';
       content = undefined;
       activeMarkerPath = '';
+      activationQueueName = '';
+      activationTaskTitle = null;
+      activationStartedAt = '';
       repoBindings = [];
       rollbackBindings = [];
       packSnapshotPath = '';
@@ -725,6 +768,14 @@ export async function activateNextPendingItemIfReady(
       taskId = path.basename(nextItem, '.md');
       taskHandoffsDir = paths.taskHandoffs(taskId);
       taskImplStepsDir = paths.taskImplementationSteps(taskId);
+      if (await checkpointKill('pre-worktree')) {
+        await emitActivationTerminalProgress({
+          repoRoot,
+          taskId,
+          event: { type: 'activation.skipped', input: { reason: 'operator-kill-requested' } },
+        });
+        return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+      }
 
       const isReady = await handoffWorkspaceIsReady(
         taskHandoffsDir,
@@ -738,6 +789,15 @@ export async function activateNextPendingItemIfReady(
       const taskTitle = extractTaskTitle(content) || path.basename(nextItem, '.md');
       const queueName = path.basename(nextItem);
       const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+      activationQueueName = queueName;
+      activationTaskTitle = taskTitle;
+      activationStartedAt = now;
+      await writeProgress('claimed');
+      await emitActivationTerminalProgress({
+        repoRoot,
+        taskId,
+        event: { type: 'activation.started' },
+      });
 
       const taskKind = extractLineageValue(content, 'Task Kind') || 'standard';
       const parentTaskId = extractLineageValue(content, 'Parent Task ID');
@@ -770,7 +830,7 @@ export async function activateNextPendingItemIfReady(
         'Follow-Up Reason': followupReason,
       };
 
-      const sections = {
+      let sections = {
         ...buildProfessionalTaskSectionsFromIntake(content),
         ...buildImplementationSpecSectionsFromIntake(content),
       };
@@ -788,13 +848,18 @@ export async function activateNextPendingItemIfReady(
       // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
 
       const perTaskSidecarPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
+      await writeProgress('validating');
+      await emitActivationTerminalProgress({
+        repoRoot,
+        taskId,
+        event: { type: 'activation.validating' },
+      });
 
       // Resolve the set of repo roots to materialize worktrees for.
-      // If a context pack is present, iterate its visibleRepoRoots.
-      // Otherwise fall back to the platform repo root only when there is no active
-      // context-pack workspace selection. This prevents recovered/unbound external
-      // tasks from silently materializing TaskSail itself as the worktree.
+      // Bound context-pack tasks use task binding authority. Unbound context-pack
+      // tasks keep the legacy manifest-primary behavior.
       let visibleRepoRoots: string[] = [];
+      const selectedGitRoots = new Map<string, string>();
       const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
       if (cpDir) {
         const reseed = await readReseedMarker(cpDir);
@@ -805,12 +870,21 @@ export async function activateNextPendingItemIfReady(
             `age ${Math.round(reseed.ageMs / 1000)}s). Retry once the reseed completes.`,
           );
         }
-        const focused = await resolveFocusedRepoRoot(cpDir, repoRoot);
-        visibleRepoRoots = materializationRootsFromBinding({
-          visibleRepoRoots: focused?.visibleRepoRoots ?? [],
-          binding: contextPackBinding,
-          taskId,
-        });
+        if (contextPackBinding) {
+          const selectedRoots = await resolveSelectedMaterializationRoots({
+            repoRoot,
+            contextPackDir: cpDir,
+            binding: contextPackBinding,
+            taskId,
+          });
+          visibleRepoRoots = selectedRoots.map((root) => root.originalRoot);
+          for (const root of selectedRoots) {
+            selectedGitRoots.set(root.originalRoot, root.gitRoot);
+          }
+        } else {
+          const focused = await resolveFocusedRepoRoot(cpDir, repoRoot, undefined);
+          visibleRepoRoots = focused?.visibleRepoRoots ?? [];
+        }
         if (visibleRepoRoots.length === 0) {
           throw new Error(
             `Unable to resolve visible repo roots for context pack "${cpDir}" while activating task "${taskId}". ` +
@@ -835,6 +909,9 @@ export async function activateNextPendingItemIfReady(
       const pathsToClone = resolveTaskMaterializationConfig(undefined).paths;
 
       const persistedGitRoots = await resolvePersistedGitRootsForActivation(cpDir, repoRoot);
+      for (const [root, gitRoot] of selectedGitRoots) {
+        persistedGitRoots.set(root, gitRoot);
+      }
       const materializationOrigins = await resolveMaterializationOrigins(visibleRepoRoots, persistedGitRoots);
       const dirtyRepos = await findDirtyTargetRepos(materializationOrigins);
       if (dirtyRepos.length > 0) {
@@ -846,6 +923,7 @@ export async function activateNextPendingItemIfReady(
           content,
           dirtyRepos,
         });
+        await clearProgress('dirty-repos');
         return { activated: false, reason: ACTIVATION_GATE_REASON.ACTIVATION_BLOCKED_DIRTY_REPOS };
       }
 
@@ -868,18 +946,6 @@ export async function activateNextPendingItemIfReady(
       });
       if (branchConflicts.blocked) {
         const firstConflict = branchConflicts.conflicts[0]!;
-        log.child({ taskId }).progress({
-          level: 'info',
-          event: 'queue.active.skipped',
-          extra: {
-            reason: ACTIVATION_GATE_REASON.BRANCH_CONFLICT_RETURNED_OPEN,
-            conflicting_task_id: firstConflict.conflictingTaskId,
-            repo_root: firstConflict.originalRoot,
-            repo_label: firstConflict.repoLabel,
-            branch: firstConflict.worktreeBranch,
-          },
-          text: `[queue] returned to open - branch conflict ${taskId} blocked by ${firstConflict.conflictingTaskId} on ${firstConflict.worktreeBranch}`,
-        });
         const returned = await returnPendingTaskToOpenForBranchConflict({
           repoRoot,
           queuePaths: paths,
@@ -888,12 +954,29 @@ export async function activateNextPendingItemIfReady(
           pendingItemPath: nextItem,
           conflict: firstConflict,
         });
-        await RuntimeTerminalEvents.forTask(repoRoot, taskId).activationReturnedToOpenBranchConflict({
-          conflictingTaskId: firstConflict.conflictingTaskId,
-          repoLabel: firstConflict.repoLabel,
-          repoRoot: firstConflict.originalRoot,
-          branch: firstConflict.worktreeBranch,
-          openItemPath: returned.openItemPath,
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: {
+            type: 'queue.active.skipped',
+            input: { reason: ACTIVATION_GATE_REASON.BRANCH_CONFLICT_RETURNED_OPEN },
+          },
+        });
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: {
+            type: 'activation.returned-open.branch-conflict',
+            input: {
+              conflictingTaskId: firstConflict.conflictingTaskId,
+              repoLabel: firstConflict.repoLabel,
+              repoRoot: firstConflict.originalRoot,
+              branch: firstConflict.worktreeBranch,
+              openItemPath: returned.openItemPath,
+            },
+          },
         });
         returnedOpenCount += 1;
         continue;
@@ -909,6 +992,9 @@ export async function activateNextPendingItemIfReady(
       });
 
       await ensureDir(path.dirname(perTaskSidecarPath));
+      if (await checkpointKill('pre-worktree')) {
+        return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+      }
 
       // Build per-repo binding entries (originalRoot, worktreeRoot, worktreeBranch, baseCommitSha).
       repoBindings = [];
@@ -920,6 +1006,11 @@ export async function activateNextPendingItemIfReady(
       };
 
   try {
+    await emitActivationTerminalProgress({
+      repoRoot,
+      taskId,
+      event: { type: 'activation.materializing_worktrees', input: { repoCount: activationBranchPlans.length } },
+    });
     for (const plan of activationBranchPlans) {
       const repoBinding = {
         originalRoot: plan.originalRoot,
@@ -939,8 +1030,17 @@ export async function activateNextPendingItemIfReady(
         repoBindings.push(repoBinding);
         continue;
       }
+      if (await checkpointKill(rollbackBindings.length > 0 ? 'post-materialization' : 'pre-worktree')) {
+        return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+      }
 
       const mat = await withOriginLock(plan.originalRoot, async () => {
+        await writeProgress('preparing-worktree', {
+          repoLabel: plan.repoLabel,
+          originalRoot: plan.originalRoot,
+          branch: plan.worktreeBranch,
+          worktreeRoot: plan.worktreePath,
+        });
         if (plan.createBranch) {
           await execFileAsync('git', [
             '-C', plan.originalRoot,
@@ -959,28 +1059,34 @@ export async function activateNextPendingItemIfReady(
         }
         rollbackBindings.push({ repoBinding, createdBranch: plan.createBranch });
         repoBindings.push(repoBinding);
+        await writeProgress('materializing-worktree', {
+          repoLabel: plan.repoLabel,
+          originalRoot: plan.originalRoot,
+          branch: plan.worktreeBranch,
+          worktreeRoot: plan.worktreePath,
+        });
         return materializeWorktreeDeps(plan.originalRoot, plan.worktreePath, pathsToClone, {
           taskId,
           repoLabel: plan.repoLabel,
         });
       });
+      if (await checkpointKill('post-materialization')) {
+        return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+      }
 
-      log.child({ taskId }).progress({
-        level: 'info',
-        event: 'queue.branch.created',
-        extra: {
-          branch: plan.worktreeBranch,
-          repo: plan.repoLabel,
-          worktree_root: plan.worktreePath,
-          materialization_strategy: mat.strategy,
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: {
+          type: 'queue.branch.created',
+          input: {
+            repo: plan.repoLabel,
+            branch: plan.worktreeBranch,
+            worktreeRoot: plan.worktreePath,
+            materializationStrategy: mat.strategy,
+          },
         },
-        text: `[pipeline] worktree ${plan.repoLabel} on ${plan.worktreeBranch}`,
-      });
-      await RuntimeTerminalEvents.forTask(repoRoot, taskId).branchCreated({
-        repo: plan.repoLabel,
-        branch: plan.worktreeBranch,
-        worktreeRoot: plan.worktreePath,
-        materializationStrategy: mat.strategy,
       });
 
       combinedMat = {
@@ -997,9 +1103,35 @@ export async function activateNextPendingItemIfReady(
       activeMarkerPath,
       repoBindings: rollbackBindings,
     });
+    await clearProgress('materialization-rollback');
     throw err;
   }
+  if (await checkpointKill(rollbackBindings.length > 0 ? 'post-materialization' : 'pre-worktree')) {
+    return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+  }
 
+  await writeProgress('initializing-task');
+  await emitActivationTerminalProgress({
+    repoRoot,
+    taskId,
+    event: { type: 'activation.initializing_task' },
+  });
+  const selectedRepoAliases = repoBindings.map((binding) => ({
+    repoId: path.basename(binding.worktreeRoot),
+    originalRoot: binding.originalRoot,
+    worktreeRoot: binding.worktreeRoot,
+  }));
+  const sanitizedActivationIntake = contextPackBinding
+    ? normalizeSelectedRepoPathsInText({
+        text: content,
+        aliases: selectedRepoAliases,
+        mode: 'agent-executable',
+      })
+    : content;
+  sections = {
+    ...buildProfessionalTaskSectionsFromIntake(sanitizedActivationIntake),
+    ...buildImplementationSpecSectionsFromIntake(sanitizedActivationIntake),
+  };
   const selection = contextPackBinding
     ? {
         contextPackDir: contextPackBinding.contextPackDir,
@@ -1028,6 +1160,28 @@ export async function activateNextPendingItemIfReady(
       }
     : undefined;
 
+  let taskPackSnapshot: Awaited<ReturnType<typeof writeTaskPackSnapshot>> | undefined;
+  if (contextPackBinding && selection) {
+    // writeTaskPackSnapshot validates primary.repoRoot before writing and
+    // throws on any unresolvable identity. The coverage guard must pass before
+    // the sidecar is accepted and before Alice can launch.
+    taskPackSnapshot = await writeTaskPackSnapshot({
+      repoRoot,
+      taskId,
+      contextPackDir: contextPackBinding.contextPackDir,
+      contextPackId: contextPackBinding.contextPackId,
+      binding: contextPackBinding,
+      selection,
+    });
+    packSnapshotPath = resolveTaskPackSnapshotPath(repoRoot, taskId);
+    assertTaskWorktreeBindingsCoverSnapshot({
+      taskId,
+      snapshot: taskPackSnapshot,
+      repoBindings,
+      phase: 'activation',
+    });
+  }
+
   const perTaskSidecar = {
     schema_version: 1,
     taskId,
@@ -1055,21 +1209,10 @@ export async function activateNextPendingItemIfReady(
     JSON.stringify(perTaskSidecar, null, 2) + '\n',
     'utf-8',
   );
-  if (contextPackBinding && selection) {
-    // writeTaskPackSnapshot validates primary.repoRoot before writing and
-    // throws on any unresolvable identity, so we only need to record the path
-    // here for rollback.
-    await writeTaskPackSnapshot({
-      repoRoot,
-      taskId,
-      contextPackDir: contextPackBinding.contextPackDir,
-      contextPackId: contextPackBinding.contextPackId,
-      binding: contextPackBinding,
-      selection,
-    });
-    packSnapshotPath = resolveTaskPackSnapshotPath(repoRoot, taskId);
-  }
   await transferStagedSnapshotToActiveTask(repoRoot, taskId);
+  if (await checkpointKill('post-sidecar')) {
+    return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+  }
 
   try {
     await initializeTaskArtifacts({
@@ -1085,7 +1228,11 @@ export async function activateNextPendingItemIfReady(
     // access to the shared pendingitems/ directory, which holds other tasks'
     // files in parallel mode. The canonical copy stays in pendingitems/ —
     // queue lifecycle code is the only authorized writer there.
-    await copyFileSafe(nextItem, path.join(taskHandoffsDir, 'intake.md'));
+    if (contextPackBinding) {
+      await writeFile(path.join(taskHandoffsDir, 'intake.md'), sanitizedActivationIntake, 'utf-8');
+    } else {
+      await copyFileSafe(nextItem, path.join(taskHandoffsDir, 'intake.md'));
+    }
     await stampRetrospectiveRequiredMetadata({
       repoRoot,
       handoffsDir: taskHandoffsDir,
@@ -1099,8 +1246,16 @@ export async function activateNextPendingItemIfReady(
     if (packSnapshotPath) {
       try { await unlink(packSnapshotPath); } catch { /* best-effort */ }
     }
-    await cleanupActivePlannerFocusSnapshot(repoRoot, taskId);
-    throw err;
+      await cleanupActivePlannerFocusSnapshot(repoRoot, taskId);
+      await emitActivationTerminalProgress({
+        repoRoot,
+        taskId,
+        event: { type: 'activation.failed', input: { reason: 'artifact-initialization-failed' } },
+      });
+      throw err;
+    }
+  if (await checkpointKill('post-artifacts')) {
+    return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
   }
 
   // Claim after materialization succeeds. The pending markdown intentionally
@@ -1115,8 +1270,15 @@ export async function activateNextPendingItemIfReady(
   } catch { /* best-effort */ }
       break;
     }
+  } catch (err: unknown) {
+    await clearProgress('activation-exception');
+    throw err;
   } finally {
     await releaseActivation();
+  }
+
+  if (await checkpointKill('pre-pipeline')) {
+    return { activated: true, activatedTaskId: taskId, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
   }
 
   if (await shouldBootstrapSharedMcp(repoRoot)) {
@@ -1135,12 +1297,13 @@ export async function activateNextPendingItemIfReady(
         activeMarkerPath,
         repoBindings: rollbackBindings,
       });
+      await clearProgress('shared-mcp-bootstrap-failed');
       const reason = 'shared-mcp-bootstrap-failed';
-      log.child({ taskId }).progress({
-        level: 'info',
-        event: 'queue.active.skipped',
-        extra: { reason },
-        text: `[queue] activation skipped - ${reason}`,
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'queue.active.skipped', input: { reason } },
       });
       return { activated: false, reason: ACTIVATION_GATE_REASON.SHARED_MCP_BOOTSTRAP_FAILED };
     }
@@ -1148,16 +1311,18 @@ export async function activateNextPendingItemIfReady(
     log.warn('shared_mcp.bootstrap.skipped', { taskId, reason: 'compose-file-missing' });
   }
 
-  log.child({ taskId }).progress({
-    level: 'info',
-    event: 'queue.active.activated',
-    extra: {
-      repo_count: repoBindings.length,
-      branches: repoBindings.map((binding) => binding.worktreeBranch),
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId }),
+    repoRoot,
+    taskId,
+    event: {
+      type: 'queue.active.activated',
+      input: {
+        repoCount: repoBindings.length,
+        branches: repoBindings.map((binding) => binding.worktreeBranch),
+      },
     },
-    text: `[queue] activated ${taskId}  repos=${repoBindings.length}`,
   });
-  await RuntimeTerminalEvents.forTask(repoRoot, taskId).taskActivated();
 
   const disablePipelineAutostart = (
     process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] ?? ''
@@ -1165,13 +1330,18 @@ export async function activateNextPendingItemIfReady(
   if (disablePipelineAutostart) {
     log.warn('pipeline.autostart.disabled', { taskId });
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+    await clearProgress('pipeline-autostart-disabled');
     return { activated: true, activatedTaskId: taskId };
+  }
+  if (await checkpointKill('pre-pipeline')) {
+    return { activated: true, activatedTaskId: taskId, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
   }
 
   // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.
   // On failure, roll back the active markers so the queue can re-activate.
   let pipelineResult: Awaited<ReturnType<typeof startPipeline>>;
   try {
+    await writeProgress('starting-pipeline');
     pipelineResult = await startPipeline(taskId, repoRoot);
   } catch (err) {
     await rollbackActivationClaim({
@@ -1181,18 +1351,31 @@ export async function activateNextPendingItemIfReady(
       activeMarkerPath,
       repoBindings: rollbackBindings,
     });
+    await clearProgress('pipeline-spawn-failed');
     log.error('pipeline.spawn.failed', err, { taskId });
     const reason = 'pipeline-spawn-failed';
-    log.child({ taskId }).progress({
-      level: 'info',
-      event: 'queue.active.skipped',
-      extra: { reason },
-      text: `[queue] activation skipped - ${reason}`,
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'queue.active.skipped', input: { reason } },
+    });
+    await emitActivationTerminalProgress({
+      repoRoot,
+      taskId,
+      event: { type: 'activation.skipped', input: { reason } },
     });
     return { activated: false, reason: ACTIVATION_GATE_REASON.PIPELINE_SPAWN_FAILED };
   }
   if ('deferred' in pipelineResult && pipelineResult.deferred) {
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'pipeline.deferred' },
+    });
     try { await unlink(nextItem); } catch { /* best-effort if already absent */ }
+    await clearProgress('pipeline-deferred');
     // Recovery is in progress — pipeline will be started after recoverOnStartup completes.
     // This is not an error; the supervisor will handle re-activation.
     return { activated: true, activatedTaskId: taskId };
@@ -1207,6 +1390,13 @@ export async function activateNextPendingItemIfReady(
   // this point, the rename in errorItems.ts hits ENOENT and falls back to a
   // blank-template recovery that loses the original task content.
 
+  await clearProgress('pipeline-started');
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId }),
+    repoRoot,
+    taskId,
+    event: { type: 'pipeline.started' },
+  });
   return { activated: true, activatedTaskId: taskId };
 }
 

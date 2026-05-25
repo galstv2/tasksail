@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { returnPendingTaskToOpenForBranchConflict } from '../branchConflictReturnToOpen.js';
 import { resolveQueuePaths } from '../paths.js';
 import { registerTask, loadTaskRegistry } from '../taskRegistry.js';
+import { writeActivationProgress } from '../activationProgress.js';
 
 function conflict() {
   return {
@@ -81,6 +82,30 @@ describe('branch conflict return to open', () => {
     expect(registry.tasks._unbound?.pending).toEqual([]);
     expect(registry.tasks._unbound?.open.map((entry) => entry.taskId)).toEqual(['task-a']);
     expect(existsSync(path.join(repoRoot, '.platform-state', 'child-task-chains.json'))).toBe(false);
+  });
+
+  it('clears activation progress marker while preserving return-to-open behavior', async () => {
+    const repoRoot = tempDir('branch-return-activating-');
+    const paths = await seedPending(repoRoot);
+    await writeActivationProgress(paths, {
+      taskId: 'task-a',
+      queueName: 'task-a.md',
+      title: 'Task',
+      phase: 'validating',
+      startedAt: '2026-05-23T10:00:00Z',
+    });
+
+    await returnPendingTaskToOpenForBranchConflict({
+      repoRoot,
+      queuePaths: paths,
+      taskId: 'task-a',
+      queueName: 'task-a.md',
+      pendingItemPath: path.join(paths.pendingDir, 'task-a.md'),
+      conflict: conflict(),
+    });
+
+    expect(existsSync(path.join(paths.activatingItemsDir, 'task-a.json'))).toBe(false);
+    expect(existsSync(path.join(paths.dropboxDir, 'task-a.md'))).toBe(true);
   });
 
   it('fails before rename when the dropbox destination already exists', async () => {

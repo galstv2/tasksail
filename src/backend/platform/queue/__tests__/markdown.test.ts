@@ -7,8 +7,10 @@ import {
   printTaskMetadataBlock,
   printTaskLineageBlock,
   extractContextPackBinding,
+  formatAgentVisibleContextPackBindingSection,
   formatContextPackBindingSection,
 } from '../markdown.js';
+import { normalizeSelectedRepoPathsInText } from '../taskVisiblePathNormalization.js';
 
 function expectBinding(content: string) {
   const result = extractContextPackBinding(content);
@@ -155,6 +157,25 @@ describe('printTaskLineageBlock', () => {
   });
 });
 
+describe('normalizeSelectedRepoPathsInText', () => {
+  it('normalizes human-readable selected roots and nested paths without overmatching siblings', () => {
+    const text = 'Use /repo/tools and /repo/tools/Acme.Cli, but not /repo/toolshed.';
+    expect(normalizeSelectedRepoPathsInText({
+      text,
+      aliases: [{ repoId: 'tools', originalRoot: '/repo/tools' }],
+      mode: 'human-readable',
+    })).toBe('Use tools and tools/Acme.Cli, but not /repo/toolshed.');
+  });
+
+  it('normalizes agent-executable selected roots to worktree paths', () => {
+    expect(normalizeSelectedRepoPathsInText({
+      text: 'Run from /repo/tools/Acme.Cli',
+      aliases: [{ repoId: 'tools', originalRoot: '/repo/tools', worktreeRoot: '/task/worktrees/tools' }],
+      mode: 'agent-executable',
+    })).toBe('Run from /task/worktrees/tools/Acme.Cli');
+  });
+});
+
 describe('context pack binding markdown', () => {
   it('returns absent when the Context Pack Binding section is missing or blank', () => {
     expect(extractContextPackBinding('# Task\n\nBody')).toEqual({ kind: 'absent' });
@@ -296,6 +317,51 @@ Body
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     });
+  });
+
+  it('formats Deep Focus multi-primary task-visible metadata without repoLocalPath or scalar collapse', () => {
+    const section = formatAgentVisibleContextPackBindingSection({
+      contextPackDir: '/packs/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: 'platform',
+      selectedFocusPath: 'libs',
+      selectedFocusTargetKind: 'directory',
+      selectedFocusTargets: [
+        {
+          path: 'libs',
+          kind: 'directory',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          role: 'anchor',
+          supportTargets: [],
+        },
+        {
+          path: 'Acme.Cli',
+          kind: 'directory',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'primary',
+          supportTargets: [],
+        },
+      ],
+    });
+
+    expect(section).toContain('- Selected Repo IDs: platform, tools');
+    expect(section).not.toContain('- Deep Focus Primary Repo ID:');
+    expect(section).not.toContain('- Selected Focus Path:');
+    expect(section).not.toContain('- Selected Focus Target Kind:');
+    expect(section).not.toContain('repoLocalPath');
+    expect(section).not.toContain('/repos/platform');
+    expect(section).not.toContain('/repos/tools');
+    const parsed = expectBinding(`# Task\n\n${section}\n\n## Request Summary\n\nBody`);
+    expect(parsed?.selectedFocusTargets).toEqual([
+      { path: 'libs', kind: 'directory', repoId: 'platform', role: 'anchor', supportTargets: [] },
+      { path: 'Acme.Cli', kind: 'directory', repoId: 'tools', role: 'primary', supportTargets: [] },
+    ]);
   });
 
   it('skips Selected Repo IDs when empty (monolith case) and round-trips back to []', () => {

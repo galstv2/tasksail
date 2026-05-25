@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { resolveQueuePaths, type QueuePaths } from './paths.js';
 import { acquireDirLockOrThrow } from './dirLock.js';
-import { createLogger, ensureDir } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, ensureDir } from '../core/index.js';
 import {
   activateNextPendingItemIfReady,
   moveDropboxItemsOnce,
@@ -92,11 +92,11 @@ export async function publishPendingItem(
     const shortReason = message.replace(/\s+/g, ' ').trim().slice(0, 120) || 'unknown';
     const reason = `activation-error:${shortReason}`;
     const taskId = path.basename(destinationPath, '.md');
-    log.child({ taskId }).progress({
-      level: 'info',
-      event: 'queue.active.skipped',
-      extra: { reason },
-      text: `[queue] activation skipped - ${reason}`,
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'queue.active.skipped', input: { reason } },
     });
     activation = {
       activated: false,

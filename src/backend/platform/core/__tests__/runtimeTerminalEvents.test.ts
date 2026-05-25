@@ -55,7 +55,7 @@ describe('RuntimeTerminalEvents', () => {
       materializationStrategy: 'copy',
     });
 
-    expect(readEvents('task-1')).toEqual([
+    expect(readEvents('task-1')).toMatchObject([
       {
         eventId: 'queue.branch.created:api:task/task-1:/tmp/worktrees/api',
         source: 'runtime.branch',
@@ -165,6 +165,56 @@ describe('RuntimeTerminalEvents', () => {
     ]);
   });
 
+  it('writes agent launch lifecycle events', async () => {
+    const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-agent');
+
+    await events.agentLaunchStarted({
+      agentId: 'alice',
+      launchId: 'launch-1',
+      childPid: 1234,
+      modelId: 'auto',
+    });
+    await events.agentLaunchTerminal({
+      agentId: 'alice',
+      launchId: 'launch-1',
+      childPid: 1234,
+      status: 'timeout',
+      durationMs: 5_000,
+      exitCode: 1,
+    });
+
+    expect(readEvents('task-agent')).toMatchObject([
+      {
+        eventId: 'agent.launch.started:alice:initial:launch-1',
+        source: 'runtime.agent',
+        role: 'agent',
+        severity: 'info',
+        message: 'Started Alice.',
+        extra: {
+          agentId: 'alice',
+          launchId: 'launch-1',
+          childPid: 1234,
+          modelId: 'auto',
+        },
+      },
+      {
+        eventId: 'agent.launch.terminal:alice:initial:launch-1',
+        source: 'runtime.agent',
+        role: 'agent',
+        severity: 'error',
+        message: 'Alice timed out.',
+        extra: {
+          agentId: 'alice',
+          launchId: 'launch-1',
+          childPid: 1234,
+          outcome: 'timeout',
+          durationMs: 5_000,
+          exitCode: 1,
+        },
+      },
+    ]);
+  });
+
   it('writes child-chain failure branch diagnostics', async () => {
     const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-chain-fail');
     const extra = { branch: 'task/root', status: 'completed' };
@@ -211,7 +261,7 @@ describe('RuntimeTerminalEvents', () => {
       openItemPath: '/repo/AgentWorkSpace/dropbox/task-conflict.md',
     });
 
-    expect(readEvents('task-conflict')).toEqual([
+    expect(readEvents('task-conflict')).toMatchObject([
       {
         eventId: 'activation.returned-open.branch-conflict:task/root:active-a',
         source: 'runtime.queue',
@@ -226,6 +276,52 @@ describe('RuntimeTerminalEvents', () => {
           branch: 'task/root',
           openItemPath: '/repo/AgentWorkSpace/dropbox/task-conflict.md',
         },
+      },
+    ]);
+  });
+
+  it('writes activation skip and pipeline progress events', async () => {
+    const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-progress');
+
+    await events.activationSkipped({ reason: 'pipeline-spawn-failed' });
+    await events.pipelinePhase({ phase: 'test-capture-started', priorPhase: null });
+    await events.pipelinePhase({ phase: 'test-capture-completed', priorPhase: 'test-capture-started' });
+    await events.daltonVerificationLaunching();
+
+    expect(readEvents('task-progress')).toMatchObject([
+      {
+        eventId: 'queue.active.skipped:pipeline-spawn-failed',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'warning',
+        message: 'Activation skipped: pipeline-spawn-failed.',
+        extra: { reason: 'pipeline-spawn-failed' },
+      },
+      {
+        eventId: 'pipeline.phase:test-capture-started',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Pipeline phase: code-capture-started.',
+        extra: { phase: 'test-capture-started', priorPhase: null },
+      },
+      {
+        eventId: 'pipeline.phase:test-capture-started->test-capture-completed',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Pipeline phase: code-capture-started -> code-capture-completed.',
+        extra: {
+          phase: 'test-capture-completed',
+          priorPhase: 'test-capture-started',
+        },
+      },
+      {
+        eventId: 'dalton_verification.launching',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Dalton verification launching.',
       },
     ]);
   });

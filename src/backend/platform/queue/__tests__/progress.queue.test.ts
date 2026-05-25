@@ -14,6 +14,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { flushLoggers } from '../../core/index.js';
 import { resolveQueuePaths } from '../paths.js';
+import { readActivationProgressRecord } from '../activationProgress.js';
 
 type WriteSpy = ReturnType<typeof vi.spyOn>;
 
@@ -159,7 +160,7 @@ describe('queue progress events', () => {
     expect(existsSync(
       path.join(tmpRoot, '.platform-state', 'runtime', 'tasks', 'task-git', 'branch-events.json'),
     )).toBe(false);
-    expect(readRuntimeTerminalEvents('task-git')).toEqual([
+    expect(readRuntimeTerminalEvents('task-git')).toEqual(expect.arrayContaining([
       expect.objectContaining({
         eventId: `queue.branch.created:${path.basename(tmpRoot)}:task/task-git:${path.join(tmpRoot, 'AgentWorkSpace', 'tasks', 'task-git', 'worktrees', path.basename(tmpRoot))}`,
         source: 'runtime.branch',
@@ -180,7 +181,8 @@ describe('queue progress events', () => {
         severity: 'info',
         message: 'Moved pending item to active.',
       }),
-    ]);
+    ]));
+    await expect(readActivationProgressRecord(paths, 'task-git')).resolves.toBeNull();
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -257,16 +259,25 @@ describe('queue progress events', () => {
       reason: 'branch-conflict-returned-open',
     });
 
-    expect(stderrChunks().filter((line) => line.trim().length > 0)).toEqual([
+    expect(stderrChunks().filter((line) => line.trim().length > 0)).toEqual(expect.arrayContaining([
+      '[queue] activation skipped - branch-conflict-returned-open\n',
       '[queue] returned to open - branch conflict task-conflict blocked by active-owner on task/task-conflict\n',
-    ]);
-    expect(readLevel('info')).toEqual([
+    ]));
+    expect(readLevel('info')).toEqual(expect.arrayContaining([
       expect.objectContaining({
         msg: 'queue.active.skipped',
         task_id: 'task-conflict',
         extra: expect.objectContaining({ reason: 'branch-conflict-returned-open' }),
       }),
-    ]);
+      expect.objectContaining({
+        msg: 'activation.returned-open.branch-conflict',
+        task_id: 'task-conflict',
+        extra: expect.objectContaining({
+          conflicting_task_id: 'active-owner',
+          branch: 'task/task-conflict',
+        }),
+      }),
+    ]));
     expect(readLevel('info')).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ msg: 'queue.error_items.moved', task_id: 'task-conflict' }),
       expect.objectContaining({ msg: 'queue.active.activated', task_id: 'task-conflict' }),
@@ -325,6 +336,7 @@ describe('queue progress events', () => {
 
     expect(ensureSharedMcpRunning).toHaveBeenCalledWith(tmpRoot);
     expect(existsSync(path.join(paths.activeItemsDir, 'task-shared-mcp'))).toBe(false);
+    await expect(readActivationProgressRecord(paths, 'task-shared-mcp')).resolves.toBeNull();
     expect(stderrChunks()).toContain('[queue] activation skipped - shared-mcp-bootstrap-failed\n');
     expect(readLevel('info')).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -349,6 +361,7 @@ describe('queue progress events', () => {
     });
 
     expect(existsSync(path.join(paths.activeItemsDir, 'task-pipeline-fails'))).toBe(false);
+    await expect(readActivationProgressRecord(paths, 'task-pipeline-fails')).resolves.toBeNull();
     expect(stderrChunks()).toContain('[queue] activated task-pipeline-fails  repos=1\n');
     expect(stderrChunks()).toContain('[queue] activation skipped - pipeline-spawn-failed\n');
     expect(readLevel('info')).toEqual(expect.arrayContaining([
@@ -364,6 +377,40 @@ describe('queue progress events', () => {
     ]));
   });
 
+  it('clears activation marker after materialization rollback', async () => {
+    vi.doMock('../../core/worktreeMaterialization.js', async () => {
+      const actual = await vi.importActual<typeof import('../../core/worktreeMaterialization.js')>('../../core/worktreeMaterialization.js');
+      return {
+        ...actual,
+        materializeWorktreeDeps: vi.fn().mockRejectedValue(new Error('copy failed')),
+      };
+    });
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    const paths = seedQueue(tmpRoot, 'task-materialize-fails');
+    initGitRepo(tmpRoot);
+
+    await expect(activateNextPendingItemIfReady({ paths, repoRoot: tmpRoot })).rejects.toThrow('copy failed');
+
+    await expect(readActivationProgressRecord(paths, 'task-materialize-fails')).resolves.toBeNull();
+    expect(existsSync(path.join(paths.activeItemsDir, 'task-materialize-fails'))).toBe(false);
+  });
+
+  it('clears activation marker after deferred pipeline start return', async () => {
+    vi.doMock('../../agent-runner/pipelineSupervisor.js', () => ({
+      startPipeline: vi.fn().mockResolvedValue({ deferred: true }),
+    }));
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    const paths = seedQueue(tmpRoot, 'task-deferred');
+    initGitRepo(tmpRoot);
+
+    await expect(activateNextPendingItemIfReady({ paths, repoRoot: tmpRoot })).resolves.toEqual({
+      activated: true,
+      activatedTaskId: 'task-deferred',
+    });
+
+    await expect(readActivationProgressRecord(paths, 'task-deferred')).resolves.toBeNull();
+  });
+
   it('P6 emits queue.error_items.moved before follow-on activation progress', async () => {
     vi.doMock('../operations.js', async () => {
       const actual = await vi.importActual<typeof import('../operations.js')>('../operations.js');
@@ -376,6 +423,7 @@ describe('queue progress events', () => {
     });
     vi.doMock('../../core/worktreeFinalize.js', () => ({
       finalizeTaskWorktrees: vi.fn().mockResolvedValue(undefined),
+      finalizeTaskWorktreesWithReport: vi.fn().mockResolvedValue({ skipNextActivation: false }),
       discardRetainedTaskWorktrees: vi.fn().mockResolvedValue(undefined),
     }));
     vi.doMock('../branchVerification.js', () => ({
@@ -391,15 +439,25 @@ describe('queue progress events', () => {
     const result = await moveFailedItemToErrorItems({ repoRoot: tmpRoot, taskId: 'task-failed' });
 
     expect(result.errorItemPath).toBe(path.join(paths.errorItemsDir, 'task-failed.md'));
-    expect(stderrChunks()).toEqual(['[queue] moved to error-items task-failed - task-failed\n']);
-    expect(readLevel('info')).toMatchObject([
-      {
+    expect(stderrChunks()).toEqual(expect.arrayContaining([
+      '[queue] failed task-failed [fail]\n',
+      '[queue] moved to error-items task-failed - task-failed\n',
+    ]));
+    expect(readLevel('error')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ msg: 'queue.task.failed', task_id: 'task-failed' }),
+    ]));
+    expect(readLevel('info')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
         msg: 'queue.error_items.moved',
         task_id: 'task-failed',
         extra: { error_path: result.errorItemPath, reason: 'task-failed' },
-      },
-    ]);
-    expect(readRuntimeTerminalEvents('task-failed')).toEqual([
+      }),
+    ]));
+    expect(readRuntimeTerminalEvents('task-failed')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 'failure.finalizing_worktrees',
+        source: 'runtime.queue',
+      }),
       expect.objectContaining({
         eventId: 'queue.task.failed',
         source: 'runtime.queue',
@@ -414,7 +472,7 @@ describe('queue progress events', () => {
         severity: 'error',
         message: 'Moved to error-items: task-failed.',
       }),
-    ]);
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -787,6 +845,7 @@ function unmockQueueProgressModules(): void {
   vi.doUnmock('../errorItems.js');
   vi.doUnmock('../taskRegistry.js');
   vi.doUnmock('../../core/worktreeFinalize.js');
+  vi.doUnmock('../../core/worktreeMaterialization.js');
   vi.doUnmock('../branchVerification.js');
   vi.doUnmock('../taskJson.js');
   vi.doUnmock('../../platform-config/get.js');

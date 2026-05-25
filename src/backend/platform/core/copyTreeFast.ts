@@ -38,6 +38,7 @@ export interface CopyTreeFastDeps {
 }
 
 const execFileAsync = promisify(execFileCb);
+const MAX_REFLINK_TREE_CONCURRENCY = 32;
 
 const defaultDeps: CopyTreeFastDeps = {
   platform: process.platform,
@@ -71,25 +72,20 @@ export async function copyTreeFast(
     selectedStrategy === 'reflink' ||
     selectedStrategy === 'win-refs';
 
-  try {
-    const result = await runAttempts(
-      attemptsFor(src, dst, selectedStrategy, resolvedDeps),
-      selectedStrategy,
-    );
-    return {
-      selectedStrategy,
-      effectiveStrategy: result.effectiveStrategy,
-      reflinkAttempted,
-      reflinkUsed: result.effectiveStrategy === 'apfs-clonefile' ||
-        result.effectiveStrategy === 'reflink' ||
-        result.effectiveStrategy === 'win-refs',
-      fallbackReason: result.fallbackReason,
-      durationMs: Math.max(0, resolvedDeps.now() - startedAt),
-    };
-  } catch (err) {
-    attachDurationForTests(err, Math.max(0, resolvedDeps.now() - startedAt));
-    throw err;
-  }
+  const result = await runAttempts(
+    attemptsFor(src, dst, selectedStrategy, resolvedDeps),
+    selectedStrategy,
+  );
+  return {
+    selectedStrategy,
+    effectiveStrategy: result.effectiveStrategy,
+    reflinkAttempted,
+    reflinkUsed: result.effectiveStrategy === 'apfs-clonefile' ||
+      result.effectiveStrategy === 'reflink' ||
+      result.effectiveStrategy === 'win-refs',
+    fallbackReason: result.fallbackReason,
+    durationMs: Math.max(0, resolvedDeps.now() - startedAt),
+  };
 }
 
 function attemptsFor(
@@ -218,7 +214,6 @@ async function runAttempts(
       }
       fallbackReason ??= fallbackReasonFor(err);
       if (index === attempts.length - 1) {
-        attachPriorFailureForTests(err, fallbackReason);
         throw err;
       }
     }
@@ -243,18 +238,43 @@ async function walkAndReflink(
 ): Promise<void> {
   const entries = await fs.promises.readdir(src, { withFileTypes: true });
   await fs.promises.mkdir(dst, { recursive: true });
-  await Promise.all(entries.map(async (entry) => {
+  const nonDirectories = entries.filter((entry) => !entry.isDirectory());
+  await runBounded(nonDirectories, MAX_REFLINK_TREE_CONCURRENCY, async (entry) => {
     const s = path.join(src, entry.name);
     const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      await walkAndReflink(s, d, reflinkFileSync);
-    } else if (entry.isFile()) {
+    if (entry.isFile()) {
       reflinkFileSync(s, d);
     } else if (entry.isSymbolicLink()) {
       const target = await fs.promises.readlink(s);
       await fs.promises.symlink(target, d);
     }
-  }));
+  });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      await walkAndReflink(
+        path.join(src, entry.name),
+        path.join(dst, entry.name),
+        reflinkFileSync,
+      );
+    }
+  }
+}
+
+async function runBounded<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => void | Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workerCount = Math.min(limit, items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < items.length) {
+      const item = items[index]!;
+      index += 1;
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function isReflinkRecoverable(err: unknown): boolean {
@@ -288,22 +308,4 @@ function fallbackReasonFor(err: unknown): string {
     return 'cloning-not-supported';
   }
   return 'copy-failed';
-}
-
-function attachPriorFailureForTests(err: unknown, fallbackReason: string): void {
-  if (err && typeof err === 'object') {
-    Object.defineProperty(err, 'copyTreeFastPriorFailure', {
-      value: fallbackReason,
-      configurable: true,
-    });
-  }
-}
-
-function attachDurationForTests(err: unknown, durationMs: number): void {
-  if (err && typeof err === 'object') {
-    Object.defineProperty(err, 'copyTreeFastDurationMs', {
-      value: durationMs,
-      configurable: true,
-    });
-  }
 }

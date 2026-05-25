@@ -251,6 +251,12 @@ export interface PlannerLaunchSpec {
   env?: Record<string, string>;
 }
 
+export interface ProviderRuntimeManifestEnvVar {
+  name: string;
+  kind: 'path' | 'json' | 'file' | 'scalar';
+  description: string;
+}
+
 export interface PlannerChunkParser {
   parseChunk(chunk: string): PlannerEventParseResult[];
   flush(): PlannerEventParseResult[];
@@ -279,6 +285,7 @@ export interface CliProvider {
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string;
   plannerAgentId(): string | null;
   roleKindForAgent(agentId: string): RoleKind | null;
+  runtimeManifestEnvVars(): readonly ProviderRuntimeManifestEnvVar[];
   createPlannerParser?(): PlannerChunkParser | null;
   buildPlannerLaunchSpec?(options: PlannerLaunchOptions): PlannerLaunchSpec | null;
 }

@@ -68,6 +68,12 @@ describe('copilotProvider', () => {
       paths: 'COPILOT_CONTEXT_PACK_PATHS',
       searchRoots: 'COPILOT_CONTEXT_PACK_SEARCH_ROOTS',
     });
+    expect(copilotProvider.runtimeManifestEnvVars()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'COPILOT_HANDOFFS_DIR', kind: 'path' }),
+      expect.objectContaining({ name: 'COPILOT_IMPL_STEPS_DIR', kind: 'path' }),
+      expect.objectContaining({ name: 'COPILOT_WRITABLE_ROOTS_JSON', kind: 'json' }),
+      expect.objectContaining({ name: 'COPILOT_PRIMARY_FOCUS_PATH', kind: 'path' }),
+    ]));
   });
 
   it('buildArgs maps repo executor autonomy to Copilot flags and tool-policy facts', () => {
@@ -336,14 +342,38 @@ describe('copilotProvider', () => {
     expect(clinical).toContain('Plan this.');
   });
 
+  it('memoizes planner personality prompts by exact repo root and personality id', () => {
+    const promptDir = path.join(repoRoot, '.github', 'copilot', 'prompts');
+    fs.mkdirSync(promptDir, { recursive: true });
+    const balancedPath = path.join(promptDir, 'lily-personality-balanced.prompt.md');
+    const clinicalPath = path.join(promptDir, 'lily-personality-clinical.prompt.md');
+    fs.writeFileSync(balancedPath, 'Balanced v1', 'utf-8');
+    fs.writeFileSync(clinicalPath, 'Clinical v1', 'utf-8');
+
+    const firstBalanced = applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot);
+    fs.writeFileSync(balancedPath, 'Balanced v2', 'utf-8');
+    const secondBalanced = applyCopilotPlannerPersonality('Plan this again.', 'balanced', repoRoot);
+    const clinical = applyCopilotPlannerPersonality('Plan clinically.', 'clinical', repoRoot);
+
+    expect(firstBalanced).toContain('Balanced v1');
+    expect(secondBalanced).toContain('Balanced v1');
+    expect(secondBalanced).not.toContain('Balanced v2');
+    expect(clinical).toContain('Clinical v1');
+  });
+
   it('fails closed when an allowlisted planner personality prompt is missing or empty', () => {
     const promptDir = path.join(repoRoot, '.github', 'copilot', 'prompts');
     fs.mkdirSync(promptDir, { recursive: true });
+    const balancedPath = path.join(promptDir, 'lily-personality-balanced.prompt.md');
     expect(() => applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
       .toThrow(/ENOENT|no such file/i);
 
-    fs.writeFileSync(path.join(promptDir, 'lily-personality-balanced.prompt.md'), '   ', 'utf-8');
+    fs.writeFileSync(balancedPath, '   ', 'utf-8');
     expect(() => applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
       .toThrow('Copilot planner personality prompt "balanced" is empty.');
+
+    fs.writeFileSync(balancedPath, 'Balanced after failures', 'utf-8');
+    expect(applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
+      .toContain('Balanced after failures');
   });
 });

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   copyTreeFast,
@@ -138,6 +141,50 @@ describe('copyTreeFast platform ladders', () => {
     expect(execFile).not.toHaveBeenCalled();
     expect(result.effectiveStrategy).toBe('win-refs');
     expect(result.reflinkUsed).toBe(true);
+  });
+
+  it('Windows win-refs bounded traversal copies nested files and symlinks', async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'copy-tree-fast-'));
+    const src = path.join(tempRoot, 'src');
+    const dst = path.join(tempRoot, 'dst');
+    vi.doMock('@reflink/reflink', () => ({
+      default: {
+        reflinkFileSync: vi.fn((source: string, destination: string) => {
+          fs.copyFileSync(source, destination);
+          return 0;
+        }),
+      },
+      reflinkFileSync: vi.fn((source: string, destination: string) => {
+        fs.copyFileSync(source, destination);
+        return 0;
+      }),
+    }));
+
+    try {
+      fs.mkdirSync(path.join(src, 'a', 'deep'), { recursive: true });
+      fs.mkdirSync(path.join(src, 'b'), { recursive: true });
+      for (let index = 0; index < 48; index += 1) {
+        fs.writeFileSync(path.join(src, 'a', `file-${index}.txt`), `file ${index}`, 'utf-8');
+      }
+      fs.writeFileSync(path.join(src, 'a', 'deep', 'nested.txt'), 'nested', 'utf-8');
+      fs.writeFileSync(path.join(src, 'b', 'target.txt'), 'target', 'utf-8');
+      fs.symlinkSync('../b/target.txt', path.join(src, 'a', 'target-link.txt'));
+
+      const result = await copyTreeFast(src, dst, 'win-refs', {
+        platform: 'win32',
+        now: vi.fn()
+          .mockReturnValueOnce(100)
+          .mockReturnValueOnce(125),
+      });
+
+      expect(result.effectiveStrategy).toBe('win-refs');
+      expect(fs.readFileSync(path.join(dst, 'a', 'file-47.txt'), 'utf-8')).toBe('file 47');
+      expect(fs.readFileSync(path.join(dst, 'a', 'deep', 'nested.txt'), 'utf-8')).toBe('nested');
+      expect(fs.readlinkSync(path.join(dst, 'a', 'target-link.txt'))).toBe('../b/target.txt');
+    } finally {
+      vi.doUnmock('@reflink/reflink');
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('Windows selected win-refs falls back to robocopy on recoverable reflink failure', async () => {

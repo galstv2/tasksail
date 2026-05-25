@@ -30,6 +30,7 @@ export type TerminalFeedProps = {
   observabilitySnapshot: ObservabilitySnapshotResponse | null;
   environmentStatus: EnvironmentStatusResponse | null;
   onDeletePendingItem?: (queueName: string) => Promise<void>;
+  onClearTerminal?: () => void;
 };
 
 const ROLE_TABS: Array<{ value: StreamRole | 'all'; label: string }> = [
@@ -118,6 +119,7 @@ function TerminalFeed({
   observabilitySnapshot,
   environmentStatus,
   onDeletePendingItem = async () => {},
+  onClearTerminal = () => {},
 }: TerminalFeedProps): JSX.Element {
   const [roleFilter, setRoleFilter] = useState<StreamRole | 'all'>('all');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -407,17 +409,30 @@ function TerminalFeed({
       )}
 
       <div className="observability-drawer">
-        <button
-          type="button"
-          className="observability-drawer__toggle"
-          aria-expanded={drawerOpen}
-          onClick={() => setDrawerOpen((prev) => !prev)}
-        >
-          <span>System Details</span>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" style={{ transform: drawerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }}>
-            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+        <div className="observability-drawer__bar">
+          <button
+            type="button"
+            className="observability-drawer__toggle"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen((prev) => !prev)}
+          >
+            <span>System Details</span>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" style={{ transform: drawerOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }}>
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="observability-drawer__clear"
+            onClick={onClearTerminal}
+            disabled={activityStream.length === 0}
+            aria-label="Clear terminal"
+            title="Clear terminal"
+          >
+            <span className="observability-drawer__clear-glyph" aria-hidden="true">⌫</span>
+            <span>Clear</span>
+          </button>
+        </div>
         {drawerOpen && observabilitySnapshot && (
           <div className="observability-drawer__content" aria-label="System details">
             <OperatorQueueSection

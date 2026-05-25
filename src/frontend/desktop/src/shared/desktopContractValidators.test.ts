@@ -36,6 +36,21 @@ describe('validateDesktopActionRequest', () => {
     }
   });
 
+  it('validates task-board retry cleanup payloads like kill payloads', () => {
+    expect(validateDesktopActionRequest({
+      action: 'taskBoard.retryKillCleanup',
+      payload: { fileName: 'TASK-A.md', taskId: 'TASK-A' },
+    })).toEqual([]);
+    expect(validateDesktopActionRequest({
+      action: 'taskBoard.retryKillCleanup',
+      payload: { fileName: 'TASK-A.txt', taskId: 'TASK-A' },
+    })).toContain('payload.fileName must be a non-empty markdown file name.');
+    expect(validateDesktopActionRequest({
+      action: 'taskBoard.retryKillCleanup',
+      payload: { fileName: 'TASK-A.md', taskId: 'TASK-B' },
+    })).toContain('payload.taskId must match payload.fileName without the .md suffix.');
+  });
+
   describe('planner conversation history actions', () => {
     it('accepts list and hydrate action discriminants', () => {
       expect(isValidDesktopActionRequest({

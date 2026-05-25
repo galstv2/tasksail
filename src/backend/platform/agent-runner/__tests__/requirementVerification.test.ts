@@ -39,8 +39,25 @@ describe('prepopulateRequirementVerification', () => {
     await prepopulateRequirementVerification({ handoffsDir, repoRoot });
 
     const finalSummary = await readFinalSummary();
-    expect(finalSummary).toContain('- CR-001: pending - Ron must verify before pass/advisory closeout.');
-    expect(finalSummary).toContain('- VAL-001: pending - Ron must verify before pass/advisory closeout.');
+    expect(finalSummary).toMatch(/## Closeout Owner Agent ID\s+qa/);
+    expect(finalSummary).toContain('<!-- You need to populate the CR-001 line below by changing pending to verified or advisory and adding concise evidence.');
+    expect(finalSummary).toContain('- CR-001: pending');
+    expect(finalSummary).toContain('<!-- You need to populate the VAL-001 line below by changing pending to verified or advisory and adding concise evidence.');
+    expect(finalSummary).toContain('- VAL-001: pending');
+  });
+
+  it('stamps Closeout Owner Agent ID even when implementation-spec is missing', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nalice\n\n## Requirement Verification\n\nlegacy\n',
+      'utf-8',
+    );
+
+    await prepopulateRequirementVerification({ handoffsDir, repoRoot });
+
+    const finalSummary = await readFinalSummary();
+    expect(finalSummary).toMatch(/## Closeout Owner Agent ID\s+qa/);
+    expect(finalSummary).toContain('legacy');
   });
 
   it('is idempotent and does not duplicate checklist lines', async () => {
@@ -54,7 +71,7 @@ describe('prepopulateRequirementVerification', () => {
     await prepopulateRequirementVerification({ handoffsDir, repoRoot });
 
     const finalSummary = await readFinalSummary();
-    expect(finalSummary.match(/CR-001/g)).toHaveLength(1);
+    expect(finalSummary.match(/^- CR-001:/gm)).toHaveLength(1);
   });
 
   it('preserves verified evidence when the ID set exactly matches', async () => {
@@ -91,7 +108,46 @@ describe('prepopulateRequirementVerification', () => {
     const finalSummary = await readFinalSummary();
     expect(finalSummary).toContain('focused test passed');
     expect(finalSummary).toContain('broad suite follow-up');
-    expect(finalSummary).not.toContain('pending - Ron must verify');
+    expect(finalSummary).not.toContain('pending');
+  });
+
+  it('preserves verified evidence when status is natural prose after the generated ID', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n- VAL-001: Run tests.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Completed Work\n\n- done\n\n## Requirement Verification\n\nCR-001 is verified because focused tests passed.\nVAL-001 is advisory because broad validation remains a follow-up.\n\n## Task branches\n\n[]\n',
+      'utf-8',
+    );
+
+    await prepopulateRequirementVerification({ handoffsDir, repoRoot });
+
+    const finalSummary = await readFinalSummary();
+    expect(finalSummary).toContain('CR-001 is verified');
+    expect(finalSummary).toContain('VAL-001 is advisory');
+    expect(finalSummary).not.toContain('pending');
+  });
+
+  it('does not let later evidence prose override the first status after the ID', async () => {
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      '# Implementation Spec\n\n## Intake Requirements\n\n- CR-001: Preserve behavior.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'final-summary.md'),
+      '# Final Summary\n\n## Completed Work\n\n- done\n\n## Requirement Verification\n\nCR-001 is pending until the previously verified evidence is rechecked.\n\n## Task branches\n\n[]\n',
+      'utf-8',
+    );
+
+    await prepopulateRequirementVerification({ handoffsDir, repoRoot });
+
+    const finalSummary = await readFinalSummary();
+    expect(finalSummary).toContain('- CR-001: pending');
+    expect(finalSummary).not.toContain('previously verified evidence');
   });
 
   it('preserves verified evidence when status is joined to an em dash', async () => {
@@ -126,7 +182,7 @@ describe('prepopulateRequirementVerification', () => {
     await prepopulateRequirementVerification({ handoffsDir, repoRoot });
 
     const finalSummary = await readFinalSummary();
-    expect(finalSummary).toContain('- CR-001: pending - Ron must verify before pass/advisory closeout.');
+    expect(finalSummary).toContain('- CR-001: pending');
     expect(finalSummary).not.toContain('CR-999');
     expect(finalSummary).toContain('## Completed Work');
     expect(finalSummary).toContain('## Task branches');
@@ -147,7 +203,7 @@ describe('prepopulateRequirementVerification', () => {
     await prepopulateRequirementVerification({ handoffsDir, repoRoot });
 
     const finalSummary = await readFinalSummary();
-    expect(finalSummary).toContain('- CR-001: pending - Ron must verify before pass/advisory closeout.');
+    expect(finalSummary).toContain('- CR-001: pending');
   });
 
   it('writes None when Intake Requirements has no generated IDs', async () => {
@@ -162,10 +218,10 @@ describe('prepopulateRequirementVerification', () => {
     await expect(readFinalSummary()).resolves.toContain('None');
   });
 
-  it('leaves final-summary unchanged when implementation-spec is missing', async () => {
+  it('leaves Requirement Verification unchanged when implementation-spec is missing', async () => {
     writeFileSync(
       path.join(handoffsDir, 'final-summary.md'),
-      '# Final Summary\n\n## Requirement Verification\n\nlegacy\n',
+      '# Final Summary\n\n## Closeout Owner Agent ID\n\nqa\n\n## Requirement Verification\n\nlegacy\n',
       'utf-8',
     );
 

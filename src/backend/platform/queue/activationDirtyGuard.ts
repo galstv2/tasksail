@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { ensureDir, createLogger, RuntimeTerminalEvents, moveFile } from '../core/index.js';
+import { ensureDir, createLogger, emitTaskProgressEvent, moveFile } from '../core/index.js';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
 import type { QueuePaths } from './paths.js';
 import { removeFromQueueOrderManifest } from './queueOrderManifest.js';
@@ -131,10 +131,31 @@ export async function failPendingActivationForDirtyRepos(input: {
     });
   }
 
-  const terminal = RuntimeTerminalEvents.forTask(repoRoot, taskId);
-  await terminal.activationBlockedDirtyRepos({ taskTitle, repoLabels, repoRoots });
-  await terminal.taskFailed();
-  await terminal.errorItemsMoved({ errorPath: errorFile, reason: 'uncommitted-changes' });
+  const taskLog = log.child({ taskId });
+  await emitTaskProgressEvent({
+    logger: taskLog,
+    repoRoot,
+    taskId,
+    event: {
+      type: 'activation.blocked.dirty-repos',
+      input: { taskTitle, repoLabels, repoRoots },
+    },
+  });
+  await emitTaskProgressEvent({
+    logger: taskLog,
+    repoRoot,
+    taskId,
+    event: { type: 'queue.task.failed' },
+  });
+  await emitTaskProgressEvent({
+    logger: taskLog,
+    repoRoot,
+    taskId,
+    event: {
+      type: 'queue.error_items.moved',
+      input: { errorPath: errorFile, reason: 'uncommitted-changes' },
+    },
+  });
 
   log.warn('activation_dirty_guard.blocked', {
     taskId,

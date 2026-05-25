@@ -2,7 +2,7 @@ import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { RuntimeTerminalEvents, createLogger, readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
@@ -18,7 +18,6 @@ import { readTaskJson, resolveTaskJsonPath } from './taskJson.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { stageAutoMergeCloseout, type AutoMergeResult, type AutoMergeBindingResult } from './autoMerge.js';
 import {
-  CHILD_CHAIN_AUTO_MERGE_SKIP_MESSAGE,
   buildChildTaskChainCloseoutPolicy,
   verifyChildChainSourceBranchesExist,
 } from './childTaskChainCloseoutValidation.js';
@@ -232,36 +231,34 @@ async function buildBranchHandoffsForArchive(options: {
 
 async function logAutoMergeResult(repoRoot: string, taskId: string, result: AutoMergeResult): Promise<void> {
   if (!result.enabled) {
-    log.child({ taskId }).progress({
-      level: 'info',
-      event: 'auto_merge.disabled',
-      text: '[pipeline] auto-merge disabled',
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'auto_merge.disabled' },
     });
-    await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeDisabled();
     return;
   }
   if (result.applied) {
     const repos = result.results
       .map((item) => `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'}`)
       .join(', ');
-    log.child({ taskId }).progress({
-      level: 'info',
-      event: 'auto_merge.applied',
-      extra: { repos },
-      text: `[pipeline] auto-merge applied ${repos}`,
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'auto_merge.applied', input: { repos } },
     });
-    await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeApplied({ repos });
     return;
   }
   const first = result.results[0];
   const detail = first ? `${first.status}: ${first.detail}` : 'no bindings';
-  log.child({ taskId }).progress({
-    level: 'info',
-    event: 'auto_merge.skipped',
-    extra: { detail },
-    text: `[pipeline] auto-merge skipped - ${detail} [skip]`,
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId }),
+    repoRoot,
+    taskId,
+    event: { type: 'auto_merge.skipped', input: { detail } },
   });
-  await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeSkipped({ detail });
 }
 
 function withAutoMergeDetailOverride(result: AutoMergeResult, detail: string): AutoMergeResult {
@@ -360,15 +357,50 @@ export async function completePendingItem(
     // Commits staged/unstaged changes in the per-task worktree to task/<taskId>.
     // 'nothing to commit' from git exits non-zero and is treated as success
     // (commitTaskSnapshot swallows it). Best-effort: non-fatal on failure.
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'closeout.snapshot_committing' },
+    });
     await commitTaskSnapshot(repoRoot, taskId, 'completed');
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'closeout.snapshot_committed' },
+    });
 
     // --- Step 0a (B5): verify task branches received commits ---
     // Safety net for B1 worktree-injection regressions: if any task/<id> branch
     // is missing or has zero commits beyond its baseCommitSha, this throws and
     // the caller routes the task into moveFailedItemToErrorItems → branch is
     // retained for operator post-mortem. NO try/catch — let it propagate.
-    const verification = await verifyTaskBranches(repoRoot, taskId);
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'closeout.branch_verification.started' },
+    });
+    let verification: Awaited<ReturnType<typeof verifyTaskBranches>>;
+    try {
+      verification = await verifyTaskBranches(repoRoot, taskId);
+    } catch (err) {
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'closeout.branch_verification.failed' },
+      });
+      throw err;
+    }
     if (!verification.ok) {
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'closeout.branch_verification.failed' },
+      });
       const summary = verification.failures
         .map((f) => `${f.branch} @ ${f.originalRoot}: ${f.reason} (${f.detail})`)
         .join('; ');
@@ -377,6 +409,12 @@ export async function completePendingItem(
         `This usually indicates a worktree CWD injection regression.`,
       );
     }
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: { type: 'closeout.branch_verification.completed' },
+    });
 
     if (taskJson) {
       const platformConfig = await getPlatformConfig(repoRoot);
@@ -392,12 +430,12 @@ export async function completePendingItem(
         autoMergeResult = withAutoMergeDetailOverride(autoMergeResult, childChainPolicy.autoMergeDetailOverride);
       }
       if (childChainPolicy.emitChildChainAutoMergeSkip) {
-        log.child({ taskId }).progress({
-          level: 'warn',
-          event: 'auto_merge.skipped_child_chain',
-          text: `[pipeline] ${CHILD_CHAIN_AUTO_MERGE_SKIP_MESSAGE} [skip]`,
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: { type: 'auto_merge.skipped_child_chain' },
         });
-        await RuntimeTerminalEvents.forTask(repoRoot, taskId).autoMergeSkippedForChildTaskChain();
       } else {
         await logAutoMergeResult(repoRoot, taskId, autoMergeResult);
       }
@@ -437,17 +475,56 @@ export async function completePendingItem(
         }
       }
 
-      const terminalEvents = RuntimeTerminalEvents.forTask(repoRoot, taskId);
-      await terminalEvents.archiveStarted();
+      const archiveLog = log.child({ taskId });
+      await emitTaskProgressEvent({
+        logger: archiveLog,
+        repoRoot,
+        taskId,
+        event: { type: 'archive.started' },
+      });
+      const terminalEventsSnapshotExisted = existsSync(path.join(
+        repoRoot,
+        '.platform-state',
+        'runtime',
+        'tasks',
+        taskId,
+        'terminal-events.json',
+      ));
       let archiveResult: Awaited<ReturnType<typeof fileTaskArchive>>;
       try {
         archiveResult = await fileTaskArchive({ contextPackDir, taskId, repoRoot });
       } catch (err) {
-        await terminalEvents.archiveFailed();
+        if (terminalEventsSnapshotExisted) {
+          await emitTaskProgressEvent({
+            logger: archiveLog,
+            repoRoot,
+            taskId,
+            event: { type: 'archive.terminal_events_snapshot_failed' },
+          });
+        }
+        await emitTaskProgressEvent({
+          logger: archiveLog,
+          repoRoot,
+          taskId,
+          event: { type: 'archive.failed' },
+        });
         throw err;
       }
       if (!archiveResult.passed) {
-        await terminalEvents.archiveFailed();
+        if (terminalEventsSnapshotExisted) {
+          await emitTaskProgressEvent({
+            logger: archiveLog,
+            repoRoot,
+            taskId,
+            event: { type: 'archive.terminal_events_snapshot_failed' },
+          });
+        }
+        await emitTaskProgressEvent({
+          logger: archiveLog,
+          repoRoot,
+          taskId,
+          event: { type: 'archive.failed' },
+        });
         const details = [archiveResult.stdout, archiveResult.stderr]
           .filter(Boolean)
           .join('\n')
@@ -472,7 +549,20 @@ export async function completePendingItem(
           archiveArtifactDir: resolveArchiveArtifactDir(archivePath),
         };
       }
-      await terminalEvents.archiveCompleted();
+      await emitTaskProgressEvent({
+        logger: archiveLog,
+        repoRoot,
+        taskId,
+        event: { type: terminalEventsSnapshotExisted
+          ? 'archive.terminal_events_snapshot_copied'
+          : 'archive.terminal_events_snapshot_missing' },
+      });
+      await emitTaskProgressEvent({
+        logger: archiveLog,
+        repoRoot,
+        taskId,
+        event: { type: 'archive.completed' },
+      });
       mergeCompletingSentinelPayload(sentinelPath, {
         archiveSucceeded: true,
         archivePath,
@@ -545,6 +635,12 @@ export async function completePendingItem(
     // Only re-drive finalize when completeActiveItem confirmed the marker existed
     // (i.e., we are not in the sentinel-without-marker recovery branch).
     if (completeResult.status !== 'no-active-marker') {
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'closeout.finalizing_worktrees' },
+      });
       await finalizeTaskWorktrees(taskId, 'completed', repoRoot);
     }
 
@@ -576,8 +672,20 @@ export async function completePendingItem(
 
     if (childChainCloseout) {
       try {
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: { type: 'closeout.child_chain_advancing' },
+        });
         await advanceCompletedChildTaskChain(repoRoot, childChainCloseout);
         mergeCompletingSentinelPayload(sentinelPath, { childChainAdvanced: true });
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: { type: 'closeout.child_chain_advanced' },
+        });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         throw new Error(`child-task-chain-closeout-advance-failed for task "${taskId}": ${reason}`);
@@ -594,13 +702,19 @@ export async function completePendingItem(
     await release();
   }
 
-  log.child({ taskId }).progress({
-    level: 'info',
-    event: 'closeout.finalized',
-    text: `[pipeline] completed ${taskId} [ok]`,
+  const finalizeLog = log.child({ taskId });
+  await emitTaskProgressEvent({
+    logger: finalizeLog,
+    repoRoot,
+    taskId,
+    event: { type: 'queue.task.completed' },
   });
-  await RuntimeTerminalEvents.forTask(repoRoot, taskId).taskCompleted();
-  await RuntimeTerminalEvents.forTask(repoRoot, taskId).closeoutFinalized();
+  await emitTaskProgressEvent({
+    logger: finalizeLog,
+    repoRoot,
+    taskId,
+    event: { type: 'closeout.finalized' },
+  });
 
   // Queue advance runs AFTER lock release (§4.6 contract).
   await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });

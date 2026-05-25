@@ -2,7 +2,7 @@ import { ensureDir, writeTextFile, resolvePaths, isMissingPathError } from '../c
 import type { AgentId, PythonResult } from '../core/index.js';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { computeRuntimeFactsSourceSignature, writeRuntimeWorkflowFacts } from './runtimeFacts.js';
 import { evaluateWorkflowPolicy } from '../workflow-policy/index.js';
 import type { PolicyValidationMode } from '../workflow-policy/index.js';
@@ -155,6 +155,49 @@ export async function writeGuardrailReceipt(
   await ensureDir(path.dirname(receiptPath));
   const content = JSON.stringify(data, null, 2) + '\n';
   await writeTextFile(receiptPath, content);
+}
+
+/**
+ * Race-safe non-overwriting guardrail receipt write. The first same-agent
+ * receipt keeps the unsuffixed `<agentId>.json` name; subsequent receipts
+ * use `<agentId>-N.json` suffixes via exclusive create. Returns the path
+ * written. Throws after 16 occupied candidates to prevent runaway loops.
+ */
+export async function writeUniqueGuardrailReceipt(options: {
+  repoRoot: string;
+  agentId: AgentId;
+  taskId: string;
+  data: Record<string, unknown>;
+  launchId?: string;
+  launchPhase?: string;
+}): Promise<string> {
+  const firstPath = guardrailReceiptPath(options.repoRoot, options.agentId, options.taskId);
+  await ensureDir(path.dirname(firstPath));
+  const payload = {
+    ...options.data,
+    ...(options.launchId !== undefined ? { launch_id: options.launchId } : {}),
+    ...(options.launchPhase !== undefined ? { launch_phase: options.launchPhase } : {}),
+  };
+  const content = JSON.stringify(payload, null, 2) + '\n';
+  let lastCandidate = firstPath;
+
+  for (let attempt = 1; attempt <= 16; attempt += 1) {
+    const candidate = attempt === 1
+      ? firstPath
+      : path.join(path.dirname(firstPath), `${options.agentId}-${attempt}.json`);
+    lastCandidate = candidate;
+    try {
+      await writeFile(candidate, content, { flag: 'wx' });
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error(`No available guardrail receipt path after 16 attempts. Last candidate: ${lastCandidate}`);
 }
 
 /**

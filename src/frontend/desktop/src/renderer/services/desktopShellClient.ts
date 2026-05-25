@@ -94,6 +94,8 @@ type DesktopShellClient = Pick<
   | 'deleteTask'
   | 'moveToPending'
   | 'moveToOpen'
+  | 'killTask'
+  | 'retryKillCleanup'
   | 'getBackendServiceStatus'
   | 'startBackendServices'
   | 'stopBackendServices'
@@ -231,7 +233,9 @@ export function createDesktopShellClient(
     deleteTask: (fileName, column) => readShell().deleteTask(fileName, column),
     moveToPending: (fileName, insertAtIndex) =>
       readShell().moveToPending(fileName, insertAtIndex),
-    moveToOpen: (fileName) => readShell().moveToOpen(fileName),
+    moveToOpen: (fileName, sourceColumn) => readShell().moveToOpen(fileName, sourceColumn),
+    killTask: (fileName, taskId) => readShell().killTask(fileName, taskId),
+    retryKillCleanup: (fileName, taskId) => readShell().retryKillCleanup(fileName, taskId),
     getBackendServiceStatus: () => readShell().getBackendServiceStatus(),
     startBackendServices: () => readShell().startBackendServices(),
     stopBackendServices: () => readShell().stopBackendServices(),

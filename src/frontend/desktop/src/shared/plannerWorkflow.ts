@@ -35,7 +35,7 @@ export const PLANNER_SAVE_DRAFT_WORKFLOW = {
     'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
     'Edit the current staged file in place and preserve the existing shell structure. ' +
     'Update the H1 task title and all the editable planning sections as specified. ' +
-    'Do NOT change Task Lineage, Context Pack Binding, or Source metadata. ' +
+    'Do NOT change Task Lineage, Context Pack Binding, Branch Chain, or Source metadata. ' +
     'Do NOT rename the file and do NOT create any additional .md files in .staging/.',
 } as const;
 
@@ -126,7 +126,7 @@ function formatChildTaskScopeSections(
       [
         'Additional Parent Context Scope (Read-Only Planning Context):',
         'Do not infer implementation authority from read-only planning context.',
-        'If broader implementation authority is needed, ask the operator to adjust Child Execution Scope.',
+        'If broader implementation authority is needed, ask the Guide to adjust Child Execution Scope.',
         formatScopeSummary(reloadScope),
       ].join('\n'),
     );

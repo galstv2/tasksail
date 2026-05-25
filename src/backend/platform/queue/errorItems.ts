@@ -3,12 +3,12 @@ import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQueuePaths } from './paths.js';
-import { RuntimeTerminalEvents, createLogger, findRepoRoot } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, findRepoRoot } from '../core/index.js';
 import {
   extractContextPackBinding,
   extractTaskMetadataValue,
   extractTaskTitle,
-  formatContextPackBindingSection,
+  formatAgentVisibleContextPackBindingSection,
 } from './markdown.js';
 import {
   activateNextPendingItemIfReady,
@@ -18,6 +18,7 @@ import {
 import { withDirLock } from './dirLock.js';
 import { removeTask, transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
+import { normalizeSelectedRepoPathsInText, type SelectedRepoRootAlias } from './taskVisiblePathNormalization.js';
 import { discardRetainedTaskWorktrees, finalizeTaskWorktreesWithReport } from '../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { markChildTaskChainTaskFailed, resetFailedChildTaskChainTaskToPlanned } from './childTaskChainFailure.js';
@@ -94,9 +95,11 @@ async function restoreContextPackBindingForRecoveredItem(
   taskId: string,
   recoveredBody: string,
 ): Promise<string> {
-  const recoveredBinding = extractContextPackBinding(recoveredBody);
+  const taskJson = readTaskJsonSafe(taskId, repoRoot);
+  const normalizedRecoveredBody = normalizeRecoveredBodyForSelectedRoots(recoveredBody, buildRecoveredAliases(taskJson));
+  const recoveredBinding = extractContextPackBinding(normalizedRecoveredBody);
   if (recoveredBinding.kind === 'binding') {
-    return recoveredBody;
+    return normalizedRecoveredBody;
   }
   if (recoveredBinding.kind === 'invalid') {
     log.warn('context_pack_binding.invalid.ignored', { taskId, reason: recoveredBinding.reason });
@@ -113,7 +116,7 @@ async function restoreContextPackBindingForRecoveredItem(
   try {
     const intakeBinding = extractContextPackBinding(await readFile(intakePath, 'utf-8'));
     if (intakeBinding.kind === 'binding') {
-      return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection(intakeBinding.binding)}\n`;
+      return `${normalizedRecoveredBody.trimEnd()}\n\n${formatAgentVisibleContextPackBindingSection(intakeBinding.binding)}\n`;
     }
     if (intakeBinding.kind === 'invalid') {
       log.warn('context_pack_binding.invalid.ignored', { taskId, reason: intakeBinding.reason });
@@ -124,14 +127,13 @@ async function restoreContextPackBindingForRecoveredItem(
     }
   }
 
-  const taskJson = readTaskJsonSafe(taskId, repoRoot);
   const selection = taskJson?.contextPackBinding.selection;
   const contextPackDir = selection?.contextPackDir?.trim();
   if (!selection || !contextPackDir) {
-    return recoveredBody;
+    return normalizedRecoveredBody;
   }
 
-  return `${recoveredBody.trimEnd()}\n\n${formatContextPackBindingSection({
+  return `${normalizedRecoveredBody.trimEnd()}\n\n${formatAgentVisibleContextPackBindingSection({
     contextPackDir,
     contextPackId: selection.contextPackId ?? undefined,
     scopeMode: selection.scopeMode ?? undefined,
@@ -144,6 +146,27 @@ async function restoreContextPackBindingForRecoveredItem(
     selectedTestTarget: selection.selectedTestTarget,
     selectedSupportTargets: selection.selectedSupportTargets,
   })}\n`;
+}
+
+function buildRecoveredAliases(taskJson: ReturnType<typeof readTaskJsonSafe>): SelectedRepoRootAlias[] {
+  const repoIds = taskJson?.contextPackBinding.selection?.selectedRepoIds ?? [];
+  return (taskJson?.contextPackBinding.repoBindings ?? []).map((binding, index) => ({
+    repoId: repoIds[index] ?? (path.basename(binding.worktreeRoot) || `repo-${index + 1}`),
+    originalRoot: binding.originalRoot,
+    worktreeRoot: binding.worktreeRoot,
+  }));
+}
+
+function normalizeRecoveredBodyForSelectedRoots(
+  recoveredBody: string,
+  aliases: readonly SelectedRepoRootAlias[],
+): string {
+  if (aliases.length === 0) return recoveredBody;
+  return normalizeSelectedRepoPathsInText({
+    text: recoveredBody,
+    aliases,
+    mode: 'human-readable',
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +418,12 @@ export async function moveFailedItemToErrorItems(options: {
 
   // §4.15: finalize all worktrees for this task only. This also stamps
   // .task.json.state = "failed" and finalizedAt.
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId }),
+    repoRoot: root,
+    taskId,
+    event: { type: 'failure.finalizing_worktrees' },
+  });
   const finalizeResult = await finalizeTaskWorktreesWithReport(taskId, 'failed', root);
 
   await withDirLock(queuePaths.queueLockDir, 'Move failed item', async () => {
@@ -417,11 +446,13 @@ export async function moveFailedItemToErrorItems(options: {
         taskId,
         missingPendingBody,
       );
-      await writeFile(
-        destPath,
-        `${recoveredBody.trimEnd()}\n\n---\n\nFailure recovery note: pendingitems/${activeItem} was already absent.\n`,
-        'utf-8',
-      );
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot: root,
+        taskId,
+        event: { type: 'failure.recovered_missing_pending', input: { recovered: true } },
+      });
+      await writeFile(destPath, `${recoveredBody.trimEnd()}\n`, 'utf-8');
     }
 
     // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
@@ -438,16 +469,18 @@ export async function moveFailedItemToErrorItems(options: {
   });
 
   const moveReason = 'task-failed';
-  log.child({ taskId }).progress({
-    level: 'info',
-    event: 'queue.error_items.moved',
-    extra: { error_path: destPath, reason: moveReason },
-    text: `[queue] moved to error-items ${taskId} - ${moveReason}`,
+  const taskLog = log.child({ taskId });
+  await emitTaskProgressEvent({
+    logger: taskLog,
+    repoRoot: root,
+    taskId,
+    event: { type: 'queue.task.failed' },
   });
-  await RuntimeTerminalEvents.forTask(root, taskId).taskFailed();
-  await RuntimeTerminalEvents.forTask(root, taskId).errorItemsMoved({
-    errorPath: destPath,
-    reason: moveReason,
+  await emitTaskProgressEvent({
+    logger: taskLog,
+    repoRoot: root,
+    taskId,
+    event: { type: 'queue.error_items.moved', input: { errorPath: destPath, reason: moveReason } },
   });
 
   let childChainFailureMarked = false;

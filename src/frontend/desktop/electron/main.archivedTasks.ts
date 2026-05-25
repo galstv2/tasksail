@@ -583,7 +583,7 @@ function attachChildParentBlockedTips(
     scope: activeScope,
   });
   if (childParentBlockedTips.length === 0) return response;
-  log.info('archived-tasks.child-parent-blocked-tips.emitted', {
+  log.debug('archived-tasks.child-parent-blocked-tips.emitted', {
     count: childParentBlockedTips.length,
     contextPackId: activeScope.contextPackId,
     contextPackDir: activeScope.contextPackDir,
@@ -896,7 +896,7 @@ export async function listArchivedTasksAction(
       return counts;
     }, {});
     if (Object.keys(hiddenByReason).length > 0) {
-      log.info('archived-tasks.child-parent-eligibility.filtered', { countsByReason: hiddenByReason });
+      log.debug('archived-tasks.child-parent-eligibility.filtered', { countsByReason: hiddenByReason });
     }
 
     const response: PlannerListArchivedTasksResponse = {

@@ -105,6 +105,7 @@ describe('activation dirty guard', () => {
     expect(existsSync(pendingPath)).toBe(false);
     expect(existsSync(path.join(paths.errorItemsDir, `${taskId}.md`))).toBe(true);
     expect(existsSync(path.join(paths.activeItemsDir, taskId))).toBe(false);
+    expect(existsSync(path.join(paths.activatingItemsDir, `${taskId}.json`))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId))).toBe(false);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees'))).toBe(false);
     expect(git(repoRoot, ['branch', '--list', `task/${taskId}`])).toBe('');

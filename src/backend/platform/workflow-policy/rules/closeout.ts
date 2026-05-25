@@ -11,12 +11,14 @@ import {
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
 } from '../models.js';
 import { issuesHaveBlockingFindings, normalizeText } from '../matching.js';
+import {
+  parseRequirementVerificationStatus,
+  sortedRequirementIds,
+  stripCommentsAndFences,
+} from '../requirementVerification.js';
 import type { PolicyValidator } from '../validator.js';
 
 const IMPLEMENTATION_SPEC_RELATIVE_PATH = 'implementation-spec.md';
-const REQUIREMENT_ID_PATTERN = /\b(?:CR|COMP|VAL)-\d{3}\b/g;
-const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
-const FENCE_OPEN_RE = /^(```|~~~)/;
 
 function normalizeDifficultyLevel(value: string): string {
   const match = /^(easy|medium|hard)\b/i.exec(value.trim());
@@ -85,7 +87,7 @@ export async function evaluateCloseoutRules(validator: PolicyValidator): Promise
       severity: 'warning',
       message: `Retrospective action items are incomplete in retrospective-input.md; ${retrospectiveGaps.action_items.join('; ')}.`,
       remediation:
-        'Add 1 to 5 concrete action-item bullets under Action Items before closeout or archival.',
+        'Add 1 to 5 concrete action items under Action Items before closeout or archival.',
     });
   }
 
@@ -96,7 +98,7 @@ export async function evaluateCloseoutRules(validator: PolicyValidator): Promise
       severity: 'warning',
       message: `Retrospective is missing contribution sections in retrospective-input.md; missing or blank: ${retrospectiveGaps.missing_contributions.join(', ')}.`,
       remediation:
-        "Record at least one concise bullet in each named role's Contribution section before closeout or archival.",
+        "Record concise content in each named role's Contribution section before closeout or archival.",
     });
   }
 
@@ -105,9 +107,9 @@ export async function evaluateCloseoutRules(validator: PolicyValidator): Promise
       rule_id: 'closeout.retrospective-concise',
       artifact: RETROSPECTIVE_INPUT_RELATIVE_PATH,
       severity: 'warning',
-      message: `Retrospective contributions exceed 5 bullets per role; these sections are oversized: ${retrospectiveGaps.oversized_contributions.join(', ')}.`,
+      message: `Retrospective contributions exceed 5 items per role; these sections are oversized: ${retrospectiveGaps.oversized_contributions.join(', ')}.`,
       remediation:
-        'Trim each role contribution to no more than 5 concise bullets before closeout or archival.',
+        'Trim each role contribution to no more than 5 concise items before closeout or archival.',
     });
   }
 
@@ -163,48 +165,6 @@ export async function evaluateCloseoutRules(validator: PolicyValidator): Promise
     remediation:
       'Complete final-summary.md with closeout content before creating a follow-up from the active parent task or filing the task archive.',
   });
-}
-
-function stripCommentsAndFences(text: string): string {
-  const withoutComments = text.replace(HTML_COMMENT_RE, '');
-  const kept: string[] = [];
-  let fence: string | null = null;
-  for (const line of withoutComments.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (fence) {
-      if (trimmed.startsWith(fence)) {
-        fence = null;
-      }
-      continue;
-    }
-    const match = FENCE_OPEN_RE.exec(trimmed);
-    if (match?.[1]) {
-      fence = match[1];
-      continue;
-    }
-    kept.push(line);
-  }
-  return kept.join('\n');
-}
-
-function sortedRequirementIds(text: string): string[] {
-  return [...new Set(stripCommentsAndFences(text).match(REQUIREMENT_ID_PATTERN) ?? [])].sort();
-}
-
-function parseStatusForId(lines: readonly string[], id: string): string | null {
-  const pattern = new RegExp(`\\b${id}\\s*[:\\-\\u2013\\u2014]\\s*(.*)$`);
-  const match = stripCommentsAndFences(lines.join('\n'))
-    .split(/\r?\n/)
-    .map((candidate) => pattern.exec(candidate))
-    .find((candidate) => candidate !== null);
-  if (!match) {
-    return null;
-  }
-  const lowered = (match[1] ?? '').trim().toLowerCase().replace(/[\u2013\u2014]/g, '-');
-  if (lowered.startsWith('not met')) {
-    return 'not met';
-  }
-  return /^(verified|advisory|pending|blocked|unmet|failed)\b/.exec(lowered)?.[1] ?? null;
 }
 
 async function checkRequirementVerification(validator: PolicyValidator): Promise<void> {
@@ -263,7 +223,7 @@ async function checkRequirementVerification(validator: PolicyValidator): Promise
   const incompleteIds: string[] = [];
   const blockedIds: string[] = [];
   for (const id of generatedIds) {
-    const status = parseStatusForId(verificationLines, id);
+    const status = parseRequirementVerificationStatus(verificationLines, id);
     if (status === 'blocked' || status === 'unmet' || status === 'failed' || status === 'not met') {
       blockedIds.push(id);
     }

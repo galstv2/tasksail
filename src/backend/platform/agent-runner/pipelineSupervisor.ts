@@ -20,6 +20,8 @@ import { isChildChainSourceBranchProtected } from '../core/worktreeBranchOwnersh
 import { readChildTaskChains, type ChildTaskChainsState } from '../queue/childTaskChains.js';
 import { recoverStuckMidCompletion } from '../queue/recoverStuckMidCompletion.js';
 import { resumeCloseoutFromSentinel } from '../queue/resumeCloseout.js';
+import { resolveQueuePaths } from '../queue/paths.js';
+import { sweepActivationProgressMarkers } from '../queue/activationProgress.js';
 
 const log = createLogger('platform/agent-runner/pipelineSupervisor');
 
@@ -31,6 +33,7 @@ export type PipelineEntry = {
   taskId: string;
   pid: number;
   startedAt: string;
+  cleanupOwner?: 'caller' | 'child-exit-handler';
 };
 
 // ---------------------------------------------------------------------------
@@ -95,7 +98,11 @@ async function handleChildExit(
   signal: NodeJS.Signals | null,
 ): Promise<void> {
   // Remove from pid map first so concurrent peers are not affected.
+  const entry = pidMap.get(taskId);
   pidMap.delete(taskId);
+  if (entry?.cleanupOwner === 'caller') {
+    return;
+  }
 
   if (code === 0 && signal === null) {
     // F: success path. Child triggers its own cleanup via completePendingItem.
@@ -209,9 +216,29 @@ export async function startPipeline(
 export async function stopPipeline(
   taskId: string,
   stopGracePeriodMs = 15_000,
-): Promise<void> {
-  const entry = pidMap.get(taskId);
-  if (!entry) return;
+  options?: { cleanupOwner?: 'caller' | 'child-exit-handler' },
+): Promise<
+  | { status: 'not-running' }
+  | { status: 'stopped-graceful' }
+  | { status: 'stopped-forced' }
+  | { status: 'unproven-stopped' }
+> {
+  let entry = pidMap.get(taskId);
+  if (!entry) {
+    const starting = startingMap.get(taskId);
+    if (starting) {
+      const started = await Promise.race([
+        starting.then(() => 'started' as const).catch(() => 'failed' as const),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), stopGracePeriodMs)),
+      ]);
+      if (started === 'timeout') return { status: 'unproven-stopped' };
+      entry = pidMap.get(taskId);
+    }
+  }
+  if (!entry) return { status: 'not-running' };
+  if (options?.cleanupOwner) {
+    entry.cleanupOwner = options.cleanupOwner;
+  }
 
   try {
     process.kill(entry.pid, 'SIGTERM');
@@ -230,13 +257,17 @@ export async function stopPipeline(
     } catch {
       // Process may have already exited.
     }
-    await Promise.race([
+    const killed = await Promise.race([
       entry.exitPromise,
-      new Promise<void>((resolve) => setTimeout(resolve, stopGracePeriodMs)),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), stopGracePeriodMs)),
     ]);
+    if (killed === 'timeout') return { status: 'unproven-stopped' };
+    pidMap.delete(taskId);
+    return { status: 'stopped-forced' };
   }
 
   pidMap.delete(taskId);
+  return { status: 'stopped-graceful' };
 }
 
 /**
@@ -279,6 +310,18 @@ export async function recoverOnStartup(repoRoot: string): Promise<void> {
 
 async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
   const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+  const queuePaths = resolveQueuePaths(repoRoot);
+  await sweepActivationProgressMarkers({
+    paths: queuePaths,
+    repoRoot,
+    reason: 'startup-recovery',
+  });
+  const { sweepStaleKillRequests } = await import('../queue/killTask.js');
+  await sweepStaleKillRequests({
+    paths: queuePaths,
+    repoRoot,
+    reason: 'startup-recovery',
+  });
 
   // ── Orphan-branch sweep ──────────────────────────────────────────────────
   // Read all .task.json files to get taskIds for carveout checks.

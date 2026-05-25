@@ -1012,6 +1012,6 @@ describe('retrospectiveCompletionGaps()', () => {
 
     const gaps = validator.retrospectiveCompletionGaps(true);
     expect(gaps.action_items.length).toBeGreaterThan(0);
-    expect(gaps.action_items[0]).toMatch(/at least one bullet/i);
+    expect(gaps.action_items[0]).toMatch(/at least one item/i);
   });
 });

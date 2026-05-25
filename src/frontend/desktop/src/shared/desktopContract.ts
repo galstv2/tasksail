@@ -174,6 +174,8 @@ export const DESKTOP_ACTION_NAMES = [
   'taskBoard.deleteTask',
   'taskBoard.moveToPending',
   'taskBoard.moveToOpen',
+  'taskBoard.killTask',
+  'taskBoard.retryKillCleanup',
   'services.readStatus',
   'services.startBackend',
   'services.stopBackend',
@@ -803,6 +805,37 @@ export type TaskBoardItem = {
   title: string | null;
 };
 
+// Mirrors ActivationProgressPhase in src/backend/platform/queue/activationProgress.ts.
+// Keep the two unions in sync.
+export type TaskBoardActivationPhase =
+  | 'claimed'
+  | 'validating'
+  | 'preparing-worktree'
+  | 'materializing-worktree'
+  | 'initializing-task'
+  | 'starting-pipeline';
+
+export type TaskBoardStopCleanupStatus = 'failed';
+
+export type TaskBoardStopCleanupFailureCode =
+  | 'unproven-stopped'
+  | 'failed-item-cleanup-failed'
+  | 'activation-cleanup-failed'
+  | 'unexpected-cleanup-error';
+
+export type TaskBoardPendingItem = TaskBoardItem & {
+  state: 'active' | 'activating' | 'pending' | 'stopping';
+  activationPhase?: TaskBoardActivationPhase;
+  activationStartedAt?: string;
+  activationUpdatedAt?: string;
+  stopRequestedAt?: string;
+  stopCleanupStatus?: TaskBoardStopCleanupStatus;
+  stopCleanupFailedAt?: string;
+  stopCleanupErrorCode?: TaskBoardStopCleanupFailureCode;
+  stopCleanupMessage?: string;
+  stopCleanupRetryable?: boolean;
+};
+
 export type TaskBoardReadBoardRequest = {
   action: 'taskBoard.readBoard';
   payload?: undefined;
@@ -813,7 +846,7 @@ export type TaskBoardReadBoardResponse = {
   mode: 'read-only';
   message: string;
   dropboxItems: TaskBoardItem[];
-  pendingItems: (TaskBoardItem & { state: 'active' | 'pending' })[];
+  pendingItems: TaskBoardPendingItem[];
   errorItems: TaskBoardItem[];
   completedItems: ArchivedTaskEntry[];
 };
@@ -901,7 +934,10 @@ export type TaskBoardMoveToPendingResponse = {
 
 export type TaskBoardMoveToOpenRequest = {
   action: 'taskBoard.moveToOpen';
-  payload: { fileName: string };
+  payload: {
+    fileName: string;
+    sourceColumn?: 'error' | 'pending';
+  };
 };
 
 export type TaskBoardMoveToOpenResponse = {
@@ -909,6 +945,38 @@ export type TaskBoardMoveToOpenResponse = {
   mode: 'moved';
   message: string;
   movedItem: string;
+};
+
+export type TaskBoardKillTaskRequest = {
+  action: 'taskBoard.killTask';
+  payload: {
+    taskId: string;
+    fileName: string;
+  };
+};
+
+export type TaskBoardKillTaskResponse = {
+  action: 'taskBoard.killTask';
+  mode: 'failed' | 'kill-requested';
+  message: string;
+  taskId: string;
+  movedItem?: string;
+  nextActiveItem?: string | null;
+};
+
+export type TaskBoardRetryKillCleanupRequest = {
+  action: 'taskBoard.retryKillCleanup';
+  payload: {
+    taskId: string;
+    fileName: string;
+  };
+};
+
+export type TaskBoardRetryKillCleanupResponse = {
+  action: 'taskBoard.retryKillCleanup';
+  mode: 'cleanup-retry-scheduled';
+  message: string;
+  taskId: string;
 };
 
 export type TerminalSetTaskScopeRequest = {
@@ -993,6 +1061,8 @@ export type DesktopActionRequest =
   | TaskBoardDeleteTaskRequest
   | TaskBoardMoveToPendingRequest
   | TaskBoardMoveToOpenRequest
+  | TaskBoardKillTaskRequest
+  | TaskBoardRetryKillCleanupRequest
   | ServicesReadStatusRequest
   | ServicesStartBackendRequest
   | ServicesStopBackendRequest
@@ -1076,6 +1146,8 @@ export type DesktopActionResponse =
   | TaskBoardDeleteTaskResponse
   | TaskBoardMoveToPendingResponse
   | TaskBoardMoveToOpenResponse
+  | TaskBoardKillTaskResponse
+  | TaskBoardRetryKillCleanupResponse
   | ServicesReadStatusResponse
   | DeepFocusSaveSelectionsResponse
   | DeepFocusLoadSelectionsResponse

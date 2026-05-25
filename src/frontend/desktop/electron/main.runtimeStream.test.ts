@@ -1353,7 +1353,7 @@ describe('main.runtimeStream', () => {
 
     expect(emitStreamEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Capturing test evidence.',
+        message: 'Code capture started.',
         source: 'runtime.pipeline',
         role: 'pipeline',
         taskId: 'TASK-A',
@@ -1361,7 +1361,7 @@ describe('main.runtimeStream', () => {
     );
     expect(emitStreamEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Test evidence captured.',
+        message: 'Code capture completed.',
         source: 'runtime.pipeline',
         role: 'pipeline',
         taskId: 'TASK-B',
@@ -1395,7 +1395,7 @@ describe('main.runtimeStream', () => {
     );
     expect(emitStreamEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Test capture skipped — could not resolve target repo.',
+        message: 'Code capture skipped — could not resolve target repo.',
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'warning',

@@ -7,6 +7,9 @@ import {
   isPickDirectoryResponse,
   isDiscoverPrefillResponse,
   isCreateResponse,
+  isTaskBoardReadBoardResponse,
+  isTaskBoardKillTaskResponse,
+  isTaskBoardRetryKillCleanupResponse,
 } from './desktopContractTypeGuards';
 
 describe('isContextPackListResponse', () => {
@@ -94,5 +97,104 @@ describe('isCreateResponse', () => {
 
   it('returns false when action property is missing', () => {
     expect(isCreateResponse({ type: 'contextPack.create' })).toBe(false);
+  });
+});
+
+describe('isTaskBoardKillTaskResponse', () => {
+  it('accepts failed and kill-requested responses', () => {
+    expect(isTaskBoardKillTaskResponse({
+      action: 'taskBoard.killTask',
+      mode: 'failed',
+      message: 'Stopped.',
+      taskId: 'task-a',
+      movedItem: 'task-a.md',
+      nextActiveItem: null,
+    })).toBe(true);
+    expect(isTaskBoardKillTaskResponse({
+      action: 'taskBoard.killTask',
+      mode: 'kill-requested',
+      message: 'Stop requested.',
+      taskId: 'task-a',
+    })).toBe(true);
+  });
+
+  it('rejects malformed kill response shapes', () => {
+    expect(isTaskBoardKillTaskResponse({ action: 'taskBoard.killTask', mode: 'done', message: 'x', taskId: 'task-a' })).toBe(false);
+    expect(isTaskBoardKillTaskResponse({ action: 'taskBoard.killTask', mode: 'failed', message: 1, taskId: 'task-a' })).toBe(false);
+    expect(isTaskBoardKillTaskResponse({ action: 'taskBoard.killTask', mode: 'failed', message: 'x', taskId: 1 })).toBe(false);
+    expect(isTaskBoardKillTaskResponse({ action: 'taskBoard.killTask', mode: 'failed', message: 'x', taskId: 'task-a', movedItem: null })).toBe(false);
+    expect(isTaskBoardKillTaskResponse({ action: 'taskBoard.killTask', mode: 'failed', message: 'x', taskId: 'task-a', nextActiveItem: 1 })).toBe(false);
+  });
+});
+
+describe('isTaskBoardReadBoardResponse', () => {
+  it('accepts valid cleanup-failed pending rows and rejects malformed cleanup fields', () => {
+    expect(isTaskBoardReadBoardResponse({
+      action: 'taskBoard.readBoard',
+      dropboxItems: [],
+      pendingItems: [{
+        fileName: 'task-a.md',
+        taskId: 'task-a',
+        title: 'Task A',
+        state: 'stopping',
+        stopCleanupStatus: 'failed',
+        stopCleanupErrorCode: 'failed-item-cleanup-failed',
+        stopCleanupFailedAt: '2026-05-24T10:00:00.000Z',
+        stopCleanupMessage: 'Cleanup failed.',
+        stopCleanupRetryable: true,
+      }],
+      errorItems: [],
+      completedItems: [],
+    })).toBe(true);
+    expect(isTaskBoardReadBoardResponse({
+      action: 'taskBoard.readBoard',
+      dropboxItems: [],
+      pendingItems: [{
+        fileName: 'task-a.md',
+        taskId: 'task-a',
+        title: 'Task A',
+        state: 'stopping',
+        stopCleanupStatus: 'retrying',
+      }],
+      errorItems: [],
+      completedItems: [],
+    })).toBe(false);
+    expect(isTaskBoardReadBoardResponse({
+      action: 'taskBoard.readBoard',
+      dropboxItems: [],
+      pendingItems: [{
+        fileName: 'task-a.md',
+        taskId: 'task-a',
+        title: 'Task A',
+        state: 'stopping',
+        stopCleanupStatus: 'failed',
+        stopCleanupErrorCode: 'wrong-code',
+      }],
+      errorItems: [],
+      completedItems: [],
+    })).toBe(false);
+  });
+});
+
+describe('isTaskBoardRetryKillCleanupResponse', () => {
+  it('accepts only cleanup retry scheduled responses', () => {
+    expect(isTaskBoardRetryKillCleanupResponse({
+      action: 'taskBoard.retryKillCleanup',
+      mode: 'cleanup-retry-scheduled',
+      message: 'Retry cleanup scheduled.',
+      taskId: 'task-a',
+    })).toBe(true);
+    expect(isTaskBoardRetryKillCleanupResponse({
+      action: 'taskBoard.retryKillCleanup',
+      mode: 'failed',
+      message: 'Retry cleanup scheduled.',
+      taskId: 'task-a',
+    })).toBe(false);
+    expect(isTaskBoardRetryKillCleanupResponse({
+      action: 'taskBoard.retryKillCleanup',
+      mode: 'cleanup-retry-scheduled',
+      message: 'Retry cleanup scheduled.',
+      taskId: 1,
+    })).toBe(false);
   });
 });

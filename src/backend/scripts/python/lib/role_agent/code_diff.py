@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -412,13 +413,11 @@ def capture_code_diff(
     try:
         _atomic_write_text(out, content)
     except OSError as exc:
-        logger.exception(
-            "code_diff.artifact_write_failed",
-            extra={
-                "output_path": str(out),
-                "error": str(exc),
-            },
-        )
+        sys.stderr.write(json.dumps({
+            "msg": "code_diff.artifact_write_failed",
+            "extra": {"output_path": str(out), "error": str(exc)},
+            "err": {"message": str(exc)},
+        }))
         return 1, repo_names
 
     return exit_code, repo_names

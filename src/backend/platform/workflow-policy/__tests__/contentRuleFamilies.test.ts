@@ -868,10 +868,6 @@ describe('workflow-policy content rule families', () => {
     expect(validator.violations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          rule_id: 'spec.goals-measurable',
-          message: 'Goals must contain at least one numbered or bullet item.',
-        }),
-        expect.objectContaining({
           rule_id: 'spec.validation-strategy-executable',
         }),
         expect.objectContaining({
@@ -1256,9 +1252,6 @@ describe('workflow-policy content rule families', () => {
         }),
         expect.objectContaining({
           rule_id: 'slice.file-scope-declared',
-        }),
-        expect.objectContaining({
-          rule_id: 'slice.acceptance-criteria-measurable',
         }),
         expect.objectContaining({
           rule_id: 'slice.validation-commands-executable',

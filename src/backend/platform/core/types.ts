@@ -41,6 +41,9 @@ export interface PlatformPaths {
 /** Agent autonomy profile names. */
 export type AutonomyProfile = 'repo-executor' | 'artifact-author' | 'qa-executor';
 
+/** Terminal status of an agent run as observed by the supervisor. */
+export type AgentRunStatus = 'success' | 'failure' | 'killed' | 'timeout';
+
 /** Workflow agent identifiers matching registry.json. */
 export type AgentId =
   | 'lily'

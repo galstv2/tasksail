@@ -531,6 +531,24 @@ describe('TerminalFeed', () => {
     expect(within(drawer).getByText('Environment')).toBeInTheDocument();
   });
 
+  it('clear terminal button is disabled when stream is empty', () => {
+    renderFeed();
+    const clear = screen.getByRole('button', { name: /clear terminal/i });
+    expect(clear).toBeDisabled();
+  });
+
+  it('clear terminal button invokes onClearTerminal when events exist', () => {
+    const onClearTerminal = vi.fn();
+    renderFeed({
+      activityStream: [makeEvent({ id: 'evt-clear-1' })],
+      onClearTerminal,
+    });
+    const clear = screen.getByRole('button', { name: /clear terminal/i });
+    expect(clear).toBeEnabled();
+    fireEvent.click(clear);
+    expect(onClearTerminal).toHaveBeenCalledTimes(1);
+  });
+
   it('renders blinking cursor', () => {
     renderFeed();
     const cursor = document.querySelector('.terminal-cursor');

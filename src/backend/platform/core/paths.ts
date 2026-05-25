@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { PlatformPaths } from './types.js';
 
@@ -118,6 +118,23 @@ export function isPathWithinBoundary(
     resolvedCandidate === resolvedBoundary ||
     resolvedCandidate.startsWith(resolvedBoundary + path.sep)
   );
+}
+
+/**
+ * Resolve a path to its canonical absolute form, following symlinks. Falls
+ * back to {@link path.resolve} when the path does not exist on disk so callers
+ * relying on canonical-form comparison still get a stable identity for
+ * not-yet-materialized paths. Required so that comparisons against bindings on
+ * macOS tmp dirs (where `/tmp` → `/private/tmp`) and similar symlinked roots
+ * remain consistent across the boundary-check call sites.
+ */
+export function canonicalRoot(root: string): string {
+  const resolved = path.resolve(root);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 /**

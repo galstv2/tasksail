@@ -7,6 +7,7 @@ import type {
   DesktopInvokeResult,
   PlannerListArchivedTasksResponse,
   PlannerStartSessionPayload,
+  TaskBoardReadBoardResponse,
   TerminalSetTaskScopeResponse,
 } from './desktopContract';
 import { DESKTOP_ACTION_NAMES } from './desktopContract';
@@ -53,6 +54,57 @@ describe('desktopContract', () => {
       message: 'Terminal task scope reset to all tasks.',
     };
     expect(response.action).toBe('terminal.setTaskScope');
+  });
+
+  it('accepts taskboard active, activating, stopping, and pending read-model items', () => {
+    const response: TaskBoardReadBoardResponse = {
+      action: 'taskBoard.readBoard',
+      mode: 'read-only',
+      message: '0 open, 4 pending, 0 failed, 0 completed.',
+      dropboxItems: [],
+      pendingItems: [
+        { fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' },
+        {
+          fileName: 'ACTIVATING.md',
+          taskId: 'ACTIVATING',
+          title: 'Activating',
+          state: 'activating',
+          activationPhase: 'materializing-worktree',
+          activationStartedAt: '2026-05-23T10:00:00Z',
+          activationUpdatedAt: '2026-05-23T10:00:05Z',
+        },
+        {
+          fileName: 'STOPPING.md',
+          taskId: 'STOPPING',
+          title: 'Stopping',
+          state: 'stopping',
+          stopRequestedAt: '2026-05-23T10:00:10Z',
+          stopCleanupStatus: 'failed',
+          stopCleanupFailedAt: '2026-05-23T10:01:10Z',
+          stopCleanupErrorCode: 'failed-item-cleanup-failed',
+          stopCleanupMessage: 'Cleanup failed.',
+          stopCleanupRetryable: true,
+        },
+        { fileName: 'PENDING.md', taskId: 'PENDING', title: 'Pending', state: 'pending' },
+      ],
+      errorItems: [],
+      completedItems: [],
+    };
+
+    expect(response.pendingItems.map((item) => item.state)).toEqual([
+      'active',
+      'activating',
+      'stopping',
+      'pending',
+    ]);
+  });
+
+  it('keeps taskBoard.retryKillCleanup approved', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('taskBoard.retryKillCleanup');
+    expect(validateDesktopActionRequest({
+      action: 'taskBoard.retryKillCleanup',
+      payload: { fileName: 'TASK-A.md', taskId: 'TASK-A' },
+    })).toEqual([]);
   });
 
   it('accepts optional test metadata on repo tree responses', () => {

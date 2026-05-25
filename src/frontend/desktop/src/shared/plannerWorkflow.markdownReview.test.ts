@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildMarkdownReviewPrompt } from './plannerWorkflow';
+import { PLANNER_SAVE_DRAFT_WORKFLOW, buildMarkdownReviewPrompt } from './plannerWorkflow';
 
 describe('buildMarkdownReviewPrompt', () => {
   it('treats markdown review as a standard task flow unless the child-task path is active', () => {
@@ -16,5 +16,11 @@ describe('buildMarkdownReviewPrompt', () => {
 
     expect(prompt).toContain('If you have everything you need to draft the spec');
     expect(prompt).toContain('the intake is ready and the Draft Spec button can be clicked');
+  });
+
+  it('protects Branch Chain metadata in the internal Draft Spec save prompt', () => {
+    expect(PLANNER_SAVE_DRAFT_WORKFLOW.prompt).toContain(
+      'Do NOT change Task Lineage, Context Pack Binding, Branch Chain, or Source metadata.',
+    );
   });
 });

@@ -187,7 +187,7 @@ describe('workflow-policy rule parity', () => {
           rule_id: 'closeout.retrospective-action-items-required',
           severity: 'warning',
           message:
-            'Retrospective action items are incomplete in retrospective-input.md; Action Items must contain at least one bullet.',
+            'Retrospective action items are incomplete in retrospective-input.md; Action Items must contain at least one item.',
         }),
         expect.objectContaining({
           rule_id: 'closeout.retrospective-role-contributions-required',
@@ -321,7 +321,7 @@ describe('workflow-policy rule parity', () => {
         'complex',
         '',
         '## Independent Slices',
-        '- slice-42 owns workflow parity',
+        'The orchestrated split uses slice-42 for workflow parity.',
         '',
         '## Constraints',
         '',

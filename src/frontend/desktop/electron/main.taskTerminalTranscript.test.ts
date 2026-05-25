@@ -34,7 +34,7 @@ describe('main.taskTerminalTranscript', () => {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'info',
-      message: 'Capturing test evidence.',
+      message: 'Code capture started.',
     });
 
     expect(fsAdapter.mkdir).toHaveBeenCalledWith(

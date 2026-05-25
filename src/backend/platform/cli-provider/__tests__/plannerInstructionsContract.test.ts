@@ -71,7 +71,7 @@ describe('Lily planner instructions env contract', () => {
   it('keeps platform workflow terms out of recommended task subject matter', () => {
     const text = fs.readFileSync(instructionsPath, 'utf-8');
 
-    expect(text).toContain('## Context-Pack Subject Boundary');
+    expect(text).toContain('## Grounding And Scope');
     expect(text).toContain('Your grounding authority for the task subject is the platform-provided staged shell/session context');
     expect(text).toContain('Use those fields as the source of truth');
     expect(text).toContain('Do not treat them as candidate task subjects');

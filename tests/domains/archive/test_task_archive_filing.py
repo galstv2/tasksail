@@ -225,6 +225,109 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             self.assertIn("## Archived Handoff Artifacts", archive_markdown)
             self.assertIn("- Manifest: handoff-artifacts-manifest.json", archive_markdown)
 
+    def test_task_archive_copies_terminal_events_snapshot_to_canonical_and_mirror(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+            terminal_payload = {
+                "events": [
+                    {
+                        "eventId": "visible-event",
+                        "source": "runtime.queue",
+                        "role": "queue",
+                        "severity": "info",
+                        "visible": True,
+                        "message": "Visible event.",
+                        "createdAt": "2026-05-25T00:00:00Z",
+                    },
+                    {
+                        "eventId": "hidden-event",
+                        "source": "runtime.queue",
+                        "role": "queue",
+                        "severity": "info",
+                        "visible": False,
+                        "message": "Hidden event.",
+                        "createdAt": "2026-05-25T00:00:01Z",
+                    },
+                ]
+            }
+            runtime_terminal_path = (
+                repo_root
+                / ".platform-state"
+                / "runtime"
+                / "tasks"
+                / "CAP-2001"
+                / "terminal-events.json"
+            )
+            runtime_terminal_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_terminal_path.write_text(json.dumps(terminal_payload, indent=2) + "\n", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            canonical = self.task_archive_dir(context_pack_dir) / "terminal-events.json"
+            mirror = self.mirror_task_archive_dir(repo_root) / "terminal-events.json"
+            self.assertEqual(json.loads(canonical.read_text(encoding="utf-8")), terminal_payload)
+            self.assertEqual(json.loads(mirror.read_text(encoding="utf-8")), terminal_payload)
+            manifest = json.loads(self.task_archive_manifest_path(context_pack_dir).read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "terminal-events.json",
+                [entry["archive_relative_path"] for entry in manifest["files"]],
+            )
+
+    def test_task_archive_skips_missing_terminal_events_snapshot_for_legacy_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            self.assertFalse((self.task_archive_dir(context_pack_dir) / "terminal-events.json").exists())
+            self.assertFalse((self.mirror_task_archive_dir(repo_root) / "terminal-events.json").exists())
+
+    def test_task_archive_fails_invalid_existing_terminal_events_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self.write_branch_handoff_snapshot_source(repo_root)
+            runtime_terminal_path = (
+                repo_root
+                / ".platform-state"
+                / "runtime"
+                / "tasks"
+                / "CAP-2001"
+                / "terminal-events.json"
+            )
+            runtime_terminal_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_terminal_path.write_text('{"events": "not-a-list"}\n', encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("Runtime terminal event snapshot is invalid", completed.stderr)
+            self.assertFalse((self.task_archive_dir(context_pack_dir) / "archive.json").exists())
+
     def test_task_archive_uses_task_scoped_artifacts_not_workspace_level_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)

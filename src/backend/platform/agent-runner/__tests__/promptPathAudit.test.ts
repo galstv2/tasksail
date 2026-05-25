@@ -1,83 +1,100 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
-
-// This regex is a stand-in for the Copilot CLI's POSIX-style variable expander,
-// which performs $NAME and ${NAME} substitution at agent launch time using the
-// env constructed by buildAgentEnvironment (§1.3). It is NOT production code.
-const posixExpand = (text: string, env: Record<string, string>): string =>
-  text.replace(/\$\{?([A-Z_][A-Z0-9_]*)\}?/g, (_, n) => env[n] ?? '');
-
-const env = {
-  COPILOT_HANDOFFS_DIR: 'AgentWorkSpace/tasks/t1/handoffs',
-  COPILOT_IMPL_STEPS_DIR: 'AgentWorkSpace/tasks/t1/ImplementationSteps',
-  TASKSAIL_REALIGNMENT_STAGING_PATH: '.platform-state/runtime/realignment/r1/analysis.md',
-};
+import { buildAgentRuntimePathManifest } from '../agentRuntimePathManifest.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../../..');
 
+function repoRelative(filePath: string): string {
+  return relative(REPO_ROOT, filePath).split(sep).join('/');
+}
+
+function listMarkdownFiles(relDir: string): string[] {
+  const root = join(REPO_ROOT, relDir);
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        files.push(repoRelative(fullPath));
+      }
+    }
+  };
+  walk(root);
+  return files.sort();
+}
+
 const MIGRATED_FILES = [
-  '.github/copilot/instructions/qa.instructions.md',
-  '.github/copilot/instructions/global.instructions.md',
-  '.github/copilot/instructions/product-manager.instructions.md',
-  '.github/copilot/instructions/planning-agent.instructions.md',
-  '.github/copilot/prompts/start-task.prompt.md',
-  '.github/copilot/prompts/plan-task.prompt.md',
-  '.github/copilot/prompts/retrospective-task.prompt.md',
-  '.github/copilot/prompts/realignment-task.prompt.md',
+  ...listMarkdownFiles('.github/copilot/instructions'),
+  ...listMarkdownFiles('.github/copilot/prompts'),
 ];
 
 describe('promptPathAudit — §1.7 migration', () => {
   // Per-file: no bare literal paths remain; env-var references expand correctly
   for (const relPath of MIGRATED_FILES) {
-    it(`${relPath}: no bare literal paths and env vars expand`, () => {
+    it(`${relPath}: no bare literal paths`, () => {
       const raw = readFileSync(join(REPO_ROOT, relPath), 'utf-8');
-      const rendered = posixExpand(raw, env);
 
-      // No bare literals before expansion
       expect(raw, 'raw must not contain AgentWorkSpace/handoffs').not.toContain(
         'AgentWorkSpace/handoffs',
       );
       expect(raw, 'raw must not contain AgentWorkSpace/ImplementationSteps').not.toContain(
         'AgentWorkSpace/ImplementationSteps',
       );
-
-      // If the file references COPILOT_HANDOFFS_DIR it must expand into the task path
-      if (raw.includes('COPILOT_HANDOFFS_DIR')) {
-        expect(rendered, 'COPILOT_HANDOFFS_DIR must expand to task path').toContain(
-          'tasks/t1/handoffs',
-        );
-      }
-
-      // If the file references COPILOT_IMPL_STEPS_DIR it must expand into the task path
-      if (raw.includes('COPILOT_IMPL_STEPS_DIR')) {
-        expect(rendered, 'COPILOT_IMPL_STEPS_DIR must expand to task path').toContain(
-          'tasks/t1/ImplementationSteps',
-        );
-      }
-
-      // If the file references TASKSAIL_REALIGNMENT_STAGING_PATH it must expand into the runtime staging path.
-      if (raw.includes('TASKSAIL_REALIGNMENT_STAGING_PATH')) {
-        expect(rendered, 'TASKSAIL_REALIGNMENT_STAGING_PATH must expand to runtime staging path').toContain(
-          '.platform-state/runtime/realignment/r1/analysis.md',
-        );
-      }
     });
   }
 
-  // Aggregate: across all migrated files the expanded corpus contains BOTH task paths
-  it('corpus renders both tasks/t1/handoffs and tasks/t1/ImplementationSteps', () => {
-    const corpus = MIGRATED_FILES.map((f) =>
-      posixExpand(readFileSync(join(REPO_ROOT, f), 'utf-8'), env),
-    ).join('\n');
+  it('all runtime env symbols referenced by instructions and prompts are covered by the Runtime Path Manifest', () => {
+    const manifestEnv = {
+      ACTIVE_CONTEXT_PACK_DIR: 'value',
+      ACTIVE_CONTEXT_PACK_HOST_DIR: 'value',
+      TASKSAIL_TASK_ID: 'value',
+      TASKSAIL_TASK_BRANCHES: 'value',
+      TASKSAIL_TASK_BRANCHES_FILE: 'value',
+      TASKSAIL_TASK_WORKTREES: 'value',
+      TASKSAIL_TASK_WORKTREES_FILE: 'value',
+      TASKSAIL_REALIGNMENT_STAGING_PATH: 'value',
+      RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: 'value',
+      RUN_ROLE_AGENT_AUTONOMY_ALLOWED_DIRS_JSON: 'value',
+      RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR: 'value',
+      RUN_ROLE_AGENT_AUTONOMY_BOUNDARY_STATUS: 'value',
+      CONTEXT_PACK_CONVENTIONS_STATUS: 'value',
+      CONTEXT_PACK_CONVENTIONS_CONTEXT_FILE: 'value',
+      CONTEXT_PACK_CORRECTIONS_STATUS: 'value',
+      CONTEXT_PACK_CORRECTIONS_CONTEXT_FILE: 'value',
+      EXTERNAL_MCP_CONTEXT_STATUS: 'value',
+      EXTERNAL_MCP_CONTEXT_FILE: 'value',
+      REPO_CONTEXT_MCP_URL: 'value',
+      REPO_CONTEXT_MCP_PORT: 'value',
+      COPILOT_PLATFORM_REPO_ROOT: 'value',
+      COPILOT_HANDOFFS_DIR: 'value',
+      COPILOT_IMPL_STEPS_DIR: 'value',
+      COPILOT_TARGET_REPOS_JSON: 'value',
+      COPILOT_PRIMARY_FOCUS_PATH: 'value',
+      COPILOT_PRIMARY_FOCUS_TARGET_KIND: 'value',
+      COPILOT_PRIMARY_FOCUS_TARGETS_JSON: 'value',
+      COPILOT_WRITABLE_ROOTS_JSON: 'value',
+      COPILOT_READONLY_CONTEXT_ROOTS_JSON: 'value',
+      COPILOT_TEST_TARGET_PATH: 'value',
+      COPILOT_TEST_TARGET_KIND: 'value',
+    };
+    const manifestNames = new Set(buildAgentRuntimePathManifest({
+      agentId: 'ron',
+      agentCwd: '/repo',
+      env: manifestEnv,
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+    }).entries.map((entry) => entry.name));
 
-    expect(corpus).toContain('tasks/t1/handoffs');
-    expect(corpus).toContain('tasks/t1/ImplementationSteps');
+    const corpus = MIGRATED_FILES.map((file) => readFileSync(join(REPO_ROOT, file), 'utf-8')).join('\n');
+    const referenced = [...new Set(corpus.match(/\b(?:COPILOT_[A-Z0-9_]+|TASKSAIL_(?:TASK|REALIGNMENT)_[A-Z0-9_]+|RUN_ROLE_AGENT_AUTONOMY_[A-Z0-9_]+|EXTERNAL_MCP_[A-Z0-9_]+|CONTEXT_PACK_[A-Z0-9_]+)\b/g) ?? [])].sort();
+    expect(referenced.length).toBeGreaterThan(0);
 
-    // No unresolved bare literals survive expansion
-    expect(corpus).not.toContain('AgentWorkSpace/handoffs');
-    expect(corpus).not.toContain('AgentWorkSpace/ImplementationSteps');
+    const missing = referenced.filter((name) => !manifestNames.has(name));
+    expect(missing).toEqual([]);
   });
 });
 

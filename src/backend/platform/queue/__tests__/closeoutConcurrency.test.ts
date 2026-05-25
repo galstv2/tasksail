@@ -26,6 +26,10 @@ vi.mock('../errorItems.js', async (importOriginal) => {
 
 vi.mock('../../core/worktreeFinalize.js', () => ({
   finalizeTaskWorktrees: vi.fn().mockResolvedValue(undefined),
+  finalizeTaskWorktreesWithReport: vi.fn().mockResolvedValue({
+    skipNextActivation: false,
+    chainRollbackReport: undefined,
+  }),
 }));
 
 vi.mock('../branchVerification.js', () => ({

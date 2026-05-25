@@ -5,6 +5,7 @@ import type {
   TaskBoardContentColumn,
   TaskBoardDeleteColumn,
   TaskBoardItem,
+  TaskBoardPendingItem,
   TaskBoardReadBoardResponse,
   TaskBoardReadTaskContentResponse,
 } from '../../shared/desktopContract';
@@ -15,7 +16,7 @@ import type { DesktopShellClient } from '../services/desktopShellClient';
 
 export type TaskBoardState = {
   dropboxItems: TaskBoardItem[];
-  pendingItems: (TaskBoardItem & { state: 'active' | 'pending' })[];
+  pendingItems: TaskBoardPendingItem[];
   errorItems: TaskBoardItem[];
   completedItems: ArchivedTaskEntry[];
 };
@@ -36,7 +37,9 @@ export type UseTaskBoardResult = {
   requeueErrorItem: (fileName: string, insertAtIndex: number) => Promise<void>;
   deleteTask: (fileName: string, column: TaskBoardDeleteColumn) => Promise<boolean>;
   moveToPending: (fileName: string, insertAtIndex: number) => Promise<void>;
-  moveToOpen: (fileName: string) => Promise<void>;
+  moveToOpen: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<void>;
+  killTask: (fileName: string, taskId: string) => Promise<void>;
+  retryKillCleanup: (fileName: string, taskId: string) => Promise<void>;
   readTaskContent: (fileName: string, column: TaskBoardContentColumn) => Promise<string | null>;
 };
 
@@ -200,10 +203,10 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
   );
 
   const moveToOpen = useCallback(
-    async (fileName: string) => {
+    async (fileName: string, sourceColumn: 'error' | 'pending' = 'error') => {
       let result: Awaited<ReturnType<DesktopShellClient['moveToOpen']>>;
       try {
-        result = await client.moveToOpen(fileName);
+        result = await client.moveToOpen(fileName, sourceColumn);
       } catch (error: unknown) {
         const reason = error instanceof Error ? error.message : 'Unable to move task to open.';
         log.warn('task-board.move-to-open.failed', { fileName, reason });
@@ -219,5 +222,68 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
     [client, addToast],
   );
 
-  return { board, refresh, reorderPending, requeueErrorItem, deleteTask, moveToPending, moveToOpen, readTaskContent };
+  const killTask = useCallback(
+    async (fileName: string, taskId: string) => {
+      let result: Awaited<ReturnType<DesktopShellClient['killTask']>>;
+      setBoard((current) => ({
+        ...current,
+        pendingItems: current.pendingItems.map((item) => (
+          item.fileName === fileName && item.taskId === taskId && (item.state === 'active' || item.state === 'activating')
+            ? { ...item, state: 'stopping', stopRequestedAt: new Date().toISOString() }
+            : item
+        )),
+      }));
+      try {
+        result = await client.killTask(fileName, taskId);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to stop task.';
+        log.warn('task-board.kill-task.failed', { fileName, taskId, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        await refresh();
+        return;
+      }
+      if (!result.ok) {
+        addToast({ severity: 'error', message: result.error, duration: 6000 });
+        await refresh();
+        return;
+      }
+      addToast({ severity: 'success', message: result.response.message, duration: 3000 });
+    },
+    [client, addToast, refresh],
+  );
+
+  const retryKillCleanup = useCallback(
+    async (fileName: string, taskId: string) => {
+      let result: Awaited<ReturnType<DesktopShellClient['retryKillCleanup']>>;
+      try {
+        result = await client.retryKillCleanup(fileName, taskId);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to retry cleanup.';
+        log.warn('task-board.retry-kill-cleanup.failed', { fileName, taskId, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        await refresh();
+        return;
+      }
+      if (!result.ok) {
+        addToast({ severity: 'error', message: result.error, duration: 6000 });
+        await refresh();
+        return;
+      }
+      addToast({ severity: 'success', message: result.response.message, duration: 3000 });
+    },
+    [client, addToast, refresh],
+  );
+
+  return {
+    board,
+    refresh,
+    reorderPending,
+    requeueErrorItem,
+    deleteTask,
+    moveToPending,
+    moveToOpen,
+    killTask,
+    retryKillCleanup,
+    readTaskContent,
+  };
 }

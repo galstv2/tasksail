@@ -660,10 +660,20 @@ export const desktopShellApi = {
       action: 'taskBoard.moveToPending',
       payload: { fileName, insertAtIndex },
     }),
-  moveToOpen: async (fileName: string): Promise<DesktopInvokeResult> =>
+  moveToOpen: async (fileName: string, sourceColumn?: 'error' | 'pending'): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'taskBoard.moveToOpen',
-      payload: { fileName },
+      payload: { fileName, sourceColumn },
+    }),
+  killTask: async (fileName: string, taskId: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.killTask',
+      payload: { fileName, taskId },
+    }),
+  retryKillCleanup: async (fileName: string, taskId: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.retryKillCleanup',
+      payload: { fileName, taskId },
     }),
   getBackendServiceStatus: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -1027,7 +1037,9 @@ export type DesktopShellApi = {
   requeueErrorItem: (fileName: string, insertAtIndex: number) => Promise<DesktopInvokeResult>;
   deleteTask: (fileName: string, column: TaskBoardDeleteColumn) => Promise<DesktopInvokeResult>;
   moveToPending: (fileName: string, insertAtIndex: number) => Promise<DesktopInvokeResult>;
-  moveToOpen: (fileName: string) => Promise<DesktopInvokeResult>;
+  moveToOpen: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<DesktopInvokeResult>;
+  killTask: (fileName: string, taskId: string) => Promise<DesktopInvokeResult>;
+  retryKillCleanup: (fileName: string, taskId: string) => Promise<DesktopInvokeResult>;
   getBackendServiceStatus: () => Promise<DesktopInvokeResult>;
   startBackendServices: () => Promise<DesktopInvokeResult>;
   stopBackendServices: () => Promise<DesktopInvokeResult>;

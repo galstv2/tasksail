@@ -683,6 +683,24 @@ export function createMockClient(
           movedItem: 'task-err.md',
         },
       }),
+    killTask: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'taskBoard.killTask',
+        mode: 'kill-requested',
+        message: 'Stop requested.',
+        taskId: 'task-active',
+      },
+    }),
+    retryKillCleanup: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'taskBoard.retryKillCleanup',
+        mode: 'cleanup-retry-scheduled',
+        message: 'Retry cleanup scheduled.',
+        taskId: 'task-active',
+      },
+    }),
     getBackendServiceStatus: vi.fn().mockResolvedValue({
       ok: true,
       response: { action: 'services.readStatus', mode: 'observed', status: 'idle', lastCheckedAt: null, error: null, message: 'Idle.' },

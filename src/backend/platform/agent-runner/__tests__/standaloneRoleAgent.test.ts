@@ -134,6 +134,10 @@ function setupCommonMocks(): void {
       inlineAgentContext: false,
     })),
     mcpConfigArgs: vi.fn((configFilePath: string) => ['--additional-mcp-config', `@${configFilePath}`]),
+    runtimeManifestEnvVars: vi.fn(() => [
+      { name: 'COPILOT_HANDOFFS_DIR', kind: 'path', description: 'handoffs' },
+      { name: 'COPILOT_IMPL_STEPS_DIR', kind: 'path', description: 'steps' },
+    ]),
   });
   mocks.getPlatformConfig.mockResolvedValue({
     mcp_port: 8811,
@@ -211,8 +215,10 @@ describe('runStandaloneRoleAgent', () => {
     });
 
     const provider = mocks.getActiveProvider.mock.results[0].value;
+    const materializedPrompt = provider.materializePrompt.mock.calls[0][0].prompt;
+    expect(materializedPrompt).toContain('## Runtime Path Manifest');
+    expect(materializedPrompt).toContain('Standalone prompt.');
     expect(provider.materializePrompt).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: 'Standalone prompt.',
       promptPath: null,
       promptSource: 'override',
       profile,
@@ -226,7 +232,7 @@ describe('runStandaloneRoleAgent', () => {
       '--agent',
       'qa',
       '-p',
-      'override:Standalone prompt.',
+      expect.stringContaining('## Runtime Path Manifest'),
     ]);
   });
 
@@ -281,6 +287,11 @@ describe('runStandaloneRoleAgent', () => {
 
     expect(mocks.runAgentSession.mock.calls[0][0].env['TASKSAIL_REALIGNMENT_STAGING_PATH'])
       .toBe('/runtime/realignment/r-1/analysis.md');
+    const effectivePrompt = mocks.runAgentSession.mock.calls[0][0].cliArgs.at(3);
+    expect(effectivePrompt).toContain('## Runtime Path Manifest');
+    expect(effectivePrompt).toContain('- TASKSAIL_REALIGNMENT_STAGING_PATH (path): /runtime/realignment/r-1/analysis.md --');
+    expect(effectivePrompt).toContain('Analyze.');
+    expect(mocks.sha256Hex).toHaveBeenCalledWith(effectivePrompt);
   });
 
   it('injects context-pack MCP without a task handoff taskId', async () => {
@@ -324,7 +335,7 @@ describe('runStandaloneRoleAgent', () => {
       '--agent',
       'qa',
       '-p',
-      'override:Analyze.',
+      expect.stringContaining('## Runtime Path Manifest'),
       '--additional-mcp-config',
       '@/runtime/copilot-home/ron-launch/mcp-config.json',
     ]);

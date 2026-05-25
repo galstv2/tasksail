@@ -44,11 +44,10 @@ vi.mock('../environment.js', () => ({
   buildAutonomyEnvironment: vi.fn(),
 }));
 
-vi.mock('../guardrails.js', () => ({
-  runRuntimePolicyCheck: vi.fn(),
-  guardrailReceiptPath: vi.fn(),
-  writeGuardrailReceipt: vi.fn(),
-}));
+vi.mock('../guardrails.js', async () => {
+  const { createGuardrailsMockModule } = await import('./guardrailsMockFactory.js');
+  return createGuardrailsMockModule();
+});
 
 vi.mock('../confinement.js', () => ({
   captureChangedPathsSnapshot: vi.fn(),
@@ -86,6 +85,7 @@ vi.mock('../../core/index.js', async () => {
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
     createLogger: () => testLogger,
+    ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
   };
 });
@@ -94,10 +94,15 @@ vi.mock('../../core/io.js', () => ({
   readTextFile: vi.fn(),
 }));
 
-vi.mock('../artifactCompletion.js', () => ({
-  checkAgentArtifactCompletion: vi.fn(),
-  buildAgentArtifactRemediationPrompt: vi.fn(),
-}));
+vi.mock('../artifactCompletion.js', async () => {
+  const actual = await vi.importActual<typeof import('../artifactCompletion.js')>('../artifactCompletion.js');
+  return {
+    ...actual,
+    checkAgentArtifactCompletion: vi.fn(),
+    checkAgentArtifactCompletionDetails: vi.fn(),
+    buildAgentArtifactRemediationPrompt: vi.fn(),
+  };
+});
 
 vi.mock('../sessionReceipts.js', () => ({
   writeSessionStartReceipt: vi.fn(),
@@ -126,7 +131,7 @@ const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges } = await import('../confinement.js');
-const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
+const { checkAgentArtifactCompletionDetails } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
 const { getSharedMcpUrl, resolveContextPackContainerPath, runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
@@ -151,7 +156,7 @@ const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunch
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
 const mockedWriteGuardrailReceipt = vi.mocked(writeGuardrailReceipt);
 const mockedGuardrailReceiptPath = vi.mocked(guardrailReceiptPath);
-const mockedCheckAgentArtifactCompletion = vi.mocked(checkAgentArtifactCompletion);
+const mockedCheckAgentArtifactCompletionDetails = vi.mocked(checkAgentArtifactCompletionDetails);
 const mockedBuildAgentArtifactRemediationPrompt = vi.mocked(buildAgentArtifactRemediationPrompt);
 const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
 const mockedWriteSessionTerminalReceipt = vi.mocked(writeSessionTerminalReceipt);
@@ -237,7 +242,7 @@ function setupCommonMocks(): void {
     selectedServerIds: [],
     excludedServerIds: [],
   });
-  mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+  mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
   mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
     'Use the exact absolute workflow-artifact path shown below.\n- $COPILOT_HANDOFFS_DIR/issues.md',
   );

@@ -85,6 +85,27 @@ describe('clearRuntimeReceipts', () => {
     expect(existsSync(path.join(taskARuntimeDir, 'last-reset-ts'))).toBe(true);
   });
 
+  it('clears suffixed guardrail receipts for only the target task', async () => {
+    const taskARuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-A');
+    const taskBRuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-B');
+    const taskAGuardrailsDir = path.join(taskARuntimeDir, 'guardrails');
+    const taskBGuardrailsDir = path.join(taskBRuntimeDir, 'guardrails');
+    mkdirSync(taskAGuardrailsDir, { recursive: true });
+    mkdirSync(taskBGuardrailsDir, { recursive: true });
+    const taskAFirst = path.join(taskAGuardrailsDir, 'alice.json');
+    const taskASecond = path.join(taskAGuardrailsDir, 'alice-2.json');
+    const taskBSecond = path.join(taskBGuardrailsDir, 'alice-2.json');
+    writeFileSync(taskAFirst, '{}\n', 'utf-8');
+    writeFileSync(taskASecond, '{}\n', 'utf-8');
+    writeFileSync(taskBSecond, '{}\n', 'utf-8');
+
+    await clearRuntimeReceipts(repoRoot, 'task-A');
+
+    expect(existsSync(taskAFirst)).toBe(false);
+    expect(existsSync(taskASecond)).toBe(false);
+    expect(existsSync(taskBSecond)).toBe(true);
+  });
+
   it('writes a numeric timestamp string to last-reset-ts', async () => {
     const taskARuntimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', 'task-A');
 

@@ -24,7 +24,7 @@
 <!-- (required for "child-task"; absence or empty content fails validation. Leave blank for "standard".) -->
 
 ## Closeout Owner Agent ID
-<!-- (1 word) — must be exactly: qa -->
+<!-- Platform-populated. Leave unchanged. -->
 
 ## Completed Work
 <!-- (1-5 bullets) — what was delivered -->

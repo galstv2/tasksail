@@ -16,6 +16,7 @@ export type TaskTerminalTranscriptEventInput = {
   role: StreamEventOptions['role'];
   severity: StreamEventOptions['severity'];
   message: string;
+  visible?: boolean;
   actorName?: string;
   sessionContext?: StreamEventOptions['sessionContext'];
   extra?: Record<string, unknown>;
@@ -62,6 +63,7 @@ export async function appendTaskTerminalTranscriptEvent(
           source: input.source,
           role: input.role,
           severity: input.severity,
+          visible: input.visible ?? true,
           message: input.message,
           createdAt: new Date().toISOString(),
           ...(input.actorName ? { actorName: input.actorName } : {}),

@@ -227,7 +227,7 @@ export function buildLilyPlanningReloadScope(
   selectedPack?: ContextPackCatalogEntry,
 ): PlannerLilyPlanningReloadScope {
   assertSameContextPack(parentScope, childScope);
-  return {
+  const output: PlannerLilyPlanningReloadScope = {
     ...cloneChildScope(childScope),
     schemaVersion: 1,
     purpose: 'lily-planning-read-context',
@@ -236,6 +236,8 @@ export function buildLilyPlanningReloadScope(
     repositoryTypes: buildReloadRepositoryTypes(parentScope, childScope),
     selectedSupportTargets: buildReadOnlySupportTargets(parentScope, childScope, selectedPack),
   };
+  assertLilyPlanningReloadScopePostcondition(parentScope, childScope, output);
+  return output;
 }
 
 export function deriveChildScopeAbsentParentWarning(
@@ -264,6 +266,61 @@ function assertSameContextPack(parentScope: PlannerChildTaskExecutionScope, chil
     throw new Error('Child scope must stay in the selected parent\'s context pack.');
   }
 }
+
+function assertLilyPlanningReloadScopePostcondition(
+  parentScope: PlannerChildTaskExecutionScope,
+  childScope: PlannerChildTaskExecutionScope,
+  output: PlannerLilyPlanningReloadScope,
+): void {
+  const fail = (field: string, id?: string): never => {
+    throw new Error(`Lily planning reload scope postcondition failed for ${childScope.contextPackId}: ${field}${id ? `:${id}` : ''}.`);
+  };
+  assertArrayEquals(output.selectedRepoIds, unionIds(childScope.selectedRepoIds, parentScope.selectedRepoIds), 'selectedRepoIds', fail);
+  assertArrayEquals(output.selectedFocusIds, unionIds(childScope.selectedFocusIds, parentScope.selectedFocusIds), 'selectedFocusIds', fail);
+
+  const expectedTypes = expectedReloadRepositoryTypes(parentScope, childScope);
+  const actualTypes = output.repositoryTypes ?? {};
+  const expectedKeys = Object.keys(expectedTypes).sort();
+  const actualKeys = Object.keys(actualTypes).sort();
+  assertArrayEquals(actualKeys, expectedKeys, 'repositoryTypes', fail);
+  for (const key of expectedKeys) {
+    if (actualTypes[key] !== expectedTypes[key]) fail('repositoryTypes', key);
+  }
+  if (output.purpose !== 'lily-planning-read-context') fail('purpose');
+  if (output.schemaVersion !== 1) fail('schemaVersion');
+  if (output.contextPackDir !== childScope.contextPackDir) fail('contextPackDir');
+  if (output.contextPackId !== childScope.contextPackId) fail('contextPackId');
+}
+
+function assertArrayEquals(
+  actual: readonly string[],
+  expected: readonly string[],
+  field: string,
+  fail: (field: string, id?: string) => never,
+): void {
+  if (actual.length !== expected.length) fail(field);
+  for (let index = 0; index < expected.length; index += 1) {
+    if (actual[index] !== expected[index]) fail(field, expected[index] ?? actual[index]);
+  }
+}
+
+function expectedReloadRepositoryTypes(
+  parentScope: PlannerChildTaskExecutionScope,
+  childScope: PlannerChildTaskExecutionScope,
+): Record<string, ContextPackFocusFilterRepositoryType> {
+  const entries: Record<string, ContextPackFocusFilterRepositoryType> = {};
+  for (const id of [...childScope.selectedRepoIds, ...childScope.selectedFocusIds]) {
+    entries[id] = childScope.repositoryTypes?.[id] ?? 'support';
+  }
+  for (const id of [...parentScope.selectedRepoIds, ...parentScope.selectedFocusIds]) {
+    entries[id] ??= 'support';
+  }
+  return entries;
+}
+
+export const __plannerChildScopeTestHooks = {
+  assertLilyPlanningReloadScopePostcondition,
+};
 
 function normalizeChildScopeForComparison(
   scope: PlannerChildTaskExecutionScope | null | undefined,

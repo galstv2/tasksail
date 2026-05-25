@@ -21,6 +21,7 @@ const {
   pathExists,
   repoFs,
   readFile,
+  readdir,
   unlink,
   loadTaskRegistry,
   getRegistryPath,
@@ -34,7 +35,13 @@ const {
   deleteDropboxItem,
   deleteErrorItem,
   moveDropboxItemToPending,
+  movePendingItemToDropbox,
   moveErrorItemToDropbox,
+  requestTaskKill,
+  executeRequestedTaskKill,
+  observeKillRequest,
+  readActivationProgressRecords,
+  logError,
 } = vi.hoisted(() => ({
   pathExists: vi.fn(async () => true),
   repoFs: {
@@ -43,6 +50,7 @@ const {
     readdir: vi.fn<(path: string) => Promise<string[]>>(async () => [] as string[]),
   },
   readFile: vi.fn(async () => ''),
+  readdir: vi.fn(async () => [] as string[]),
   unlink: vi.fn(async () => undefined),
   loadTaskRegistry: vi.fn(),
   getRegistryPath: vi.fn(() => '/repo/.platform-state/task-registry.json'),
@@ -52,6 +60,9 @@ const {
   resolveQueuePaths: vi.fn(() => ({
     queueLockDir: '/repo/.platform-state/queue/lock',
     queueOrderPath: '/repo/.platform-state/queue/queue-order.json',
+    killRequestsDir: '/repo/AgentWorkSpace/pendingitems/.kill-requests',
+    activeItemsDir: '/repo/AgentWorkSpace/pendingitems/.active-items',
+    activatingItemsDir: '/repo/AgentWorkSpace/pendingitems/.activating-items',
   })),
   withDirLock: vi.fn(async (_dir: string, _label: string, callback: () => Promise<void>) => callback()),
   requeueErrorItemImpl: vi.fn(async () => ({
@@ -65,9 +76,38 @@ const {
     movedItem: 'TASK-A.md',
     activatedItem: null,
   })),
+  movePendingItemToDropbox: vi.fn(async () => ({
+    movedItem: 'PENDING-A.md',
+    openItemPath: '/repo/AgentWorkSpace/dropbox/PENDING-A.md',
+  })),
   moveErrorItemToDropbox: vi.fn(async () => ({
     movedItem: 'TASK-A.md',
   })),
+  requestTaskKill: vi.fn(async () => ({
+    mode: 'kill-requested' as const,
+    message: 'Stop requested.',
+    taskId: 'ACTIVE-A',
+    requestedAt: '2026-05-23T10:00:00Z',
+    state: 'active' as const,
+  })),
+  executeRequestedTaskKill: vi.fn(async () => ({ mode: 'kill-requested' as const, taskId: 'ACTIVE-A' })),
+  observeKillRequest: vi.fn(async (): Promise<{
+    schemaVersion: 1;
+    taskId: string;
+    requestedAt: string;
+    requestedBy: 'taskboard';
+    reason: 'operator-kill-switch';
+  } | null> => null),
+  readActivationProgressRecords: vi.fn<() => Promise<Array<{
+    schemaVersion: 1;
+    taskId: string;
+    queueName: string;
+    title: string | null;
+    phase: 'claimed' | 'validating' | 'preparing-worktree' | 'materializing-worktree' | 'initializing-task' | 'starting-pipeline';
+    startedAt: string;
+    updatedAt: string;
+  }>>>(async () => []),
+  logError: vi.fn(),
 }));
 
 vi.mock('./utils', () => ({
@@ -80,6 +120,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     readFile,
+    readdir,
     unlink,
   };
 });
@@ -93,6 +134,23 @@ vi.mock('./main.archivedTasks', () => ({
   listArchivedTasksAction,
 }));
 
+vi.mock('../../../backend/platform/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/core')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      error: logError,
+      warn: vi.fn(),
+      info: vi.fn(),
+      child: vi.fn(() => ({
+        error: logError,
+        warn: vi.fn(),
+        info: vi.fn(),
+      })),
+    })),
+  };
+});
+
 vi.mock('../../../backend/platform/queue', () => ({
   readQueueOrderManifest,
   writeQueueOrderManifest,
@@ -103,7 +161,12 @@ vi.mock('../../../backend/platform/queue', () => ({
   deleteDropboxItem,
   deleteErrorItem,
   moveDropboxItemToPending,
+  movePendingItemToDropbox,
   moveErrorItemToDropbox,
+  requestTaskKill,
+  executeRequestedTaskKill,
+  observeKillRequest,
+  readActivationProgressRecords,
 }));
 
 import {
@@ -115,6 +178,7 @@ import {
   readTaskContent,
   reorderPending,
   requeueErrorItem,
+  killTask,
 } from './main.taskBoard';
 import type {
   ArchivedTaskEntry,
@@ -221,7 +285,23 @@ describe('main.taskBoard', () => {
     repoFs.readdir.mockResolvedValue([]);
     repoFs.readFile.mockResolvedValue('');
     readFile.mockResolvedValue('');
+    readdir.mockResolvedValue([]);
     pathExists.mockResolvedValue(true);
+    requestTaskKill.mockResolvedValue({
+      mode: 'kill-requested',
+      message: 'Stop requested.',
+      taskId: 'ACTIVE-A',
+      requestedAt: '2026-05-23T10:00:00Z',
+      state: 'active',
+    });
+    executeRequestedTaskKill.mockResolvedValue({ mode: 'kill-requested', taskId: 'ACTIVE-A' });
+    observeKillRequest.mockResolvedValue(null);
+    movePendingItemToDropbox.mockResolvedValue({
+      movedItem: 'PENDING-A.md',
+      openItemPath: '/repo/AgentWorkSpace/dropbox/PENDING-A.md',
+    });
+    logError.mockClear();
+    readActivationProgressRecords.mockResolvedValue([]);
   });
 
   it('shows only active-pack registry entries and hides other packs plus _unbound tasks', async () => {
@@ -278,6 +358,196 @@ describe('main.taskBoard', () => {
       listContextPacks,
       { scope: expect.objectContaining({ contextPackId: 'pack-a' }) },
     );
+  });
+
+  it('overlays registry-backed pending task as activating from a valid marker', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readActivationProgressRecords.mockResolvedValue([{
+      schemaVersion: 1,
+      taskId: 'PENDING-A',
+      queueName: 'PENDING-A.md',
+      title: 'Title PENDING-A',
+      phase: 'materializing-worktree',
+      startedAt: '2026-05-23T10:00:00Z',
+      updatedAt: '2026-05-23T10:00:05Z',
+    }]);
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({
+        taskId: 'PENDING-A',
+        state: 'activating',
+        activationPhase: 'materializing-worktree',
+        activationStartedAt: '2026-05-23T10:00:00Z',
+        activationUpdatedAt: '2026-05-23T10:00:05Z',
+      }),
+    ]);
+  });
+
+  it('overlays registry-backed active task as activating and keeps active-only active', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [
+            taskEntry('ACTIVE-A', 'active', 'pack-a'),
+            taskEntry('ACTIVE-B', 'active', 'pack-a'),
+          ],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readActivationProgressRecords.mockResolvedValue([{
+      schemaVersion: 1,
+      taskId: 'ACTIVE-A',
+      queueName: 'ACTIVE-A.md',
+      title: 'Title ACTIVE-A',
+      phase: 'starting-pipeline',
+      startedAt: '2026-05-23T10:00:00Z',
+      updatedAt: '2026-05-23T10:00:06Z',
+    }]);
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({ taskId: 'ACTIVE-A', state: 'activating' }),
+      expect.objectContaining({ taskId: 'ACTIVE-B', state: 'active' }),
+    ]);
+  });
+
+  it('overlays valid kill markers as stopping for registry-backed active rows', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readdir.mockResolvedValueOnce(['ACTIVE-A.json']);
+    observeKillRequest.mockResolvedValueOnce({
+      schemaVersion: 1,
+      taskId: 'ACTIVE-A',
+      requestedAt: '2026-05-23T10:01:00Z',
+      requestedBy: 'taskboard',
+      reason: 'operator-kill-switch',
+    });
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({
+        taskId: 'ACTIVE-A',
+        state: 'stopping',
+        stopRequestedAt: '2026-05-23T10:01:00Z',
+      }),
+    ]);
+  });
+
+  it('overlays valid kill markers as stopping for activating rows', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readActivationProgressRecords.mockResolvedValue([{
+      schemaVersion: 1,
+      taskId: 'PENDING-A',
+      queueName: 'PENDING-A.md',
+      title: 'Title PENDING-A',
+      phase: 'validating',
+      startedAt: '2026-05-23T10:00:00Z',
+      updatedAt: '2026-05-23T10:00:01Z',
+    }]);
+    readdir.mockResolvedValueOnce(['PENDING-A.json']);
+    observeKillRequest.mockResolvedValueOnce({
+      schemaVersion: 1,
+      taskId: 'PENDING-A',
+      requestedAt: '2026-05-23T10:01:00Z',
+      requestedBy: 'taskboard',
+      reason: 'operator-kill-switch',
+    });
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({
+        taskId: 'PENDING-A',
+        state: 'stopping',
+        activationPhase: 'validating',
+        stopRequestedAt: '2026-05-23T10:01:00Z',
+      }),
+    ]);
+  });
+
+  it('does not show plain pending rows as stopping from stale kill markers', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readdir.mockResolvedValueOnce(['PENDING-A.json']);
+    observeKillRequest.mockResolvedValueOnce({
+      schemaVersion: 1,
+      taskId: 'PENDING-A',
+      requestedAt: '2026-05-23T10:01:00Z',
+      requestedBy: 'taskboard',
+      reason: 'operator-kill-switch',
+    });
+
+    const result = await readTaskBoard(vi.fn().mockResolvedValue(contextPackList('pack-a')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({ taskId: 'PENDING-A', state: 'pending' }),
+    ]);
   });
 
   it('returns the newest completed tasks for the active context pack', async () => {
@@ -396,6 +666,57 @@ describe('main.taskBoard', () => {
       expect.objectContaining({ taskId: 'TASK-A', state: 'active' }),
     ]);
     expect(response.errorItems.map((item) => item.taskId)).toEqual(['ERROR-A']);
+  });
+
+  it('overlays fallback pending task as activating and ignores unrelated markers', async () => {
+    readActivationProgressRecords.mockResolvedValue([
+      {
+        schemaVersion: 1,
+        taskId: 'TASK-A',
+        queueName: 'TASK-A.md',
+        title: 'Task A',
+        phase: 'validating',
+        startedAt: '2026-05-23T10:00:00Z',
+        updatedAt: '2026-05-23T10:00:02Z',
+      },
+      {
+        schemaVersion: 1,
+        taskId: 'HIDDEN-TASK',
+        queueName: 'HIDDEN-TASK.md',
+        title: 'Hidden',
+        phase: 'claimed',
+        startedAt: '2026-05-23T10:00:00Z',
+        updatedAt: '2026-05-23T10:00:01Z',
+      },
+    ]);
+    const fsAdapter = {
+      access: vi.fn(async () => undefined),
+      readdir: vi.fn(async (dir: string) => {
+        if (dir.endsWith('/pendingitems')) return ['TASK-A.md'];
+        if (dir.endsWith('/pendingitems/.active-items')) return [];
+        return [];
+      }),
+      readFile: vi.fn(async (filePath: string) => {
+        if (filePath.endsWith('TASK-A.md')) return bindingMarkdown('TASK-A', 'pack-a');
+        return '';
+      }),
+    };
+
+    const result = await readTaskBoard(
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+      fsAdapter,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as TaskBoardReadBoardResponse;
+    expect(response.pendingItems).toEqual([
+      expect.objectContaining({
+        taskId: 'TASK-A',
+        state: 'activating',
+        activationPhase: 'validating',
+      }),
+    ]);
   });
 
   it('does not mark a visible fallback pending item active from a hidden pack active marker', async () => {
@@ -573,6 +894,202 @@ describe('main.taskBoard', () => {
     expect(moveDropboxItemToPending).not.toHaveBeenCalled();
     expect(moveErrorItemToDropbox).not.toHaveBeenCalled();
     expect(requeueErrorItemImpl).not.toHaveBeenCalled();
+  });
+
+  it('accepts stop requests before delayed background cleanup resolves', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    let resolveCleanup!: (value: { mode: 'kill-requested'; taskId: string }) => void;
+    executeRequestedTaskKill.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCleanup = resolve;
+    }));
+
+    const result = await killTask(
+      { fileName: 'ACTIVE-A.md', taskId: 'ACTIVE-A' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.killTask',
+        mode: 'kill-requested',
+        taskId: 'ACTIVE-A',
+      }),
+    });
+    expect(requestTaskKill).toHaveBeenCalledWith({ repoRoot: '/repo', taskId: 'ACTIVE-A' });
+    expect(executeRequestedTaskKill).toHaveBeenCalledTimes(1);
+    resolveCleanup?.({ mode: 'kill-requested', taskId: 'ACTIVE-A' });
+  });
+
+  it('logs background cleanup failures without rejecting the accepted stop response', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    executeRequestedTaskKill.mockRejectedValueOnce(new Error('cleanup exploded'));
+
+    const result = await killTask(
+      { fileName: 'ACTIVE-A.md', taskId: 'ACTIVE-A' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'taskBoard.killTask',
+        mode: 'kill-requested',
+        taskId: 'ACTIVE-A',
+      }),
+    });
+    expect(logError).toHaveBeenCalledWith(
+      'task_kill.background_cleanup_failed',
+      expect.any(Error),
+      { taskId: 'ACTIVE-A' },
+    );
+  });
+
+  it('schedules background cleanup once while a task cleanup is in flight', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    executeRequestedTaskKill.mockImplementation(() => new Promise(() => {}));
+    const listContextPacks = vi.fn().mockResolvedValue(contextPackList('pack-a'));
+
+    await killTask({ fileName: 'ACTIVE-A.md', taskId: 'ACTIVE-A' }, listContextPacks);
+    await killTask({ fileName: 'ACTIVE-A.md', taskId: 'ACTIVE-A' }, listContextPacks);
+
+    expect(requestTaskKill).toHaveBeenCalledTimes(2);
+    expect(executeRequestedTaskKill).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects pending-source move to open for active registry evidence before queue mutation', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [],
+          active: [taskEntry('ACTIVE-A', 'active', 'pack-a')],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+
+    const result = await moveToOpen(
+      { fileName: 'ACTIVE-A.md', sourceColumn: 'pending' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      action: 'taskBoard.moveToOpen',
+      error: 'Active tasks cannot be returned to open.',
+    });
+    expect(movePendingItemToDropbox).not.toHaveBeenCalled();
+  });
+
+  it('surfaces backend pending-source move to open rejection for activating evidence', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    readActivationProgressRecords.mockResolvedValue([{
+      schemaVersion: 1,
+      taskId: 'PENDING-A',
+      queueName: 'PENDING-A.md',
+      title: 'Title PENDING-A',
+      phase: 'validating',
+      startedAt: '2026-05-23T10:00:00Z',
+      updatedAt: '2026-05-23T10:00:01Z',
+    }]);
+    movePendingItemToDropbox.mockRejectedValueOnce(new Error('pending-return-open-failed: "PENDING-A.md" has started-task evidence (activating marker).'));
+
+    const result = await moveToOpen(
+      { fileName: 'PENDING-A.md', sourceColumn: 'pending' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'taskBoard.moveToOpen',
+      error: expect.stringContaining('activating marker'),
+    }));
+    expect(movePendingItemToDropbox).toHaveBeenCalledWith({
+      fileName: 'PENDING-A.md',
+      repoRoot: '/repo',
+      reason: 'operator-drag-return-open',
+    });
+  });
+
+  it('surfaces backend pending-source move to open rejection for kill request marker evidence', async () => {
+    loadTaskRegistry.mockResolvedValue({
+      schema_version: 2,
+      tasks: {
+        'pack-a': {
+          open: [],
+          pending: [taskEntry('PENDING-A', 'pending', 'pack-a')],
+          active: [],
+          failed: [],
+          completed: [],
+        },
+      },
+    });
+    movePendingItemToDropbox.mockRejectedValueOnce(new Error('pending-return-open-failed: "PENDING-A.md" has started-task evidence (kill request marker).'));
+
+    const result = await moveToOpen(
+      { fileName: 'PENDING-A.md', sourceColumn: 'pending' },
+      vi.fn().mockResolvedValue(contextPackList('pack-a')),
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'taskBoard.moveToOpen',
+      error: expect.stringContaining('kill request marker'),
+    }));
+    expect(movePendingItemToDropbox).toHaveBeenCalledWith({
+      fileName: 'PENDING-A.md',
+      repoRoot: '/repo',
+      reason: 'operator-drag-return-open',
+    });
   });
 
   it('surfaces child-chain cleanup preflight failures from deleteTask', async () => {

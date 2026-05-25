@@ -484,10 +484,12 @@ export function formatContextPackBindingSection(binding: {
     if (binding.deepFocusPrimaryFocusId) {
       lines.push(`- Deep Focus Primary Focus ID: ${binding.deepFocusPrimaryFocusId}`);
     }
-    lines.push(`- Selected Focus Path: ${binding.selectedFocusPath ?? ''}`);
-    lines.push(
-      `- Selected Focus Target Kind: ${binding.selectedFocusTargetKind ?? ''}`,
-    );
+    if (binding.selectedFocusPath != null) {
+      lines.push(`- Selected Focus Path: ${binding.selectedFocusPath}`);
+    }
+    if (binding.selectedFocusTargetKind != null) {
+      lines.push(`- Selected Focus Target Kind: ${binding.selectedFocusTargetKind}`);
+    }
     lines.push(`- Selected Focus Targets: ${JSON.stringify(binding.selectedFocusTargets ?? [])}`);
     if (binding.selectedTestTarget) {
       lines.push(`- Selected Test Target: ${JSON.stringify(binding.selectedTestTarget)}`);
@@ -498,6 +500,78 @@ export function formatContextPackBindingSection(binding: {
   }
 
   return lines.join('\n');
+}
+
+export type AgentVisibleContextPackTarget = {
+  path: string;
+  kind: 'directory' | 'file';
+  repoId?: string;
+  focusId?: string;
+  role?: 'anchor' | 'primary';
+  testTarget?: AgentVisibleContextPackTarget;
+  supportTargets?: AgentVisibleContextPackTarget[];
+};
+
+export function formatAgentVisibleContextPackBindingSection(
+  binding: Parameters<typeof formatContextPackBindingSection>[0],
+): string {
+  if (binding.deepFocusEnabled !== true) {
+    return formatContextPackBindingSection(binding);
+  }
+
+  const targets = (binding.selectedFocusTargets ?? []).map(sanitizeAgentVisibleTarget);
+  const selectedRepoIds = collectAgentVisibleRepoIds(binding, targets);
+  const multiPrimary = targets.filter((target) => target.role === 'anchor' || target.role === 'primary').length > 1;
+  return formatContextPackBindingSection({
+    ...binding,
+    selectedRepoIds,
+    selectedFocusTargets: targets as PrimaryFocusTarget[],
+    selectedTestTarget: binding.selectedTestTarget ? sanitizeAgentVisibleTarget(binding.selectedTestTarget) : null,
+    selectedSupportTargets: (binding.selectedSupportTargets ?? []).map(sanitizeAgentVisibleTarget),
+    deepFocusPrimaryRepoId: multiPrimary ? null : binding.deepFocusPrimaryRepoId,
+    selectedFocusPath: multiPrimary ? null : binding.selectedFocusPath,
+    selectedFocusTargetKind: multiPrimary ? null : binding.selectedFocusTargetKind,
+  });
+}
+
+function sanitizeAgentVisibleTarget<T extends TaskContextPackTarget & {
+  role?: 'anchor' | 'primary';
+  testTarget?: TaskContextPackTarget | null;
+  supportTargets?: TaskContextPackTarget[];
+}>(target: T): AgentVisibleContextPackTarget {
+  return {
+    path: target.path,
+    kind: target.kind,
+    ...(target.repoId ? { repoId: target.repoId } : {}),
+    ...(target.focusId ? { focusId: target.focusId } : {}),
+    ...(target.role ? { role: target.role } : {}),
+    ...(target.testTarget ? { testTarget: sanitizeAgentVisibleTarget(target.testTarget) } : {}),
+    ...(target.supportTargets?.length ? { supportTargets: target.supportTargets.map(sanitizeAgentVisibleTarget) } : {}),
+  };
+}
+
+function collectAgentVisibleRepoIds(
+  binding: Parameters<typeof formatContextPackBindingSection>[0],
+  targets: readonly AgentVisibleContextPackTarget[],
+): string[] {
+  const repoIds: string[] = [];
+  const seen = new Set<string>();
+  const add = (repoId: string | undefined): void => {
+    const id = repoId?.trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    repoIds.push(id);
+  };
+  const walk = (target: AgentVisibleContextPackTarget): void => {
+    add(target.repoId);
+    if (target.testTarget) walk(target.testTarget);
+    for (const support of target.supportTargets ?? []) walk(support);
+  };
+  for (const target of targets) walk(target);
+  if (binding.selectedTestTarget?.repoId) add(binding.selectedTestTarget.repoId);
+  for (const support of binding.selectedSupportTargets ?? []) add(support.repoId);
+  for (const repoId of binding.selectedRepoIds ?? []) add(repoId);
+  return repoIds;
 }
 
 function commaSplit(value: string): string[] {

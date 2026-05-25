@@ -74,6 +74,10 @@ export interface QueuePaths {
    * Each running task writes a file here.
    */
   activeItemsDir: string;
+  /** Informational activation-progress markers. Not lifecycle authority. */
+  activatingItemsDir: string;
+  /** Durable operator kill requests for active/activating task-board tasks. */
+  killRequestsDir: string;
   /** Per-task worktree root: AgentWorkSpace/tasks/<taskId>. */
   taskWorktree: (taskId: string) => string;
   /** Per-task handoffs directory: AgentWorkSpace/tasks/<taskId>/handoffs. */
@@ -115,6 +119,8 @@ export function resolveQueuePaths(repoRoot?: string): QueuePaths {
     queueLockDir: path.join(pendingDir, '.queue-lock.d'),
     queueOrderPath: path.join(platformQueueState, 'queue-order.json'),
     activeItemsDir: path.join(pendingDir, '.active-items'),
+    activatingItemsDir: path.join(pendingDir, '.activating-items'),
+    killRequestsDir: path.join(pendingDir, '.kill-requests'),
     taskWorktree: (taskId: string) => path.join(tasksDir, taskId),
     taskHandoffs: (taskId: string) => path.join(tasksDir, taskId, 'handoffs'),
     taskImplementationSteps: (taskId: string) => path.join(tasksDir, taskId, 'ImplementationSteps'),

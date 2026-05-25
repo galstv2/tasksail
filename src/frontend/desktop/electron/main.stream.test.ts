@@ -135,7 +135,7 @@ describe('main.stream', () => {
       taskId: 'TASK-A',
     });
     emitStreamEvent({
-      message: 'Test evidence captured.',
+      message: 'Code capture completed.',
       source: 'runtime.pipeline',
       role: 'pipeline',
       taskId: 'TASK-A',
@@ -166,7 +166,7 @@ describe('main.stream', () => {
         taskGuid: 'feedbeef-1234-4234-9234-123456789abc',
         taskShortGuid: 'feedbeef',
         taskTitle: 'Task Alpha',
-        message: 'Task [feedbeef] - Test evidence captured.',
+        message: 'Task [feedbeef] - Code capture completed.',
       }),
     );
     expect(send).toHaveBeenNthCalledWith(

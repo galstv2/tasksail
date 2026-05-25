@@ -98,6 +98,7 @@ export function useAppShell(
     taskScopes,
     selectedTaskGuid,
     setSelectedTaskGuid,
+    clearEvents: clearTerminalEvents,
   } = useStreamEvents();
 
   const taskBoard = useTaskBoard(client);
@@ -194,6 +195,7 @@ export function useAppShell(
         addToast({ severity: 'success', message: result.response.message, duration: 4000 });
         await refreshObservedState();
       },
+      onClearTerminal: clearTerminalEvents,
     }),
     [
       streamEvents,
@@ -206,6 +208,7 @@ export function useAppShell(
       client,
       addToast,
       refreshObservedState,
+      clearTerminalEvents,
     ],
   );
 
@@ -233,9 +236,11 @@ export function useAppShell(
       onDeleteTask: taskBoard.deleteTask,
       onMoveToPending: taskBoard.moveToPending,
       onMoveToOpen: taskBoard.moveToOpen,
+      onKillTask: taskBoard.killTask,
+      onRetryKillCleanup: taskBoard.retryKillCleanup,
       readTaskContent: taskBoard.readTaskContent,
     }),
-    [taskBoard.board, taskBoard.reorderPending, taskBoard.requeueErrorItem, taskBoard.deleteTask, taskBoard.moveToPending, taskBoard.moveToOpen, taskBoard.readTaskContent],
+    [taskBoard.board, taskBoard.reorderPending, taskBoard.requeueErrorItem, taskBoard.deleteTask, taskBoard.moveToPending, taskBoard.moveToOpen, taskBoard.killTask, taskBoard.retryKillCleanup, taskBoard.readTaskContent],
   );
 
   return {

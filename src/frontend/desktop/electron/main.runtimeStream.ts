@@ -45,9 +45,9 @@ const WATCH_DEBOUNCE_MS = 150;
 const FINAL_DRAIN_REFRESH_COUNT = 2;
 
 const PIPELINE_PHASE_MESSAGES: Record<string, { message: string; severity: StreamEventOptions['severity'] }> = {
-  'test-capture-started': { message: 'Capturing test evidence.', severity: 'info' },
-  'test-capture-completed': { message: 'Test evidence captured.', severity: 'info' },
-  'test-capture-skipped': { message: 'Test capture skipped — could not resolve target repo.', severity: 'warning' },
+  'test-capture-started': { message: 'Code capture started.', severity: 'info' },
+  'test-capture-completed': { message: 'Code capture completed.', severity: 'info' },
+  'test-capture-skipped': { message: 'Code capture skipped — could not resolve target repo.', severity: 'warning' },
 };
 
 type RealignmentJobObservation = {
@@ -64,7 +64,9 @@ type RuntimeTerminalEventObservation = {
   source: string;
   role: StreamEventOptions['role'];
   severity: NonNullable<StreamEventOptions['severity']>;
+  visible: boolean;
   message: string;
+  extra?: Record<string, unknown>;
   actorName?: string;
   sessionContext?: StreamEventOptions['sessionContext'];
 };
@@ -254,6 +256,48 @@ function summarizeNewSession(session: AgentTerminalSession): StreamEventOptions 
   return buildSessionEvent(session, 'Runtime session observed.');
 }
 
+type CanonicalLaunchState = 'running' | 'completed' | 'failure';
+
+function canonicalLaunchKeyFromTerminalEvent(event: RuntimeTerminalEventObservation): string | null {
+  if (!event.visible) return null;
+  const parts = event.eventId.split(':');
+  if (parts.length < 4) return null;
+  const [eventName, agentId, _displayPhase, ...launchParts] = parts;
+  if (!agentId || launchParts.length === 0) return null;
+  const launchId = launchParts.join(':');
+  if (eventName === 'agent.launch.started') {
+    return `${event.taskId}:${agentId}:${launchId}:running`;
+  }
+  if (eventName === 'agent.launch.terminal') {
+    return `${event.taskId}:${agentId}:${launchId}:completed|failure`;
+  }
+  return null;
+}
+
+function shouldSuppressGenericSessionFallback(
+  event: StreamEventOptions,
+  canonicalLaunchEvents: Set<string>,
+): boolean {
+  const sessionContext = event.sessionContext;
+  if (!sessionContext || !event.taskId || !event.actorName) return false;
+  const session = sessionContext as { sessionId?: unknown };
+  if (typeof session.sessionId !== 'string') return false;
+  const match = /^role:([^:]+):(.+)$/.exec(session.sessionId);
+  if (!match) return false;
+  const [, agentId, launchId] = match;
+  const state: CanonicalLaunchState | null = event.message === 'Is running.'
+    ? 'running'
+    : event.message === 'Completed.'
+      ? 'completed'
+      : event.message === 'Failed.'
+        ? 'failure'
+        : null;
+  return state !== null && (
+    canonicalLaunchEvents.has(`${event.taskId}:${agentId}:${launchId}:${state}`) ||
+    (state !== 'running' && canonicalLaunchEvents.has(`${event.taskId}:${agentId}:${launchId}:completed|failure`))
+  );
+}
+
 function diffSessionEntries(
   previous: AgentTerminalSession | undefined,
   next: AgentTerminalSession,
@@ -338,7 +382,7 @@ function buildGuardrailEvent(
     allowed: 'Guardrail receipt recorded an allowed launch.',
     denied: 'Guardrail receipt denied the runtime launch.',
     'internal-bypass': 'Used an internal guardrail bypass.',
-    malformed: 'Produced a malformed guardrail receipt.',
+    malformed: 'Guardrail receipt is malformed.',
   };
 
   return {
@@ -521,6 +565,7 @@ export function startRuntimeStreamWatcher(
   let previousSnapshot: RuntimeSnapshot | null = null;
   const previousPipelinePhaseByTask = new Map<string, string>();
   const previousTerminalEventKeysByTask = new Map<string, Set<string>>();
+  const visibleCanonicalLaunchEvents = new Set<string>();
   const seenFailedTaskIds = new Set<string>();
   let currentRuntimeTaskIds: string[] = [];
   let currentRealignmentIds: string[] = [];
@@ -546,6 +591,7 @@ export function startRuntimeStreamWatcher(
     drainingTaskRefreshes.clear();
     previousPipelinePhaseByTask.clear();
     previousTerminalEventKeysByTask.clear();
+    visibleCanonicalLaunchEvents.clear();
     seenFailedTaskIds.clear();
     shouldBaselineFailedTaskIds = true;
     currentRuntimeTaskIds = [];
@@ -770,6 +816,8 @@ export function startRuntimeStreamWatcher(
           const source = typeof item.source === 'string' ? item.source : null;
           const role = source === 'runtime.guardrail' ? 'system' : item.role;
           const severity = item.severity;
+          const visible = item.visible !== false;
+          const extra = isRecord(item.extra) ? item.extra : undefined;
           const message = typeof item.message === 'string' ? item.message : null;
           const actorName = typeof item.actorName === 'string' ? item.actorName : undefined;
           const sessionContext = isRecord(item.sessionContext)
@@ -790,7 +838,9 @@ export function startRuntimeStreamWatcher(
             source,
             role,
             severity,
+            visible,
             message,
+            ...(extra ? { extra } : {}),
             ...(actorName ? { actorName } : {}),
             ...(sessionContext ? { sessionContext } : {}),
           });
@@ -810,6 +860,9 @@ export function startRuntimeStreamWatcher(
     try {
       const terminalEvents = await readRuntimeTerminalEvents();
       for (const event of terminalEvents) {
+        if (!event.visible) {
+          continue;
+        }
         const previousKeys = previousTerminalEventKeysByTask.get(event.taskId) ?? new Set<string>();
         if (previousKeys.has(event.eventId)) {
           continue;
@@ -823,6 +876,10 @@ export function startRuntimeStreamWatcher(
           actorName: event.actorName,
           sessionContext: event.sessionContext,
         });
+        const canonicalLaunchKey = canonicalLaunchKeyFromTerminalEvent(event);
+        if (canonicalLaunchKey) {
+          visibleCanonicalLaunchEvents.add(canonicalLaunchKey);
+        }
         previousKeys.add(event.eventId);
         previousTerminalEventKeysByTask.set(event.taskId, previousKeys);
       }
@@ -964,9 +1021,24 @@ export function startRuntimeStreamWatcher(
       if (stopped) return;
 
       if (previousSnapshot) {
+        const canonicalLaunchEvents = new Set<string>(visibleCanonicalLaunchEvents);
+        try {
+          for (const terminalEvent of await readRuntimeTerminalEvents()) {
+            const key = canonicalLaunchKeyFromTerminalEvent(terminalEvent);
+            if (key) {
+              canonicalLaunchEvents.add(key);
+              visibleCanonicalLaunchEvents.add(key);
+            }
+          }
+        } catch {
+          // Fail open to existing generic fallback.
+        }
         let appendedTranscriptEvent = false;
         const appendedTaskIds = new Set<string>();
         for (const { event, transcriptEventId } of diffRuntimeStreamEntries(previousSnapshot, runtimeSnapshot)) {
+          if (shouldSuppressGenericSessionFallback(event, canonicalLaunchEvents)) {
+            continue;
+          }
           if (hasRealTaskId(event.taskId)) {
             if (!transcriptEventId) {
               continue;

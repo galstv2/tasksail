@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises';
 import { createLogger, getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { handoffWorkspaceIsReady } from './lifecycle.js';
+import { readActivationProgressRecords, type ActivationProgressRecord } from './activationProgress.js';
 
 const log = createLogger('platform/queue/queueStatus');
 
@@ -32,6 +33,8 @@ export interface QueueStatusResult {
   partialPublish: boolean;
   /** Count of .md files in error-items/ (failed tasks moved out of the queue). */
   errorItemsCount: number;
+  /** Informational activation-progress markers. Not lifecycle authority. */
+  activatingTasks: ActivationProgressRecord[];
 }
 
 /**
@@ -117,6 +120,7 @@ export async function getQueueStatus(
       (e) => !e.startsWith('.') && e.endsWith('.md'),
     ).length;
   }
+  const activatingTasks = await readActivationProgressRecords(queuePaths);
 
   return {
     dropboxItems,
@@ -128,5 +132,6 @@ export async function getQueueStatus(
     stuckMidCompletion,
     partialPublish,
     errorItemsCount,
+    activatingTasks,
   };
 }

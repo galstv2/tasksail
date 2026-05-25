@@ -43,11 +43,10 @@ vi.mock('../environment.js', () => ({
   buildAutonomyEnvironment: vi.fn(),
 }));
 
-vi.mock('../guardrails.js', () => ({
-  runRuntimePolicyCheck: vi.fn(),
-  guardrailReceiptPath: vi.fn(),
-  writeGuardrailReceipt: vi.fn(),
-}));
+vi.mock('../guardrails.js', async () => {
+  const { createGuardrailsMockModule } = await import('./guardrailsMockFactory.js');
+  return createGuardrailsMockModule();
+});
 
 vi.mock('../confinement.js', () => ({
   captureChangedPathsSnapshot: vi.fn(),
@@ -85,7 +84,13 @@ vi.mock('../../core/index.js', async () => {
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
     createLogger: () => testLogger,
+    emitTaskProgressEvent: vi.fn(async () => undefined),
+    formatTaskAgentDisplayName: actual.formatTaskAgentDisplayName,
+    ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
+    normalizeAgentLaunchPhase: actual.normalizeAgentLaunchPhase,
+    normalizeTaskAgentLaunchOutcome: actual.normalizeTaskAgentLaunchOutcome,
+    writeProtocolStdout: vi.fn(),
   };
 });
 
@@ -93,10 +98,15 @@ vi.mock('../../core/io.js', () => ({
   readTextFile: vi.fn(),
 }));
 
-vi.mock('../artifactCompletion.js', () => ({
-  checkAgentArtifactCompletion: vi.fn(),
-  buildAgentArtifactRemediationPrompt: vi.fn(),
-}));
+vi.mock('../artifactCompletion.js', async () => {
+  const actual = await vi.importActual<typeof import('../artifactCompletion.js')>('../artifactCompletion.js');
+  return {
+    ...actual,
+    checkAgentArtifactCompletion: vi.fn(),
+    checkAgentArtifactCompletionDetails: vi.fn(),
+    buildAgentArtifactRemediationPrompt: vi.fn(),
+  };
+});
 
 vi.mock('../pipeline/requirementVerification.js', () => ({
   prepopulateRequirementVerification: vi.fn(),
@@ -137,7 +147,7 @@ const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
-const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
+const { checkAgentArtifactCompletionDetails } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { prepopulateRequirementVerification } = await import('../pipeline/requirementVerification.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
@@ -164,7 +174,7 @@ const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunch
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
 const mockedWriteGuardrailReceipt = vi.mocked(writeGuardrailReceipt);
 const mockedGuardrailReceiptPath = vi.mocked(guardrailReceiptPath);
-const mockedCheckAgentArtifactCompletion = vi.mocked(checkAgentArtifactCompletion);
+const mockedCheckAgentArtifactCompletionDetails = vi.mocked(checkAgentArtifactCompletionDetails);
 const mockedBuildAgentArtifactRemediationPrompt = vi.mocked(buildAgentArtifactRemediationPrompt);
 const mockedPrepopulateRequirementVerification = vi.mocked(prepopulateRequirementVerification);
 const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
@@ -250,7 +260,7 @@ function setupCommonMocks(): void {
     selectedServerIds: [],
     excludedServerIds: [],
   });
-  mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+  mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
   mockedPrepopulateRequirementVerification.mockResolvedValue(undefined);
   mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
     'Use the exact absolute workflow-artifact path shown below.\n- $COPILOT_HANDOFFS_DIR/issues.md',
@@ -346,13 +356,13 @@ describe('runRoleAgent Ron requirement verification prelaunch', () => {
       repoRoot: '/repo',
     });
     expect(mockedLaunchAgent).toHaveBeenCalled();
-    expect(mockedCheckAgentArtifactCompletion).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockedCheckAgentArtifactCompletionDetails).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'qa',
       taskId: 'task-test-001',
     }));
   });
 
-  it('does not prepopulate for Ron promptOverride launches', async () => {
+  it('stamps platform final-summary fields for Ron promptOverride completion checks', async () => {
     await runRoleAgent({
       agentId: 'ron',
       taskId: 'task-test-001',
@@ -360,7 +370,10 @@ describe('runRoleAgent Ron requirement verification prelaunch', () => {
       promptOverride: 'Review this retry.',
     });
 
-    expect(mockedPrepopulateRequirementVerification).not.toHaveBeenCalled();
+    expect(mockedPrepopulateRequirementVerification).toHaveBeenCalledWith({
+      handoffsDir: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
+      repoRoot: '/repo',
+    });
   });
 
   it('does not prepopulate for Ron retrospective launches', async () => {
@@ -375,7 +388,9 @@ describe('runRoleAgent Ron requirement verification prelaunch', () => {
   });
 
   it('passes taskId into QA remediation prompt after incomplete Ron artifacts', async () => {
-    mockedCheckAgentArtifactCompletion.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mockedCheckAgentArtifactCompletionDetails
+      .mockResolvedValueOnce({ complete: false, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue('Use exact path.\n- $COPILOT_HANDOFFS_DIR/final-summary.md');
     mockedWaitForAgentDetailed
       .mockResolvedValueOnce({
@@ -462,9 +477,10 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedLaunchAgent).toHaveBeenCalledWith(
-      ['--agent', 'software-engineer', '-p', 'Execute the assigned implementation slice now.'],
+      ['--agent', 'software-engineer', '-p', expect.stringContaining('Execute the assigned implementation slice now.')],
       expect.anything(),
     );
+    expect(mockedLaunchAgent.mock.calls[0][0].at(-1)).toContain('## Runtime Path Manifest');
   });
 
   it('includes the original unmaterialized assignment prompt in Dalton confinement retries', async () => {
@@ -560,9 +576,10 @@ describe('runRoleAgent autonomy env var export', () => {
     });
 
     expect(mockedLaunchAgent).toHaveBeenCalledWith(
-      ['--agent', 'software-engineer', '-p', 'Execute the assigned implementation slice now.'],
+      ['--agent', 'software-engineer', '-p', expect.stringContaining('Execute the assigned implementation slice now.')],
       expect.anything(),
     );
+    expect(mockedLaunchAgent.mock.calls[0][0].at(-1)).toContain('## Runtime Path Manifest');
   });
 
   it('records prompt audit metadata in session and guardrail receipts for Dalton launches', async () => {
@@ -654,10 +671,10 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true);
+    mockedCheckAgentArtifactCompletionDetails
+      .mockResolvedValueOnce({ complete: false, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] });
 
     await expect(
       runRoleAgent({
@@ -708,7 +725,7 @@ describe('runRoleAgent autonomy env var export', () => {
       terminationReason: 'exited',
       signalCode: null,
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
 
     await expect(
       runRoleAgent({
@@ -742,7 +759,7 @@ describe('runRoleAgent autonomy env var export', () => {
     });
     // Even if the completion check would return false, Dalton should succeed
     // because the artifact completion check is skipped entirely for Dalton.
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(false);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: false, reasons: [] });
 
     await expect(
       runRoleAgent({
@@ -769,7 +786,7 @@ describe('runRoleAgent autonomy env var export', () => {
       terminationReason: 'exited',
       signalCode: null,
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(false);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: false, reasons: [] });
 
     await expect(
       runRoleAgent({
@@ -782,7 +799,7 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'dalton-verify',
     });
 
-    expect(mockedCheckAgentArtifactCompletion).not.toHaveBeenCalled();
+    expect(mockedCheckAgentArtifactCompletionDetails).not.toHaveBeenCalled();
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
@@ -809,7 +826,7 @@ describe('runRoleAgent autonomy env var export', () => {
       terminationReason: 'exited',
       signalCode: null,
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
     mockedRunRuntimePolicyCheck.mockResolvedValueOnce({
       stdout: '{"violations":[{"message":"Requested agent transition is not legal for the current workflow state."}]}',
       stderr: '',
@@ -860,9 +877,9 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mockedCheckAgentArtifactCompletionDetails
+      .mockResolvedValueOnce({ complete: false, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
       'Fill in AgentWorkSpace/tasks/t1/handoffs/parallel-ok.md with a Simple or Complex decision.',
     );
@@ -918,7 +935,7 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
     mockedRunRuntimePolicyCheck
       .mockResolvedValueOnce({
         stdout: '{"violations":[{"message":"Requested agent transition is not legal for the current workflow state."}]}',
@@ -990,7 +1007,7 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
     mockedRunRuntimePolicyCheck
       .mockResolvedValueOnce({
         stdout: '{"violations":[{"rule_id":"spec.intake-requirements-critical-matches","message":"Critical differs."}]}',
@@ -1053,9 +1070,9 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mockedCheckAgentArtifactCompletionDetails
+      .mockResolvedValueOnce({ complete: false, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
       'Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md and AgentWorkSpace/tasks/t1/handoffs/retrospective-input.md.',
     );
@@ -1219,9 +1236,9 @@ describe('runRoleAgent autonomy env var export', () => {
         terminationReason: 'exited',
         signalCode: null,
       });
-    mockedCheckAgentArtifactCompletion
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mockedCheckAgentArtifactCompletionDetails
+      .mockResolvedValueOnce({ complete: false, reasons: [] })
+      .mockResolvedValueOnce({ complete: true, reasons: [] });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
       'Fill in AgentWorkSpace/tasks/t1/handoffs/final-summary.md and AgentWorkSpace/tasks/t1/handoffs/retrospective-input.md.',
     );
@@ -1333,7 +1350,7 @@ describe('runRoleAgent autonomy env var export', () => {
       terminationReason: 'exited',
       signalCode: null,
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(false);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: false, reasons: [] });
     mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue('');
 
     await expect(
@@ -1378,7 +1395,7 @@ describe('runRoleAgent autonomy env var export', () => {
         signalCode: null,
       };
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
 
     const runPromise = runRoleAgent({
       agentId: 'alice',
@@ -1392,7 +1409,7 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'alice',
     });
     expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(mockedCheckAgentArtifactCompletion).toHaveBeenCalled();
+    expect(mockedCheckAgentArtifactCompletionDetails).toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -1427,7 +1444,7 @@ describe('runRoleAgent autonomy env var export', () => {
         signalCode: null,
       };
     });
-    mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+    mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
 
     const runPromise = runRoleAgent({
       agentId: 'ron',
@@ -1441,7 +1458,7 @@ describe('runRoleAgent autonomy env var export', () => {
       agentId: 'ron',
     });
     expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(mockedCheckAgentArtifactCompletion).toHaveBeenCalled();
+    expect(mockedCheckAgentArtifactCompletionDetails).toHaveBeenCalled();
     vi.useRealTimers();
   });
 });

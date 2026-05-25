@@ -18,7 +18,6 @@ import {
 import {
   CODE_FENCE_PATTERN,
   COMMAND_LINE_PATTERN,
-  extractBulletItems,
   normalizeIdentifier,
   normalizeText,
 } from '../matching.js';
@@ -288,15 +287,15 @@ function validateSingleSlice(
     });
   }
 
-  const criteriaItems = extractBulletItems(
+  const criteriaContent = normalizeText(
     resolveSemanticSection(sections, findSectionSpec(SLICE_REQUIRED_SECTION_SPECS, 'acceptance-criteria')).content,
   );
-  if (!criteriaItems.length) {
+  if (!criteriaContent) {
     validator.addViolation({
       rule_id: 'slice.acceptance-criteria-measurable',
       artifact: relative,
-      message: 'Acceptance Criteria must contain at least one bullet item.',
-      remediation: `Add measurable bullet items to acceptance criteria in ${relative}.`,
+      message: 'Acceptance Criteria must contain substantive content.',
+      remediation: `Add measurable acceptance criteria to ${relative}.`,
     });
   }
 

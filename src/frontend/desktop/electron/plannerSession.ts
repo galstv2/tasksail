@@ -50,6 +50,9 @@ import {
   createPlannerParentBranchViewSession,
   type PlannerParentBranchViewSession,
 } from './plannerParentBranchView';
+import {
+  buildPlannerLaunchClassificationLogPayload,
+} from './plannerSession.launchClassification';
 
 const log = createLogger('electron/plannerSession');
 
@@ -147,14 +150,25 @@ export async function startSession(
     parentBranchViewStatus = parentBranchView.status;
     parentBranchViewSession = parentBranchView.session;
   }
+  const platformAllowlist = getPlanningAgentAllowedRoots();
   const allowedRoots = dedupeRoots([
-    ...getPlanningAgentAllowedRoots(),
+    ...platformAllowlist,
     ...(runtimeFocused?.visibleRepoRoots ?? []),
     // Planner context roots include writable and read-only Deep Focus targets;
     // Dalton write authority is enforced separately from writableRoots.
     ...(runtimeFocused?.deepFocusEnabled === true ? collectFocusedRepoTargetDirectoryRoots(runtimeFocused) : []),
   ]);
   const focusEnv = runtimeFocused ? toFocusEnv(runtimeFocused, effectiveContextPackDir) : undefined;
+  log.info('planner.session.launch.allowedRoots.classification', buildPlannerLaunchClassificationLogPayload({
+    sessionId: plannerSessionId,
+    contextPackDir: effectiveContextPackDir,
+    allowedRoots,
+    platformAllowlist,
+    parentBranchViewStatus,
+    parentBranchViewBindings: parentBranchViewSession?.manifest.bindings,
+    childTaskLineage,
+    childTaskFocusSnapshot,
+  }));
   // A parent branch view session created above must be cleaned up if
   // broker.startSession throws or reuses an existing session (created false),
   // otherwise its worktrees would be orphaned. Only adopt it as the active

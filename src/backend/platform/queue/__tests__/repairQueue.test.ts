@@ -9,6 +9,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { repairQueue } from '../repairQueue.js';
+import { resolveQueuePaths } from '../paths.js';
+import { writeActivationProgress } from '../activationProgress.js';
 
 describe('repairQueue', () => {
   let tmpRoot: string;
@@ -89,6 +91,48 @@ describe('repairQueue', () => {
     expect(result.fixed).toEqual([]);
     // Lock dir should NOT be removed
     expect(existsSync(lockDir)).toBe(true);
+  });
+
+  it('reports stale and malformed activating markers in dry-run', async () => {
+    const paths = resolveQueuePaths(tmpRoot);
+    await writeActivationProgress(paths, {
+      taskId: 'task-a',
+      queueName: 'task-a.md',
+      title: null,
+      phase: 'claimed',
+      startedAt: '2026-05-23T10:00:00Z',
+    });
+    writeFileSync(path.join(paths.activatingItemsDir, 'bad.json'), '{bad', 'utf-8');
+
+    const result = await repairQueue({ repoRoot: tmpRoot, dryRun: true });
+
+    expect(result.structuredIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'stale-activating-marker', taskId: 'task-a' }),
+      expect.objectContaining({ kind: 'stale-activating-marker', taskId: 'bad' }),
+    ]));
+    expect(existsSync(path.join(paths.activatingItemsDir, 'task-a.json'))).toBe(true);
+    expect(existsSync(path.join(paths.activatingItemsDir, 'bad.json'))).toBe(true);
+  });
+
+  it('auto-fix removes only activating markers for activation-progress issues', async () => {
+    const paths = resolveQueuePaths(tmpRoot);
+    mkdirSync(paths.activeItemsDir, { recursive: true });
+    writeFileSync(path.join(paths.activeItemsDir, 'task-a'), 'task-a.md', 'utf-8');
+    writeFileSync(path.join(paths.pendingDir, 'task-a.md'), '# Task A\n', 'utf-8');
+    await writeActivationProgress(paths, {
+      taskId: 'task-a',
+      queueName: 'task-a.md',
+      title: null,
+      phase: 'validating',
+      startedAt: '2026-05-23T10:00:00Z',
+    });
+
+    const result = await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(result.fixed.some((entry) => entry.includes('.activating-items/task-a.json'))).toBe(true);
+    expect(existsSync(path.join(paths.activatingItemsDir, 'task-a.json'))).toBe(false);
+    expect(existsSync(path.join(paths.activeItemsDir, 'task-a'))).toBe(true);
+    expect(existsSync(path.join(paths.pendingDir, 'task-a.md'))).toBe(true);
   });
 
   it('does not report lock directory as issue when autoFix is true (repair holds it)', async () => {

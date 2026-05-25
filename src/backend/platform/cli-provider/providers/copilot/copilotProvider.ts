@@ -11,7 +11,7 @@ import type {
   ResolvedMcpServer,
   RoleKind,
 } from '../../types.js';
-import { buildCopilotEnv, COPILOT_CONTROLLED_ENV_KEYS } from './envMapper.js';
+import { buildCopilotEnv, COPILOT_CONTROLLED_ENV_KEYS, COPILOT_RUNTIME_MANIFEST_ENV_VARS } from './envMapper.js';
 import { buildCopilotArgs, formatCopilotCommand, mcpConfigArgs } from './flagBuilder.js';
 import { materializeCopilotPrompt, resolveCopilotPromptPath } from './promptComposer.js';
 import { parseChatagentProfile } from './profileParser.js';
@@ -123,6 +123,10 @@ export const copilotProvider: CliProvider = {
 
   roleKindForAgent(agentId: string): RoleKind | null {
     return COPILOT_ROLE_KINDS[agentId] ?? null;
+  },
+
+  runtimeManifestEnvVars() {
+    return COPILOT_RUNTIME_MANIFEST_ENV_VARS;
   },
 
   createPlannerParser(): PlannerChunkParser {

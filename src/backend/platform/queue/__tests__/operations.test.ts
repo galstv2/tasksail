@@ -43,6 +43,7 @@ import {
 } from '../paths.js';
 import { extractContextPackBinding, formatContextPackBindingSection } from '../markdown.js';
 import { listActivePipelines, stopPipeline } from '../../agent-runner/pipelineSupervisor.js';
+import { readActivationProgressRecord } from '../activationProgress.js';
 
 async function stopPipelinesStartedByTest(): Promise<void> {
   await Promise.all(
@@ -538,6 +539,17 @@ describe('activateNextPendingItemIfReady', () => {
     expect(result.activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-items', 'task-003'))).toBe(true);
   });
+  it('shows materializing progress while materialization is pending without an active marker', async () => {
+    const saved = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART']; process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = 'true';
+    let release!: (value: { strategy: string; cloned: string[]; skipped: string[] }) => void; const blocked = new Promise<{ strategy: string; cloned: string[]; skipped: string[] }>((resolve) => { release = resolve; });
+    vi.resetModules(); vi.doMock('../../core/worktreeMaterialization.js', async () => { const actual = await vi.importActual<typeof import('../../core/worktreeMaterialization.js')>('../../core/worktreeMaterialization.js'); return { ...actual, materializeWorktreeDeps: vi.fn(() => blocked) }; });
+    try { const { activateNextPendingItemIfReady: activate } = await import('../operations.js'); initGitRepo(repoRoot); writeFileSync(path.join(repoRoot, '.gitignore'), 'AgentWorkSpace/\n.platform-state/\n', 'utf-8'); execFileSync('git', ['add', '.gitignore'], { cwd: repoRoot, stdio: 'ignore' }); execFileSync('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'ignore workspace'], { cwd: repoRoot, stdio: 'ignore' }); seedTemplates(templatesDir); writeFileSync(path.join(pendingDir, 'task-phase.md'), '# Task\n'); const paths = resolveQueuePaths(repoRoot); const running = activate({ paths, repoRoot }); let record = null; for (let i = 0; i < 50; i += 1) { record = await readActivationProgressRecord(paths, 'task-phase'); if (record?.phase === 'materializing-worktree') break; await new Promise((resolve) => setTimeout(resolve, 10)); } expect(record?.phase).toBe('materializing-worktree'); expect(existsSync(path.join(paths.activeItemsDir, 'task-phase'))).toBe(false); release({ strategy: 'copy', cloned: [], skipped: [] }); await expect(running).resolves.toEqual({ activated: true, activatedTaskId: 'task-phase' }); } finally { vi.doUnmock('../../core/worktreeMaterialization.js'); vi.resetModules(); if (saved === undefined) delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART']; else process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'] = saved; }
+  });
+  it('shows starting-pipeline progress while pipeline start is pending and clears it after start', async () => {
+    let release!: (value: { status: 'started'; pid: number }) => void; const blocked = new Promise<{ status: 'started'; pid: number }>((resolve) => { release = resolve; });
+    vi.resetModules(); vi.doMock('../../agent-runner/pipelineSupervisor.js', () => ({ startPipeline: vi.fn(() => blocked) }));
+    try { const { activateNextPendingItemIfReady: activate } = await import('../operations.js'); initGitRepo(repoRoot); writeFileSync(path.join(repoRoot, '.gitignore'), 'AgentWorkSpace/\n.platform-state/\n', 'utf-8'); execFileSync('git', ['add', '.gitignore'], { cwd: repoRoot, stdio: 'ignore' }); execFileSync('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'ignore workspace'], { cwd: repoRoot, stdio: 'ignore' }); seedTemplates(templatesDir); writeFileSync(path.join(pendingDir, 'task-starting.md'), '# Task\n'); const paths = resolveQueuePaths(repoRoot); const running = activate({ paths, repoRoot }); let record = null; for (let i = 0; i < 50; i += 1) { record = await readActivationProgressRecord(paths, 'task-starting'); if (record?.phase === 'starting-pipeline') break; await new Promise((resolve) => setTimeout(resolve, 10)); } expect(record?.phase).toBe('starting-pipeline'); expect(existsSync(path.join(paths.activeItemsDir, 'task-starting'))).toBe(true); release({ status: 'started', pid: 12345 }); await expect(running).resolves.toEqual({ activated: true, activatedTaskId: 'task-starting' }); await expect(readActivationProgressRecord(paths, 'task-starting')).resolves.toBeNull(); } finally { vi.doUnmock('../../agent-runner/pipelineSupervisor.js'); vi.resetModules(); }
+  });
 
   it('transfers the staged planner focus snapshot envelope into the active task directory unwrapped', async () => {
     const savedAutostart = process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];
@@ -554,9 +566,10 @@ describe('activateNextPendingItemIfReady', () => {
         snapshot: { version: 1, contextPackId: 'orders' },
       }));
       seedTemplates(templatesDir);
+      const queuePaths = resolveQueuePaths(repoRoot);
 
       const result = await activateNextPendingItemIfReady({
-        paths: resolveQueuePaths(repoRoot),
+        paths: queuePaths,
         repoRoot,
       });
 
@@ -568,6 +581,7 @@ describe('activateNextPendingItemIfReady', () => {
       expect(JSON.parse(readFileSync(activeSnapshotPath, 'utf-8'))).toEqual({ version: 1, contextPackId: 'orders' });
       // Staging file is unlinked after successful transfer.
       expect(existsSync(stagingPath)).toBe(false);
+      await expect(readActivationProgressRecord(queuePaths, 'task-003')).resolves.toBeNull();
     } finally {
       if (savedAutostart === undefined) {
         delete process.env['TASKSAIL_DISABLE_PIPELINE_AUTOSTART'];

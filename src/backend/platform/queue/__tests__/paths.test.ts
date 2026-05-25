@@ -14,6 +14,13 @@ describe('resolveQueuePaths — per-task path extensions', () => {
     )).toBe(true);
   });
 
+  it('activatingItemsDir ends with AgentWorkSpace/pendingitems/.activating-items', () => {
+    const qp = resolveQueuePaths(FAKE_ROOT);
+    expect(qp.activatingItemsDir.endsWith(
+      path.join('AgentWorkSpace', 'pendingitems', '.activating-items'),
+    )).toBe(true);
+  });
+
   it('taskWorktree("t1") ends with AgentWorkSpace/tasks/t1', () => {
     const qp = resolveQueuePaths(FAKE_ROOT);
     expect(qp.taskWorktree('t1').endsWith(

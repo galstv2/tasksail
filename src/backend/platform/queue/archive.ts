@@ -1,6 +1,13 @@
 import path from 'node:path';
-import { runPython, findRepoRoot, PythonRunError } from '../core/index.js';
+import {
+  runPython,
+  findRepoRoot,
+  PythonRunError,
+  readTextFile,
+  writeTextFileAtomic,
+} from '../core/index.js';
 import { assertPolicyPasses } from './policyValidation.js';
+import { normalizeRetrospectiveListSectionsMarkdown } from '../workflow-policy/rules/retrospectiveHelpers.js';
 
 export interface FileTaskArchiveOptions {
   contextPackDir: string;
@@ -18,6 +25,28 @@ export interface FileTaskArchiveResult {
   data?: Record<string, unknown>;
 }
 
+async function normalizeRetrospectiveContributionsForArchive(
+  repoRoot: string,
+  taskId: string,
+): Promise<void> {
+  const retrospectivePath = path.join(
+    repoRoot,
+    'AgentWorkSpace',
+    'tasks',
+    taskId,
+    'handoffs',
+    'retrospective-input.md',
+  );
+  const current = await readTextFile(retrospectivePath);
+  if (current === undefined) {
+    return;
+  }
+  const normalized = normalizeRetrospectiveListSectionsMarkdown(current);
+  if (normalized !== current) {
+    await writeTextFileAtomic(retrospectivePath, normalized);
+  }
+}
+
 /**
  * File the current task closeout into a QMD task archive.
  * Wraps src/backend/scripts/python/file-task-archive.py.
@@ -28,6 +57,7 @@ export async function fileTaskArchive(
   options: FileTaskArchiveOptions,
 ): Promise<FileTaskArchiveResult> {
   const repoRoot = options.repoRoot ?? findRepoRoot();
+  await normalizeRetrospectiveContributionsForArchive(repoRoot, options.taskId);
   await assertPolicyPasses({
     mode: 'pre-archive',
     repoRoot,

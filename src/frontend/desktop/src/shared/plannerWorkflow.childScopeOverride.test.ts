@@ -41,7 +41,7 @@ describe('buildChildTaskStarterPrompt child scope override sections', () => {
     );
     expect(prompt).toContain('Dalton, Context Pack Binding, activation, and closeout use only Child Execution Scope.');
     expect(prompt).toContain('Do not infer implementation authority from read-only planning context.');
-    expect(prompt).toContain('If broader implementation authority is needed, ask the operator to adjust Child Execution Scope.');
+    expect(prompt).toContain('If broader implementation authority is needed, ask the Guide to adjust Child Execution Scope.');
     expect(prompt).not.toContain('Additional Parent Context Scope (Context Pack Binding)');
   });
 

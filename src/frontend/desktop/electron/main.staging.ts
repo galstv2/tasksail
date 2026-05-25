@@ -22,7 +22,7 @@ import type {
 } from '../../../backend/platform/planner-history/types.js';
 import { sleep } from '../../../backend/platform/core/io.js';
 import { slugify } from '../../../backend/platform/core/text.js';
-import { formatContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
+import { formatAgentVisibleContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
 import type { StagedDraftContent } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { getNodeErrorCode } from './main.textUtils';
@@ -173,7 +173,7 @@ export async function readTitleHintFromTemplate(): Promise<string> {
 }
 
 async function renderPlannerStagedShell(metadata: PlannerStagingSidecar): Promise<string> {
-  const bindingSection = formatContextPackBindingSection(metadata.contextPackBinding);
+  const bindingSection = formatAgentVisibleContextPackBindingSection(metadata.contextPackBinding);
   const rawTemplate = await fsReadFile(PLANNING_INTAKE_TEMPLATE_PATH, 'utf-8');
   const editableBody = extractEditablePlanningIntakeTemplateBody(rawTemplate);
   const titleHint = extractTitleHint(rawTemplate);

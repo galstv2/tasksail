@@ -90,7 +90,7 @@ describe('agent-runner progress events', () => {
         task_id: 'task-agent',
         agent_id: 'dalton',
         provider_id: 'copilot',
-        extra: { child_pid: 4242, launch_id: 'launch-1', model_id: 'claude-sonnet-4.6' },
+        extra: expect.objectContaining({ child_pid: 4242, launch_id: 'launch-1', model_id: 'claude-sonnet-4.6' }),
       }),
       expect.objectContaining({
         msg: 'agent.launch.terminal',
@@ -100,6 +100,35 @@ describe('agent-runner progress events', () => {
         extra: expect.objectContaining({ child_pid: 4242, status: 'success', exit_code: 0 }),
       }),
     ]));
+    expect(readRuntimeTerminalEvents('task-agent')).toEqual([
+      expect.objectContaining({
+        eventId: 'agent.launch.started:dalton:initial:launch-1',
+        source: 'runtime.agent',
+        role: 'agent',
+        severity: 'info',
+        message: 'Started Dalton.',
+        extra: expect.objectContaining({
+          agentId: 'dalton',
+          launchId: 'launch-1',
+          childPid: 4242,
+          modelId: 'claude-sonnet-4.6',
+        }),
+      }),
+      expect.objectContaining({
+        eventId: 'agent.launch.terminal:dalton:initial:launch-1',
+        source: 'runtime.agent',
+        role: 'agent',
+        severity: 'success',
+        message: 'Dalton completed.',
+        extra: expect.objectContaining({
+          agentId: 'dalton',
+          launchId: 'launch-1',
+          childPid: 4242,
+          outcome: 'completed',
+          exitCode: 0,
+        }),
+      }),
+    ]);
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -165,6 +194,7 @@ describe('agent-runner progress events', () => {
     expect(stderrWrite).not.toHaveBeenCalled();
 
     await runTestCaptureWithPhaseTracking({
+      repoRoot: tmpRoot,
       taskRuntime,
       implementationStepsDir,
       captureCwd,
@@ -181,10 +211,30 @@ describe('agent-runner progress events', () => {
       task_id: 'explicit-pipeline-task',
       extra: { phase: 'test-capture-completed', prior_phase: 'test-capture-started' },
     });
-    expect(stderrChunks()).toEqual([
+    expect(stderrChunks()).toEqual(expect.arrayContaining([
       '[pipeline] test-capture-started\n',
+      '[pipeline] Code capture started\n',
       '[pipeline] test-capture-started -> test-capture-completed\n',
-    ]);
+      '[pipeline] Code capture completed\n',
+    ]));
+    expect(readRuntimeTerminalEvents('explicit-pipeline-task')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 'pipeline.phase:test-capture-started',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Pipeline phase: code-capture-started.',
+      }),
+      expect.objectContaining({
+        eventId: 'pipeline.phase:test-capture-started->test-capture-completed',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Pipeline phase: code-capture-started -> code-capture-completed.',
+      }),
+      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline' }),
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -197,6 +247,15 @@ describe('agent-runner progress events', () => {
       expect.objectContaining({
         msg: 'dalton_verification.launching',
         task_id: 'pipeline-task',
+      }),
+    ]));
+    expect(readRuntimeTerminalEvents('pipeline-task')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 'dalton_verification.launching',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'info',
+        message: 'Dalton verification launching.',
       }),
     ]));
     expect(stderrChunks().every((line) => !line.includes('"msg":"dalton_verification.launching"'))).toBe(true);
@@ -218,7 +277,7 @@ describe('agent-runner progress events', () => {
         extra: { reason: 'queue-advance-policy-blocked' },
       }),
     ]));
-    expect(readRuntimeTerminalEvents('pipeline-task')).toEqual([
+    expect(readRuntimeTerminalEvents('pipeline-task')).toEqual(expect.arrayContaining([
       expect.objectContaining({
         eventId: 'closeout_remediation.launching',
         source: 'runtime.pipeline',
@@ -226,7 +285,7 @@ describe('agent-runner progress events', () => {
         severity: 'warning',
         message: 'Closeout remediation launching.',
       }),
-    ]);
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -393,16 +452,26 @@ describe('agent-runner progress events', () => {
       implementationStepsDir: path.join(tmpRoot, 'steps'),
       captureCwd: null,
       pipelineTaskId: 'pipeline-skip-task',
+      repoRoot: tmpRoot,
     });
 
-    expect(stderrChunks()).toEqual(['[pipeline] test-capture-skipped\n']);
-    expect(readLevel('info')).toMatchObject([
-      {
+    expect(stderrChunks()).toEqual(expect.arrayContaining([
+      '[pipeline] test-capture-skipped\n',
+      '[pipeline] Code capture skipped\n',
+    ]));
+    expect(readLevel('warn')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        msg: 'test_capture.skipped',
+        task_id: 'pipeline-skip-task',
+      }),
+    ]));
+    expect(readLevel('info')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
         msg: 'pipeline.phase',
         task_id: 'pipeline-skip-task',
         extra: { phase: 'test-capture-skipped', prior_phase: null },
-      },
-    ]);
+      }),
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
@@ -420,10 +489,32 @@ describe('agent-runner progress events', () => {
       task_id: 'remediation-task',
       extra: { phase: 'test-capture-completed', prior_phase: 'test-capture-started' },
     });
-    expect(stderrChunks()).toEqual([
+    expect(stderrChunks()).toEqual(expect.arrayContaining([
+      '[pipeline] QA remediation started\n',
+      '[pipeline] QA remediation cycle started\n',
       '[pipeline] test-capture-started\n',
+      '[pipeline] Code capture started\n',
       '[pipeline] test-capture-started -> test-capture-completed\n',
-    ]);
+      '[pipeline] Code capture completed\n',
+      '[pipeline] QA remediation cycle completed\n',
+      '[pipeline] QA remediation completed\n',
+    ]));
+    expect(readRuntimeTerminalEvents('remediation-task')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventId: 'qa_remediation.started', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'qa_remediation.cycle_started', source: 'runtime.pipeline' }),
+      expect.objectContaining({
+        eventId: 'pipeline.phase:test-capture-started',
+        source: 'runtime.pipeline',
+      }),
+      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline' }),
+      expect.objectContaining({
+        eventId: 'pipeline.phase:test-capture-started->test-capture-completed',
+        source: 'runtime.pipeline',
+      }),
+      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'qa_remediation.cycle_completed', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'qa_remediation.completed', source: 'runtime.pipeline' }),
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 });

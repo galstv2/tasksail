@@ -11,7 +11,7 @@ import {
 import { normalizeBranchConflictKey, collectActiveBranchOwners } from '../queue/activeBranchConflictGuard.js';
 import { resolveQueuePaths } from '../queue/paths.js';
 import { withOriginLock } from './worktreeMaterialization.js';
-import { RuntimeTerminalEvents } from './runtimeTerminalEvents.js';
+import { emitTaskProgressEvent } from './taskProgressEvents.js';
 import { createLogger } from './logger.js';
 
 const execFile = promisify(execFileCb);
@@ -232,13 +232,12 @@ async function removeChainOwnedWorktree(args: {
     reason: 'chain-owned',
     ...(args.retainFailedWorktree === undefined ? {} : { retainFailedWorktree: args.retainFailedWorktree }),
   };
-  log.child({ taskId }).progress({
-    level: 'warn',
-    event: 'child_chain_failure_branch.branch_delete_skipped',
-    extra,
-    text: `[queue] preserved chain branch ${binding.worktreeBranch}`,
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId }),
+    repoRoot,
+    taskId,
+    event: { type: 'child_chain_failure_branch.branch_delete_skipped', input: extra },
   });
-  await RuntimeTerminalEvents.forTask(repoRoot, taskId).childChainFailureBranchDeleteSkipped(extra);
 }
 
 async function rollbackChainOwnedBindings(args: {
@@ -310,35 +309,31 @@ async function emitRollbackReport(
 ): Promise<void> {
   const extra = {
     status: report.status,
-    rolled_back_bindings: report.rolledBackBindings,
-    failed_binding: report.failedBinding,
+    rolledBackBindings: report.rolledBackBindings,
+    failedBinding: report.failedBinding,
     error: report.errorMessage,
-    retain_failed_worktree: retainFailedWorktree,
+    retainFailedWorktree,
   };
-  const events = RuntimeTerminalEvents.forTask(repoRoot, report.taskId);
   if (report.status === 'completed') {
-    log.child({ taskId: report.taskId }).progress({
-      level: 'info',
-      event: 'child_chain_failure_branch.rollback_completed',
-      extra,
-      text: `[queue] rolled back child-chain branch for ${report.taskId}`,
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId: report.taskId }),
+      repoRoot,
+      taskId: report.taskId,
+      event: { type: 'child_chain_failure_branch.rollback_completed', input: extra },
     });
-    await events.childChainFailureBranchRollbackCompleted(extra);
     return;
   }
-  log.child({ taskId: report.taskId }).progress({
-    level: 'error',
-    event: report.status === 'preflight-failed'
-      ? 'child_chain_failure_branch.rollback_preflight_failed'
-      : 'child_chain_failure_branch.rollback_failed',
-    extra,
-    text: `[queue] child-chain branch rollback ${report.status} for ${report.taskId}`,
+  await emitTaskProgressEvent({
+    logger: log.child({ taskId: report.taskId }),
+    repoRoot,
+    taskId: report.taskId,
+    event: {
+      type: report.status === 'preflight-failed'
+        ? 'child_chain_failure_branch.rollback_preflight_failed'
+        : 'child_chain_failure_branch.rollback_failed',
+      input: extra,
+    },
   });
-  if (report.status === 'preflight-failed') {
-    await events.childChainFailureBranchRollbackPreflightFailed(extra);
-  } else {
-    await events.childChainFailureBranchRollbackFailed(extra);
-  }
 }
 
 export async function finalizeFailedTaskBindingsWithOwnership(args: {

@@ -282,13 +282,7 @@ export async function handleDesktopAction(
       };
     }
     case 'planner.finalizeSpec': {
-      const expectedTaskKind = (
-        typeof request.payload === 'object' &&
-        request.payload !== null &&
-        'expectedTaskKind' in request.payload
-      )
-        ? (request.payload as { expectedTaskKind?: 'standard' | 'child-task' }).expectedTaskKind
-        : undefined;
+      const expectedTaskKind = request.payload?.expectedTaskKind;
       const brokerState = resolvedHandlers.getPlannerSessionState();
       const activePlannerSessionId = plannerSession.getObservability().sessionId;
       log.info('planner.finalizeSpec.started', {
@@ -641,6 +635,32 @@ export async function handleDesktopAction(
     case 'taskBoard.moveToOpen':
       return withStreamEvent(resolvedHandlers.moveToOpen(request.payload),
         { message: `Moved ${request.payload.fileName} to open.`, source: 'taskBoard.moveToOpen', role: 'queue' });
+    case 'taskBoard.killTask': {
+      const result = await resolvedHandlers.killTask(request.payload);
+      if (result.ok && result.response.action === 'taskBoard.killTask') {
+        emitStreamEvent({
+          message: result.response.mode === 'kill-requested'
+            ? `Stop requested for activating task: ${request.payload.taskId}.`
+            : `Task stopped by operator and moved to Failed: ${request.payload.taskId}.`,
+          source: 'taskBoard.killTask',
+          role: 'queue',
+          severity: result.response.mode === 'failed' ? 'warning' : 'info',
+        });
+      }
+      return result;
+    }
+    case 'taskBoard.retryKillCleanup': {
+      const result = await resolvedHandlers.retryKillCleanup(request.payload);
+      if (result.ok && result.response.action === 'taskBoard.retryKillCleanup') {
+        emitStreamEvent({
+          message: `Retry cleanup scheduled for task: ${request.payload.taskId}.`,
+          source: 'taskBoard.retryKillCleanup',
+          role: 'queue',
+          severity: 'info',
+        });
+      }
+      return result;
+    }
     case 'services.readStatus':
       return { ok: true, response: readBackendServiceStatus() };
     case 'services.startBackend': {

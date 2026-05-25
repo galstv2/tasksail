@@ -937,6 +937,14 @@ export function installAppTestHarness(): void {
         ok: true,
         response: { action: 'taskBoard.moveToOpen', mode: 'moved', message: 'Moved.', movedItem: 'task.md' },
       }),
+      killTask: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'taskBoard.killTask', mode: 'kill-requested', message: 'Stop requested.', taskId: 'task' },
+      }),
+      retryKillCleanup: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'taskBoard.retryKillCleanup', mode: 'cleanup-retry-scheduled', message: 'Retry cleanup scheduled.', taskId: 'task' },
+      }),
       getBackendServiceStatus: vi.fn().mockResolvedValue({
         ok: true,
         response: { action: 'services.readStatus', mode: 'observed', status: 'idle', lastCheckedAt: null, error: null, message: 'Backend services not started.' },

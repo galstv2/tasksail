@@ -133,9 +133,10 @@
 
 .task-board-card {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.4rem;
+  row-gap: 2px;
   padding: 0.45rem 0.55rem;
   border-radius: var(--ts-radius-md);
   background: var(--terminal-chrome);
@@ -196,7 +197,24 @@
   background: rgba(184, 134, 45, 0.08);
 }
 
+.task-board-card--activating {
+  border-left: 3px solid var(--ts-info);
+  background: color-mix(in srgb, var(--ts-info) 9%, transparent);
+}
+
+.task-board-card--stopping {
+  border-left: 3px solid var(--ts-danger);
+  background: var(--ts-danger-bg);
+}
+
+.task-board-card--cleanup-attention {
+  border-left-color: var(--ts-warning);
+  background: var(--ts-warning-tint);
+}
+
 .task-board-card__title {
+  grid-column: 1;
+  min-width: 0;
   font-family: var(--ts-font-sans);
   font-weight: 500;
   white-space: nowrap;
@@ -206,6 +224,8 @@
 }
 
 .task-board-card__id {
+  grid-column: 1 / -1;
+  min-width: 0;
   color: var(--terminal-text-muted);
   font-family: var(--ts-font-mono);
   font-size: 0.68rem;
@@ -215,6 +235,8 @@
 }
 
 .task-board-card__meta {
+  grid-column: 1 / -1;
+  min-width: 0;
   color: var(--terminal-text-muted);
   font-family: var(--ts-font-mono);
   font-size: 0.68rem;
@@ -223,16 +245,22 @@
   text-overflow: ellipsis;
 }
 
-.task-board-card__badge {
-  display: inline-block;
-  align-self: flex-start;
-  padding: 1px 6px;
-  font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
-  font-weight: 500;
+/* Active/Activating: meta line picks up the state color so the leading word
+   ("Active" / "Activating") reads as a status signal, not a faded subtitle. */
+.task-board-card--active .task-board-card__meta {
   color: var(--ts-accent);
-  background: rgba(184, 134, 45, 0.12);
-  border-radius: var(--ts-radius-pill);
+}
+
+.task-board-card--activating .task-board-card__meta {
+  color: var(--ts-info);
+}
+
+.task-board-card--stopping .task-board-card__meta {
+  color: var(--ts-danger);
+}
+
+.task-board-card--cleanup-attention .task-board-card__meta {
+  color: var(--ts-warning);
 }
 
 .task-board-card--clickable {
@@ -246,9 +274,10 @@
 /* ── Card delete button ────────────────────────────────────────────── */
 
 .task-board-card__delete {
-  position: absolute;
-  top: 4px;
-  right: 4px;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
   display: grid;
   place-items: center;
   width: 18px;
@@ -278,6 +307,68 @@
 
 .task-board-card__delete:active {
   background: rgba(196, 90, 104, 0.32);
+}
+
+.task-board-card__stop {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--ts-danger-bg);
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 22%, transparent);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-danger);
+  cursor: pointer;
+  opacity: 1;
+  transition: background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
+}
+
+.task-board-card__retry-cleanup {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--ts-warning-tint);
+  border: 1px solid color-mix(in srgb, var(--ts-warning) 22%, transparent);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-warning);
+  cursor: pointer;
+  opacity: 1;
+  transition: background var(--ts-duration) var(--ts-ease),
+              border-color var(--ts-duration) var(--ts-ease);
+}
+
+.task-board-card__retry-cleanup svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+
+.task-board-card__retry-cleanup:hover {
+  background: color-mix(in srgb, var(--ts-warning) 28%, transparent);
+  border-color: color-mix(in srgb, var(--ts-warning) 40%, transparent);
+}
+
+.task-board-card__stop svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+
+.task-board-card__stop:hover {
+  background: color-mix(in srgb, var(--ts-danger) 28%, transparent);
+  border-color: color-mix(in srgb, var(--ts-danger) 40%, transparent);
 }
 
 /* ── Delete confirmation dialog ───────────────────────────────────── */

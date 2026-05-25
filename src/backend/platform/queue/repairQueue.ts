@@ -10,6 +10,11 @@ import {
   handoffFileIsResetState,
 } from './lifecycle.js';
 import type { QueueRepairIssue } from './repairQueueIssues.js';
+import {
+  listActivationProgressMarkerFileNames,
+  readActivationProgressRecords,
+  sweepActivationProgressMarkers,
+} from './activationProgress.js';
 
 export type { QueueRepairIssue, QueueRepairIssueKind } from './repairQueueIssues.js';
 
@@ -68,6 +73,40 @@ export async function repairQueue(
     activeMarkers.map((markerName) => markerName.replace(/\.md$/, '')),
   );
   const stuckMidCompletionTaskIds = new Set<string>();
+
+  const activationMarkers = await readActivationProgressRecords(queuePaths);
+  for (const marker of activationMarkers) {
+    issues.push(
+      `.activating-items/${marker.taskId}.json is a stale activation progress marker`,
+    );
+    structuredIssues.push({
+      kind: 'stale-activating-marker',
+      taskId: marker.taskId,
+      detail: `marker: ${marker.taskId}.json; phase: ${marker.phase}`,
+    });
+  }
+  const activatingEntries = await listActivationProgressMarkerFileNames(queuePaths);
+  const validMarkerNames = new Set(activationMarkers.map((marker) => `${marker.taskId}.json`));
+  for (const entry of activatingEntries) {
+    if (validMarkerNames.has(entry)) continue;
+    const taskId = entry.replace(/\.json$/, '');
+    issues.push(`.activating-items/${entry} is malformed or unreadable`);
+    structuredIssues.push({
+      kind: 'stale-activating-marker',
+      taskId,
+      detail: `marker: ${entry}; malformed or unreadable`,
+    });
+  }
+  if (!dryRun && autoFix && activatingEntries.length > 0) {
+    const sweep = await sweepActivationProgressMarkers({
+      paths: queuePaths,
+      repoRoot,
+      reason: 'repair-auto-fix',
+    });
+    fixed.push(...sweep.removed.map((taskId) => (
+      `Removed stale .activating-items/${taskId.endsWith('.json') ? taskId : `${taskId}.json`}`
+    )));
+  }
 
   for (const sentinelName of allActiveEntries.filter((f) => f.endsWith('.completing'))) {
     const taskId = sentinelName.slice(0, -'.completing'.length);

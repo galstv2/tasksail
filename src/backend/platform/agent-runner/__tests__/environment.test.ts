@@ -1,8 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { buildAgentEnvironment, buildAutonomyEnvironment } from '../environment.js';
 import type { AgentProfile } from '../types.js';
 import type { AutonomyIntent, BuildArgsResult } from '../../cli-provider/index.js';
 import type { ExternalMcpLaunchContext } from '../pythonHelpers.js';
+import type { TaskPackSnapshot } from '../../context-pack/taskPackSnapshot.js';
 
 describe('buildAgentEnvironment', () => {
   const profile: AgentProfile = {
@@ -50,6 +54,73 @@ describe('buildAgentEnvironment', () => {
   it('emits empty TASKSAIL_TASK_ID when taskId omitted', () => {
     const env = buildAgentEnvironment(profile, '/ctx', '/repo');
     expect(env['TASKSAIL_TASK_ID']).toBe('');
+  });
+
+  it('uses pack snapshot identity for TASKSAIL task branch and worktree projections', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-projection-'));
+    try {
+      const taskId = 'task-roles';
+      const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+        schema_version: 2,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            { originalRoot: '/repos/tools', worktreeRoot: '/worktrees/tools', worktreeBranch: 'task/tools', baseCommitSha: 'abc' },
+            { originalRoot: '/repos/platform', worktreeRoot: '/worktrees/platform', worktreeBranch: 'task/platform', baseCommitSha: 'def' },
+          ],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-01-01T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }), 'utf-8');
+      const snapshot: TaskPackSnapshot = {
+        schemaVersion: 2,
+        stagedAt: '2026-01-01T00:00:00Z',
+        taskId,
+        contextPackDir: '/ctx',
+        contextPackId: 'ctx',
+        estateType: 'distributed-platform',
+        primary: { repoId: 'tools', focusId: null, repoRoot: '/repos/tools', primaryFocusRelativePath: null },
+        support: [{ repoId: 'platform', repoRoot: '/repos/platform' }],
+        focusAreas: [],
+        selectedFocusIds: [],
+        qmdScopeRoot: '',
+        estateRepoIds: ['tools', 'platform'],
+        declaredRepoRoots: ['/repos/tools', '/repos/platform'],
+        deepFocus: {
+          enabled: false,
+          primaryFocusTargetKind: null,
+          primaryFocusTargets: [],
+          selectedTestTarget: null,
+          supportTargets: [],
+          writableRoots: [],
+          readonlyContextRoots: [],
+          warnings: [],
+        },
+      };
+
+      const env = buildAgentEnvironment(profile, '/ctx', repoRoot, { snapshot }, taskId);
+      const branches = JSON.parse(env['TASKSAIL_TASK_BRANCHES'] ?? '[]');
+      const worktrees = JSON.parse(env['TASKSAIL_TASK_WORKTREES'] ?? '[]');
+      expect(JSON.stringify(branches)).not.toContain('originalRoot');
+      expect(JSON.stringify(worktrees)).not.toContain('originalRoot');
+      expect(branches).toEqual([
+        { repoId: 'tools', role: 'primary', branch: 'task/tools', worktreeRoot: '/worktrees/tools' },
+        { repoId: 'platform', role: 'support', branch: 'task/platform', worktreeRoot: '/worktrees/platform' },
+      ]);
+      expect(worktrees).toEqual([
+        { repoId: 'tools', role: 'primary', worktreeRoot: '/worktrees/tools' },
+        { repoId: 'platform', role: 'support', worktreeRoot: '/worktrees/platform' },
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 
   it('omits shared repo-context MCP env vars when no mcp endpoint is supplied', () => {
@@ -450,6 +521,9 @@ describe('buildAutonomyEnvironment', () => {
         working_directory?: string;
         working_directory_kind?: string;
         warnings?: string[];
+        selected_repo_ids?: string[];
+        selected_focus_ids?: string[];
+        target_folders?: string[];
         writable_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
         readonly_context_roots?: Array<{ path?: string; kind?: string; reason?: string }>;
         focused_targeting?: {

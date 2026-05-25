@@ -506,7 +506,127 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     expect(recovered).toContain('- Selected Focus Path: services/Orders.Api/Routes.cs');
     expect(recovered).not.toContain('/contextpacks/stale');
     expect(recovered).not.toContain('stale-repo');
-    expect(recovered).toContain(`Failure recovery note: pendingitems/${taskId}.md was already absent.`);
+    expect(recovered).not.toContain('Failure recovery note:');
+  });
+
+  it('normalizes selected source roots in recovered error-item body while preserving unrelated absolute paths', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-recovered-normalized-roots';
+    const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
+    const selectedRoot = '/repos/tools';
+    const unrelatedRoot = '/repos/unrelated';
+
+    makeActiveMarker(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, [
+      {
+        originalRoot: selectedRoot,
+        worktreeRoot: '/worktrees/tools',
+        worktreeBranch: 'task/tools',
+        baseCommitSha: 'abc',
+      },
+    ], 'active', {
+      contextPackDir: '/contextpacks/tools',
+      contextPackId: 'tools',
+      scopeMode: 'repo-selection',
+      selectedRepoIds: ['tools'],
+      selectedFocusIds: [],
+    });
+    makeTaskRuntime(repoRoot, taskId);
+    mkdirSync(taskHandoffsDir, { recursive: true });
+    writeFileSync(
+      path.join(taskHandoffsDir, 'professional-task.md'),
+      [
+        '# Professional Task',
+        '',
+        '## Task Metadata',
+        '',
+        `- Task ID: ${taskId}`,
+        '- Task Title: Normalize Roots',
+        '',
+        '## Notes',
+        '',
+        `Exact selected root: ${selectedRoot}`,
+        `Nested selected path: ${selectedRoot}/src/index.ts`,
+        `Unrelated absolute path: ${unrelatedRoot}/src/index.ts`,
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    await moveFailedItemToErrorItems({ repoRoot, taskId });
+
+    const recovered = readFileSync(path.join(queuePaths.errorItemsDir, `${taskId}.md`), 'utf-8');
+    expect(recovered).toContain('Exact selected root: tools');
+    expect(recovered).toContain('Nested selected path: tools/src/index.ts');
+    expect(recovered).toContain(`Unrelated absolute path: ${unrelatedRoot}/src/index.ts`);
+    expect(recovered).not.toContain(selectedRoot);
+  });
+
+  it('keeps restored Context Pack Binding agent-visible after recovered body normalization', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-recovered-sanitized-binding';
+    const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
+
+    makeActiveMarker(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, [
+      {
+        originalRoot: '/repos/platform',
+        worktreeRoot: '/worktrees/platform',
+        worktreeBranch: 'task/platform',
+        baseCommitSha: 'abc',
+      },
+      {
+        originalRoot: '/repos/tools',
+        worktreeRoot: '/worktrees/tools',
+        worktreeBranch: 'task/tools',
+        baseCommitSha: 'def',
+      },
+    ], 'active', {
+      contextPackDir: '/contextpacks/orders',
+      contextPackId: 'orders',
+      scopeMode: 'focused',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      selectedFocusTargets: [
+        {
+          path: 'AgentWorkSpace',
+          kind: 'directory',
+          repoLocalPath: '/repos/platform',
+          repoId: 'platform',
+          role: 'anchor',
+          supportTargets: [],
+        },
+        {
+          path: 'src/tools',
+          kind: 'directory',
+          repoLocalPath: '/repos/tools',
+          repoId: 'tools',
+          role: 'primary',
+          supportTargets: [],
+        },
+      ],
+      selectedSupportTargets: [],
+    });
+    makeTaskRuntime(repoRoot, taskId);
+    mkdirSync(taskHandoffsDir, { recursive: true });
+    writeFileSync(
+      path.join(taskHandoffsDir, 'professional-task.md'),
+      '# Professional Task\n\nRecovered body references /repos/tools/src but has no binding.\n',
+      'utf-8',
+    );
+
+    await moveFailedItemToErrorItems({ repoRoot, taskId });
+
+    const recovered = readFileSync(path.join(queuePaths.errorItemsDir, `${taskId}.md`), 'utf-8');
+    expect(recovered).toContain('Recovered body references tools/src but has no binding.');
+    expect(recovered).toContain('## Context Pack Binding');
+    expect(recovered).toContain('- Selected Repo IDs: platform, tools');
+    expect(recovered).toContain('- Selected Focus Targets: [{"path":"AgentWorkSpace","kind":"directory","repoId":"platform","role":"anchor"');
+    expect(recovered).toContain('{"path":"src/tools","kind":"directory","repoId":"tools","role":"primary"');
+    expect(recovered).not.toContain('repoLocalPath');
+    expect(recovered).not.toContain('/repos/platform');
+    expect(recovered).not.toContain('/repos/tools');
   });
 
   it('prefers intake.md context-pack binding over .task.json selection during recovery', async () => {

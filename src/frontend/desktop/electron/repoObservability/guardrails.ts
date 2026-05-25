@@ -37,6 +37,12 @@ export function parseGuardrailStatus(
     case 'denied':
     case 'internal-bypass':
       return value === 'passed' ? 'allowed' : value;
+    case 'failed':
+    case 'artifact-incomplete':
+    case 'next-role-blocked':
+    case 'workflow-policy-blocked':
+    case 'policy-blocked':
+      return 'denied';
     default:
       return 'malformed';
   }
@@ -81,9 +87,10 @@ export function deriveGuardrailObservationSummary(args: {
   status: GuardrailObservation['status'];
   parseError: string | null;
   launchSeam: string | null;
+  terminationReason?: string | null;
   violations: GuardrailViolation[];
 }): string {
-  const { status, parseError, launchSeam, violations } = args;
+  const { status, parseError, launchSeam, terminationReason, violations } = args;
   if (parseError) {
     return `Malformed guardrail receipt: ${parseError}`;
   }
@@ -91,6 +98,16 @@ export function deriveGuardrailObservationSummary(args: {
     return violations[0]?.message ?? 'Guardrail violations were recorded.';
   }
   if (status === 'denied') {
+    if (terminationReason === 'artifact-incomplete') {
+      return 'Guardrail receipt reported incomplete artifacts.';
+    }
+    if (
+      terminationReason === 'next-role-blocked' ||
+      terminationReason === 'workflow-policy-blocked' ||
+      terminationReason === 'policy-blocked'
+    ) {
+      return 'Guardrail receipt reported workflow policy block.';
+    }
     return 'Launch denied by repository guardrails.';
   }
   if (status === 'internal-bypass') {
@@ -99,7 +116,7 @@ export function deriveGuardrailObservationSummary(args: {
       : 'Approved internal bypass attested for this runtime.';
   }
   if (status === 'malformed') {
-    return 'Produced a malformed guardrail receipt.';
+    return 'Guardrail receipt is malformed.';
   }
   return 'Guardrail receipt recorded an allowed launch.';
 }
@@ -180,6 +197,7 @@ export async function readGuardrailObservations(
       relativePath,
     );
     const launchSeam = stringOrNull(payload?.launch_seam);
+    const terminationReason = stringOrNull(payload?.termination_reason);
 
     observations.push({
       receiptPath: relativePath,
@@ -199,6 +217,7 @@ export async function readGuardrailObservations(
         status,
         parseError,
         launchSeam,
+        terminationReason,
         violations,
       }),
       validatorMode: stringOrNull(payload?.validator_mode),

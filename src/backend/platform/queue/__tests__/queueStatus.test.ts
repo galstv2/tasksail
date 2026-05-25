@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getQueueStatus } from '../queueStatus.js';
 import { main } from '../cli.js';
+import { resolveQueuePaths } from '../paths.js';
+import { writeActivationProgress } from '../activationProgress.js';
 
 describe('getQueueStatus', () => {
   let tmpRoot: string;
@@ -37,6 +39,28 @@ describe('getQueueStatus', () => {
     expect(status.activeItem).toBeNull();
     expect(status.workspaceReady).toBe(true);
     expect(status.stuckMidCompletion).toEqual([]);
+    expect(status.activatingTasks).toEqual([]);
+  });
+
+  it('reports activatingTasks as visibility metadata without active authority', async () => {
+    const paths = resolveQueuePaths(tmpRoot);
+    await writeActivationProgress(paths, {
+      taskId: 'task-a',
+      queueName: 'task-a.md',
+      title: 'Task A',
+      phase: 'validating',
+      startedAt: '2026-05-23T10:00:00Z',
+      updatedAt: '2026-05-23T10:00:01Z',
+    });
+
+    const status = await getQueueStatus(tmpRoot);
+
+    expect(status.activatingTasks).toEqual([
+      expect.objectContaining({ taskId: 'task-a', phase: 'validating' }),
+    ]);
+    expect(status.activeTasks).toEqual([]);
+    expect(status.activeItem).toBeNull();
+    expect(status.activeTaskWithBlankWorkspace).toBe(false);
   });
 
   it('reports pending items in sorted order', async () => {

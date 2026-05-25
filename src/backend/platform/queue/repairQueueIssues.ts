@@ -12,7 +12,8 @@ export type QueueRepairIssueKind =
   | 'orphan-task-handoffs-dir'
   | 'partial-publish-in-progress'
   | 'orphan-task-json'
-  | 'corrupt-task-json';
+  | 'corrupt-task-json'
+  | 'stale-activating-marker';
 
 export interface QueueRepairIssue {
   kind: QueueRepairIssueKind;

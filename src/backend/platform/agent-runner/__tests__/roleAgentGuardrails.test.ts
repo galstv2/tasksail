@@ -43,11 +43,10 @@ vi.mock('../environment.js', () => ({
   buildAutonomyEnvironment: vi.fn(),
 }));
 
-vi.mock('../guardrails.js', () => ({
-  runRuntimePolicyCheck: vi.fn(),
-  guardrailReceiptPath: vi.fn(),
-  writeGuardrailReceipt: vi.fn(),
-}));
+vi.mock('../guardrails.js', async () => {
+  const { createGuardrailsMockModule } = await import('./guardrailsMockFactory.js');
+  return createGuardrailsMockModule();
+});
 
 vi.mock('../confinement.js', () => ({
   captureChangedPathsSnapshot: vi.fn(),
@@ -72,10 +71,24 @@ vi.mock('../pythonHelpers.js', () => ({
   prepareExternalMcpLaunchContext: vi.fn(),
 }));
 
-vi.mock('../../context-pack/focusedRepo.js', () => ({
-  resolveFocusedRepoRoot: vi.fn(),
-  resolveSelectedPrimaryRepoRoot: vi.fn(),
-  explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
+vi.mock('../../context-pack/focusedRepo.js', async () => {
+  const actual = await vi.importActual<typeof import('../../context-pack/focusedRepo.js')>(
+    '../../context-pack/focusedRepo.js',
+  );
+  return {
+    ...actual,
+    resolveFocusedRepoRoot: vi.fn(),
+    resolveSelectedPrimaryRepoRoot: vi.fn(),
+    explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
+  };
+});
+
+vi.mock('../../context-pack/taskPackSnapshot.js', () => ({
+  loadTaskPackSnapshot: vi.fn(),
+}));
+
+vi.mock('../../queue/taskJson.js', () => ({
+  readTaskJsonSafe: vi.fn(),
 }));
 
 vi.mock('../../core/index.js', async () => {
@@ -84,7 +97,10 @@ vi.mock('../../core/index.js', async () => {
     resolvePaths: vi.fn(),
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
+    canonicalRoot: actual.canonicalRoot,
+    isPathWithinBoundary: actual.isPathWithinBoundary,
     createLogger: () => testLogger,
+    ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
     writeProtocolStdout: vi.fn(),
   };
@@ -94,10 +110,15 @@ vi.mock('../../core/io.js', () => ({
   readTextFile: vi.fn(),
 }));
 
-vi.mock('../artifactCompletion.js', () => ({
-  checkAgentArtifactCompletion: vi.fn(),
-  buildAgentArtifactRemediationPrompt: vi.fn(),
-}));
+vi.mock('../artifactCompletion.js', async () => {
+  const actual = await vi.importActual<typeof import('../artifactCompletion.js')>('../artifactCompletion.js');
+  return {
+    ...actual,
+    checkAgentArtifactCompletion: vi.fn(),
+    checkAgentArtifactCompletionDetails: vi.fn(),
+    buildAgentArtifactRemediationPrompt: vi.fn(),
+  };
+});
 
 vi.mock('../sessionReceipts.js', () => ({
   writeSessionStartReceipt: vi.fn(),
@@ -130,11 +151,13 @@ const { resolvePaths } = await import('../../core/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
+const { loadTaskPackSnapshot } = await import('../../context-pack/taskPackSnapshot.js');
+const { readTaskJsonSafe } = await import('../../queue/taskJson.js');
 const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
 const { captureChangedPathsSnapshot, validateDaltonBoundaryChanges, DaltonConfinementError } = await import('../confinement.js');
-const { checkAgentArtifactCompletion } = await import('../artifactCompletion.js');
+const { checkAgentArtifactCompletionDetails } = await import('../artifactCompletion.js');
 const { buildAgentArtifactRemediationPrompt } = await import('../artifactCompletion.js');
 const { writeSessionStartReceipt, writeSessionTerminalReceipt } = await import('../sessionReceipts.js');
 const { runtimeRequiresContainerPaths } = await import('../../container/sharedMcp.js');
@@ -152,6 +175,8 @@ const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
+const mockedLoadTaskPackSnapshot = vi.mocked(loadTaskPackSnapshot);
+const mockedReadTaskJsonSafe = vi.mocked(readTaskJsonSafe);
 const mockedLaunchAgent = vi.mocked(launchAgent);
 const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
@@ -159,7 +184,7 @@ const mockedPrepareExternalMcpLaunchContext = vi.mocked(prepareExternalMcpLaunch
 const mockedRunRuntimePolicyCheck = vi.mocked(runRuntimePolicyCheck);
 const mockedWriteGuardrailReceipt = vi.mocked(writeGuardrailReceipt);
 const mockedGuardrailReceiptPath = vi.mocked(guardrailReceiptPath);
-const mockedCheckAgentArtifactCompletion = vi.mocked(checkAgentArtifactCompletion);
+const mockedCheckAgentArtifactCompletionDetails = vi.mocked(checkAgentArtifactCompletionDetails);
 const mockedBuildAgentArtifactRemediationPrompt = vi.mocked(buildAgentArtifactRemediationPrompt);
 const mockedWriteSessionStartReceipt = vi.mocked(writeSessionStartReceipt);
 const mockedWriteSessionTerminalReceipt = vi.mocked(writeSessionTerminalReceipt);
@@ -219,6 +244,32 @@ function setupCommonMocks(): void {
   });
   mockedResolveFocusedRepoRoot.mockResolvedValue(undefined);
   mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
+  mockedReadTaskJsonSafe.mockReturnValue(null);
+  mockedLoadTaskPackSnapshot.mockResolvedValue({
+    schemaVersion: 2,
+    stagedAt: '2026-01-01T00:00:00Z',
+    taskId: 'task-test-001',
+    contextPackDir: '/ctx',
+    contextPackId: 'ctx',
+    estateType: 'distributed-platform',
+    primary: { repoId: 'crud-app', focusId: null, repoRoot: '/ctx/crud-app', primaryFocusRelativePath: null },
+    support: [],
+    focusAreas: [],
+    selectedFocusIds: [],
+    qmdScopeRoot: '',
+    estateRepoIds: ['crud-app'],
+    declaredRepoRoots: ['/ctx/crud-app'],
+    deepFocus: {
+      enabled: false,
+      primaryFocusTargetKind: null,
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      writableRoots: [],
+      readonlyContextRoots: [],
+      warnings: [],
+    },
+  } as never);
   mockedRunRuntimePolicyCheck.mockResolvedValue({
     stdout: '',
     stderr: '',
@@ -243,7 +294,7 @@ function setupCommonMocks(): void {
     selectedServerIds: [],
     excludedServerIds: [],
   });
-  mockedCheckAgentArtifactCompletion.mockResolvedValue(true);
+  mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
   mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
     'Use the exact absolute workflow-artifact path shown below.\n- $COPILOT_HANDOFFS_DIR/issues.md',
   );
@@ -700,6 +751,90 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       skipWorkflowValidation: true,
     })).rejects.toThrow('authoritative active task/workspace selection');
     expect(mockedLaunchAgent).not.toHaveBeenCalled();
+  });
+
+  it('blocks Dalton before provider spawn when Alice artifacts contain selected original roots', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedReadTaskJsonSafe.mockReturnValue({
+      contextPackBinding: {
+        repoBindings: [{
+          originalRoot: '/ctx/crud-app',
+          worktreeRoot: '/wt/crud-app',
+          worktreeBranch: 'task/t1',
+          baseCommitSha: 'abc123',
+        }],
+      },
+    } as never);
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoId: 'crud-app',
+      primaryRepoRoot: '/ctx/crud-app',
+      visibleRepoRoots: ['/ctx/crud-app'],
+      declaredRepoRoots: ['/ctx/crud-app'],
+      estateType: 'distributed-platform',
+      selectedRepoIds: ['crud-app'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedReadTextFile.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('/.github/copilot/prompts/execute-task.prompt.md')) return 'Execute.';
+      if (filePath.endsWith('/implementation-spec.md')) return 'Run validation from /ctx/crud-app.';
+      return '';
+    });
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      taskId: 'task-test-001',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    })).rejects.toThrow('Agent artifact containment failed');
+    expect(mockedLaunchAgent).not.toHaveBeenCalled();
+  });
+
+  it('allows Dalton launch when Alice artifacts contain worktree or repo-relative paths', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    mockedReadTaskJsonSafe.mockReturnValue({
+      contextPackBinding: {
+        repoBindings: [{
+          originalRoot: '/ctx/crud-app',
+          worktreeRoot: '/wt/crud-app',
+          worktreeBranch: 'task/t1',
+          baseCommitSha: 'abc123',
+        }],
+      },
+    } as never);
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoId: 'crud-app',
+      primaryRepoRoot: '/ctx/crud-app',
+      visibleRepoRoots: ['/ctx/crud-app'],
+      declaredRepoRoots: ['/ctx/crud-app'],
+      estateType: 'distributed-platform',
+      selectedRepoIds: ['crud-app'],
+      selectedFocusIds: [],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedReadTextFile.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('/.github/copilot/prompts/execute-task.prompt.md')) return 'Execute.';
+      if (filePath.endsWith('/implementation-spec.md')) return 'Run validation from /wt/crud-app and edit crud-app/src/index.ts.';
+      return '';
+    });
+    mockedLaunchAgent.mockReturnValue({ pid: 1234 } as never);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      taskId: 'task-test-001',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    })).resolves.toMatchObject({ exitCode: 0 });
+    expect(mockedLaunchAgent).toHaveBeenCalled();
   });
 
   it('fails closed when dalton-verify cannot resolve an authoritative selected primary boundary', async () => {
