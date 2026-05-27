@@ -16,8 +16,9 @@ import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { readTaskJsonSafe, resolveTaskJsonPath } from '../queue/taskJson.js';
-import type { TaskRepoBinding } from '../queue/taskJson.js';
+import type { TaskJson, TaskReadonlyContextBinding, TaskRepoBinding } from '../queue/taskJson.js';
 import { acquireDirLock } from '../queue/operations.js';
+import { removeReadonlyContextWorktree } from '../queue/supportContextMaterialization.js';
 import { createLogger } from './logger.js';
 import {
   discardTaskBindingsWithOwnership,
@@ -50,6 +51,37 @@ function retentionEvictionLockPath(repoRoot: string): string {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function readonlyContextBindingsOf(taskJson: TaskJson): TaskReadonlyContextBinding[] {
+  // taskJson.ts validates and normalizes `readonlyContextBindings` to a typed
+  // array on read; the local optionality fallback just covers the legacy v1
+  // sidecar shape where the field was absent entirely.
+  return taskJson.contextPackBinding.readonlyContextBindings ?? [];
+}
+
+async function removeReadonlyContextBindings(args: {
+  repoRoot: string;
+  taskId: string;
+  bindings: readonly TaskReadonlyContextBinding[];
+  failOnError: boolean;
+}): Promise<boolean> {
+  let failed = false;
+  for (const binding of args.bindings) {
+    try {
+      await removeReadonlyContextWorktree({
+        repoRoot: args.repoRoot,
+        taskId: args.taskId,
+        binding,
+      });
+    } catch (err) {
+      failed = true;
+      if (args.failOnError) {
+        throw err;
+      }
+    }
+  }
+  return failed;
 }
 
 /**
@@ -192,6 +224,12 @@ export async function discardRetainedTaskWorktrees(
       taskId,
       bindings: taskJson.contextPackBinding.repoBindings,
     });
+    await removeReadonlyContextBindings({
+      repoRoot,
+      taskId,
+      bindings: readonlyContextBindingsOf(taskJson),
+      failOnError: false,
+    });
   }
   removeTaskWorkspaceAndRuntime(repoRoot, taskId);
 }
@@ -233,6 +271,7 @@ async function runRetentionEviction(
       taskId: string;
       finalizedAt: string;
       bindings: TaskRepoBinding[];
+      readonlyContextBindings: TaskReadonlyContextBinding[];
     }> = [];
 
     for (const entry of taskEntries) {
@@ -242,6 +281,7 @@ async function runRetentionEviction(
           taskId: entry,
           finalizedAt: meta.finalizedAt,
           bindings: meta.contextPackBinding.repoBindings,
+          readonlyContextBindings: readonlyContextBindingsOf(meta),
         });
       }
     }
@@ -263,6 +303,12 @@ async function runRetentionEviction(
           taskId: victim.taskId,
           error: errorMessage(err),
         });
+      });
+      await removeReadonlyContextBindings({
+        repoRoot,
+        taskId: victim.taskId,
+        bindings: victim.readonlyContextBindings,
+        failOnError: false,
       });
       rmSync(path.join(tasksBaseDir, victim.taskId), { recursive: true, force: true });
     }
@@ -307,10 +353,10 @@ export async function finalizeTaskWorktreesWithReport(
   // binding loop below is a no-op when the sidecar is absent; persistTaskJson
   // synthesizes a minimal shell so finalizedAt is still stamped.
   const taskJson = readTaskJsonSafe(taskId, repoRoot);
+  const cfg = await getPlatformConfig(repoRoot);
 
   let failedOwnershipResult: Awaited<ReturnType<typeof finalizeFailedTaskBindingsWithOwnership>> | null = null;
   if (taskJson && outcome === 'failed') {
-    const cfg = await getPlatformConfig(repoRoot);
     failedOwnershipResult = await finalizeFailedTaskBindingsWithOwnership({
       repoRoot,
       taskId,
@@ -321,6 +367,16 @@ export async function finalizeTaskWorktreesWithReport(
     for (const binding of taskJson.contextPackBinding.repoBindings) {
       await finalizeWorktree(binding, outcome, repoRoot);
     }
+  }
+
+  let preserveTaskStateForReadonlyCleanup = false;
+  if (taskJson && (outcome === 'completed' || !cfg.retain_failed_task_worktrees)) {
+    preserveTaskStateForReadonlyCleanup = await removeReadonlyContextBindings({
+      repoRoot,
+      taskId,
+      bindings: readonlyContextBindingsOf(taskJson),
+      failOnError: outcome === 'completed',
+    });
   }
 
   // Stamp finalizedAt and persist BEFORE acquiring the retention-eviction lock,
@@ -335,12 +391,16 @@ export async function finalizeTaskWorktreesWithReport(
   //                         operator review/merge.
   //   failed+retain=false:  remove parent dir (matching no-retention intent)
   //   failed+retain=true:   PRESERVE parent dir for operator inspection
-  const cfg = await getPlatformConfig(repoRoot);
   const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
 
   if (outcome === 'completed') {
     rmSync(parentDir, { recursive: true, force: true });
-  } else if (outcome === 'failed' && !cfg.retain_failed_task_worktrees && !failedOwnershipResult?.preserveTaskState) {
+  } else if (
+    outcome === 'failed'
+    && !cfg.retain_failed_task_worktrees
+    && !failedOwnershipResult?.preserveTaskState
+    && !preserveTaskStateForReadonlyCleanup
+  ) {
     rmSync(parentDir, { recursive: true, force: true });
   }
 
@@ -360,7 +420,7 @@ export async function finalizeTaskWorktreesWithReport(
   }
 
   try {
-    if (!failedOwnershipResult?.preserveTaskState) {
+    if (!failedOwnershipResult?.preserveTaskState && !preserveTaskStateForReadonlyCleanup) {
       await gcTaskRuntime(taskId, outcome, repoRoot);
     }
   } catch (err) {

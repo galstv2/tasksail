@@ -231,6 +231,14 @@ export async function preconditionsPass(
   taskId: string,
   worktreePath: string,
 ): Promise<PreconditionResult> {
+  return newBranchPreconditionsPass(originalRoot, `task/${taskId}`, worktreePath);
+}
+
+export async function newBranchPreconditionsPass(
+  originalRoot: string,
+  branchName: string,
+  worktreePath: string,
+): Promise<PreconditionResult> {
   // 1. Check for at least one commit.
   try {
     await execFile('git', ['-C', originalRoot, 'rev-parse', 'HEAD']);
@@ -242,8 +250,8 @@ export async function preconditionsPass(
     };
   }
 
-  // 2. Check that refs/heads/task/<taskId> does not already exist.
-  const branchRef = `refs/heads/task/${taskId}`;
+  // 2. Check that refs/heads/<branchName> does not already exist.
+  const branchRef = `refs/heads/${branchName}`;
   try {
     await execFile('git', [
       '-C', originalRoot,

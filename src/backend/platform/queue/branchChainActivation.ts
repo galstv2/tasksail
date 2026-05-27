@@ -5,10 +5,12 @@ import { promisify } from 'node:util';
 
 import {
   existingBranchPreconditionsPass,
+  newBranchPreconditionsPass,
   preconditionsPass,
 } from '../core/worktreeMaterialization.js';
 import {
   extractBranchChainBinding,
+  getTaskBranchChainRepoSourceKind,
   type TaskBranchChainBinding,
   type TaskBranchChainRepo,
 } from './markdown.js';
@@ -20,8 +22,13 @@ export interface ActivationMaterializationOrigin {
   gitRoot: string;
 }
 
+export type ActivationBranchPlanMode =
+  | 'standard'
+  | 'chained-existing'
+  | 'chained-introduced';
+
 export interface ActivationBranchPlan {
-  mode: 'standard' | 'chained';
+  mode: ActivationBranchPlanMode;
   originalRoot: string;
   contextRoot: string;
   repoLabel: string;
@@ -35,7 +42,7 @@ export interface ActivationBranchPlan {
 }
 
 export interface ActivationBranchCandidatePlan {
-  mode: 'standard' | 'chained';
+  mode: ActivationBranchPlanMode;
   originalRoot: string;
   contextRoot: string;
   repoLabel: string;
@@ -181,9 +188,10 @@ export async function buildActivationBranchCandidatePlans(
     const branchChainRepo = matchBranchChainRepoForRoot(args.branchChainBinding, origin.gitRoot)!;
     const worktreePath = resolveWorktreePath(args.taskId, repoLabel);
     const worktreeBranch = branchChainRepo.chainSourceBranch;
+    const sourceKind = getTaskBranchChainRepoSourceKind(branchChainRepo);
 
     plans.push({
-      mode: 'chained',
+      mode: sourceKind === 'introduced-by-child' ? 'chained-introduced' : 'chained-existing',
       originalRoot: origin.gitRoot,
       contextRoot: origin.contextRoot,
       repoLabel,
@@ -191,7 +199,7 @@ export async function buildActivationBranchCandidatePlans(
       worktreeRootForBinding: worktreePath,
       worktreeBranch,
       addWorktree: true,
-      createBranch: false,
+      createBranch: sourceKind === 'introduced-by-child',
       branchChainRepo,
     });
   }
@@ -230,6 +238,41 @@ export async function finalizeActivationBranchPlans(
           continue;
         }
         throw new Error(`activation-precondition-failed: ${pre.reason}: ${pre.detail ?? ''}`);
+      }
+
+      plans.push({
+        ...candidate,
+        baseCommitSha,
+      });
+      continue;
+    }
+
+    if (candidate.mode === 'chained-introduced') {
+      const parentBranchHead = candidate.branchChainRepo?.parentBranchHead;
+      if (!parentBranchHead) {
+        throw new Error(`activation-branch-chain-introduced-base-unresolved for task "${args.taskId}": missing parentBranchHead`);
+      }
+
+      let baseCommitSha: string;
+      try {
+        const { stdout } = await execFileAsync('git', [
+          '-C', candidate.originalRoot,
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          `${parentBranchHead}^{commit}`,
+        ]);
+        baseCommitSha = stdout.trim();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`activation-branch-chain-introduced-base-unresolved for task "${args.taskId}": ${parentBranchHead}: ${message}`);
+      }
+
+      const pre = await newBranchPreconditionsPass(candidate.originalRoot, candidate.worktreeBranch, candidate.worktreePath);
+      if (!pre.ok) {
+        throw new Error(
+          `activation-branch-chain-introduced-precondition-failed for task "${args.taskId}": ${pre.reason}: ${pre.detail ?? ''}`,
+        );
       }
 
       plans.push({

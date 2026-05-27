@@ -39,6 +39,46 @@ export {
   validatePlannerFocusSnapshot,
 } from './desktopContractValidationCore';
 
+function validateTaskNotificationsMarkSeenPayload(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload must be an object.'];
+  }
+
+  const errors: string[] = [];
+  if (value.notificationIds !== undefined) {
+    if (!Array.isArray(value.notificationIds)) {
+      errors.push('payload.notificationIds must be a string array when provided.');
+    } else {
+      for (const [index, notificationId] of value.notificationIds.entries()) {
+        if (!isNonEmptyString(notificationId)) {
+          errors.push(`payload.notificationIds[${index}] must be a non-empty string.`);
+        }
+      }
+    }
+  }
+  if (value.allVisible !== undefined && typeof value.allVisible !== 'boolean') {
+    errors.push('payload.allVisible must be a boolean when provided.');
+  }
+  return errors;
+}
+
+function validateTaskNotificationsDismissPayload(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return ['payload must be an object.'];
+  }
+  if (!isNonEmptyString(value.notificationId)) {
+    return ['payload.notificationId must be a non-empty string.'];
+  }
+  return [];
+}
+
+function validateNoPayloadRequest(value: unknown): string[] {
+  if (value !== undefined) {
+    return ['payload must be omitted.'];
+  }
+  return [];
+}
+
 function validateFocusFilterRepositoryTypes(value: unknown): string[] {
   if (!isRecord(value) || value.repositoryTypes === undefined) {
     return [];
@@ -596,6 +636,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     case 'externalMcp.list':
     case 'agentConfig.loadAgents':
     case 'agentConfig.loadModelCatalog':
+    case 'agentConfig.loadCapabilities':
       return [];
     case 'agentConfig.saveAgentModels':
       return validateAgentConfigAssignments(request.payload);
@@ -649,6 +690,14 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     }
     case 'taskBoard.readBoard':
       return [];
+    case 'taskNotifications.read':
+      return validateNoPayloadRequest(request.payload);
+    case 'taskNotifications.markSeen':
+      return validateTaskNotificationsMarkSeenPayload(request.payload);
+    case 'taskNotifications.dismiss':
+      return validateTaskNotificationsDismissPayload(request.payload);
+    case 'taskNotifications.dismissAll':
+      return validateNoPayloadRequest(request.payload);
     case 'taskBoard.readTaskContent': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
       const errors: string[] = [];

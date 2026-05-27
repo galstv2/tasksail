@@ -11,6 +11,11 @@ import {
   type ManifestRepo,
 } from '../../../backend/platform/context-pack/focusedRepo.js';
 import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import {
+  getActiveProvider,
+  validateReasoningEffortForCapabilities,
+  type ProviderReasoningEffortCapabilities,
+} from '../../../backend/platform/cli-provider/index.js';
 import { getPlannerHistoryRecord } from '../../../backend/platform/planner-history/store.js';
 import type {
   PlannerStagingContextPackBinding,
@@ -37,7 +42,11 @@ import {
   clearStagingArtifacts,
   initializeStagedPlanningDraft,
 } from './main.staging';
-import { getPlanningAgentAllowedRoots } from './plannerCliProcess';
+import {
+  getPlanningAgentAllowedRoots,
+  getPlanningAgentReasoningEffort,
+  getPlanningAgentRequiredModel,
+} from './plannerCliProcess';
 import { PlannerSessionBroker, type PlannerSendResult } from './plannerSessionBroker';
 import {
   appendPendingMessage,
@@ -55,6 +64,55 @@ import {
 } from './plannerSession.launchClassification';
 
 const log = createLogger('electron/plannerSession');
+
+type ReasoningEffortCapabilityProvider = {
+  reasoningEffortCapabilities?: (repoRoot: string) => Promise<ProviderReasoningEffortCapabilities>;
+};
+
+async function validatePlanningAgentReasoningEffort(): Promise<string | undefined> {
+  const reasoningEffort = getPlanningAgentReasoningEffort();
+  if (!reasoningEffort) {
+    return undefined;
+  }
+  if (!/^[a-z][a-z0-9-]*$/.test(reasoningEffort)) {
+    throw new Error(`Lily reasoning effort "${reasoningEffort}" must be lowercase letters, numbers, or hyphens.`);
+  }
+  const provider = getActiveProvider(REPO_ROOT);
+  const capabilityProvider = provider as typeof provider & ReasoningEffortCapabilityProvider;
+  const capabilities = await capabilityProvider.reasoningEffortCapabilities?.(REPO_ROOT);
+  if (!capabilities) {
+    log.warn('planner.reasoning_effort.rejected_before_session', {
+      providerId: provider.id,
+      effort: reasoningEffort,
+      reason: 'capability-discovery-failed',
+    });
+    throw new Error('Reasoning effort options could not be loaded from the installed Copilot CLI. Update Agent Configuration to None or try again after capabilities are available.');
+  }
+  const validation = validateReasoningEffortForCapabilities({
+    providerId: provider.id,
+    agentId: 'Lily',
+    modelId: getPlanningAgentRequiredModel(),
+    effort: reasoningEffort,
+    capabilities,
+  });
+  if (!validation.ok) {
+    const reason = validation.reason ?? 'capability-discovery-failed';
+    log.warn('planner.reasoning_effort.rejected_before_session', {
+      providerId: provider.id,
+      effort: reasoningEffort,
+      reason,
+    });
+    throw new Error(validation.reason === 'capability-discovery-failed'
+      ? 'Reasoning effort options could not be loaded from the installed Copilot CLI. Update Agent Configuration to None or try again after capabilities are available.'
+      : `Lily reasoning effort "${reasoningEffort}" is not advertised by the installed Copilot CLI. Update Agent Configuration to None or a Copilot-advertised effort.`);
+  }
+  log.info('planner.reasoning_effort.validated', {
+    providerId: provider.id,
+    effort: reasoningEffort,
+    capabilitySource: capabilities.source,
+  });
+  return reasoningEffort;
+}
 
 const broker = new PlannerSessionBroker({
   emitEvent: (plannerEvent) => {
@@ -91,6 +149,7 @@ export async function startSession(
   if (broker.isSessionActive()) {
     return broker.startSession();
   }
+  const reasoningEffort = await validatePlanningAgentReasoningEffort();
   await cleanupActiveParentBranchViewSession();
   if (childTaskLineage && !childTaskFocusSnapshot) {
     throw new Error('Child-task planner sessions require a focus snapshot.');
@@ -175,7 +234,7 @@ export async function startSession(
   // session once the broker confirms a newly created session.
   let result: ReturnType<typeof broker.startSession>;
   try {
-    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv, lilyPersonalityId: lilyPersonalityId ?? 'balanced' });
+    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv, reasoningEffort, lilyPersonalityId: lilyPersonalityId ?? 'balanced' });
   } catch (error: unknown) {
     if (parentBranchViewSession) {
       await cleanupParentBranchViewSession(parentBranchViewSession);

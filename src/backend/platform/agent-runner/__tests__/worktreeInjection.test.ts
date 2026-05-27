@@ -114,6 +114,50 @@ describe('buildWorktreeBindingMap', () => {
     const rewritten = rewritePath(path.join(canonicalOriginal, 'src', 'app.ts'), map);
     expect(rewritten).toBe(path.join(canonicalWorktree, 'src', 'app.ts'));
   });
+
+  it('builds substitution map from readonlyContextBindings', async () => {
+    const taskId = 'wt-inject-readonly-test';
+    const originalRoot = path.join(repoRoot, 'origin', 'support-lib');
+    const worktreeRoot = path.join(repoRoot, 'worktrees', 'support-lib');
+    mkdirSync(originalRoot, { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+
+    const sidecarDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(
+      path.join(sidecarDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+          readonlyContextBindings: [
+            {
+              originalRoot,
+              worktreeRoot,
+              baseCommitSha: 'deadbeef',
+              repoId: 'support-lib',
+              role: 'support',
+            },
+          ],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-04-19T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }),
+    );
+
+    const map = await buildWorktreeBindingMap(taskId, repoRoot);
+    const canonicalOriginal = realpathSync(originalRoot);
+    const canonicalWorktree = realpathSync(worktreeRoot);
+    expect(map.applied).toBe(true);
+    expect(rewritePath(path.join(canonicalOriginal, 'src', 'app.ts'), map))
+      .toBe(path.join(canonicalWorktree, 'src', 'app.ts'));
+  });
 });
 
 describe('applyWorktreeInjectionToFocused', () => {

@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyTaskBranches } from '../branchVerification.js';
-import type { TaskRepoBinding } from '../taskJson.js';
+import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../taskJson.js';
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -55,6 +55,7 @@ function writeTaskJson(
   taskId: string,
   bindings: TaskRepoBinding[],
   selection?: Record<string, unknown>,
+  readonlyContextBindings: TaskReadonlyContextBinding[] = [],
 ): void {
   const dir = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(dir, { recursive: true });
@@ -68,6 +69,7 @@ function writeTaskJson(
         dataHostDir: null,
         dataContainerDir: null,
         repoBindings: bindings,
+        readonlyContextBindings,
         ...(selection ? { selection } : {}),
       },
       materialization: {
@@ -221,6 +223,34 @@ describe('verifyTaskBranches', () => {
       primaryRoot,
       support: [{ repoId: 'support', repoRoot: supportRoot }],
     });
+
+    const result = await verifyTaskBranches(platformRoot, taskId);
+
+    expect(result.ok).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('ignores readonly context bindings when verifying branch-owned repos', async () => {
+    const taskId = 'verify-readonly-context';
+    const primaryRoot = path.join(platformRoot, 'origin', 'primary');
+    const primaryWorktree = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'primary');
+    const primaryBaseSha = initRepo(primaryRoot);
+    addWorktree(primaryRoot, primaryWorktree, `task/${taskId}`, primaryBaseSha);
+    commitInWorktree(primaryWorktree, 'feature.ts');
+    writeTaskJson(platformRoot, taskId, [
+      {
+        originalRoot: primaryRoot,
+        worktreeRoot: primaryWorktree,
+        worktreeBranch: `task/${taskId}`,
+        baseCommitSha: primaryBaseSha,
+      },
+    ], undefined, [{
+      originalRoot: path.join(platformRoot, 'origin', 'readonly-support'),
+      worktreeRoot: path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'readonly-support'),
+      baseCommitSha: 'readonly-base',
+      repoId: 'support',
+      role: 'support',
+    }]);
 
     const result = await verifyTaskBranches(platformRoot, taskId);
 

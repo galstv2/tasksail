@@ -121,6 +121,19 @@ describe('copilotProvider', () => {
     });
   });
 
+  it('buildArgs emits effort only for non-empty non-none intent values', () => {
+    expect(copilotProvider.buildArgs(profile, { ...intent, reasoningEffort: 'high' }, {
+      launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+    }).args).toEqual(expect.arrayContaining(['--effort', 'high']));
+
+    for (const reasoningEffort of [undefined, '', 'none']) {
+      const result = copilotProvider.buildArgs(profile, { ...intent, reasoningEffort }, {
+        launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+      });
+      expect(result.args).not.toContain('--effort');
+    }
+  });
+
   it('buildArgs applies the git deny floor to qa executor autonomy', () => {
     const result = copilotProvider.buildArgs(
       {
@@ -226,6 +239,26 @@ describe('copilotProvider', () => {
     });
     expect(env).not.toHaveProperty('COPILOT_HANDOFFS_DIR');
     expect(env).not.toHaveProperty('COPILOT_IMPL_STEPS_DIR');
+    expect(env).not.toHaveProperty('COPILOT_REASONING_EFFORT');
+  });
+
+  it('exposes reasoning effort capabilities without effort env or runtime manifest leakage', async () => {
+    fs.mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, '.platform-state', 'copilot-cli-capabilities.json'), JSON.stringify({
+      schema_version: 1,
+      provider_id: 'copilot',
+      cli_version: 'GitHub Copilot CLI 1.0.54',
+      captured_at: new Date().toISOString(),
+      reasoning_effort_choices: ['low', 'medium', 'high'],
+    }));
+
+    await expect(copilotProvider.reasoningEffortCapabilities?.(repoRoot)).resolves.toMatchObject({
+      providerId: 'copilot',
+      source: 'cache',
+      effortChoices: ['low', 'medium', 'high'],
+    });
+    expect(copilotProvider.controlledEnvKeys().join('\n')).not.toMatch(/REASONING|EFFORT/u);
+    expect(copilotProvider.runtimeManifestEnvVars().map((item) => item.name).join('\n')).not.toMatch(/REASONING|EFFORT/u);
   });
 
   it('materializes inline prompt context from provider-owned paths', () => {

@@ -239,6 +239,33 @@ describe('desktopShellClient', () => {
     expect(shell.readParentArchiveMarkdown).toHaveBeenCalledWith(payload);
   });
 
+  it('forwards task notification calls unchanged through the shell seam', async () => {
+    const unsubscribe = vi.fn();
+    const listener = vi.fn();
+    const payload = { notificationIds: ['n-1'], allVisible: true };
+    const shell = {
+      readTaskNotifications: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskNotifications.read' } }),
+      markTaskNotificationsSeen: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskNotifications.markSeen' } }),
+      dismissTaskNotification: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskNotifications.dismiss' } }),
+      dismissAllTaskNotifications: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskNotifications.dismissAll' } }),
+      onTaskNotificationsUpdate: vi.fn().mockReturnValue(unsubscribe),
+    } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+
+    await client.readTaskNotifications();
+    await client.markTaskNotificationsSeen(payload);
+    await client.dismissTaskNotification('n-1');
+    await client.dismissAllTaskNotifications();
+    const returnedUnsubscribe = client.onTaskNotificationsUpdate(listener);
+
+    expect(shell.readTaskNotifications).toHaveBeenCalledTimes(1);
+    expect(shell.markTaskNotificationsSeen).toHaveBeenCalledWith(payload);
+    expect(shell.dismissTaskNotification).toHaveBeenCalledWith('n-1');
+    expect(shell.dismissAllTaskNotifications).toHaveBeenCalledTimes(1);
+    expect(shell.onTaskNotificationsUpdate).toHaveBeenCalledWith(listener);
+    expect(returnedUnsubscribe).toBe(unsubscribe);
+  });
+
   it('forwards validateChildTaskFocus payload unchanged through the shell seam', async () => {
     const validateChildTaskFocus = vi.fn().mockResolvedValue({
       ok: true,
@@ -509,6 +536,7 @@ describe('desktopShellClient', () => {
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', success: true } }),
       loadAgentConfig: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadAgents', agents: [] } }),
       loadModelCatalog: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadModelCatalog', models: [] } }),
+      loadCapabilities: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadCapabilities', effortChoices: [] } }),
       saveAgentModels: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveAgentModels', agents: [] } }),
       addModel: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.addModel', models: [] } }),
       removeModel: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.removeModel', models: [] } }),
@@ -640,14 +668,16 @@ describe('desktopShellClient', () => {
 
     await desktopShellClient.loadAgentConfig();
     await desktopShellClient.loadModelCatalog();
-    await desktopShellClient.saveAgentModels([{ agent_id: 'provider-planner', model_id: 'gpt-4.1' }]);
+    await desktopShellClient.loadCapabilities();
+    await desktopShellClient.saveAgentModels([{ agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'high' }]);
     await desktopShellClient.addModel('GPT 4.1', 'gpt-4.1');
     await desktopShellClient.removeModel('gpt-4.1');
 
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadAgentConfig).toHaveBeenCalledTimes(1);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadModelCatalog).toHaveBeenCalledTimes(1);
+    expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).loadCapabilities).toHaveBeenCalledTimes(1);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveAgentModels).toHaveBeenCalledWith([
-      { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+      { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'high' },
     ]);
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).addModel).toHaveBeenCalledWith('GPT 4.1', 'gpt-4.1');
     expect((window.desktopShell as unknown as Record<string, ReturnType<typeof vi.fn>>).removeModel).toHaveBeenCalledWith('gpt-4.1');

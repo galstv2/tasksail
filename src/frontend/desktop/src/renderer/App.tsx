@@ -6,6 +6,8 @@ import InstructionsRail from './components/InstructionsRail';
 import ConfigRailStack from './components/ConfigRailStack';
 import ContextPackSidebar from './components/ContextPackSidebar';
 import { RefreshIcon, StarIcon } from './components/creation-steps/icons';
+import { TaskNotificationCenterButton } from './components/task-notifications/TaskNotificationCenterButton';
+import { TaskNotificationPanel } from './components/task-notifications/TaskNotificationPanel';
 import TaskBoard from './components/taskboard/TaskBoard';
 import ContextPackCreationModal from './components/ContextPackCreationModal';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -16,25 +18,12 @@ import TerminalFeed from './components/TerminalFeed';
 import PlannerModal from './components/PlannerModal';
 import { ObservabilityProvider } from './contexts/ObservabilityContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppShell } from './hooks/useAppShell';
 import { useThemeToggle } from './hooks/useThemeToggle';
 import { classNames } from './utils/classNames';
-import type { LifecycleState } from '../shared/desktopContract';
 
-function lifecycleTone(state: LifecycleState | undefined): string {
-  switch (state) {
-    case 'active':
-      return 'status-chip--active';
-    case 'blocked':
-      return 'status-chip--blocked';
-    case 'complete':
-      return 'status-chip--completed';
-    case 'idle':
-    case 'queued':
-    default:
-      return 'status-chip--idle';
-  }
-}
+const NOTIFICATION_PANEL_CLOSE_MS = 160;
 
 function AppContent(): JSX.Element {
   const {
@@ -42,9 +31,6 @@ function AppContent(): JSX.Element {
     contextPackCreationModalProps,
     terminalFeedProps,
     plannerModalProps,
-    activeTaskLabel,
-    activeContextPackLabel,
-    currentLifecycleState,
     onRefreshRepoState,
     sidebarCollapsed,
     agentConfigModalProps,
@@ -58,9 +44,59 @@ function AppContent(): JSX.Element {
     reinforcementModalProps,
     openReinforcementModal,
     taskBoardProps,
+    notificationCenterProps,
   } = useAppShell();
 
   const { isDark, toggleTheme } = useThemeToggle();
+  const notificationButtonRef = useRef<HTMLButtonElement>(null);
+  const notificationCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isNotificationPanelClosing, setIsNotificationPanelClosing] = useState(false);
+
+  const clearNotificationCloseTimer = useCallback(() => {
+    if (notificationCloseTimerRef.current) {
+      clearTimeout(notificationCloseTimerRef.current);
+      notificationCloseTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearNotificationCloseTimer, [clearNotificationCloseTimer]);
+
+  const openNotificationPanel = useCallback(() => {
+    clearNotificationCloseTimer();
+    setIsNotificationPanelClosing(false);
+    void notificationCenterProps.openPanel();
+  }, [clearNotificationCloseTimer, notificationCenterProps]);
+
+  const closeNotificationPanel = useCallback(() => {
+    if (!notificationCenterProps.isOpen && !isNotificationPanelClosing) return;
+    clearNotificationCloseTimer();
+    setIsNotificationPanelClosing(true);
+    notificationCenterProps.closePanel();
+    notificationButtonRef.current?.focus();
+    notificationCloseTimerRef.current = setTimeout(() => {
+      notificationCloseTimerRef.current = null;
+      setIsNotificationPanelClosing(false);
+    }, NOTIFICATION_PANEL_CLOSE_MS);
+  }, [
+    clearNotificationCloseTimer,
+    isNotificationPanelClosing,
+    notificationCenterProps,
+  ]);
+
+  const toggleNotificationPanel = useCallback(() => {
+    if (notificationCenterProps.isOpen || isNotificationPanelClosing) {
+      closeNotificationPanel();
+      return;
+    }
+    openNotificationPanel();
+  }, [
+    closeNotificationPanel,
+    isNotificationPanelClosing,
+    notificationCenterProps.isOpen,
+    openNotificationPanel,
+  ]);
+
+  const shouldRenderNotificationPanel = notificationCenterProps.isOpen || isNotificationPanelClosing;
 
   return (
     <main className="shell">
@@ -75,14 +111,13 @@ function AppContent(): JSX.Element {
           <h1 className="shell__title">TaskSail</h1>
         </div>
         <div className="shell__status-chips">
-          {activeTaskLabel && (
-            <span className={classNames('status-chip', 'status-chip--sm', lifecycleTone(currentLifecycleState))}>
-              {activeTaskLabel}
-            </span>
-          )}
-          {activeContextPackLabel && (
-            <span className="status-chip status-chip--sm status-chip--active">{activeContextPackLabel}</span>
-          )}
+          <TaskNotificationCenterButton
+            ref={notificationButtonRef}
+            unseenCount={notificationCenterProps.unseenCount}
+            countLabel={notificationCenterProps.countLabel}
+            isOpen={notificationCenterProps.isOpen}
+            onToggle={toggleNotificationPanel}
+          />
         </div>
         <div className="shell__actions">
           <button type="button" className="shell__refresh-btn" onClick={onRefreshRepoState} aria-label="Refresh" title="Refresh state">
@@ -119,6 +154,17 @@ function AppContent(): JSX.Element {
       <AgentInstructionsEditor {...instructionsEditorProps} />
       <McpConfigModal {...mcpConfigModalProps} />
       {reinforcementModalProps.isOpen && <ReinforcementModal {...reinforcementModalProps} />}
+      {shouldRenderNotificationPanel && (
+        <TaskNotificationPanel
+          notifications={notificationCenterProps.notifications}
+          onClose={closeNotificationPanel}
+          onRefresh={() => void notificationCenterProps.refresh()}
+          onDismiss={(notificationId) => void notificationCenterProps.dismiss(notificationId)}
+          onDismissAll={() => void notificationCenterProps.dismissAll()}
+          returnFocusRef={notificationButtonRef}
+          isClosing={isNotificationPanelClosing}
+        />
+      )}
     </main>
   );
 }

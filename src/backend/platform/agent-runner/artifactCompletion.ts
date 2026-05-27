@@ -11,7 +11,7 @@ import {
   parseSemanticSections,
   resolveSemanticSection,
 } from '../workflow-policy/artifacts.js';
-import { normalizeAgentId, normalizeText } from '../workflow-policy/matching.js';
+import { extractBulletItems, normalizeAgentId, normalizeText } from '../workflow-policy/matching.js';
 import { GENERATED_INTAKE_SPINE_RULE_IDS } from '../workflow-policy/rules/spec.js';
 import {
   ALLOWED_DIFFICULTY_LEVELS,
@@ -45,6 +45,13 @@ const TEMPLATE_BOILERPLATE_RE = /^(?:[-*]\s*|```\w*|#\s.*)$/;
 const PLACEHOLDER_ONLY_RE = /^(?:[-*]\s*)?(?:tbd|todo|tba|placeholder)\.?$/i;
 const ARTIFACT_COMPLETION_REASON_CAP = 20;
 const PRODUCT_MANAGER_SLICE_FILENAME_RE = /^slice-[1-9]\d*\.md$/;
+const PARALLEL_OK_SLICE_ID_RE = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.md)\b/g;
+const PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX = 'ImplementationSteps slice ';
+const PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER = ' missing required semantic section: ';
+const PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON =
+  'parallel-ok.md Complex decision requires Independent Slices to list existing slice-N.md files';
+const PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX =
+  'parallel-ok.md Complex Independent Slices references missing slice file: ';
 
 // QA artifact-completion reason strings. Centralized so the emitter
 // (qaFinalSummaryCompletionReasons), the bullet mapper (qaRemediationBulletForReason),
@@ -185,8 +192,9 @@ function parallelOkDecisionValue(artifact: WorkspaceArtifact): string {
   return normalizeText(artifact.sections.Decision ?? []).toLowerCase();
 }
 
-function parallelOkDecisionRecorded(artifact: WorkspaceArtifact): boolean {
-  return ALLOWED_PARALLEL_DECISIONS.has(parallelOkDecisionValue(artifact));
+function parallelOkDecisionKind(artifact: WorkspaceArtifact): 'simple' | 'complex' | null {
+  const decision = parallelOkDecisionValue(artifact);
+  return ALLOWED_PARALLEL_DECISIONS.has(decision) ? decision as 'simple' | 'complex' : null;
 }
 
 function stripBoilerplate(lines: string[]): string[] {
@@ -236,6 +244,17 @@ function implementationSpecMissingRequiredSections(spec: WorkspaceArtifact): str
   return SPEC_REQUIRED_SECTION_SPECS.filter((sectionSpec) => (
     normalizeText(stripBoilerplate(resolveSemanticSection(spec.sections, sectionSpec).content)).length === 0
   )).map((sectionSpec) => sectionSpec.key);
+}
+
+function parallelOkIndependentSliceIds(artifact: WorkspaceArtifact): string[] {
+  const lines = stripBoilerplate(artifact.sections['Independent Slices'] ?? []);
+  const bulletIds = extractBulletItems(lines)
+    .flatMap((item) => item.match(PARALLEL_OK_SLICE_ID_RE) ?? [])
+    .map((item) => item.replace(/\.md$/i, ''));
+  const ids = bulletIds.length > 0
+    ? bulletIds
+    : (normalizeText(lines).match(PARALLEL_OK_SLICE_ID_RE) ?? []).map((item) => item.replace(/\.md$/i, ''));
+  return [...new Set(ids)];
 }
 
 function issuesSectionsHaveFindings(sections: Record<string, string[]>): boolean {
@@ -372,7 +391,8 @@ async function productManagerArtifactCompletionDetails(
     }
   }
   const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
-  if (!parallelOk.exists || !parallelOkDecisionRecorded(parallelOk)) {
+  const parallelOkDecision = parallelOk.exists ? parallelOkDecisionKind(parallelOk) : null;
+  if (!parallelOk.exists || !parallelOkDecision) {
     reasons.push('parallel-ok.md missing or Decision is not Simple or Complex');
   }
   const invalidSlices = invalidProductManagerSliceBasenames(slices);
@@ -383,9 +403,23 @@ async function productManagerArtifactCompletionDetails(
   if (canonicalSlices.length === 0) {
     reasons.push('ImplementationSteps missing slice files');
   } else {
-    const missingSections = await sliceMissingRequiredSections(canonicalSlices.at(-1)!);
-    for (const sectionKey of missingSections) {
-      reasons.push(`ImplementationSteps final slice missing required semantic section: ${describeSemanticSectionSpec(sectionKey)}`);
+    for (const slicePath of canonicalSlices) {
+      const sliceBasename = path.basename(slicePath);
+      for (const sectionKey of await sliceMissingRequiredSections(slicePath)) {
+        reasons.push(`${PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX}${sliceBasename}${PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER}${describeSemanticSectionSpec(sectionKey)}`);
+      }
+    }
+    if (parallelOkDecision === 'complex') {
+      const existingSliceIds = new Set(canonicalSlices.map((slicePath) => path.basename(slicePath, '.md')));
+      const listedSliceIds = parallelOkIndependentSliceIds(parallelOk);
+      if (listedSliceIds.length === 0) {
+        reasons.push(PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON);
+      }
+      for (const sliceId of listedSliceIds) {
+        if (!existingSliceIds.has(sliceId)) {
+          reasons.push(`${PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX}${sliceId}.md`);
+        }
+      }
     }
   }
   return { complete: reasons.length === 0, reasons };
@@ -498,7 +532,6 @@ export async function checkAgentArtifactCompletion(options: AgentArtifactComplet
 function productManagerRemediationBulletForReason(
   reason: string,
   options: AgentArtifactCompletionOptions,
-  finalSliceBasename: string | null,
 ): string {
   const taskId = options.taskId ?? '';
   const sliceTemplatePath = toRecoveryPromptPath(options.repoRoot, path.join('AgentWorkSpace', 'templates', 'slice-template.md'));
@@ -521,14 +554,23 @@ function productManagerRemediationBulletForReason(
     const invalidNames = reason.slice(invalidSlicePrefix.length);
     return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: replace invalid slice file name(s) (${invalidNames}) with sequential slice-<number>.md file names. Move any useful content into valid slice files copied from ${sliceTemplatePath}, preserve every seeded ## and ### heading, and do not keep invalid slice files as active slices.`;
   }
-  const finalSlicePrefix = 'ImplementationSteps final slice missing required semantic section: ';
-  if (reason.startsWith(finalSlicePrefix)) {
-    const missingSection = reason.slice(finalSlicePrefix.length);
-    const slicePath = toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, finalSliceBasename ?? ''));
+  if (reason.startsWith(PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX)) {
+    const rest = reason.slice(PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX.length);
+    const markerIndex = rest.indexOf(PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER);
+    const sliceBasename = markerIndex === -1 ? '' : rest.slice(0, markerIndex);
+    const missingSection = markerIndex === -1 ? rest : rest.slice(markerIndex + PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER.length);
+    const slicePath = toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, sliceBasename));
     const headingInstruction = missingSection.includes('Guards and Coordination')
       ? ' Restore the seeded template heading structure: use top-level ## Guards and Coordination with nested ### Guards, then populate that existing section.'
       : ' Restore the seeded slice template heading structure before filling this section; do not add a custom heading under a different container.';
-    return `- ${slicePath}: rebuild this malformed slice against ${sliceTemplatePath}; preserve every seeded ## and ### heading, move useful existing content under the matching seeded headings, remove custom replacement headings such as ## Steps, ## Validation, or ## Notes, then fill the required final-slice semantic section still missing content: ${missingSection}.${headingInstruction}`;
+    return `- ${slicePath}: rebuild this malformed slice against ${sliceTemplatePath}; preserve every seeded ## and ### heading, move useful existing content under the matching seeded headings, remove custom replacement headings such as ## Steps, ## Validation, or ## Notes, then fill the required slice semantic section still missing content: ${missingSection}.${headingInstruction}`;
+  }
+  if (reason === PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON) {
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: Decision is Complex, so add bullets under Independent Slices naming existing slice-N.md files from ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}.`;
+  }
+  if (reason.startsWith(PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX)) {
+    const missingSlice = reason.slice(PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX.length);
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: Independent Slices names ${missingSlice}, but that file does not exist. Add the missing slice file under ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))} or remove the stale reference.`;
   }
   return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: resolve artifact completion issue: ${reason}.`;
 }
@@ -601,10 +643,8 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   if (agentId === 'product-manager') {
     const taskId = options.taskId ?? '';
     const slices = await listSliceFiles(options.implStepsDir);
-    const canonicalSlices = productManagerSliceFiles(slices);
-    const finalSliceBasename = canonicalSlices.length === 0 ? null : path.basename(canonicalSlices.at(-1)!);
     const details = await productManagerArtifactCompletionDetails(options, slices);
-    const missingParts = details.reasons.map((reason) => productManagerRemediationBulletForReason(reason, options, finalSliceBasename));
+    const missingParts = details.reasons.map((reason) => productManagerRemediationBulletForReason(reason, options));
     if (options.policyViolationRuleIds?.some((ruleId) => GENERATED_INTAKE_SPINE_RULE_IDS.has(ruleId))) {
       missingParts.push(
         `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: ` +

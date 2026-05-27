@@ -390,6 +390,55 @@ describe('electron main bootstrap — IPC dispatch', () => {
     expect(startPlannerSession).toHaveBeenCalledTimes(1);
   });
 
+  it('returns planner.startSession handler errors instead of throwing', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    await expect(
+      handleDesktopAction(
+        { action: 'planner.startSession' },
+        {
+          startPlannerSession: vi.fn(async () => {
+            throw new Error('Lily reasoning effort "max" is not advertised by the installed Copilot CLI.');
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      action: 'planner.startSession',
+      error: 'Lily reasoning effort "max" is not advertised by the installed Copilot CLI.',
+    });
+  });
+
+  it('routes agentConfig.loadCapabilities through the injected handler', async () => {
+    const { handleDesktopAction } = await import('./main');
+    const loadAgentConfigCapabilities = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'agentConfig.loadCapabilities' as const,
+        mode: 'read-only' as const,
+        message: 'Loaded 2 reasoning effort option(s).',
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['low', 'high'],
+        stale: false,
+      },
+    }));
+
+    await expect(
+      handleDesktopAction(
+        { action: 'agentConfig.loadCapabilities' },
+        { loadAgentConfigCapabilities },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      response: expect.objectContaining({
+        action: 'agentConfig.loadCapabilities',
+        effortChoices: ['low', 'high'],
+      }),
+    });
+    expect(loadAgentConfigCapabilities).toHaveBeenCalledTimes(1);
+  });
+
   it('routes planner.sendMessage through the injected broker handler', async () => {
     const { handleDesktopAction } = await import('./main');
     const sendPlannerMessage = vi.fn(async () => 'sent' as const);

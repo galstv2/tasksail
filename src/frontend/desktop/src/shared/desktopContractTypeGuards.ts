@@ -17,7 +17,13 @@ import type {
   TaskBoardReadBoardResponse,
   TaskBoardKillTaskResponse,
   TaskBoardRetryKillCleanupResponse,
+  TaskNotificationEvent,
+  TaskNotificationMutationResponse,
+  TaskNotificationRecord,
+  TaskNotificationSnapshot,
+  AgentConfigLoadCapabilitiesResponse,
 } from './desktopContract';
+import { isFiniteNumber, isNonEmptyString } from './desktopContractValidationCore';
 import { isRecord } from './desktopContractValidators';
 
 export function isContextPackCatalogChangedEvent(
@@ -33,6 +39,20 @@ export function isContextPackCatalogChangedEvent(
       event.reason === 'unknown'
     )
   );
+}
+
+export function isAgentConfigLoadCapabilitiesResponse(
+  response: unknown,
+): response is AgentConfigLoadCapabilitiesResponse {
+  if (!isRecord(response)) return false;
+  if (response.action !== 'agentConfig.loadCapabilities') return false;
+  if (response.mode !== 'read-only') return false;
+  if (!isNonEmptyString(response.message)) return false;
+  if (!isNonEmptyString(response.providerId)) return false;
+  if (response.cliVersion !== null && typeof response.cliVersion !== 'string') return false;
+  if (!Array.isArray(response.effortChoices)) return false;
+  if (!response.effortChoices.every((choice) => typeof choice === 'string')) return false;
+  return typeof response.stale === 'boolean';
 }
 
 export function isContextPackListResponse(
@@ -230,4 +250,72 @@ export function isTaskBoardRetryKillCleanupResponse(
     && response.mode === 'cleanup-retry-scheduled'
     && typeof response.message === 'string'
     && typeof response.taskId === 'string';
+}
+
+const TASK_NOTIFICATION_TYPES = ['task-completed', 'task-failed'] as const;
+const TASK_NOTIFICATION_SEVERITIES = ['success', 'error'] as const;
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+export function isTaskNotificationRecord(
+  record: unknown,
+): record is TaskNotificationRecord {
+  if (!isRecord(record)) return false;
+  if (!isNonEmptyString(record.notificationId)) return false;
+  if (!isNonEmptyString(record.dedupeKey)) return false;
+  if (!TASK_NOTIFICATION_TYPES.includes(record.type as typeof TASK_NOTIFICATION_TYPES[number])) return false;
+  if (!TASK_NOTIFICATION_SEVERITIES.includes(record.severity as typeof TASK_NOTIFICATION_SEVERITIES[number])) return false;
+  if (!isNonEmptyString(record.taskId)) return false;
+  if (!isNullableString(record.taskGuid)) return false;
+  if (!isNullableString(record.taskTitle)) return false;
+  if (!isNullableString(record.taskFileName)) return false;
+  if (!isNullableString(record.contextPackId)) return false;
+  if (!isNullableString(record.contextPackDir)) return false;
+  if (!isNullableString(record.contextPackLabel)) return false;
+  if (!isNullableString(record.archivePath)) return false;
+  if (!isNullableString(record.errorItemPath)) return false;
+  if (!isNonEmptyString(record.createdAt)) return false;
+  if (!isNullableString(record.seenAt)) return false;
+  if (!isNullableString(record.dismissedAt)) return false;
+  return isNonEmptyString(record.message);
+}
+
+export function isTaskNotificationSnapshot(
+  snapshot: unknown,
+): snapshot is TaskNotificationSnapshot {
+  if (!isRecord(snapshot)) return false;
+  if (snapshot.action !== 'taskNotifications.read') return false;
+  if (snapshot.mode !== 'read-only') return false;
+  if (!isFiniteNumber(snapshot.unseenCount)) return false;
+  if (!Array.isArray(snapshot.notifications)) return false;
+  if (!snapshot.notifications.every(isTaskNotificationRecord)) return false;
+  if (!isNonEmptyString(snapshot.generatedAt)) return false;
+  return isNonEmptyString(snapshot.message);
+}
+
+export function isTaskNotificationMutationResponse(
+  response: unknown,
+): response is TaskNotificationMutationResponse {
+  if (!isRecord(response)) return false;
+  if (
+    response.action !== 'taskNotifications.markSeen'
+    && response.action !== 'taskNotifications.dismiss'
+    && response.action !== 'taskNotifications.dismissAll'
+  ) return false;
+  if (response.mode !== 'updated') return false;
+  if (!isFiniteNumber(response.unseenCount)) return false;
+  if (!Array.isArray(response.notifications)) return false;
+  if (!response.notifications.every(isTaskNotificationRecord)) return false;
+  if (!isNonEmptyString(response.generatedAt)) return false;
+  return isNonEmptyString(response.message);
+}
+
+export function isTaskNotificationEvent(
+  event: unknown,
+): event is TaskNotificationEvent {
+  return isRecord(event)
+    && event.type === 'snapshot'
+    && isTaskNotificationSnapshot(event.snapshot);
 }

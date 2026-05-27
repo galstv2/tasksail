@@ -54,7 +54,6 @@ import {
 } from './worktreeInjection.js';
 import { buildReinforcementOverlay } from './reinforcementOverlay.js';
 import { prepopulateRequirementVerification } from './pipeline/requirementVerification.js';
-
 const log = createLogger('platform/agent-runner/roleAgent');
 import {
   agentErrorWithTails,
@@ -69,6 +68,7 @@ import type { ProviderPromptKind, ResolvedMcpServer } from '../cli-provider/inde
 import type { AgentId } from '../core/index.js';
 import type { AgentLifecycleProgressInput } from '../core/taskProgressEvents.js';
 import { resolveContextPackContainerPath, runtimeRequiresContainerPaths } from '../container/sharedMcp.js';
+import { logPostSpawnReasoningEffortRejection, validateRoleAgentReasoningEffortBeforeSpawn } from './reasoningEffortLaunch.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { loadTaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
 import { assertTaskWorktreeBindingsCoverSnapshot } from '../context-pack/taskWorktreeSelection.js';
@@ -453,11 +453,10 @@ export async function runRoleAgent(
     requestedCwd: agentCwd,
     ...(focused?.primaryRepoRoot ? { focusedRepoRoot: focused.primaryRepoRoot } : {}),
   };
+  const reasoningEffort = await validateRoleAgentReasoningEffortBeforeSpawn({ provider, logger: launchLog, repoRoot: paths.repoRoot, taskId: options.taskId, agentId: options.agentId, modelId: autonomyArgs.model, effort: autonomyArgs.reasoningEffort });
   const argsResult = buildAgentArgs(paths.repoRoot, profile, autonomyArgs, { launchContext });
   const cliArgs = [...argsResult.args];
   agentCwd = argsResult.launchCwd;
-  // repo-executor agents (Dalton) get only their own instructions — global
-  // workflow/artifact context is noise for a pure code agent.
   const includeGlobalInstructions = profile.autonomyProfile !== 'repo-executor';
   const launchPrompt = await resolveLaunchPrompt(paths.repoRoot, options.agentId, options.promptOverride);
   const reinforcementOverlay = await buildReinforcementOverlay({
@@ -472,13 +471,11 @@ export async function runRoleAgent(
   );
   let agentRuntimePathManifest: ReturnType<typeof buildAgentRuntimePathManifest>;
   const materializePrompt = (
-    prompt: string,
-    promptPath: string | null,
-    promptSource: 'file' | 'override',
+    prompt: string, promptPath: string | null, promptSource: 'file' | 'override', manifest = agentRuntimePathManifest,
   ) => provider.materializePrompt({
     prompt: prependRuntimePathManifestToPrompt({
       prompt: appendReinforcementOverlay(prompt),
-      manifest: agentRuntimePathManifest,
+      manifest,
     }),
     promptPath,
     promptSource,
@@ -488,7 +485,8 @@ export async function runRoleAgent(
   });
   const runPromptOverrideSession = async (overridePrompt: string, overrideLaunchPhase?: string) => {
     const overrideLaunchId = createRoleLaunchId();
-    const overridePromptResult = materializePrompt(overridePrompt, null, 'override');
+    const overrideManifest = { ...agentRuntimePathManifest, ...(overrideLaunchPhase !== undefined ? { launchPhase: overrideLaunchPhase } : {}), includeRoleArtifactChecklist: false };
+    const overridePromptResult = materializePrompt(overridePrompt, null, 'override', overrideManifest);
     const overrideArgs = [...argsResult.args, '-p', overridePromptResult.effectivePrompt];
     const overridePromptAudit = buildPromptAudit({
       promptPath: null,
@@ -755,6 +753,7 @@ export async function runRoleAgent(
     agentCwd,
     env: agentEnv,
     providerEnvVars: provider.runtimeManifestEnvVars(),
+    includeRoleArtifactChecklist: options.promptOverride === undefined && options.launchPhase === undefined,
   });
   const promptResult = materializePrompt(launchPrompt.prompt, launchPrompt.promptPath, launchPrompt.promptSource);
   const effectivePrompt = promptResult.effectivePrompt;
@@ -1026,6 +1025,7 @@ export async function runRoleAgent(
   }
 
   if (exitCode !== 0) {
+    logPostSpawnReasoningEffortRejection({ providerId: provider.id, logger: launchLog, agentId: options.agentId, modelId: autonomyArgs.model, effort: reasoningEffort, output: `${runSummary.stdoutTail}\n${runSummary.stderrTail}` });
     await writeLaunchGuardrailReceipt({
       schema_version: 1,
       status: 'failed',

@@ -5,12 +5,18 @@ import {
   AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
 } from '../../../backend/platform/workflow-policy/index.js';
-import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
+import {
+  getActiveProvider,
+  normalizeReasoningEffort,
+  validateReasoningEffortForCapabilities,
+  type ProviderReasoningEffortCapabilities,
+} from '../../../backend/platform/cli-provider/index.js';
 
 import type {
   AgentConfigAddModelRequest,
   AgentConfigAgentEntry,
   AgentConfigLoadAgentsResponse,
+  AgentConfigLoadCapabilitiesResponse,
   AgentConfigLoadModelCatalogResponse,
   AgentConfigModelCatalogEntry,
   AgentConfigRemoveModelRequest,
@@ -29,6 +35,7 @@ type RegistryAgentRecord = JsonRecord & {
   human_name: string;
   role_name: string;
   required_model: string;
+  reasoning_effort?: string;
   workflow_order: number;
 };
 
@@ -52,6 +59,11 @@ type AgentConfigHandlerOptions = {
   repoRoot?: string;
   fsAdapter?: FileSystemAdapter;
   now?: () => number;
+  loadCapabilities?: (repoRoot: string) => Promise<ProviderReasoningEffortCapabilities>;
+};
+
+type ReasoningEffortCapabilityProvider = {
+  reasoningEffortCapabilities?: (repoRoot: string) => Promise<ProviderReasoningEffortCapabilities>;
 };
 
 const defaultFsAdapter: FileSystemAdapter = {
@@ -107,6 +119,17 @@ function normalizeAgentRecord(value: unknown, index: number): RegistryAgentRecor
   if (!isFiniteNumber(value.workflow_order)) {
     throw new Error(`Agent ${value.agent_id} is missing a valid workflow_order.`);
   }
+  if (value.reasoning_effort !== undefined && value.reasoning_effort !== null) {
+    if (typeof value.reasoning_effort !== 'string') {
+      throw new Error(`Agent ${value.agent_id} has an invalid reasoning_effort.`);
+    }
+    const normalizedEffort = normalizeReasoningEffort(value.reasoning_effort);
+    if (normalizedEffort) {
+      value.reasoning_effort = normalizedEffort;
+    } else {
+      delete value.reasoning_effort;
+    }
+  }
   return value as RegistryAgentRecord;
 }
 
@@ -154,6 +177,7 @@ function toSlimAgent(agent: RegistryAgentRecord): AgentConfigAgentEntry {
     human_name: agent.human_name,
     role_name: agent.role_name,
     required_model: agent.required_model,
+    ...(agent.reasoning_effort ? { reasoning_effort: agent.reasoning_effort } : {}),
     workflow_order: agent.workflow_order,
   };
 }
@@ -269,12 +293,53 @@ function validateModelIdOrFail(action: string, modelId: string): DesktopInvokeRe
   return fail(action, `Model ID "${modelId}" must match ${AGENT_MODEL_PATTERN.toString()}.`);
 }
 
+function validateReasoningEffortSyntax(action: string, effort: string): DesktopInvokeResult | null {
+  if (effort === effort.trim() && /^[a-z][a-z0-9-]*$/.test(effort)) {
+    return null;
+  }
+  return fail(action, `Reasoning effort "${effort}" must be lowercase letters, numbers, or hyphens.`);
+}
+
+async function loadProviderCapabilities(repoRoot: string): Promise<ProviderReasoningEffortCapabilities> {
+  const provider = getActiveProvider(repoRoot);
+  const capabilityProvider = provider as typeof provider & ReasoningEffortCapabilityProvider;
+  if (!capabilityProvider.reasoningEffortCapabilities) {
+    return {
+      providerId: provider.id,
+      cliVersion: null,
+      effortChoices: [],
+      source: 'unavailable',
+      stale: true,
+      error: 'Active provider does not expose reasoning effort capabilities.',
+    };
+  }
+  return capabilityProvider.reasoningEffortCapabilities(repoRoot);
+}
+
 function buildLoadAgentsResponse(agents: AgentConfigAgentEntry[]): AgentConfigLoadAgentsResponse {
   return {
     action: 'agentConfig.loadAgents',
     mode: 'read-only',
     message: `${agents.length} agent(s) loaded.`,
     agents,
+  };
+}
+
+function buildLoadCapabilitiesResponse(
+  capabilities: ProviderReasoningEffortCapabilities,
+): AgentConfigLoadCapabilitiesResponse {
+  const choices = capabilities.effortChoices;
+  const unavailable = capabilities.source === 'unavailable' || choices.length === 0;
+  return {
+    action: 'agentConfig.loadCapabilities',
+    mode: 'read-only',
+    message: unavailable
+      ? 'Reasoning effort options could not be loaded from the installed Copilot CLI.'
+      : `Loaded ${choices.length} reasoning effort option(s).`,
+    providerId: capabilities.providerId,
+    cliVersion: capabilities.cliVersion,
+    effortChoices: choices,
+    stale: capabilities.stale,
   };
 }
 
@@ -303,6 +368,7 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const fsAdapter = options.fsAdapter ?? defaultFsAdapter;
   const now = options.now ?? (() => Date.now());
+  const loadCapabilities = options.loadCapabilities ?? loadProviderCapabilities;
 
   return {
     loadAgents: async (): Promise<DesktopInvokeResult> => {
@@ -330,6 +396,29 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
       }
     },
 
+    loadCapabilities: async (): Promise<DesktopInvokeResult> => {
+      const providerId = getActiveProvider(repoRoot).id;
+      try {
+        const capabilities = await loadCapabilities(repoRoot);
+        return {
+          ok: true,
+          response: buildLoadCapabilitiesResponse(capabilities),
+        };
+      } catch (err) {
+        return {
+          ok: true,
+          response: buildLoadCapabilitiesResponse({
+            providerId,
+            cliVersion: null,
+            effortChoices: [],
+            source: 'unavailable',
+            stale: true,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        };
+      }
+    },
+
     saveAgentModels: async (
       payload: AgentConfigSaveAgentModelsRequest['payload'],
     ): Promise<DesktopInvokeResult> => {
@@ -339,7 +428,8 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
           ensureModelCatalogDocument(repoRoot, fsAdapter, now),
         ]);
         const catalogModelIds = new Set(catalog.models.map((m) => m.model_id));
-        const assignments = new Map<string, string>();
+        const assignments = new Map<string, { modelId: string; reasoningEffort?: string }>();
+        const requestedEfforts = new Set<string>();
 
         for (const assignment of payload.assignments) {
           const modelValidation = validateModelIdOrFail(
@@ -355,7 +445,49 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
               `Model "${assignment.model_id}" is not in the model catalog. Add it to the catalog first.`,
             );
           }
-          assignments.set(assignment.agent_id, assignment.model_id);
+          if (
+            assignment.reasoning_effort !== undefined &&
+            assignment.reasoning_effort !== null &&
+            typeof assignment.reasoning_effort !== 'string'
+          ) {
+            return fail(
+              'agentConfig.saveAgentModels',
+              'Reasoning effort must be lowercase letters, numbers, or hyphens when provided.',
+            );
+          }
+          const reasoningEffort = normalizeReasoningEffort(assignment.reasoning_effort);
+          if (reasoningEffort) {
+            const effortValidation = validateReasoningEffortSyntax(
+              'agentConfig.saveAgentModels',
+              assignment.reasoning_effort as string,
+            );
+            if (effortValidation) {
+              return effortValidation;
+            }
+            requestedEfforts.add(reasoningEffort);
+          }
+          assignments.set(assignment.agent_id, {
+            modelId: assignment.model_id,
+            ...(reasoningEffort ? { reasoningEffort } : {}),
+          });
+        }
+
+        if (requestedEfforts.size > 0) {
+          const capabilities = await loadCapabilities(repoRoot);
+          for (const effort of requestedEfforts) {
+            const validation = validateReasoningEffortForCapabilities({
+              providerId: capabilities.providerId,
+              modelId: 'selected model',
+              effort,
+              capabilities,
+            });
+            if (!validation.ok) {
+              const error = validation.reason === 'capability-discovery-failed'
+                ? 'Reasoning effort options could not be loaded from the installed Copilot CLI. Set reasoning effort to None or try again after capabilities are available.'
+                : `Reasoning effort "${effort}" is not advertised by the installed Copilot CLI. Select None or a Copilot-advertised effort.`;
+              return fail('agentConfig.saveAgentModels', error);
+            }
+          }
         }
 
         const unknownAgents = [...assignments.keys()].filter(
@@ -369,9 +501,14 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
         }
 
         for (const agent of registry.agents) {
-          const nextModel = assignments.get(agent.agent_id);
-          if (nextModel !== undefined) {
-            agent.required_model = nextModel;
+          const assignment = assignments.get(agent.agent_id);
+          if (assignment !== undefined) {
+            agent.required_model = assignment.modelId;
+            if (assignment.reasoningEffort) {
+              agent.reasoning_effort = assignment.reasoningEffort;
+            } else {
+              delete agent.reasoning_effort;
+            }
           }
         }
 
@@ -478,6 +615,7 @@ const defaultAgentConfigHandlers = createAgentConfigHandlers();
 
 export const loadAgentConfigAgents = defaultAgentConfigHandlers.loadAgents;
 export const loadAgentModelCatalog = defaultAgentConfigHandlers.loadModelCatalog;
+export const loadAgentConfigCapabilities = defaultAgentConfigHandlers.loadCapabilities;
 export const saveAgentModels = defaultAgentConfigHandlers.saveAgentModels;
 export const addAgentModel = defaultAgentConfigHandlers.addModel;
 export const removeAgentModel = defaultAgentConfigHandlers.removeModel;

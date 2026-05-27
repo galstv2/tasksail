@@ -446,6 +446,7 @@ function appendRonArtifactContract(parts: string[]): void {
     '## Mandatory QA Output Contract',
     '',
     'Before doing QA, read `.github/copilot/instructions/qa.instructions.md` from the platform repo and follow it. This block summarizes the non-negotiable filesystem output gates.',
+    'For concrete artifact paths and branch evidence, use the `## QA Artifact Checklist` in the Runtime Path Manifest when it is present.',
     '',
     'This QA launch is non-interactive. You will not receive follow-up input, clarification, confirmation, or permission during this run.',
     '',
@@ -464,6 +465,7 @@ function appendRonArtifactContract(parts: string[]): void {
     'Set `## QA Status` to exactly `passed` or `issues-found`. Use `issues-found` when any advisory or blocking finding is recorded in `issues.md`.',
     'Validation evidence is not success when a command, grep, file read, or required file check fails. A missing required source file or failed grep is blocking unless a slice explicitly removed that requirement.',
     'Every slice acceptance criterion must be verified against actual worktree source files. Partial handler, route, or file coverage is blocking.',
+    'For source inspection, use task worktree roots from `TASKSAIL_TASK_WORKTREES` or `TASKSAIL_TASK_WORKTREES_FILE`; support context appears there without branch metadata.',
     'Use `TASKSAIL_TASK_BRANCHES` or `TASKSAIL_TASK_BRANCHES_FILE` for `## Task branches`; do not run git commands to infer branch names.',
     '',
   );

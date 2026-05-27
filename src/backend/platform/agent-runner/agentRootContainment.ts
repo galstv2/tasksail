@@ -2,7 +2,7 @@ import path from 'node:path';
 import { canonicalRoot, isPathWithinBoundary } from '../core/index.js';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import type { TaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
-import type { TaskRepoBinding } from '../queue/taskJson.js';
+import { readTaskJsonSafe, type TaskReadonlyContextBinding, type TaskRepoBinding } from '../queue/taskJson.js';
 import type { ExternalMcpLaunchContext } from './pythonHelpers.js';
 
 export type AgentRootContainmentSurface = {
@@ -15,28 +15,24 @@ export type AgentRootContainmentSurface = {
 
 export type AgentRepoBinding = {
   repoId: string;
-  role: 'primary' | 'support';
+  role: 'primary';
   worktreeRoot: string;
   branch: string;
 };
+
+type TaskVisibleBinding = Pick<TaskRepoBinding, 'originalRoot' | 'worktreeRoot'>;
 
 export function projectAgentRepoBindings(options: {
   repoBindings: readonly TaskRepoBinding[];
   snapshot?: TaskPackSnapshot;
 }): AgentRepoBinding[] {
-  const idsByRoot = new Map<string, { repoId: string; role: 'primary' | 'support' }>();
+  const idsByRoot = new Map<string, string>();
   if (options.snapshot) {
     if (options.snapshot.primary.repoId) {
-      idsByRoot.set(canonicalRoot(options.snapshot.primary.repoRoot), {
-        repoId: options.snapshot.primary.repoId,
-        role: 'primary',
-      });
+      idsByRoot.set(canonicalRoot(options.snapshot.primary.repoRoot), options.snapshot.primary.repoId);
     }
     for (const repo of options.snapshot.support) {
-      idsByRoot.set(canonicalRoot(repo.repoRoot), {
-        repoId: repo.repoId,
-        role: 'support',
-      });
+      idsByRoot.set(canonicalRoot(repo.repoRoot), repo.repoId);
     }
   }
 
@@ -44,8 +40,8 @@ export function projectAgentRepoBindings(options: {
     const identity = idsByRoot.get(canonicalRoot(binding.originalRoot));
     const fallbackRepoId = path.basename(binding.worktreeRoot) || `repo-${index + 1}`;
     return {
-      repoId: identity?.repoId ?? fallbackRepoId,
-      role: identity?.role ?? (options.repoBindings.length === 1 ? 'primary' : 'support'),
+      repoId: identity ?? fallbackRepoId,
+      role: 'primary',
       worktreeRoot: binding.worktreeRoot,
       branch: binding.worktreeBranch,
     };
@@ -56,12 +52,14 @@ export function assertNoOriginalTargetRootsInAgentLaunch(options: {
   taskId: string;
   surface: AgentRootContainmentSurface;
   repoBindings: readonly TaskRepoBinding[];
+  readonlyContextBindings?: readonly TaskReadonlyContextBinding[];
   platformRepoRoot: string;
   contextPackDir?: string;
   agentId: string;
 }): void {
   const platformAllowedRoots = platformOwnedAllowedRoots(options);
-  for (const [bindingIndex, binding] of options.repoBindings.entries()) {
+  const taskVisibleBindings = collectTaskVisibleBindings(options);
+  for (const [bindingIndex, binding] of taskVisibleBindings.entries()) {
     const originalRoot = canonicalRoot(binding.originalRoot);
     const label = bindingLabel(binding, bindingIndex);
     checkPath({
@@ -118,13 +116,15 @@ export function assertNoOriginalTargetRootsInTaskArtifacts(options: {
   taskId: string;
   agentId: string;
   repoBindings: readonly TaskRepoBinding[];
+  readonlyContextBindings?: readonly TaskReadonlyContextBinding[];
   platformRepoRoot: string;
   contextPackDir?: string;
   artifacts: readonly { path: string; category: 'implementation-spec' | 'implementation-step'; content: string }[];
 }): void {
   const platformAllowedRoots = platformOwnedAllowedRoots(options);
+  const taskVisibleBindings = collectTaskVisibleBindings(options);
   for (const artifact of options.artifacts) {
-    for (const [bindingIndex, binding] of options.repoBindings.entries()) {
+    for (const [bindingIndex, binding] of taskVisibleBindings.entries()) {
       if (!textContainsRoot(artifact.content, canonicalRoot(binding.originalRoot), platformAllowedRoots)) continue;
       throw new Error(
         `Agent artifact containment failed for task "${options.taskId}" agent "${options.agentId}": ` +
@@ -157,6 +157,21 @@ function collectFocusedPaths(focused: FocusedRepoResult | undefined): Array<[str
     paths.push(['focused.testTarget.resolvedPath', focused.testTarget.resolvedPath]);
   }
   return paths;
+}
+
+function collectTaskVisibleBindings(options: {
+  taskId: string;
+  platformRepoRoot: string;
+  repoBindings: readonly TaskRepoBinding[];
+  readonlyContextBindings?: readonly TaskReadonlyContextBinding[];
+}): TaskVisibleBinding[] {
+  const readonlyContextBindings = options.readonlyContextBindings
+    ?? readTaskJsonSafe(options.taskId, options.platformRepoRoot)?.contextPackBinding.readonlyContextBindings
+    ?? [];
+  return [
+    ...options.repoBindings,
+    ...readonlyContextBindings,
+  ];
 }
 
 function checkPath(args: {
@@ -226,7 +241,7 @@ function hasPathBoundaryAfter(value: string, index: number): boolean {
   return next === path.sep || !/[A-Za-z0-9._-]/.test(next);
 }
 
-function bindingLabel(binding: TaskRepoBinding, index: number): string {
+function bindingLabel(binding: TaskVisibleBinding, index: number): string {
   return path.basename(binding.worktreeRoot) || `binding-${index}`;
 }
 

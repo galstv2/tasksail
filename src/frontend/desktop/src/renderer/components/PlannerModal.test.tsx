@@ -142,7 +142,7 @@ describe('PlannerModal', () => {
     expect(onLilyPersonalityChange).toHaveBeenCalledWith('clinical');
   });
 
-  it('removes personality buttons after the first message and exposes the locked copy', () => {
+  it('removes personality buttons after the first message and names the locked style', () => {
     const onLilyPersonalityChange = vi.fn();
     render(<PlannerModal {...makeProps({
       lilyPersonalityId: 'clinical',
@@ -150,13 +150,64 @@ describe('PlannerModal', () => {
       onLilyPersonalityChange,
     })} />);
 
-    expect(screen.getByText('Style locked — start a new conversation to switch.')).toBeInTheDocument();
+    // Operator should be able to tell at a glance which style is locked.
+    const lockCopy = screen.getByLabelText(/Style locked to Clinical/);
+    expect(lockCopy).toHaveTextContent('Style locked: Clinical');
+    expect(lockCopy).toHaveAttribute('title', 'Start a new conversation to switch styles.');
     // Defense in depth: locked tray unmounts the buttons entirely so no stray
     // click handler can fire — the operator cannot interact with a control
     // that no longer exists in the DOM.
     expect(screen.queryByRole('button', { name: 'Balanced planning style' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Clinical planning style' })).not.toBeInTheDocument();
     expect(onLilyPersonalityChange).not.toHaveBeenCalled();
+  });
+
+  it('names the locked Balanced style when balanced is the active personality', () => {
+    render(<PlannerModal {...makeProps({
+      lilyPersonalityId: 'balanced',
+      personalityLocked: true,
+    })} />);
+    expect(screen.getByLabelText(/Style locked to Balanced/)).toHaveTextContent('Style locked: Balanced');
+  });
+
+  it('disables Child Task and Recent Task once a conversation is in flight', () => {
+    const onToggleChildTaskMode = vi.fn();
+    const onSelectConversation = vi.fn();
+    const records = [
+      {
+        id: 'conversation-1',
+        title: 'Existing plan',
+        createdAt: new Date().toISOString(),
+        finalizedDestinationPath: '/repo/AgentWorkSpace/dropbox/spec.md',
+        messageCount: 4,
+        taskKind: 'standard' as const,
+        scopeMode: 'selected',
+        primaryRepoId: 'platform',
+        primaryFocusRelativePath: 'src/features/planner',
+      },
+    ];
+
+    render(<PlannerModal {...makeProps({
+      personalityLocked: true,
+      onToggleChildTaskMode,
+      recentConversations: records,
+      onSelectConversation,
+    })} />);
+
+    const childTaskButton = screen.getByRole('button', { name: 'Toggle child-task mode' });
+    expect(childTaskButton).toBeDisabled();
+    expect(childTaskButton).toHaveAttribute('title', 'Start a new conversation to switch styles.');
+    fireEvent.click(childTaskButton);
+    expect(onToggleChildTaskMode).not.toHaveBeenCalled();
+
+    const recentsButton = screen.getByRole('button', { name: /Recent conversations, 1 available/ });
+    expect(recentsButton).toBeDisabled();
+    expect(recentsButton).toHaveAttribute('aria-disabled', 'true');
+    expect(recentsButton).toHaveAttribute('title', 'Start a new conversation to switch styles.');
+    fireEvent.click(recentsButton);
+    // Popover should not have opened — trigger remains collapsed.
+    expect(recentsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(onSelectConversation).not.toHaveBeenCalled();
   });
 
   it('renders renderer-only busy badge labels', () => {
@@ -665,6 +716,15 @@ describe('PlannerModal', () => {
     render(<PlannerModal {...makeProps({ draftError: PLANNER_FOCUS_FALLBACK_MESSAGE })} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent(PLANNER_FOCUS_FALLBACK_MESSAGE);
+  });
+
+  it('renders planner session-start errors through the existing alert surface', () => {
+    render(<PlannerModal {...makeProps({ sessionStartError: 'Lily reasoning effort is unsupported.' })} />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveClass('planner-modal__error');
+    expect(alert).toHaveTextContent('Lily reasoning effort is unsupported.');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
   it('renders path-bearing validation issues as "<label>: <path>"', () => {

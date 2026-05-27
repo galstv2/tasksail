@@ -145,7 +145,7 @@ describe('queue progress events', () => {
     });
 
     const lines = stderrChunks();
-    const branchIndex = lines.findIndex((line) => line.includes('[pipeline] worktree '));
+    const branchIndex = lines.findIndex((line) => line.includes('[pipeline] writable task branch worktree '));
     const activatedIndex = lines.indexOf('[queue] activated task-git  repos=1\n');
     expect(branchIndex).toBeGreaterThanOrEqual(0);
     expect(activatedIndex).toBeGreaterThan(branchIndex);
@@ -166,7 +166,7 @@ describe('queue progress events', () => {
         source: 'runtime.branch',
         role: 'pipeline',
         severity: 'info',
-        message: `Created worktree for ${path.basename(tmpRoot)} on branch task/task-git.`,
+        message: `Created writable task branch worktree for ${path.basename(tmpRoot)} on branch task/task-git.`,
         extra: {
           repo: path.basename(tmpRoot),
           branch: 'task/task-git',
@@ -478,8 +478,8 @@ describe('queue progress events', () => {
 
   it('P7 emits auto-merge applied, skipped, and disabled through progress records', async () => {
     for (const scenario of [
-      { taskId: 'task-auto-applied', result: { enabled: true, applied: true, results: [{ repoLabel: 'repo', sourceBranch: 'task/a', targetBranch: 'main' }] }, line: '[pipeline] auto-merge applied repo:task/a->main\n', msg: 'auto_merge.applied' },
-      { taskId: 'task-auto-skipped', result: { enabled: true, applied: false, results: [{ status: 'blocked', detail: 'needs review' }] }, line: '[pipeline] auto-merge skipped - blocked: needs review [skip]\n', msg: 'auto_merge.skipped' },
+      { taskId: 'task-auto-applied', result: { enabled: true, applied: true, results: [{ originalRoot: '/repo', status: 'applied', repoLabel: 'repo', sourceBranch: 'task/a', targetBranch: 'main', detail: 'Applied task branch patch.' }] }, line: '[pipeline] auto-merge applied repo:task/a->main\n', msg: 'auto_merge.applied' },
+      { taskId: 'task-auto-skipped', result: { enabled: true, applied: false, results: [{ originalRoot: '/repo', status: 'skipped-target-dirty', repoLabel: 'repo', sourceBranch: 'task/a', targetBranch: 'main', detail: 'needs review' }] }, line: '[pipeline] auto-merge skipped - skipped-target-dirty: needs review [skip]\n', msg: 'auto_merge.skipped' },
       { taskId: 'task-auto-disabled', result: { enabled: false, applied: false, results: [] }, line: '[pipeline] auto-merge disabled\n', msg: 'auto_merge.disabled' },
     ] as const) {
       await runCompleteWithAutoMerge(scenario.taskId, scenario.result);
@@ -489,6 +489,12 @@ describe('queue progress events', () => {
         expect.objectContaining({ eventId: scenario.msg, role: 'pipeline' }),
       ]));
     }
+    expect(readRuntimeTerminalEvents('task-auto-applied')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 'closeout.target_branch_update:repo:task/a:applied:main',
+        visible: true,
+      }),
+    ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 

@@ -465,6 +465,7 @@ export async function buildFleetPrompt(
     regularDaltonContext?.repoRoot,
   );
   parts.push(`Total slices: ${sliceFiles.length}`);
+  parts.push('Complete coverage of every listed slice is required. Coordinate or sequence the work, but do not exit until every slice is complete or every incomplete slice has a documented unavailable prerequisite with paths or commands checked.');
   parts.push('');
   parts.push(sliceBlock);
 
@@ -508,6 +509,8 @@ export async function buildSimpleDaltonPrompt(
   );
   if (sliceFiles.length > 0) {
     parts.push(`## Implementation Slices (${sliceFiles.length} total)\n`);
+    parts.push(`This Dalton launch owns all ${sliceFiles.length} listed slice${sliceFiles.length === 1 ? '' : 's'}. Slices are not future turns or optional follow-ups. Do not stop after the first slice. Complete every listed slice before final validation and exit. If a required source file, tool, or permission is unavailable after lookup and validation-debugging, identify the specific incomplete slice, document the paths or commands checked, and do not claim the overall task is complete.`);
+    parts.push('');
     parts.push(sliceBlock);
   }
 
@@ -517,7 +520,7 @@ export async function buildSimpleDaltonPrompt(
     parts.push('');
   }
 
-  parts.push('Implement the changes described above. Ensure all tests pass before exiting.');
+  parts.push('Implement the changes described above. Before exiting, verify each listed slice is complete. For any incomplete slice, document the unavailable prerequisite and evidence, do not claim the overall task is complete, then ensure all runnable tests pass.');
 
   return parts.join('\n');
 }
@@ -950,6 +953,20 @@ export async function runPipelineSequence(
         const isComplex = daltonRemediationActive
           ? false
           : await detectParallelOk(paths.handoffs);
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId: pipelineTaskId }),
+          repoRoot: paths.repoRoot,
+          taskId: pipelineTaskId,
+          event: {
+            type: 'pipeline.dalton_mode.selected',
+            input: {
+              mode: isComplex ? 'complex' : 'simple',
+              reason: daltonRemediationActive
+                ? 'remediation-forced-simple'
+                : isComplex ? 'parallel-ok-complex' : 'parallel-ok-simple',
+            },
+          },
+        });
 
         if (isComplex) {
           const fleetPrompt = await buildFleetPrompt(
@@ -1014,12 +1031,6 @@ export async function runPipelineSequence(
 
       let agentPromptOverride: string | undefined;
       if (agentId === 'dalton') {
-        await emitTaskProgressEvent({
-          logger: log.child({ taskId: pipelineTaskId }),
-          repoRoot: paths.repoRoot,
-          taskId: pipelineTaskId,
-          event: { type: 'pipeline.dalton_mode.selected' },
-        });
         agentPromptOverride = await buildSimpleDaltonPrompt(
           paths.implementationSteps,
           paths.handoffs,

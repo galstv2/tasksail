@@ -2,7 +2,7 @@ import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createLogger, emitTaskProgressEvent, readTextFile, writeTextFileAtomic, findRepoRoot } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, readTextFile, writeTextFileAtomic, findRepoRoot, getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
@@ -22,6 +22,7 @@ import {
   verifyChildChainSourceBranchesExist,
 } from './childTaskChainCloseoutValidation.js';
 import { evictPolicyResultCache } from '../agent-runner/guardrails.js';
+import { recordTaskCompletedNotification } from '../task-notifications/producer.js';
 import {
   advanceCompletedChildTaskChain,
   attachCompletedBranchHandoffs,
@@ -241,6 +242,7 @@ async function logAutoMergeResult(repoRoot: string, taskId: string, result: Auto
   }
   if (result.applied) {
     const repos = result.results
+      .filter((item) => item.status === 'applied')
       .map((item) => `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'}`)
       .join(', ');
     await emitTaskProgressEvent({
@@ -249,6 +251,20 @@ async function logAutoMergeResult(repoRoot: string, taskId: string, result: Auto
       taskId,
       event: { type: 'auto_merge.applied', input: { repos } },
     });
+    const skippedDetail = result.results
+      .filter((item) => item.status !== 'applied')
+      .map((item) => (
+        `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'} ${item.status}: ${item.detail.replace(/\.+$/u, '')}`
+      ))
+      .join('; ');
+    if (skippedDetail) {
+      await emitTaskProgressEvent({
+        logger: log.child({ taskId }),
+        repoRoot,
+        taskId,
+        event: { type: 'auto_merge.skipped', input: { detail: skippedDetail } },
+      });
+    }
     return;
   }
   const first = result.results[0];
@@ -259,6 +275,34 @@ async function logAutoMergeResult(repoRoot: string, taskId: string, result: Auto
     taskId,
     event: { type: 'auto_merge.skipped', input: { detail } },
   });
+}
+
+function targetBranchUpdateStatus(status: AutoMergeBindingResult['status']): 'applied' | 'disabled' | 'skipped' {
+  if (status === 'applied') return 'applied';
+  if (status === 'disabled') return 'disabled';
+  return 'skipped';
+}
+
+async function emitTargetBranchUpdateEvents(repoRoot: string, taskId: string, result: AutoMergeResult): Promise<void> {
+  for (const item of result.results) {
+    const detail = item.detail.trim().replace(/\.+$/u, '');
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot,
+      taskId,
+      event: {
+        type: 'closeout.target_branch_update',
+        input: {
+          repoLabel: item.repoLabel,
+          targetRepoRoot: item.originalRoot,
+          sourceBranch: item.sourceBranch,
+          targetBranch: item.targetBranch,
+          status: targetBranchUpdateStatus(item.status),
+          detail: detail ? `${detail}.` : 'No detail available.',
+        },
+      },
+    });
+  }
 }
 
 function withAutoMergeDetailOverride(result: AutoMergeResult, detail: string): AutoMergeResult {
@@ -304,6 +348,7 @@ export async function completePendingItem(
     queuePaths.queueLockDir,
     'Completion',
   );
+  let resolvedArchiveMdPath: string | null | undefined;
 
   try {
     const activeItemsDir = queuePaths.activeItemsDir;
@@ -429,6 +474,7 @@ export async function completePendingItem(
       if (childChainPolicy.autoMergeDetailOverride) {
         autoMergeResult = withAutoMergeDetailOverride(autoMergeResult, childChainPolicy.autoMergeDetailOverride);
       }
+      await emitTargetBranchUpdateEvents(repoRoot, taskId, autoMergeResult);
       if (childChainPolicy.emitChildChainAutoMergeSkip) {
         await emitTaskProgressEvent({
           logger: log.child({ taskId }),
@@ -459,7 +505,6 @@ export async function completePendingItem(
     }
 
     // --- Step 2: archival ---
-    let resolvedArchiveMdPath: string | null | undefined;
     if (!options.skipArchive) {
       const contextPackDir = options.contextPackDir
         ?? await requireAuthorizedActiveContextPack({ repoRoot, taskId });
@@ -702,7 +747,28 @@ export async function completePendingItem(
     await release();
   }
 
+  try {
+    await recordTaskCompletedNotification({
+      repoRoot,
+      taskId,
+      archivePath: resolvedArchiveMdPath ?? null,
+    });
+  } catch (err) {
+    log.warn('task_notifications.record.failed', {
+      taskId,
+      notificationType: 'task-completed',
+      lifecycle: 'completed',
+      reason: getErrorMessage(err),
+    });
+  }
+
   const finalizeLog = log.child({ taskId });
+  await emitTaskProgressEvent({
+    logger: finalizeLog,
+    repoRoot,
+    taskId,
+    event: { type: 'pipeline.completed' },
+  });
   await emitTaskProgressEvent({
     logger: finalizeLog,
     repoRoot,

@@ -278,9 +278,6 @@ function ReinforcementModal({
         </div>
         <div className="reinforcement-modal__footer">
           <span className="reinforcement-modal__footer-esc">ESC to close</span>
-          <span className="reinforcement-modal__footer-tab-hint">
-            {TABS.length} tabs
-          </span>
         </div>
       </div>
     </div>

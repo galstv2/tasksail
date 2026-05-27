@@ -28,6 +28,24 @@ vi.mock('../paths', () => ({
   REPO_ROOT: TEST_REPO_ROOT,
 }));
 
+async function writeContextPackManifest(id: string, overrides: Record<string, unknown>): Promise<string> {
+  const contextPackDir = join(TEST_REPO_ROOT, 'contextpacks', id);
+  await mkdir(join(contextPackDir, 'qmd'), { recursive: true });
+  await writeFile(join(contextPackDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+    manifest_version: 1,
+    manifest_status: 'active',
+    estate_type: 'distributed-platform',
+    context_pack_id: id,
+    qmd_scope_root: 'qmd/context-packs/test',
+    primary_working_repo_ids: [],
+    primary_focus_area_ids: [],
+    repositories: [],
+    focusable_areas: [],
+    ...overrides,
+  }, null, 2), 'utf-8');
+  return contextPackDir;
+}
+
 describe('planner staging helpers', () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -79,9 +97,14 @@ describe('planner staging helpers', () => {
       readPlannerStagingSidecar,
     } = await import('../main.staging');
 
+    const contextPackDir = await writeContextPackManifest('orders', {
+      repositories: [{ repo_id: 'backend', repository_type: 'primary' }],
+      primary_working_repo_ids: ['backend'],
+    });
+
     const metadata = await initializeStagedPlanningDraft({
       sessionId: 'planner-101',
-      contextPackDir: '/contextpacks/orders',
+      contextPackDir,
       focusedRepo: {
         estateType: 'distributed',
         primaryRepoId: 'backend',
@@ -104,8 +127,9 @@ describe('planner staging helpers', () => {
     }));
     expect(readResult.draft?.content).toContain('# Task Title');
     expect(readResult.draft?.content).toContain('concise, task-specific snake_case title');
-    expect(readResult.draft?.content).toContain('- Context Pack Dir: /contextpacks/orders');
+    expect(readResult.draft?.content).toContain(`- Context Pack Dir: ${contextPackDir}`);
     expect(readResult.draft?.content).toContain('- Selected Focus IDs: orders');
+    expect(readResult.draft?.content).toContain('- Selection Roles: {"backend":"primary"}');
     expect(readResult.draft?.content).toContain('- Recommended Execution:');
     expect(readResult.draft?.content).toContain('- Task Kind: standard');
     expect(readResult.draft?.content).toContain('## Critical Requirements');
@@ -126,6 +150,9 @@ describe('planner staging helpers', () => {
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
       title: 'backend / services/orders',
+      contextPackBinding: expect.objectContaining({
+        repositoryTypes: { backend: 'primary' },
+      }),
     }));
     await expect(readPlannerStagingLockOwnership()).resolves.toEqual(expect.objectContaining({
       sessionId: 'planner-101',
@@ -134,10 +161,15 @@ describe('planner staging helpers', () => {
 
   it('suppresses Primary Repo ID for monolith packs and surfaces only Primary Focus ID', async () => {
     const { initializeStagedPlanningDraft, readOwnedStagedDraft } = await import('../main.staging');
+    const contextPackDir = await writeContextPackManifest('monorepo', {
+      estate_type: 'monolith',
+      focusable_areas: [{ focus_id: 'platform-service', repository_type: 'primary' }],
+      primary_focus_area_ids: ['platform-service'],
+    });
 
     await initializeStagedPlanningDraft({
       sessionId: 'planner-monolith',
-      contextPackDir: '/contextpacks/monorepo',
+      contextPackDir,
       focusedRepo: {
         estateType: 'monolith',
         primaryRepoId: 'monorepo',
@@ -156,14 +188,23 @@ describe('planner staging helpers', () => {
     // Pack ID. Staging passes [] and the emitter skips the line entirely.
     expect(draft?.content).not.toContain('- Selected Repo IDs:');
     expect(draft?.content).toContain('- Primary Focus ID: platform-service');
+    expect(draft?.content).toContain('- Selection Roles: {"platform-service":"primary"}');
   });
 
   it('preserves multiple standard monolith primary focus selections without singular primary focus metadata', async () => {
     const { initializeStagedPlanningDraft, readOwnedStagedDraft, readPlannerStagingSidecar } = await import('../main.staging');
+    const contextPackDir = await writeContextPackManifest('src', {
+      estate_type: 'monolith',
+      focusable_areas: [
+        { focus_id: 'backend', repository_type: 'primary' },
+        { focus_id: 'frontend', repository_type: 'primary' },
+      ],
+      primary_focus_area_ids: ['backend', 'frontend'],
+    });
 
     const metadata = await initializeStagedPlanningDraft({
       sessionId: 'planner-monolith-multi',
-      contextPackDir: '/contextpacks/src',
+      contextPackDir,
       focusedRepo: {
         estateType: 'monolith',
         primaryRepoId: 'src',
@@ -188,11 +229,52 @@ describe('planner staging helpers', () => {
     expect(draft?.content).not.toContain('- Selected Repo IDs:');
     expect(draft?.content).not.toContain('- Primary Focus ID:');
     expect(draft?.content).toContain('- Selected Focus IDs: backend, frontend');
+    expect(draft?.content).toContain('- Selection Roles: {"backend":"primary","frontend":"primary"}');
     await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
       title: 'src (+2 focus areas)',
       primaryFocusRelativePath: null,
       contextPackBinding: expect.objectContaining({
         selectedFocusIds: ['backend', 'frontend'],
+        repositoryTypes: { backend: 'primary', frontend: 'primary' },
+      }),
+    }));
+  });
+
+  it('preserves supplied staging roles and fills missing selected ids from the manifest', async () => {
+    const { initializeStagedPlanningDraft, readPlannerStagingSidecar } = await import('../main.staging');
+    const contextPackDir = await writeContextPackManifest('mixed', {
+      repositories: [
+        { repo_id: 'platform', repository_type: 'support' },
+        { repo_id: 'tools', repository_type: 'support' },
+      ],
+      primary_working_repo_ids: ['tools'],
+    });
+
+    await initializeStagedPlanningDraft({
+      sessionId: 'planner-explicit-fill',
+      contextPackDir,
+      title: 'Explicit Fill',
+      contextPackBinding: {
+        contextPackDir,
+        contextPackId: 'mixed',
+        scopeMode: 'repo-selection',
+        primaryRepoId: 'platform',
+        selectedRepoIds: ['platform', 'tools'],
+        selectedFocusIds: [],
+        repositoryTypes: { platform: 'primary' },
+        deepFocusEnabled: false,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+      now: new Date('2026-03-04T05:06:08.000Z'),
+    });
+
+    await expect(readPlannerStagingSidecar()).resolves.toEqual(expect.objectContaining({
+      contextPackBinding: expect.objectContaining({
+        repositoryTypes: { platform: 'primary', tools: 'support' },
       }),
     }));
   });
@@ -238,6 +320,9 @@ describe('planner staging helpers', () => {
       primaryFocusTargetKind: 'file',
       selectedTestTarget: { path: 'tests/handler.test.ts', kind: 'file' },
       supportTargets: [{ path: 'docs', kind: 'directory', effectiveScope: 'full-directory' }],
+      contextPackBinding: expect.not.objectContaining({
+        repositoryTypes: expect.anything(),
+      }),
     }));
   });
 
@@ -304,9 +389,14 @@ describe('planner staging helpers', () => {
       readPlannerStagingSidecar,
     } = await import('../main.staging');
 
+    const contextPackDir = await writeContextPackManifest('platform', {
+      repositories: [{ repo_id: 'platform', repository_type: 'primary' }],
+      primary_working_repo_ids: ['platform'],
+    });
+
     const metadata = await initializeStagedPlanningDraft({
       sessionId: 'planner-104',
-      contextPackDir: '/contextpacks/platform',
+      contextPackDir,
       focusedRepo: {
         estateType: 'distributed',
         primaryRepoId: 'platform',
@@ -629,6 +719,10 @@ describe('planner staging helpers', () => {
       }),
     }));
     const { initializeStagedPlanningDraft } = await import('../main.staging');
+    const contextPackDir = await writeContextPackManifest('orders', {
+      repositories: [{ repo_id: 'backend', repository_type: 'primary' }],
+      primary_working_repo_ids: ['backend'],
+    });
 
     const stagingDir = join(TEST_REPO_ROOT, 'AgentWorkSpace', 'dropbox', '.staging');
     // Pre-create the draft path as a directory. The draft write then fails with
@@ -638,7 +732,7 @@ describe('planner staging helpers', () => {
 
     await expect(initializeStagedPlanningDraft({
       sessionId: 'planner-rollback',
-      contextPackDir: '/contextpacks/orders',
+      contextPackDir,
       focusedRepo: {
         estateType: 'distributed',
         primaryRepoId: 'backend',

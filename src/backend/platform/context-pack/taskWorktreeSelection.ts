@@ -2,7 +2,6 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { canonicalRoot, createLogger, isPathWithinBoundary, resolvePath } from '../core/index.js';
 import {
-  collectSnapshotRuntimeRepoRoots,
   readContextPackManifest,
   resolveFirstLocalPath,
   type Manifest,
@@ -160,7 +159,7 @@ export function assertTaskWorktreeBindingsCoverSnapshot(options: {
     bindingsByRoot.set(canonicalRoot(binding.originalRoot), index);
   });
 
-  const sourceRoots = collectSnapshotRuntimeRepoRoots(options.snapshot);
+  const sourceRoots = collectSnapshotBranchOwnedRepoRoots(options.snapshot);
   for (const root of sourceRoots) {
     const key = canonicalRoot(root);
     const covered = bindingsByRoot.has(key)
@@ -183,6 +182,26 @@ export function assertTaskWorktreeBindingsCoverSnapshot(options: {
     bindingCount: options.repoBindings.length,
     sourceRootCount: sourceRoots.length,
   });
+}
+
+function collectSnapshotBranchOwnedRepoRoots(snapshot: TaskPackSnapshot): string[] {
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  const addRoot = (value: string | null | undefined): void => {
+    const root = value?.trim();
+    if (!root) return;
+    const key = canonicalRoot(root);
+    if (seen.has(key)) return;
+    seen.add(key);
+    roots.push(root);
+  };
+
+  addRoot(snapshot.primary.repoRoot);
+  for (const root of snapshot.deepFocus.writableRoots) {
+    addRoot(root.repoLocalPath ?? root.path);
+  }
+
+  return roots;
 }
 
 function rootFromTarget(options: {

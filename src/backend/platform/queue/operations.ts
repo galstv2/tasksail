@@ -56,12 +56,18 @@ import { resolveTaskPackSnapshotPath } from '../context-pack/taskPackSnapshot.js
 import {
   assertTaskWorktreeBindingsCoverSnapshot,
   resolveSelectedMaterializationRoots,
+  type SelectedMaterializationRoot,
 } from '../context-pack/taskWorktreeSelection.js';
 import {
   findDirtyTargetRepos,
   failPendingActivationForDirtyRepos,
   resolveRepoLabels,
 } from './activationDirtyGuard.js';
+import {
+  ACTIVATION_BRANCH_CHAIN_BASE_UNRESOLVED_REASON,
+  failPendingActivationForBranchChainBaseUnresolved,
+  isBranchChainBaseUnresolvedActivationError,
+} from './activationFailure.js';
 import {
   insertIntoQueueManifest,
   readQueueOrderManifest,
@@ -75,6 +81,14 @@ import {
   type ActivationRollbackBinding,
 } from './branchChainActivation.js';
 import { findActivationBranchConflicts } from './activeBranchConflictGuard.js';
+import { partitionSelectedMaterializationRoots } from './activationBranchAuthorityPartition.js';
+import {
+  materializeReadonlyContextWorktree,
+  removeReadonlyContextWorktree,
+  type ReadonlyContextMaterializationPlan,
+  type ReadonlyContextSource,
+} from './supportContextMaterialization.js';
+import { toTaskContextPackSelection, type TaskReadonlyContextBinding } from './taskJson.js';
 import { returnPendingTaskToOpenForBranchConflict } from './branchConflictReturnToOpen.js';
 import {
   clearActivationProgress,
@@ -90,6 +104,12 @@ import { normalizeSelectedRepoPathsInText } from './taskVisiblePathNormalization
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('platform/queue/operations');
+
+type ReadonlyContextRollbackBinding = {
+  binding: TaskReadonlyContextBinding;
+  source: ReadonlyContextSource;
+  repoLabel: string;
+};
 
 export { acquireDirLock, acquireDirLockOrThrow, withDirLock } from './dirLock.js';
 export {
@@ -566,6 +586,7 @@ export interface ActivateNextPendingItemOptions {
 export const ACTIVATION_GATE_REASON = {
   CONCURRENCY_CAP_REACHED: 'concurrency-cap-reached',
   ACTIVATION_BLOCKED_DIRTY_REPOS: 'activation-blocked-dirty-repos',
+  BRANCH_CHAIN_BASE_UNRESOLVED: ACTIVATION_BRANCH_CHAIN_BASE_UNRESOLVED_REASON,
   BRANCH_CONFLICT_RETURNED_OPEN: 'branch-conflict-returned-open',
   SHARED_MCP_BOOTSTRAP_FAILED: 'shared-mcp-bootstrap-failed',
   PIPELINE_SPAWN_FAILED: 'pipeline-spawn-failed',
@@ -650,6 +671,8 @@ export async function activateNextPendingItemIfReady(
     branchChainRootTaskId?: string;
     branchChainTaskId?: string;
   }> = [];
+  let readonlyContextBindings: TaskReadonlyContextBinding[] = [];
+  let rollbackReadonlyContextBindings: ReadonlyContextRollbackBinding[] = [];
   let rollbackBindings: ActivationRollbackBinding[] = [];
   let packSnapshotPath = '';
   const writeProgress = async (
@@ -750,6 +773,8 @@ export async function activateNextPendingItemIfReady(
       activationTaskTitle = null;
       activationStartedAt = '';
       repoBindings = [];
+      readonlyContextBindings = [];
+      rollbackReadonlyContextBindings = [];
       rollbackBindings = [];
       packSnapshotPath = '';
 
@@ -812,6 +837,7 @@ export async function activateNextPendingItemIfReady(
       const parentQmdScope = extractLineageValue(content, 'Parent QMD Scope');
       const followupReason = extractLineageValue(content, 'Follow-Up Reason');
       const contextPackBinding = extractBindingOrWarn(content, taskId);
+      const selection = contextPackBinding ? toTaskContextPackSelection(contextPackBinding) : undefined;
 
       const metadata: Record<string, string> = {
         'Task ID': taskId,
@@ -859,6 +885,7 @@ export async function activateNextPendingItemIfReady(
       // Bound context-pack tasks use task binding authority. Unbound context-pack
       // tasks keep the legacy manifest-primary behavior.
       let visibleRepoRoots: string[] = [];
+      let selectedRoots: SelectedMaterializationRoot[] = [];
       const selectedGitRoots = new Map<string, string>();
       const cpDir = contextPackBinding?.contextPackDir ?? contextPackDir;
       if (cpDir) {
@@ -871,7 +898,7 @@ export async function activateNextPendingItemIfReady(
           );
         }
         if (contextPackBinding) {
-          const selectedRoots = await resolveSelectedMaterializationRoots({
+          selectedRoots = await resolveSelectedMaterializationRoots({
             repoRoot,
             contextPackDir: cpDir,
             binding: contextPackBinding,
@@ -927,14 +954,65 @@ export async function activateNextPendingItemIfReady(
         return { activated: false, reason: ACTIVATION_GATE_REASON.ACTIVATION_BLOCKED_DIRTY_REPOS };
       }
 
+      let taskPackSnapshot: Awaited<ReturnType<typeof writeTaskPackSnapshot>> | undefined;
+      if (contextPackBinding && selection) {
+        await ensureDir(path.dirname(perTaskSidecarPath));
+        taskPackSnapshot = await writeTaskPackSnapshot({
+          repoRoot,
+          taskId,
+          contextPackDir: contextPackBinding.contextPackDir,
+          contextPackId: contextPackBinding.contextPackId,
+          binding: contextPackBinding,
+          selection,
+        });
+        packSnapshotPath = resolveTaskPackSnapshotPath(repoRoot, taskId);
+      }
+
+      const branchAuthorityPartition = contextPackBinding && selection && taskPackSnapshot
+        ? partitionSelectedMaterializationRoots({
+            taskId,
+            selection,
+            selectedRoots,
+            snapshot: taskPackSnapshot,
+          })
+        : undefined;
+      const branchOwnedMaterializationOrigins = branchAuthorityPartition
+        ? branchAuthorityPartition.branchOwnedRoots.map((root) => ({
+            contextRoot: root.originalRoot,
+            gitRoot: root.gitRoot,
+          }))
+        : materializationOrigins;
+
+      const readonlyContextMaterializationOrigins = branchAuthorityPartition
+        ? branchAuthorityPartition.readonlyContextRoots.map((root) => ({
+            contextRoot: root.originalRoot,
+            gitRoot: root.gitRoot,
+          }))
+        : [];
+
       // Compute per-repo slugs.  Slug = basename(realpath(root)); if two roots share a
       // basename, append `-<sha8>` suffix (sha8 = first 8 chars of git rev-parse HEAD).
-      const repoLabels = await resolveRepoLabels(materializationOrigins);
+      const allActivationMaterializationOrigins = [
+        ...branchOwnedMaterializationOrigins,
+        ...readonlyContextMaterializationOrigins,
+      ];
+      const allRepoLabels = await resolveRepoLabels(allActivationMaterializationOrigins);
+      const repoLabels = allRepoLabels.slice(0, branchOwnedMaterializationOrigins.length);
+      const readonlyContextRepoLabels = allRepoLabels.slice(branchOwnedMaterializationOrigins.length);
+      if (branchAuthorityPartition) {
+        log.info('activation.branch_authority_partition.resolved', {
+          taskId,
+          branchOwnedCount: branchAuthorityPartition.branchOwnedRoots.length,
+          readonlyContextCount: branchAuthorityPartition.readonlyContextRoots.length,
+          branchOwnedRepoLabels: repoLabels,
+          readonlyContextRepoLabels,
+        });
+      }
 
       const activationBranchCandidatePlans = await buildActivationBranchCandidatePlans({
         taskId,
         branchChainBinding,
-        materializationOrigins,
+        materializationOrigins: branchOwnedMaterializationOrigins,
         repoLabels,
         repoRoot,
       });
@@ -985,7 +1063,7 @@ export async function activateNextPendingItemIfReady(
       const activationBranchPlans = await finalizeActivationBranchPlans({
         taskId,
         branchChainBinding,
-        materializationOrigins,
+        materializationOrigins: branchOwnedMaterializationOrigins,
         repoLabels,
         repoRoot,
         candidatePlans: activationBranchCandidatePlans,
@@ -1012,13 +1090,14 @@ export async function activateNextPendingItemIfReady(
       event: { type: 'activation.materializing_worktrees', input: { repoCount: activationBranchPlans.length } },
     });
     for (const plan of activationBranchPlans) {
+      const isChainOwnedBranch = plan.mode === 'chained-existing';
       const repoBinding = {
         originalRoot: plan.originalRoot,
         worktreeRoot: plan.worktreeRootForBinding,
         worktreeBranch: plan.worktreeBranch,
         baseCommitSha: plan.baseCommitSha,
-        branchOwnership: plan.mode === 'chained' ? 'chain-owned' as const : 'task-owned' as const,
-        ...(plan.mode === 'chained' && branchChainBinding
+        branchOwnership: isChainOwnedBranch ? 'chain-owned' as const : 'task-owned' as const,
+        ...(isChainOwnedBranch && branchChainBinding
           ? {
               branchChainRootTaskId: branchChainBinding.rootTaskId,
               branchChainTaskId: taskId,
@@ -1095,6 +1174,59 @@ export async function activateNextPendingItemIfReady(
         skipped: [...combinedMat.skipped, ...mat.skipped],
       };
     }
+    if (branchAuthorityPartition) {
+      for (let index = 0; index < branchAuthorityPartition.readonlyContextRoots.length; index += 1) {
+        const root = branchAuthorityPartition.readonlyContextRoots[index]!;
+        const repoLabel = readonlyContextRepoLabels[index]!;
+        const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', repoLabel);
+        const plan: ReadonlyContextMaterializationPlan = {
+          taskId,
+          repoId: root.repoId,
+          repoLabel,
+          originalRoot: root.originalRoot,
+          gitRoot: root.gitRoot,
+          worktreeRoot,
+          source: readonlyContextSourceForReason(root.reason),
+        };
+        if (await checkpointKill(rollbackBindings.length > 0 ? 'post-materialization' : 'pre-worktree')) {
+          return { activated: false, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
+        }
+        await writeProgress('materializing-worktree', {
+          repoLabel,
+          originalRoot: root.originalRoot,
+          worktreeRoot,
+        });
+        const result = await materializeReadonlyContextWorktree({
+          repoRoot,
+          plan,
+          pathsToClone,
+        });
+        rollbackReadonlyContextBindings.push({
+          binding: result.binding,
+          source: plan.source,
+          repoLabel,
+        });
+        readonlyContextBindings.push(result.binding);
+        combinedMat = {
+          strategy: combinedMat.strategy,
+          cloned: [...combinedMat.cloned, ...result.materialization.cloned],
+          skipped: [...combinedMat.skipped, ...result.materialization.skipped],
+        };
+        await emitTaskProgressEvent({
+          logger: log.child({ taskId }),
+          repoRoot,
+          taskId,
+          event: {
+            type: 'activation.readonly_context.materialized',
+            input: {
+              repo: repoLabel,
+              worktreeRoot,
+              materializationStrategy: 'detached-readonly-context',
+            },
+          },
+        });
+      }
+    }
   } catch (err) {
     await rollbackActivationClaim({
       repoRoot,
@@ -1102,6 +1234,7 @@ export async function activateNextPendingItemIfReady(
       taskId,
       activeMarkerPath,
       repoBindings: rollbackBindings,
+      readonlyContextBindings: rollbackReadonlyContextBindings,
     });
     await clearProgress('materialization-rollback');
     throw err;
@@ -1116,7 +1249,10 @@ export async function activateNextPendingItemIfReady(
     taskId,
     event: { type: 'activation.initializing_task' },
   });
-  const selectedRepoAliases = repoBindings.map((binding) => ({
+  const selectedRepoAliases = [
+    ...repoBindings,
+    ...readonlyContextBindings,
+  ].map((binding) => ({
     repoId: path.basename(binding.worktreeRoot),
     originalRoot: binding.originalRoot,
     worktreeRoot: binding.worktreeRoot,
@@ -1132,48 +1268,7 @@ export async function activateNextPendingItemIfReady(
     ...buildProfessionalTaskSectionsFromIntake(sanitizedActivationIntake),
     ...buildImplementationSpecSectionsFromIntake(sanitizedActivationIntake),
   };
-  const selection = contextPackBinding
-    ? {
-        contextPackDir: contextPackBinding.contextPackDir,
-        contextPackId: contextPackBinding.contextPackId,
-        scopeMode: contextPackBinding.scopeMode,
-        selectedRepoIds: contextPackBinding.selectedRepoIds,
-        selectedFocusIds: contextPackBinding.selectedFocusIds,
-        ...(contextPackBinding.deepFocusEnabled !== true && contextPackBinding.repositoryTypes
-          ? { repositoryTypes: { ...contextPackBinding.repositoryTypes } }
-          : {}),
-        deepFocusEnabled: contextPackBinding.deepFocusEnabled,
-        ...(contextPackBinding.deepFocusEnabled === true
-          ? {
-              deepFocusPrimaryRepoId: contextPackBinding.deepFocusPrimaryRepoId,
-              deepFocusPrimaryFocusId: contextPackBinding.deepFocusPrimaryFocusId,
-            }
-          : {
-              primaryRepoId: contextPackBinding.primaryRepoId,
-              primaryFocusId: contextPackBinding.primaryFocusId,
-            }),
-        selectedFocusPath: contextPackBinding.selectedFocusPath ?? null,
-        selectedFocusTargetKind: contextPackBinding.selectedFocusTargetKind ?? null,
-        selectedFocusTargets: contextPackBinding.selectedFocusTargets,
-        selectedTestTarget: contextPackBinding.selectedTestTarget ?? null,
-        selectedSupportTargets: contextPackBinding.selectedSupportTargets ?? [],
-      }
-    : undefined;
-
-  let taskPackSnapshot: Awaited<ReturnType<typeof writeTaskPackSnapshot>> | undefined;
-  if (contextPackBinding && selection) {
-    // writeTaskPackSnapshot validates primary.repoRoot before writing and
-    // throws on any unresolvable identity. The coverage guard must pass before
-    // the sidecar is accepted and before Alice can launch.
-    taskPackSnapshot = await writeTaskPackSnapshot({
-      repoRoot,
-      taskId,
-      contextPackDir: contextPackBinding.contextPackDir,
-      contextPackId: contextPackBinding.contextPackId,
-      binding: contextPackBinding,
-      selection,
-    });
-    packSnapshotPath = resolveTaskPackSnapshotPath(repoRoot, taskId);
+  if (taskPackSnapshot) {
     assertTaskWorktreeBindingsCoverSnapshot({
       taskId,
       snapshot: taskPackSnapshot,
@@ -1192,6 +1287,7 @@ export async function activateNextPendingItemIfReady(
       dataHostDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_HOST_DIR'] ?? null,
       dataContainerDir: process.env['REPO_CONTEXT_MCP_CONTEXT_DATA_CONTAINER_DIR'] ?? null,
       repoBindings,
+      readonlyContextBindings,
       selection,
     },
     materialization: {
@@ -1271,6 +1367,17 @@ export async function activateNextPendingItemIfReady(
       break;
     }
   } catch (err: unknown) {
+    if (isBranchChainBaseUnresolvedActivationError(err) && taskId && nextItem && content !== undefined) {
+      await failPendingActivationForBranchChainBaseUnresolved({
+        repoRoot,
+        paths,
+        taskId,
+        pendingItemPath: nextItem,
+        content,
+        error: err,
+      });
+      return { activated: false, reason: ACTIVATION_GATE_REASON.BRANCH_CHAIN_BASE_UNRESOLVED };
+    }
     await clearProgress('activation-exception');
     throw err;
   } finally {
@@ -1296,6 +1403,7 @@ export async function activateNextPendingItemIfReady(
         taskId,
         activeMarkerPath,
         repoBindings: rollbackBindings,
+        readonlyContextBindings: rollbackReadonlyContextBindings,
       });
       await clearProgress('shared-mcp-bootstrap-failed');
       const reason = 'shared-mcp-bootstrap-failed';
@@ -1350,6 +1458,7 @@ export async function activateNextPendingItemIfReady(
       taskId,
       activeMarkerPath,
       repoBindings: rollbackBindings,
+      readonlyContextBindings: rollbackReadonlyContextBindings,
     });
     await clearProgress('pipeline-spawn-failed');
     log.error('pipeline.spawn.failed', err, { taskId });
@@ -1424,6 +1533,16 @@ export type CompleteActiveItemResult =
   | { status: 'completed'; taskId: string }
   | { status: 'no-active-marker'; taskId: string };
 
+function readonlyContextSourceForReason(reason: string): ReadonlyContextSource {
+  if (reason === 'deep-focus-readonly') {
+    return 'deep-focus-readonly-context';
+  }
+  if (reason === 'monolith-readonly') {
+    return 'monolith-readonly-context';
+  }
+  return 'standard-support';
+}
+
 /**
  * Complete the active pending item: reset handoffs, update queue-order manifest,
  * and optionally activate the next pending item.
@@ -1496,6 +1615,7 @@ async function rollbackActivationClaim(options: {
   taskId: string;
   activeMarkerPath: string;
   repoBindings: ActivationRollbackBinding[];
+  readonlyContextBindings?: readonly ReadonlyContextRollbackBinding[];
 }): Promise<void> {
   const {
     repoRoot,
@@ -1503,7 +1623,26 @@ async function rollbackActivationClaim(options: {
     taskId,
     activeMarkerPath,
     repoBindings,
+    readonlyContextBindings = [],
   } = options;
+
+  for (const readonlyContextBinding of readonlyContextBindings) {
+    const { binding } = readonlyContextBinding;
+    await removeReadonlyContextWorktree({
+      repoRoot,
+      taskId,
+      binding,
+      source: readonlyContextBinding.source,
+      repoLabel: readonlyContextBinding.repoLabel,
+    }).catch((err: unknown) => {
+      log.warn('readonly_context.worktree.rollback_cleanup.failed', {
+        taskId,
+        repoId: binding.repoId,
+        worktreeRoot: binding.worktreeRoot,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   for (const rollbackBinding of repoBindings) {
     const binding = rollbackBinding.repoBinding;

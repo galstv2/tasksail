@@ -209,6 +209,7 @@ describe('roleAgent Runtime Path Manifest', () => {
       env: expect.objectContaining({
         RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"artifact-author"}',
       }),
+      includeRoleArtifactChecklist: true,
     }));
   });
 
@@ -223,6 +224,11 @@ describe('roleAgent Runtime Path Manifest', () => {
     const cleanupPrompt = mocks.runAgentSession.mock.calls[1][0].cliArgs.at(-1);
     expect(cleanupPrompt).toContain('## Runtime Path Manifest');
     expect(cleanupPrompt).toContain('Use only the exact absolute artifact paths listed below.');
+    expect(mocks.prependRuntimePathManifestToPrompt.mock.calls[1][0].manifest)
+      .toEqual(expect.objectContaining({
+        launchPhase: 'Artifact Cleanup',
+        includeRoleArtifactChecklist: false,
+      }));
   });
 
   it('injects Runtime Path Manifest into Revalidation and Closeout Remediation promptOverride launches', async () => {
@@ -239,6 +245,9 @@ describe('roleAgent Runtime Path Manifest', () => {
 
     expect(mocks.runAgentSession.mock.calls.at(-2)?.[0].cliArgs.at(-1)).toContain('## Runtime Path Manifest');
     expect(mocks.runAgentSession.mock.calls.at(-1)?.[0].cliArgs.at(-1)).toContain('## Runtime Path Manifest');
+    for (const call of mocks.buildAgentRuntimePathManifest.mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({ includeRoleArtifactChecklist: false }));
+    }
   });
 
   it('keeps dry-run side-effect-free and skips Runtime Path Manifest construction', async () => {

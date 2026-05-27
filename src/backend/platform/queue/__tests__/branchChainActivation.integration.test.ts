@@ -13,8 +13,13 @@ import { tmpdir } from 'node:os';
 
 import { formatBranchChainSection, formatContextPackBindingSection, type TaskBranchChainBinding } from '../markdown.js';
 import { HANDOFF_FILES, SLICE_TEMPLATE_FILENAME, resolveQueuePaths } from '../paths.js';
-import { registerTask } from '../taskRegistry.js';
+import { loadTaskRegistry, registerTask } from '../taskRegistry.js';
 import { writeQueueOrderManifest } from '../queueOrderManifest.js';
+import {
+  readChildTaskChains,
+  writeChildTaskChains,
+  type ChildTaskContextSnapshot,
+} from '../childTaskChains.js';
 
 const startPipeline = vi.fn();
 
@@ -151,6 +156,71 @@ function readSidecar(repoRoot: string, taskId: string): {
   )) as ReturnType<typeof readSidecar>;
 }
 
+function childTaskSnapshot(): ChildTaskContextSnapshot {
+  return {
+    contextPackDir: null,
+    contextPackId: null,
+    scopeMode: 'focused',
+    primaryRepoId: 'platform',
+    primaryFocusId: null,
+    selectedRepoIds: ['platform'],
+    selectedFocusIds: [],
+    deepFocusEnabled: false,
+    deepFocusPrimaryRepoId: null,
+    deepFocusPrimaryFocusId: null,
+    selectedFocusPath: null,
+    selectedFocusTargetKind: null,
+    selectedFocusTargets: [],
+    selectedTestTarget: null,
+    selectedSupportTargets: [],
+  };
+}
+
+function writeDistributedContextPack(contextPackDir: string, repos: Array<{ id: string; root: string }>): void {
+  mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+  writeFileSync(path.join(contextPackDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+    manifest_version: 'qmd-repo-sources/v1',
+    manifest_status: 'approved',
+    context_pack_id: path.basename(contextPackDir),
+    estate_type: 'distributed-platform',
+    qmd_scope_root: `qmd/context-packs/${path.basename(contextPackDir)}`,
+    repositories: repos.map((repo, index) => ({
+      repo_id: repo.id,
+      local_paths: [repo.root],
+      repository_type: 'primary',
+      default_focusable: true,
+      activation_priority: 100 - index,
+    })),
+    primary_working_repo_ids: repos.map((repo) => repo.id),
+    primary_focus_area_ids: [],
+  }, null, 2), 'utf-8');
+}
+
+function distributedContextBinding(contextPackDir: string, selectedRepoIds: string[]): string {
+  return formatContextPackBindingSection({
+    contextPackDir,
+    contextPackId: path.basename(contextPackDir),
+    scopeMode: 'regular',
+    selectedRepoIds,
+    selectedFocusIds: [],
+    repositoryTypes: Object.fromEntries(
+      selectedRepoIds.map((repoId) => [repoId, 'primary' as const]),
+    ),
+    primaryRepoId: selectedRepoIds[0],
+  });
+}
+
+function chainForRepos(repos: TaskBranchChainBinding['repos']): TaskBranchChainBinding {
+  return {
+    schemaVersion: 1,
+    mode: 'continuation',
+    rootTaskId: 'root-task',
+    parentTaskId: 'parent-task',
+    depth: 1,
+    repos,
+  };
+}
+
 describe('branch chain activation integration', () => {
   let repoRoot: string;
   let previousAutostart: string | undefined;
@@ -268,7 +338,91 @@ describe('branch chain activation integration', () => {
     expect(git(repoRoot, ['branch', '--list', `task/${taskId}`])).toBe('');
   });
 
-  it('fails closed for lineage mismatch, missing Branch Chain repo, missing chain branch, and checked-out chain branch', async () => {
+  it('moves missing chain branch activation failures to failed items', async () => {
+    initGitRepo(repoRoot);
+    const taskId = 'missing-branch';
+    const chain = branchChain(repoRoot, { parentTaskId: 'root-task' });
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'Missing Branch', {
+      parentTaskId: 'root-task',
+      rootTaskId: 'root-task',
+      branchChain: chain,
+    }));
+    const now = '2026-05-27T12:00:00.000Z';
+    const snapshot = childTaskSnapshot();
+    await writeChildTaskChains(repoRoot, {
+      schemaVersion: 1,
+      updatedAt: now,
+      chains: {
+        'root-task': {
+          rootTaskId: 'root-task',
+          currentTipTaskId: taskId,
+          contextPackId: null,
+          contextPackDir: null,
+          taskIds: ['root-task', taskId],
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      tasks: {
+        'root-task': {
+          taskId: 'root-task',
+          rootTaskId: 'root-task',
+          parentTaskId: null,
+          previousTaskId: null,
+          depth: 0,
+          state: 'completed',
+          archivePath: 'archive/root.md',
+          archiveArtifactDir: 'archive/root',
+          parentArchivePath: null,
+          parentArchiveArtifactDir: null,
+          parentContextSnapshot: snapshot,
+          childExecutionScope: snapshot,
+          branchChain: null,
+          completedBranchHandoffs: null,
+          completedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        [taskId]: {
+          taskId,
+          rootTaskId: 'root-task',
+          parentTaskId: 'root-task',
+          previousTaskId: 'root-task',
+          depth: 1,
+          state: 'planned',
+          archivePath: null,
+          archiveArtifactDir: null,
+          parentArchivePath: 'archive/root.md',
+          parentArchiveArtifactDir: 'archive/root',
+          parentContextSnapshot: snapshot,
+          childExecutionScope: snapshot,
+          branchChain: chain,
+          completedBranchHandoffs: null,
+          completedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    });
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: false, reason: 'activation-branch-chain-base-unresolved' });
+
+    const paths = resolveQueuePaths(repoRoot);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId))).toBe(false);
+    expect(existsSync(path.join(paths.activeItemsDir, taskId))).toBe(false);
+    expect(existsSync(path.join(paths.pendingDir, `${taskId}.md`))).toBe(false);
+    expect(existsSync(path.join(paths.errorItemsDir, `${taskId}.md`))).toBe(true);
+    expect(git(repoRoot, ['branch', '--list', `task/${taskId}`])).toBe('');
+    const registry = await loadTaskRegistry(repoRoot);
+    expect(registry.tasks._unbound?.pending).toEqual([]);
+    expect(registry.tasks._unbound?.failed.map((entry) => entry.taskId)).toContain(taskId);
+    const childChainState = await readChildTaskChains(repoRoot);
+    expect(childChainState.tasks[taskId]?.state).toBe('failed');
+  });
+
+  it('fails closed for lineage mismatch, missing Branch Chain repo, and checked-out chain branch', async () => {
     initGitRepo(repoRoot);
     const cases: Array<{ taskId: string; chain: TaskBranchChainBinding; error: string; setup?: () => void }> = [
       {
@@ -280,11 +434,6 @@ describe('branch chain activation integration', () => {
         taskId: 'missing-repo',
         chain: branchChain(path.join(repoRoot, 'missing-repo')),
         error: 'activation-branch-chain-repo-missing for task "missing-repo":',
-      },
-      {
-        taskId: 'missing-branch',
-        chain: branchChain(repoRoot),
-        error: 'activation-branch-chain-base-unresolved for task "missing-branch":',
       },
       {
         taskId: 'checked-out-branch',
@@ -343,9 +492,17 @@ describe('branch chain activation integration', () => {
         scopeMode: 'regular',
         selectedRepoIds: [],
         selectedFocusIds: ['backend'],
-        primaryFocusId: 'backend',
-      }),
-      branchChain: branchChain(repoRoot),
+        deepFocusEnabled: true,
+        deepFocusPrimaryFocusId: 'backend',
+        selectedFocusTargets: [{
+          path: '',
+          kind: 'directory',
+          repoLocalPath: focusPath,
+          focusId: 'backend',
+          role: 'anchor',
+        }],
+      }).replace('- Deep Focus Enabled: true', '- Selected Focus IDs: backend\n- Deep Focus Enabled: true'),
+      branchChain: branchChain(focusPath),
     }));
 
     const { activateNextPendingItemIfReady } = await import('../operations.js');
@@ -389,16 +546,8 @@ describe('branch chain activation integration', () => {
         scopeMode: 'regular',
         selectedRepoIds: ['api', 'web'],
         selectedFocusIds: [],
+        repositoryTypes: { api: 'primary', web: 'primary' },
         primaryRepoId: 'api',
-        deepFocusEnabled: true,
-        deepFocusPrimaryRepoId: 'api',
-        deepFocusPrimaryFocusId: 'api-root',
-        selectedFocusPath: repoA,
-        selectedFocusTargetKind: 'directory',
-        selectedFocusTargets: [
-          { path: repoA, kind: 'directory', repoLocalPath: repoA, repoId: 'api', focusId: 'api-root' },
-          { path: repoB, kind: 'directory', repoLocalPath: repoB, repoId: 'web', focusId: 'web-root' },
-        ],
       }),
       branchChain: {
         schemaVersion: 1,
@@ -425,6 +574,180 @@ describe('branch chain activation integration', () => {
     expect(bindings.every((binding) => binding.worktreeRoot.includes(path.join('AgentWorkSpace', 'tasks', taskId, 'worktrees')))).toBe(true);
     expect(git(repoA, ['branch', '--list', `task/${taskId}`])).toBe('');
     expect(git(repoB, ['branch', '--list', `task/${taskId}`])).toBe('');
+  });
+
+  it('activates existing immediate-parent and historical chain repos as chain-owned', async () => {
+    initGitRepo(repoRoot);
+    const platformRepo = mkdtempSync(path.join(tmpdir(), 'chain-existing-platform-'));
+    const toolsRepo = mkdtempSync(path.join(tmpdir(), 'chain-history-tools-'));
+    extraTempDirs.push(platformRepo, toolsRepo);
+    initGitRepo(platformRepo);
+    initGitRepo(toolsRepo);
+    git(platformRepo, ['branch', 'task/root-platform']);
+    git(toolsRepo, ['branch', 'task/ancestor-tools']);
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'existing-history');
+    writeDistributedContextPack(contextPackDir, [
+      { id: 'platform', root: platformRepo },
+      { id: 'tools', root: toolsRepo },
+    ]);
+    const taskId = 'existing-history-child';
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'Existing History Child', {
+      contextPackBinding: distributedContextBinding(contextPackDir, ['platform', 'tools']),
+      branchChain: chainForRepos([
+        { ...branchChain(platformRepo).repos[0]!, repoRoot: platformRepo, repoLabel: 'platform', chainSourceBranch: 'task/root-platform' },
+        {
+          ...branchChain(toolsRepo).repos[0]!,
+          repoRoot: toolsRepo,
+          repoLabel: 'tools',
+          chainSourceBranch: 'task/ancestor-tools',
+          parentSourceBranch: 'task/ancestor-tools',
+          sourceKind: 'chain-history-handoff',
+        },
+      ]),
+    }));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: true, activatedTaskId: taskId });
+
+    const bindings = readSidecar(repoRoot, taskId).contextPackBinding.repoBindings;
+    expect(bindings).toHaveLength(2);
+    expect(bindings.map((binding) => binding.worktreeBranch).sort()).toEqual(['task/ancestor-tools', 'task/root-platform']);
+    expect(bindings.every((binding) => binding.branchOwnership === 'chain-owned')).toBe(true);
+    expect(bindings.every((binding) => binding.branchChainRootTaskId === 'root-task')).toBe(true);
+    expect(bindings.every((binding) => binding.branchChainTaskId === taskId)).toBe(true);
+    expect(git(platformRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
+    expect(git(toolsRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
+  });
+
+  it('activates existing chain repos as chain-owned and introduced repos as task-owned', async () => {
+    initGitRepo(repoRoot);
+    const platformRepo = mkdtempSync(path.join(tmpdir(), 'chain-existing-platform-'));
+    const toolsRepo = mkdtempSync(path.join(tmpdir(), 'chain-introduced-tools-'));
+    extraTempDirs.push(platformRepo, toolsRepo);
+    initGitRepo(platformRepo);
+    const toolsHead = initGitRepo(toolsRepo);
+    git(platformRepo, ['branch', 'task/root-platform']);
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'existing-introduced');
+    writeDistributedContextPack(contextPackDir, [
+      { id: 'platform', root: platformRepo },
+      { id: 'tools', root: toolsRepo },
+    ]);
+    const taskId = 'existing-introduced-child';
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'Existing Introduced Child', {
+      contextPackBinding: distributedContextBinding(contextPackDir, ['platform', 'tools']),
+      branchChain: chainForRepos([
+        { ...branchChain(platformRepo).repos[0]!, repoRoot: platformRepo, repoLabel: 'platform', chainSourceBranch: 'task/root-platform' },
+        {
+          ...branchChain(toolsRepo).repos[0]!,
+          repoRoot: toolsRepo,
+          repoLabel: 'tools',
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: toolsHead,
+          targetBranch: null,
+          sourceKind: 'introduced-by-child',
+        },
+      ]),
+    }));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: true, activatedTaskId: taskId });
+
+    const bindings = readSidecar(repoRoot, taskId).contextPackBinding.repoBindings;
+    const existing = bindings.find((binding) => binding.worktreeBranch === 'task/root-platform')!;
+    const introduced = bindings.find((binding) => binding.worktreeBranch === 'task/root-task')!;
+    expect(existing.branchOwnership).toBe('chain-owned');
+    expect(existing.branchChainRootTaskId).toBe('root-task');
+    expect(introduced.branchOwnership).toBe('task-owned');
+    expect(introduced.branchChainRootTaskId).toBeUndefined();
+    expect(introduced.branchChainTaskId).toBeUndefined();
+    expect(introduced.baseCommitSha).toBe(toolsHead);
+    expect(git(toolsRepo, ['branch', '--list', 'task/root-task'])).toContain('task/root-task');
+  });
+
+  it('activates a fully divergent historical repo without materializing the omitted immediate-parent repo', async () => {
+    initGitRepo(repoRoot);
+    const platformRepo = mkdtempSync(path.join(tmpdir(), 'chain-omitted-platform-'));
+    const toolsRepo = mkdtempSync(path.join(tmpdir(), 'chain-only-history-tools-'));
+    extraTempDirs.push(platformRepo, toolsRepo);
+    initGitRepo(platformRepo);
+    initGitRepo(toolsRepo);
+    git(platformRepo, ['branch', 'task/root-platform']);
+    git(toolsRepo, ['branch', 'task/ancestor-tools']);
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'history-only');
+    writeDistributedContextPack(contextPackDir, [
+      { id: 'platform', root: platformRepo },
+      { id: 'tools', root: toolsRepo },
+    ]);
+    const taskId = 'history-only-child';
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'History Only Child', {
+      contextPackBinding: distributedContextBinding(contextPackDir, ['tools']),
+      branchChain: chainForRepos([{
+        ...branchChain(toolsRepo).repos[0]!,
+        repoRoot: toolsRepo,
+        repoLabel: 'tools',
+        chainSourceBranch: 'task/ancestor-tools',
+        parentSourceBranch: 'task/ancestor-tools',
+        sourceKind: 'chain-history-handoff',
+      }]),
+    }));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: true, activatedTaskId: taskId });
+
+    const bindings = readSidecar(repoRoot, taskId).contextPackBinding.repoBindings;
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toEqual(expect.objectContaining({
+      worktreeBranch: 'task/ancestor-tools',
+      branchOwnership: 'chain-owned',
+      branchChainRootTaskId: 'root-task',
+    }));
+    expect(git(platformRepo, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
+  });
+
+  it('activates a fully divergent introduced repo as task-owned', async () => {
+    initGitRepo(repoRoot);
+    const platformRepo = mkdtempSync(path.join(tmpdir(), 'chain-omitted-platform-'));
+    const toolsRepo = mkdtempSync(path.join(tmpdir(), 'chain-only-introduced-tools-'));
+    extraTempDirs.push(platformRepo, toolsRepo);
+    initGitRepo(platformRepo);
+    const toolsHead = initGitRepo(toolsRepo);
+    git(platformRepo, ['branch', 'task/root-platform']);
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'introduced-only');
+    writeDistributedContextPack(contextPackDir, [
+      { id: 'platform', root: platformRepo },
+      { id: 'tools', root: toolsRepo },
+    ]);
+    const taskId = 'introduced-only-child';
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'Introduced Only Child', {
+      contextPackBinding: distributedContextBinding(contextPackDir, ['tools']),
+      branchChain: chainForRepos([{
+        ...branchChain(toolsRepo).repos[0]!,
+        repoRoot: toolsRepo,
+        repoLabel: 'tools',
+        chainSourceBranch: 'task/root-task',
+        parentBranchHead: toolsHead,
+        targetBranch: null,
+        sourceKind: 'introduced-by-child',
+      }]),
+    }));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: true, activatedTaskId: taskId });
+
+    const bindings = readSidecar(repoRoot, taskId).contextPackBinding.repoBindings;
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toEqual(expect.objectContaining({
+      worktreeBranch: 'task/root-task',
+      branchOwnership: 'task-owned',
+      baseCommitSha: toolsHead,
+    }));
+    expect(bindings[0]?.branchChainRootTaskId).toBeUndefined();
+    expect(git(toolsRepo, ['branch', '--list', 'task/root-task'])).toContain('task/root-task');
+    expect(git(platformRepo, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
   });
 
   it('rolls back accumulated multi-repo chained worktrees when a later materialization fails', async () => {
@@ -459,16 +782,8 @@ describe('branch chain activation integration', () => {
         scopeMode: 'regular',
         selectedRepoIds: ['api', 'web'],
         selectedFocusIds: [],
+        repositoryTypes: { api: 'primary', web: 'primary' },
         primaryRepoId: 'api',
-        deepFocusEnabled: true,
-        deepFocusPrimaryRepoId: 'api',
-        deepFocusPrimaryFocusId: 'api-root',
-        selectedFocusPath: repoA,
-        selectedFocusTargetKind: 'directory',
-        selectedFocusTargets: [
-          { path: repoA, kind: 'directory', repoLocalPath: repoA, repoId: 'api', focusId: 'api-root' },
-          { path: repoB, kind: 'directory', repoLocalPath: repoB, repoId: 'web', focusId: 'web-root' },
-        ],
       }),
       branchChain: {
         schemaVersion: 1,
@@ -509,6 +824,65 @@ describe('branch chain activation integration', () => {
     expect(git(repoB, ['branch', '--list', `task/${taskId}`])).toBe('');
     expect(git(repoA, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
     expect(git(repoB, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json'))).toBe(false);
+    expect(existsSync(path.join(resolveQueuePaths(repoRoot).activeItemsDir, taskId))).toBe(false);
+    expect(existsSync(path.join(resolveQueuePaths(repoRoot).pendingDir, `${taskId}.md`))).toBe(true);
+  });
+
+  it('rolls back introduced branches while preserving existing chain branches', async () => {
+    initGitRepo(repoRoot);
+    const platformRepo = mkdtempSync(path.join(tmpdir(), 'rollback-existing-platform-'));
+    const toolsRepo = mkdtempSync(path.join(tmpdir(), 'rollback-introduced-tools-'));
+    extraTempDirs.push(platformRepo, toolsRepo);
+    initGitRepo(platformRepo);
+    const toolsHead = initGitRepo(toolsRepo);
+    git(platformRepo, ['branch', 'task/root-platform']);
+    const contextPackDir = path.join(repoRoot, 'contextpacks', 'rollback-introduced');
+    writeDistributedContextPack(contextPackDir, [
+      { id: 'platform', root: platformRepo },
+      { id: 'tools', root: toolsRepo },
+    ]);
+    const taskId = 'rollback-introduced-child';
+    await seedPending(repoRoot, taskId, pendingMarkdown(taskId, 'Rollback Introduced Child', {
+      contextPackBinding: distributedContextBinding(contextPackDir, ['platform', 'tools']),
+      branchChain: chainForRepos([
+        { ...branchChain(platformRepo).repos[0]!, repoRoot: platformRepo, repoLabel: 'platform', chainSourceBranch: 'task/root-platform' },
+        {
+          ...branchChain(toolsRepo).repos[0]!,
+          repoRoot: toolsRepo,
+          repoLabel: 'tools',
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: toolsHead,
+          targetBranch: null,
+          sourceKind: 'introduced-by-child',
+        },
+      ]),
+    }));
+    let materializeCalls = 0;
+    vi.doMock('../../core/worktreeMaterialization.js', async () => {
+      const actual = await vi.importActual<typeof import('../../core/worktreeMaterialization.js')>(
+        '../../core/worktreeMaterialization.js',
+      );
+      return {
+        ...actual,
+        materializeWorktreeDeps: vi.fn(async () => {
+          materializeCalls += 1;
+          if (materializeCalls === 2) {
+            throw new Error('introduced clone failed');
+          }
+          return { strategy: 'copy', cloned: [], skipped: [] };
+        }),
+      };
+    });
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .rejects.toThrow('introduced clone failed');
+
+    expect(git(platformRepo, ['branch', '--list', 'task/root-platform'])).toContain('task/root-platform');
+    expect(git(toolsRepo, ['branch', '--list', 'task/root-task'])).toBe('');
+    expect(git(platformRepo, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
+    expect(git(toolsRepo, ['worktree', 'list', '--porcelain'])).not.toContain(taskId);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json'))).toBe(false);
     expect(existsSync(path.join(resolveQueuePaths(repoRoot).activeItemsDir, taskId))).toBe(false);
     expect(existsSync(path.join(resolveQueuePaths(repoRoot).pendingDir, `${taskId}.md`))).toBe(true);

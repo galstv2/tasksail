@@ -121,7 +121,7 @@ describe('artifact completion details', () => {
     await expect(checkAgentArtifactCompletion(options('product-manager'))).resolves.toBe(false);
   });
 
-  it('reports product-manager missing implementation spec, invalid parallel decision, missing slices, and missing final-slice sections', async () => {
+  it('reports product-manager missing implementation spec, invalid parallel decision, missing slices, and missing slice sections', async () => {
     writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nMaybe\n', 'utf-8');
     const missing = await checkAgentArtifactCompletionDetails(options('product-manager'));
     expect(missing.complete).toBe(false);
@@ -135,8 +135,8 @@ describe('artifact completion details', () => {
     writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# Slice\n\n## Purpose\n\nDo work.\n', 'utf-8');
     const sections = await checkAgentArtifactCompletionDetails(options('product-manager'));
     expect(sections.reasons).toEqual(expect.arrayContaining([
-      'ImplementationSteps final slice missing required semantic section: Scope / Execution Scope',
-      'ImplementationSteps final slice missing required semantic section: Validation Commands / Validation or nested under Acceptance and Validation',
+      'ImplementationSteps slice slice-1.md missing required semantic section: Scope / Execution Scope',
+      'ImplementationSteps slice slice-1.md missing required semantic section: Validation Commands / Validation or nested under Acceptance and Validation',
     ]));
   });
 

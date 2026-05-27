@@ -77,7 +77,8 @@
   flex-shrink: 0;
 }
 
-.shell__refresh-btn {
+.shell__refresh-btn,
+.shell__notification-btn {
   border: none;
   border-radius: var(--ts-radius-md);
   padding: 0.3rem;
@@ -93,9 +94,23 @@
               color var(--ts-duration) var(--ts-ease);
 }
 
-.shell__refresh-btn:hover {
+.shell__refresh-btn:hover,
+.shell__notification-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--ts-header-text);
+}
+
+.shell__notification-btn {
+  position: relative;
+}
+
+.shell__notification-btn__badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  margin: 0;
+  font-family: var(--ts-font-mono);
+  line-height: 1;
 }
 
 .shell__body {

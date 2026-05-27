@@ -12,10 +12,14 @@ describe('Ron prompt contracts', () => {
     );
 
     expect(instructions).toContain('## Non-Interactive Launch Contract');
+    expect(instructions).toContain('## QA Artifact Checklist');
+    expect(instructions).toContain('launch-specific source of truth for concrete artifact paths');
     expect(instructions).toContain('You will not receive follow-up input');
     expect(instructions).toContain('Do not stop after reading the diff, checking validation evidence, deciding a verdict, or writing a prose QA summary');
     expect(instructions).toContain('Your chat response is not workflow completion');
-    expect(instructions).toContain('For a blocking outcome, the only valid early stop is after `issues.md`');
+    expect(instructions).toContain('A blocking outcome is valid only for concrete verified task-code defects');
+    expect(instructions).toContain('Do not mark Review Outcome `blocking` because you are uncertain');
+    expect(instructions).toContain('If the outcome is `blocking`, exit. Do not write `retrospective-input.md` or `final-summary.md`.');
     expect(instructions).toContain('re-open `final-summary.md`');
     expect(instructions).toContain('every generated `CR-*`, `COMP-*`, and `VAL-*` line is marked `verified` or `advisory`');
     expect(instructions).toContain('`## QA Status` is exactly `passed` or `issues-found`');

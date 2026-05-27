@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import type { ReinforcementTaskEntry } from '../../../shared/desktopContract';
 import { formatNumber } from '../../utils/formatNumber';
+import { SearchIcon } from '../creation-steps/icons';
 
 type TaskLedgerTableProps = {
   hasActiveContextPack: boolean;
@@ -65,14 +66,17 @@ function TaskLedgerTable({
   return (
     <div className="ledger-table" data-testid="ledger-table">
       <div className="ledger-table__controls">
-        <input
-          type="text"
-          className="ledger-table__search"
-          placeholder="Search tasks..."
-          value={search}
-          onChange={onSearchChange}
-          data-testid="ledger-search"
-        />
+        <div className="ledger-table__search-wrap">
+          <span className="ledger-table__search-icon"><SearchIcon size={10} /></span>
+          <input
+            type="text"
+            className="ledger-table__search"
+            placeholder="Search tasks..."
+            value={search}
+            onChange={onSearchChange}
+            data-testid="ledger-search"
+          />
+        </div>
         {availableYears.length > 1 && (
           <select
             className="ledger-table__year-select"
@@ -126,7 +130,9 @@ function TaskLedgerTable({
                     {task.reviewStatus === 'reviewed' ? 'reviewed' : 'unreviewed'}
                   </span>
                 </td>
-                <td>{task.qualityOutcome}</td>
+                <td>
+                  <span className="ledger-table__outcome-chip">{task.qualityOutcome}</span>
+                </td>
               </tr>
             ))}
           </tbody>

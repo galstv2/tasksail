@@ -91,4 +91,28 @@ describe('buildCopilotPlannerLaunchSpec planner env contract', () => {
     expect(spec.env?.COPILOT_MODEL).toBe('claude-sonnet-4.6');
     expect(spec.env?.COPILOT_AGENT_ID).toBe('planning-agent');
   });
+
+  it('emits planner effort only for non-empty non-none values and never through env', () => {
+    const withEffort = buildCopilotPlannerLaunchSpec({
+      model: 'claude-sonnet-4.6',
+      reasoningEffort: 'high',
+      promptMode: 'one-shot',
+      contextPackBoundaryEnforced: true,
+      workingDirectory: '/repo',
+    });
+    expect(withEffort.args).toEqual(expect.arrayContaining(['--effort', 'high']));
+    expect(withEffort.env).not.toHaveProperty('COPILOT_REASONING_EFFORT');
+
+    for (const reasoningEffort of [undefined, '', 'none']) {
+      const spec = buildCopilotPlannerLaunchSpec({
+        model: 'claude-sonnet-4.6',
+        reasoningEffort,
+        promptMode: 'one-shot',
+        contextPackBoundaryEnforced: true,
+        workingDirectory: '/repo',
+      });
+      expect(spec.args).not.toContain('--effort');
+      expect(Object.keys(spec.env ?? {}).join('\n')).not.toMatch(/REASONING|EFFORT/u);
+    }
+  });
 });

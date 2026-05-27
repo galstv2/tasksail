@@ -19,11 +19,13 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     error,
     isDirty,
     showRestartNotice,
+    effortWarning,
     pendingModelChange,
     descriptor,
     onClose,
     onSelectTab,
     onAgentModelChange,
+    onAgentEffortChange,
     onConfirmModelChange,
     onCancelModelChange,
     onNewModelDisplayNameChange,
@@ -115,45 +117,73 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
           {isLoading ? (
             <div className="agent-config__loading">Loading agent configuration…</div>
           ) : activeTab === 'agents' ? (
-            <ul className="agent-config__agent-list">
-              {agents.map((agent) => {
-                const roleKind = descriptor?.roster.find((entry) => entry.agentId === agent.agent_id)?.roleKind ?? null;
-                const SpriteComponent = roleKind ? roleKindSpriteMap[roleKind] ?? null : null;
-                return (
-                <li key={agent.agent_id} className="agent-config__agent-row">
-                  {SpriteComponent && (
-                    <div className="agent-config__sprite" aria-hidden="true">
-                      <SpriteComponent size={36} />
+            <>
+              <p className="agent-config__intro">
+                Model support for reasoning effort varies. Verify the selected model supports this effort before changing it.
+              </p>
+              {effortWarning && (
+                <div className="agent-config__warning" role="status">
+                  {effortWarning}
+                </div>
+              )}
+              <ul className="agent-config__agent-list">
+                {agents.map((agent) => {
+                  const roleKind = descriptor?.roster.find((entry) => entry.agentId === agent.agent_id)?.roleKind ?? null;
+                  const SpriteComponent = roleKind ? roleKindSpriteMap[roleKind] ?? null : null;
+                  return (
+                  <li key={agent.agent_id} className="agent-config__agent-row">
+                    {SpriteComponent && (
+                      <div className="agent-config__sprite" aria-hidden="true">
+                        <SpriteComponent size={36} />
+                      </div>
+                    )}
+                    <div className="agent-config__agent-header">
+                      <span className="agent-config__agent-name">{agent.human_name}</span>
+                      <span className="mcp-modal__badge">{agent.role_name}</span>
                     </div>
-                  )}
-                  <div className="agent-config__agent-header">
-                    <span className="agent-config__agent-name">{agent.human_name}</span>
-                    <span className="mcp-modal__badge">{agent.role_name}</span>
-                  </div>
-                  <label className="agent-config__field">
-                    <span className="agent-config__sr-only">{agent.human_name} model</span>
-                    <select
-                      className="mcp-form__select"
-                      value={agent.selected_model}
-                      onChange={(event) => onAgentModelChange(agent.agent_id, event.target.value)}
-                      aria-label={`${agent.human_name} model`}
-                    >
-                      {agent.options.map((option) => (
-                        <option key={option.model_id} value={option.model_id}>
-                          {option.display_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {agent.currentModelMissing && (
-                    <div className="agent-config__warning" role="status">
-                      Current assignment "{agent.current_model}" is missing from the catalog.
-                    </div>
-                  )}
-                </li>
-                );
-              })}
-            </ul>
+                    <label className="agent-config__field">
+                      <span className="agent-config__sr-only">{agent.human_name} model</span>
+                      <span className="mcp-form__label" aria-hidden="true">Model</span>
+                      <select
+                        className="mcp-form__select"
+                        value={agent.selected_model}
+                        onChange={(event) => onAgentModelChange(agent.agent_id, event.target.value)}
+                        aria-label={`${agent.human_name} model`}
+                      >
+                        {agent.options.map((option) => (
+                          <option key={option.model_id} value={option.model_id}>
+                            {option.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="agent-config__field">
+                      <span className="agent-config__sr-only">{agent.human_name} reasoning effort</span>
+                      <span className="mcp-form__label" aria-hidden="true">Reasoning effort</span>
+                      <select
+                        className="mcp-form__select"
+                        value={agent.selected_effort}
+                        onChange={(event) => onAgentEffortChange(agent.agent_id, event.target.value)}
+                        aria-label={`${agent.human_name} reasoning effort`}
+                        disabled={agent.effortDisabled}
+                      >
+                        {agent.effortOptions.map((effort) => (
+                          <option key={effort} value={effort}>
+                            {effort === 'none' ? 'None' : effort}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {agent.currentModelMissing && (
+                      <div className="agent-config__warning" role="status">
+                        Current assignment "{agent.current_model}" is missing from the catalog.
+                      </div>
+                    )}
+                  </li>
+                  );
+                })}
+              </ul>
+            </>
           ) : (
             <>
               <p className="agent-config__intro">
@@ -230,7 +260,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
           <div className="agent-config__footer-meta">
             {showRestartNotice && (
               <span className="agent-config__restart-notice">
-                Restart TaskSail for the planner model change to take effect.
+                Restart TaskSail for planner model or reasoning effort changes to take effect.
               </span>
             )}
             {activeTab === 'agents' && (

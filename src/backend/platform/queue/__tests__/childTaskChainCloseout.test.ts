@@ -180,6 +180,118 @@ describe('child task chain closeout helper', () => {
     ]);
   });
 
+  it('accepts adjusted Branch Chain handoffs for parent, historical, and introduced repos', async () => {
+    const toolsRoot = path.join(repoRoot, 'tools');
+    const docsRoot = path.join(repoRoot, 'docs');
+    await mkdir(toolsRoot, { recursive: true });
+    await mkdir(docsRoot, { recursive: true });
+    const binding = branchChain([{
+      repoRoot: gitRoot,
+      repoLabel: 'platform',
+      chainSourceBranch: 'task/root',
+      parentSourceBranch: 'task/parent',
+      parentBranchHead: 'platform-head',
+      targetBranch: 'main',
+    }, {
+      repoRoot: toolsRoot,
+      repoLabel: 'tools',
+      chainSourceBranch: 'task/tools-ancestor',
+      parentSourceBranch: 'task/tools-ancestor',
+      parentBranchHead: 'tools-head',
+      targetBranch: 'develop',
+      sourceKind: 'chain-history-handoff',
+    }, {
+      repoRoot: docsRoot,
+      repoLabel: 'docs',
+      chainSourceBranch: 'task/root',
+      parentSourceBranch: 'main',
+      parentBranchHead: 'docs-head',
+      targetBranch: null,
+      sourceKind: 'introduced-by-child',
+    }]);
+    await writeChildTaskChains(repoRoot, stateFixture(binding));
+    const prepared = await prepareChildTaskChainCloseout({
+      repoRoot,
+      taskId: 'child',
+      content: markdown({ branchChainSection: formatBranchChainSection(binding) }),
+    });
+
+    const attached = attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: docsRoot, repoLabel: 'docs', branch: 'task/root', targetBranch: null }),
+      handoff({ repoRoot: toolsRoot, repoLabel: 'tools', branch: 'task/tools-ancestor', targetBranch: 'develop' }),
+      handoff({ repoRoot: gitRoot, repoLabel: 'platform', branch: 'task/root', targetBranch: 'main' }),
+    ]);
+
+    expect(attached.completedBranchHandoffs.map((handoff) => handoff.repoLabel)).toEqual([
+      'platform',
+      'tools',
+      'docs',
+    ]);
+    expect(attached.completedBranchHandoffs[2]).toEqual(expect.objectContaining({
+      repoRoot: docsRoot,
+      chainSourceBranch: 'task/root',
+      targetBranch: null,
+    }));
+  });
+
+  it('accepts fully divergent historical handoffs without requiring the immediate parent repo', async () => {
+    const toolsRoot = path.join(repoRoot, 'tools');
+    await mkdir(toolsRoot, { recursive: true });
+    const binding = branchChain([{
+      repoRoot: toolsRoot,
+      repoLabel: 'tools',
+      chainSourceBranch: 'task/tools-ancestor',
+      parentSourceBranch: 'task/tools-ancestor',
+      parentBranchHead: 'tools-head',
+      targetBranch: 'develop',
+      sourceKind: 'chain-history-handoff',
+    }]);
+    await writeChildTaskChains(repoRoot, stateFixture(binding));
+    const prepared = await prepareChildTaskChainCloseout({
+      repoRoot,
+      taskId: 'child',
+      content: markdown({ branchChainSection: formatBranchChainSection(binding) }),
+    });
+
+    const attached = attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: toolsRoot, repoLabel: 'tools', branch: 'task/tools-ancestor', targetBranch: 'develop' }),
+    ]);
+
+    expect(attached.completedBranchHandoffs).toEqual([
+      expect.objectContaining({ repoRoot: toolsRoot, chainSourceBranch: 'task/tools-ancestor' }),
+    ]);
+  });
+
+  it('accepts fully divergent introduced handoffs and rejects omitted parent extras', async () => {
+    const toolsRoot = path.join(repoRoot, 'tools');
+    await mkdir(toolsRoot, { recursive: true });
+    const binding = branchChain([{
+      repoRoot: toolsRoot,
+      repoLabel: 'tools',
+      chainSourceBranch: 'task/root',
+      parentSourceBranch: 'main',
+      parentBranchHead: 'tools-head',
+      targetBranch: null,
+      sourceKind: 'introduced-by-child',
+    }]);
+    await writeChildTaskChains(repoRoot, stateFixture(binding));
+    const prepared = await prepareChildTaskChainCloseout({
+      repoRoot,
+      taskId: 'child',
+      content: markdown({ branchChainSection: formatBranchChainSection(binding) }),
+    });
+
+    expect(attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: toolsRoot, repoLabel: 'tools', branch: 'task/root', targetBranch: null }),
+    ]).completedBranchHandoffs).toEqual([
+      expect.objectContaining({ repoRoot: toolsRoot, chainSourceBranch: 'task/root', targetBranch: null }),
+    ]);
+    expect(() => attachCompletedBranchHandoffs(prepared!, [
+      handoff({ repoRoot: toolsRoot, repoLabel: 'tools', branch: 'task/root', targetBranch: null }),
+      handoff({ repoRoot: gitRoot, repoLabel: 'platform', branch: 'task/platform', targetBranch: 'main' }),
+    ])).toThrow('child-task-chain-closeout-branch-handoff-mismatch');
+  });
+
   it('rejects duplicate fresh handoffs for the same normalized root and source branch', async () => {
     await mkdir(path.join(gitRoot, 'nested'), { recursive: true });
     const prepared = await prepareChildTaskChainCloseout({ repoRoot, taskId: 'child', content: markdown() });
@@ -381,7 +493,7 @@ function handoff(options: {
   repoRoot?: string;
   repoLabel?: string;
   branch?: string;
-  targetBranch?: string;
+  targetBranch?: string | null;
 } = {}): BranchHandoffForChildChainCloseout {
   return {
     repo_root: options.repoRoot ?? gitRoot,
@@ -392,7 +504,7 @@ function handoff(options: {
     commits_ahead: 1,
     status: 'ready-for-operator-review',
     auto_merge: {
-      target_branch: options.targetBranch ?? 'main',
+      target_branch: options.targetBranch === undefined ? 'main' : options.targetBranch,
     },
   };
 }

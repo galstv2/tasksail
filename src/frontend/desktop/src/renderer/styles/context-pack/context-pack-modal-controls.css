@@ -19,16 +19,26 @@
   padding: 3px;
 }
 
+.context-pack-modal__seg-control--full {
+  display: flex;
+  width: 100%;
+  justify-self: stretch;
+}
+
+.context-pack-modal__seg-control--full .context-pack-modal__seg-option {
+  flex: 1;
+}
+
 .context-pack-modal__seg-option {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.3rem 0.75rem;
+  padding: 0.28rem 0.6rem;
   border: none;
   border-radius: calc(var(--ts-radius-md) - 2px);
   background: transparent;
-  color: var(--ts-text-muted);
+  color: var(--ts-text-soft);
   font-family: var(--ts-font-sans);
   font-size: 0.74rem;
   font-weight: 500;
@@ -50,7 +60,7 @@
 }
 
 .context-pack-modal__seg-option:hover {
-  color: var(--ts-text);
+  color: var(--ts-text-muted);
 }
 
 .context-pack-modal__seg-option:has(input[type='radio']:focus-visible) {
@@ -62,7 +72,13 @@
   background: var(--ts-surface);
   color: var(--ts-text);
   font-weight: 600;
-  box-shadow: var(--ts-shadow-sm);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 1px color-mix(in srgb, var(--ts-accent) 18%, var(--ts-border));
+}
+
+.context-pack-modal__seg-option--active:hover {
+  color: var(--ts-text);
 }
 
 /* ── Primary toggle pill ────────────────────────────────────────────
@@ -85,11 +101,17 @@
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
-  margin-top: 0.3rem;
   transition:
     border-color var(--ts-duration) var(--ts-ease),
     background var(--ts-duration) var(--ts-ease),
     color var(--ts-duration) var(--ts-ease);
+}
+
+.context-pack-modal__card-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .context-pack-modal__toggle-pill:hover {
@@ -129,12 +151,88 @@
 
 .context-pack-modal__wizard-progress {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin: -0.2rem auto 0.1rem;
+  padding: 0 0.1rem 0.05rem;
+  width: 100%;
+}
+
+.context-pack-modal__wizard-progress-step {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.15rem;
-  padding-bottom: 0.2rem;
-  border-bottom: 1px solid var(--ts-border);
+  gap: 0.35rem;
+  padding: 0.2rem 0.3rem 0.35rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--ts-text-soft);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  transition:
+    color var(--ts-duration) var(--ts-ease),
+    font-weight var(--ts-duration) var(--ts-ease);
+}
+
+.context-pack-modal__wizard-progress-step::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--ts-border-strong);
+  transition:
+    background var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
+}
+
+.context-pack-modal__step--done {
+  color: var(--ts-text-muted);
+}
+
+.context-pack-modal__step--done::before {
+  background: var(--ts-text-muted);
+  border-color: var(--ts-text-muted);
+}
+
+.context-pack-modal__step--active {
+  color: var(--ts-text);
+  font-weight: 600;
+}
+
+.context-pack-modal__step--active::before {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ts-accent) 18%, transparent);
+}
+
+.context-pack-modal__step--active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 1.5px;
+  background: var(--ts-accent);
+  border-radius: 1px;
+  animation: cpStepUnderline 240ms var(--ts-spring) backwards;
+}
+
+@keyframes cpStepUnderline {
+  from { width: 0; opacity: 0; }
+  to   { width: 22px; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-pack-modal__step--active::after {
+    animation: none;
+  }
 }
 
 .context-pack-modal__wizard-content,
@@ -144,9 +242,12 @@
   min-width: 0;
 }
 
-.context-pack-modal__editor-card--active {
-  border-color: var(--ts-accent);
-  background: var(--ts-accent-tint);
+/* ── Wizard sub-step header (question + quiet helper) ──────────────── */
+
+.context-pack-modal__wizard-section-header {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
 }
 
 /* ── Project type: two-question layout ───────────────────────────── */
@@ -158,10 +259,10 @@
 
 .context-pack-modal__project-type-header {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--ts-text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .context-pack-modal__project-type-group {
@@ -176,7 +277,7 @@
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--ts-text);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .context-pack-modal__project-type-help {
@@ -315,11 +416,11 @@
 
 .context-pack-modal__wizard-heading {
   margin: -0.15rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 400;
   color: var(--ts-text-soft);
   line-height: 1.45;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 /* ── Icon buttons (edit, remove) ─────────────────────────────────── */
@@ -381,6 +482,10 @@
 
 .context-pack-modal__text-btn--accent:hover {
   color: var(--ts-accent-hover);
+}
+
+.context-pack-modal__text-btn--danger:hover {
+  color: var(--ts-danger);
 }
 
 .context-pack-modal__text-btn:disabled {
@@ -452,45 +557,17 @@
 }
 
 /* ── §21  Context Pack Modal (sizing & elevation) ──────────────────── */
-
-.context-pack-modal {
-  position: relative;
-  width: min(680px, 100%);
-  height: min(78vh, 640px);
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--ts-radius-xl);
-  border: 1px solid var(--ts-border);
-  box-shadow: var(--ts-shadow-xl);
-  animation: cpPanelIn 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 60ms;
-}
-
-/* no decorative chrome — clean top edge, Apple-style */
-
-@keyframes cpPanelIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
+/* Container sizing, overlay, header, close, and footer chrome are owned
+   by ModalShell; the modal is configured via `maxWidth="680px"` on the
+   ContextPackCreationModal component. Body content rules live below. */
 
 .context-pack-modal .panel__lede {
   margin: 0;
-  padding: 0.4rem 0.6rem;
+  padding: 0;
   font-size: 0.74rem;
   line-height: 1.4;
   word-break: break-word;
-  border-radius: var(--ts-radius-md);
-  background: var(--ts-surface-alt);
-  border: 1px solid var(--ts-border);
-  color: var(--ts-text-muted);
+  color: var(--ts-text-soft);
 }
 
 .context-pack-modal .panel__error {
@@ -513,17 +590,23 @@
   box-shadow: 0 0 0 2px var(--ts-accent-subtle);
 }
 
+.context-pack-modal .composer-field {
+  gap: 0.3rem;
+}
+
 .context-pack-modal .composer-field input,
 .context-pack-modal .composer-field select {
-  padding: 0.35rem 0.5rem;
+  padding: 0.4rem 0.55rem;
   font-size: 0.78rem;
   border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
 }
 
 .context-pack-modal .composer-field > span {
   font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--ts-text-muted);
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: 0;
 }
 
 .context-pack-modal .action-button {
@@ -535,6 +618,16 @@
 .context-pack-modal .action-button--secondary {
   font-size: 0.74rem;
   border-radius: var(--ts-radius-md);
+}
+
+.context-pack-modal .modal-shell__footer .action-button--secondary {
+  border-color: transparent;
+  background: transparent;
+}
+
+.context-pack-modal .modal-shell__footer .action-button--secondary:hover:not(:disabled) {
+  background: var(--ts-surface-alt);
+  border-color: transparent;
 }
 
 .context-pack-modal .panel__meta {

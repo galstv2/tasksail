@@ -1,6 +1,7 @@
 export const DESKTOP_SHELL_INVOKE_CHANNEL = 'desktop-shell:invoke';
 export const DESKTOP_SHELL_STREAM_CHANNEL = 'desktop-shell:stream';
 export const DESKTOP_SHELL_TASK_BOARD_CHANNEL = 'desktop-shell:task-board';
+export const DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL = 'desktop-shell:task-notifications';
 export const CONTEXT_PACK_CATALOG_CHANGED_CHANNEL = 'contextPack.catalogChanged';
 
 export type ContextPackCatalogChangedEvent = {
@@ -12,6 +13,7 @@ export * from './desktopContractPlanner';
 export * from './desktopContractDeepFocus';
 export * from './desktopContractContextPack';
 export * from './desktopContractProvider';
+export * from './desktopContractTaskNotifications';
 
 import type {
   ContextPackListRepoTreeRequest,
@@ -61,6 +63,14 @@ import type {
   ContextPackSetRepoCategoryResponse,
   ContextPackSwitchExecutionResult,
 } from './desktopContractContextPack';
+import type {
+  TaskNotificationMutationResponse,
+  TaskNotificationSnapshot,
+  TaskNotificationsDismissAllRequest,
+  TaskNotificationsDismissRequest,
+  TaskNotificationsMarkSeenRequest,
+  TaskNotificationsReadRequest,
+} from './desktopContractTaskNotifications';
 
 import type {
   ArchivedTaskEntry,
@@ -161,6 +171,7 @@ export const DESKTOP_ACTION_NAMES = [
   'externalMcp.validateConnection',
   'agentConfig.loadAgents',
   'agentConfig.loadModelCatalog',
+  'agentConfig.loadCapabilities',
   'agentConfig.saveAgentModels',
   'agentConfig.addModel',
   'agentConfig.removeModel',
@@ -176,6 +187,10 @@ export const DESKTOP_ACTION_NAMES = [
   'taskBoard.moveToOpen',
   'taskBoard.killTask',
   'taskBoard.retryKillCleanup',
+  'taskNotifications.read',
+  'taskNotifications.markSeen',
+  'taskNotifications.dismiss',
+  'taskNotifications.dismissAll',
   'services.readStatus',
   'services.startBackend',
   'services.stopBackend',
@@ -768,6 +783,8 @@ import type {
   AgentConfigLoadAgentsResponse,
   AgentConfigLoadModelCatalogRequest,
   AgentConfigLoadModelCatalogResponse,
+  AgentConfigLoadCapabilitiesRequest,
+  AgentConfigLoadCapabilitiesResponse,
   AgentConfigSaveAgentModelsRequest,
   AgentConfigSaveAgentModelsResponse,
   AgentConfigAddModelRequest,
@@ -783,6 +800,8 @@ export type {
   AgentConfigLoadAgentsResponse,
   AgentConfigLoadModelCatalogRequest,
   AgentConfigLoadModelCatalogResponse,
+  AgentConfigLoadCapabilitiesRequest,
+  AgentConfigLoadCapabilitiesResponse,
   AgentConfigSaveAgentModelsRequest,
   AgentConfigSaveAgentModelsResponse,
   AgentConfigAddModelRequest,
@@ -1043,6 +1062,7 @@ export type DesktopActionRequest =
   | ExternalMcpListRequest
   | AgentConfigLoadAgentsRequest
   | AgentConfigLoadModelCatalogRequest
+  | AgentConfigLoadCapabilitiesRequest
   | AgentConfigSaveAgentModelsRequest
   | AgentConfigAddModelRequest
   | AgentConfigRemoveModelRequest
@@ -1063,6 +1083,10 @@ export type DesktopActionRequest =
   | TaskBoardMoveToOpenRequest
   | TaskBoardKillTaskRequest
   | TaskBoardRetryKillCleanupRequest
+  | TaskNotificationsReadRequest
+  | TaskNotificationsMarkSeenRequest
+  | TaskNotificationsDismissRequest
+  | TaskNotificationsDismissAllRequest
   | ServicesReadStatusRequest
   | ServicesStartBackendRequest
   | ServicesStopBackendRequest
@@ -1128,6 +1152,7 @@ export type DesktopActionResponse =
   | ExternalMcpListResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
+  | AgentConfigLoadCapabilitiesResponse
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
@@ -1148,6 +1173,8 @@ export type DesktopActionResponse =
   | TaskBoardMoveToOpenResponse
   | TaskBoardKillTaskResponse
   | TaskBoardRetryKillCleanupResponse
+  | TaskNotificationSnapshot
+  | TaskNotificationMutationResponse
   | ServicesReadStatusResponse
   | DeepFocusSaveSelectionsResponse
   | DeepFocusLoadSelectionsResponse

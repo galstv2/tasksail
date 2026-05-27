@@ -1,7 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
 
+import {
+  getActiveProvider,
+  isReasoningEffortRejectionOutput,
+} from '../../../backend/platform/cli-provider/index.js';
 import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import { createLogger } from '../../../backend/platform/core/logger.js';
 import type { PlannerLilyPersonalityId } from '../src/shared/desktopContract';
+import { REPO_ROOT } from './paths';
 import { PlannerEventParser } from './plannerEventParser';
 import {
   spawnPlannerCliProcess,
@@ -18,6 +24,7 @@ import type {
 } from './plannerSession.types';
 
 const KILL_GRACE_MS = 5000;
+const log = createLogger('electron/plannerSessionBroker');
 
 function isWindowsPlatform(): boolean {
   return process.platform === 'win32';
@@ -43,6 +50,7 @@ type PlannerSessionRecord = {
   contextPackDir: string | null;
   contextPackRoots: string[] | null;
   workingDirectory: string | null;
+  reasoningEffort: string | null;
   focusEnv: Omit<GenericAgentEnv, 'model' | 'agentId'> | null;
   lilyPersonalityId: PlannerLilyPersonalityId;
 };
@@ -108,6 +116,7 @@ export class PlannerSessionBroker {
     contextPackDir?: string;
     allowedRoots?: string[];
     workingDirectory?: string;
+    reasoningEffort?: string;
     focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
     lilyPersonalityId?: PlannerLilyPersonalityId;
   }): { sessionId: string; created: boolean } {
@@ -137,6 +146,7 @@ export class PlannerSessionBroker {
       contextPackDir: options?.contextPackDir ?? null,
       contextPackRoots: options?.allowedRoots ?? null,
       workingDirectory: options?.workingDirectory ?? null,
+      reasoningEffort: options?.reasoningEffort ?? null,
       // Captured once at session start; planner sessions are stable scopes.
       focusEnv: options?.focusEnv ?? null,
       lilyPersonalityId: options?.lilyPersonalityId ?? 'balanced',
@@ -325,6 +335,7 @@ export class PlannerSessionBroker {
       plannerSessionId: session.sessionId,
       allowedRoots: session.contextPackRoots ?? undefined,
       workingDirectory: session.workingDirectory ?? undefined,
+      reasoningEffort: session.reasoningEffort ?? undefined,
       contextPackBoundaryEnforced: session.contextPackRoots !== null,
       additionalEnv: session.contextPackDir ? { ACTIVE_CONTEXT_PACK_DIR: session.contextPackDir } : undefined,
       focusEnv: session.focusEnv ?? undefined,
@@ -368,6 +379,12 @@ export class PlannerSessionBroker {
           return;
         }
         emittedFailure = true;
+        if (session.reasoningEffort && isReasoningEffortRejectionOutput(message)) {
+          log.warn('planner.reasoning_effort.rejected_after_spawn', {
+            providerId: getActiveProvider(REPO_ROOT).id,
+            effort: session.reasoningEffort,
+          });
+        }
         if (resumeSessionId) {
           session.state.cliSessionId = null;
         }
@@ -414,7 +431,7 @@ export class PlannerSessionBroker {
               ...this.observation,
               lastTurnHadContent: true,
             };
-        this.emitSessionEvent(session, {
+            this.emitSessionEvent(session, {
               eventType: event.type,
               brokerStatus: session.state.brokerStatus,
               turnId: session.state.turnId,

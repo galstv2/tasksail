@@ -7,6 +7,7 @@ import {
   DESKTOP_SHELL_STREAM_CHANNEL,
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+  DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL,
   CONTEXT_PACK_CATALOG_CHANGED_CHANNEL,
 } from '../src/shared/desktopContract';
 import { LOG_EMIT_CHANNEL } from '../src/shared/desktopContractLogging';
@@ -80,6 +81,11 @@ describe('electron preload bridge', () => {
         saveAgentModels: expect.any(Function),
         addModel: expect.any(Function),
         removeModel: expect.any(Function),
+        readTaskNotifications: expect.any(Function),
+        markTaskNotificationsSeen: expect.any(Function),
+        dismissTaskNotification: expect.any(Function),
+        dismissAllTaskNotifications: expect.any(Function),
+        onTaskNotificationsUpdate: expect.any(Function),
         describeActiveProvider: expect.any(Function),
         updatePlannerSessionPersonality: expect.any(Function),
         log: expect.objectContaining({ emit: expect.any(Function) }),
@@ -124,6 +130,31 @@ describe('electron preload bridge', () => {
     await desktopShellApi.log.emit(payload as Parameters<typeof desktopShellApi.log.emit>[0]);
 
     expect(invoke).toHaveBeenCalledWith(LOG_EMIT_CHANNEL, payload);
+  });
+
+  it('forwards task notification invokes over the approved desktop channel', async () => {
+    const { desktopShellApi } = await import('./preload');
+    const markSeenPayload = { notificationIds: ['n-1'], allVisible: true };
+
+    await desktopShellApi.readTaskNotifications();
+    await desktopShellApi.markTaskNotificationsSeen(markSeenPayload);
+    await desktopShellApi.dismissTaskNotification('n-1');
+    await desktopShellApi.dismissAllTaskNotifications();
+
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.read',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.markSeen',
+      payload: markSeenPayload,
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.dismiss',
+      payload: { notificationId: 'n-1' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.dismissAll',
+    });
   });
 
   it('invokes only approved IPC channels and does not expose unrestricted shell methods', async () => {
@@ -272,9 +303,10 @@ describe('electron preload bridge', () => {
     });
     await desktopShellApi.loadAgentConfig();
     await desktopShellApi.loadModelCatalog();
+    await desktopShellApi.loadCapabilities();
     await desktopShellApi.saveAgentModels([
       { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
-      { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+      { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', reasoning_effort: 'high' },
     ]);
     await desktopShellApi.addModel('Claude Sonnet 4.6', 'claude-sonnet-4.6');
     await desktopShellApi.removeModel('gpt-4.1');
@@ -518,11 +550,14 @@ describe('electron preload bridge', () => {
       action: 'agentConfig.loadModelCatalog',
     });
     expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadCapabilities',
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.saveAgentModels',
       payload: {
         assignments: [
           { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
-          { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+          { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', reasoning_effort: 'high' },
         ],
       },
     });
@@ -679,6 +714,53 @@ describe('electron preload bridge', () => {
     });
   });
 
+  describe('onTaskNotificationsUpdate validation', () => {
+    it('invokes callback for well-formed task notification events', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskNotificationsUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL,
+      )?.[1];
+      expect(handler).toBeDefined();
+
+      const validEvent = taskNotificationEvent();
+      handler!({} as Electron.IpcRendererEvent, validEvent);
+      expect(callback).toHaveBeenCalledWith(validEvent);
+    });
+
+    it('drops malformed task notification events and logs a structured warning', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskNotificationsUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL,
+      )?.[1];
+
+      handler!({} as Electron.IpcRendererEvent, { type: 'snapshot', snapshot: { action: 'taskNotifications.read' } });
+      handler!({} as Electron.IpcRendererEvent, { type: 'upsert' });
+      handler!({} as Electron.IpcRendererEvent, null);
+
+      expect(callback).not.toHaveBeenCalled();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls).toHaveLength(3);
+      expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.task-notifications-update.malformed',
+        extra: { type: 'object', eventType: 'snapshot' },
+      });
+      expect(logCalls[1]?.[1]).toMatchObject({
+        msg: 'preload.task-notifications-update.malformed',
+        extra: { type: 'object', eventType: 'upsert' },
+      });
+      expect(logCalls[2]?.[1]).toMatchObject({
+        msg: 'preload.task-notifications-update.malformed',
+        extra: { type: 'object', eventType: null },
+      });
+    });
+  });
+
   describe('subscribeContextPackCatalogChanged validation', () => {
     it('invokes callback for well-formed context-pack catalog events', async () => {
       const { desktopShellApi } = await import('./preload');
@@ -745,5 +827,37 @@ function validLogPayload() {
     agent_id: null,
     provider_id: null,
     span_id: null,
+  } as const;
+}
+
+function taskNotificationEvent() {
+  return {
+    type: 'snapshot',
+    snapshot: {
+      action: 'taskNotifications.read',
+      mode: 'read-only',
+      unseenCount: 1,
+      notifications: [{
+        notificationId: 'a'.repeat(64),
+        dedupeKey: 'task:TASK-001:completed',
+        type: 'task-completed',
+        severity: 'success',
+        taskId: 'TASK-001',
+        taskGuid: null,
+        taskTitle: 'Ship notification center',
+        taskFileName: 'TASK-001.md',
+        contextPackId: 'platform',
+        contextPackDir: '/tmp/context-packs/platform',
+        contextPackLabel: 'platform',
+        archivePath: '/tmp/archive/TASK-001.md',
+        errorItemPath: null,
+        createdAt: '2026-05-25T10:00:00.000Z',
+        seenAt: null,
+        dismissedAt: null,
+        message: 'Task completed.',
+      }],
+      generatedAt: '2026-05-25T10:01:00.000Z',
+      message: 'Loaded task notifications.',
+    },
   } as const;
 }

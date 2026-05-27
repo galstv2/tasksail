@@ -94,7 +94,7 @@ describe('standard Selection Roles activation', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('materializes selected tools primary and platform support roots from Selection Roles before pipeline start', async () => {
+  it('creates a task branch only for selected primary roots from Selection Roles', async () => {
     const platformRepo = path.join(repoRoot, 'platform-repo');
     const toolsRepo = path.join(repoRoot, 'tools-repo');
     initGitRepo(repoRoot);
@@ -134,12 +134,12 @@ describe('standard Selection Roles activation', () => {
     expect(taskJson.contextPackBinding.selection.repositoryTypes).toEqual({ tools: 'primary', platform: 'support' });
     expect(taskJson.contextPackBinding.repoBindings.map((binding: { originalRoot: string }) => binding.originalRoot)).toEqual([
       realpathSync(toolsRepo),
-      realpathSync(platformRepo),
     ]);
     expect(taskJson.contextPackBinding.repoBindings.map((binding: { worktreeRoot: string }) => path.basename(binding.worktreeRoot))).toEqual([
       'tools-repo',
-      'platform-repo',
     ]);
+    expect(git(toolsRepo, ['branch', '--list', `task/${taskId}`])).toContain(`task/${taskId}`);
+    expect(git(platformRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
     const snapshot = JSON.parse(readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'pack-snapshot.json'), 'utf-8'));
     expect(snapshot.primary.repoId).toBe('tools');
     expect(snapshot.support).toEqual([{ repoId: 'platform', repoRoot: realpathSync(platformRepo) }]);
@@ -149,11 +149,52 @@ describe('standard Selection Roles activation', () => {
     expect(snapshot.deepFocus.writableRoots).not.toEqual(expect.arrayContaining([
       { repoLocalPath: realpathSync(platformRepo), path: '', kind: 'directory', reason: 'selected-primary' },
     ]));
-    for (const selectedRoot of [snapshot.primary.repoRoot, ...snapshot.support.map((repo: { repoRoot: string }) => repo.repoRoot)]) {
-      expect(taskJson.contextPackBinding.repoBindings).toEqual(expect.arrayContaining([
-        expect.objectContaining({ originalRoot: selectedRoot }),
-      ]));
-    }
+    expect(snapshot.deepFocus.readonlyContextRoots).toEqual([
+      { repoLocalPath: realpathSync(platformRepo), path: '', kind: 'directory', reason: 'support-repo' },
+    ]);
+    expect(taskJson.contextPackBinding.repoBindings).toEqual([
+      expect.objectContaining({ originalRoot: snapshot.primary.repoRoot }),
+    ]);
+  });
+
+  it('keeps dirty target validation active for support roots', async () => {
+    const platformRepo = path.join(repoRoot, 'platform-repo');
+    const toolsRepo = path.join(repoRoot, 'tools-repo');
+    initGitRepo(repoRoot);
+    initGitRepo(platformRepo);
+    initGitRepo(toolsRepo);
+    writeFileSync(path.join(platformRepo, 'DIRTY.md'), 'dirty\n', 'utf-8');
+    const packDir = path.join(repoRoot, 'contextpacks', 'orders');
+    mkdirSync(path.join(packDir, 'qmd'), { recursive: true });
+    writeFileSync(path.join(packDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'orders',
+      estate_type: 'distributed-platform',
+      qmd_scope_root: 'qmd/context-packs/orders',
+      primary_working_repo_ids: ['platform'],
+      primary_focus_area_ids: [],
+      repositories: [
+        { repo_id: 'platform', local_paths: [platformRepo] },
+        { repo_id: 'tools', local_paths: [toolsRepo] },
+      ],
+    }, null, 2));
+    const taskId = 'dirty-support';
+    await seedPending(repoRoot, taskId, taskMarkdown(formatContextPackBindingSection({
+      contextPackDir: packDir,
+      contextPackId: 'orders',
+      scopeMode: 'repo-selection',
+      primaryRepoId: 'tools',
+      selectedRepoIds: ['tools', 'platform'],
+      selectedFocusIds: [],
+      repositoryTypes: { tools: 'primary', platform: 'support' },
+    })));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: false, reason: 'activation-blocked-dirty-repos' });
+    expect(git(toolsRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
+    expect(git(platformRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
   });
 
   it('rejects malformed present Selection Roles before runtime sidecars are written', async () => {

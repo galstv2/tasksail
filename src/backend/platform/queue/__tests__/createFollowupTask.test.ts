@@ -341,6 +341,8 @@ describe('createFollowupTask', () => {
   it('forwards standard-mode primary binding metadata to the dropbox task creator', async () => {
     await createFollowupTask({
       ...PMSE_OPTIONS,
+      contextPackDir: '/packs/platform',
+      contextPackId: 'platform',
       primaryRepoId: 'platform',
       primaryFocusId: 'api',
       selectedRepoIds: ['platform', 'tools'],
@@ -348,6 +350,8 @@ describe('createFollowupTask', () => {
     });
 
     expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      contextPackDir: '/packs/platform',
+      contextPackId: 'platform',
       primaryRepoId: 'platform',
       primaryFocusId: 'api',
       selectedRepoIds: ['platform', 'tools'],

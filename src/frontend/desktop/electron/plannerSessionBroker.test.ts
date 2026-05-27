@@ -70,6 +70,45 @@ describe('PlannerSessionBroker stream identity', () => {
     await sendPromise;
   });
 
+  it('passes captured reasoning effort into every planner turn', async () => {
+    const firstChild = createFakeChildProcess();
+    const secondChild = createFakeChildProcess();
+    const spawnCliProcess = vi.fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
+    const broker = new PlannerSessionBroker({
+      spawnCliProcess,
+      now: vi.fn()
+        .mockReturnValueOnce(901)
+        .mockReturnValueOnce(902)
+        .mockReturnValueOnce(903),
+    });
+
+    broker.startSession({ reasoningEffort: 'high' });
+    await broker.sendMessage('First');
+    await Promise.resolve();
+    firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result',
+      sessionId: 'cli-session-1',
+      exitCode: 0,
+    }) + '\n'));
+    firstChild.emit('exit', 0);
+    await Promise.resolve();
+
+    await broker.sendMessage('Second');
+    await Promise.resolve();
+
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      reasoningEffort: 'high',
+      resumeSessionId: null,
+    }));
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      reasoningEffort: 'high',
+      resumeSessionId: 'cli-session-1',
+    }));
+    secondChild.emit('exit', 0);
+  });
+
   it('adds sessionId to events and drops late events after endSession', async () => {
     const events: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();

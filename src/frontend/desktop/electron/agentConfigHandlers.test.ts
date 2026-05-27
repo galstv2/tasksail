@@ -4,17 +4,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createAgentConfigHandlers } from './agentConfigHandlers';
 
-vi.mock('../../../backend/platform/cli-provider/index.js', () => ({
-  getActiveProvider: () => ({
-    agentConfigPaths: () => ({
-      root: '.provider',
-      instructions: '.provider/instructions',
-      prompts: '.provider/prompts',
-      profiles: '.provider/agents',
-      registry: '.provider/agents/registry.json',
+vi.mock('../../../backend/platform/cli-provider/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/cli-provider/index.js')>();
+  return {
+    ...actual,
+    getActiveProvider: (repoRoot: string) => ({
+      ...actual.getActiveProvider(repoRoot),
+      agentConfigPaths: () => ({
+        root: '.provider',
+        instructions: '.provider/instructions',
+        prompts: '.provider/prompts',
+        profiles: '.provider/agents',
+        registry: '.provider/agents/registry.json',
+      }),
     }),
-  }),
-}));
+  };
+});
 
 type MemoryFsSeed = Record<string, string>;
 
@@ -80,6 +85,7 @@ const registryDocument = {
       human_name: 'Lily',
       role_name: 'Planning Specialist',
       required_model: 'gpt-4.1',
+      reasoning_effort: 'high',
       workflow_order: 0,
       interactive: true,
     },
@@ -131,6 +137,7 @@ describe('agentConfigHandlers', () => {
             human_name: 'Lily',
             role_name: 'Planning Specialist',
             required_model: 'gpt-4.1',
+            reasoning_effort: 'high',
             workflow_order: 0,
           },
           {
@@ -272,6 +279,167 @@ describe('agentConfigHandlers', () => {
       }),
     );
     expect(memoryFs.files.get(registryPath)?.endsWith('\n')).toBe(true);
+  });
+
+  it('loads provider reasoning effort capabilities', async () => {
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      loadCapabilities: vi.fn(async () => ({
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['none', 'low', 'medium', 'high'],
+        source: 'probe' as const,
+        stale: false,
+      })),
+    });
+
+    await expect(handlers.loadCapabilities()).resolves.toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadCapabilities',
+        mode: 'read-only',
+        message: 'Loaded 4 reasoning effort option(s).',
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['none', 'low', 'medium', 'high'],
+        stale: false,
+      },
+    });
+  });
+
+  it('writes advertised reasoning effort and deletes effort for None while preserving other fields', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      fsAdapter: memoryFs,
+      now: () => 8,
+      loadCapabilities: vi.fn(async () => ({
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['low', 'medium', 'high'],
+        source: 'cache' as const,
+        stale: false,
+      })),
+    });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [
+        { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'none' },
+        { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', reasoning_effort: 'medium' },
+      ],
+    });
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    const saved = JSON.parse(memoryFs.files.get(registryPath) ?? '{}') as typeof registryDocument;
+    expect(saved.agents.find((agent) => agent.agent_id === 'provider-planner')).not.toHaveProperty('reasoning_effort');
+    expect(saved.agents.find((agent) => agent.agent_id === 'provider-builder')).toEqual(expect.objectContaining({
+      reasoning_effort: 'medium',
+      deny_rules: ['shell(git add)'],
+    }));
+    expect(saved.agents.find((agent) => agent.agent_id === 'provider-qa')).toEqual(expect.objectContaining({
+      untouched_field: 'keep-me',
+    }));
+  });
+
+  it('rejects effort absent from provider capabilities before registry write', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      fsAdapter: memoryFs,
+      loadCapabilities: vi.fn(async () => ({
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['low'],
+        source: 'probe' as const,
+        stale: false,
+      })),
+    });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [
+        { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'max' },
+      ],
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'agentConfig.saveAgentModels',
+      error: expect.stringContaining('not advertised'),
+    }));
+    expect(memoryFs.files.get(registryPath)).toBe(asJson(registryDocument));
+  });
+
+  it('rejects malformed reasoning effort payloads before registry write', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      fsAdapter: memoryFs,
+      loadCapabilities: vi.fn(async () => ({
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['low', 'medium', 'high'],
+        source: 'probe' as const,
+        stale: false,
+      })),
+    });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [
+        { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'High' },
+      ],
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'agentConfig.saveAgentModels',
+      error: expect.stringContaining('lowercase letters'),
+    }));
+    expect(memoryFs.files.get(registryPath)).toBe(asJson(registryDocument));
+  });
+
+  it('rejects non-empty effort when capability discovery only has stale cache data', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({
+      repoRoot,
+      fsAdapter: memoryFs,
+      loadCapabilities: vi.fn(async () => ({
+        providerId: 'copilot',
+        cliVersion: 'GitHub Copilot CLI 1.0.54',
+        effortChoices: ['low', 'medium', 'high'],
+        source: 'cache' as const,
+        stale: true,
+        error: 'missing copilot',
+      })),
+    });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [
+        { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'high' },
+      ],
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'agentConfig.saveAgentModels',
+      error: expect.stringContaining('could not be loaded'),
+    }));
+    expect(memoryFs.files.get(registryPath)).toBe(asJson(registryDocument));
   });
 
   it('adds a model to the catalog and writes to both default and runtime', async () => {

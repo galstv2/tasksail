@@ -282,6 +282,116 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect('schema_version' in onDisk).toBe(false);
   });
 
+  it('normalizes absent readonlyContextBindings to an empty in-memory array', () => {
+    const taskId = 'readonly-absent-task';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+        },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.contextPackBinding.readonlyContextBindings).toEqual([]);
+  });
+
+  it('reads minimal readonly support context bindings', () => {
+    const taskId = 'readonly-binding-task';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+          readonlyContextBindings: [{
+            originalRoot: '/tmp/support-origin',
+            worktreeRoot: '/tmp/support-worktree',
+            baseCommitSha: 'abc123',
+            repoId: 'support-repo',
+            role: 'support',
+          }],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+        },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.contextPackBinding.readonlyContextBindings).toEqual([{
+      originalRoot: '/tmp/support-origin',
+      worktreeRoot: '/tmp/support-worktree',
+      baseCommitSha: 'abc123',
+      repoId: 'support-repo',
+      role: 'support',
+    }]);
+  });
+
+  it('rejects readonly context bindings that carry branch metadata', () => {
+    const taskId = 'readonly-branch-field-task';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+          readonlyContextBindings: [{
+            originalRoot: '/tmp/support-origin',
+            worktreeRoot: '/tmp/support-worktree',
+            baseCommitSha: 'abc123',
+            repoId: 'support-repo',
+            role: 'support',
+            worktreeBranch: 'task/should-not-exist',
+          }],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+        },
+      }, null, 2) + '\n',
+    );
+
+    expect(() => readTaskJson(taskId, repoRoot)).toThrow();
+  });
+
   // -------------------------------------------------------------------------
   // requireAuthorizedActiveContextPack with TASKSAIL_TASK_ID
   // -------------------------------------------------------------------------

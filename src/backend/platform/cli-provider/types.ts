@@ -2,6 +2,7 @@ import type { AgentId, AutonomyProfile } from '../core/index.js';
 
 export interface AutonomyIntent {
   model: string;
+  reasoningEffort?: string;
   autonomyProfile: AutonomyProfile;
   allowedDirs: string[];
   disallowTempDir: boolean;
@@ -225,6 +226,7 @@ export interface PlannerEventParseResult {
 
 export interface PlannerLaunchOptions {
   model: string;
+  reasoningEffort?: string;
   resumeSessionId?: string | null;
   plannerSessionId?: string | null;
   prompt?: string;
@@ -255,6 +257,16 @@ export interface ProviderRuntimeManifestEnvVar {
   name: string;
   kind: 'path' | 'json' | 'file' | 'scalar';
   description: string;
+}
+
+export interface ProviderReasoningEffortCapabilities {
+  providerId: string;
+  cliVersion: string | null;
+  effortChoices: string[];
+  source: 'cache' | 'probe' | 'unavailable';
+  stale: boolean;
+  error?: string;
+  errorCode?: 'probe-failed' | 'effort-flag-missing' | 'choices-unparseable';
 }
 
 export interface PlannerChunkParser {
@@ -288,4 +300,5 @@ export interface CliProvider {
   runtimeManifestEnvVars(): readonly ProviderRuntimeManifestEnvVar[];
   createPlannerParser?(): PlannerChunkParser | null;
   buildPlannerLaunchSpec?(options: PlannerLaunchOptions): PlannerLaunchSpec | null;
+  reasoningEffortCapabilities?(repoRoot: string): Promise<ProviderReasoningEffortCapabilities>;
 }

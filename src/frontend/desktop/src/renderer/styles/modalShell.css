@@ -151,6 +151,11 @@
   opacity: 0.7;
 }
 
+.modal-shell__close:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 .modal-shell--terminal .modal-shell__close {
   color: var(--terminal-text-muted);
 }

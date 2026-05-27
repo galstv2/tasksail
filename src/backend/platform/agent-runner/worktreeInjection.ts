@@ -1,10 +1,11 @@
 /**
  * §B1 Worktree CWD injection.
  *
- * When a task has a `.task.json` sidecar listing repoBindings, every agent
- * process must launch with CWD inside the per-task worktreeRoot — not the
- * originalRoot. This module reads the sidecar once and produces a canonical
- * originalRoot → worktreeRoot substitution map. The map is then applied to:
+ * When a task has a `.task.json` sidecar listing branch-owned repoBindings or
+ * readonlyContextBindings, every agent process must launch with CWD inside the
+ * per-task worktreeRoot — not the originalRoot. This module reads the sidecar
+ * once and produces a canonical originalRoot → worktreeRoot substitution map.
+ * The map is then applied to:
  *   - `FocusedRepoResult` path fields
  *   - autonomy `allowedDirs` entries (defense-in-depth)
  *
@@ -41,7 +42,10 @@ export async function buildWorktreeBindingMap(
   if (!taskId) return EMPTY_BINDING_MAP;
   const sidecar = readTaskJsonSafe(taskId, repoRoot);
   if (!sidecar) return EMPTY_BINDING_MAP;
-  const bindings = sidecar.contextPackBinding.repoBindings;
+  const bindings = [
+    ...sidecar.contextPackBinding.repoBindings,
+    ...(sidecar.contextPackBinding.readonlyContextBindings ?? []),
+  ];
   if (bindings.length === 0) return EMPTY_BINDING_MAP;
 
   const substitutions = new Map<string, string>();

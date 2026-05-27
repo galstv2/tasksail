@@ -83,6 +83,10 @@ vi.mock('../../agent-runner/pipeline/remediation.js', () => ({
   ADVISORY_FINDING_HEADING: '## Advisory Findings',
 }));
 
+vi.mock('../../task-notifications/producer.js', () => ({
+  recordTaskCompletedNotification: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -100,6 +104,8 @@ import { commitTaskSnapshot } from '../errorItems.js';
 import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { transitionTask } from '../taskRegistry.js';
 import { getPlatformConfig } from '../../platform-config/get.js';
+import { recordTaskCompletedNotification } from '../../task-notifications/producer.js';
+import type { TaskReadonlyContextBinding } from '../taskJson.js';
 
 // ---------------------------------------------------------------------------
 // Typed mocks
@@ -115,6 +121,7 @@ const mockCommitTaskSnapshot = vi.mocked(commitTaskSnapshot);
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
 const mockTransitionTask = vi.mocked(transitionTask);
 const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
+const mockRecordTaskCompletedNotification = vi.mocked(recordTaskCompletedNotification);
 
 const FAKE_TASK_ID = 'test-task-001';
 
@@ -171,7 +178,7 @@ function writeTaskSidecar(repoRoot: string, taskId: string, bindings: Array<{
   worktreeRoot: string;
   worktreeBranch: string;
   baseCommitSha: string;
-}>): void {
+}>, readonlyContextBindings: TaskReadonlyContextBinding[] = []): void {
   const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
@@ -182,6 +189,7 @@ function writeTaskSidecar(repoRoot: string, taskId: string, bindings: Array<{
       dataHostDir: null,
       dataContainerDir: null,
       repoBindings: bindings,
+      readonlyContextBindings,
     },
     materialization: {
       strategy: 'copy',
@@ -303,6 +311,44 @@ describe('completePendingItem archive integration', () => {
           },
         }),
       ]);
+      return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(mockFileTaskArchive).toHaveBeenCalled();
+  });
+
+  it('excludes readonly context bindings from archived branch handoffs', async () => {
+    const platform = createSourceRepo(repoRoot, 'platform');
+    writeTaskSidecar(repoRoot, FAKE_TASK_ID, [
+      {
+        originalRoot: platform.repoRoot,
+        worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'platform'),
+        worktreeBranch: platform.branch,
+        baseCommitSha: platform.baseCommitSha,
+      },
+    ], [{
+      originalRoot: path.join(repoRoot, 'origin', 'tools'),
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'tools'),
+      baseCommitSha: 'tools-base',
+      repoId: 'tools',
+      role: 'support',
+    }]);
+
+    mockFileTaskArchive.mockImplementation(async () => {
+      const ledgerPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'handoffs', 'branch-handoffs.json');
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
+      expect(ledger).toHaveLength(1);
+      expect(ledger[0]).toEqual(expect.objectContaining({
+        repo_root: platform.repoRoot,
+        branch: platform.branch,
+      }));
+      expect(JSON.stringify(ledger)).not.toContain('/tools');
       return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
     });
 
@@ -495,6 +541,65 @@ describe('completePendingItem archive integration', () => {
       'completed',
       expect.objectContaining({ archivePath: '/archives/recovered.md' }),
     );
+  });
+
+  it('records a completion notification after durable completion and before queue advance', async () => {
+    const callOrder: string[] = [];
+    mockFileTaskArchive.mockResolvedValue({
+      passed: true,
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+      data: { record_md_path: '/archives/test-task-001.md' },
+    });
+    mockTransitionTask.mockImplementationOnce(async () => {
+      callOrder.push('transition');
+    });
+    mockRecordTaskCompletedNotification.mockImplementationOnce(async () => {
+      const terminalEventsPath = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', FAKE_TASK_ID, 'terminal-events.json');
+      if (existsSync(terminalEventsPath)) {
+        const events = JSON.parse(readFileSync(terminalEventsPath, 'utf-8')).events;
+        expect(events.some((event: { eventId: string }) => event.eventId === 'pipeline.completed')).toBe(false);
+      }
+      callOrder.push('notification');
+      return null;
+    });
+    mockActivateNextPendingItemIfReady.mockImplementationOnce(async () => {
+      callOrder.push('activate-next');
+      return { activated: false, reason: 'no-pending-items' };
+    });
+
+    await completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    });
+
+    expect(mockRecordTaskCompletedNotification).toHaveBeenCalledWith({
+      repoRoot,
+      taskId: FAKE_TASK_ID,
+      archivePath: '/archives/test-task-001.md',
+    });
+    const terminalEvents = JSON.parse(readFileSync(
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', FAKE_TASK_ID, 'terminal-events.json'),
+      'utf-8',
+    )).events;
+    const terminalEventIds = terminalEvents.map((event: { eventId: string }) => event.eventId);
+    expect(terminalEventIds.indexOf('pipeline.completed')).toBeGreaterThanOrEqual(0);
+    expect(terminalEventIds.indexOf('pipeline.completed')).toBeLessThan(terminalEventIds.indexOf('queue.task.completed'));
+    expect(callOrder).toEqual(['transition', 'notification', 'activate-next']);
+  });
+
+  it('does not fail completion or queue advance when completion notification recording fails', async () => {
+    mockRecordTaskCompletedNotification.mockRejectedValueOnce(new Error('notification store unavailable'));
+
+    await expect(completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    })).resolves.toBeUndefined();
+
+    expect(mockActivateNextPendingItemIfReady).toHaveBeenCalled();
   });
 
   it('runs explicit recovery retrospective re-sync with taskId', async () => {

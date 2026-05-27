@@ -1,8 +1,9 @@
 type DesktopShellSource = Window['desktopShell'] & {
   loadAgentConfig: () => Promise<unknown>;
   loadModelCatalog: () => Promise<unknown>;
+  loadCapabilities?: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
   saveAgentModels: (
-    assignments: Array<{ agent_id: string; model_id: string }>,
+    assignments: Array<{ agent_id: string; model_id: string; reasoning_effort?: string }>,
   ) => Promise<unknown>;
   addModel: (displayName: string, modelId: string) => Promise<unknown>;
   removeModel: (modelId: string) => Promise<unknown>;
@@ -22,8 +23,9 @@ type PlannerReadParentChainArchiveBundlePayload = import('../../shared/desktopCo
 type PlannerReadParentArchiveMarkdownPayload = import('../../shared/desktopContract').PlannerReadParentArchiveMarkdownRequest['payload'];
 type DirectFollowUpDraft = import('../../shared/desktopContract').FollowUpDirectSubmissionDraft;
 type ComposerStage = import('../../shared/desktopContract').ComposerStage;
+type TaskNotificationsMarkSeenPayload = import('../../shared/desktopContract').TaskNotificationsMarkSeenRequest['payload'];
 
-type DesktopShellClient = Pick<
+type DesktopShellBaseClient = Pick<
   DesktopShellSource,
   | 'getBootstrapInfo'
   | 'describeActiveProvider'
@@ -112,12 +114,34 @@ type DesktopShellClient = Pick<
   | 'subscribeContextPackCatalogChanged'
 >;
 
+type DesktopShellTaskNotificationsClient = {
+  readTaskNotifications: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  markTaskNotificationsSeen: (
+    payload: TaskNotificationsMarkSeenPayload,
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  dismissTaskNotification: (
+    notificationId: string,
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  dismissAllTaskNotifications: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  onTaskNotificationsUpdate: (
+    listener: (event: import('../../shared/desktopContract').TaskNotificationEvent) => void,
+  ) => () => void;
+};
+
+type DesktopShellCapabilitiesClient = {
+  loadCapabilities: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+};
+
+type DesktopShellClient = DesktopShellBaseClient & Partial<DesktopShellCapabilitiesClient> & Partial<DesktopShellTaskNotificationsClient>;
+type DesktopShellRuntimeClient = DesktopShellBaseClient & DesktopShellCapabilitiesClient & DesktopShellTaskNotificationsClient;
+
 type DesktopShellGetter = () => DesktopShellSource | Window['desktopShell'];
 
 export function createDesktopShellClient(
   getDesktopShell: DesktopShellGetter = () => window.desktopShell as unknown as DesktopShellSource,
-): DesktopShellClient {
-  const readShell = (): DesktopShellClient => getDesktopShell() as DesktopShellClient;
+): DesktopShellRuntimeClient {
+  const readShell = (): DesktopShellRuntimeClient =>
+    getDesktopShell() as DesktopShellRuntimeClient;
 
   return {
     getBootstrapInfo: () => readShell().getBootstrapInfo(),
@@ -208,6 +232,13 @@ export function createDesktopShellClient(
     validateExternalMcpConnection: (payload) => readShell().validateExternalMcpConnection(payload),
     loadAgentConfig: () => readShell().loadAgentConfig(),
     loadModelCatalog: () => readShell().loadModelCatalog(),
+    loadCapabilities: () => {
+      const shell = readShell();
+      if (!shell.loadCapabilities) {
+        return Promise.reject(new Error('agentConfig.loadCapabilities is not available.'));
+      }
+      return shell.loadCapabilities();
+    },
     saveAgentModels: (assignments) => readShell().saveAgentModels(assignments),
     addModel: (displayName, modelId) => readShell().addModel(displayName, modelId),
     removeModel: (modelId) => readShell().removeModel(modelId),
@@ -236,6 +267,12 @@ export function createDesktopShellClient(
     moveToOpen: (fileName, sourceColumn) => readShell().moveToOpen(fileName, sourceColumn),
     killTask: (fileName, taskId) => readShell().killTask(fileName, taskId),
     retryKillCleanup: (fileName, taskId) => readShell().retryKillCleanup(fileName, taskId),
+    readTaskNotifications: () => readShell().readTaskNotifications(),
+    markTaskNotificationsSeen: (payload: TaskNotificationsMarkSeenPayload) =>
+      readShell().markTaskNotificationsSeen(payload),
+    dismissTaskNotification: (notificationId) =>
+      readShell().dismissTaskNotification(notificationId),
+    dismissAllTaskNotifications: () => readShell().dismissAllTaskNotifications(),
     getBackendServiceStatus: () => readShell().getBackendServiceStatus(),
     startBackendServices: () => readShell().startBackendServices(),
     stopBackendServices: () => readShell().stopBackendServices(),
@@ -258,6 +295,8 @@ export function createDesktopShellClient(
       readShell().saveContextPackSidebarState(selectedContextPackDir, selection),
     deleteContextPack: (contextPackDir) =>
       readShell().deleteContextPack(contextPackDir),
+    onTaskNotificationsUpdate: (listener) =>
+      readShell().onTaskNotificationsUpdate(listener),
     subscribeContextPackCatalogChanged: (listener) =>
       readShell().subscribeContextPackCatalogChanged(listener),
   };

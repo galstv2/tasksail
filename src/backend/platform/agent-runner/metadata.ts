@@ -6,7 +6,7 @@ import type {
   RegistryJson,
   RegistryAgentEntry,
 } from './types.js';
-import { getActiveProvider } from '../cli-provider/index.js';
+import { getActiveProvider, normalizeReasoningEffort } from '../cli-provider/index.js';
 
 /**
  * Mapping from human-friendly AgentId to registry agent_id.
@@ -74,12 +74,14 @@ export function resolveAgentProfile(
     );
   }
 
+  const reasoningEffort = normalizeReasoningEffort(entry.reasoning_effort);
   return {
     id: agentId,
     registryId: entry.agent_id,
     displayName: entry.human_name,
     role: entry.role_name,
     requiredModel: entry.required_model,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     autonomyProfile: entry.autonomy_profile as AgentProfile['autonomyProfile'],
     allowedDirs: entry.allowed_dirs,
     denyRules: entry.deny_rules,

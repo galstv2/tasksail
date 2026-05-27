@@ -68,6 +68,7 @@ const DROPBOX_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'dropbox');
 const PENDING_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'pendingitems');
 const ERROR_ITEMS_DIR = join(REPO_ROOT, 'AgentWorkSpace', 'error-items');
 const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
+const COMPLETED_TASK_BOARD_LIMIT = 50;
 const log = createLogger('desktop/main.taskBoard');
 const scheduledKillCleanups = new Set<string>();
 
@@ -264,6 +265,24 @@ function overlayStoppingFromKillRequests(
   };
 }
 
+function applyPendingItemOverlays(
+  pendingItems: TaskBoardPendingItem[],
+  activationProgress: Map<string, ActivationProgressForBoard> | null,
+  killRequests: Map<string, KillRequestForBoard> | null,
+): TaskBoardPendingItem[] {
+  const pipelineStartedAt = new Map(
+    listActivePipelines().map((entry) => [entry.taskId, entry.startedAt]),
+  );
+  const withActivation = activationProgress
+    ? pendingItems.map((item) => overlayActivationProgress(item, activationProgress))
+    : pendingItems;
+  return withActivation.map((item) =>
+    overlayActivePipelineStartedAt(item, pipelineStartedAt),
+  ).map((item) =>
+    killRequests ? overlayStoppingFromKillRequests(item, killRequests) : item,
+  );
+}
+
 function sendBoardResponseToWindows(response: TaskBoardReadBoardResponse): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -350,7 +369,7 @@ export async function readTaskBoard(
       if (archivedResult.ok && 'tasks' in archivedResult.response) {
         completedItems = newestArchivedTasks(
           (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks,
-          10,
+          COMPLETED_TASK_BOARD_LIMIT,
         );
       }
     }
@@ -376,17 +395,7 @@ export async function readTaskBoard(
         ...tasks.active.map(registryEntryToPendingItem),
         ...tasks.pending.map(registryEntryToPendingItem),
       ];
-      const pipelineStartedAt = new Map(
-        listActivePipelines().map((entry) => [entry.taskId, entry.startedAt]),
-      );
-      const withActivation = activationProgress
-        ? pendingItems.map((item) => overlayActivationProgress(item, activationProgress))
-        : pendingItems;
-      const displayPendingItems = withActivation.map((item) =>
-        overlayActivePipelineStartedAt(item, pipelineStartedAt),
-      ).map((item) =>
-        killRequests ? overlayStoppingFromKillRequests(item, killRequests) : item,
-      );
+      const displayPendingItems = applyPendingItemOverlays(pendingItems, activationProgress, killRequests);
       const errorItems = tasks.failed.map(registryEntryToItem);
 
       const response: TaskBoardReadBoardResponse = {
@@ -444,17 +453,7 @@ export async function readTaskBoard(
       ...item,
       state: (item.taskId && activeTaskIdSet.has(item.taskId) ? 'active' : 'pending') as 'active' | 'pending',
     }));
-    const pipelineStartedAt = new Map(
-      listActivePipelines().map((entry) => [entry.taskId, entry.startedAt]),
-    );
-    const withActivation = activationProgress
-      ? pendingItems.map((item) => overlayActivationProgress(item, activationProgress))
-      : pendingItems;
-    const displayPendingItems = withActivation.map((item) =>
-      overlayActivePipelineStartedAt(item, pipelineStartedAt),
-    ).map((item) =>
-      killRequests ? overlayStoppingFromKillRequests(item, killRequests) : item,
-    );
+    const displayPendingItems = applyPendingItemOverlays(pendingItems, activationProgress, killRequests);
 
     const errorItems = boardItemsFromVisibleMarkdownItems(errorRaw);
 

@@ -4,6 +4,7 @@ import type {
   BuildArgsResult,
   ProviderAgentProfile,
 } from '../../types.js';
+import { normalizeReasoningEffort } from '../../reasoningEffort.js';
 import { ARTIFACT_AUTHOR_DENY_FLOOR, REPO_EXECUTOR_DENY_FLOOR, hasShellAccess } from './denyRules.js';
 import { isInlineAgentContext } from './launchContext.js';
 
@@ -46,6 +47,10 @@ export function buildCopilotArgs(
 
   if (intent.model) {
     args.push('--model', intent.model);
+  }
+  const reasoningEffort = normalizeReasoningEffort(intent.reasoningEffort);
+  if (reasoningEffort) {
+    args.push('--effort', reasoningEffort);
   }
 
   for (const flag of additionalFlags) {

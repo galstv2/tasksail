@@ -4,6 +4,7 @@ import {
   extractContextPackBinding,
   formatBranchChainSection,
   formatContextPackBindingSection,
+  getTaskBranchChainRepoSourceKind,
   type TaskBranchChainBinding,
 } from '../markdown.js';
 
@@ -59,6 +60,64 @@ describe('Branch Chain markdown contract', () => {
 \`\`\``);
     expect(section.endsWith('\n')).toBe(false);
     expect(extractBranchChainBinding(section)).toEqual({ kind: 'binding', binding });
+  });
+
+  it('round-trips explicit sourceKind values through format and extract', () => {
+    const sourceKindBinding: TaskBranchChainBinding = {
+      ...binding,
+      repos: [
+        {
+          ...binding.repos[0]!,
+          repoRoot: '/repo/platform',
+          repoLabel: 'platform',
+          sourceKind: 'chain-history-handoff',
+        },
+        {
+          ...binding.repos[0]!,
+          repoRoot: '/repo/tools',
+          repoLabel: 'tools',
+          sourceKind: 'introduced-by-child',
+        },
+      ],
+    };
+
+    const section = formatBranchChainSection(sourceKindBinding);
+    const result = extractBranchChainBinding(section);
+
+    expect(result).toEqual({ kind: 'binding', binding: sourceKindBinding });
+  });
+
+  it('parses legacy repos without sourceKind and defaults through the helper only', () => {
+    const result = extractBranchChainBinding(formatBranchChainSection(binding));
+
+    expect(result).toEqual({ kind: 'binding', binding });
+    if (result.kind === 'binding') {
+      expect(result.binding.repos[0]).not.toHaveProperty('sourceKind');
+      expect(getTaskBranchChainRepoSourceKind(result.binding.repos[0]!)).toBe('parent-handoff');
+    }
+  });
+
+  it('returns invalid-schema for invalid sourceKind values', () => {
+    const invalidBinding = {
+      ...binding,
+      repos: [
+        {
+          ...binding.repos[0]!,
+          sourceKind: 'archived-parent',
+        },
+      ],
+    };
+
+    const result = extractBranchChainBinding(`## Branch Chain
+
+\`\`\`json
+${JSON.stringify(invalidBinding, null, 2)}
+\`\`\``);
+
+    expect(result.kind).toBe('invalid');
+    if (result.kind === 'invalid') {
+      expect(result.reason).toBe('invalid-schema');
+    }
   });
 
   it('returns malformed-json for invalid fenced JSON', () => {

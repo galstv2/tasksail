@@ -2,6 +2,7 @@ import type { ContextPackCreationModalProps } from '../../contextPackCreationTyp
 import { isDistributedEstateMode, isMonolithEstateMode } from '../../contextPackModeUtils';
 import RepositoryCard from './RepositoryCard';
 import FocusAreaCard from './FocusAreaCard';
+import { PlusIcon } from './icons';
 
 type ShapeStepProps = Pick<
   ContextPackCreationModalProps,
@@ -58,10 +59,11 @@ function ShapeStep({
         </div>
         <button
           type="button"
-          className="action-button action-button--secondary"
+          className="context-pack-modal__text-btn context-pack-modal__text-btn--accent"
           disabled={busy}
           onClick={onAddRepository}
         >
+          <PlusIcon />
           {isDistributedEstateMode(draft.mode) ? 'Add repository' : 'Add datapmse repo'}
         </button>
       </div>
@@ -92,10 +94,11 @@ function ShapeStep({
             </div>
             <button
               type="button"
-              className="action-button action-button--secondary"
+              className="context-pack-modal__text-btn context-pack-modal__text-btn--accent"
               disabled={busy}
               onClick={onAddFocusArea}
             >
+              <PlusIcon />
               Add focus area
             </button>
           </div>

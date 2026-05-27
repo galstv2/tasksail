@@ -551,26 +551,18 @@ describe('main.taskBoard', () => {
   });
 
   it('returns the newest completed tasks for the active context pack', async () => {
+    const archivedTasks = Array.from({ length: 52 }, (_, index) => archivedTask(
+      `DONE-${String(index + 1).padStart(2, '0')}`,
+      new Date(Date.UTC(2026, 4, 1, index)).toISOString(),
+    ));
+
     listArchivedTasksAction.mockResolvedValue({
       ok: true,
       response: {
         action: 'planner.listArchivedTasks',
         mode: 'found',
         message: 'Archived tasks found.',
-        tasks: [
-          archivedTask('DONE-OLD-01', '2026-05-01T12:00:00Z'),
-          archivedTask('DONE-NEWEST', '2026-05-22T19:00:00Z'),
-          archivedTask('DONE-OLD-02', '2026-05-02T12:00:00Z'),
-          archivedTask('DONE-09', '2026-05-09T12:00:00Z'),
-          archivedTask('DONE-10', '2026-05-10T12:00:00Z'),
-          archivedTask('DONE-11', '2026-05-11T12:00:00Z'),
-          archivedTask('DONE-12', '2026-05-12T12:00:00Z'),
-          archivedTask('DONE-13', '2026-05-13T12:00:00Z'),
-          archivedTask('DONE-14', '2026-05-14T12:00:00Z'),
-          archivedTask('DONE-15', '2026-05-15T12:00:00Z'),
-          archivedTask('DONE-16', '2026-05-16T12:00:00Z'),
-          archivedTask('DONE-17', '2026-05-17T12:00:00Z'),
-        ],
+        tasks: archivedTasks,
       },
     });
 
@@ -581,18 +573,10 @@ describe('main.taskBoard', () => {
       return;
     }
     const response = result.response as TaskBoardReadBoardResponse;
-    expect(response.completedItems.map((item) => item.taskId)).toEqual([
-      'DONE-NEWEST',
-      'DONE-17',
-      'DONE-16',
-      'DONE-15',
-      'DONE-14',
-      'DONE-13',
-      'DONE-12',
-      'DONE-11',
-      'DONE-10',
-      'DONE-09',
-    ]);
+    expect(response.completedItems).toHaveLength(50);
+    expect(response.completedItems[0]?.taskId).toBe('DONE-52');
+    expect(response.completedItems[49]?.taskId).toBe('DONE-03');
+    expect(response.completedItems.map((item) => item.taskId)).not.toContain('DONE-02');
   });
 
   it('returns empty task arrays when no active context pack exists', async () => {

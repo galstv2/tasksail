@@ -8,6 +8,7 @@ import type {
   PlannerNormalizedEvent,
   PlannerUsage,
 } from '../../types.js';
+import { normalizeReasoningEffort } from '../../reasoningEffort.js';
 import { REPO_EXECUTOR_DENY_FLOOR } from './denyRules.js';
 import { buildCopilotEnv } from './envMapper.js';
 import { applyCopilotPlannerPersonality } from './plannerPersonality.js';
@@ -335,9 +336,11 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
   const allowedRoots = dedupe(options.allowedRoots ?? ['.'])
     .map((root) => (path.isAbsolute(root) ? root : path.join(launchCwd, root)));
 
+  const reasoningEffort = normalizeReasoningEffort(options.reasoningEffort);
   const args = [
     '--agent', COPILOT_PLANNER_AGENT_ID,
     '--model', options.model,
+    ...(reasoningEffort ? ['--effort', reasoningEffort] : []),
     '--no-ask-user',
     ...PLANNER_ALLOW_TOOLS.flatMap((tool) => ['--allow-tool', tool]),
     ...PLANNER_DENY_TOOLS.flatMap((tool) => ['--deny-tool', tool]),

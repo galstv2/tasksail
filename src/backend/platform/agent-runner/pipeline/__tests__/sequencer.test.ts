@@ -25,6 +25,7 @@ const resolvePaths = vi.fn();
 const readTextFile = vi.fn();
 const writeTextFile = vi.fn();
 const ensureDir = vi.fn();
+const emitTaskProgressEvent = vi.fn().mockResolvedValue(undefined);
 const nowIsoCompact = vi.fn(() => '2026-04-18T00-00-00Z');
 const getErrorMessage = vi.fn((e: unknown) => (e instanceof Error ? e.message : String(e)));
 const readEnvAssignment = vi.fn(() => undefined);
@@ -35,6 +36,7 @@ vi.mock('../../../core/index.js', () => ({
   readTextFile,
   writeTextFile,
   ensureDir,
+  emitTaskProgressEvent,
   nowIsoCompact,
   getErrorMessage,
   readEnvAssignment,

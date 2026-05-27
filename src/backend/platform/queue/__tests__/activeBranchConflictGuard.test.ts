@@ -88,7 +88,7 @@ describe('active branch conflict guard', () => {
       candidateTaskId: 'child-a',
       activeTaskIds: ['active-a'],
       activationBranchCandidatePlans: [candidate({
-        mode: 'chained',
+        mode: 'chained-existing',
         originalRoot: gitRoot,
         repoLabel: 'different-label',
         worktreeBranch: 'task/root',
@@ -134,10 +134,10 @@ describe('active branch conflict guard', () => {
       candidateTaskId: 'child-a',
       activeTaskIds: ['active-main', 'active-root'],
       activationBranchCandidatePlans: [candidate({
-        mode: 'chained',
+        mode: 'chained-introduced',
         originalRoot: gitRoot,
         worktreeBranch: 'task/root',
-        createBranch: false,
+        createBranch: true,
       })],
     });
 

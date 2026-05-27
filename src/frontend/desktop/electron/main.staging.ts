@@ -23,6 +23,7 @@ import type {
 import { sleep } from '../../../backend/platform/core/io.js';
 import { slugify } from '../../../backend/platform/core/text.js';
 import { formatAgentVisibleContextPackBindingSection } from '../../../backend/platform/queue/markdown.js';
+import { resolveFrozenStandardSelectionRoles } from '../../../backend/platform/queue/standardSelectionRoles.js';
 import type { StagedDraftContent } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import { getNodeErrorCode } from './main.textUtils';
@@ -140,6 +141,27 @@ function cloneContextPackBinding(
       : binding.selectedTestTarget,
     selectedSupportTargets: binding.selectedSupportTargets.map((target) => ({ ...target })),
   };
+}
+
+async function freezePlannerStandardSelectionRoles(
+  binding: PlannerStagingContextPackBinding,
+  fallbackContextPackDir?: string | null,
+): Promise<PlannerStagingContextPackBinding> {
+  const repositoryTypes = await resolveFrozenStandardSelectionRoles({
+    repoRoot: REPO_ROOT,
+    contextPackDir: binding.contextPackDir || trimOrEmpty(fallbackContextPackDir),
+    deepFocusEnabled: binding.deepFocusEnabled,
+    selectedRepoIds: binding.selectedRepoIds,
+    selectedFocusIds: binding.selectedFocusIds,
+    repositoryTypes: binding.repositoryTypes,
+    primaryRepoId: binding.primaryRepoId,
+    primaryFocusId: binding.primaryFocusId,
+  });
+  if (binding.deepFocusEnabled === true) {
+    const { repositoryTypes: _repositoryTypes, ...withoutRepositoryTypes } = binding;
+    return withoutRepositoryTypes;
+  }
+  return repositoryTypes ? { ...binding, repositoryTypes } : binding;
 }
 
 function buildPlannerStagedFilename(title: string, now: Date): string {
@@ -423,7 +445,7 @@ export async function initializeStagedPlanningDraft(
     && isMonolithEstate(options.focusedRepo?.estateType)
     && (options.focusedRepo?.selectedFocusIds?.filter((id) => id.trim()).length ?? 0) > 1;
 
-  const defaultContextPackBinding: PlannerStagingContextPackBinding = options.contextPackBinding
+  const defaultContextPackBindingInput: PlannerStagingContextPackBinding = options.contextPackBinding
     ? cloneContextPackBinding(options.contextPackBinding)
     : {
         contextPackDir: trimOrEmpty(options.contextPackDir),
@@ -454,8 +476,15 @@ export async function initializeStagedPlanningDraft(
         selectedTestTarget: deepFocusTestTarget,
         selectedSupportTargets: deepFocusSupportTargets,
       };
+  const defaultContextPackBinding = await freezePlannerStandardSelectionRoles(
+    defaultContextPackBindingInput,
+    options.contextPackDir,
+  );
   const childTaskExecutionScope = options.childTaskExecutionScope
-    ? cloneContextPackBinding(options.childTaskExecutionScope)
+    ? await freezePlannerStandardSelectionRoles(
+      cloneContextPackBinding(options.childTaskExecutionScope),
+      options.contextPackDir,
+    )
     : undefined;
 
   const metadata: PlannerStagingSidecar = {

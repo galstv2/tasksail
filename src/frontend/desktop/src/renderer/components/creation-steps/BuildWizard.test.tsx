@@ -129,12 +129,9 @@ describe('BuildWizard', () => {
     expect(onStepChange).not.toHaveBeenCalled();
   });
 
-  it('Continue button advances to the location step', () => {
-    const onStepChange = vi.fn();
-    render(<BuildWizard {...makeProps({ onStepChange })} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(onStepChange).toHaveBeenCalledWith('location');
+  it('does not render an in-body Continue button (footer owns the CTA)', () => {
+    render(<BuildWizard {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
   });
 
   it('renders part builders for the build step', () => {

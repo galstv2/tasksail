@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { ChevronIcon, PrimaryToggleLabel } from './icons';
+import { ChevronIcon, CloseIcon, PrimaryToggleLabel } from './icons';
 
 import type {
   ContextPackCreationDraft,
@@ -58,22 +58,32 @@ function RepositoryCard({
               ? 'Main repository'
               : `Repository ${index + 1}`}
           </span>
-          <p className="panel__meta">
-            {repository.primary
-              ? 'Agents will work in this repository.'
-              : 'Available to agents as context.'}
-          </p>
         </div>
-        {index > 0 ? (
+        <div className="context-pack-modal__card-header-actions">
           <button
             type="button"
-            className="action-button action-button--secondary"
-            disabled={busy}
-            onClick={() => onRemoveRepository(repository.key)}
+            className={classNames(
+              'context-pack-modal__toggle-pill',
+              repository.primary && 'context-pack-modal__toggle-pill--active',
+            )}
+            onClick={() => onSetPrimaryRepository(repository.key)}
+            aria-pressed={repository.primary}
           >
-            Remove
+            <PrimaryToggleLabel primary={repository.primary} />
           </button>
-        ) : null}
+          {index > 0 ? (
+            <button
+              type="button"
+              className="context-pack-modal__icon-btn context-pack-modal__icon-btn--danger"
+              disabled={busy}
+              onClick={() => onRemoveRepository(repository.key)}
+              aria-label="Remove"
+              title="Remove repository"
+            >
+              <CloseIcon />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="context-pack-modal__grid">
@@ -196,18 +206,6 @@ function RepositoryCard({
           </label>
         </div>
       )}
-
-      <button
-        type="button"
-        className={classNames(
-          'context-pack-modal__toggle-pill',
-          repository.primary && 'context-pack-modal__toggle-pill--active',
-        )}
-        onClick={() => onSetPrimaryRepository(repository.key)}
-        aria-pressed={repository.primary}
-      >
-        <PrimaryToggleLabel primary={repository.primary} />
-      </button>
     </article>
   );
 }

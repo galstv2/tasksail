@@ -80,6 +80,31 @@ describe('emitTaskProgressEvent', () => {
       logger,
       repoRoot,
       taskId: 'task-1',
+      event: {
+        type: 'pipeline.dalton_mode.selected',
+        input: { mode: 'complex', reason: 'parallel-ok-complex' },
+      },
+    });
+    await emitTaskProgressEvent({
+      logger,
+      repoRoot,
+      taskId: 'task-1',
+      event: {
+        type: 'closeout.target_branch_update',
+        input: {
+          repoLabel: 'api',
+          targetRepoRoot: '/repos/api',
+          sourceBranch: 'task/task-1',
+          targetBranch: 'main',
+          status: 'applied',
+          detail: 'Applied task branch patch to the target index.',
+        },
+      },
+    });
+    await emitTaskProgressEvent({
+      logger,
+      repoRoot,
+      taskId: 'task-1',
       event: { type: 'auto_merge.skipped_child_chain' },
     });
     await emitTaskProgressEvent({
@@ -103,6 +128,8 @@ describe('emitTaskProgressEvent', () => {
       'queue.branch.created',
       'agent.launch.started',
       'pipeline.phase',
+      'pipeline.dalton_mode.selected',
+      'closeout.target_branch_update',
       'auto_merge.skipped_child_chain',
       'child_chain_failure_branch.branch_delete_skipped',
     ]));
@@ -112,7 +139,7 @@ describe('emitTaskProgressEvent', () => {
         source: 'runtime.branch',
         role: 'pipeline',
         severity: 'info',
-        message: 'Created worktree for api on branch task/task-1.',
+        message: 'Created writable task branch worktree for api on branch task/task-1.',
         extra: {
           repo: 'api',
           branch: 'task/task-1',
@@ -125,7 +152,7 @@ describe('emitTaskProgressEvent', () => {
         source: 'runtime.agent',
         role: 'agent',
         severity: 'info',
-        message: 'Started Dalton.',
+        message: 'Started Dalton - SWE.',
         extra: {
           agentId: 'dalton',
           launchId: 'launch-1',
@@ -136,6 +163,22 @@ describe('emitTaskProgressEvent', () => {
       {
         eventId: 'pipeline.phase:build->qa',
         extra: { phase: 'qa', priorPhase: 'build' },
+      },
+      {
+        eventId: 'pipeline.dalton_mode.selected',
+        message: 'Dalton mode selected: complex.',
+        extra: { mode: 'complex', reason: 'parallel-ok-complex' },
+      },
+      {
+        eventId: 'closeout.target_branch_update:api:task/task-1:applied:main',
+        message: 'Code changes from task branch task/task-1 were successfully staged on target branch main in target repo api at /repos/api.',
+        extra: {
+          repoLabel: 'api',
+          targetRepoRoot: '/repos/api',
+          sourceBranch: 'task/task-1',
+          targetBranch: 'main',
+          status: 'applied',
+        },
       },
       {
         eventId: 'auto_merge.skipped_child_chain',
@@ -259,7 +302,7 @@ describe('emitTaskProgressEvent', () => {
         role: 'agent',
         severity: 'warning',
         visible: false,
-        actorName: 'Ron (cleanup)',
+        actorName: 'Ron - QA (cleanup)',
       },
     ]);
   });
@@ -282,10 +325,108 @@ describe('emitTaskProgressEvent', () => {
         eventId: 'agent.cleanup.started:ron:cleanup:launch-cleanup',
         role: 'agent',
         visible: true,
-        actorName: 'Ron (cleanup)',
+        actorName: 'Ron - QA (cleanup)',
         message: 'Agent cleanup started.',
       },
     ]);
+  });
+
+  it('writes read-only support context and pipeline completion terminal events', async () => {
+    const logger = createLogger('platform/test').child({ taskId: 'task-terminal-new-events' });
+
+    await emitTaskProgressEvent({
+      logger,
+      repoRoot,
+      taskId: 'task-terminal-new-events',
+      event: {
+        type: 'activation.readonly_context.materialized',
+        input: {
+          repo: 'tools',
+          worktreeRoot: '/tmp/worktree/tools',
+          materializationStrategy: 'detached-readonly-context',
+        },
+      },
+    });
+    await emitTaskProgressEvent({
+      logger,
+      repoRoot,
+      taskId: 'task-terminal-new-events',
+      event: { type: 'pipeline.completed' },
+    });
+
+    expect(readLogMessages()).toEqual(expect.arrayContaining([
+      'activation.readonly_context.materialized',
+      'pipeline.completed',
+    ]));
+    expect(readEvents('task-terminal-new-events')).toMatchObject([
+      {
+        eventId: 'activation.readonly_context.materialized:tools:/tmp/worktree/tools',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'info',
+        visible: true,
+        message: 'Read-only support context materialized for tools; no target branch was created.',
+        extra: {
+          repo: 'tools',
+          worktreeRoot: '/tmp/worktree/tools',
+          materializationStrategy: 'detached-readonly-context',
+        },
+      },
+      {
+        eventId: 'pipeline.completed',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'success',
+        visible: true,
+        message: 'Pipeline completed.',
+      },
+    ]);
+  });
+
+  it('renders QA remediation cycle messages with cycle numbers and distinct event IDs', async () => {
+    const logger = createLogger('platform/test').child({ taskId: 'task-remediation-cycles' });
+
+    for (const event of [
+      { type: 'qa_remediation.cycle_started' as const, input: { cycle: 1 } },
+      { type: 'qa_remediation.cycle_started' as const, input: { cycle: 2 } },
+      { type: 'qa_remediation.cycle_completed' as const, input: { cycle: 1 } },
+      { type: 'qa_remediation.cycle_completed' as const, input: { cycle: 2 } },
+      { type: 'qa_remediation.exhausted' as const, input: { cycle: 2 } },
+      { type: 'qa_remediation.completed' as const },
+    ]) {
+      await emitTaskProgressEvent({ logger, repoRoot, taskId: 'task-remediation-cycles', event });
+    }
+
+    expect(readEvents('task-remediation-cycles')).toMatchObject([
+      {
+        eventId: 'qa_remediation.cycle_started:1',
+        message: 'QA remediation cycle 1 started.',
+      },
+      {
+        eventId: 'qa_remediation.cycle_started:2',
+        message: 'QA remediation cycle 2 started.',
+      },
+      {
+        eventId: 'qa_remediation.cycle_completed:1',
+        message: 'QA remediation cycle 1 completed.',
+      },
+      {
+        eventId: 'qa_remediation.cycle_completed:2',
+        message: 'QA remediation cycle 2 completed.',
+      },
+      {
+        eventId: 'qa_remediation.exhausted:2',
+        message: 'QA remediation exhausted after 2 cycle(s).',
+      },
+      {
+        eventId: 'qa_remediation.completed',
+        message: 'QA remediation completed.',
+      },
+    ]);
+    expect(readLogRecords().map((record) => record.extra)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cycle: 1 }),
+      expect.objectContaining({ cycle: 2 }),
+    ]));
   });
 
   it('does not add agent identity to system guardrail receipt events', async () => {
@@ -316,6 +457,54 @@ describe('emitTaskProgressEvent', () => {
       },
     ]);
     expect(readEvents('task-guardrail')[0]).not.toHaveProperty('actorName');
+  });
+
+  it('maps reasoning effort pre-spawn rejection to visible pipeline error output', async () => {
+    const logger = createLogger('platform/test').child({ taskId: 'task-effort' });
+
+    await emitTaskProgressEvent({
+      logger,
+      repoRoot,
+      taskId: 'task-effort',
+      event: {
+        type: 'pipeline.agent_reasoning_effort.rejected_before_spawn',
+        input: {
+          agentId: 'dalton',
+          modelId: 'gpt-5.4',
+          effort: 'ultra',
+          reason: 'unsupported-by-cli',
+        },
+      },
+    });
+
+    expect(readEvents('task-effort')).toMatchObject([
+      {
+        eventId: 'pipeline.agent_reasoning_effort.rejected_before_spawn:task-effort:dalton:ultra',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'error',
+        visible: true,
+        message: 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.',
+        extra: {
+          agentId: 'dalton',
+          modelId: 'gpt-5.4',
+          effort: 'ultra',
+          reason: 'unsupported-by-cli',
+        },
+      },
+    ]);
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        msg: 'pipeline.agent_reasoning_effort.rejected_before_spawn',
+        level: 'error',
+        extra: expect.objectContaining({
+          agentId: 'dalton',
+          modelId: 'gpt-5.4',
+          effort: 'ultra',
+          reason: 'unsupported-by-cli',
+        }),
+      }),
+    ]));
   });
 
   it('keeps terminal write failures non-fatal after backend progress writes', async () => {
@@ -351,16 +540,19 @@ describe('task progress structural guards', () => {
   it('rejects direct terminal-owned Logger.progress events outside the helper', () => {
     const terminalOwned = [
       'queue.branch.created',
+      'activation.readonly_context.materialized',
       'queue.active.activated',
       'agent.launch.started',
       'agent.launch.terminal',
       'queue.active.skipped',
       'pipeline.phase',
+      'pipeline.agent_reasoning_effort.rejected_before_spawn',
       'dalton_verification.launching',
       'closeout_remediation.launching',
       'archive.started',
       'archive.completed',
       'archive.failed',
+      'pipeline.completed',
       'queue.task.completed',
       'queue.task.failed',
       'queue.error_items.moved',
@@ -368,6 +560,7 @@ describe('task progress structural guards', () => {
       'auto_merge.applied',
       'auto_merge.skipped',
       'auto_merge.skipped_child_chain',
+      'closeout.target_branch_update',
       'closeout.finalized',
       'closeout.stranded.resumed',
       'activation.blocked.dirty-repos',

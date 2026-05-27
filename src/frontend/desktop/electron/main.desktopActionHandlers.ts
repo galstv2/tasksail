@@ -25,6 +25,7 @@ import {
 } from './externalMcpHandlers';
 import {
   addAgentModel,
+  loadAgentConfigCapabilities,
   loadAgentConfigAgents,
   loadAgentModelCatalog,
   removeAgentModel,
@@ -50,6 +51,12 @@ import {
   killTask as killTaskAction,
   retryKillCleanup as retryKillCleanupAction,
 } from './main.taskBoard';
+import {
+  dismissAllTaskNotifications,
+  dismissTaskNotification,
+  markTaskNotificationsSeen,
+  readTaskNotifications,
+} from './main.taskNotifications';
 import {
   submitDraftViaDropboxHelper,
   submitFollowUpViaHelper,
@@ -226,6 +233,7 @@ export type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   loadAgentConfigAgents: () => Promise<DesktopInvokeResult>;
   loadAgentModelCatalog: () => Promise<DesktopInvokeResult>;
+  loadAgentConfigCapabilities: () => Promise<DesktopInvokeResult>;
   saveAgentModels: (
     payload: import('../src/shared/desktopContract').AgentConfigSaveAgentModelsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
@@ -245,6 +253,14 @@ export type DesktopActionHandlers = {
     request: import('../src/shared/desktopContract').AgentInstructionsWriteFileRequest,
   ) => Promise<DesktopInvokeResult>;
   readTaskBoard: () => Promise<DesktopInvokeResult>;
+  readTaskNotifications: () => Promise<DesktopInvokeResult>;
+  markTaskNotificationsSeen: (
+    payload: { notificationIds?: string[]; allVisible?: boolean },
+  ) => Promise<DesktopInvokeResult>;
+  dismissTaskNotification: (
+    payload: { notificationId: string },
+  ) => Promise<DesktopInvokeResult>;
+  dismissAllTaskNotifications: () => Promise<DesktopInvokeResult>;
   readTaskContent: (
     payload: import('../src/shared/desktopContract').TaskBoardReadTaskContentRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
@@ -598,6 +614,7 @@ export function createDefaultDesktopActionHandlers(
   validateExternalMcpConnection: (payload) => validateExternalMcpConnection(payload),
   loadAgentConfigAgents: () => loadAgentConfigAgents(),
   loadAgentModelCatalog: () => loadAgentModelCatalog(),
+  loadAgentConfigCapabilities: () => loadAgentConfigCapabilities(),
   saveAgentModels: (payload) => saveAgentModels(payload),
   addAgentModel: (payload) => addAgentModel(payload),
   removeAgentModel: (payload) => removeAgentModel(payload),
@@ -605,6 +622,10 @@ export function createDefaultDesktopActionHandlers(
   readInstructionFile: (request) => readInstructionFile(request),
   writeInstructionFile: (request) => writeInstructionFile(request),
   readTaskBoard: () => readTaskBoard(listAvailableContextPacks),
+  readTaskNotifications: () => readTaskNotifications(),
+  markTaskNotificationsSeen: (payload) => markTaskNotificationsSeen(payload),
+  dismissTaskNotification: (payload) => dismissTaskNotification(payload),
+  dismissAllTaskNotifications: () => dismissAllTaskNotifications(),
   readTaskContent: (payload) => readTaskContentImpl(payload, listAvailableContextPacks),
   reorderPending: (payload) => reorderPendingImpl(payload, listAvailableContextPacks),
   requeueErrorItem: async (payload) => {

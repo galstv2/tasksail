@@ -55,7 +55,9 @@ function RealignmentSessionList({
                 </span>
               </div>
               <div className="session-list__item-meta">
-                <span>Task: {session.triggerTaskId}</span>
+                <span>
+                  Task <span className="session-list__meta-mono">{session.triggerTaskId}</span>
+                </span>
                 <span>{session.createdAt.slice(0, 10) || '\u2014'}</span>
               </div>
             </button>

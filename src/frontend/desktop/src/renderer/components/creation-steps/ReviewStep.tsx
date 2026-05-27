@@ -95,22 +95,37 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
       <div className="context-pack-modal__review-grid">
         <section className="context-pack-modal__editor-card">
           <p className="context-pack-modal__section-label">Pack summary</p>
-          <dl className="mapping-list">
-            <div>
-              <dt>Destination</dt>
-              <dd className="context-pack-modal__destination">
+          <div className="context-pack-modal__summary-list">
+            <div className="context-pack-modal__summary-row context-pack-modal__summary-row--stacked">
+              <span className="context-pack-modal__summary-label">Destination</span>
+              <span
+                className={classNames(
+                  'context-pack-modal__summary-value',
+                  'context-pack-modal__summary-value--mono',
+                  !draft.contextPackDir && 'context-pack-modal__summary-value--empty',
+                )}
+              >
                 {draft.contextPackDir || 'Not set'}
-              </dd>
+              </span>
             </div>
-            <div>
-              <dt>Mode</dt>
-              <dd>{contextPackModeLabel(draft.mode)}</dd>
+            <div className="context-pack-modal__summary-row">
+              <span className="context-pack-modal__summary-label">Mode</span>
+              <span className="context-pack-modal__summary-value">
+                {contextPackModeLabel(draft.mode)}
+              </span>
             </div>
-            <div>
-              <dt>Display name</dt>
-              <dd>{draft.estateName || 'Not set'}</dd>
+            <div className="context-pack-modal__summary-row">
+              <span className="context-pack-modal__summary-label">Display name</span>
+              <span
+                className={classNames(
+                  'context-pack-modal__summary-value',
+                  !draft.estateName && 'context-pack-modal__summary-value--empty',
+                )}
+              >
+                {draft.estateName || 'Not set'}
+              </span>
             </div>
-          </dl>
+          </div>
 
           <div className="context-pack-modal__repo-chips">
             {draft.repositories.map((repo) => (

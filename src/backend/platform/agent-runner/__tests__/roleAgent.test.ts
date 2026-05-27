@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 const existsSync = vi.fn();
 const testLogger = vi.hoisted(() => {
   const logger: {
@@ -17,7 +16,6 @@ const testLogger = vi.hoisted(() => {
   };
   return logger;
 });
-
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
@@ -25,29 +23,24 @@ vi.mock('node:fs', async () => {
     existsSync,
   };
 });
-
 vi.mock('../metadata.js', () => ({
   loadAgentRegistry: vi.fn(),
   resolveAgentProfile: vi.fn(),
   resolveActiveModel: vi.fn(),
 }));
-
 vi.mock('../autonomy.js', () => ({
   resolveAutonomyProfile: vi.fn(),
   buildAgentArgs: vi.fn(),
   formatAgentCommand: vi.fn(),
 }));
-
 vi.mock('../environment.js', () => ({
   buildAgentEnvironment: vi.fn(),
   buildAutonomyEnvironment: vi.fn(),
 }));
-
 vi.mock('../guardrails.js', async () => {
   const { createGuardrailsMockModule } = await import('./guardrailsMockFactory.js');
   return createGuardrailsMockModule();
 });
-
 vi.mock('../confinement.js', () => ({
   captureChangedPathsSnapshot: vi.fn(),
   validateDaltonBoundaryChanges: vi.fn(),
@@ -65,7 +58,6 @@ vi.mock('../processLifecycle.js', () => ({
   launchAgent: vi.fn(),
   waitForAgentDetailed: vi.fn(),
 }));
-
 vi.mock('../pythonHelpers.js', () => ({
   captureCodeDiff: vi.fn(),
   prepareExternalMcpLaunchContext: vi.fn(),
@@ -139,7 +131,8 @@ const { runRoleAgent } = await import('../roleAgent.js');
 const { loadAgentRegistry, resolveAgentProfile, resolveActiveModel } = await import('../metadata.js');
 const { resolveAutonomyProfile, buildAgentArgs, formatAgentCommand } = await import('../autonomy.js');
 const { buildAgentEnvironment, buildAutonomyEnvironment } = await import('../environment.js');
-const { resolvePaths } = await import('../../core/index.js');
+const { emitTaskProgressEvent, resolvePaths } = await import('../../core/index.js');
+const { copilotProvider } = await import('../../cli-provider/providers/copilot/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
@@ -164,6 +157,7 @@ const mockedBuildAgentEnvironment = vi.mocked(buildAgentEnvironment);
 const mockedBuildAutonomyEnvironment = vi.mocked(buildAutonomyEnvironment);
 const mockedRuntimeRequiresContainerPaths = vi.mocked(runtimeRequiresContainerPaths);
 const mockedResolvePaths = vi.mocked(resolvePaths);
+const mockedEmitTaskProgressEvent = vi.mocked(emitTaskProgressEvent);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
@@ -337,13 +331,54 @@ describe('runRoleAgent Ron requirement verification prelaunch', () => {
       signalCode: null,
     });
   });
-
+  const cap = (effortChoices = ['low', 'medium', 'high'], stale = false) => vi.spyOn(copilotProvider, 'reasoningEffortCapabilities').mockResolvedValue({
+    providerId: 'copilot', cliVersion: 'GitHub Copilot CLI 1.0.54', effortChoices, source: stale ? 'cache' : 'probe', stale,
+  });
+  const intent = (reasoningEffort?: string) => mockedResolveAutonomyProfile.mockReturnValue({ model: 'gpt-5.4', ...(reasoningEffort ? { reasoningEffort } : {}), autonomyProfile: 'artifact-author', allowedDirs: [], disallowTempDir: false });
+  const profile = (agentId: 'alice' | 'dalton' | 'dalton-verify' | 'ron', registryId: string) => mockedResolveAgentProfile.mockReturnValue({
+    id: agentId, registryId, displayName: agentId, role: agentId, requiredModel: 'gpt-5.4', autonomyProfile: agentId === 'dalton' || agentId === 'dalton-verify' ? 'repo-executor' : 'artifact-author', workflowOrder: 3, wallClockTimeoutS: 600,
+  } as never);
+  it.each([['alice', 'product-manager'], ['dalton', 'software-engineer'], ['dalton-verify', 'software-engineer-verify'], ['ron', 'qa']] as const)('rejects invalid configured reasoning effort for %s before spawn and emits a visible progress event', async (agentId, registryId) => {
+    cap(); profile(agentId, registryId); intent('ultra');
+    await expect(runRoleAgent({ agentId, taskId: 'task-test-001', skipWorkflowValidation: true })).rejects.toThrow(/Update Agent Configuration to None or a Copilot-advertised effort/u);
+    expect(mockedBuildAgentArgs).not.toHaveBeenCalled(); expect(mockedLaunchAgent).not.toHaveBeenCalled();
+    expect(mockedEmitTaskProgressEvent).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'task-test-001', event: { type: 'pipeline.agent_reasoning_effort.rejected_before_spawn', input: { agentId, modelId: 'gpt-5.4', effort: 'ultra', reason: 'unsupported-by-cli' } },
+    }));
+  });
+  it('validates configured reasoning effort before building launch args', async () => {
+    cap(); intent('high');
+    mockedBuildAgentArgs.mockReturnValue({
+      args: ['--agent', 'qa', '--effort', 'high'], launchCwd: '/repo', inlineAgentContext: false,
+      resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] },
+    });
+    await runRoleAgent({ agentId: 'ron', taskId: 'task-test-001', skipWorkflowValidation: true });
+    expect(mockedBuildAgentArgs).toHaveBeenCalledWith('/repo', expect.anything(), expect.objectContaining({ reasoningEffort: 'high' }), expect.anything());
+    expect(mockedLaunchAgent).toHaveBeenCalledWith(expect.arrayContaining(['--effort', 'high']), expect.objectContaining({ cwd: '/repo' }));
+  });
+  it('rejects stale capability fallback before spawn for configured reasoning effort', async () => {
+    cap(['high'], true); intent('high');
+    await expect(runRoleAgent({ agentId: 'ron', taskId: 'task-test-001', skipWorkflowValidation: true })).rejects.toThrow(/could not be discovered/u);
+    expect(mockedBuildAgentArgs).not.toHaveBeenCalled(); expect(mockedLaunchAgent).not.toHaveBeenCalled();
+  });
+  it('does not probe capabilities when no reasoning effort is configured', async () => {
+    const capabilities = vi.spyOn(copilotProvider, 'reasoningEffortCapabilities');
+    await runRoleAgent({ agentId: 'ron', taskId: 'task-test-001', skipWorkflowValidation: true });
+    expect(capabilities).not.toHaveBeenCalled(); expect(mockedLaunchAgent).toHaveBeenCalled();
+  });
+  it('logs post-spawn effort failures with content-safe metadata', async () => {
+    cap(['high']); intent('high');
+    mockedWaitForAgentDetailed.mockResolvedValueOnce({
+      exitCode: 1, stdoutTail: '', stderrTail: 'Model "gpt-5.4" does not support reasoning effort configuration (requested: "high").', terminationReason: 'exited', signalCode: null,
+    });
+    await expect(runRoleAgent({ agentId: 'ron', taskId: 'task-test-001', skipWorkflowValidation: true })).rejects.toThrow(/exited with code 1/u);
+    expect(testLogger.warn).toHaveBeenCalledWith('agent.reasoning_effort.rejected_after_spawn', { providerId: 'copilot', agentId: 'ron', modelId: 'gpt-5.4', effort: 'high' });
+  });
   afterEach(() => {
     delete process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'];
     delete process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'];
     vi.restoreAllMocks();
   });
-
   it('prepopulates Requirement Verification before normal Ron launch and passes taskId to QA completion', async () => {
     await runRoleAgent({
       agentId: 'ron',

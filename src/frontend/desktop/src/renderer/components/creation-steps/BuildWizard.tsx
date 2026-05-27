@@ -70,10 +70,8 @@ function BuildWizard({
       <div className="context-pack-modal__wizard-content">
         {wizardStep === 'project-type' ? (
           <WizardProjectType
-            busy={busy}
             mode={draft.mode}
             onModeChange={onChangeMode}
-            onContinue={() => onStepChange('location')}
           />
         ) : null}
 

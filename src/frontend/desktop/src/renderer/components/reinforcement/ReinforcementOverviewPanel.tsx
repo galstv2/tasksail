@@ -96,7 +96,8 @@ function ReinforcementOverviewPanel({
 
       {overview.lastSettlementId && (
         <p className="overview-panel__settlement" data-testid="overview-last-settlement">
-          Last settlement: {overview.lastSettlementId}
+          Last settlement{' '}
+          <span className="overview-panel__settlement-id">{overview.lastSettlementId}</span>
         </p>
       )}
     </div>

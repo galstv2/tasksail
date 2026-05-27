@@ -19,7 +19,6 @@ describe('validateDesktopActionRequest', () => {
       'action must be one of the approved desktop actions.',
     ]);
   });
-
   it('accepts payload-less actions with no errors', () => {
     for (const action of [
       'queue.readStatus',
@@ -49,6 +48,18 @@ describe('validateDesktopActionRequest', () => {
       action: 'taskBoard.retryKillCleanup',
       payload: { fileName: 'TASK-A.md', taskId: 'TASK-B' },
     })).toContain('payload.taskId must match payload.fileName without the .md suffix.');
+  });
+
+  it('validates task notification request payloads', () => {
+    const markSeen = { notificationIds: ['n-1', 'n-2'], allVisible: true };
+    for (const request of [{ action: 'taskNotifications.read' }, { action: 'taskNotifications.markSeen', payload: markSeen }, { action: 'taskNotifications.dismiss', payload: { notificationId: 'n-1' } }, { action: 'taskNotifications.dismissAll' }]) expect(validateDesktopActionRequest(request)).toEqual([]);
+    for (const [request, error] of [
+      [{ action: 'taskNotifications.markSeen', payload: { notificationIds: 'n-1' } }, 'payload.notificationIds must be a string array when provided.'],
+      [{ action: 'taskNotifications.markSeen', payload: { notificationIds: ['n-1', ''] } }, 'payload.notificationIds[1] must be a non-empty string.'],
+      [{ action: 'taskNotifications.markSeen', payload: { notificationIds: ['n-1'], allVisible: 'true' } }, 'payload.allVisible must be a boolean when provided.'],
+      [{ action: 'taskNotifications.dismiss', payload: { notificationId: '' } }, 'payload.notificationId must be a non-empty string.'],
+      [{ action: 'taskNotifications.read', payload: {} }, 'payload must be omitted.'],
+    ] as Array<[unknown, string]>) expect(validateDesktopActionRequest(request)).toContain(error);
   });
 
   describe('planner conversation history actions', () => {
@@ -1090,8 +1101,7 @@ describe('validateDesktopActionRequest', () => {
 
   describe('agentConfig.*', () => {
     it('accepts payload-less read actions', () => {
-      expect(validateDesktopActionRequest({ action: 'agentConfig.loadAgents' })).toEqual([]);
-      expect(validateDesktopActionRequest({ action: 'agentConfig.loadModelCatalog' })).toEqual([]);
+      for (const action of ['agentConfig.loadAgents', 'agentConfig.loadModelCatalog', 'agentConfig.loadCapabilities']) expect(validateDesktopActionRequest({ action })).toEqual([]);
     });
 
     it('accepts valid write payloads', () => {
@@ -1100,8 +1110,7 @@ describe('validateDesktopActionRequest', () => {
           action: 'agentConfig.saveAgentModels',
           payload: {
             assignments: [
-              { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
-              { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+              { agent_id: 'provider-planner', model_id: 'gpt-4.1' }, { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', reasoning_effort: 'high' },
             ],
           },
         }),
@@ -1132,6 +1141,7 @@ describe('validateDesktopActionRequest', () => {
           payload: {
             assignments: [
               { agent_id: '', model_id: 'bad model' },
+              { agent_id: 'provider-builder', model_id: 'gpt-4.1', reasoning_effort: 'High' },
               null,
             ],
           },
@@ -1139,7 +1149,8 @@ describe('validateDesktopActionRequest', () => {
       ).toEqual([
         'payload.assignments[0].agent_id must be a non-empty string.',
         'payload.assignments[0].model_id must match the approved agent model pattern.',
-        'payload.assignments[1] must be an object.',
+        'payload.assignments[1].reasoning_effort must be lowercase letters, numbers, or hyphens when provided.',
+        'payload.assignments[2] must be an object.',
       ]);
 
       expect(

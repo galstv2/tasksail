@@ -45,9 +45,8 @@ const WATCH_DEBOUNCE_MS = 150;
 const FINAL_DRAIN_REFRESH_COUNT = 2;
 
 const PIPELINE_PHASE_MESSAGES: Record<string, { message: string; severity: StreamEventOptions['severity'] }> = {
-  'test-capture-started': { message: 'Code capture started.', severity: 'info' },
-  'test-capture-completed': { message: 'Code capture completed.', severity: 'info' },
-  'test-capture-skipped': { message: 'Code capture skipped — could not resolve target repo.', severity: 'warning' },
+  // Code capture has canonical task terminal events from the backend. The
+  // legacy pipeline-phase fallback stays empty so it cannot duplicate them.
 };
 
 type RealignmentJobObservation = {

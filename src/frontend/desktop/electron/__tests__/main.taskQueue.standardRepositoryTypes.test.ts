@@ -94,4 +94,66 @@ Carry.
       repositoryTypes: { platform: 'primary', tools: 'primary' },
     }));
   });
+
+  it('forwards sidecar repositoryTypes through standard Bypass Lily upload', async () => {
+    const { submitUploadedSpecHelper } = await import('../main.taskQueue');
+    await submitUploadedSpecHelper(`## Request Summary
+
+Implement multi-primary support.
+
+## Desired Outcome
+
+Repository roles reach task markdown.
+
+## Constraints
+
+None
+
+## Critical Requirements
+
+None
+
+## Compatibility Requirements
+
+None
+
+## Required Validation
+
+None
+
+## Acceptance Signals
+
+- Selection Roles are forwarded.
+`, {
+      plannerSidecar: {
+        lineage: {
+          taskKind: 'standard',
+          parentTaskId: '',
+          parentQmdRecordId: '',
+          parentQmdScope: '',
+          rootTaskId: '',
+          followUpReason: '',
+        },
+        contextPackBinding: {
+          contextPackDir: '/packs/orders',
+          contextPackId: 'orders',
+          scopeMode: 'repo-selection',
+          primaryRepoId: 'platform',
+          selectedRepoIds: ['platform', 'tools'],
+          selectedFocusIds: [],
+          repositoryTypes: { platform: 'primary', tools: 'support' },
+          deepFocusEnabled: false,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      } as never,
+    });
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      repositoryTypes: { platform: 'primary', tools: 'support' },
+    }));
+  });
 });

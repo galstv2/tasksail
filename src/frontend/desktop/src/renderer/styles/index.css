@@ -1,6 +1,7 @@
 @import './variables.css';
 @import './components.css';
 @import './shell.css';
+@import './task-notifications.css';
 @import './sidebar/sidebar-shell.css';
 @import './sidebar/sidebar-pack-selector.css';
 @import './sidebar/sidebar-scope.css';

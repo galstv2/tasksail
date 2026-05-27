@@ -7,6 +7,11 @@ export interface RecentsTriggerProps {
   replayingTitle: string | null;
   popoverOpen: boolean;
   onToggle: () => void;
+  /** When true the trigger is rendered but non-interactive (e.g. once a planning
+   *  conversation has started — switching away would drop the active session). */
+  disabled?: boolean;
+  /** Tooltip shown when `disabled` is true, explaining why the control is locked. */
+  disabledHint?: string;
 }
 
 const REPLAY_TITLE_TRUNCATE = 18;
@@ -18,7 +23,7 @@ function truncate(value: string, max: number): string {
 
 export const RecentsTrigger = forwardRef<HTMLButtonElement, RecentsTriggerProps>(
   function RecentsTrigger(props, ref) {
-    const { count, loading, replayInFlight, replayingTitle, popoverOpen, onToggle } = props;
+    const { count, loading, replayInFlight, replayingTitle, popoverOpen, onToggle, disabled, disabledHint } = props;
 
     if (count === 0 && !loading) {
       return null;
@@ -55,20 +60,24 @@ export const RecentsTrigger = forwardRef<HTMLButtonElement, RecentsTriggerProps>
       );
     }
 
+    const baseClass = popoverOpen
+      ? 'recents-trigger recents-trigger--open'
+      : 'recents-trigger';
+    const className = disabled ? `${baseClass} recents-trigger--disabled` : baseClass;
+
     return (
       <button
         ref={ref}
         type="button"
-        className={
-          popoverOpen
-            ? 'recents-trigger recents-trigger--open'
-            : 'recents-trigger'
-        }
+        className={className}
         aria-haspopup="listbox"
         aria-expanded={popoverOpen}
         aria-controls="recents-listbox"
         aria-label={`Recent conversations, ${count} available`}
-        onClick={onToggle}
+        aria-disabled={disabled || undefined}
+        disabled={disabled}
+        title={disabled ? disabledHint : undefined}
+        onClick={disabled ? undefined : onToggle}
       >
         <span className="recents-trigger__label">Recent Task</span>
       </button>

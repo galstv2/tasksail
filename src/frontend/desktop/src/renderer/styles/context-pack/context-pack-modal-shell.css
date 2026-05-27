@@ -1,91 +1,9 @@
 /*
- * Covers the Context Pack modal shell: overlay, header, scroll body, close affordance, and sections.
- * Owns the structural .context-pack-modal__* selectors that frame the modal before controls or wizard rules.
- * Preserve this file first in the context-pack import block so shell cascade order remains stable.
+ * Covers the Context Pack modal body content: sections, editor cards, path rows,
+ * destination chips, discovery row, and tier grids. The overlay, header, close,
+ * scroll body, and footer chrome are provided by ModalShell (see modalShell.css).
  */
 /* ── §14  Context Pack Modal ─────────────────────────────────────────── */
-
-.context-pack-modal__overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--ts-z-modal);
-  display: grid;
-  place-items: center;
-  padding: 2rem;
-  background: rgba(8, 12, 20, 0);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: cpOverlayIn 250ms ease-out forwards;
-}
-
-@keyframes cpOverlayIn {
-  to {
-    background: rgba(8, 12, 20, 0.4);
-  }
-}
-
-.context-pack-modal__header {
-  margin-bottom: 0;
-  align-items: center;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--ts-border);
-  flex-shrink: 0;
-}
-
-.context-pack-modal__scroll-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem 0;
-  min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.08)) transparent;
-}
-
-.context-pack-modal__scroll-body::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
-.context-pack-modal__scroll-body::-webkit-scrollbar-track { background: transparent; }
-.context-pack-modal__scroll-body::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.12));
-  border-radius: var(--ts-radius-pill);
-}
-.context-pack-modal__scroll-body::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-scrollbar-thumb-hover, rgba(0, 0, 0, 0.2));
-}
-
-.context-pack-modal__header h2 {
-  margin: 0;
-  font-family: var(--ts-font-sans);
-  font-size: 0.92rem;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
-.context-pack-modal__close {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: var(--ts-bg-hover);
-  color: var(--ts-text-soft);
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: var(--ts-radius-pill);
-  transition:
-    color var(--ts-duration) var(--ts-ease),
-    background var(--ts-duration) var(--ts-ease),
-    opacity var(--ts-duration) var(--ts-ease);
-}
-
-.context-pack-modal__close:hover {
-  color: var(--ts-text);
-  background: rgba(30, 50, 100, 0.09);
-}
-
-.context-pack-modal__close:active {
-  opacity: 0.7;
-}
 
 .context-pack-modal__section-header,
 .context-pack-modal__card-header {
@@ -99,20 +17,19 @@
 }
 
 .context-pack-modal__section-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ts-text);
-  letter-spacing: -0.01em;
-}
-
-.context-pack-modal__card-label {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--ts-text);
   letter-spacing: -0.005em;
 }
 
-.context-pack-modal__header .panel__meta,
+.context-pack-modal__card-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ts-text);
+  letter-spacing: -0.005em;
+}
+
 .context-pack-modal__section-header .panel__meta,
 .context-pack-modal__card-header .panel__meta {
   margin: 0.1rem 0 0;
@@ -123,7 +40,7 @@
 
 .context-pack-modal__body {
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
   min-width: 0;
   overflow: hidden;
 }
@@ -133,11 +50,23 @@
   gap: 0.5rem;
 }
 
-.context-pack-modal__grid,
-.context-pack-modal__review-grid {
+.context-pack-modal__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.5rem;
+}
+
+.context-pack-modal__review-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .context-pack-modal__review-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .context-pack-modal__editor-card {
@@ -158,22 +87,86 @@
 }
 
 .context-pack-modal__editor-card--primary {
-  border-left: 2px solid var(--ts-accent);
-  background: var(--ts-accent-tint);
+  background: var(--ts-surface);
 }
 
 .context-pack-modal__path-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .context-pack-modal__path-row input {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-/* ── Read-only destination path ─────────────────────────────────────── */
+.context-pack-modal__path-row .action-button {
+  flex-shrink: 0;
+}
+
+/* ── Field-level meta (status under a field) ───────────────────────── */
+
+.context-pack-modal__field-meta {
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: var(--ts-text-soft);
+  letter-spacing: 0.01em;
+}
+
+/* ── Discovery result (inline under the Discovery root field) ──────── */
+
+.context-pack-modal__discovery-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: var(--ts-success);
+}
+
+.context-pack-modal__discovery-result svg {
+  flex-shrink: 0;
+}
+
+/* ── Inline destination meta (replaces the heavy nested tile) ──────── */
+
+.context-pack-modal__destination-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding-top: 0.1rem;
+  min-width: 0;
+}
+
+.context-pack-modal__destination-label {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--ts-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.context-pack-modal__destination-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ts-font-mono);
+  font-size: 0.72rem;
+  color: var(--ts-text-soft);
+  line-height: 1.4;
+  word-break: break-all;
+  user-select: all;
+}
+
+.context-pack-modal__destination-path--empty {
+  color: var(--ts-text-soft);
+  opacity: 0.6;
+  font-style: italic;
+  font-family: var(--ts-font-sans);
+}
+
+/* ── Read-only destination tile (used in the New Project wizard) ──── */
 
 .context-pack-modal__destination {
   font-family: var(--ts-font-mono);
@@ -196,47 +189,84 @@
   font-family: var(--ts-font-sans);
 }
 
-/* ── Discovery action ───────────────────────────────────────────────── */
+/* ── Review summary list (Apple Settings row pattern) ─────────────────
+   Label sits quiet on the left, value sits on the right at the same
+   scale; a --stacked variant breaks the row for long values (paths). */
 
-.context-pack-modal__discovery-row {
+.context-pack-modal__summary-list {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
-.context-pack-modal__discovery-result {
+.context-pack-modal__summary-row {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  color: var(--ts-success);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
-.context-pack-modal__discovery-result svg {
+.context-pack-modal__summary-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+.context-pack-modal__summary-label {
   flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--ts-text-muted);
+  letter-spacing: 0.02em;
 }
 
-.context-pack-modal__rescan-btn {
+.context-pack-modal__summary-value {
   font-size: 0.74rem;
-  padding: 0.3rem 0.6rem;
+  font-weight: 500;
+  color: var(--ts-text);
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-pack-modal__summary-row--stacked .context-pack-modal__summary-value {
+  text-align: left;
+}
+
+.context-pack-modal__summary-value--mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.7rem;
+  color: var(--ts-text-soft);
+  line-height: 1.4;
+  user-select: all;
+  word-break: normal;
+}
+
+.context-pack-modal__summary-value--empty {
+  color: var(--ts-text-soft);
+  opacity: 0.6;
+  font-style: italic;
+  font-family: var(--ts-font-sans);
 }
 
 /* ── Setup tiers ────────────────────────────────────────────────────── */
 
 .context-pack-modal__tier-primary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 0.65rem;
+  row-gap: 0.7rem;
 }
 
-.context-pack-modal__tier-secondary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.45rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: var(--ts-radius-md);
-  background: color-mix(in srgb, var(--ts-surface-alt) 40%, var(--ts-surface));
-  border: 1px solid var(--ts-border);
+.context-pack-modal__tier-primary > .context-pack-modal__discovery-group {
+  grid-column: 1 / -1;
+}
+
+.context-pack-modal__discovery-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 }
 

@@ -5,12 +5,12 @@ import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import type { FocusTarget, PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import type { AgentProfile } from './types.js';
 import { resolveActiveModel, toRegistryId } from './metadata.js';
-import { resolvePaths } from '../core/index.js';
+import { canonicalRoot, resolvePaths } from '../core/index.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
+import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../queue/taskJson.js';
 import type { TaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { AutonomyIntent, BuildArgsResult } from '../cli-provider/index.js';
-import { projectAgentRepoBindings } from './agentRootContainment.js';
 
 /**
  * Build the environment variables object for an agent invocation process.
@@ -105,28 +105,27 @@ export function buildAgentEnvironment(
   if (effectiveRepoRoot) {
 
     // Surface branch names and worktree roots for QA closeout and SWE git
-    // commands. Reads .task.json.contextPackBinding.repoBindings[]; injects
-    // TASKSAIL_TASK_BRANCHES (repoId/role → branch) and TASKSAIL_TASK_WORKTREES
-    // (repoId/role → worktreeRoot). If the serialized JSON exceeds the 8192-
-    // byte Windows env-block ceiling, spills to <name>_FILE instead.
+    // commands. Branch metadata is branch-owned only; worktree metadata is all
+    // task-visible source roots. If serialized JSON exceeds the 8192-byte
+    // Windows env-block ceiling, spills to <name>_FILE instead.
     if (taskId) {
       const taskSidecar = readTaskJsonSafe(taskId, effectiveRepoRoot);
-      if (taskSidecar && taskSidecar.contextPackBinding.repoBindings.length > 0) {
-        const projectedBindings = projectAgentRepoBindings({
+      if (
+        taskSidecar
+        && (
+          taskSidecar.contextPackBinding.repoBindings.length > 0
+          || (taskSidecar.contextPackBinding.readonlyContextBindings?.length ?? 0) > 0
+        )
+      ) {
+        const branches = projectAgentBranchBindings({
           repoBindings: taskSidecar.contextPackBinding.repoBindings,
           snapshot: options?.snapshot,
         });
-        const branches = projectedBindings.map((binding) => ({
-          repoId: binding.repoId,
-          role: binding.role,
-          branch: binding.branch,
-          worktreeRoot: binding.worktreeRoot,
-        }));
-        const worktrees = projectedBindings.map((binding) => ({
-          repoId: binding.repoId,
-          role: binding.role,
-          worktreeRoot: binding.worktreeRoot,
-        }));
+        const worktrees = projectAgentWorktreeBindings({
+          repoBindings: taskSidecar.contextPackBinding.repoBindings,
+          readonlyContextBindings: taskSidecar.contextPackBinding.readonlyContextBindings ?? [],
+          snapshot: options?.snapshot,
+        });
         emitTaskListEnv({
           env,
           repoRoot: effectiveRepoRoot,
@@ -153,6 +152,61 @@ export function buildAgentEnvironment(
   }
 
   return env;
+}
+
+function projectAgentBranchBindings(options: {
+  repoBindings: readonly TaskRepoBinding[];
+  snapshot?: TaskPackSnapshot;
+}): Array<{ repoId: string; role: 'primary'; branch: string; worktreeRoot: string }> {
+  const idsByRoot = buildRepoIdsByRoot(options.snapshot);
+  return options.repoBindings.map((binding, index) => ({
+    repoId: repoIdForBranchBinding(binding, index, idsByRoot),
+    role: 'primary',
+    branch: binding.worktreeBranch,
+    worktreeRoot: binding.worktreeRoot,
+  }));
+}
+
+function projectAgentWorktreeBindings(options: {
+  repoBindings: readonly TaskRepoBinding[];
+  readonlyContextBindings: readonly TaskReadonlyContextBinding[];
+  snapshot?: TaskPackSnapshot;
+}): Array<{ repoId: string; role: 'primary' | 'support'; worktreeRoot: string }> {
+  const idsByRoot = buildRepoIdsByRoot(options.snapshot);
+  return [
+    ...options.repoBindings.map((binding, index) => ({
+      repoId: repoIdForBranchBinding(binding, index, idsByRoot),
+      role: 'primary' as const,
+      worktreeRoot: binding.worktreeRoot,
+    })),
+    ...options.readonlyContextBindings.map((binding) => ({
+      repoId: binding.repoId,
+      role: 'support' as const,
+      worktreeRoot: binding.worktreeRoot,
+    })),
+  ];
+}
+
+function buildRepoIdsByRoot(snapshot?: TaskPackSnapshot): Map<string, string> {
+  const idsByRoot = new Map<string, string>();
+  if (!snapshot) return idsByRoot;
+  if (snapshot.primary.repoId) {
+    idsByRoot.set(canonicalRoot(snapshot.primary.repoRoot), snapshot.primary.repoId);
+  }
+  for (const repo of snapshot.support) {
+    idsByRoot.set(canonicalRoot(repo.repoRoot), repo.repoId);
+  }
+  return idsByRoot;
+}
+
+function repoIdForBranchBinding(
+  binding: TaskRepoBinding,
+  index: number,
+  idsByRoot: ReadonlyMap<string, string>,
+): string {
+  return idsByRoot.get(canonicalRoot(binding.originalRoot))
+    ?? path.basename(binding.worktreeRoot)
+    ?? `repo-${index + 1}`;
 }
 
 /**

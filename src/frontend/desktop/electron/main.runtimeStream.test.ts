@@ -1252,7 +1252,15 @@ describe('main.runtimeStream', () => {
                 source: 'runtime.closeout',
                 role: 'pipeline',
                 severity: 'success',
+                visible: false,
                 message: 'Auto-merge applied api:task/TASK-G->main.',
+              },
+              {
+                eventId: 'closeout.target_branch_update:api:task/TASK-G:applied:main',
+                source: 'runtime.closeout',
+                role: 'pipeline',
+                severity: 'success',
+                message: 'Code changes from task branch task/TASK-G were successfully staged on target branch main in target repo api at /repos/api.',
               },
               {
                 eventId: 'queue.error_items.moved',
@@ -1351,19 +1359,15 @@ describe('main.runtimeStream', () => {
     }
     await vi.runAllTimersAsync();
 
-    expect(emitStreamEvent).toHaveBeenCalledWith(
+    expect(emitStreamEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Code capture started.',
-        source: 'runtime.pipeline',
-        role: 'pipeline',
         taskId: 'TASK-A',
       }),
     );
-    expect(emitStreamEvent).toHaveBeenCalledWith(
+    expect(emitStreamEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Code capture completed.',
-        source: 'runtime.pipeline',
-        role: 'pipeline',
         taskId: 'TASK-B',
       }),
     );
@@ -1393,12 +1397,9 @@ describe('main.runtimeStream', () => {
         taskId: 'TASK-D',
       }),
     );
-    expect(emitStreamEvent).toHaveBeenCalledWith(
+    expect(emitStreamEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Code capture skipped — could not resolve target repo.',
-        source: 'runtime.pipeline',
-        role: 'pipeline',
-        severity: 'warning',
         taskId: 'TASK-C',
       }),
     );
@@ -1420,10 +1421,16 @@ describe('main.runtimeStream', () => {
     );
     expect(emitStreamEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Auto-merge applied api:task/TASK-G->main.',
+        message: 'Code changes from task branch task/TASK-G were successfully staged on target branch main in target repo api at /repos/api.',
         source: 'runtime.closeout',
         role: 'pipeline',
         severity: 'success',
+        taskId: 'TASK-E',
+      }),
+    );
+    expect(emitStreamEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Auto-merge applied api:task/TASK-G->main.',
         taskId: 'TASK-E',
       }),
     );

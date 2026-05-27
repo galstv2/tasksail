@@ -178,7 +178,7 @@ function ContextPackSidebarExpanded({
             type="button"
             className="sidebar-icon-btn sidebar-icon-btn--accent"
             disabled={isBusy}
-            aria-label="Create context pack"
+            aria-label="Create Context Pack"
             onClick={() => onOpenCreateModal()}
             title="Create"
           >
@@ -349,7 +349,7 @@ function ContextPackSidebarExpanded({
         </div>
       </div>
       {showMultiPrimaryWarning && (
-        <div className="context-pack-modal__overlay" role="presentation" onClick={onDismissMultiPrimaryWarning}>
+        <div className="modal-shell__overlay" role="presentation" onClick={onDismissMultiPrimaryWarning}>
           <div className="context-pack-warning-modal" role="alertdialog" aria-modal="true" aria-label="Primary selection required" onClick={(e) => e.stopPropagation()}>
             <p className="context-pack-warning-modal__title">Primary Selection Required</p>
             <p className="context-pack-warning-modal__body">
@@ -362,7 +362,7 @@ function ContextPackSidebarExpanded({
         </div>
       )}
       {bootstrapEmptyConfirmPending && (
-        <div className="context-pack-modal__overlay" role="presentation">
+        <div className="modal-shell__overlay" role="presentation">
           <div
             className="context-pack-warning-modal"
             role="alertdialog"

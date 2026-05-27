@@ -106,7 +106,7 @@ describe('agent-runner progress events', () => {
         source: 'runtime.agent',
         role: 'agent',
         severity: 'info',
-        message: 'Started Dalton.',
+        message: 'Started Dalton - SWE.',
         extra: expect.objectContaining({
           agentId: 'dalton',
           launchId: 'launch-1',
@@ -119,7 +119,7 @@ describe('agent-runner progress events', () => {
         source: 'runtime.agent',
         role: 'agent',
         severity: 'success',
-        message: 'Dalton completed.',
+        message: 'Dalton - SWE completed.',
         extra: expect.objectContaining({
           agentId: 'dalton',
           launchId: 'launch-1',
@@ -223,6 +223,7 @@ describe('agent-runner progress events', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
+        visible: false,
         message: 'Pipeline phase: code-capture-started.',
       }),
       expect.objectContaining({
@@ -230,10 +231,11 @@ describe('agent-runner progress events', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
+        visible: false,
         message: 'Pipeline phase: code-capture-started -> code-capture-completed.',
       }),
-      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline' }),
-      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline', visible: true, message: 'Code capture started.' }),
+      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline', visible: true, message: 'Code capture completed.' }),
     ]));
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
@@ -255,7 +257,7 @@ describe('agent-runner progress events', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
-        message: 'Dalton verification launching.',
+        message: 'Dalton - SWE verification launching.',
       }),
     ]));
     expect(stderrChunks().every((line) => !line.includes('"msg":"dalton_verification.launching"'))).toBe(true);
@@ -491,30 +493,50 @@ describe('agent-runner progress events', () => {
     });
     expect(stderrChunks()).toEqual(expect.arrayContaining([
       '[pipeline] QA remediation started\n',
-      '[pipeline] QA remediation cycle started\n',
+      '[pipeline] QA remediation cycle 1 started\n',
       '[pipeline] test-capture-started\n',
       '[pipeline] Code capture started\n',
       '[pipeline] test-capture-started -> test-capture-completed\n',
       '[pipeline] Code capture completed\n',
-      '[pipeline] QA remediation cycle completed\n',
+      '[pipeline] QA remediation cycle 1 completed\n',
       '[pipeline] QA remediation completed\n',
     ]));
-    expect(readRuntimeTerminalEvents('remediation-task')).toEqual(expect.arrayContaining([
+    const runtimeEvents = readRuntimeTerminalEvents('remediation-task');
+    expect(runtimeEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ eventId: 'qa_remediation.started', source: 'runtime.pipeline' }),
-      expect.objectContaining({ eventId: 'qa_remediation.cycle_started', source: 'runtime.pipeline' }),
+      expect.objectContaining({
+        eventId: 'qa_remediation.cycle_started:1',
+        source: 'runtime.pipeline',
+        message: 'QA remediation cycle 1 started.',
+      }),
       expect.objectContaining({
         eventId: 'pipeline.phase:test-capture-started',
         source: 'runtime.pipeline',
+        visible: false,
       }),
-      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'test_capture.started', source: 'runtime.pipeline', visible: true, message: 'Code capture started.' }),
       expect.objectContaining({
         eventId: 'pipeline.phase:test-capture-started->test-capture-completed',
         source: 'runtime.pipeline',
+        visible: false,
       }),
-      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline' }),
-      expect.objectContaining({ eventId: 'qa_remediation.cycle_completed', source: 'runtime.pipeline' }),
-      expect.objectContaining({ eventId: 'qa_remediation.completed', source: 'runtime.pipeline' }),
+      expect.objectContaining({ eventId: 'test_capture.completed', source: 'runtime.pipeline', visible: true, message: 'Code capture completed.' }),
+      expect.objectContaining({
+        eventId: 'qa_remediation.cycle_completed:1',
+        source: 'runtime.pipeline',
+        message: 'QA remediation cycle 1 completed.',
+      }),
+      expect.objectContaining({
+        eventId: 'qa_remediation.completed',
+        source: 'runtime.pipeline',
+        message: 'QA remediation completed.',
+      }),
     ]));
+    const visibleCodeCaptureMessages = runtimeEvents
+      .filter((event) => event.visible === true)
+      .map((event) => event.message);
+    expect(visibleCodeCaptureMessages.filter((message) => message === 'Code capture started.')).toHaveLength(1);
+    expect(visibleCodeCaptureMessages.filter((message) => message === 'Code capture completed.')).toHaveLength(1);
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 });

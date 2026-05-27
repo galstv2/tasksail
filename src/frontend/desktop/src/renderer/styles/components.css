@@ -119,6 +119,11 @@ select {
   background: transparent;
 }
 
+.action-button--compact {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.74rem;
+}
+
 .action-button:hover {
   border-color: var(--ts-border-strong);
 }
@@ -888,4 +893,3 @@ select {
 :root.theme-dark .status-chip--completed { background: rgba(90, 173, 112, 0.08); color: var(--ts-brand-green-light); }
 :root.theme-dark .status-chip--idle,
 :root.theme-dark .status-chip--owner { background: rgba(180, 200, 240, 0.04); color: var(--ts-brand-gray); }
-

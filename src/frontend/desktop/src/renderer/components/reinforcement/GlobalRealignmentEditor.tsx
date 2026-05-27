@@ -71,12 +71,12 @@ function GlobalRealignmentEditor({
         visibleFields.map((field) => (
           <div key={field.key} className="document-editor__field">
             <span className="document-editor__label">{field.label}</span>
-            <pre
+            <div
               className="document-editor__readonly"
               data-testid={`doc-field-${field.key}`}
             >
               {field.value}
-            </pre>
+            </div>
           </div>
         ))
       ) : (

@@ -23,6 +23,7 @@ export type ModalShellProps = {
   escPriority?: number;
   interactive?: boolean;
   ariaLabel?: string;
+  closeDisabled?: boolean;
   children: ReactNode;
 };
 
@@ -48,8 +49,10 @@ export default function ModalShell({
   escPriority = 0,
   interactive = true,
   ariaLabel,
+  closeDisabled = false,
   children,
 }: ModalShellProps): JSX.Element | null {
+  const safeClose = closeDisabled ? () => {} : onClose;
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
   const closingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,8 +83,8 @@ export default function ModalShell({
 
   useEffect(() => {
     if (!visible || closing) return;
-    return registerEscHandler(escPriority, onClose);
-  }, [visible, closing, escPriority, onClose]);
+    return registerEscHandler(escPriority, safeClose);
+  }, [visible, closing, escPriority, safeClose]);
 
   if (!visible) return null;
 
@@ -107,7 +110,7 @@ export default function ModalShell({
 
   const handleOverlayClick = interactive
     ? (e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) safeClose();
       }
     : undefined;
 
@@ -135,7 +138,8 @@ export default function ModalShell({
           <button
             type="button"
             className="modal-shell__close"
-            onClick={onClose}
+            onClick={safeClose}
+            disabled={closeDisabled}
             aria-label="Close"
           >
             <CloseIcon />

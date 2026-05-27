@@ -15,12 +15,24 @@ export type {
   PreparedMcpLaunch,
   ProviderAgentProfile,
   ProviderPromptKind,
+  ProviderReasoningEffortCapabilities,
   ProviderRuntimeManifestEnvVar,
   ResolvedMcpServer,
   ResolvedToolPolicy,
   RunSummary,
   TerminationReason,
 } from './types.js';
+
+export {
+  hasReasoningEffort,
+  isReasoningEffortRejectionOutput,
+  normalizeReasoningEffort,
+  orderProviderReasoningEffortChoices,
+  reasoningEffortErrorMessage,
+  validateReasoningEffortForCapabilities,
+  type ReasoningEffortRejectionReason,
+  type ReasoningEffortValidationResult,
+} from './reasoningEffort.js';
 
 export {
   getActiveProvider,

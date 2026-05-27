@@ -39,6 +39,7 @@ import {
   startContextPackCatalogWatcher,
   stopContextPackCatalogWatcher,
 } from './main.contextPackWatcher';
+import { startTaskNotificationRuntime } from './main.taskNotifications';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const log = createLogger('electron/main');
@@ -70,6 +71,7 @@ export class ElectronAppController {
 
     let stopBoardWatcher: (() => void) | undefined;
     let stopRuntimeWatcher: (() => void) | undefined;
+    let stopTaskNotificationRuntime: (() => void) | undefined;
 
     app.whenReady().then(async () => {
       if (process.platform === 'darwin' && app.dock) {
@@ -87,6 +89,7 @@ export class ElectronAppController {
       ).register();
       registerIpcLogHandler();
       await createWindow();
+      stopTaskNotificationRuntime = startTaskNotificationRuntime();
 
       await cleanupStalePipelineState();
       await recoverPlannerParentBranchViewsOnStartup().catch((error: unknown) => {
@@ -148,6 +151,7 @@ export class ElectronAppController {
       }
 
       stopBoardWatcher?.();
+      stopTaskNotificationRuntime?.();
       stopContextPackCatalogWatcher();
       stopRuntimeWatcher?.();
       this.recoveryController?.stop();

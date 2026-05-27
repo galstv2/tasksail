@@ -88,7 +88,17 @@ function writeTaskJson(
   originalRoot: string,
   worktreeRoot: string,
   worktreeBranch: string,
-  extra: Partial<{ state: string; finalizedAt: string | null }> = {},
+  extra: Partial<{
+    state: string;
+    finalizedAt: string | null;
+    readonlyContextBindings: Array<{
+      originalRoot: string;
+      worktreeRoot: string;
+      baseCommitSha: string;
+      repoId: string;
+      role: 'support';
+    }>;
+  }> = {},
 ): string {
   const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(taskDir, { recursive: true });
@@ -111,6 +121,7 @@ function writeTaskJson(
           baseCommitSha: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555',
         },
       ],
+      readonlyContextBindings: extra.readonlyContextBindings,
     },
     materialization: {
       strategy: 'copy',
@@ -132,6 +143,14 @@ function createWorktree(originalRoot: string, worktreePath: string, branch: stri
   mkdirSync(path.dirname(worktreePath), { recursive: true });
   execSync(
     `git -C "${originalRoot}" worktree add -b "${branch}" "${worktreePath}"`,
+    { stdio: 'pipe' },
+  );
+}
+
+function createDetachedWorktree(originalRoot: string, worktreePath: string): void {
+  mkdirSync(path.dirname(worktreePath), { recursive: true });
+  execSync(
+    `git -C "${originalRoot}" worktree add --detach "${worktreePath}" HEAD`,
     { stdio: 'pipe' },
   );
 }
@@ -226,6 +245,62 @@ describe('§4.15 finalizeTaskWorktrees — completed', () => {
 
     const list = listWorktrees(originalRoot);
     expect(list).not.toContain(worktreeRoot);
+  });
+
+  it('completed: removes detached readonly context worktrees without deleting branches', async () => {
+    const taskId = 'task-complete-readonly';
+    const worktreeBranch = `task/${taskId}`;
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
+
+    await finalizeTaskWorktrees(taskId, 'completed', repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(existsSync(readonlyRoot)).toBe(false);
+    expect(listWorktrees(originalRoot)).not.toContain(readonlyRoot);
+    expect(listBranches(originalRoot)).toContain(worktreeBranch);
+  });
+
+  it('completed: fails closeout when detached readonly context cleanup fails', async () => {
+    const taskId = 'task-complete-readonly-locked';
+    const worktreeBranch = `task/${taskId}`;
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+    const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    execSync(`git -C "${originalRoot}" worktree lock "${readonlyRoot}"`, { stdio: 'pipe' });
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
+
+    await expect(finalizeTaskWorktrees(taskId, 'completed', repoRoot))
+      .rejects.toThrow('cannot remove a locked working tree');
+
+    expect(existsSync(parentDir)).toBe(true);
+    expect(existsSync(readonlyRoot)).toBe(true);
+    expect(listWorktrees(originalRoot)).toContain(readonlyRoot);
   });
 });
 
@@ -336,6 +411,33 @@ describe('§4.15 finalizeTaskWorktrees — failed + retain=true', () => {
     const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
     expect(existsSync(parentDir)).toBe(true);
   });
+
+  it('failed+retain=true: preserves detached readonly context worktrees', async () => {
+    const taskId = 'task-fail-retain-readonly';
+    const worktreeBranch = `task/${taskId}`;
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
+
+    await finalizeTaskWorktrees(taskId, 'failed', repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(true);
+    expect(existsSync(readonlyRoot)).toBe(true);
+    expect(listWorktrees(originalRoot)).toContain(readonlyRoot);
+    expect(listBranches(originalRoot)).toContain(worktreeBranch);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -381,6 +483,68 @@ describe('§4.15 finalizeTaskWorktrees — failed + retain=false', () => {
     // Parent dir must be removed
     const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
     expect(existsSync(parentDir)).toBe(false);
+  });
+
+  it('failed+retain=false: removes detached readonly context worktrees without branch cleanup for support', async () => {
+    const taskId = 'task-fail-noretain-readonly';
+    const worktreeBranch = `task/${taskId}`;
+    const supportBranch = 'support/keep';
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+    execSync(`git -C "${originalRoot}" branch "${supportBranch}"`, { stdio: 'pipe' });
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
+
+    await finalizeTaskWorktrees(taskId, 'failed', repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(existsSync(readonlyRoot)).toBe(false);
+    expect(listWorktrees(originalRoot)).not.toContain(readonlyRoot);
+    expect(listBranches(originalRoot)).not.toContain(worktreeBranch);
+    expect(listBranches(originalRoot)).toContain(supportBranch);
+  });
+
+  it('failed+retain=false: preserves task state when detached readonly context cleanup fails', async () => {
+    const taskId = 'task-fail-noretain-readonly-locked';
+    const worktreeBranch = `task/${taskId}`;
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+    const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+
+    createWorktree(originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    execSync(`git -C "${originalRoot}" worktree lock "${readonlyRoot}"`, { stdio: 'pipe' });
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
+
+    await expect(finalizeTaskWorktrees(taskId, 'failed', repoRoot)).resolves.toBeUndefined();
+
+    const sidecarPath = path.join(parentDir, '.task.json');
+    const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as Record<string, unknown>;
+    expect(sidecar['state']).toBe('failed');
+    expect(existsSync(parentDir)).toBe(true);
+    expect(existsSync(readonlyRoot)).toBe(true);
+    expect(listWorktrees(originalRoot)).toContain(readonlyRoot);
+    expect(listBranches(originalRoot)).not.toContain(worktreeBranch);
   });
 });
 
@@ -497,13 +661,15 @@ describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', ()
 
     expect(env['TASKSAIL_TASK_BRANCHES']).toBeDefined();
     const parsed = JSON.parse(env['TASKSAIL_TASK_BRANCHES']!) as Array<{
-      originalRoot: string;
+      role: string;
       branch: string;
+      worktreeRoot: string;
     }>;
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.role).toBe('primary');
     expect(parsed[0]!.branch).toBe(`task/${taskId}`);
-    expect(parsed[0]!.originalRoot).toBe('/some/original/root');
+    expect(parsed[0]!.worktreeRoot).toBe('/some/worktree/root');
     // TASKSAIL_TASK_BRANCHES_FILE must NOT be set when within 8KB
     expect(env['TASKSAIL_TASK_BRANCHES_FILE']).toBeUndefined();
   });
@@ -760,13 +926,26 @@ describe('§4.15 FIFO eviction', () => {
     const worktreeRoot = path.join(
       repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo',
     );
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
     createWorktree(originalRoot, worktreeRoot, worktreeBranch);
-    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
 
     await finalizeTaskWorktrees(taskId, 'failed', repoRoot);
 
     // With cap=0, the just-retained task is also evicted
     expect(existsSync(worktreeRoot)).toBe(false);
+    expect(existsSync(readonlyRoot)).toBe(false);
+    expect(listWorktrees(originalRoot)).not.toContain(readonlyRoot);
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId))).toBe(false);
   });
 });
@@ -1235,11 +1414,22 @@ describe('discardRetainedTaskWorktrees', () => {
     const worktreeRoot = path.join(
       repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo',
     );
+    const readonlyRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support');
+    const baseCommitSha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
     const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
     const runtimeDir = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', taskId);
 
     createWorktree(originalRoot, worktreeRoot, worktreeBranch);
-    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch);
+    createDetachedWorktree(originalRoot, readonlyRoot);
+    writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch, {
+      readonlyContextBindings: [{
+        originalRoot,
+        worktreeRoot: readonlyRoot,
+        baseCommitSha,
+        repoId: 'support',
+        role: 'support',
+      }],
+    });
 
     // Simulate the failure path with retain=true: branch + worktree dir
     // survive, and a runtime dir is materialized as it would be in production.
@@ -1249,6 +1439,7 @@ describe('discardRetainedTaskWorktrees', () => {
 
     // Preconditions: everything still in place pre-discard.
     expect(existsSync(worktreeRoot)).toBe(true);
+    expect(existsSync(readonlyRoot)).toBe(true);
     expect(listBranches(originalRoot)).toContain(worktreeBranch);
     expect(existsSync(parentDir)).toBe(true);
     expect(existsSync(runtimeDir)).toBe(true);
@@ -1256,9 +1447,11 @@ describe('discardRetainedTaskWorktrees', () => {
     await discardRetainedTaskWorktrees(taskId, repoRoot);
 
     expect(existsSync(worktreeRoot)).toBe(false);
+    expect(existsSync(readonlyRoot)).toBe(false);
     expect(listBranches(originalRoot)).not.toContain(worktreeBranch);
     expect(existsSync(parentDir)).toBe(false);
     expect(existsSync(runtimeDir)).toBe(false);
+    expect(listWorktrees(originalRoot)).not.toContain(readonlyRoot);
 
     // No stale admin entry — re-adding a worktree at the same path succeeds.
     // This is the property that matters for the next retry's materialization.

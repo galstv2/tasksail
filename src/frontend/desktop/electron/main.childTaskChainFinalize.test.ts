@@ -151,4 +151,17 @@ Carry forward the immediate parent context so the child task can continue safely
     expect(result.ok).toBe(false);
     expect(createFollowupTask).not.toHaveBeenCalled();
   });
+
+  it('rejects introduced repo HEAD resolution failures before createFollowupTask', async () => {
+    resolveChildTaskChainCreationContext.mockRejectedValueOnce(
+      new Error('child-task-chain-divergent-repo-base-unresolved: /repo/tools'),
+    );
+    const { handleDesktopAction } = await import('./main.desktopActionRouter');
+    const result = await handleDesktopAction({ action: 'planner.finalizeSpec' }, {
+      listContextPacks: vi.fn(),
+    } as never);
+
+    expect(result.ok).toBe(false);
+    expect(createFollowupTask).not.toHaveBeenCalled();
+  });
 });

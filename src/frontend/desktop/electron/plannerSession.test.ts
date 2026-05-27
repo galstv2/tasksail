@@ -19,6 +19,9 @@ const sessionMocks = vi.hoisted(() => ({
   beginPendingRecord: vi.fn(),
   appendPendingMessage: vi.fn(),
   discardPendingRecord: vi.fn(),
+  getPlanningAgentReasoningEffort: vi.fn(),
+  getPlanningAgentRequiredModel: vi.fn(() => 'gpt-4.1'),
+  reasoningEffortCapabilities: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -47,6 +50,17 @@ vi.mock('../../../backend/platform/core/index.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../backend/platform/cli-provider/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../backend/platform/cli-provider/index.js')>();
+  return {
+    ...actual,
+    getActiveProvider: vi.fn((repoRoot: string) => ({
+      ...actual.getActiveProvider(repoRoot),
+      reasoningEffortCapabilities: sessionMocks.reasoningEffortCapabilities,
+    })),
+  };
+});
+
 vi.mock('./main.contextPackCatalog', () => ({
   readWorkspaceSyncStateSnapshot: vi.fn(async () => ({ activeContextPackId: 'orders' })),
 }));
@@ -62,6 +76,8 @@ vi.mock('./main.staging', async (importOriginal) => {
 
 vi.mock('./plannerCliProcess', () => ({
   getPlanningAgentAllowedRoots: vi.fn(() => ['/platform']),
+  getPlanningAgentReasoningEffort: sessionMocks.getPlanningAgentReasoningEffort,
+  getPlanningAgentRequiredModel: sessionMocks.getPlanningAgentRequiredModel,
   spawnPlannerCliProcess: vi.fn(),
 }));
 
@@ -749,6 +765,15 @@ describe('plannerSession.startSession child-task focus snapshots', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    sessionMocks.getPlanningAgentReasoningEffort.mockReturnValue(undefined);
+    sessionMocks.getPlanningAgentRequiredModel.mockReturnValue('gpt-4.1');
+    sessionMocks.reasoningEffortCapabilities.mockResolvedValue({
+      providerId: 'copilot',
+      cliVersion: 'GitHub Copilot CLI 1.0.54',
+      effortChoices: ['low', 'medium', 'high'],
+      source: 'probe',
+      stale: false,
+    });
     sessionMocks.clearStagingArtifacts.mockResolvedValue(undefined);
     sessionMocks.initializeStagedPlanningDraft.mockResolvedValue({
       version: 1,
@@ -776,6 +801,25 @@ describe('plannerSession.startSession child-task focus snapshots', () => {
       },
       contextPackBinding: buildFocusSnapshot().contextPackBinding,
     });
+  });
+
+  it('rejects Lily effort before staging or broker work when capabilities are unavailable', async () => {
+    sessionMocks.getPlanningAgentReasoningEffort.mockReturnValue('ultra');
+    sessionMocks.reasoningEffortCapabilities.mockResolvedValue({
+      providerId: 'copilot',
+      cliVersion: null,
+      effortChoices: [],
+      source: 'unavailable',
+      stale: true,
+    });
+    const { startSession, getObservability } = await import('./plannerSession');
+
+    await expect(startSession('/contextpacks/orders')).rejects.toThrow(
+      'Reasoning effort options could not be loaded from the installed Copilot CLI',
+    );
+    expect(getObservability().sessionId).toBeNull();
+    expect(sessionMocks.clearStagingArtifacts).not.toHaveBeenCalled();
+    expect(sessionMocks.initializeStagedPlanningDraft).not.toHaveBeenCalled();
   });
 
   it('restores focus fields and context-pack binding from childTaskFocusSnapshot', async () => {

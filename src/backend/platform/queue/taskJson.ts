@@ -9,7 +9,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { findRepoRoot } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
-import type { TaskContextPackTarget } from './markdown.js';
+import type {
+  TaskContextPackBinding as MarkdownContextPackBinding,
+  TaskContextPackTarget,
+} from './markdown.js';
 import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
 
 // ---------------------------------------------------------------------------
@@ -39,11 +42,20 @@ export interface TaskRepoBinding {
   mergedVia?: 'merged-into-head' | 'branch-deleted';
 }
 
+export interface TaskReadonlyContextBinding {
+  originalRoot: string;
+  worktreeRoot: string;
+  baseCommitSha: string;
+  repoId: string;
+  role: 'support';
+}
+
 export interface TaskContextPackBinding {
   contextPackPath: string | null;
   dataHostDir: string | null;
   dataContainerDir: string | null;
   repoBindings: TaskRepoBinding[];
+  readonlyContextBindings?: TaskReadonlyContextBinding[];
   selection?: TaskContextPackSelection;
 }
 
@@ -195,7 +207,39 @@ function isValidContextPackBinding(value: unknown): value is TaskContextPackBind
   if (!('dataHostDir' in v)) return false;
   if (!('dataContainerDir' in v)) return false;
   if (!Array.isArray(v['repoBindings'])) return false;
+  if (
+    v['readonlyContextBindings'] !== undefined
+    && !isValidReadonlyContextBindings(v['readonlyContextBindings'])
+  ) {
+    return false;
+  }
   return true;
+}
+
+const READONLY_CONTEXT_BINDING_KEYS = new Set([
+  'originalRoot',
+  'worktreeRoot',
+  'baseCommitSha',
+  'repoId',
+  'role',
+]);
+
+function isValidReadonlyContextBindings(value: unknown): value is TaskReadonlyContextBinding[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(isValidReadonlyContextBinding);
+}
+
+function isValidReadonlyContextBinding(value: unknown): value is TaskReadonlyContextBinding {
+  if (typeof value !== 'object' || value === null) return false;
+  const binding = value as Record<string, unknown>;
+  for (const key of Object.keys(binding)) {
+    if (!READONLY_CONTEXT_BINDING_KEYS.has(key)) return false;
+  }
+  return typeof binding['originalRoot'] === 'string'
+    && typeof binding['worktreeRoot'] === 'string'
+    && typeof binding['baseCommitSha'] === 'string'
+    && typeof binding['repoId'] === 'string'
+    && binding['role'] === 'support';
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +286,7 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
       'contextPackBinding field is absent or has wrong shape',
     );
   }
+  json['contextPackBinding'] = normalizeContextPackBinding(json['contextPackBinding']);
 
   // §B7-data normalization: in-memory shape is uniformly v2 even when the
   // on-disk file is v1. We do NOT write back to disk on read — that would
@@ -253,6 +298,13 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
   }
 
   return json as unknown as TaskJson;
+}
+
+function normalizeContextPackBinding(value: TaskContextPackBinding): TaskContextPackBinding {
+  return {
+    ...value,
+    readonlyContextBindings: value.readonlyContextBindings ?? [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,4 +364,43 @@ export function writeTaskJson(taskId: string, repoRoot: string, sidecar: TaskJso
     materialization,
   };
   writeFileSync(sidecarPath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
+}
+
+/**
+ * Project the markdown-parsed `TaskContextPackBinding` (selection-capture shape)
+ * into the sidecar's `TaskContextPackSelection` (persisted shape). Deep-focus
+ * tasks persist the deepFocus primary fields; non-deep-focus tasks persist the
+ * scalar primary fields and the frozen repositoryTypes map. Either way the
+ * persisted selection is a snapshot at activation time — re-reading the
+ * markdown later is not the source of truth.
+ */
+export function toTaskContextPackSelection(
+  binding: MarkdownContextPackBinding,
+): TaskContextPackSelection {
+  const isDeepFocus = binding.deepFocusEnabled === true;
+  return {
+    contextPackDir: binding.contextPackDir,
+    contextPackId: binding.contextPackId,
+    scopeMode: binding.scopeMode,
+    selectedRepoIds: binding.selectedRepoIds,
+    selectedFocusIds: binding.selectedFocusIds,
+    ...(!isDeepFocus && binding.repositoryTypes
+      ? { repositoryTypes: { ...binding.repositoryTypes } }
+      : {}),
+    deepFocusEnabled: binding.deepFocusEnabled,
+    ...(isDeepFocus
+      ? {
+          deepFocusPrimaryRepoId: binding.deepFocusPrimaryRepoId,
+          deepFocusPrimaryFocusId: binding.deepFocusPrimaryFocusId,
+        }
+      : {
+          primaryRepoId: binding.primaryRepoId,
+          primaryFocusId: binding.primaryFocusId,
+        }),
+    selectedFocusPath: binding.selectedFocusPath ?? null,
+    selectedFocusTargetKind: binding.selectedFocusTargetKind ?? null,
+    selectedFocusTargets: binding.selectedFocusTargets,
+    selectedTestTarget: binding.selectedTestTarget ?? null,
+    selectedSupportTargets: binding.selectedSupportTargets ?? [],
+  };
 }

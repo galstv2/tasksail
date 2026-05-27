@@ -31,7 +31,10 @@ function RealignmentSessionDetail({
         &larr; Back to list
       </button>
 
-      <h3 className="session-detail__title">{session.realignmentId}</h3>
+      <h3 className="session-detail__title">
+        <span className="session-detail__title-eyebrow">Realignment</span>
+        <span className="session-detail__title-id">{session.realignmentId}</span>
+      </h3>
 
       {message && (
         <p

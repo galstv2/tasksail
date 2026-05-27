@@ -7,10 +7,16 @@ import {
   isPickDirectoryResponse,
   isDiscoverPrefillResponse,
   isCreateResponse,
+  isAgentConfigLoadCapabilitiesResponse,
   isTaskBoardReadBoardResponse,
   isTaskBoardKillTaskResponse,
   isTaskBoardRetryKillCleanupResponse,
+  isTaskNotificationEvent,
+  isTaskNotificationMutationResponse,
+  isTaskNotificationRecord,
+  isTaskNotificationSnapshot,
 } from './desktopContractTypeGuards';
+import type { TaskNotificationRecord } from './desktopContractTaskNotifications';
 
 describe('isContextPackListResponse', () => {
   it('returns true for a list response', () => {
@@ -27,6 +33,29 @@ describe('isContextPackListResponse', () => {
 
   it('returns false for a non-object', () => {
     expect(isContextPackListResponse('contextPack.list')).toBe(false);
+  });
+});
+
+describe('isAgentConfigLoadCapabilitiesResponse', () => {
+  it('accepts valid capability responses and rejects malformed shapes', () => {
+    expect(isAgentConfigLoadCapabilitiesResponse({
+      action: 'agentConfig.loadCapabilities',
+      mode: 'read-only',
+      message: 'Loaded 2 reasoning effort option(s).',
+      providerId: 'copilot',
+      cliVersion: 'GitHub Copilot CLI 1.0.54',
+      effortChoices: ['low', 'high'],
+      stale: false,
+    })).toBe(true);
+    expect(isAgentConfigLoadCapabilitiesResponse({
+      action: 'agentConfig.loadCapabilities',
+      mode: 'read-only',
+      message: 'Loaded.',
+      providerId: 'copilot',
+      cliVersion: null,
+      effortChoices: 'high',
+      stale: false,
+    })).toBe(false);
   });
 });
 
@@ -198,3 +227,85 @@ describe('isTaskBoardRetryKillCleanupResponse', () => {
     })).toBe(false);
   });
 });
+
+describe('task notification guards', () => {
+  it('accepts valid record, snapshot, mutation response, and event shapes', () => {
+    const record = notificationRecord();
+    const snapshot = {
+      action: 'taskNotifications.read',
+      mode: 'read-only',
+      unseenCount: 1,
+      notifications: [record],
+      generatedAt: '2026-05-25T10:00:00.000Z',
+      message: 'Loaded task notifications.',
+    };
+    const mutation = {
+      action: 'taskNotifications.markSeen',
+      mode: 'updated',
+      unseenCount: 0,
+      notifications: [record],
+      generatedAt: '2026-05-25T10:01:00.000Z',
+      message: 'Marked task notifications seen.',
+    };
+
+    expect(isTaskNotificationRecord(record)).toBe(true);
+    expect(isTaskNotificationSnapshot(snapshot)).toBe(true);
+    expect(isTaskNotificationMutationResponse(mutation)).toBe(true);
+    expect(isTaskNotificationEvent({ type: 'snapshot', snapshot })).toBe(true);
+  });
+
+  it('rejects invalid notification guard shapes', () => {
+    expect(isTaskNotificationRecord({ ...notificationRecord(), notificationId: '' })).toBe(false);
+    expect(isTaskNotificationRecord({ ...notificationRecord(), severity: 'info' })).toBe(false);
+    expect(isTaskNotificationRecord({ ...notificationRecord(), createdAt: null })).toBe(false);
+    expect(isTaskNotificationSnapshot({
+      action: 'taskNotifications.read',
+      mode: 'updated',
+      unseenCount: 1,
+      notifications: [],
+      generatedAt: '2026-05-25T10:00:00.000Z',
+      message: 'Loaded task notifications.',
+    })).toBe(false);
+    expect(isTaskNotificationMutationResponse({
+      action: 'taskNotifications.read',
+      mode: 'updated',
+      unseenCount: 0,
+      notifications: [],
+      generatedAt: '2026-05-25T10:00:00.000Z',
+      message: 'Updated.',
+    })).toBe(false);
+    expect(isTaskNotificationEvent({
+      type: 'upsert',
+      snapshot: {
+        action: 'taskNotifications.read',
+        mode: 'read-only',
+        unseenCount: 0,
+        notifications: [],
+        generatedAt: '2026-05-25T10:00:00.000Z',
+        message: 'Loaded task notifications.',
+      },
+    })).toBe(false);
+  });
+});
+
+function notificationRecord(): TaskNotificationRecord {
+  return {
+    notificationId: 'a'.repeat(64),
+    dedupeKey: 'task:TASK-001:failed',
+    type: 'task-failed',
+    severity: 'error',
+    taskId: 'TASK-001',
+    taskGuid: null,
+    taskTitle: 'Fix failure',
+    taskFileName: 'TASK-001.md',
+    contextPackId: 'platform',
+    contextPackDir: '/tmp/context-packs/platform',
+    contextPackLabel: 'platform',
+    archivePath: null,
+    errorItemPath: '/tmp/error-items/TASK-001.md',
+    createdAt: '2026-05-25T10:00:00.000Z',
+    seenAt: null,
+    dismissedAt: null,
+    message: 'Task failed.',
+  };
+}

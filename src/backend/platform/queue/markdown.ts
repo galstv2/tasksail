@@ -283,6 +283,11 @@ export type ContextPackBindingResult =
 
 const BRANCH_CHAIN_SECTION_NAME = 'Branch Chain';
 
+export type TaskBranchChainRepoSourceKind =
+  | 'parent-handoff'
+  | 'chain-history-handoff'
+  | 'introduced-by-child';
+
 export interface TaskBranchChainRepo {
   repoRoot: string;
   repoLabel: string;
@@ -290,6 +295,13 @@ export interface TaskBranchChainRepo {
   parentSourceBranch: string;
   parentBranchHead: string;
   targetBranch: string | null;
+  sourceKind?: TaskBranchChainRepoSourceKind;
+}
+
+export function getTaskBranchChainRepoSourceKind(
+  repo: TaskBranchChainRepo,
+): TaskBranchChainRepoSourceKind {
+  return repo.sourceKind ?? 'parent-handoff';
 }
 
 export interface TaskBranchChainBinding {
@@ -592,6 +604,7 @@ function normalizeBranchChainBinding(binding: TaskBranchChainBinding): TaskBranc
       parentSourceBranch: repo.parentSourceBranch,
       parentBranchHead: repo.parentBranchHead,
       targetBranch: repo.targetBranch,
+      ...(repo.sourceKind !== undefined ? { sourceKind: repo.sourceKind } : {}),
     })),
   };
 }
@@ -663,6 +676,7 @@ function parseBranchChainRepo(value: unknown): TaskBranchChainRepo | null {
     || !isNonEmptyString(candidate.parentSourceBranch)
     || !isNonEmptyString(candidate.parentBranchHead)
     || !(candidate.targetBranch === null || isNonEmptyString(candidate.targetBranch))
+    || !isBranchChainRepoSourceKind(candidate.sourceKind)
   ) {
     return null;
   }
@@ -673,11 +687,21 @@ function parseBranchChainRepo(value: unknown): TaskBranchChainRepo | null {
     parentSourceBranch: candidate.parentSourceBranch,
     parentBranchHead: candidate.parentBranchHead,
     targetBranch: candidate.targetBranch,
+    ...(candidate.sourceKind !== undefined ? { sourceKind: candidate.sourceKind } : {}),
   };
 }
 
 export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
+}
+
+function isBranchChainRepoSourceKind(value: unknown): value is TaskBranchChainRepoSourceKind {
+  return (
+    value === undefined
+    || value === 'parent-handoff'
+    || value === 'chain-history-handoff'
+    || value === 'introduced-by-child'
+  );
 }
 
 function optionalLabeledValue(section: string, label: string): string | undefined {

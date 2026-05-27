@@ -27,9 +27,12 @@ function WizardLocation({
 
   return (
     <section className="context-pack-modal__wizard-section">
-      <p className="context-pack-modal__wizard-heading">
-        Where should your project live?
-      </p>
+      <header className="context-pack-modal__wizard-section-header">
+        <p className="context-pack-modal__project-type-header">Where should your project live?</p>
+        <p className="context-pack-modal__wizard-heading">
+          Pick a parent folder. Your project will be created inside it.
+        </p>
+      </header>
 
       <label className="composer-field">
         <span>Folder</span>

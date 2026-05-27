@@ -130,7 +130,7 @@ describe('ContextPackSidebar', () => {
     render(<ContextPackSidebar {...createSidebarProps()} />);
 
     expect(screen.getByRole('heading', { name: 'Context packs' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create context pack' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Create Context Pack' })).toBeEnabled();
     expect(screen.getByTestId('context-pack-active-state')).toHaveTextContent('Orders Estate is active');
     expect(screen.getByLabelText('Selected context pack summary')).toHaveTextContent('Distributed');
     expect(screen.getByLabelText('Selected context pack summary')).toHaveTextContent('2 repos');
@@ -141,7 +141,7 @@ describe('ContextPackSidebar', () => {
     const props = createSidebarProps();
     const { rerender } = render(<ContextPackSidebar {...props} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create context pack' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Context Pack' }));
     expect(props.onOpenCreateModal).toHaveBeenCalledTimes(1);
 
     rerender(
@@ -153,7 +153,7 @@ describe('ContextPackSidebar', () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Create context pack' })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create Context Pack' })[1]);
     expect(props.onOpenCreateModal).toHaveBeenCalledTimes(2);
   });
 

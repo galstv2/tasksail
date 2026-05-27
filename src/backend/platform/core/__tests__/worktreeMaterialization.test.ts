@@ -41,6 +41,7 @@ import {
   detectCloneStrategy,
   withOriginLock,
   preconditionsPass,
+  newBranchPreconditionsPass,
   type CloneStrategy,
   type StatfsSyncFn,
 } from '../worktreeMaterialization.js';
@@ -554,6 +555,36 @@ describe('§4.14 preconditionsPass — branch-already-exists', () => {
     // No worktrees were added (only the main worktree exists)
     const list = listWorktrees(originalRoot);
     expect(list).not.toContain(worktreePath);
+  });
+
+  it('newBranchPreconditionsPass checks an explicit branch name', async () => {
+    const originalRoot = createGitRepo(tmpRoot);
+    execFileSync('git', ['-C', originalRoot, 'branch', 'task/root-task']);
+
+    const result = await newBranchPreconditionsPass(
+      originalRoot,
+      'task/root-task',
+      path.join(tmpRoot, 'worktrees', 'root-task'),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('branch-already-exists');
+  });
+
+  it('preconditionsPass still checks task/<taskId>', async () => {
+    const originalRoot = createGitRepo(tmpRoot);
+    execFileSync('git', ['-C', originalRoot, 'branch', 'task/child-task']);
+    execFileSync('git', ['-C', originalRoot, 'branch', 'task/root-task']);
+
+    const result = await preconditionsPass(
+      originalRoot,
+      'child-task',
+      path.join(tmpRoot, 'worktrees', 'child-task'),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('branch-already-exists');
+    expect(result.detail).toContain('refs/heads/task/child-task');
   });
 });
 

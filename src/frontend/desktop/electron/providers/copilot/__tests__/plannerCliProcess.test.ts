@@ -148,6 +148,25 @@ describe('buildPlannerCliInvocation', () => {
     expect(invocation.env.PLANNER_SESSION_ID).toBe('planner-42');
   });
 
+  it('records explicit captured reasoning effort for planner launch', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Use captured effort.',
+      reasoningEffort: 'high',
+    });
+
+    expect(invocation.reasoningEffort).toBe('high');
+  });
+
+  it('normalizes explicit None reasoning effort to no planner effort', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Use no effort.',
+      reasoningEffort: 'none',
+    });
+
+    expect(invocation.reasoningEffort).toBeUndefined();
+    expect(invocation.args).not.toContain('none');
+  });
+
   it('uses the provider launch spec cwd', () => {
     const invocation = buildPlannerCliInvocation({
       prompt: 'Use an explicit cwd.',

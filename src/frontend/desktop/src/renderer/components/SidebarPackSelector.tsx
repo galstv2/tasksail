@@ -145,7 +145,7 @@ function SidebarPackSelector({
             type="button"
             className="action-button"
             disabled={isBusy}
-            aria-label="Create context pack"
+            aria-label="Create Context Pack"
             onClick={() => onOpenCreateModal({ kind: 'fresh' })}
           >
             Create your first pack

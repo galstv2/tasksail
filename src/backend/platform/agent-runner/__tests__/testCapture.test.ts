@@ -489,6 +489,8 @@ describe('buildTestCapturePrompt', () => {
 
     expect(prompt).toContain('## Mandatory QA Output Contract');
     expect(prompt).toContain('read `.github/copilot/instructions/qa.instructions.md`');
+    expect(prompt).toContain('## QA Artifact Checklist');
+    expect(prompt).toContain('For concrete artifact paths and branch evidence');
     expect(prompt).toContain('Your chat response is not closeout');
     expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/issues.md');
     expect(prompt).toContain('$COPILOT_HANDOFFS_DIR/retrospective-input.md');
@@ -502,8 +504,32 @@ describe('buildTestCapturePrompt', () => {
     expect(prompt).toContain('Set `## QA Status` to exactly `passed` or `issues-found`');
     expect(prompt).toContain('A missing required source file or failed grep is blocking');
     expect(prompt).toContain('Partial handler, route, or file coverage is blocking');
+    expect(prompt).toContain('TASKSAIL_TASK_WORKTREES_FILE');
     expect(prompt).toContain('TASKSAIL_TASK_BRANCHES_FILE');
     expect(prompt.indexOf('Write artifacts in this exact order')).toBeLessThan(prompt.indexOf('## Orchestrator Test Results'));
+  });
+
+  it('points Ron at readonly support context through task worktree metadata', () => {
+    const prompt = buildTestCapturePrompt(
+      [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      {
+        estateType: 'distributed-platform',
+        primaryFocusRelativePath: 'services/api',
+        primaryFocusTargetKind: 'directory',
+        readonlyContextRoots: [
+          {
+            repoLocalPath: '/repo/AgentWorkSpace/tasks/task-1/worktrees/docs',
+            path: '',
+            kind: 'directory',
+            reason: 'support-repo',
+          },
+        ],
+      },
+    );
+
+    expect(prompt).toContain('/repo/AgentWorkSpace/tasks/task-1/worktrees/docs/');
+    expect(prompt).toContain('support context appears there without branch metadata');
+    expect(prompt).not.toContain('/repo/live/docs');
   });
 
   it('adds Ron-scoped external MCP guidance when matching servers exist', () => {

@@ -3,7 +3,7 @@ import type {
   FocusAreaEntryDraft,
 } from '../../contextPackCreationTypes';
 import { classNames } from '../../utils/classNames';
-import { PrimaryToggleLabel } from './icons';
+import { CloseIcon, PrimaryToggleLabel } from './icons';
 
 type FocusAreaCardProps = {
   focusArea: FocusAreaEntryDraft;
@@ -51,16 +51,30 @@ function FocusAreaCard({
               </span>
             ) : null}
           </span>
-          <p className="panel__meta">Editable monolith focus suggestion.</p>
         </div>
-        <button
-          type="button"
-          className="action-button action-button--secondary"
-          disabled={busy}
-          onClick={() => onRemoveFocusArea(focusArea.key)}
-        >
-          Remove
-        </button>
+        <div className="context-pack-modal__card-header-actions">
+          <button
+            type="button"
+            className={classNames(
+              'context-pack-modal__toggle-pill',
+              focusArea.primary && 'context-pack-modal__toggle-pill--active',
+            )}
+            onClick={() => onSetPrimaryFocusArea(focusArea.key)}
+            aria-pressed={focusArea.primary}
+          >
+            <PrimaryToggleLabel primary={focusArea.primary} />
+          </button>
+          <button
+            type="button"
+            className="context-pack-modal__icon-btn context-pack-modal__icon-btn--danger"
+            disabled={busy}
+            onClick={() => onRemoveFocusArea(focusArea.key)}
+            aria-label="Remove"
+            title="Remove focus area"
+          >
+            <CloseIcon />
+          </button>
+        </div>
       </div>
 
       <div className="context-pack-modal__grid">
@@ -115,18 +129,6 @@ function FocusAreaCard({
           />
         </label>
       </div>
-
-      <button
-        type="button"
-        className={classNames(
-          'context-pack-modal__toggle-pill',
-          focusArea.primary && 'context-pack-modal__toggle-pill--active',
-        )}
-        onClick={() => onSetPrimaryFocusArea(focusArea.key)}
-        aria-pressed={focusArea.primary}
-      >
-        <PrimaryToggleLabel primary={focusArea.primary} />
-      </button>
     </article>
   );
 }

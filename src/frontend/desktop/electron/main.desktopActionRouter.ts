@@ -105,7 +105,17 @@ export async function handleDesktopAction(
         },
       };
     case 'planner.startSession': {
-      const { sessionId, parentBranchViewStatus } = await resolvedHandlers.startPlannerSession(request.payload);
+      let startResult: Awaited<ReturnType<DesktopActionHandlers['startPlannerSession']>>;
+      try {
+        startResult = await resolvedHandlers.startPlannerSession(request.payload);
+      } catch (error) {
+        return {
+          ok: false,
+          action: 'planner.startSession',
+          error: error instanceof Error ? error.message : 'Planner session failed to start.',
+        };
+      }
+      const { sessionId, parentBranchViewStatus } = startResult;
       emitStreamEvent({ message: 'Planner session started.', source: 'planner.startSession', role: 'planner' });
       return {
         ok: true,
@@ -604,6 +614,8 @@ export async function handleDesktopAction(
       return resolvedHandlers.loadAgentConfigAgents();
     case 'agentConfig.loadModelCatalog':
       return resolvedHandlers.loadAgentModelCatalog();
+    case 'agentConfig.loadCapabilities':
+      return resolvedHandlers.loadAgentConfigCapabilities();
     case 'agentConfig.saveAgentModels':
       return resolvedHandlers.saveAgentModels(request.payload);
     case 'agentConfig.addModel':
@@ -618,6 +630,14 @@ export async function handleDesktopAction(
       return resolvedHandlers.writeInstructionFile(request);
     case 'taskBoard.readBoard':
       return resolvedHandlers.readTaskBoard();
+    case 'taskNotifications.read':
+      return resolvedHandlers.readTaskNotifications();
+    case 'taskNotifications.markSeen':
+      return resolvedHandlers.markTaskNotificationsSeen(request.payload);
+    case 'taskNotifications.dismiss':
+      return resolvedHandlers.dismissTaskNotification(request.payload);
+    case 'taskNotifications.dismissAll':
+      return resolvedHandlers.dismissAllTaskNotifications();
     case 'taskBoard.readTaskContent':
       return resolvedHandlers.readTaskContent(request.payload);
     case 'taskBoard.reorderPending':

@@ -50,6 +50,10 @@ export function isNonEmptyString(value: unknown): value is string {
   return isString(value) && value.trim().length > 0;
 }
 
+export function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 export function isOneOf<T extends readonly string[]>(
   value: unknown,
   allowed: T,
@@ -699,6 +703,12 @@ export function isValidAgentModelId(value: unknown): value is string {
   return isNonEmptyString(value) && AGENT_MODEL_ID_PATTERN.test(value);
 }
 
+const REASONING_EFFORT_PATTERN = /^[a-z][a-z0-9-]*$/;
+
+export function isValidReasoningEffort(value: unknown): value is string {
+  return isNonEmptyString(value) && REASONING_EFFORT_PATTERN.test(value.trim());
+}
+
 export function validateAgentConfigAssignments(value: unknown): string[] {
   if (!isRecord(value)) {
     return ['payload must be an object.'];
@@ -720,6 +730,16 @@ export function validateAgentConfigAssignments(value: unknown): string[] {
     if (!isValidAgentModelId(assignment.model_id)) {
       errors.push(
         `payload.assignments[${index}].model_id must match the approved agent model pattern.`,
+      );
+    }
+    if (
+      assignment.reasoning_effort !== undefined
+      && assignment.reasoning_effort !== null
+      && assignment.reasoning_effort !== ''
+      && !isValidReasoningEffort(assignment.reasoning_effort)
+    ) {
+      errors.push(
+        `payload.assignments[${index}].reasoning_effort must be lowercase letters, numbers, or hyphens when provided.`,
       );
     }
   }

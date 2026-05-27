@@ -15,6 +15,7 @@ function makeAgents(overrides?: Array<Partial<{
   human_name: string;
   role_name: string;
   required_model: string;
+  reasoning_effort?: string;
   workflow_order: number;
 }> | undefined>) {
   const agents = [
@@ -87,6 +88,43 @@ describe('useAgentConfigModal', () => {
 
     const dalton = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-builder');
     expect(dalton?.selected_model).toBe('gpt-5.4');
+    expect(result.current.agentConfigModalProps.isDirty).toBe(true);
+  });
+
+  it('loads capability choices into every agent row and preserves effort across model changes', async () => {
+    const loadCapabilities = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadCapabilities',
+        mode: 'read-only',
+        message: 'Loaded capabilities.',
+        providerId: 'copilot',
+        cliVersion: '1.0.54',
+        effortChoices: ['low', 'medium', 'high'],
+        stale: false,
+      },
+    });
+    const client = Object.assign(createMockClient(), { loadCapabilities });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+
+    act(() => { result.current.openAgentConfigModal(); });
+
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    const lily = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-planner');
+    expect(loadCapabilities).toHaveBeenCalledTimes(1);
+    expect(lily?.effortOptions).toEqual(['none', 'low', 'medium', 'high']);
+    expect(lily?.effortDisabled).toBe(false);
+
+    act(() => {
+      result.current.agentConfigModalProps.onAgentEffortChange('provider-planner', 'high');
+      result.current.agentConfigModalProps.onAgentModelChange('provider-planner', 'gpt-5.4');
+    });
+
+    const changedLily = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-planner');
+    expect(changedLily?.selected_model).toBe('gpt-5.4');
+    expect(changedLily?.selected_effort).toBe('high');
     expect(result.current.agentConfigModalProps.isDirty).toBe(true);
   });
 
@@ -171,6 +209,89 @@ describe('useAgentConfigModal', () => {
     ]);
     expect(result.current.agentConfigModalProps.isDirty).toBe(false);
     expect(result.current.agentConfigModalProps.showRestartNotice).toBe(true);
+  });
+
+  it('sends effort assignments, preserves unsaved state on save error, and shows restart notice for Lily effort changes', async () => {
+    const loadCapabilities = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadCapabilities',
+        mode: 'read-only',
+        message: 'Loaded capabilities.',
+        providerId: 'copilot',
+        cliVersion: '1.0.54',
+        effortChoices: ['low', 'medium', 'high'],
+        stale: false,
+      },
+    });
+    const saveAgentModels = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: 'Unsupported reasoning effort.' })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'agentConfig.saveAgentModels',
+          mode: 'mutated',
+          message: 'Agent assignments saved.',
+          agents: makeAgents([{ reasoning_effort: 'high' }]),
+        },
+      });
+    const client = Object.assign(createMockClient({ saveAgentModels }), { loadCapabilities });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+
+    act(() => { result.current.openAgentConfigModal(); });
+
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => {
+      result.current.agentConfigModalProps.onAgentEffortChange('provider-planner', 'high');
+    });
+
+    await act(async () => {
+      await result.current.agentConfigModalProps.onSave();
+    });
+
+    expect(saveAgentModels).toHaveBeenLastCalledWith([
+      { agent_id: 'provider-planner', model_id: 'gpt-4.1', reasoning_effort: 'high' },
+      { agent_id: 'provider-pm', model_id: 'gpt-5.4' },
+      { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+      { agent_id: 'provider-qa', model_id: 'gpt-5.4' },
+    ]);
+    expect(result.current.agentConfigModalProps.error).toBe('Unsupported reasoning effort.');
+    expect(result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-planner')?.selected_effort).toBe('high');
+
+    await act(async () => {
+      await result.current.agentConfigModalProps.onSave();
+    });
+
+    expect(result.current.agentConfigModalProps.showRestartNotice).toBe(true);
+    expect(result.current.agentConfigModalProps.isDirty).toBe(false);
+  });
+
+  it('disables effort changes when capabilities are unavailable and keeps saved effort as the only extra option', async () => {
+    const client = createMockClient({
+      loadAgentConfig: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadAgents',
+          mode: 'read-only',
+          message: '',
+          agents: makeAgents([{ reasoning_effort: 'xhigh' }]),
+        },
+      }),
+    });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+
+    act(() => { result.current.openAgentConfigModal(); });
+
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    const lily = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-planner');
+    expect(result.current.agentConfigModalProps.effortWarning).toMatch(/could not be loaded/);
+    expect(lily?.effortDisabled).toBe(true);
+    expect(lily?.effortOptions).toEqual(['none', 'xhigh']);
   });
 
   it('clears the Lily restart notice on modal close and resets baseline on reopen', async () => {

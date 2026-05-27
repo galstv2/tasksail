@@ -61,13 +61,37 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.branch',
         role: 'pipeline',
         severity: 'info',
-        message: 'Created worktree for api on branch task/task-1.',
+        message: 'Created writable task branch worktree for api on branch task/task-1.',
         createdAt: expect.any(String),
         extra: {
           repo: 'api',
           branch: 'task/task-1',
           worktreeRoot: '/tmp/worktrees/api',
           materializationStrategy: 'copy',
+        },
+      },
+    ]);
+  });
+
+  it('writes read-only support context materialization events', async () => {
+    await RuntimeTerminalEvents.forTask(repoRoot, 'task-readonly-context').readonlyContextMaterialized({
+      repo: 'tools',
+      worktreeRoot: '/tmp/worktrees/tools',
+      materializationStrategy: 'detached-readonly-context',
+    });
+
+    expect(readEvents('task-readonly-context')).toMatchObject([
+      {
+        eventId: 'activation.readonly_context.materialized:tools:/tmp/worktrees/tools',
+        source: 'runtime.queue',
+        role: 'queue',
+        severity: 'info',
+        visible: true,
+        message: 'Read-only support context materialized for tools; no target branch was created.',
+        extra: {
+          repo: 'tools',
+          worktreeRoot: '/tmp/worktrees/tools',
+          materializationStrategy: 'detached-readonly-context',
         },
       },
     ]);
@@ -111,15 +135,66 @@ describe('RuntimeTerminalEvents', () => {
     await events.autoMergeDisabled();
     await events.autoMergeApplied({ repos: 'api:task/a->main' });
     await events.autoMergeSkipped({ detail: 'blocked: needs review' });
+    await events.targetBranchUpdate({
+      repoLabel: 'api',
+      targetRepoRoot: '/repos/api',
+      sourceBranch: 'task/a',
+      targetBranch: 'main',
+      status: 'applied',
+      detail: 'Applied task branch patch to the target index.',
+    });
+    await events.targetBranchUpdate({
+      repoLabel: 'tools',
+      targetRepoRoot: '/repos/tools',
+      sourceBranch: 'task/a',
+      targetBranch: null,
+      status: 'disabled',
+      detail: 'Auto-merge is disabled.',
+    });
+    await events.targetBranchUpdate({
+      repoLabel: 'web',
+      targetRepoRoot: '/repos/web',
+      sourceBranch: 'task/a',
+      targetBranch: 'main',
+      status: 'skipped',
+      detail: 'Target branch has tracked or untracked changes.',
+    });
     await events.autoMergeSkippedForChildTaskChain();
     await events.closeoutFinalized();
     await events.strandedCloseoutResumed({ drove: ['finalize-worktrees'] });
 
     const writtenEvents = readEvents('task-closeout');
     expect(writtenEvents).toMatchObject([
-      { eventId: 'auto_merge.disabled', source: 'runtime.closeout', role: 'pipeline' },
-      { eventId: 'auto_merge.applied', source: 'runtime.closeout', role: 'pipeline' },
-      { eventId: 'auto_merge.skipped', source: 'runtime.closeout', role: 'pipeline' },
+      { eventId: 'auto_merge.disabled', source: 'runtime.closeout', role: 'pipeline', visible: false },
+      { eventId: 'auto_merge.applied', source: 'runtime.closeout', role: 'pipeline', visible: false },
+      { eventId: 'auto_merge.skipped', source: 'runtime.closeout', role: 'pipeline', visible: false },
+      {
+        eventId: 'closeout.target_branch_update:api:task/a:applied:main',
+        source: 'runtime.closeout',
+        role: 'pipeline',
+        severity: 'success',
+        visible: true,
+        message: 'Code changes from task branch task/a were successfully staged on target branch main in target repo api at /repos/api.',
+        extra: expect.objectContaining({ targetRepoRoot: '/repos/api' }),
+      },
+      {
+        eventId: 'closeout.target_branch_update:tools:task/a:disabled:(unknown target branch)',
+        source: 'runtime.closeout',
+        role: 'pipeline',
+        severity: 'info',
+        visible: true,
+        message: 'Auto-merge is disabled for target repo tools at /repos/tools. Task branch task/a is ready for operator review.',
+        extra: expect.objectContaining({ targetRepoRoot: '/repos/tools' }),
+      },
+      {
+        eventId: 'closeout.target_branch_update:web:task/a:skipped:main',
+        source: 'runtime.closeout',
+        role: 'pipeline',
+        severity: 'warning',
+        visible: true,
+        message: 'Target branch was not updated for web at /repos/web: Target branch has tracked or untracked changes. Task branch task/a is ready for operator review.',
+        extra: expect.objectContaining({ targetRepoRoot: '/repos/web' }),
+      },
       {
         eventId: 'auto_merge.skipped_child_chain',
         source: 'runtime.closeout',
@@ -131,6 +206,21 @@ describe('RuntimeTerminalEvents', () => {
       { eventId: 'closeout.stranded.resumed', source: 'runtime.closeout', role: 'pipeline' },
     ]);
     expect(writtenEvents.find((event) => event.eventId === 'auto_merge.skipped_child_chain')).not.toHaveProperty('extra');
+  });
+
+  it('writes pipeline completion as a visible pipeline success', async () => {
+    await RuntimeTerminalEvents.forTask(repoRoot, 'task-pipeline-completed').pipelineCompleted();
+
+    expect(readEvents('task-pipeline-completed')).toMatchObject([
+      {
+        eventId: 'pipeline.completed',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'success',
+        visible: true,
+        message: 'Pipeline completed.',
+      },
+    ]);
   });
 
   it('writes queue state transition events', async () => {
@@ -189,7 +279,7 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.agent',
         role: 'agent',
         severity: 'info',
-        message: 'Started Alice.',
+        message: 'Started Alice - PM.',
         extra: {
           agentId: 'alice',
           launchId: 'launch-1',
@@ -202,7 +292,7 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.agent',
         role: 'agent',
         severity: 'error',
-        message: 'Alice timed out.',
+        message: 'Alice - PM timed out.',
         extra: {
           agentId: 'alice',
           launchId: 'launch-1',
@@ -212,6 +302,64 @@ describe('RuntimeTerminalEvents', () => {
           exitCode: 1,
         },
       },
+    ]);
+  });
+
+  it('writes role-aware launch lifecycle messages for known agents and phases', async () => {
+    const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-agent-labels');
+
+    await events.agentLaunchStarted({
+      agentId: 'dalton',
+      launchId: 'launch-dalton',
+      childPid: 1,
+      modelId: 'auto',
+    });
+    await events.agentLaunchTerminal({
+      agentId: 'dalton',
+      launchId: 'launch-dalton',
+      childPid: 1,
+      status: 'success',
+      durationMs: 1,
+      exitCode: 0,
+    });
+    await events.agentLaunchStarted({
+      agentId: 'dalton-verify',
+      launchId: 'launch-dalton-verify',
+      displayPhase: 'verification',
+      childPid: 2,
+      modelId: 'auto',
+    });
+    await events.agentLaunchTerminal({
+      agentId: 'dalton-verify',
+      launchId: 'launch-dalton-verify',
+      displayPhase: 'verification',
+      childPid: 2,
+      status: 'success',
+      durationMs: 1,
+      exitCode: 0,
+    });
+    await events.agentLaunchStarted({
+      agentId: 'ron',
+      launchId: 'launch-ron',
+      childPid: 3,
+      modelId: 'auto',
+    });
+    await events.agentLaunchTerminal({
+      agentId: 'ron',
+      launchId: 'launch-ron',
+      childPid: 3,
+      status: 'success',
+      durationMs: 1,
+      exitCode: 0,
+    });
+
+    expect(readEvents('task-agent-labels')).toMatchObject([
+      { eventId: 'agent.launch.started:dalton:initial:launch-dalton', message: 'Started Dalton - SWE.' },
+      { eventId: 'agent.launch.terminal:dalton:initial:launch-dalton', message: 'Dalton - SWE completed.' },
+      { eventId: 'agent.launch.started:dalton-verify:verification:launch-dalton-verify', message: 'Started Dalton - SWE (verify).' },
+      { eventId: 'agent.launch.terminal:dalton-verify:verification:launch-dalton-verify', message: 'Dalton - SWE (verify) completed.' },
+      { eventId: 'agent.launch.started:ron:initial:launch-ron', message: 'Started Ron - QA.' },
+      { eventId: 'agent.launch.terminal:ron:initial:launch-ron', message: 'Ron - QA completed.' },
     ]);
   });
 
@@ -302,6 +450,7 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
+        visible: false,
         message: 'Pipeline phase: code-capture-started.',
         extra: { phase: 'test-capture-started', priorPhase: null },
       },
@@ -310,6 +459,7 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
+        visible: false,
         message: 'Pipeline phase: code-capture-started -> code-capture-completed.',
         extra: {
           phase: 'test-capture-completed',
@@ -321,7 +471,47 @@ describe('RuntimeTerminalEvents', () => {
         source: 'runtime.pipeline',
         role: 'pipeline',
         severity: 'info',
-        message: 'Dalton verification launching.',
+        message: 'Dalton - SWE verification launching.',
+      },
+    ]);
+  });
+
+  it('dedupes repeated reasoning effort rejection terminal events', async () => {
+    const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-effort');
+    const input = {
+      agentId: 'dalton',
+      modelId: 'gpt-5.4',
+      effort: 'ultra',
+      reason: 'unsupported-by-cli' as const,
+    };
+
+    await events.reasoningEffortRejectedBeforeSpawn(input);
+    await events.reasoningEffortRejectedBeforeSpawn(input);
+
+    expect(readEvents('task-effort')).toMatchObject([
+      {
+        eventId: 'pipeline.agent_reasoning_effort.rejected_before_spawn:task-effort:dalton:ultra',
+        source: 'runtime.pipeline',
+        role: 'pipeline',
+        severity: 'error',
+        visible: true,
+        message: 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.',
+        extra: input,
+      },
+    ]);
+  });
+
+  it('keeps non-test-capture pipeline phases visible', async () => {
+    await RuntimeTerminalEvents.forTask(repoRoot, 'task-visible-phase').pipelinePhase({
+      phase: 'qa',
+      priorPhase: 'build',
+    });
+
+    expect(readEvents('task-visible-phase')).toMatchObject([
+      {
+        eventId: 'pipeline.phase:build->qa',
+        visible: true,
+        message: 'Pipeline phase: build -> qa.',
       },
     ]);
   });

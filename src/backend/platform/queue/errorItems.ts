@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveQueuePaths } from './paths.js';
-import { createLogger, emitTaskProgressEvent, findRepoRoot } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, findRepoRoot, getErrorMessage } from '../core/index.js';
 import {
   extractContextPackBinding,
   extractTaskMetadataValue,
@@ -22,6 +22,7 @@ import { normalizeSelectedRepoPathsInText, type SelectedRepoRootAlias } from './
 import { discardRetainedTaskWorktrees, finalizeTaskWorktreesWithReport } from '../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { markChildTaskChainTaskFailed, resetFailedChildTaskChainTaskToPlanned } from './childTaskChainFailure.js';
+import { recordTaskFailedNotification } from '../task-notifications/producer.js';
 import {
   buildAddPathspec,
   buildAllowOverridesPathspec,
@@ -482,6 +483,21 @@ export async function moveFailedItemToErrorItems(options: {
     taskId,
     event: { type: 'queue.error_items.moved', input: { errorPath: destPath, reason: moveReason } },
   });
+
+  try {
+    await recordTaskFailedNotification({
+      repoRoot: root,
+      taskId,
+      errorItemPath: destPath,
+    });
+  } catch (err) {
+    log.warn('task_notifications.record.failed', {
+      taskId,
+      notificationType: 'task-failed',
+      lifecycle: 'failed',
+      reason: getErrorMessage(err),
+    });
+  }
 
   let childChainFailureMarked = false;
   try {

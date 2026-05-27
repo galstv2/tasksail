@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ArchivedTaskChildParentBlockedTip,
+  AgentConfigLoadCapabilitiesResponse,
   ContextPackListRepoTreeResponse,
   DesktopActionResponse,
   DesktopInvokeResult,
   PlannerListArchivedTasksResponse,
   PlannerStartSessionPayload,
+  TaskNotificationSnapshot,
   TaskBoardReadBoardResponse,
   TerminalSetTaskScopeResponse,
 } from './desktopContract';
-import { DESKTOP_ACTION_NAMES } from './desktopContract';
+import { DESKTOP_ACTION_NAMES, DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
 
 describe('desktopContract', () => {
@@ -105,6 +107,27 @@ describe('desktopContract', () => {
       action: 'taskBoard.retryKillCleanup',
       payload: { fileName: 'TASK-A.md', taskId: 'TASK-A' },
     })).toEqual([]);
+  });
+
+  it('keeps task notification actions and channel approved', () => {
+    expect(DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL).toBe('desktop-shell:task-notifications');
+    expect(DESKTOP_ACTION_NAMES).toEqual(expect.arrayContaining([
+      'taskNotifications.read',
+      'taskNotifications.markSeen',
+      'taskNotifications.dismiss',
+      'taskNotifications.dismissAll',
+    ]));
+
+    const response: TaskNotificationSnapshot = {
+      action: 'taskNotifications.read',
+      mode: 'read-only',
+      unseenCount: 0,
+      notifications: [],
+      generatedAt: '2026-05-25T10:00:00.000Z',
+      message: 'Loaded task notifications.',
+    };
+    const desktopResponse: DesktopActionResponse = response;
+    expect(desktopResponse.action).toBe('taskNotifications.read');
   });
 
   it('accepts optional test metadata on repo tree responses', () => {
@@ -549,6 +572,18 @@ describe('desktopContract', () => {
     }
     expect(result.response.action).toBe('agentConfig.loadAgents');
     expect(result.response.mode).toBe('read-only');
+
+    const capabilities: AgentConfigLoadCapabilitiesResponse = {
+      action: 'agentConfig.loadCapabilities',
+      mode: 'read-only',
+      message: 'Loaded 2 reasoning effort option(s).',
+      providerId: 'copilot',
+      cliVersion: 'GitHub Copilot CLI 1.0.54',
+      effortChoices: ['low', 'high'],
+      stale: false,
+    };
+    expect(DESKTOP_ACTION_NAMES).toContain('agentConfig.loadCapabilities');
+    expect(capabilities.effortChoices).toEqual(['low', 'high']);
   });
 
   it('accepts agentConfig write requests with typed payloads', () => {
@@ -558,7 +593,7 @@ describe('desktopContract', () => {
         payload: {
           assignments: [
             { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
-            { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6' },
+            { agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', reasoning_effort: 'medium' },
           ],
         },
       }),

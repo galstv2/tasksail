@@ -194,7 +194,7 @@ describe('branch chain activation planning', () => {
     });
 
     expect(plans[0]).toEqual(expect.objectContaining({
-      mode: 'chained',
+      mode: 'chained-existing',
       worktreePath: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'child-a', 'worktrees', 'repo'),
       worktreeRootForBinding: path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'child-a', 'worktrees', 'repo'),
       worktreeBranch: 'task/root-task',
@@ -220,7 +220,7 @@ describe('branch chain activation planning', () => {
     });
 
     expect(candidates[0]).toEqual(expect.objectContaining({
-      mode: 'chained',
+      mode: 'chained-existing',
       worktreeBranch: 'task/root-task',
       createBranch: false,
       addWorktree: true,
@@ -301,6 +301,153 @@ describe('branch chain activation planning', () => {
         throw new Error('rev-parse failed');
       },
     })).rejects.toThrow('activation-branch-chain-base-unresolved for task "child-a": task/root-task: rev-parse failed');
+  });
+
+  it('plans parent-handoff and chain-history-handoff repos as chained-existing', async () => {
+    const repoParent = tempDir('branch-chain-parent-kind-');
+    const repoHistory = tempDir('branch-chain-history-kind-');
+    initGitRepo(repoParent);
+    initGitRepo(repoHistory);
+
+    const candidates = await buildActivationBranchCandidatePlans({
+      taskId: 'child-a',
+      branchChainBinding: binding(repoParent, {
+        repos: [
+          { ...binding(repoParent).repos[0]!, repoRoot: repoParent },
+          {
+            ...binding(repoHistory).repos[0]!,
+            repoRoot: repoHistory,
+            repoLabel: 'history',
+            chainSourceBranch: 'task/history-root',
+            parentSourceBranch: 'task/history-root',
+            sourceKind: 'chain-history-handoff',
+          },
+        ],
+      }),
+      materializationOrigins: [
+        { contextRoot: repoParent, gitRoot: repoParent },
+        { contextRoot: repoHistory, gitRoot: repoHistory },
+      ],
+      repoLabels: ['parent', 'history'],
+      repoRoot: tempDir('branch-chain-plan-kinds-'),
+    });
+
+    expect(candidates.map((candidate) => ({
+      mode: candidate.mode,
+      createBranch: candidate.createBranch,
+      worktreeBranch: candidate.worktreeBranch,
+    }))).toEqual([
+      { mode: 'chained-existing', createBranch: false, worktreeBranch: 'task/root-task' },
+      { mode: 'chained-existing', createBranch: false, worktreeBranch: 'task/history-root' },
+    ]);
+  });
+
+  it('plans introduced-by-child repos as chained-introduced', async () => {
+    const repoRoot = tempDir('branch-chain-introduced-kind-');
+    const head = initGitRepo(repoRoot);
+
+    const candidates = await buildActivationBranchCandidatePlans({
+      taskId: 'child-a',
+      branchChainBinding: binding(repoRoot, {
+        repos: [{
+          ...binding(repoRoot).repos[0]!,
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: head,
+          sourceKind: 'introduced-by-child',
+        }],
+      }),
+      materializationOrigins: [{ contextRoot: repoRoot, gitRoot: repoRoot }],
+      repoLabels: ['repo'],
+      repoRoot,
+    });
+
+    expect(candidates[0]).toEqual(expect.objectContaining({
+      mode: 'chained-introduced',
+      worktreeBranch: 'task/root-task',
+      createBranch: true,
+      addWorktree: true,
+    }));
+  });
+
+  it('uses introduced parentBranchHead as base without resolving chainSourceBranch as an existing branch', async () => {
+    const repoRoot = tempDir('branch-chain-introduced-base-');
+    const head = initGitRepo(repoRoot);
+    const execCalls: string[][] = [];
+
+    const plans = await buildActivationBranchPlans({
+      taskId: 'child-a',
+      branchChainBinding: binding(repoRoot, {
+        repos: [{
+          ...binding(repoRoot).repos[0]!,
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: head,
+          sourceKind: 'introduced-by-child',
+        }],
+      }),
+      materializationOrigins: [{ contextRoot: repoRoot, gitRoot: repoRoot }],
+      repoLabels: ['repo'],
+      repoRoot,
+      execFileAsync: async (_file, args) => {
+        execCalls.push([...args]);
+        return { stdout: `${head}\n`, stderr: '' };
+      },
+    });
+
+    expect(plans[0]).toEqual(expect.objectContaining({
+      mode: 'chained-introduced',
+      baseCommitSha: head,
+      createBranch: true,
+    }));
+    expect(execCalls).toEqual([[
+      '-C',
+      repoRoot,
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `${head}^{commit}`,
+    ]]);
+    expect(execCalls.flat().some((arg) => arg.includes('refs/heads/task/root-task'))).toBe(false);
+  });
+
+  it('fails introduced activation when parentBranchHead is not a commit', async () => {
+    const repoRoot = tempDir('branch-chain-introduced-invalid-base-');
+    initGitRepo(repoRoot);
+
+    await expect(buildActivationBranchPlans({
+      taskId: 'child-a',
+      branchChainBinding: binding(repoRoot, {
+        repos: [{
+          ...binding(repoRoot).repos[0]!,
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: 'not-a-commit',
+          sourceKind: 'introduced-by-child',
+        }],
+      }),
+      materializationOrigins: [{ contextRoot: repoRoot, gitRoot: repoRoot }],
+      repoLabels: ['repo'],
+      repoRoot,
+    })).rejects.toThrow('activation-branch-chain-introduced-base-unresolved for task "child-a": not-a-commit:');
+  });
+
+  it('fails introduced activation when the new chain branch precondition fails', async () => {
+    const repoRoot = tempDir('branch-chain-introduced-precondition-');
+    const head = initGitRepo(repoRoot);
+    git(repoRoot, ['branch', 'task/root-task']);
+
+    await expect(buildActivationBranchPlans({
+      taskId: 'child-a',
+      branchChainBinding: binding(repoRoot, {
+        repos: [{
+          ...binding(repoRoot).repos[0]!,
+          chainSourceBranch: 'task/root-task',
+          parentBranchHead: head,
+          sourceKind: 'introduced-by-child',
+        }],
+      }),
+      materializationOrigins: [{ contextRoot: repoRoot, gitRoot: repoRoot }],
+      repoLabels: ['repo'],
+      repoRoot,
+    })).rejects.toThrow('activation-branch-chain-introduced-precondition-failed for task "child-a": branch-already-exists:');
   });
 });
 

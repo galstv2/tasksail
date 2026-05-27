@@ -222,13 +222,13 @@ describe("App", () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Create context pack' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Create Context Pack' })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create context pack' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Context Pack' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'Create context pack' })).toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: 'Create Context Pack' })).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByLabelText('Discovery root'), {
@@ -247,15 +247,15 @@ describe("App", () => {
     });
 
     fireEvent.click(
-      within(screen.getByRole('dialog', { name: 'Create context pack' })).getByRole(
+      within(screen.getByRole('dialog', { name: 'Create Context Pack' })).getByRole(
         'button',
-        { name: 'Create context pack' },
+        { name: 'Create Context Pack' },
       ),
     );
 
     await waitFor(() => {
       expect(
-        screen.queryByRole('dialog', { name: 'Create context pack' }),
+        screen.queryByRole('dialog', { name: 'Create Context Pack' }),
       ).not.toBeInTheDocument();
     });
     expect(window.desktopShell.createContextPack).toHaveBeenCalledWith(

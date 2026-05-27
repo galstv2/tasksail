@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -122,6 +123,38 @@ describe('completePendingItem child-chain closeout wiring', () => {
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace/pendingitems/.active-items/child.completing'))).toBe(false);
   });
 
+  it('attaches branch handoffs from adjusted child repo bindings before advancing the chain tip', async () => {
+    const taskId = 'child';
+    const platformRepo = await createRepo(repoRoot, 'platform', 'task/root');
+    const toolsRepo = await createRepo(repoRoot, 'tools', 'task/root');
+    await seedActiveTask(repoRoot, taskId, childMarkdown());
+    await seedTaskJson(repoRoot, taskId, [{
+      originalRoot: platformRepo.root,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace/tasks/child/worktrees/platform'),
+      worktreeBranch: 'task/root',
+      baseCommitSha: platformRepo.baseCommitSha,
+    }, {
+      originalRoot: toolsRepo.root,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace/tasks/child/worktrees/tools'),
+      worktreeBranch: 'task/root',
+      baseCommitSha: toolsRepo.baseCommitSha,
+    }]);
+
+    await completePendingItem({ repoRoot, taskId, skipValidation: true, contextPackDir: path.join(repoRoot, 'context-pack') });
+
+    expect(attachCompletedBranchHandoffsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId }),
+      expect.arrayContaining([
+        expect.objectContaining({ repo_root: platformRepo.root, repo_label: 'platform', branch: 'task/root' }),
+        expect.objectContaining({ repo_root: toolsRepo.root, repo_label: 'tools', branch: 'task/root' }),
+      ]),
+    );
+    expect(advanceCompletedChildTaskChainMock).toHaveBeenCalledWith(
+      repoRoot,
+      expect.objectContaining({ taskId }),
+    );
+  });
+
   it('leaves the sentinel and blocks queue activation when child-chain state advance fails', async () => {
     const taskId = 'child';
     await seedActiveTask(repoRoot, taskId, childMarkdown());
@@ -226,6 +259,56 @@ async function seedActiveTask(repoRoot: string, taskId: string, markdown: string
   await writeFile(path.join(handoffsDir, 'retrospective-input.md'), '# Retro\n\n- Retrospective Required: false\n');
   await writeFile(path.join(handoffsDir, 'final-summary.md'), '# Final\n');
   await writeFile(path.join(handoffsDir, 'issues.md'), '# Issues\n');
+}
+
+async function seedTaskJson(
+  repoRoot: string,
+  taskId: string,
+  repoBindings: Array<{
+    originalRoot: string;
+    worktreeRoot: string;
+    worktreeBranch: string;
+    baseCommitSha: string;
+  }>,
+): Promise<void> {
+  const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+  await mkdir(taskDir, { recursive: true });
+  await writeFile(path.join(taskDir, '.task.json'), JSON.stringify({
+    schema_version: 2,
+    taskId,
+    contextPackBinding: {
+      contextPackPath: null,
+      dataHostDir: null,
+      dataContainerDir: null,
+      repoBindings,
+    },
+    materialization: { strategy: 'copy', cloned: [], skipped: [] },
+    frozenAt: '2026-05-19T12:00:00.000Z',
+    finalizedAt: null,
+    state: 'active',
+  }, null, 2));
+}
+
+async function createRepo(repoRoot: string, label: string, branch: string): Promise<{ root: string; baseCommitSha: string }> {
+  const root = path.join(repoRoot, label);
+  await mkdir(root, { recursive: true });
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.email', 'test@example.com']);
+  git(root, ['config', 'user.name', 'Test User']);
+  await writeFile(path.join(root, 'README.md'), '# base\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'base']);
+  const baseCommitSha = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['checkout', '-q', '-b', branch]);
+  await writeFile(path.join(root, `${label}.txt`), 'child\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'child']);
+  git(root, ['checkout', '-q', 'main']);
+  return { root, baseCommitSha };
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 function childMarkdown(): string {

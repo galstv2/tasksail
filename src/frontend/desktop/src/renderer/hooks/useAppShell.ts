@@ -17,6 +17,7 @@ import { useMcpConfigModal, type McpConfigModalProps } from './useMcpConfigModal
 import { usePlannerModal } from './usePlannerModal';
 import { useReinforcementModal, type ReinforcementModalProps } from './useReinforcementModal';
 import { useTaskBoard } from './useTaskBoard';
+import { useTaskNotifications, type UseTaskNotificationsResult } from './useTaskNotifications';
 import type { TaskBoardProps } from '../components/taskboard/TaskBoard';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import type { PlannerStartSessionDeepFocusSelection } from '../../shared/desktopContract';
@@ -46,6 +47,7 @@ export type UseAppShellResult = {
   reinforcementModalProps: ReinforcementModalProps;
   openReinforcementModal: () => void;
   taskBoardProps: TaskBoardProps;
+  notificationCenterProps: UseTaskNotificationsResult;
 };
 
 export function useAppShell(
@@ -102,6 +104,7 @@ export function useAppShell(
   } = useStreamEvents();
 
   const taskBoard = useTaskBoard(client);
+  const notificationCenterProps = useTaskNotifications(client);
   const { agentConfigModalProps, openAgentConfigModal } = useAgentConfigModal(client);
   const { browserProps: instructionsBrowserProps, editorProps: instructionsEditorProps, openAgentInstructionsModal } = useAgentInstructionsModal(client);
   const { mcpConfigModalProps, openMcpConfigModal, enabledServerCount: enabledMcpServerCount } = useMcpConfigModal(client);
@@ -266,5 +269,6 @@ export function useAppShell(
     reinforcementModalProps,
     openReinforcementModal,
     taskBoardProps,
+    notificationCenterProps,
   };
 }

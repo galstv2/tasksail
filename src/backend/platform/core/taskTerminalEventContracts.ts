@@ -19,10 +19,10 @@ export type TaskAgentLaunchOutcome =
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   lily: 'Lily',
-  alice: 'Alice',
-  dalton: 'Dalton',
-  'dalton-verify': 'Dalton',
-  ron: 'Ron',
+  alice: 'Alice - PM',
+  dalton: 'Dalton - SWE',
+  'dalton-verify': 'Dalton - SWE',
+  ron: 'Ron - QA',
 };
 
 export function normalizeAgentLaunchPhase(input: {
@@ -48,7 +48,7 @@ export function formatTaskAgentDisplayName(input: {
 }): string {
   const base = AGENT_DISPLAY_NAMES[input.agentId] ?? input.agentId;
   if (input.phase === 'initial') return base;
-  if (input.phase === 'verification' && input.agentId === 'dalton-verify') return 'Dalton (verify)';
+  if (input.phase === 'verification' && input.agentId === 'dalton-verify') return `${base} (verify)`;
   if (input.phase === 'confinement-retry') return `${base} (confinement retry)`;
   if (input.phase === 'closeout-remediation') return `${base} (closeout remediation)`;
   return `${base} (${input.phase})`;

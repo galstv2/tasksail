@@ -117,6 +117,7 @@ export function usePlannerModal(
   const parentArchivePreview = usePlannerParentArchivePreview(client);
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<PlannerSessionStatus>('idle');
+  const [sessionStartError, setSessionStartError] = useState('');
   const [selectedLilyPersonalityId, setSelectedLilyPersonalityId] = useState<PlannerLilyPersonalityId>('balanced');
   const selectedLilyPersonalityIdRef = useRef<PlannerLilyPersonalityId>('balanced');
   const [personalityLocked, setPersonalityLocked] = useState(false);
@@ -124,12 +125,14 @@ export function usePlannerModal(
   const startSession = useCallback(() => {
     expectedSessionIdRef.current = null;
     setSessionStatus('connecting');
+    setSessionStartError('');
     setPlannerFocusValidationIssues([]);
     pendingChildTaskStarterPromptRef.current = null;
     parentContextBundleRef.current = undefined;
     parentChainArchiveBundleRef.current = undefined;
     if (!activeContextPackDir) {
       setSessionStatus('failed');
+      setSessionStartError('No active context pack is selected.');
       return;
     }
     client.startPlannerSession({
@@ -141,6 +144,7 @@ export function usePlannerModal(
         if (!result.ok || result.response.action !== 'planner.startSession') {
           expectedSessionIdRef.current = null;
           setSessionStatus('failed');
+          setSessionStartError(result.ok ? 'Unexpected planner start response.' : result.error);
           log.warn('planner.session.start.failed', {
             contextPackDir: activeContextPackDir,
             reason: result.ok ? 'Unexpected planner start response.' : result.error,
@@ -148,11 +152,13 @@ export function usePlannerModal(
           return;
         }
         expectedSessionIdRef.current = result.response.sessionId;
+        setSessionStartError('');
         setSessionStatus('active');
       })
       .catch((err: unknown) => {
         expectedSessionIdRef.current = null;
         setSessionStatus('failed');
+        setSessionStartError(normalizeIpcThrownError(err, 'Unable to start planner session.'));
         log.error('planner.session.start.failed', err, {
           contextPackDir: activeContextPackDir,
         });
@@ -176,6 +182,7 @@ export function usePlannerModal(
     setSelectedMarkdownFile(null);
     setStagedDraft(null);
     setDraftError('');
+    setSessionStartError('');
     setPlannerFocusValidationIssues([]);
     setAwaitingDraft(false);
     setChildTaskMode(false);
@@ -1057,6 +1064,7 @@ export function usePlannerModal(
       isFollowUpDraft,
       planningEnabled,
       contractError,
+      sessionStartError,
       draftError: draftError || plannerStream.lastError,
       plannerFocusValidationIssues,
       recentConversations,
@@ -1106,7 +1114,7 @@ export function usePlannerModal(
       childScopePanelProps: childScopeOverride.childScopePanelProps,
       parentArchivePreview,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, selectedLilyPersonalityId, personalityLocked, handleLilyPersonalityChange, busyBadgeLabel, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, sessionStartError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, selectedLilyPersonalityId, personalityLocked, handleLilyPersonalityChange, busyBadgeLabel, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
   );
 
   return { plannerModalProps, openPlannerModal };

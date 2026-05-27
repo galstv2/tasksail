@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityProvider } from '../contexts/ObservabilityContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { useAppShell } from './useAppShell';
+import { useTaskNotifications } from './useTaskNotifications';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import {
   createMockClient,
@@ -17,11 +18,35 @@ import {
 } from '../../test';
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
 
+const { notificationCenterProps, useTaskNotificationsMock } = vi.hoisted(() => {
+  const props = {
+    notifications: [],
+    unseenCount: 7,
+    countLabel: '7',
+    isOpen: false,
+    refresh: vi.fn(),
+    openPanel: vi.fn(),
+    closePanel: vi.fn(),
+    togglePanel: vi.fn(),
+    dismiss: vi.fn(),
+    dismissAll: vi.fn(),
+  };
+  return {
+    notificationCenterProps: props,
+    useTaskNotificationsMock: vi.fn(() => props),
+  };
+});
+
+vi.mock('./useTaskNotifications', () => ({
+  useTaskNotifications: useTaskNotificationsMock,
+}));
+
 afterEach(() => {
   cleanup();
 });
 
 beforeEach(() => {
+  useTaskNotificationsMock.mockClear();
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
     writable: true,
@@ -168,6 +193,12 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
       <div data-testid="has-open-reinforcement">{String(typeof result.openReinforcementModal === 'function')}</div>
       <div data-testid="has-open-agent-config">{String(typeof result.openAgentConfigModal === 'function')}</div>
+      <div data-testid="notification-unseen-count">{result.notificationCenterProps.unseenCount}</div>
+      <div data-testid="notification-has-open">{String(typeof result.notificationCenterProps.openPanel === 'function')}</div>
+      <div data-testid="notification-has-close">{String(typeof result.notificationCenterProps.closePanel === 'function')}</div>
+      <div data-testid="notification-has-refresh">{String(typeof result.notificationCenterProps.refresh === 'function')}</div>
+      <div data-testid="notification-has-dismiss">{String(typeof result.notificationCenterProps.dismiss === 'function')}</div>
+      <div data-testid="notification-has-dismiss-all">{String(typeof result.notificationCenterProps.dismissAll === 'function')}</div>
     </section>
   );
 }
@@ -235,6 +266,27 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('reinforcement-has-context-pack')).toHaveTextContent('true');
     expect(screen.getByTestId('has-open-reinforcement')).toHaveTextContent('true');
     expect(screen.getByTestId('has-open-agent-config')).toHaveTextContent('true');
+  });
+
+  it('composes task notifications while preserving active labels', async () => {
+    const client = createClient();
+
+    render(<AppShellHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-unseen-count')).toHaveTextContent('7');
+    });
+
+    expect(useTaskNotifications).toHaveBeenCalledWith(client);
+    expect(screen.getByTestId('notification-has-open')).toHaveTextContent('true');
+    expect(screen.getByTestId('notification-has-close')).toHaveTextContent('true');
+    expect(screen.getByTestId('notification-has-refresh')).toHaveTextContent('true');
+    expect(screen.getByTestId('notification-has-dismiss')).toHaveTextContent('true');
+    expect(screen.getByTestId('notification-has-dismiss-all')).toHaveTextContent('true');
+    expect(screen.getByTestId('active-task-label')).toHaveTextContent('Observe queue artifacts');
+    expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
+    expect(client.readTaskBoard).toHaveBeenCalled();
+    expect(notificationCenterProps.openPanel).not.toHaveBeenCalled();
   });
 
   it('locks the planner when no active context pack is applied', async () => {

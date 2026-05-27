@@ -2,6 +2,8 @@ Inputs for this run are at the paths provided in your launch context (intake, ta
 
 Before authoring artifacts, read `.github/copilot/instructions/product-manager.instructions.md` and follow it. That file is your full operational contract; this prompt repeats the non-negotiable gates for this launch.
 
+Use the `## Product Manager Artifact Checklist` in the Runtime Path Manifest as the launch-specific artifact ownership and sequencing checklist before writing workflow artifacts.
+
 This launch is non-interactive. You will not receive follow-up input, clarification, confirmation, or permission during this run.
 
 Before inspecting source code, resolve task source roots from `TASKSAIL_TASK_WORKTREES_FILE` or `TASKSAIL_TASK_WORKTREES`. Use only each entry's `worktreeRoot` as source code. Never inspect `contextpacks/...` paths as source code; those paths are metadata/reference context only.

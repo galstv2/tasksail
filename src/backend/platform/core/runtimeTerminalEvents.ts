@@ -109,10 +109,30 @@ export class RuntimeTerminalEvents {
       role: 'pipeline',
       severity: 'info',
       visible: true,
-      message: `Created worktree for ${input.repo} on branch ${input.branch}.`,
+      message: `Created writable task branch worktree for ${input.repo} on branch ${input.branch}.`,
       extra: {
         repo: input.repo,
         branch: input.branch,
+        worktreeRoot: input.worktreeRoot,
+        materializationStrategy: input.materializationStrategy,
+      },
+    });
+  }
+
+  readonlyContextMaterialized(input: {
+    repo: string;
+    worktreeRoot: string;
+    materializationStrategy: string;
+  }): Promise<void> {
+    return this.append({
+      eventId: `activation.readonly_context.materialized:${input.repo}:${input.worktreeRoot}`,
+      source: 'runtime.queue',
+      role: 'queue',
+      severity: 'info',
+      visible: true,
+      message: `Read-only support context materialized for ${input.repo}; no target branch was created.`,
+      extra: {
+        repo: input.repo,
         worktreeRoot: input.worktreeRoot,
         materializationStrategy: input.materializationStrategy,
       },
@@ -247,6 +267,17 @@ export class RuntimeTerminalEvents {
     });
   }
 
+  pipelineCompleted(): Promise<void> {
+    return this.append({
+      eventId: 'pipeline.completed',
+      source: 'runtime.pipeline',
+      role: 'pipeline',
+      severity: 'success',
+      visible: true,
+      message: 'Pipeline completed.',
+    });
+  }
+
   taskFailed(): Promise<void> {
     return this.append({
       eventId: 'queue.task.failed',
@@ -324,6 +355,8 @@ export class RuntimeTerminalEvents {
     );
     const phaseLabel = formatPipelinePhaseDisplayLabel(input.phase);
     const priorPhaseLabel = input.priorPhase ? formatPipelinePhaseDisplayLabel(input.priorPhase) : null;
+    const isTestCaptureTransition = input.phase.startsWith('test-capture') ||
+      Boolean(input.priorPhase?.startsWith('test-capture'));
     const transition = input.priorPhase
       ? { id: `${input.priorPhase}->${input.phase}`, label: `${priorPhaseLabel} -> ${phaseLabel}` }
       : { id: input.phase, label: phaseLabel };
@@ -333,11 +366,33 @@ export class RuntimeTerminalEvents {
       source: 'runtime.pipeline',
       role: 'pipeline',
       severity: 'info',
-      visible: true,
+      visible: !isTestCaptureTransition,
       message: displayMessage,
       extra: {
         phase: input.phase,
         priorPhase: input.priorPhase,
+      },
+    });
+  }
+
+  reasoningEffortRejectedBeforeSpawn(input: {
+    agentId: string;
+    modelId: string;
+    effort: string;
+    reason: 'unsupported-by-cli' | 'capability-discovery-failed';
+  }): Promise<void> {
+    return this.append({
+      eventId: `pipeline.agent_reasoning_effort.rejected_before_spawn:${this.taskId}:${input.agentId}:${input.effort}`,
+      source: 'runtime.pipeline',
+      role: 'pipeline',
+      severity: 'error',
+      visible: true,
+      message: `Agent ${input.agentId} cannot launch model ${input.modelId} with reasoning effort ${input.effort}. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.`,
+      extra: {
+        agentId: input.agentId,
+        modelId: input.modelId,
+        effort: input.effort,
+        reason: input.reason,
       },
     });
   }
@@ -349,7 +404,7 @@ export class RuntimeTerminalEvents {
       role: 'pipeline',
       severity: 'info',
       visible: true,
-      message: 'Dalton verification launching.',
+      message: `${formatTaskAgentDisplayName({ agentId: 'dalton', phase: 'initial' })} verification launching.`,
     });
   }
 
@@ -359,7 +414,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'info',
-      visible: true,
+      visible: false,
       message: 'Auto-merge disabled.',
     });
   }
@@ -370,7 +425,7 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'success',
-      visible: true,
+      visible: false,
       message: `Auto-merge applied ${input.repos}.`,
       extra: { repos: input.repos },
     });
@@ -382,9 +437,42 @@ export class RuntimeTerminalEvents {
       source: 'runtime.closeout',
       role: 'pipeline',
       severity: 'warning',
-      visible: true,
+      visible: false,
       message: `Auto-merge skipped: ${input.detail}.`,
       extra: { detail: input.detail },
+    });
+  }
+
+  targetBranchUpdate(input: {
+    repoLabel: string;
+    targetRepoRoot: string;
+    sourceBranch: string;
+    targetBranch: string | null;
+    status: 'applied' | 'disabled' | 'skipped';
+    detail: string;
+  }): Promise<void> {
+    const target = input.targetBranch ?? '(unknown target branch)';
+    const applied = input.status === 'applied';
+    const message = applied
+      ? `Code changes from task branch ${input.sourceBranch} were successfully staged on target branch ${target} in target repo ${input.repoLabel} at ${input.targetRepoRoot}.`
+      : input.status === 'disabled'
+        ? `Auto-merge is disabled for target repo ${input.repoLabel} at ${input.targetRepoRoot}. Task branch ${input.sourceBranch} is ready for operator review.`
+        : `Target branch was not updated for ${input.repoLabel} at ${input.targetRepoRoot}: ${input.detail} Task branch ${input.sourceBranch} is ready for operator review.`;
+    return this.append({
+      eventId: `closeout.target_branch_update:${input.repoLabel}:${input.sourceBranch}:${input.status}:${target}`,
+      source: 'runtime.closeout',
+      role: 'pipeline',
+      severity: applied ? 'success' : input.status === 'disabled' ? 'info' : 'warning',
+      visible: true,
+      message,
+      extra: {
+        repoLabel: input.repoLabel,
+        targetRepoRoot: input.targetRepoRoot,
+        sourceBranch: input.sourceBranch,
+        targetBranch: input.targetBranch,
+        status: input.status,
+        detail: input.detail,
+      },
     });
   }
 

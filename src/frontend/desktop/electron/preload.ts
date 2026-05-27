@@ -7,6 +7,7 @@ import {
   DESKTOP_SHELL_PLANNER_EVENT_CHANNEL,
   DESKTOP_SHELL_STREAM_CHANNEL,
   DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+  DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL,
   PROVIDER_DESCRIBE_ACTIVE_CHANNEL,
   type ContextPackApplyResponse,
   type ContextPackActivationResponse,
@@ -29,6 +30,7 @@ import {
   type ReinforcementDismissRealignmentRequest,
   type ReinforcementDismissRealignmentResponse,
   type AgentConfigAddModelResponse,
+  type AgentConfigLoadCapabilitiesResponse,
   type AgentConfigLoadAgentsResponse,
   type AgentConfigLoadModelCatalogResponse,
   type AgentConfigRemoveModelResponse,
@@ -70,6 +72,9 @@ import {
   type TaskBoardMoveToPendingResponse,
   type TaskBoardMoveToOpenResponse,
   type TaskBoardRequeueErrorItemResponse,
+  type TaskNotificationEvent,
+  type TaskNotificationMutationResponse,
+  type TaskNotificationSnapshot,
   type ServicesReadStatusResponse,
   type WorkspaceScopeMode,
   type PlannerDirectSubmissionDraft,
@@ -79,6 +84,7 @@ import {
   type ContextPackFocusFilterSelection,
 } from '../src/shared/desktopContract';
 import { LOG_EMIT_CHANNEL, type LogEmitPayload } from '../src/shared/desktopContractLogging';
+import { isTaskNotificationEvent } from '../src/shared/desktopContractTypeGuards';
 import { isRecord } from '../src/shared/desktopContractValidators';
 
 const isDev = process.env.NODE_ENV === 'development' || Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -98,7 +104,7 @@ function normalizeFrontendLogLevel(
 
 const logLevel = normalizeFrontendLogLevel(process.env.LOG_LEVEL, 'info');
 
-function emitPreloadWarn(msg: 'preload.stream-event.malformed' | 'preload.planner-event.malformed' | 'preload.task-board-update.malformed' | 'preload.context-pack-catalog-event.malformed', extra: Record<string, unknown>): void {
+function emitPreloadWarn(msg: 'preload.stream-event.malformed' | 'preload.planner-event.malformed' | 'preload.task-board-update.malformed' | 'preload.task-notifications-update.malformed' | 'preload.context-pack-catalog-event.malformed', extra: Record<string, unknown>): void {
   void ipcRenderer.invoke(LOG_EMIT_CHANNEL, {
     ts: new Date().toISOString(),
     level: 'warn',
@@ -542,6 +548,10 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.loadModelCatalog',
     }),
+  loadCapabilities: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadCapabilities',
+    }),
   saveAgentModels: async (
     assignments: AgentConfigSaveAgentModelsRequest['payload']['assignments'],
   ): Promise<DesktopInvokeResult> =>
@@ -674,6 +684,26 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'taskBoard.retryKillCleanup',
       payload: { fileName, taskId },
+    }),
+  readTaskNotifications: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.read',
+    }),
+  markTaskNotificationsSeen: async (
+    payload: import('../src/shared/desktopContract').TaskNotificationsMarkSeenRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.markSeen',
+      payload,
+    }),
+  dismissTaskNotification: async (notificationId: string): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.dismiss',
+      payload: { notificationId },
+    }),
+  dismissAllTaskNotifications: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskNotifications.dismissAll',
     }),
   getBackendServiceStatus: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -814,6 +844,25 @@ export const desktopShellApi = {
     };
     ipcRenderer.on(DESKTOP_SHELL_TASK_BOARD_CHANNEL, handler);
     return () => ipcRenderer.removeListener(DESKTOP_SHELL_TASK_BOARD_CHANNEL, handler);
+  },
+  onTaskNotificationsUpdate: (
+    callback: (event: TaskNotificationEvent) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: unknown,
+    ) => {
+      if (isTaskNotificationEvent(data)) {
+        callback(data);
+      } else {
+        emitPreloadWarn('preload.task-notifications-update.malformed', {
+          type: typeof data,
+          eventType: isRecord(data) ? String(data.type) : null,
+        });
+      }
+    };
+    ipcRenderer.on(DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL, handler);
   },
   subscribeContextPackCatalogChanged: (
     callback: (event: ContextPackCatalogChangedEvent) => void,
@@ -1008,6 +1057,7 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   loadAgentConfig: () => Promise<DesktopInvokeResult>;
   loadModelCatalog: () => Promise<DesktopInvokeResult>;
+  loadCapabilities?: () => Promise<DesktopInvokeResult>;
   saveAgentModels: (
     assignments: AgentConfigSaveAgentModelsRequest['payload']['assignments'],
   ) => Promise<DesktopInvokeResult>;
@@ -1040,6 +1090,12 @@ export type DesktopShellApi = {
   moveToOpen: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<DesktopInvokeResult>;
   killTask: (fileName: string, taskId: string) => Promise<DesktopInvokeResult>;
   retryKillCleanup: (fileName: string, taskId: string) => Promise<DesktopInvokeResult>;
+  readTaskNotifications?: () => Promise<DesktopInvokeResult>;
+  markTaskNotificationsSeen?: (
+    payload: import('../src/shared/desktopContract').TaskNotificationsMarkSeenRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  dismissTaskNotification?: (notificationId: string) => Promise<DesktopInvokeResult>;
+  dismissAllTaskNotifications?: () => Promise<DesktopInvokeResult>;
   getBackendServiceStatus: () => Promise<DesktopInvokeResult>;
   startBackendServices: () => Promise<DesktopInvokeResult>;
   stopBackendServices: () => Promise<DesktopInvokeResult>;
@@ -1071,6 +1127,9 @@ export type DesktopShellApi = {
   ) => () => void;
   onTaskBoardUpdate: (
     callback: (board: import('../src/shared/desktopContract').TaskBoardReadBoardResponse) => void,
+  ) => () => void;
+  onTaskNotificationsUpdate?: (
+    callback: (event: TaskNotificationEvent) => void,
   ) => () => void;
   subscribeContextPackCatalogChanged: (
     callback: (event: ContextPackCatalogChangedEvent) => void,
@@ -1115,6 +1174,7 @@ export type DesktopAllowedResponses =
   | ReinforcementDismissRealignmentResponse
   | AgentConfigLoadAgentsResponse
   | AgentConfigLoadModelCatalogResponse
+  | AgentConfigLoadCapabilitiesResponse
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
@@ -1128,6 +1188,8 @@ export type DesktopAllowedResponses =
   | TaskBoardDeleteTaskResponse
   | TaskBoardMoveToPendingResponse
   | TaskBoardMoveToOpenResponse
+  | TaskNotificationSnapshot
+  | TaskNotificationMutationResponse
   | ServicesReadStatusResponse;
 
 export function exposeDesktopShell(): void {

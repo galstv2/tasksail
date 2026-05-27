@@ -48,6 +48,7 @@ export function resolveAutonomyProfile(
 
   return {
     model,
+    ...(profile.reasoningEffort ? { reasoningEffort: profile.reasoningEffort } : {}),
     allowedDirs,
     autonomyProfile: profile.autonomyProfile,
     disallowTempDir: Boolean(contextPackDir),

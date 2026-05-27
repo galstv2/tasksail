@@ -38,13 +38,13 @@ describe('SidebarPackSelector', () => {
   it('shows empty state with create button when no packs', () => {
     render(<SidebarPackSelector {...defaultProps} />);
     expect(screen.getByText('No context packs discovered yet.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Create context pack')).toBeInTheDocument();
+    expect(screen.getByLabelText('Create Context Pack')).toBeInTheDocument();
   });
 
   it('calls onOpenCreateModal from empty state', () => {
     const onOpenCreateModal = vi.fn();
     render(<SidebarPackSelector {...defaultProps} onOpenCreateModal={onOpenCreateModal} />);
-    fireEvent.click(screen.getByLabelText('Create context pack'));
+    fireEvent.click(screen.getByLabelText('Create Context Pack'));
     expect(onOpenCreateModal).toHaveBeenCalledWith({ kind: 'fresh' });
   });
 

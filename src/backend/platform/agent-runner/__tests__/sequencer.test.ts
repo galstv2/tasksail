@@ -219,6 +219,8 @@ describe('buildFleetPrompt', () => {
     expect(prompt).toContain('Your launch CWD is already this folder.');
     expect(prompt).toContain('## Implementation Spec');
     expect(prompt).toContain('Honor the contract.');
+    expect(prompt).toContain('Complete coverage of every listed slice is required.');
+    expect(prompt).toContain('documented unavailable prerequisite with paths or commands checked');
     expect(prompt).toContain('## Behavioral Overlays');
     expect(prompt).toContain(
       'Supplemental behavioral guidance begins below. Apply these overlays in addition to the primary task content above.',
@@ -343,6 +345,7 @@ describe('buildSimpleDaltonPrompt', () => {
     mkdirSync(implStepsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), '# Spec\nHonor the contract.', 'utf-8');
     writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# Slice 1\nDo the first thing.');
+    writeFileSync(path.join(implStepsDir, 'slice-2.md'), '# Slice 2\nDo the second thing.');
     const contextPackDir = path.join(dir, 'contextpacks', 'pack-a');
     writeRegularDaltonOverlayFixture(dir, contextPackDir, { includeConventions: false });
 
@@ -361,8 +364,13 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).toContain('Writable roots define where implementation changes may be made.');
     expect(prompt).toContain('## Implementation Spec');
     expect(prompt).toContain('Honor the contract.');
-    expect(prompt).toContain('## Implementation Slices (1 total)');
+    expect(prompt).toContain('## Implementation Slices (2 total)');
+    expect(prompt).toContain('This Dalton launch owns all 2 listed slices.');
+    expect(prompt).toContain('Slices are not future turns or optional follow-ups.');
+    expect(prompt).toContain('Do not stop after the first slice.');
+    expect(prompt).toContain('document the paths or commands checked');
     expect(prompt).toContain('Do the first thing.');
+    expect(prompt).toContain('Do the second thing.');
     expect(prompt).toContain('## Behavioral Overlays');
     expect(prompt).toContain(
       'Supplemental behavioral guidance begins below. Apply these overlays in addition to the primary task content above.',
@@ -373,7 +381,7 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).not.toContain('### Reinforcement');
     expect(prompt).not.toContain('Keep changes tightly scoped.');
     expect(prompt.indexOf('Honor the contract.')).toBeLessThan(
-      prompt.indexOf('## Implementation Slices (1 total)'),
+      prompt.indexOf('## Implementation Slices (2 total)'),
     );
     expect(prompt.indexOf('Do the first thing.')).toBeLessThan(
       prompt.indexOf('## Behavioral Overlays'),
@@ -408,6 +416,8 @@ describe('buildSimpleDaltonPrompt', () => {
 
     expect(prompt).not.toContain('## Monolith Focus Scope');
     expect(prompt).toContain('Implement the changes described above.');
+    expect(prompt).toContain('verify each listed slice is complete');
+    expect(prompt).toContain('For any incomplete slice, document the unavailable prerequisite and evidence');
   });
 
   it('omits external MCP guidance when Dalton has no in-scope servers', async () => {

@@ -19,10 +19,12 @@ export type TaskProgressEventType =
   | 'activation.started'
   | 'activation.validating'
   | 'activation.materializing_worktrees'
+  | 'activation.readonly_context.materialized'
   | 'activation.initializing_task'
   | 'activation.failed'
   | 'activation.skipped'
   | 'pipeline.started'
+  | 'pipeline.completed'
   | 'pipeline.deferred'
   | 'agent.artifact_check.started'
   | 'agent.artifact_check.completed'
@@ -54,6 +56,7 @@ export type TaskProgressEventType =
   | 'retrospective.completed'
   | 'retrospective.failed'
   | 'pipeline.failed'
+  | 'pipeline.agent_reasoning_effort.rejected_before_spawn'
   | 'pipeline.killed'
   | 'closeout.started'
   | 'closeout.snapshot_committing'
@@ -91,6 +94,7 @@ export type TaskProgressEventType =
   | 'auto_merge.applied'
   | 'auto_merge.skipped'
   | 'auto_merge.skipped_child_chain'
+  | 'closeout.target_branch_update'
   | 'closeout.finalized'
   | 'closeout.stranded.resumed'
   | 'activation.blocked.dirty-repos'
@@ -124,6 +128,12 @@ export type AgentLifecycleProgressInput = {
   displayPhase: TaskAgentLaunchPhase;
 };
 export type PipelineTerminalInput = { reason: 'failed' | 'killed' };
+export type ReasoningEffortRejectedBeforeSpawnProgressInput = {
+  agentId: string;
+  modelId: string;
+  effort: string;
+  reason: 'unsupported-by-cli' | 'capability-discovery-failed';
+};
 export type KillCleanupFailedInput = {
   cleanupAttemptCount: number;
   errorCode: string;
@@ -142,15 +152,27 @@ export type GuardrailReceiptProgressInput = {
   displayPhase: TaskAgentLaunchPhase;
   terminationReason?: 'artifact-incomplete' | 'next-role-blocked' | 'workflow-policy-blocked' | 'policy-blocked' | 'denied' | 'failed';
 };
+export type DaltonModeSelectedProgressInput = {
+  mode: 'simple' | 'complex';
+  reason: 'parallel-ok-simple' | 'parallel-ok-complex' | 'remediation-forced-simple';
+};
+export type TargetBranchUpdateProgressInput = {
+  repoLabel: string;
+  targetRepoRoot: string;
+  sourceBranch: string;
+  targetBranch: string | null;
+  status: 'applied' | 'disabled' | 'skipped';
+  detail: string;
+};
 
 type NoInputLifecycleEvent =
   | 'activation.started'
   | 'activation.validating'
   | 'activation.initializing_task'
   | 'pipeline.started'
+  | 'pipeline.completed'
   | 'pipeline.deferred'
   | 'pipeline.agent_order.selected'
-  | 'pipeline.dalton_mode.selected'
   | 'test_capture.started'
   | 'test_capture.completed'
   | 'test_capture.skipped'
@@ -194,9 +216,18 @@ type LifecycleTaskProgressEvent =
   | { type: 'agent.confinement_retry.completed'; input: AgentLifecycleProgressInput }
   | { type: 'agent.confinement_retry.failed'; input: AgentLifecycleProgressInput }
   | { type: 'activation.materializing_worktrees'; input: ActivationMaterializingWorktreesInput }
+  | {
+      type: 'activation.readonly_context.materialized';
+      input: {
+        repo: string;
+        worktreeRoot: string;
+        materializationStrategy: string;
+      };
+    }
   | { type: 'activation.failed'; input: ActivationTerminalInput }
   | { type: 'activation.skipped'; input: ActivationTerminalInput }
   | { type: 'pipeline.failed'; input: PipelineTerminalInput }
+  | { type: 'pipeline.agent_reasoning_effort.rejected_before_spawn'; input: ReasoningEffortRejectedBeforeSpawnProgressInput }
   | { type: 'pipeline.killed'; input: PipelineTerminalInput }
   | { type: 'qa_remediation.cycle_started'; input: { cycle: number } }
   | { type: 'qa_remediation.cycle_completed'; input: { cycle: number } }
@@ -204,6 +235,7 @@ type LifecycleTaskProgressEvent =
   | { type: 'kill.requested'; input: { state: 'active' | 'activating'; requestedAt: string } }
   | { type: 'kill.cleanup.failed'; input: KillCleanupFailedInput }
   | { type: 'failure.recovered_missing_pending'; input: FailureRecoveredMissingPendingInput }
+  | { type: 'pipeline.dalton_mode.selected'; input: DaltonModeSelectedProgressInput }
   | { type: 'mcp.checked'; input: McpLifecycleProgressInput }
   | { type: 'mcp.degraded'; input: McpLifecycleProgressInput }
   | { type: 'mcp.failed'; input: McpLifecycleProgressInput }
@@ -267,6 +299,7 @@ export type TaskProgressEvent =
   | { type: 'auto_merge.applied'; input: { repos: string } }
   | { type: 'auto_merge.skipped'; input: { detail: string } }
   | { type: 'auto_merge.skipped_child_chain' }
+  | { type: 'closeout.target_branch_update'; input: TargetBranchUpdateProgressInput }
   | { type: 'closeout.finalized' }
   | { type: 'closeout.stranded.resumed'; input: { drove: readonly string[] } }
   | {
@@ -297,7 +330,7 @@ export async function emitTaskProgressEvent(args: {
 }): Promise<void> {
   const terminal = RuntimeTerminalEvents.forTask(args.repoRoot, args.taskId);
   const progress = progressFor(args.event, args.taskId);
-  args.logger.progress(progress);
+  args.logger.progress(progress as Parameters<Logger['progress']>[0]);
   await appendTerminalEvent(terminal, args.event);
 }
 
@@ -318,7 +351,18 @@ function progressFor(event: TaskProgressEvent, taskId: string): {
           worktree_root: event.input.worktreeRoot,
           materialization_strategy: event.input.materializationStrategy,
         },
-        text: `[pipeline] worktree ${event.input.repo} on ${event.input.branch}`,
+        text: `[pipeline] writable task branch worktree ${event.input.repo} on ${event.input.branch}`,
+      };
+    case 'activation.readonly_context.materialized':
+      return {
+        level: 'info',
+        event: event.type,
+        extra: {
+          repo: event.input.repo,
+          worktree_root: event.input.worktreeRoot,
+          materialization_strategy: event.input.materializationStrategy,
+        },
+        text: `[queue] read-only support context materialized for ${event.input.repo}`,
       };
     case 'queue.active.activated':
       return {
@@ -382,6 +426,18 @@ function progressFor(event: TaskProgressEvent, taskId: string): {
         extra: { phase: event.input.phase, prior_phase: event.input.priorPhase },
         text: `[pipeline] ${event.input.priorPhase ? `${event.input.priorPhase} -> ${event.input.phase}` : event.input.phase}`,
       };
+    case 'pipeline.agent_reasoning_effort.rejected_before_spawn':
+      return {
+        level: 'error',
+        event: event.type,
+        extra: {
+          agentId: event.input.agentId,
+          modelId: event.input.modelId,
+          effort: event.input.effort,
+          reason: event.input.reason,
+        },
+        text: `[pipeline] reasoning effort rejected before spawn for ${event.input.agentId} model=${event.input.modelId} effort=${event.input.effort}`,
+      };
     case 'dalton_verification.launching':
       return {
         level: 'info',
@@ -401,6 +457,8 @@ function progressFor(event: TaskProgressEvent, taskId: string): {
       return { level: 'info', event: event.type, text: '[pipeline] task archived [ok]' };
     case 'archive.failed':
       return { level: 'error', event: event.type, text: '[pipeline] task archival failed [fail]' };
+    case 'pipeline.completed':
+      return { level: 'info', event: event.type, text: '[pipeline] Pipeline completed [ok]' };
     case 'queue.task.completed':
       return { level: 'info', event: event.type, text: `[queue] completed ${taskId} [ok]` };
     case 'queue.task.failed':
@@ -433,6 +491,24 @@ function progressFor(event: TaskProgressEvent, taskId: string): {
         level: 'warn',
         event: event.type,
         text: '[pipeline] Auto-merge skipped for child task chain: chain branches are manually integrated by the operator. [skip]',
+      };
+    case 'closeout.target_branch_update':
+      return {
+        level: event.input.status === 'skipped' ? 'warn' : 'info',
+        event: event.type,
+        extra: {
+          repo_label: event.input.repoLabel,
+          target_repo_root: event.input.targetRepoRoot,
+          source_branch: event.input.sourceBranch,
+          target_branch: event.input.targetBranch,
+          status: event.input.status,
+          detail: event.input.detail,
+        },
+        text: event.input.status === 'applied'
+          ? `[pipeline] staged task branch ${event.input.sourceBranch} on ${event.input.repoLabel}:${event.input.targetBranch ?? '(unknown)'} at ${event.input.targetRepoRoot} [ok]`
+          : event.input.status === 'disabled'
+            ? `[pipeline] auto-merge disabled by configuration for ${event.input.repoLabel}:${event.input.sourceBranch} at ${event.input.targetRepoRoot}; task branch ready for operator review [ok]`
+            : `[pipeline] target branch not updated for ${event.input.repoLabel}:${event.input.sourceBranch} at ${event.input.targetRepoRoot} - ${event.input.detail} [skip]`,
       };
     case 'closeout.finalized':
       return { level: 'info', event: event.type, text: `[pipeline] completed ${taskId} [ok]` };
@@ -502,6 +578,9 @@ async function appendTerminalEvent(
     case 'queue.branch.created':
       await terminal.branchCreated(event.input);
       return;
+    case 'activation.readonly_context.materialized':
+      await terminal.readonlyContextMaterialized(event.input);
+      return;
     case 'queue.active.activated':
       await terminal.taskActivated();
       return;
@@ -517,6 +596,9 @@ async function appendTerminalEvent(
     case 'pipeline.phase':
       await terminal.pipelinePhase(event.input);
       return;
+    case 'pipeline.agent_reasoning_effort.rejected_before_spawn':
+      await terminal.reasoningEffortRejectedBeforeSpawn(event.input);
+      return;
     case 'dalton_verification.launching':
       await terminal.daltonVerificationLaunching();
       return;
@@ -531,6 +613,9 @@ async function appendTerminalEvent(
       return;
     case 'archive.failed':
       await terminal.archiveFailed();
+      return;
+    case 'pipeline.completed':
+      await terminal.pipelineCompleted();
       return;
     case 'queue.task.completed':
       await terminal.taskCompleted();
@@ -552,6 +637,9 @@ async function appendTerminalEvent(
       return;
     case 'auto_merge.skipped_child_chain':
       await terminal.autoMergeSkippedForChildTaskChain();
+      return;
+    case 'closeout.target_branch_update':
+      await terminal.targetBranchUpdate(event.input);
       return;
     case 'closeout.finalized':
       await terminal.closeoutFinalized();
@@ -589,11 +677,12 @@ function progressForLifecycle(
   input?: Partial<Record<string, string | number | boolean>>,
 ): { level: ProgressLevel; event: TaskProgressEventType; extra?: Record<string, unknown>; text: string } {
   const meta = terminalMeta(type);
+  const message = messageForLifecycle(type, input);
   return {
     level: meta.severity === 'error' ? 'error' : meta.severity === 'warning' ? 'warn' : 'info',
     event: type,
     ...(input ? { extra: input } : {}),
-    text: `[${meta.role}] ${meta.message.replace(/\.$/u, '')}${meta.visible ? '' : ` (${taskId})`}`,
+    text: `[${meta.role}] ${message.replace(/\.$/u, '')}${meta.visible ? '' : ` (${taskId})`}`,
   };
 }
 
@@ -608,6 +697,7 @@ function lifecycleTerminalEvent(type: TaskProgressEventType, input?: Partial<Rec
   extra?: Record<string, unknown>;
 } {
   const meta = terminalMeta(type);
+  const message = messageForLifecycle(type, input);
   const actorName = isAgentLifecycleType(type) && isAgentLifecycleInput(input)
     ? agentLifecycleActorName(input)
     : undefined;
@@ -617,7 +707,7 @@ function lifecycleTerminalEvent(type: TaskProgressEventType, input?: Partial<Rec
     role: meta.role,
     severity: meta.severity,
     visible: meta.visible,
-    message: meta.message,
+    message,
     ...(actorName ? { actorName } : {}),
     ...(input ? { extra: input } : {}),
   };
@@ -647,6 +737,9 @@ function terminalMeta(type: TaskProgressEventType): {
     'archive.terminal_events_snapshot_copied',
     'archive.terminal_events_snapshot_missing',
     'closeout.finalized',
+    'auto_merge.disabled',
+    'auto_merge.applied',
+    'auto_merge.skipped',
     'mcp.checked',
     'guardrail.receipt.allowed',
   ]);
@@ -658,6 +751,7 @@ function terminalMeta(type: TaskProgressEventType): {
     'agent.confinement_retry.failed',
     'retrospective.failed',
     'pipeline.failed',
+    'pipeline.agent_reasoning_effort.rejected_before_spawn',
     'closeout.branch_verification.failed',
     'archive.terminal_events_snapshot_failed',
     'kill.cleanup.failed',
@@ -669,6 +763,7 @@ function terminalMeta(type: TaskProgressEventType): {
     'guardrail.receipt.malformed',
   ]);
   const success = new Set<TaskProgressEventType>([
+    'pipeline.completed',
     'agent.cleanup.completed',
     'agent.policy_remediation.completed',
     'agent.confinement_retry.completed',
@@ -718,12 +813,19 @@ function agentLifecycleActorName(input: AgentLifecycleProgressInput): string {
 function eventIdForGeneric(type: TaskProgressEventType, input?: Partial<Record<string, string | number | boolean>>): string {
   const suffix = typeof input?.agentId === 'string' && typeof input?.launchId === 'string' && typeof input?.displayPhase === 'string'
     ? `:${input.agentId}:${input.displayPhase}:${input.launchId}`
+    : isQaRemediationCycleEvent(type) && typeof input?.cycle === 'number' ? `:${input.cycle}`
     : typeof input?.cleanupAttemptCount === 'number' ? `:${input.cleanupAttemptCount}`
     : typeof input?.attemptId === 'string' ? `:${input.attemptId}`
     : typeof input?.launchId === 'string' ? `:${input.launchId}`
       : typeof input?.phase === 'string' ? `:${input.phase}`
         : '';
   return `${type}${suffix}`;
+}
+
+function isQaRemediationCycleEvent(type: TaskProgressEventType): boolean {
+  return type === 'qa_remediation.cycle_started' ||
+    type === 'qa_remediation.cycle_completed' ||
+    type === 'qa_remediation.exhausted';
 }
 
 function lifecycleExtra(event: TaskProgressEvent): Partial<Record<string, string | number | boolean>> | undefined {
@@ -750,11 +852,25 @@ function lifecycleExtra(event: TaskProgressEvent): Partial<Record<string, string
       };
     case 'activation.materializing_worktrees':
       return { repoCount: event.input.repoCount };
+    case 'activation.readonly_context.materialized':
+      return {
+        repo: event.input.repo,
+        worktreeRoot: event.input.worktreeRoot,
+        materializationStrategy: event.input.materializationStrategy,
+      };
     case 'activation.failed':
     case 'activation.skipped':
     case 'pipeline.failed':
+    case 'pipeline.agent_reasoning_effort.rejected_before_spawn':
     case 'pipeline.killed':
-      return { reason: event.input.reason };
+      return event.type === 'pipeline.agent_reasoning_effort.rejected_before_spawn'
+        ? {
+            agentId: event.input.agentId,
+            modelId: event.input.modelId,
+            effort: event.input.effort,
+            reason: event.input.reason,
+          }
+        : { reason: event.input.reason };
     case 'qa_remediation.cycle_started':
     case 'qa_remediation.cycle_completed':
     case 'qa_remediation.exhausted':
@@ -765,6 +881,8 @@ function lifecycleExtra(event: TaskProgressEvent): Partial<Record<string, string
       return { cleanupAttemptCount: event.input.cleanupAttemptCount, errorCode: event.input.errorCode };
     case 'failure.recovered_missing_pending':
       return { recovered: event.input.recovered };
+    case 'pipeline.dalton_mode.selected':
+      return { mode: event.input.mode, reason: event.input.reason };
     case 'mcp.checked':
     case 'mcp.degraded':
     case 'mcp.failed':
@@ -796,10 +914,12 @@ function messageFor(type: TaskProgressEventType): string {
     'activation.started': 'Activation started.',
     'activation.validating': 'Validating activation.',
     'activation.materializing_worktrees': 'Materializing task worktrees.',
+    'activation.readonly_context.materialized': 'Read-only support context materialized.',
     'activation.initializing_task': 'Initializing task artifacts.',
     'activation.failed': 'Activation failed.',
     'activation.skipped': 'Activation skipped.',
     'pipeline.started': 'Pipeline started.',
+    'pipeline.completed': 'Pipeline completed.',
     'pipeline.deferred': 'Pipeline start deferred.',
     'agent.artifact_check.started': 'Checking required agent artifacts.',
     'agent.artifact_check.completed': 'Agent artifact check completed.',
@@ -831,6 +951,7 @@ function messageFor(type: TaskProgressEventType): string {
     'retrospective.completed': 'Retrospective completed.',
     'retrospective.failed': 'Retrospective failed.',
     'pipeline.failed': 'Pipeline failed.',
+    'pipeline.agent_reasoning_effort.rejected_before_spawn': 'Agent reasoning effort rejected before spawn.',
     'pipeline.killed': 'Pipeline stopped.',
     'closeout.started': 'Closeout started.',
     'closeout.snapshot_committing': 'Committing task snapshot.',
@@ -844,6 +965,7 @@ function messageFor(type: TaskProgressEventType): string {
     'closeout.finalizing_worktrees': 'Finalizing task worktrees.',
     'closeout.child_chain_advancing': 'Advancing child task chain.',
     'closeout.child_chain_advanced': 'Child task chain advanced.',
+    'closeout.target_branch_update': 'Target branch update recorded.',
     'kill.requested': 'Stop requested.',
     'kill.cleanup.started': 'Stop cleanup started.',
     'kill.cleanup.completed': 'Stop cleanup completed.',
@@ -859,6 +981,25 @@ function messageFor(type: TaskProgressEventType): string {
     'guardrail.receipt.denied': 'Guardrail receipt denied launch.',
     'guardrail.receipt.malformed': 'Malformed guardrail receipt.',
   } as Partial<Record<TaskProgressEventType, string>>)[type] ?? `${type}.`;
+}
+
+function messageForLifecycle(
+  type: TaskProgressEventType,
+  input?: Partial<Record<string, string | number | boolean>>,
+): string {
+  if (type === 'qa_remediation.cycle_started' && typeof input?.cycle === 'number') {
+    return `QA remediation cycle ${input.cycle} started.`;
+  }
+  if (type === 'qa_remediation.cycle_completed' && typeof input?.cycle === 'number') {
+    return `QA remediation cycle ${input.cycle} completed.`;
+  }
+  if (type === 'qa_remediation.exhausted' && typeof input?.cycle === 'number') {
+    return `QA remediation exhausted after ${input.cycle} cycle(s).`;
+  }
+  if (type === 'pipeline.dalton_mode.selected' && typeof input?.mode === 'string') {
+    return `Dalton mode selected: ${input.mode}.`;
+  }
+  return messageFor(type);
 }
 
 export {

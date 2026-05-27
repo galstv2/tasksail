@@ -56,7 +56,7 @@ describe('buildAgentEnvironment', () => {
     expect(env['TASKSAIL_TASK_ID']).toBe('');
   });
 
-  it('uses pack snapshot identity for TASKSAIL task branch and worktree projections', () => {
+  it('splits TASKSAIL branch-owned bindings from all task-visible worktrees', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-projection-'));
     try {
       const taskId = 'task-roles';
@@ -72,6 +72,9 @@ describe('buildAgentEnvironment', () => {
           repoBindings: [
             { originalRoot: '/repos/tools', worktreeRoot: '/worktrees/tools', worktreeBranch: 'task/tools', baseCommitSha: 'abc' },
             { originalRoot: '/repos/platform', worktreeRoot: '/worktrees/platform', worktreeBranch: 'task/platform', baseCommitSha: 'def' },
+          ],
+          readonlyContextBindings: [
+            { originalRoot: '/repos/docs', worktreeRoot: '/worktrees/docs', baseCommitSha: '123', repoId: 'docs', role: 'support' },
           ],
         },
         materialization: { strategy: 'copy', cloned: [], skipped: [] },
@@ -112,11 +115,47 @@ describe('buildAgentEnvironment', () => {
       expect(JSON.stringify(worktrees)).not.toContain('originalRoot');
       expect(branches).toEqual([
         { repoId: 'tools', role: 'primary', branch: 'task/tools', worktreeRoot: '/worktrees/tools' },
-        { repoId: 'platform', role: 'support', branch: 'task/platform', worktreeRoot: '/worktrees/platform' },
+        { repoId: 'platform', role: 'primary', branch: 'task/platform', worktreeRoot: '/worktrees/platform' },
       ]);
       expect(worktrees).toEqual([
         { repoId: 'tools', role: 'primary', worktreeRoot: '/worktrees/tools' },
-        { repoId: 'platform', role: 'support', worktreeRoot: '/worktrees/platform' },
+        { repoId: 'platform', role: 'primary', worktreeRoot: '/worktrees/platform' },
+        { repoId: 'docs', role: 'support', worktreeRoot: '/worktrees/docs' },
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('emits support-only readonly context in worktrees but not branches', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-readonly-only-'));
+    try {
+      const taskId = 'task-readonly-only';
+      const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+        schema_version: 2,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+          readonlyContextBindings: [
+            { originalRoot: '/repos/docs', worktreeRoot: '/worktrees/docs', baseCommitSha: '123', repoId: 'docs', role: 'support' },
+          ],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-01-01T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }), 'utf-8');
+
+      const env = buildAgentEnvironment(profile, '/ctx', repoRoot, undefined, taskId);
+
+      expect(JSON.parse(env['TASKSAIL_TASK_BRANCHES'] ?? 'missing')).toEqual([]);
+      expect(JSON.parse(env['TASKSAIL_TASK_WORKTREES'] ?? '[]')).toEqual([
+        { repoId: 'docs', role: 'support', worktreeRoot: '/worktrees/docs' },
       ]);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });

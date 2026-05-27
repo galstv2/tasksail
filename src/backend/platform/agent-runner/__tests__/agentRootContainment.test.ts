@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   assertNoOriginalTargetRootsInAgentLaunch,
   assertNoOriginalTargetRootsInTaskArtifacts,
   projectAgentRepoBindings,
 } from '../agentRootContainment.js';
-import type { TaskRepoBinding } from '../../queue/taskJson.js';
+import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../../queue/taskJson.js';
 
 describe('agent root containment', () => {
   const binding: TaskRepoBinding = {
@@ -12,6 +15,13 @@ describe('agent root containment', () => {
     worktreeRoot: '/repo/task/worktrees/tools',
     worktreeBranch: 'task/example',
     baseCommitSha: 'abc123',
+  };
+  const readonlyBinding: TaskReadonlyContextBinding = {
+    originalRoot: '/repo/live/docs',
+    worktreeRoot: '/repo/task/worktrees/docs',
+    baseCommitSha: 'def456',
+    repoId: 'docs',
+    role: 'support',
   };
 
   it('rejects original roots in launch cwd, allowed dirs, env, focused metadata, and MCP payloads', () => {
@@ -49,6 +59,74 @@ describe('agent root containment', () => {
       worktreeRoot: '/repo/task/worktrees/tools',
       branch: 'task/example',
     }]);
+  });
+
+  it('validates readonly context roots as task-visible launch roots', () => {
+    expect(() => assertNoOriginalTargetRootsInAgentLaunch({
+      taskId: 'task-1',
+      agentId: 'ron',
+      repoBindings: [binding],
+      readonlyContextBindings: [readonlyBinding],
+      platformRepoRoot: '/repo/platform',
+      surface: {
+        agentCwd: '/repo/task/worktrees/tools',
+        allowedDirs: ['/repo/task/worktrees/tools', '/repo/live/docs'],
+        env: {},
+      },
+    })).toThrow('allowedDirs[1] contains selected original root');
+  });
+
+  it('loads readonly context roots from the task sidecar when callers pass branch bindings only', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-containment-readonly-'));
+    const taskId = 'task-1';
+    try {
+      const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+        schema_version: 2,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [binding],
+          readonlyContextBindings: [readonlyBinding],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-01-01T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }));
+
+      expect(() => assertNoOriginalTargetRootsInAgentLaunch({
+        taskId,
+        agentId: 'ron',
+        repoBindings: [binding],
+        platformRepoRoot: repoRoot,
+        surface: {
+          agentCwd: '/repo/task/worktrees/tools',
+          allowedDirs: ['/repo/task/worktrees/tools'],
+          env: { COPILOT_TARGET_REPOS_JSON: JSON.stringify(['/repo/live/docs']) },
+        },
+      })).toThrow('env.COPILOT_TARGET_REPOS_JSON contains selected original root');
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('validates readonly context roots in task artifacts', () => {
+    expect(() => assertNoOriginalTargetRootsInTaskArtifacts({
+      taskId: 'task-1',
+      agentId: 'dalton',
+      repoBindings: [binding],
+      readonlyContextBindings: [readonlyBinding],
+      platformRepoRoot: '/repo/platform',
+      artifacts: [{
+        path: '/repo/AgentWorkSpace/tasks/task-1/handoffs/implementation-spec.md',
+        category: 'implementation-spec',
+        content: 'Inspect support context at /repo/live/docs.',
+      }],
+    })).toThrow('implementation-spec artifact');
   });
 
   it('allows platform-owned paths when the selected original root is the platform repo', () => {

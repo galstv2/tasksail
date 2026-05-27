@@ -28,6 +28,7 @@ export type PlannerModalProps = {
   isFollowUpDraft: boolean;
   planningEnabled: boolean;
   contractError: string;
+  sessionStartError?: string;
   primaryActionLabel: string;
   stageCopy: string;
   messages: PlannerConversationMessage[];
@@ -94,7 +95,11 @@ const DEFAULT_COMPOSER_PLACEHOLDER = 'Start a conversation with Lily to begin pl
 const CHILD_PARENT_COMPOSER_PLACEHOLDER = 'Tell Lily what this child task should continue, change, or investigate.';
 const RECENT_COMPOSER_PLACEHOLDER = 'Continue this planning thread with Lily.';
 const CHILD_PARENT_REQUIRED_PLACEHOLDER = 'Select a parent task to begin child-task planning.';
-const PERSONALITY_LOCKED_COPY = 'Style locked — start a new conversation to switch.';
+const PERSONALITY_LOCKED_HINT = 'Start a new conversation to switch styles.';
+const PERSONALITY_LABELS: Record<PlannerLilyPersonalityId, string> = {
+  balanced: 'Balanced',
+  clinical: 'Clinical',
+};
 
 function ScopeInfoIcon(): JSX.Element {
   return (
@@ -169,6 +174,7 @@ function PlannerModal({
   isFollowUpDraft,
   planningEnabled,
   contractError,
+  sessionStartError,
   primaryActionLabel,
   stageCopy,
   messages,
@@ -502,9 +508,13 @@ function PlannerModal({
               {personalityLocked ? (
                 <span
                   className="planner-modal__personality-lock-copy"
-                  title={PERSONALITY_LOCKED_COPY}
+                  title={PERSONALITY_LOCKED_HINT}
+                  aria-label={`Style locked to ${PERSONALITY_LABELS[lilyPersonalityId ?? 'balanced']}. ${PERSONALITY_LOCKED_HINT}`}
                 >
-                  {PERSONALITY_LOCKED_COPY}
+                  Style locked:{' '}
+                  <strong className="planner-modal__personality-lock-name">
+                    {PERSONALITY_LABELS[lilyPersonalityId ?? 'balanced']}
+                  </strong>
                 </span>
               ) : (
                 (['balanced', 'clinical'] as const).map((id) => (
@@ -528,9 +538,10 @@ function PlannerModal({
               type="button"
               className={classNames('planner-modal__child-task-toggle', childTaskMode && 'planner-modal__child-task-toggle--active')}
               onClick={onToggleChildTaskMode}
-              disabled={!planningEnabled}
+              disabled={!planningEnabled || personalityLocked}
               aria-pressed={!!childTaskMode}
               aria-label="Toggle child-task mode"
+              title={personalityLocked ? PERSONALITY_LOCKED_HINT : undefined}
             >
               Child Task
             </button>
@@ -542,6 +553,8 @@ function PlannerModal({
               replayingTitle={replayingTitle}
               popoverOpen={recentsOpen}
               onToggle={handleRecentsToggle}
+              disabled={personalityLocked}
+              disabledHint={PERSONALITY_LOCKED_HINT}
             />
             <button type="button" className="planner-modal__close-btn" onClick={onClose} aria-label="Close planner">
               <CloseIcon />
@@ -690,9 +703,9 @@ function PlannerModal({
           </div>
         )}
 
-        {(contractError || draftError || finalizeTimeoutError) && (
+        {(contractError || sessionStartError || draftError || finalizeTimeoutError) && (
           <div className="planner-modal__error" role="alert">
-            <div>{contractError || draftError || finalizeTimeoutError}</div>
+            <div>{contractError || sessionStartError || draftError || finalizeTimeoutError}</div>
             {plannerFocusValidationIssues && plannerFocusValidationIssues.length > 0 && (
               <ul className="planner-modal__validation-issues">
                 {plannerFocusValidationIssues.map((issue, index) => (

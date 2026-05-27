@@ -5,6 +5,7 @@ export type AgentConfigAgentEntry = {
   human_name: string;
   role_name: string;
   required_model: string;
+  reasoning_effort?: string;
   workflow_order: number;
 };
 
@@ -37,12 +38,28 @@ export type AgentConfigLoadModelCatalogResponse = {
   models: AgentConfigModelCatalogEntry[];
 };
 
+export type AgentConfigLoadCapabilitiesRequest = {
+  action: 'agentConfig.loadCapabilities';
+  payload?: undefined;
+};
+
+export type AgentConfigLoadCapabilitiesResponse = {
+  action: 'agentConfig.loadCapabilities';
+  mode: 'read-only';
+  message: string;
+  providerId: string;
+  cliVersion: string | null;
+  effortChoices: string[];
+  stale: boolean;
+};
+
 export type AgentConfigSaveAgentModelsRequest = {
   action: 'agentConfig.saveAgentModels';
   payload: {
     assignments: Array<{
       agent_id: string;
       model_id: string;
+      reasoning_effort?: string;
     }>;
   };
 };

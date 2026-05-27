@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CHILD_CHAIN_AUTO_MERGE_SKIP_MESSAGE } from '../childTaskChainCloseoutValidation.js';
 import type { AutoMergeResult } from '../autoMerge.js';
-import type { TaskRepoBinding } from '../taskJson.js';
+import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../taskJson.js';
 
 const tempRepos: string[] = [];
 
@@ -105,7 +105,13 @@ describe('completePendingItem child-chain auto-merge policy', () => {
     const repo = createRepo('child');
     const binding = taskBinding(repo, 'task/root');
     seedActiveTask(repoRoot, taskId, '# child\n');
-    seedTaskJson(repoRoot, taskId, binding);
+    seedTaskJson(repoRoot, taskId, binding, [{
+      originalRoot: path.join(repoRoot, 'support-tools'),
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace/tasks/child/worktrees/tools'),
+      baseCommitSha: 'support-base',
+      repoId: 'tools',
+      role: 'support',
+    }]);
     prepareChildTaskChainCloseoutMock.mockResolvedValue(preparedCloseout(taskId, repo, 'task/root'));
 
     await completePendingItem({ repoRoot, taskId, skipValidation: true, contextPackDir: path.join(repoRoot, 'context-pack') });
@@ -196,7 +202,12 @@ function seedActiveTask(root: string, taskId: string, markdown: string): void {
   writeFileSync(path.join(handoffsDir, 'retrospective-input.md'), '# Retro\n\n- Retrospective Required: false\n');
 }
 
-function seedTaskJson(root: string, taskId: string, binding: TaskRepoBinding): void {
+function seedTaskJson(
+  root: string,
+  taskId: string,
+  binding: TaskRepoBinding,
+  readonlyContextBindings: TaskReadonlyContextBinding[] = [],
+): void {
   const taskDir = path.join(root, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
@@ -207,6 +218,7 @@ function seedTaskJson(root: string, taskId: string, binding: TaskRepoBinding): v
       dataHostDir: null,
       dataContainerDir: null,
       repoBindings: [binding],
+      readonlyContextBindings,
     },
     materialization: { strategy: 'copy', cloned: [], skipped: [] },
     frozenAt: '2026-05-22T12:00:00.000Z',

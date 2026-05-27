@@ -68,7 +68,7 @@ describe('ContextPackCreationModal', () => {
   it('renders dialog when open', () => {
     render(<ContextPackCreationModal {...makeProps()} />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('Create context pack')).toBeInTheDocument();
+    expect(screen.getByText('Create Context Pack')).toBeInTheDocument();
   });
 
   it('shows error message when error is set', () => {
@@ -88,7 +88,7 @@ describe('ContextPackCreationModal', () => {
 
   it('shows Create button when canGoNext is false', () => {
     render(<ContextPackCreationModal {...makeProps({ step: 'review', canGoNext: false })} />);
-    const buttons = screen.getAllByText('Create context pack');
+    const buttons = screen.getAllByText('Create Context Pack');
     // One is the h2 heading, one is the button
     expect(buttons.length).toBeGreaterThanOrEqual(2);
   });
@@ -119,7 +119,7 @@ describe('ContextPackCreationModal', () => {
     expect(
       screen.getByText('Mark at least one repository as primary to continue.'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Create context pack' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create Context Pack' })).not.toBeInTheDocument();
   });
 
   it('shows Back button when canGoBack is true', () => {
@@ -152,11 +152,80 @@ describe('ContextPackCreationModal', () => {
     expect(screen.getByText('Next')).toBeDisabled();
   });
 
-  it('renders labeled step indicator', () => {
+  it('renders step counter with current label and progressbar at the correct position', () => {
     render(<ContextPackCreationModal {...makeProps({ step: 'shape' })} />);
-    expect(screen.getByText('Setup')).toBeInTheDocument();
-    expect(screen.getByText('Shape')).toBeInTheDocument();
-    expect(screen.getByText('Review')).toBeInTheDocument();
+    expect(screen.getByText('Step 2 of 3 · Shape')).toBeInTheDocument();
+    const progressbar = screen.getByRole('progressbar');
+    expect(progressbar).toHaveAttribute('aria-valuenow', '2');
+    expect(progressbar).toHaveAttribute('aria-valuemax', '3');
+  });
+
+  it('appends wizard sub-step label to subtitle while in new-project setup', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'location',
+        })}
+      />,
+    );
+    expect(screen.getByText('Step 1 of 3 · Setup · Location')).toBeInTheDocument();
+  });
+
+  it('advances progressbar fractionally across wizard sub-steps', () => {
+    const { rerender } = render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'project-type',
+        })}
+      />,
+    );
+
+    const initial = screen.getByRole('progressbar') as HTMLElement;
+    const fill = initial.querySelector('.creation-progress__fill') as HTMLElement;
+    const firstWidth = fill.style.width;
+
+    rerender(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'build-parts',
+        })}
+      />,
+    );
+
+    const advanced = screen.getByRole('progressbar') as HTMLElement;
+    const fillAdvanced = advanced.querySelector('.creation-progress__fill') as HTMLElement;
+    expect(fillAdvanced.style.width).not.toBe(firstWidth);
+  });
+
+  it('footer Continue advances from project-type to location in wizard', () => {
+    const onWizardStepChange = vi.fn();
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: {
+            ...makeProps().draft,
+            creationOrigin: 'new',
+          },
+          wizardStep: 'project-type',
+          onWizardStepChange,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Continue'));
+    expect(onWizardStepChange).toHaveBeenCalledWith('location');
   });
 
   it('uses wizard back navigation inside setup for new projects', () => {

@@ -99,6 +99,44 @@ describe('usePlannerModal', () => {
     });
   });
 
+  it('surfaces planner start errors through a dedicated session-start field and clears it on success and close', async () => {
+    const startPlannerSession = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: 'Lily reasoning effort "max" is not advertised by Copilot.' })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: { action: 'planner.startSession', mode: 'started', accepted: true, message: 'Planner session started.', sessionId: 'session-1', brokerStatus: 'idle' },
+      });
+    const client = createClient({ startPlannerSession });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.openPlannerModal();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.sessionStatus).toBe('failed');
+    });
+    expect(result.current.plannerModalProps.sessionStartError).toBe('Lily reasoning effort "max" is not advertised by Copilot.');
+    expect(result.current.plannerModalProps.contractError).toBe('');
+    expect(result.current.plannerModalProps.draftError).toBe('');
+
+    await act(async () => {
+      result.current.plannerModalProps.onReconnect?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.sessionStatus).toBe('active');
+    });
+    expect(result.current.plannerModalProps.sessionStartError).toBe('');
+
+    act(() => {
+      result.current.plannerModalProps.onClose();
+    });
+
+    expect(result.current.plannerModalProps.sessionStartError).toBe('');
+  });
+
   it('updates Lily personality before first message without restarting or clearing state', async () => {
     const startPlannerSession = vi.fn().mockResolvedValue({
       ok: true,

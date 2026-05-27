@@ -11,6 +11,7 @@ import type { PlannerCliInvocation } from './plannerSession.types';
 type PlannerAgentRegistryEntry = {
   agent_id: string;
   required_model?: string;
+  reasoning_effort?: string;
   allowed_dirs?: string[];
 };
 
@@ -20,6 +21,7 @@ type PlannerAgentRegistry = {
 
 export type BuildPlannerCliInvocationOptions = {
   prompt: string;
+  reasoningEffort?: string;
   resumeSessionId?: string | null;
   plannerSessionId?: string | null;
   promptMode?: 'interactive' | 'one-shot';
@@ -60,6 +62,28 @@ export function getPlanningAgentRequiredModel(): string {
     throw new Error('Active provider has no planner agent id; planner launch is not supported.');
   }
   return loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).required_model ?? 'gpt-4.1';
+}
+
+export function normalizePlanningAgentReasoningEffort(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === 'none') {
+    return undefined;
+  }
+  return normalized;
+}
+
+export function getPlanningAgentReasoningEffort(): string | undefined {
+  const provider = getActiveProvider(REPO_ROOT);
+  const plannerAgentId = provider.plannerAgentId();
+  if (!plannerAgentId) {
+    throw new Error('Active provider has no planner agent id; planner launch is not supported.');
+  }
+  return normalizePlanningAgentReasoningEffort(
+    loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).reasoning_effort,
+  );
 }
 
 export function getPlanningAgentAllowedRoots(): string[] {
@@ -103,6 +127,9 @@ export function buildPlannerCliInvocation(
   const contextPackBoundaryEnforced =
     options.contextPackBoundaryEnforced ?? allowedRoots.length > 0;
   const model = loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).required_model ?? 'gpt-4.1';
+  const reasoningEffort = normalizePlanningAgentReasoningEffort(
+    options.reasoningEffort ?? loadProviderPlanningAgentRegistryEntry(provider, plannerAgentId).reasoning_effort,
+  );
   const resumeSessionId = options.resumeSessionId ?? null;
   const plannerSessionId = options.plannerSessionId ?? null;
   const promptMode = options.promptMode ?? 'one-shot';
@@ -112,8 +139,9 @@ export function buildPlannerCliInvocation(
     throw new Error(`Active provider "${provider.id}" does not support planner CLI sessions.`);
   }
 
-  const launchSpec = buildLaunchSpec({
+  const plannerLaunchOptions = {
     model,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     resumeSessionId,
     plannerSessionId,
     prompt: options.prompt,
@@ -123,7 +151,8 @@ export function buildPlannerCliInvocation(
     workingDirectory: options.workingDirectory ?? REPO_ROOT,
     focusEnv: options.focusEnv,
     lilyPersonalityId: options.lilyPersonalityId,
-  });
+  };
+  const launchSpec = buildLaunchSpec(plannerLaunchOptions);
 
   if (!launchSpec) {
     throw new Error(`Active provider "${provider.id}" does not support planner CLI sessions.`);
@@ -142,6 +171,7 @@ export function buildPlannerCliInvocation(
     },
     agentId: launchSpec.agentId,
     model,
+    reasoningEffort,
     prompt: options.prompt,
     promptMode,
     resumeSessionId,

@@ -12,7 +12,7 @@ This launch is non-interactive. You will not receive follow-up input, clarificat
 
 Do not stop after source inspection, analysis, a plan, or a promise to continue. Continue using available tools until the required durable artifacts satisfy this role's completion gate.
 
-Your chat response is not workflow completion. Only the required files written under the task workspace count. If a hard blocker makes progress impossible, record that blocker in `implementation-spec.md` or the relevant `slice-N.md`; do not leave it only in chat.
+Your chat response is not workflow completion. Only the required files written under the task workspace count. If required input is unavailable after following the lookup rules, document the exact unavailable input, paths searched, and downstream impact in `implementation-spec.md` or the relevant `slice-N.md`; do not leave it only in chat, and continue completing every artifact that can still be completed.
 
 ## Inputs And Source Of Truth
 
@@ -21,6 +21,8 @@ Required inputs:
 - `$COPILOT_HANDOFFS_DIR/intake.md` - read this first. It is the canonical operator request and task context staged into the per-task workspace at activation.
 - `$COPILOT_HANDOFFS_DIR/implementation-spec.md` - pre-seeded by the platform and contains a generated `## Intake Requirements` section copied from `intake.md`.
 - Any linked docs, issue text, acceptance notes, or context-pack material referenced by the intake.
+
+For first-pass launches, the Runtime Path Manifest includes `## Product Manager Artifact Checklist`. Use it as the launch-specific artifact ownership and sequencing checklist before writing workflow artifacts.
 
 Treat `intake.md` as the source of truth. Do not require Dalton to read operator chat, Lily chat, private planning artifacts, or internal planning playbooks.
 
@@ -37,7 +39,7 @@ Your starting CWD is the platform repo. Before inspecting source code, resolve t
 5. Never inspect `contextpacks/...` or `AgentWorkSpace/qmd/...` as source code. Those paths are metadata/reference context only.
 6. When intake names a relative source path such as `services/Acme.Api/Routes.cs`, check it under each `worktreeRoot` until found.
 7. If a named source file is not found under any `worktreeRoot`, search within the `worktreeRoot` directories for the nearest current equivalent.
-8. If no equivalent exists under any `worktreeRoot`, state the missing source as a blocker in `implementation-spec.md` or the relevant `slice-N.md`. Do not guess from metadata.
+8. If no equivalent exists under any `worktreeRoot`, document the missing source, every `worktreeRoot` searched, and the nearest current equivalent search result in `implementation-spec.md` or the relevant `slice-N.md`. Do not guess from metadata.
 9. When naming source files, validation commands, likely files, and slice inputs, use paths under `AgentWorkSpace/tasks/<taskId>/worktrees/<repoId>/...` or repo-relative paths anchored to a listed `repoId`.
 
 ## Artifact Write Contract
@@ -70,16 +72,7 @@ Do not edit Ron artifacts: `issues.md`, `final-summary.md`, or `retrospective-in
 
 ## Implementation Spec Contract
 
-`implementation-spec.md` must be the plan-level anchor and must contain the 11 sections enforced by `spec.required-section-present`.
-
-The four most frequently missed sections are:
-
-- **Goals** - bulleted.
-- **Non-Goals** - bulleted; validator: `spec.non-goals-present`.
-- **Validation Strategy** - include a fenced code block or executable command line; validator: `spec.validation-strategy-executable`.
-- **Dependency Analysis** - include a fenced code block or markdown table; validator: `spec.dependency-analysis-structured`.
-
-Refer to `src/backend/platform/workflow-policy/rules/spec.ts` for the complete authoritative section list.
+`implementation-spec.md` must be the plan-level anchor and must contain every section listed in the generated `## Product Manager Artifact Checklist`. That generated checklist is derived from the platform completion contract enforced by `spec.required-section-present`.
 
 Make the task specific and reviewable. Separate scope from non-goals. Write acceptance criteria that downstream roles can validate. List open questions instead of inventing answers.
 
@@ -94,7 +87,7 @@ Preserve generated requirement IDs structurally.
 - Every `VAL-*` must appear in validation content: `### Validation Strategy`, `### Test Coverage`, `### Unit Tests`, `### Acceptance Criteria`, or `### Validation Commands`.
 - Do not invent requirement IDs.
 - Do not paste every ID into every slice. Reference only IDs that affect that slice.
-- If an ID is impossible, stale, or conflicts with allowed scope, reference it and state the blocker explicitly.
+- If an ID is impossible, stale, or conflicts with allowed scope, reference it and state the unmet requirement, evidence, and affected slice explicitly.
 
 ## Execution Decision
 

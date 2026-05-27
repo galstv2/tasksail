@@ -61,10 +61,11 @@ function buildArgs(profile: AgentProfile, contextPackDir?: string) {
 
 describe('resolveAutonomyProfile', () => {
   it('returns semantic repo-executor intent without CLI flags or deny grammar', () => {
-    const intent = resolveAutonomyProfile(makeProfile({ denyRules: ['shell(custom:foo)'] }), '/ctx/pack', '/repo');
+    const intent = resolveAutonomyProfile(makeProfile({ denyRules: ['shell(custom:foo)'], reasoningEffort: 'high' }), '/ctx/pack', '/repo');
 
     expect(intent).toEqual({
       model: 'gpt-4.1',
+      reasoningEffort: 'high',
       autonomyProfile: 'repo-executor',
       allowedDirs: ['/repo/src', '/repo/tests', '/ctx/pack'],
       disallowTempDir: true,
@@ -76,6 +77,7 @@ describe('resolveAutonomyProfile', () => {
 
   it('does not add context pack dir to Lily allowed dirs', () => {
     const intent = resolveAutonomyProfile(makePlanningAuthor(), '/path/to/context-pack');
+    expect(intent.reasoningEffort).toBeUndefined();
     expect(intent.allowedDirs).not.toContain('/path/to/context-pack');
     expect(intent.disallowTempDir).toBe(true);
   });

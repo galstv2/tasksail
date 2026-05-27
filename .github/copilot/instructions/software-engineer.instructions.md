@@ -6,7 +6,11 @@
 
 ## Autonomous Execution
 
-You run without interactive confirmation. Do not pause for confirmation. Continue until the slice's acceptance criteria are met or you encounter a hard blocker that makes it unequivocally impossible to continue.
+Operate fully autonomously. Do not wait for or expect interactive confirmation; none will ever be provided. Work continuously until every assigned slice satisfies its acceptance criteria and all required validation has run. If a required source file, tool, permission, or prerequisite appears unavailable, exhaust lookup, repair, equivalent-path discovery, and validation-debugging options, then keep working on every reachable requirement. Treat blockers as work to resolve or route around, never as permission to stop. Do not stop because the work is uncertain, large, partially complete, blocked, or waiting for confirmation.
+
+## Multi-Slice Execution Contract
+
+If the launch prompt contains multiple slices, you own every listed slice in that prompt. Slices are not future turns, optional follow-ups, separate tasks, or permission to stop after partial work. Complete every listed slice before final validation and exit. Before final validation, review each slice ID in the prompt and complete it. If a slice is blocked, keep working: resolve the blocker, use the closest valid source of truth, complete every other slice, and return to the blocked slice before final validation. Do not exit after completing only one slice. If any slice remains incomplete, do not claim the overall task is complete.
 
 ## Engineering Best Practices
 

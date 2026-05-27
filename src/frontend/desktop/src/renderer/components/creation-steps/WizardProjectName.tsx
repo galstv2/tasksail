@@ -1,3 +1,5 @@
+import { classNames } from '../../utils/classNames';
+
 type WizardProjectNameProps = {
   estateName: string;
   contextPackId: string;
@@ -11,11 +13,17 @@ function WizardProjectName({
   contextPackDir,
   onEstateNameChange,
 }: WizardProjectNameProps): JSX.Element {
+  const hasId = Boolean(contextPackId.trim());
+  const hasDir = Boolean(contextPackDir.trim());
+
   return (
     <section className="context-pack-modal__wizard-section">
-      <p className="context-pack-modal__wizard-heading">
-        Name your project
-      </p>
+      <header className="context-pack-modal__wizard-section-header">
+        <p className="context-pack-modal__project-type-header">Name your project</p>
+        <p className="context-pack-modal__wizard-heading">
+          We'll generate an ID and destination from your name.
+        </p>
+      </header>
 
       <label className="composer-field">
         <span>Display name</span>
@@ -25,28 +33,31 @@ function WizardProjectName({
         />
       </label>
 
-      <div className="context-pack-modal__grid">
-        <label className="composer-field">
-          <span>Context pack ID</span>
-          <div
-            className={`context-pack-modal__destination${
-              !contextPackId.trim() ? ' context-pack-modal__destination--empty' : ''
-            }`}
+      <div className="context-pack-modal__summary-list">
+        <div className="context-pack-modal__summary-row">
+          <span className="context-pack-modal__summary-label">Context pack ID</span>
+          <span
+            className={classNames(
+              'context-pack-modal__summary-value',
+              'context-pack-modal__summary-value--mono',
+              !hasId && 'context-pack-modal__summary-value--empty',
+            )}
           >
-            {contextPackId.trim() || 'Set a project name to generate'}
-          </div>
-        </label>
-
-        <label className="composer-field">
-          <span>Pack destination</span>
-          <div
-            className={`context-pack-modal__destination${
-              !contextPackDir.trim() ? ' context-pack-modal__destination--empty' : ''
-            }`}
+            {hasId ? contextPackId : 'Set a name to generate'}
+          </span>
+        </div>
+        <div className="context-pack-modal__summary-row context-pack-modal__summary-row--stacked">
+          <span className="context-pack-modal__summary-label">Pack destination</span>
+          <span
+            className={classNames(
+              'context-pack-modal__summary-value',
+              'context-pack-modal__summary-value--mono',
+              !hasDir && 'context-pack-modal__summary-value--empty',
+            )}
           >
-            {contextPackDir.trim() || 'Choose a location to generate'}
-          </div>
-        </label>
+            {hasDir ? contextPackDir : 'Choose a location to generate'}
+          </span>
+        </div>
       </div>
     </section>
   );

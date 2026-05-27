@@ -89,7 +89,7 @@
 .reinforcement-modal__tabs {
   display: flex;
   gap: 2px;
-  margin: 0 auto 0 0.5rem;
+  margin: 0 auto;
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
@@ -97,14 +97,15 @@
 }
 
 .reinforcement-tab {
-  padding: 0.25rem 0.5rem;
+  padding: 0.28rem 0.62rem;
   border: none;
   border-radius: calc(var(--ts-radius-md) - 2px);
   background: transparent;
   color: var(--ts-text-muted);
   font-family: var(--ts-font-sans);
-  font-size: 0.7rem;
+  font-size: 0.74rem;
   font-weight: 500;
+  letter-spacing: -0.005em;
   cursor: pointer;
   transition:
     background var(--ts-duration) var(--ts-ease),
@@ -121,8 +122,8 @@
   color: var(--ts-text);
   font-weight: 600;
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.03);
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 /* ── Body ────────────────────────────────────────────────────────────── */
@@ -136,13 +137,19 @@
   scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
 }
 
-.reinforcement-modal__body::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
-.reinforcement-modal__body::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
-.reinforcement-modal__body::-webkit-scrollbar-thumb {
+/* Shared webkit scrollbar treatment used by the modal body AND the
+   task-picker scroll list — kept together to avoid drift. */
+.reinforcement-modal__body::-webkit-scrollbar,
+.task-picker__list::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
+.reinforcement-modal__body::-webkit-scrollbar-track,
+.task-picker__list::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
+.reinforcement-modal__body::-webkit-scrollbar-thumb,
+.task-picker__list::-webkit-scrollbar-thumb {
   background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.12));
   border-radius: var(--ts-radius-pill);
 }
-.reinforcement-modal__body::-webkit-scrollbar-thumb:hover {
+.reinforcement-modal__body::-webkit-scrollbar-thumb:hover,
+.task-picker__list::-webkit-scrollbar-thumb:hover {
   background: var(--ts-scrollbar-thumb-hover, rgba(0, 0, 0, 0.2));
 }
 
@@ -159,52 +166,57 @@
 
 .reinforcement-modal__footer-esc {
   font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   color: var(--ts-text-soft);
-  opacity: 0.4;
-  margin-right: auto;
+  opacity: 0.55;
 }
 
-.reinforcement-modal__footer-tab-hint {
-  font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
-  color: var(--ts-text-soft);
-  opacity: 0.4;
+/* ── Shared Panel-level Empty / Loading ──────────────────────────────── */
+/* Collapses the five near-duplicate panel-level empty/loading variants
+   into one rule. The task-picker variant is intentionally NOT included
+   here because it's an inline-list empty state with smaller padding.    */
+
+.feedback-panel__empty,
+.overview-panel__empty,
+.overview-panel__loading,
+.ledger-table__empty,
+.ledger-table__loading,
+.realignment-panel__empty,
+.realignment-panel__loading,
+.document-editor__empty,
+.document-editor__loading {
+  color: var(--ts-text-muted);
+  font-size: 0.6rem;
+  text-align: center;
+  padding: 1.6rem 0;
 }
 
 /* ── Feedback Panel ──────────────────────────────────────────────────── */
 
-.feedback-panel__empty {
-  color: var(--ts-text-soft);
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 2rem 0;
-}
-
 .feedback-panel__success {
   text-align: center;
-  padding: 2rem 0;
+  padding: 1.6rem 0;
 }
 
 .feedback-panel__success p {
-  margin: 0 0 0.65rem;
-  font-size: 0.78rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.6rem;
   color: var(--ts-text);
 }
 
 .feedback-panel__form {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  margin-top: 0.65rem;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .feedback-panel__reviewed {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  margin-top: 0.65rem;
-  padding: 0.55rem 0.65rem;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.55rem;
   border: 1px solid color-mix(in srgb, var(--ts-success) 22%, var(--ts-border));
   border-radius: var(--ts-radius-md);
   background: color-mix(in srgb, var(--ts-success) 8%, transparent);
@@ -212,56 +224,66 @@
 
 .feedback-panel__reviewed p {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: 0.58rem;
   color: var(--ts-text);
 }
 
-.feedback-panel__label {
+.feedback-panel__label,
+.task-picker__label {
   display: block;
   font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
+  font-size: 0.56rem;
   font-weight: 500;
   color: var(--ts-text-muted);
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.24rem;
 }
 
+/* Segmented control — same pattern as the modal tab strip. Selected pill
+   uses a soft elevated fill rather than a heavy accent border. */
 .feedback-panel__type-buttons {
-  display: flex;
-  gap: 0.4rem;
+  display: inline-flex;
+  gap: 2px;
+  background: var(--ts-surface-alt);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  padding: 3px;
 }
 
 .feedback-type-btn {
-  padding: 0.3rem 0.65rem;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-md);
+  padding: 0.22rem 0.56rem;
+  border: none;
+  border-radius: calc(var(--ts-radius-md) - 2px);
   background: transparent;
-  color: var(--ts-text);
+  color: var(--ts-text-muted);
   font-family: var(--ts-font-sans);
-  font-size: 0.74rem;
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   cursor: pointer;
   transition:
     background var(--ts-duration) var(--ts-ease),
-    border-color var(--ts-duration) var(--ts-ease),
-    color var(--ts-duration) var(--ts-ease);
+    color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
 }
 
 .feedback-type-btn:hover {
-  background: var(--ts-bg-hover);
-  border-color: var(--ts-border-strong);
+  color: var(--ts-text);
 }
 
 .feedback-type-btn--active {
-  border-color: var(--ts-accent);
-  background: var(--ts-accent-tint);
-  color: var(--ts-accent);
+  background: var(--ts-surface);
+  color: var(--ts-text);
   font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 /* ── Star Rating ─────────────────────────────────────────────────────── */
 
 .feedback-panel__star-row {
   display: flex;
-  gap: 0.2rem;
+  gap: 0.16rem;
 }
 
 .star-btn {
@@ -269,15 +291,23 @@
   background: transparent;
   color: var(--ts-text-soft);
   cursor: pointer;
-  padding: 0.15rem;
+  padding: 0.18rem;
   line-height: 1;
+  border-radius: var(--ts-radius-sm);
   transition:
     color var(--ts-duration) var(--ts-ease),
+    background var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease),
     opacity var(--ts-duration) var(--ts-ease);
 }
 
 .star-btn:hover {
   color: var(--ts-accent);
+}
+
+.star-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
 }
 
 .star-btn:active {
@@ -293,12 +323,12 @@
 .feedback-panel__textarea {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.4rem 0.55rem;
+  padding: 0.32rem 0.45rem;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   color: var(--ts-text);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-family: var(--ts-font-sans);
   line-height: 1.5;
   resize: vertical;
@@ -315,14 +345,14 @@
 
 .feedback-panel__error {
   color: var(--ts-error);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   margin: 0;
 }
 
 .feedback-panel__actions {
   display: flex;
   justify-content: flex-end;
-  padding-top: 0.25rem;
+  padding-top: 0.2rem;
 }
 
 /* ── Task Picker ─────────────────────────────────────────────────────── */
@@ -331,20 +361,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.4rem;
-}
-
-.task-picker__label {
-  font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--ts-text-muted);
+  margin-bottom: 0.32rem;
 }
 
 .task-picker__year-select {
   font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
-  padding: 0.2rem 0.45rem;
+  font-size: 0.56rem;
+  padding: 0.16rem 0.36rem;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
@@ -354,15 +377,15 @@
 .task-picker__loading,
 .task-picker__empty {
   color: var(--ts-text-soft);
-  font-size: 0.76rem;
-  padding: 0.5rem 0;
+  font-size: 0.58rem;
+  padding: 0.4rem 0;
 }
 
 .task-picker__list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 180px;
+  max-height: 144px;
   overflow-y: auto;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
@@ -371,24 +394,17 @@
   scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
 }
 
-.task-picker__list::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
-.task-picker__list::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
-.task-picker__list::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.1));
-  border-radius: var(--ts-radius-pill);
-}
-
 .task-picker__item {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.08rem;
   width: 100%;
-  padding: 0.45rem 0.65rem;
+  padding: 0.36rem 0.52rem;
   border: none;
   border-bottom: 1px solid var(--ts-border);
   background: transparent;
   color: var(--ts-text);
-  font-size: 0.76rem;
+  font-size: 0.58rem;
   text-align: left;
   cursor: pointer;
   transition: background var(--ts-duration) var(--ts-ease);
@@ -404,14 +420,13 @@
 
 .task-picker__item--selected {
   background: var(--ts-accent-subtle);
-  box-shadow: inset 0 0 0 1px var(--ts-accent);
 }
 
 .task-picker__title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.45rem;
+  gap: 0.36rem;
   min-width: 0;
 }
 
@@ -423,90 +438,96 @@
 }
 
 .task-picker__meta {
-  font-family: var(--ts-font-mono);
-  font-size: 0.66rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.52rem;
   color: var(--ts-text-soft);
+  letter-spacing: -0.005em;
 }
 
 /* ── Overview Panel ──────────────────────────────────────────────────── */
 
-.overview-panel__empty,
-.overview-panel__loading {
-  color: var(--ts-text-soft);
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 2rem 0;
-}
-
 .overview-panel__error {
   color: var(--ts-error);
-  font-size: 0.8rem;
+  font-size: 0.62rem;
 }
 
-.overview-panel__source-label {
+/* Shared muted explainer line — small grey preamble used by Overview,
+   Ledger, Realignment, and Document panels. Sans by default (mono was
+   the wrong family for prose). */
+.overview-panel__source-label,
+.ledger-table__source-label,
+.realignment-panel__source-label,
+.document-editor__source-label {
   font-family: var(--ts-font-sans);
-  font-size: 0.68rem;
+  font-size: 0.55rem;
+  line-height: 1.45;
   color: var(--ts-text-soft);
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.45rem;
 }
 
 .overview-panel__summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
-  margin-bottom: 1.1rem;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
 }
 
 .overview-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0.5rem 0.35rem;
+  padding: 0.55rem 0.32rem;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
 }
 
+/* Apple-forward dashboard tile: large neutral display digit, small caps
+   label beneath. Accent is reserved for the active tab + primary CTA,
+   not splashed onto every KPI. */
 .overview-stat__value {
-  font-family: var(--ts-font-mono);
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--ts-accent);
+  font-family: var(--ts-font-sans);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ts-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .overview-stat__label {
   font-family: var(--ts-font-sans);
-  font-size: 0.64rem;
+  font-size: 0.5rem;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ts-text-muted);
-  margin-top: 0.2rem;
+  margin-top: 0.24rem;
 }
 
 .overview-panel__section-title {
   font-family: var(--ts-font-sans);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-weight: 600;
   color: var(--ts-text);
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
 }
 
 .overview-panel__section-title .overview-panel__source-label {
-  font-size: 0.66rem;
+  font-size: 0.52rem;
   font-weight: 400;
   color: var(--ts-text-soft);
-  margin-left: 0.5rem;
+  margin-left: 0.4rem;
 }
 
 .overview-agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 0.36rem;
 }
 
 .overview-agent-card {
-  padding: 0.5rem 0.6rem;
+  padding: 0.45rem 0.52rem;
   border: 1px solid var(--ts-border);
-  border-left: 2px solid var(--ts-accent);
   border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   transition: border-color var(--ts-duration) var(--ts-ease);
@@ -520,52 +541,89 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 0.32rem;
 }
 
 .overview-agent-card__name {
   font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
+  font-size: 0.58rem;
   font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--ts-text);
 }
 
+/* Multiplier as a small sans chip — not mono. Apple uses chips, not raw
+   numbers, for small contextual metadata. */
 .overview-agent-card__multiplier {
-  font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.52rem;
+  font-weight: 500;
   color: var(--ts-text-soft);
+  background: var(--ts-surface);
+  border-radius: var(--ts-radius-pill);
+  padding: 0.06rem 0.34rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .overview-agent-card__reward {
-  font-family: var(--ts-font-mono);
-  font-size: 0.84rem;
-  font-weight: 700;
-  color: var(--ts-accent);
-  margin-top: 0.15rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ts-text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.2rem;
 }
 
 .overview-panel__settlement {
-  font-family: var(--ts-font-mono);
-  font-size: 0.7rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.55rem;
   color: var(--ts-text-soft);
-  margin-top: 0.75rem;
+  margin-top: 0.7rem;
+}
+
+/* Identifier portion of the settlement line stays mono — that's a real
+   identifier and earns the typographic distinction. */
+.overview-panel__settlement-id {
+  font-family: var(--ts-font-mono);
+  font-size: 0.55rem;
+  color: var(--ts-text-muted);
 }
 
 /* ── Task Ledger Table ───────────────────────────────────────────────── */
 
 .ledger-table__controls {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.6rem;
+  gap: 0.4rem;
+  margin-bottom: 0.48rem;
+}
+
+/* Search input with leading icon. The icon sits absolutely inside a
+   relative wrapper so the input still owns layout/focus behavior. */
+.ledger-table__search-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.ledger-table__search-icon {
+  position: absolute;
+  left: 0.45rem;
+  display: grid;
+  place-items: center;
+  color: var(--ts-text-soft);
+  pointer-events: none;
 }
 
 .ledger-table__search {
   flex: 1;
-  padding: 0.38rem 0.55rem;
+  padding: 0.32rem 0.48rem 0.32rem 1.5rem;
   border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
+  border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   color: var(--ts-text);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-family: var(--ts-font-sans);
   transition:
     border-color var(--ts-duration) var(--ts-ease),
@@ -580,63 +638,70 @@
 
 .ledger-table__year-select {
   font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
-  padding: 0.2rem 0.45rem;
+  font-size: 0.56rem;
+  padding: 0.2rem 0.4rem;
   border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
+  border-radius: var(--ts-radius-md);
   background: var(--ts-surface-alt);
   color: var(--ts-text);
 }
 
-.ledger-table__source-label {
-  font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
-  color: var(--ts-text-soft);
-  margin: 0 0 0.45rem;
-}
-
-.ledger-table__empty,
-.ledger-table__loading {
-  color: var(--ts-text-muted);
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 2rem 0;
-}
-
 .ledger-table__error {
   color: var(--ts-error);
-  font-size: 0.8rem;
+  font-size: 0.62rem;
 }
 
 .ledger-table__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.76rem;
+  font-size: 0.58rem;
+  font-family: var(--ts-font-sans);
 }
 
 .ledger-table__table th {
   text-align: left;
   font-family: var(--ts-font-sans);
-  font-size: 0.7rem;
+  font-size: 0.5rem;
   font-weight: 500;
-  color: var(--ts-text-muted);
-  padding: 0.4rem 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ts-text-soft);
+  padding: 0.4rem 0.4rem 0.32rem;
   border-bottom: 1px solid var(--ts-border);
 }
 
 .ledger-table__table td {
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--ts-border);
+  padding: 0.36rem 0.4rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-border) 55%, transparent);
   color: var(--ts-text);
   transition: background var(--ts-duration) var(--ts-ease);
+}
+
+/* Zebra row anchoring — subtle alternating fill helps scan a dense table
+   without resorting to hard borders. */
+.ledger-table__table tbody tr:nth-child(2n) td {
+  background: color-mix(in srgb, var(--ts-surface-alt) 55%, transparent);
 }
 
 .ledger-table__table tbody tr:hover td {
   background: var(--ts-bg-hover);
 }
 
+/* Outcome chip — small neutral pill so qualityOutcome lines up visually
+   with the Status and Review chips next to it. */
+.ledger-table__outcome-chip {
+  display: inline-block;
+  font-size: 0.52rem;
+  font-weight: 500;
+  border-radius: var(--ts-radius-pill);
+  padding: 0.1rem 0.4rem;
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-soft);
+  letter-spacing: -0.005em;
+}
+
 .ledger-table__task-title {
-  max-width: 180px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -644,64 +709,49 @@
 
 /* ── Realignment Review Panel ────────────────────────────────────────── */
 
-.realignment-panel__empty,
-.realignment-panel__loading {
-  color: var(--ts-text-muted);
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 2rem 0;
-}
-
 .realignment-panel__error {
   color: var(--ts-error);
-  font-size: 0.8rem;
-}
-
-.realignment-panel__source-label {
-  font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
-  color: var(--ts-text-soft);
-  margin: 0 0 0.45rem;
+  font-size: 0.62rem;
 }
 
 /* ── Active Work Guard ──────────────────────────────────────────────── */
 
 .realignment-panel__guard {
-  margin-top: 0.85rem;
-  padding-top: 0.65rem;
+  margin-top: 0.7rem;
+  padding-top: 0.52rem;
   border-top: 1px solid var(--ts-border);
 }
 
 .realignment-panel__guard-blocked {
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   color: var(--ts-warning);
   background: var(--ts-warning-tint);
   border: 1px solid color-mix(in srgb, var(--ts-warning) 20%, transparent);
   border-radius: var(--ts-radius-sm);
-  padding: 0.5rem 0.65rem;
-  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.52rem;
+  margin: 0 0 0.48rem;
   line-height: 1.4;
 }
 
 .realignment-panel__hint {
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.48rem;
   color: var(--ts-text-soft);
-  font-size: 0.76rem;
+  font-size: 0.58rem;
 }
 
 .realignment-panel__actions {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
   flex-wrap: wrap;
 }
 
 .realignment-panel__start-btn,
 .realignment-panel__dismiss-btn {
   display: inline-block;
-  padding: 0.38rem 1rem;
+  padding: 0.3rem 0.8rem;
   font-family: var(--ts-font-sans);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-weight: 600;
   border: none;
   border-radius: var(--ts-radius-md);
@@ -754,21 +804,21 @@
 
 .session-list__empty {
   color: var(--ts-text-muted);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   text-align: center;
-  padding: 2rem 0;
+  padding: 1.6rem 0;
 }
 
 .session-list__item {
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 0.5rem 0.65rem;
+  padding: 0.4rem 0.52rem;
   border: none;
   border-bottom: 1px solid var(--ts-border);
   background: transparent;
   color: var(--ts-text);
-  font-size: 0.76rem;
+  font-size: 0.58rem;
   text-align: left;
   cursor: pointer;
   transition: background var(--ts-duration) var(--ts-ease);
@@ -792,19 +842,29 @@
   align-items: center;
 }
 
+/* Identifier is the one place mono earns its keep on this surface. */
 .session-list__id {
   font-family: var(--ts-font-mono);
   font-weight: 600;
-  font-size: 0.76rem;
+  font-size: 0.58rem;
+  color: var(--ts-text);
 }
 
 .session-list__item-meta {
   display: flex;
-  gap: 1rem;
-  font-family: var(--ts-font-mono);
-  font-size: 0.66rem;
+  gap: 0.8rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.55rem;
   color: var(--ts-text-soft);
-  margin-top: 0.15rem;
+  margin-top: 0.16rem;
+  letter-spacing: -0.005em;
+}
+
+/* Inline mono fragment for identifiers embedded in a sans meta line. */
+.session-list__meta-mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.52rem;
+  color: var(--ts-text-muted);
 }
 
 /* ── Session Detail ──────────────────────────────────────────────────── */
@@ -814,11 +874,11 @@
   background: transparent;
   color: var(--ts-accent);
   font-family: var(--ts-font-sans);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-weight: 500;
   cursor: pointer;
   padding: 0;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.48rem;
   transition: color var(--ts-duration) var(--ts-ease);
 }
 
@@ -827,39 +887,57 @@
   text-decoration: underline;
 }
 
+/* Detail header uses a small sans eyebrow + a mono identifier line — the
+   same pattern we use in summary rows elsewhere in TaskSail. */
 .session-detail__title {
-  font-family: var(--ts-font-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
   margin: 0 0 0.4rem;
+  color: var(--ts-text);
+}
+
+.session-detail__title-eyebrow {
+  font-family: var(--ts-font-sans);
+  font-size: 0.5rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ts-text-soft);
+}
+
+.session-detail__title-id {
+  font-family: var(--ts-font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
   color: var(--ts-text);
 }
 
 .session-detail__meta {
   display: flex;
-  gap: 1rem;
-  font-family: var(--ts-font-mono);
-  font-size: 0.72rem;
+  gap: 0.8rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.56rem;
   color: var(--ts-text-soft);
-  margin-bottom: 0.85rem;
-  padding-bottom: 0.6rem;
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.48rem;
   border-bottom: 1px solid var(--ts-border);
 }
 
 .session-detail__section {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.6rem;
 }
 
 .session-detail__section h4 {
   font-family: var(--ts-font-sans);
-  font-size: 0.72rem;
+  font-size: 0.56rem;
   font-weight: 500;
   color: var(--ts-text-muted);
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.2rem;
 }
 
 .session-detail__section p {
-  font-size: 0.8rem;
+  font-size: 0.62rem;
   margin: 0;
   color: var(--ts-text);
   line-height: 1.5;
@@ -868,95 +946,84 @@
 .session-detail__agent-list,
 .session-detail__action-list {
   margin: 0;
-  padding-left: 1.2rem;
-  font-size: 0.8rem;
+  padding-left: 1rem;
+  font-size: 0.62rem;
   color: var(--ts-text);
   line-height: 1.6;
 }
 
 .session-detail__empty-field {
   color: var(--ts-text-soft);
-  font-size: 0.8rem;
+  font-size: 0.62rem;
   font-style: italic;
 }
 
 .session-detail__notes {
   white-space: pre-wrap;
-  font-family: var(--ts-font-mono);
-  font-size: 0.78rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.62rem;
   line-height: 1.55;
   background: var(--ts-surface-alt);
   border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
-  padding: 0.5rem 0.65rem;
+  border-radius: var(--ts-radius-md);
+  padding: 0.45rem 0.56rem;
+  color: var(--ts-text);
 }
 
 /* ── Document Editor ─────────────────────────────────────────────── */
 
 .document-editor {
-  padding: 0.5rem 0;
-}
-
-.document-editor__empty,
-.document-editor__loading {
-  color: var(--ts-text-muted);
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 2rem 0;
+  padding: 0.4rem 0;
 }
 
 .document-editor__error {
   color: var(--ts-error);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   text-align: center;
-  padding: 2rem 0;
+  padding: 1.6rem 0;
 }
 
 .document-editor__meta {
   display: flex;
-  gap: 1rem;
+  gap: 0.8rem;
   font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
+  font-size: 0.52rem;
   color: var(--ts-text-soft);
-  margin-bottom: 0.4rem;
-}
-
-.document-editor__source-label {
-  font-family: var(--ts-font-mono);
-  font-size: 0.68rem;
-  color: var(--ts-text-soft);
-  margin: 0 0 0.85rem;
+  margin-bottom: 0.32rem;
 }
 
 .document-editor__field {
-  padding-bottom: 0.65rem;
+  padding-bottom: 0.7rem;
 }
 
 .document-editor__field + .document-editor__field {
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--ts-border);
+  padding-top: 0.7rem;
+  border-top: 1px solid color-mix(in srgb, var(--ts-border) 60%, transparent);
 }
 
+/* Small-caps eyebrow heading — gives scan-able hierarchy to learnings
+   sections without the heaviness of an h-tag. */
 .document-editor__label {
   display: block;
   font-family: var(--ts-font-sans);
-  font-size: 0.78rem;
+  font-size: 0.5rem;
   font-weight: 600;
-  color: var(--ts-text);
-  letter-spacing: -0.01em;
-  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ts-text-soft);
+  margin-bottom: 0.28rem;
 }
 
+/* Long-form prose, NOT a code block — sans, comfortable line-height,
+   max-width for readability. Preserves authored newlines via pre-wrap. */
 .document-editor__readonly {
   margin: 0;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.74rem;
-  font-family: var(--ts-font-mono);
-  line-height: 1.5;
+  padding: 0;
+  font-size: 0.65rem;
+  font-family: var(--ts-font-sans);
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-md);
-  background: var(--ts-surface-alt);
   color: var(--ts-text);
+  max-width: 64ch;
 }

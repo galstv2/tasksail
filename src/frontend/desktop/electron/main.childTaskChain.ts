@@ -4,6 +4,7 @@ import type { TaskBranchChainBinding } from '../../../backend/platform/queue/mar
 import type { PlannerStagingContextPackBinding } from '../../../backend/platform/planner-history/types.js';
 import type { PlannerListArchivedTasksResponse } from '../src/shared/desktopContract';
 import { listArchivedTasksAction } from './main.archivedTasks';
+import { buildAdjustedChildBranchChainRepos } from './main.childTaskChainDivergence';
 import type { ContextPackLister } from './main.contextPackTaskVisibility';
 
 export type ResolvedChildTaskChainCreationContext = {
@@ -79,21 +80,14 @@ export async function resolveChildTaskChainCreationContext(args: {
     rootTaskId,
     parentTaskId: args.parentTaskId,
     depth,
-    repos: parent.branchHandoffs.map((handoff) => {
-      const previousRepo = previousBranchChain?.repos.find(
-        (repo) => path.resolve(repo.repoRoot) === path.resolve(handoff.repoRoot),
-      );
-      if (previousBranchChain && !previousRepo) {
-        blocked(`parent branch chain is missing repo ${handoff.repoRoot}.`);
-      }
-      return {
-        repoRoot: handoff.repoRoot,
-        repoLabel: handoff.repoLabel,
-        chainSourceBranch: previousRepo?.chainSourceBranch ?? handoff.branch,
-        parentSourceBranch: handoff.branch,
-        parentBranchHead: handoff.headCommitSha,
-        targetBranch: previousRepo?.targetBranch ?? handoff.autoMerge?.targetBranch ?? null,
-      };
+    repos: await buildAdjustedChildBranchChainRepos({
+      repoRoot: args.repoRoot,
+      rootTaskId,
+      parentTaskId: args.parentTaskId,
+      childExecutionScope: args.childExecutionScope,
+      parentBranchHandoffs: parent.branchHandoffs,
+      childChainState: state,
+      previousBranchChain,
     }),
   };
 

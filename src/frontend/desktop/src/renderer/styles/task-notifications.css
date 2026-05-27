@@ -1,0 +1,295 @@
+/* ── Task Notification Center ──────────────────────────────────────────
+   Apple-design-forward refinement:
+   - Vibrancy panel surface with deep blur + saturation
+   - iOS-style floating notification cards on the vibrancy
+   - Information hierarchy per card:
+       pack label (caption, wraps to 2 lines)
+       task title (semibold)
+       task status (severity-tinted)
+       timestamp (pinned bottom-right)
+   ──────────────────────────────────────────────────────────────────── */
+
+.task-notifications__panel {
+  position: fixed;
+  top: calc(42px + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: 50% 0;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  /* Cap at 40% of viewport — iOS-style "recent few + scroll for older",
+     screen-size independent. Anchored at top ~50px, so 40vh always fits. */
+  max-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  /* Light: source is half-way between pure white and --ts-bg (lands around
+     #fafbfd — brighter than --ts-bg alone but short of the "glowing white
+     sheet" failure mode of pure --ts-surface), blended at 96% to keep a
+     whisper of vibrancy while choking off the dark workspace bleed-through.
+     Cards stay pure white; delta ~3 lightness units = subtly noticeable.
+     Dark override below lifts the card surface instead, since dark
+     `--ts-surface-alt` collapses into `--ts-bg`. */
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--ts-surface) 55%, var(--ts-bg)) 96%,
+    transparent
+  );
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--ts-border);
+  border-radius: 18px;
+  box-shadow: var(--ts-shadow-xl);
+  z-index: var(--ts-z-popover);
+  animation: task-notifications-panel-open 260ms var(--ts-spring);
+}
+
+:root.theme-dark .task-notifications__panel {
+  background: color-mix(in srgb, var(--ts-surface) 82%, transparent);
+}
+
+.task-notifications__panel[data-closing="true"] {
+  animation: task-notifications-panel-close 160ms var(--ts-ease) forwards;
+  pointer-events: none;
+}
+
+.task-notifications__panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.65rem 0.8rem 0.55rem;
+}
+
+.task-notifications__panel-title {
+  margin: 0;
+  color: var(--ts-text);
+  font-family: var(--ts-font-sans);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.task-notifications__panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.task-notifications__panel-divider {
+  height: 1px;
+  background: var(--ts-border);
+}
+
+.task-notifications__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+  padding: 0.45rem 0.55rem 0.6rem;
+}
+
+.task-notifications__empty {
+  padding: 2rem 0;
+  color: var(--ts-text-soft);
+  font-family: var(--ts-font-sans);
+  font-size: 0.78rem;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+/* ── Card (iOS-style floating notification tile) ──────────────────────── */
+
+.task-notifications__banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 1px;
+  padding: 0.6rem 0.75rem 0.55rem 0.75rem;
+  /* Light: crisp pure-white tile lifted off the tinted panel. */
+  background: var(--ts-surface);
+  border: 1px solid var(--ts-border);
+  border-radius: 12px;
+  box-shadow: var(--ts-shadow-sm);
+  transition: background var(--ts-duration) var(--ts-ease),
+              box-shadow var(--ts-duration) var(--ts-ease),
+              transform var(--ts-duration) var(--ts-ease);
+}
+
+/* Dark: lift the tile a half-stop above the panel using the dedicated
+   raised-surface token. Same iOS-card raised-tile read, different anchor. */
+:root.theme-dark .task-notifications__banner {
+  background: var(--ts-surface-strong);
+}
+
+.task-notifications__banner:hover {
+  box-shadow: var(--ts-shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Unseen — accent bar inset on the left edge (Apple-card pattern) */
+.task-notifications__banner--unseen {
+  box-shadow: inset 3px 0 0 var(--ts-accent), var(--ts-shadow-sm);
+}
+
+.task-notifications__banner--unseen:hover {
+  box-shadow: inset 3px 0 0 var(--ts-accent), var(--ts-shadow-md);
+}
+
+/* ── Severity glyph (top-left, soft tinted circle) ────────────────────── */
+
+.task-notifications__severity-tile {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: var(--ts-radius-pill);
+}
+
+.task-notifications__banner--severity-success .task-notifications__severity-tile {
+  background: var(--ts-success-tint);
+  color: var(--ts-success);
+}
+
+.task-notifications__banner--severity-error .task-notifications__severity-tile {
+  background: var(--ts-danger-tint);
+  color: var(--ts-error);
+}
+
+.task-notifications__banner--severity-success .task-notifications__type {
+  color: var(--ts-success);
+}
+
+.task-notifications__banner--severity-error .task-notifications__type {
+  color: var(--ts-error);
+}
+
+/* ── Information hierarchy ────────────────────────────────────────────── */
+
+/* Row 1: context pack — caption style, full visibility (2-line clamp) */
+.task-notifications__pack {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  padding-right: 22px;        /* clear the dismiss button */
+  color: var(--ts-text-soft);
+  font-family: var(--ts-font-sans);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Row 2: task title — semibold, single line, ellipsis */
+.task-notifications__title {
+  grid-column: 2;
+  grid-row: 2;
+  margin-top: 0.15rem;
+  min-width: 0;
+  color: var(--ts-text);
+  font-family: var(--ts-font-sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row 3: task status — severity tinted */
+.task-notifications__type {
+  grid-column: 2;
+  grid-row: 3;
+  margin-top: 0.05rem;
+  font-family: var(--ts-font-sans);
+  font-size: 0.67rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+
+/* Row 4: timestamp — pinned bottom-right */
+.task-notifications__timestamp {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  justify-self: end;
+  margin-top: 0.3rem;
+  color: var(--ts-text-soft);
+  font-family: var(--ts-font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Dismiss button (top-right, reveal on hover) ──────────────────────── */
+
+.task-notifications__dismiss {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--ts-text-soft);
+  background: transparent;
+  border: none;
+  border-radius: var(--ts-radius-pill);
+  cursor: pointer;
+  opacity: 0;
+  transition: background var(--ts-duration) var(--ts-ease),
+              color var(--ts-duration) var(--ts-ease),
+              opacity var(--ts-duration) var(--ts-ease);
+}
+
+.task-notifications__dismiss:hover {
+  color: var(--ts-text);
+  background: var(--ts-bg-hover);
+}
+
+.task-notifications__banner:hover .task-notifications__dismiss,
+.task-notifications__banner:focus-within .task-notifications__dismiss,
+.task-notifications__dismiss:focus {
+  opacity: 1;
+}
+
+/* ── Open / close animation ───────────────────────────────────────────── */
+
+@keyframes task-notifications-panel-open {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(0.97);
+    transform-origin: 50% 0;
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes task-notifications-panel-close {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+    transform-origin: 50% 0;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(0.97);
+  }
+}

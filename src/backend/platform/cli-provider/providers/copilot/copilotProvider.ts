@@ -16,6 +16,7 @@ import { buildCopilotArgs, formatCopilotCommand, mcpConfigArgs } from './flagBui
 import { materializeCopilotPrompt, resolveCopilotPromptPath } from './promptComposer.js';
 import { parseChatagentProfile } from './profileParser.js';
 import { buildCopilotPlannerLaunchSpec, COPILOT_PLANNER_AGENT_ID, CopilotPlannerParser } from './plannerAdapter.js';
+import { getCopilotReasoningEffortCapabilities } from './reasoningEffortCapabilities.js';
 
 const AGENT_CONFIG_PATHS: AgentConfigPaths = {
   root: '.github/copilot',
@@ -135,5 +136,9 @@ export const copilotProvider: CliProvider = {
 
   buildPlannerLaunchSpec(options: PlannerLaunchOptions): PlannerLaunchSpec {
     return buildCopilotPlannerLaunchSpec(options);
+  },
+
+  reasoningEffortCapabilities(repoRoot: string) {
+    return getCopilotReasoningEffortCapabilities(repoRoot);
   },
 };

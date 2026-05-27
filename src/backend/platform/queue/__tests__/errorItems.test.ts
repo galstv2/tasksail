@@ -43,6 +43,10 @@ vi.mock('../../platform-config/get.js', () => ({
   getPlatformConfig: vi.fn(),
 }));
 
+vi.mock('../../task-notifications/producer.js', () => ({
+  recordTaskFailedNotification: vi.fn().mockResolvedValue(null),
+}));
+
 // We mock node:child_process execFile to control git for-each-ref output used by
 // pickNextRetryN inside errorItems.ts. The promisify wrapper uses util.promisify(execFile).
 // Node's real execFile has a [util.promisify.custom] symbol that resolves { stdout, stderr }.
@@ -72,6 +76,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { discardRetainedTaskWorktrees, finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
 import { getPlatformConfig } from '../../platform-config/get.js';
 import { execFile as execFileMocked, spawn as spawnMocked } from 'node:child_process';
+import { recordTaskFailedNotification } from '../../task-notifications/producer.js';
 
 // Import module under test AFTER mocks are in place
 import {
@@ -90,6 +95,7 @@ const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
 const mockDiscardRetainedTaskWorktrees = vi.mocked(discardRetainedTaskWorktrees);
 const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
 const mockSpawn = vi.mocked(spawnMocked);
+const mockRecordTaskFailedNotification = vi.mocked(recordTaskFailedNotification);
 // The custom promisify symbol on the mock — used to control git for-each-ref output
 function getMockExecFilePromisified(): ReturnType<typeof vi.fn> {
   return (execFileMocked as unknown as Record<symbol, ReturnType<typeof vi.fn>>)[promisify.custom] as ReturnType<typeof vi.fn>;
@@ -448,6 +454,47 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
 
     // (i) B moved to error-items
     expect(existsSync(path.join(queuePaths.errorItemsDir, 'task-B.md'))).toBe(true);
+  });
+
+  it('records a failed notification after durable failure cleanup', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-notify-failed';
+    const errorItemPath = path.join(queuePaths.errorItemsDir, `${taskId}.md`);
+
+    makePendingItem(queuePaths, taskId);
+    makeActiveMarker(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, []);
+    makeTaskRuntime(repoRoot, taskId);
+    mockRecordTaskFailedNotification.mockImplementationOnce(async () => {
+      expect(existsSync(errorItemPath)).toBe(true);
+      expect(existsSync(path.join(queuePaths.activeItemsDir, taskId))).toBe(false);
+      return null;
+    });
+
+    await moveFailedItemToErrorItems({ repoRoot, taskId });
+
+    expect(mockRecordTaskFailedNotification).toHaveBeenCalledWith({
+      repoRoot,
+      taskId,
+      errorItemPath,
+    });
+  });
+
+  it('does not fail failure cleanup when failed notification recording fails', async () => {
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const taskId = 'task-notify-failure-ignored';
+
+    makePendingItem(queuePaths, taskId);
+    makeActiveMarker(queuePaths, taskId);
+    makeTaskJson(taskId, repoRoot, []);
+    makeTaskRuntime(repoRoot, taskId);
+    mockRecordTaskFailedNotification.mockRejectedValueOnce(new Error('notification store unavailable'));
+
+    await expect(moveFailedItemToErrorItems({ repoRoot, taskId })).resolves.toMatchObject({
+      movedItem: `${taskId}.md`,
+      errorItemPath: path.join(queuePaths.errorItemsDir, `${taskId}.md`),
+    });
+    expect(existsSync(path.join(queuePaths.errorItemsDir, `${taskId}.md`))).toBe(true);
   });
 
   it('restores task-bound context-pack binding when recovering a failed task whose pending item is missing', async () => {

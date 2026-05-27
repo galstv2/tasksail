@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listArchivedTasksAction = vi.fn();
 const readChildTaskChains = vi.fn();
+const resolveSelectedMaterializationRoots = vi.fn();
 
 vi.mock('./main.archivedTasks', () => ({ listArchivedTasksAction }));
 vi.mock('../../../backend/platform/queue/childTaskChains.js', () => ({ readChildTaskChains }));
+vi.mock('../../../backend/platform/context-pack/taskWorktreeSelection.js', () => ({ resolveSelectedMaterializationRoots }));
 
 const { resolveChildTaskChainCreationContext } = await import('./main.childTaskChain');
 
@@ -22,6 +24,83 @@ const binding = {
   selectedTestTarget: null,
   selectedSupportTargets: [],
 };
+
+const platformRoot = '/repo/platform';
+const toolsRoot = '/repo/tools';
+const frontendDesktopRoot = process.cwd();
+
+function selectedRoot(repoId: string, gitRoot: string, role: 'primary' | 'support' = 'primary') {
+  return { repoId, role, originalRoot: gitRoot, gitRoot };
+}
+
+function handoff(repoRoot: string, repoLabel: string, branch: string, targetBranch: string | null = 'main') {
+  return {
+    repoRoot,
+    repoLabel,
+    branch,
+    baseCommitSha: `${branch}-base`,
+    headCommitSha: `${branch}-head`,
+    commitsAhead: 1,
+    status: 'committed',
+    autoMerge: { enabled: true, status: 'ready', targetBranch, detail: 'ok' },
+  };
+}
+
+function completedHandoff(repoRoot: string, repoLabel: string, chainSourceBranch: string, targetBranch: string | null = 'main') {
+  return {
+    repoRoot,
+    repoLabel,
+    chainSourceBranch,
+    baseCommitSha: `${chainSourceBranch}-base`,
+    headCommitSha: `${chainSourceBranch}-head`,
+    commitsAhead: 1,
+    status: 'ready-for-operator-review',
+    targetBranch,
+  };
+}
+
+function branchChainRepo(repoRoot: string, chainSourceBranch: string, targetBranch: string | null = 'main') {
+  return {
+    repoRoot,
+    repoLabel: repoRoot.split('/').pop() ?? repoRoot,
+    chainSourceBranch,
+    parentSourceBranch: chainSourceBranch,
+    parentBranchHead: `${chainSourceBranch}-head`,
+    targetBranch,
+  };
+}
+
+function completedParentState(options: {
+  taskIds?: string[];
+  parentBranchChainRepos?: ReturnType<typeof branchChainRepo>[];
+  completedTasks?: Record<string, unknown>;
+} = {}) {
+  return {
+    chains: {
+      ROOT: {
+        currentTipTaskId: 'PARENT-1',
+        taskIds: options.taskIds ?? ['ROOT', 'PARENT-1'],
+      },
+    },
+    tasks: {
+      ...(options.completedTasks ?? {}),
+      'PARENT-1': {
+        rootTaskId: 'ROOT',
+        depth: 1,
+        state: 'completed',
+        branchChain: {
+          schemaVersion: 1,
+          mode: 'continuation',
+          rootTaskId: 'ROOT',
+          parentTaskId: 'ROOT',
+          depth: 1,
+          repos: options.parentBranchChainRepos ?? [branchChainRepo(platformRoot, 'task/ROOT')],
+        },
+        completedBranchHandoffs: [completedHandoff(platformRoot, 'Platform', 'task/ROOT')],
+      },
+    },
+  };
+}
 
 const parent = {
   taskId: 'PARENT-1',
@@ -44,6 +123,7 @@ const parent = {
 describe('resolveChildTaskChainCreationContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('orders-api', '/repo/orders-api')]);
     listArchivedTasksAction.mockResolvedValue({
       ok: true,
       response: { mode: 'found', tasks: [parent] },
@@ -68,6 +148,7 @@ describe('resolveChildTaskChainCreationContext', () => {
       parentSourceBranch: 'task/PARENT-1',
       targetBranch: 'main',
     }));
+    expect(result.branchChain.repos[0]).not.toHaveProperty('sourceKind');
   });
 
   it('preserves descendant chainSourceBranch and targetBranch from parent state', async () => {
@@ -245,5 +326,354 @@ describe('resolveChildTaskChainCreationContext', () => {
       selectedFocusPath: 'apps/checkout',
       selectedFocusTargetKind: 'directory',
     }));
+  });
+
+  it('keeps matching parent repos as legacy parent-handoff Branch Chain entries', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('platform', platformRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        mode: 'found',
+        tasks: [{ ...parent, taskId: 'PARENT-1', branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }],
+      },
+    });
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'PARENT-1',
+      childExecutionScope: { ...binding, selectedRepoIds: ['platform'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([{
+      repoRoot: platformRoot,
+      repoLabel: 'Platform',
+      chainSourceBranch: 'task/PARENT-1',
+      parentSourceBranch: 'task/PARENT-1',
+      parentBranchHead: 'task/PARENT-1-head',
+      targetBranch: 'main',
+    }]);
+  });
+
+  it('projects partial divergence as immediate parent plus historical handoff', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([
+      selectedRoot('platform', platformRoot),
+      selectedRoot('tools', toolsRoot),
+    ]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      taskIds: ['ROOT', 'TOOLS-1', 'PARENT-1'],
+      completedTasks: {
+        'TOOLS-1': {
+          rootTaskId: 'ROOT',
+          depth: 1,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/ROOT', 'release/tools')] },
+          completedBranchHandoffs: [completedHandoff(toolsRoot, 'Tools', 'task/ROOT', 'release/tools')],
+        },
+      },
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['platform', 'tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({ repoRoot: platformRoot, chainSourceBranch: 'task/ROOT' }),
+      expect.objectContaining({
+        repoRoot: toolsRoot,
+        sourceKind: 'chain-history-handoff',
+        chainSourceBranch: 'task/ROOT',
+        parentSourceBranch: 'task/ROOT',
+        parentBranchHead: 'task/ROOT-head',
+        targetBranch: 'release/tools',
+      }),
+    ]);
+    expect(result.branchChain.repos[0]).not.toHaveProperty('sourceKind');
+  });
+
+  it('projects partial divergence as immediate parent plus introduced repo when absent from history', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([
+      selectedRoot('platform', platformRoot),
+      selectedRoot('tools', frontendDesktopRoot),
+    ]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState());
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['platform', 'tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({ repoRoot: platformRoot }),
+      expect.objectContaining({
+        repoRoot: frontendDesktopRoot,
+        repoLabel: 'tools',
+        sourceKind: 'introduced-by-child',
+        chainSourceBranch: 'task/ROOT',
+        targetBranch: null,
+      }),
+    ]);
+    expect(result.branchChain.repos[0]).not.toHaveProperty('sourceKind');
+    expect(result.branchChain.repos[1]?.parentBranchHead).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('projects full divergence as historical handoff only', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', toolsRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      taskIds: ['ROOT', 'TOOLS-1', 'PARENT-1'],
+      completedTasks: {
+        'TOOLS-1': {
+          rootTaskId: 'ROOT',
+          depth: 1,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/ROOT')] },
+          completedBranchHandoffs: [completedHandoff(toolsRoot, 'Tools', 'task/ROOT')],
+        },
+      },
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({ repoRoot: toolsRoot, sourceKind: 'chain-history-handoff' }),
+    ]);
+  });
+
+  it('projects full divergence as introduced repo when absent from history', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', frontendDesktopRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState());
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({ repoRoot: frontendDesktopRoot, sourceKind: 'introduced-by-child' }),
+    ]);
+  });
+
+  it('uses the latest completed historical handoff before the selected parent', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', toolsRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      taskIds: ['ROOT', 'TOOLS-OLD', 'TOOLS-NEW', 'PARENT-1'],
+      completedTasks: {
+        'TOOLS-OLD': {
+          rootTaskId: 'ROOT',
+          depth: 1,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/OLD')] },
+          completedBranchHandoffs: [completedHandoff(toolsRoot, 'Tools', 'task/OLD')],
+        },
+        'TOOLS-NEW': {
+          rootTaskId: 'ROOT',
+          depth: 2,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/NEW')] },
+          completedBranchHandoffs: [completedHandoff(toolsRoot, 'Tools', 'task/NEW')],
+        },
+      },
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    });
+
+    expect(result.branchChain.repos[0]).toEqual(expect.objectContaining({
+      chainSourceBranch: 'task/NEW',
+      parentBranchHead: 'task/NEW-head',
+    }));
+  });
+
+  it('fails when an ancestor Branch Chain repo has no completed handoff source', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', toolsRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      taskIds: ['ROOT', 'TOOLS-STALE', 'PARENT-1'],
+      completedTasks: {
+        'TOOLS-STALE': {
+          rootTaskId: 'ROOT',
+          depth: 1,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/STALE')] },
+          completedBranchHandoffs: null,
+        },
+      },
+    }));
+
+    await expect(resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    })).rejects.toThrow('child-task-chain-history-handoff-missing');
+  });
+
+  it('ignores stale older Branch Chain records when a later completed handoff exists', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', toolsRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      taskIds: ['ROOT', 'TOOLS-STALE', 'TOOLS-VALID', 'PARENT-1'],
+      completedTasks: {
+        'TOOLS-STALE': {
+          rootTaskId: 'ROOT',
+          depth: 1,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/STALE')] },
+          completedBranchHandoffs: null,
+        },
+        'TOOLS-VALID': {
+          rootTaskId: 'ROOT',
+          depth: 2,
+          state: 'completed',
+          branchChain: { repos: [branchChainRepo(toolsRoot, 'task/VALID')] },
+          completedBranchHandoffs: [completedHandoff(toolsRoot, 'Tools', 'task/VALID')],
+        },
+      },
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    });
+
+    expect(result.branchChain.repos[0]).toEqual(expect.objectContaining({
+      sourceKind: 'chain-history-handoff',
+      chainSourceBranch: 'task/VALID',
+    }));
+  });
+
+  it('requires only the contracted selected repo', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('platform', platformRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        mode: 'found',
+        tasks: [{
+          ...parent,
+          branchHandoffs: [
+            handoff(platformRoot, 'Platform', 'task/PARENT-1'),
+            handoff(toolsRoot, 'Tools', 'task/PARENT-1-tools'),
+          ],
+        }],
+      },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      parentBranchChainRepos: [
+        branchChainRepo(platformRoot, 'task/ROOT'),
+        branchChainRepo(toolsRoot, 'task/ROOT-tools'),
+      ],
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['platform'] },
+    });
+
+    expect(result.branchChain.repos).toHaveLength(1);
+    expect(result.branchChain.repos[0]?.repoRoot).toBe(platformRoot);
+  });
+
+  it('keeps Deep Focus primary roots and excludes support roots', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([
+      selectedRoot('platform-focus', platformRoot),
+      selectedRoot('tools-focus', toolsRoot),
+      selectedRoot('docs-support', '/repo/docs', 'support'),
+    ]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        mode: 'found',
+        tasks: [{
+          ...parent,
+          branchHandoffs: [
+            handoff(platformRoot, 'Platform', 'task/PARENT-1'),
+            handoff(toolsRoot, 'Tools', 'task/PARENT-1-tools'),
+            handoff('/repo/docs', 'Docs', 'task/PARENT-1-docs'),
+          ],
+        }],
+      },
+    });
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'PARENT-1',
+      childExecutionScope: { ...binding, deepFocusEnabled: true, selectedRepoIds: [] },
+    });
+
+    expect(result.branchChain.repos.map((repo) => repo.repoRoot)).toEqual([platformRoot, toolsRoot]);
+  });
+
+  it('rejects introduced repos when HEAD cannot be resolved', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', '/tmp/tasksail-not-a-git-repo-for-child-chain-test')]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState());
+
+    await expect(resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    })).rejects.toThrow('child-task-chain-divergent-repo-base-unresolved');
   });
 });

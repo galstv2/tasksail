@@ -26,6 +26,7 @@ const MOCK_REGISTRY: RegistryJson = {
       agent_profile_path: '.github/agents/software-engineer.md',
       autonomy_profile: 'repo-executor',
       required_model: 'gpt-4.1',
+      reasoning_effort: 'high',
       wall_clock_timeout_s: 600,
       workflow_order: 4,
       allowed_dirs: ['src/', 'tests/', 'packages/'],
@@ -118,6 +119,7 @@ describe('resolveAgentProfile', () => {
     expect(profile.displayName).toBe('Dalton');
     expect(profile.role).toBe('Software Engineer');
     expect(profile.requiredModel).toBe('gpt-4.1');
+    expect(profile.reasoningEffort).toBe('high');
     expect(profile.autonomyProfile).toBe('repo-executor');
     expect(profile.allowedDirs).toEqual(['src/', 'tests/', 'packages/']);
     expect(profile.denyRules).toEqual(['git add', 'git commit', 'git push', 'rm -rf']);
@@ -128,6 +130,18 @@ describe('resolveAgentProfile', () => {
     const profile = resolveAgentProfile(MOCK_REGISTRY, 'alice');
     expect(profile.autonomyProfile).toBe('artifact-author');
     expect(profile.requiredModel).toBe('gpt-5.4');
+    expect(profile.reasoningEffort).toBeUndefined();
+  });
+
+  it('normalizes registry none effort to no runtime effort', () => {
+    const profile = resolveAgentProfile({
+      ...MOCK_REGISTRY,
+      agents: MOCK_REGISTRY.agents.map((entry) => entry.agent_id === 'product-manager'
+        ? { ...entry, reasoning_effort: 'none' }
+        : entry),
+    }, 'alice');
+
+    expect(profile.reasoningEffort).toBeUndefined();
   });
 
   it('resolves dalton-verify profile with its verification registry entry', () => {

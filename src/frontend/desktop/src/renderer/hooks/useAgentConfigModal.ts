@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
@@ -13,6 +13,8 @@ export type AgentConfigAgent = {
   role_name: string;
   current_model: string;
   selected_model: string;
+  current_effort: string;
+  selected_effort: string;
   workflow_order: number;
 };
 
@@ -24,6 +26,8 @@ export type AgentConfigModelOption = {
 
 export type AgentConfigAgentRow = AgentConfigAgent & {
   options: AgentConfigModelOption[];
+  effortOptions: string[];
+  effortDisabled: boolean;
   currentModelMissing: boolean;
 };
 
@@ -58,11 +62,13 @@ export type AgentConfigModalProps = {
   error: string | null;
   isDirty: boolean;
   showRestartNotice: boolean;
+  effortWarning: string | null;
   pendingModelChange: PendingModelChange | null;
   descriptor: ProviderFrontendDescriptor | null;
   onClose: () => void;
   onSelectTab: (tab: AgentConfigTab) => void;
   onAgentModelChange: (agentId: string, modelId: string) => void;
+  onAgentEffortChange: (agentId: string, effort: string) => void;
   onConfirmModelChange: () => void;
   onCancelModelChange: () => void;
   onNewModelDisplayNameChange: (value: string) => void;
@@ -91,6 +97,7 @@ type AgentConfigResponse =
           human_name: string;
           role_name: string;
           required_model: string;
+          reasoning_effort?: string;
           workflow_order?: number;
         }>;
       };
@@ -115,8 +122,21 @@ type AgentConfigResponse =
           human_name: string;
           role_name: string;
           required_model: string;
+          reasoning_effort?: string;
           workflow_order?: number;
         }>;
+      };
+    }
+  | {
+      ok: true;
+      response: {
+        action: 'agentConfig.loadCapabilities';
+        mode: 'read-only';
+        message: string;
+        providerId: string;
+        cliVersion: string | null;
+        effortChoices: string[];
+        stale: boolean;
       };
     }
   | {
@@ -125,18 +145,42 @@ type AgentConfigResponse =
       details?: string[];
     };
 
+type AgentConfigCapabilities = {
+  effortChoices: string[];
+  stale: boolean;
+};
+
+type AgentConfigClientWithCapabilities = DesktopShellClient & {
+  loadCapabilities?: () => Promise<unknown>;
+  saveAgentModels: (
+    assignments: Array<{ agent_id: string; model_id: string; reasoning_effort?: string }>,
+  ) => Promise<unknown>;
+};
+
+const NO_REASONING_EFFORT = 'none';
+const UNAVAILABLE_CAPABILITIES_WARNING = 'Reasoning effort options could not be loaded from the installed Copilot CLI. Effort changes are blocked until capabilities can be discovered.';
+const STALE_CAPABILITIES_WARNING = 'Cached reasoning effort options may be out of date. Confirm the installed Copilot CLI supports the selected effort before saving.';
+
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
-function findPlannerModel(
+
+function normalizeEffort(value: string | null | undefined): string {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return normalized && normalized !== NO_REASONING_EFFORT ? normalized : NO_REASONING_EFFORT;
+}
+
+function findPlannerAssignment(
   agents: Array<{
     agent_id: string;
     required_model: string;
+    reasoning_effort?: string;
   }>,
   plannerAgentId: string | null,
-): string | null {
+): { model: string; effort: string } | null {
   if (!plannerAgentId) {
     return null;
   }
-  return agents.find((agent) => agent.agent_id === plannerAgentId)?.required_model ?? null;
+  const agent = agents.find((entry) => entry.agent_id === plannerAgentId);
+  return agent ? { model: agent.required_model, effort: normalizeEffort(agent.reasoning_effort) } : null;
 }
 
 function toAgentRows(
@@ -145,6 +189,7 @@ function toAgentRows(
     human_name: string;
     role_name: string;
     required_model: string;
+    reasoning_effort?: string;
     workflow_order?: number;
   }>,
 ): AgentConfigAgent[] {
@@ -156,6 +201,8 @@ function toAgentRows(
       role_name: agent.role_name,
       current_model: agent.required_model,
       selected_model: agent.required_model,
+      current_effort: normalizeEffort(agent.reasoning_effort),
+      selected_effort: normalizeEffort(agent.reasoning_effort),
       workflow_order: agent.workflow_order ?? index,
     }));
 }
@@ -165,22 +212,24 @@ function asAgentConfigResponse(value: unknown): AgentConfigResponse {
 }
 
 function applyPlannerRestartCheck(
-  agents: Array<{ agent_id: string; required_model: string }>,
+  agents: Array<{ agent_id: string; required_model: string; reasoning_effort?: string }>,
   plannerAgentId: string | null,
-  plannerStartupModelRef: React.RefObject<string | null>,
+  plannerStartupAssignmentRef: React.RefObject<{ model: string; effort: string } | null>,
   setShowRestartNotice: (value: boolean) => void,
 ): void {
   if (!plannerAgentId) {
     setShowRestartNotice(false);
     return;
   }
-  const nextPlannerModel = findPlannerModel(agents, plannerAgentId);
-  if (plannerStartupModelRef.current === null && nextPlannerModel !== null) {
-    (plannerStartupModelRef as React.MutableRefObject<string | null>).current = nextPlannerModel;
+  const nextPlannerAssignment = findPlannerAssignment(agents, plannerAgentId);
+  if (plannerStartupAssignmentRef.current === null && nextPlannerAssignment !== null) {
+    (plannerStartupAssignmentRef as React.MutableRefObject<{ model: string; effort: string } | null>).current = nextPlannerAssignment;
   }
-  const baseline = plannerStartupModelRef.current;
+  const baseline = plannerStartupAssignmentRef.current;
   setShowRestartNotice(
-    baseline !== null && nextPlannerModel !== null && nextPlannerModel !== baseline,
+    baseline !== null &&
+      nextPlannerAssignment !== null &&
+      (nextPlannerAssignment.model !== baseline.model || nextPlannerAssignment.effort !== baseline.effort),
   );
 }
 
@@ -201,29 +250,54 @@ export function useAgentConfigModal(
   const [showRestartNotice, setShowRestartNotice] = useState(false);
   const [pendingModelChange, setPendingModelChange] = useState<PendingModelChange | null>(null);
   const [descriptor, setDescriptor] = useState<ProviderFrontendDescriptor | null>(null);
-  const plannerStartupModelRef = useRef<string | null>(null);
+  const [capabilities, setCapabilities] = useState<AgentConfigCapabilities>({
+    effortChoices: [],
+    stale: true,
+  });
+  const plannerStartupAssignmentRef = useRef<{ model: string; effort: string } | null>(null);
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const [agentResultRaw, modelResultRaw, descriptorResult] = await Promise.all([
+      const clientWithCapabilities = client as AgentConfigClientWithCapabilities;
+      const loadCapabilities = clientWithCapabilities.loadCapabilities
+        ? clientWithCapabilities.loadCapabilities()
+        : Promise.resolve({
+            ok: true,
+            response: {
+              action: 'agentConfig.loadCapabilities',
+              mode: 'read-only',
+              message: UNAVAILABLE_CAPABILITIES_WARNING,
+              providerId: 'unknown',
+              cliVersion: null,
+              effortChoices: [],
+              stale: true,
+            },
+          });
+      const [agentResultRaw, modelResultRaw, capabilityResultRaw, descriptorResult] = await Promise.all([
         client.loadAgentConfig(),
         client.loadModelCatalog(),
+        loadCapabilities,
         client.describeActiveProvider(),
       ]);
       const agentResult = asAgentConfigResponse(agentResultRaw);
       const modelResult = asAgentConfigResponse(modelResultRaw);
+      const capabilityResult = asAgentConfigResponse(capabilityResultRaw);
       setDescriptor(descriptorResult);
 
       let nextError: string | null = null;
+      let nextCapabilities: AgentConfigCapabilities = {
+        effortChoices: [],
+        stale: true,
+      };
 
       if (agentResult.ok && agentResult.response.action === 'agentConfig.loadAgents') {
         setAgents(toAgentRows(agentResult.response.agents));
         applyPlannerRestartCheck(
           agentResult.response.agents,
           descriptorResult.plannerAgentId,
-          plannerStartupModelRef,
+          plannerStartupAssignmentRef,
           setShowRestartNotice,
         );
       } else if (!agentResult.ok) {
@@ -238,6 +312,16 @@ export function useAgentConfigModal(
       } else if (!modelResult.ok && nextError === null) {
         nextError = modelResult.error;
       }
+
+      if (capabilityResult.ok && capabilityResult.response.action === 'agentConfig.loadCapabilities') {
+        nextCapabilities = {
+          effortChoices: capabilityResult.response.effortChoices.map(normalizeEffort).filter((choice) => choice !== NO_REASONING_EFFORT),
+          stale: capabilityResult.response.stale,
+        };
+      } else if (!capabilityResult.ok && nextError === null) {
+        nextError = capabilityResult.error;
+      }
+      setCapabilities(nextCapabilities);
 
       setError(nextError);
     } catch (loadError) {
@@ -261,7 +345,7 @@ export function useAgentConfigModal(
     setActiveTab('agents');
     setRemovingModelId(null);
     setError(null);
-    plannerStartupModelRef.current = null;
+    plannerStartupAssignmentRef.current = null;
     setShowRestartNotice(false);
   }, []);
 
@@ -296,6 +380,18 @@ export function useAgentConfigModal(
     setError(null);
   }, [agents, models]);
 
+  const onAgentEffortChange = useCallback((agentId: string, effort: string) => {
+    const selectedEffort = normalizeEffort(effort);
+    setAgents((current) =>
+      current.map((agent) => (
+        agent.agent_id === agentId
+          ? { ...agent, selected_effort: selectedEffort }
+          : agent
+      )),
+    );
+    setError(null);
+  }, []);
+
   const onConfirmModelChange = useCallback(() => {
     // The change is already applied — just dismiss the dialog
     setPendingModelChange(null);
@@ -326,7 +422,7 @@ export function useAgentConfigModal(
   }, []);
 
   const isDirty = useMemo(
-    () => agents.some((agent) => agent.selected_model !== agent.current_model),
+    () => agents.some((agent) => agent.selected_model !== agent.current_model || agent.selected_effort !== agent.current_effort),
     [agents],
   );
 
@@ -340,17 +436,18 @@ export function useAgentConfigModal(
 
     try {
       const result = asAgentConfigResponse(
-        await client.saveAgentModels(
+        await (client as AgentConfigClientWithCapabilities).saveAgentModels(
           agents.map((agent) => ({
             agent_id: agent.agent_id,
             model_id: agent.selected_model,
+            ...(agent.selected_effort !== NO_REASONING_EFFORT ? { reasoning_effort: agent.selected_effort } : {}),
           })),
         ),
       );
 
       if (result.ok && result.response.action === 'agentConfig.saveAgentModels') {
         setAgents(toAgentRows(result.response.agents));
-        applyPlannerRestartCheck(result.response.agents, descriptor?.plannerAgentId ?? null, plannerStartupModelRef, setShowRestartNotice);
+        applyPlannerRestartCheck(result.response.agents, descriptor?.plannerAgentId ?? null, plannerStartupAssignmentRef, setShowRestartNotice);
         addToast({
           severity: 'success',
           message: result.response.message,
@@ -455,9 +552,26 @@ export function useAgentConfigModal(
     }
   }, [addToast, client]);
 
+  useEffect(() => {
+    const availableEfforts = capabilities.effortChoices;
+    setAgents((current) =>
+      current.map((agent) => {
+        const validEfforts = availableEfforts.length === 0
+          ? [NO_REASONING_EFFORT, ...(agent.current_effort !== NO_REASONING_EFFORT ? [agent.current_effort] : [])]
+          : [NO_REASONING_EFFORT, ...availableEfforts];
+
+        return validEfforts.includes(agent.selected_effort)
+          ? agent
+          : { ...agent, selected_effort: agent.current_effort };
+      }),
+    );
+  }, [capabilities.effortChoices]);
+
   const agentRows = useMemo<AgentConfigAgentRow[]>(() => {
     const baseOptions: AgentConfigModelOption[] = models;
     const catalogModelIds = new Set(models.map((m) => m.model_id));
+    const availableEfforts = capabilities.effortChoices;
+    const effortDisabled = availableEfforts.length === 0;
 
     return agents.map((agent) => {
       const extras: AgentConfigModelOption[] = [];
@@ -474,13 +588,33 @@ export function useAgentConfigModal(
         }
       }
 
+      const effortOptions = effortDisabled
+        ? [NO_REASONING_EFFORT, ...(agent.current_effort !== NO_REASONING_EFFORT ? [agent.current_effort] : [])]
+        : [NO_REASONING_EFFORT, ...availableEfforts];
+      const selected_effort = effortOptions.includes(agent.selected_effort)
+        ? agent.selected_effort
+        : agent.current_effort;
+
       return {
         ...agent,
+        selected_effort,
         options: extras.length > 0 ? [...baseOptions, ...extras] : baseOptions,
+        effortOptions,
+        effortDisabled,
         currentModelMissing: !catalogModelIds.has(agent.current_model),
       };
     });
-  }, [agents, models]);
+  }, [agents, capabilities.effortChoices, models]);
+
+  const effortWarning = useMemo(() => {
+    if (capabilities.effortChoices.length === 0) {
+      return UNAVAILABLE_CAPABILITIES_WARNING;
+    }
+    if (capabilities.stale) {
+      return STALE_CAPABILITIES_WARNING;
+    }
+    return null;
+  }, [capabilities.effortChoices.length, capabilities.stale]);
 
   const modelRows = useMemo<AgentConfigCatalogRow[]>(
     () => models.map((model) => {
@@ -511,11 +645,13 @@ export function useAgentConfigModal(
       error,
       isDirty,
       showRestartNotice,
+      effortWarning,
       pendingModelChange,
       descriptor,
       onClose,
       onSelectTab,
       onAgentModelChange,
+      onAgentEffortChange,
       onConfirmModelChange,
       onCancelModelChange,
       onNewModelDisplayNameChange,

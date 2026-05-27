@@ -118,6 +118,7 @@ export type PlannerCliInvocation = {
   env: NodeJS.ProcessEnv;
   agentId: string;
   model: string;
+  reasoningEffort?: string;
   prompt: string;
   promptMode: 'interactive' | 'one-shot';
   resumeSessionId: string | null;

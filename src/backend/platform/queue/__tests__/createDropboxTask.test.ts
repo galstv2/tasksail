@@ -30,6 +30,24 @@ describe('createDropboxTask', () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
+  function writeContextPackManifest(id: string, overrides: Record<string, unknown>): string {
+    const contextPackDir = path.join(tmpRoot, 'contextpacks', id);
+    mkdirSync(path.join(contextPackDir, 'qmd'), { recursive: true });
+    writeFileSync(path.join(contextPackDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+      manifest_version: 1,
+      manifest_status: 'active',
+      estate_type: 'distributed-platform',
+      context_pack_id: id,
+      qmd_scope_root: 'qmd/context-packs/test',
+      primary_working_repo_ids: [],
+      primary_focus_area_ids: [],
+      repositories: [],
+      focusable_areas: [],
+      ...overrides,
+    }, null, 2));
+    return contextPackDir;
+  }
+
   it('creates a markdown file with the correct title', async () => {
     const outputPath = await createDropboxTask({
       title: 'My Test Task',
@@ -143,10 +161,17 @@ describe('createDropboxTask', () => {
   });
 
   it('persists standard-mode primary repo and focus metadata in queue markdown', async () => {
+    const contextPackDir = writeContextPackManifest('platform', {
+      repositories: [
+        { repo_id: 'platform', repository_type: 'primary' },
+        { repo_id: 'tools', repository_type: 'support' },
+      ],
+      primary_working_repo_ids: ['platform'],
+    });
     const outputPath = await createDropboxTask({
       title: 'Repo Selection Task',
       repoRoot: tmpRoot,
-      contextPackDir: '/packs/platform',
+      contextPackDir,
       contextPackId: 'platform-pack',
       scopeMode: 'repo-selection',
       primaryRepoId: 'platform',
@@ -161,6 +186,7 @@ describe('createDropboxTask', () => {
     expect(content).toContain('- Selected Repo IDs: platform, tools');
     expect(content).toContain('- Primary Focus ID: api');
     expect(content).toContain('- Selected Focus IDs: api');
+    expect(content).toContain('- Selection Roles: {"platform":"primary","tools":"support"}');
   });
 
   it('omits Branch Chain for standard tasks and child tasks without branchChain', async () => {
@@ -272,6 +298,81 @@ describe('createDropboxTask', () => {
     );
   });
 
+  it('freezes standard distributed multi-primary roles from the manifest', async () => {
+    const contextPackDir = writeContextPackManifest('orders', {
+      repositories: [
+        { repo_id: 'platform', repository_type: 'primary' },
+        { repo_id: 'tools', repository_type: 'primary' },
+      ],
+      primary_working_repo_ids: ['platform', 'tools'],
+    });
+
+    const outputPath = await createDropboxTask({
+      title: 'Multi Primary Selection Roles',
+      repoRoot: tmpRoot,
+      contextPackDir,
+      contextPackId: 'orders',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    });
+
+    expect(readFileSync(outputPath, 'utf-8')).toContain(
+      '- Selection Roles: {"platform":"primary","tools":"primary"}',
+    );
+  });
+
+  it('freezes standard monolith focus roles from the manifest', async () => {
+    const contextPackDir = writeContextPackManifest('monolith', {
+      estate_type: 'monolith',
+      focusable_areas: [
+        { focus_id: 'api', repository_type: 'primary' },
+        { focus_id: 'docs', repository_type: 'support' },
+      ],
+      primary_focus_area_ids: ['api'],
+    });
+
+    const outputPath = await createDropboxTask({
+      title: 'Monolith Selection Roles',
+      repoRoot: tmpRoot,
+      contextPackDir,
+      contextPackId: 'monolith',
+      selectedRepoIds: [],
+      selectedFocusIds: ['api', 'docs'],
+    });
+
+    expect(readFileSync(outputPath, 'utf-8')).toContain(
+      '- Selection Roles: {"api":"primary","docs":"support"}',
+    );
+  });
+
+  it('does not rewrite frozen roles after the task markdown is written', async () => {
+    const contextPackDir = writeContextPackManifest('immutable', {
+      repositories: [
+        { repo_id: 'platform', repository_type: 'primary' },
+        { repo_id: 'tools', repository_type: 'support' },
+      ],
+    });
+    const outputPath = await createDropboxTask({
+      title: 'Immutable Selection Roles',
+      repoRoot: tmpRoot,
+      contextPackDir,
+      contextPackId: 'immutable',
+      selectedRepoIds: ['platform', 'tools'],
+      selectedFocusIds: [],
+    });
+
+    writeContextPackManifest('immutable', {
+      repositories: [
+        { repo_id: 'platform', repository_type: 'support' },
+        { repo_id: 'tools', repository_type: 'primary' },
+      ],
+    });
+
+    expect(readFileSync(outputPath, 'utf-8')).toContain(
+      '- Selection Roles: {"platform":"primary","tools":"support"}',
+    );
+  });
+
   it('generates a timestamped filename', async () => {
     const outputPath = await createDropboxTask({
       title: 'Timestamped',
@@ -378,6 +479,7 @@ describe('createDropboxTask', () => {
       deepFocusEnabled: true,
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
+      repositoryTypes: { backend: 'primary' },
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
       selectedSupportTargets: [{ path: 'docs/orders.md', kind: 'file' }],
     });
@@ -388,5 +490,6 @@ describe('createDropboxTask', () => {
     expect(content).toContain('- Selected Focus Target Kind: directory');
     expect(content).toContain('- Selected Test Target: {"path":"tests/orders","kind":"directory"}');
     expect(content).toContain('- Selected Support Targets: [{"path":"docs/orders.md","kind":"file"}]');
+    expect(content).not.toContain('- Selection Roles:');
   });
 });

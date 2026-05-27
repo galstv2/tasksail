@@ -9,6 +9,7 @@ export interface AgentProfile {
   displayName: string;
   role: string;
   requiredModel: string;
+  reasoningEffort?: string;
   autonomyProfile: AutonomyProfile;
   allowedDirs?: string[];
   denyRules?: string[];
@@ -68,6 +69,7 @@ export interface RegistryAgentEntry {
   agent_profile_path: string;
   autonomy_profile: string;
   required_model: string;
+  reasoning_effort?: string;
   pre_task?: boolean;
   interactive?: boolean;
   idle_timeout_s?: number;

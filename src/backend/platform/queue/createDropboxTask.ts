@@ -4,6 +4,7 @@ import {
   ensureDir,
   writeTextFile,
   ensurePathWithinDropbox,
+  findRepoRoot,
   ValidationError,
 } from '../core/index.js';
 import { assertValidTaskId, resolveQueuePaths } from './paths.js';
@@ -17,6 +18,7 @@ import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { registerTask } from './taskRegistry.js';
 import { buildReadableTaskFileName } from './taskNames.js';
+import { resolveFrozenStandardSelectionRoles } from './standardSelectionRoles.js';
 
 export interface CreateDropboxTaskOptions {
   title: string;
@@ -144,7 +146,8 @@ export async function createDropboxTask(
 
   const rootTaskId = rawRootTaskId || (kind === 'child-task' ? parentTaskId : '');
 
-  const queuePaths = resolveQueuePaths(repoRoot);
+  const effectiveRepoRoot = repoRoot ?? findRepoRoot();
+  const queuePaths = resolveQueuePaths(effectiveRepoRoot);
   await ensureDir(queuePaths.dropboxDir);
 
   let outputFile = options.outputPath ?? '';
@@ -179,6 +182,17 @@ export async function createDropboxTask(
 
   const createdAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
+  const repositoryTypes = await resolveFrozenStandardSelectionRoles({
+    repoRoot: effectiveRepoRoot,
+    contextPackDir: options.contextPackDir,
+    deepFocusEnabled: options.deepFocusEnabled,
+    selectedRepoIds: options.selectedRepoIds,
+    selectedFocusIds: options.selectedFocusIds,
+    repositoryTypes: options.repositoryTypes,
+    primaryRepoId: options.primaryRepoId,
+    primaryFocusId: options.primaryFocusId,
+  });
+
   const bindingSection = formatContextPackBindingSection({
     contextPackDir: (options.contextPackDir ?? '').trim() || undefined,
     contextPackId: (options.contextPackId ?? '').trim() || undefined,
@@ -187,7 +201,7 @@ export async function createDropboxTask(
     primaryFocusId: (options.primaryFocusId ?? '')?.trim() || undefined,
     selectedRepoIds: options.selectedRepoIds,
     selectedFocusIds: options.selectedFocusIds,
-    repositoryTypes: options.repositoryTypes,
+    repositoryTypes,
     deepFocusEnabled: options.deepFocusEnabled,
     deepFocusPrimaryRepoId: options.deepFocusPrimaryRepoId,
     deepFocusPrimaryFocusId: options.deepFocusPrimaryFocusId,
