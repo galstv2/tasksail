@@ -175,6 +175,12 @@ export const DESKTOP_ACTION_NAMES = [
   'agentConfig.saveAgentModels',
   'agentConfig.addModel',
   'agentConfig.removeModel',
+  'agentConfig.listExtensions',
+  'agentConfig.addExtension',
+  'agentConfig.reseedExtension',
+  'agentConfig.deleteExtension',
+  'agentConfig.loadExtensionAssignments',
+  'agentConfig.saveExtensionAssignments',
   'agentInstructions.listFiles',
   'agentInstructions.readFile',
   'agentInstructions.writeFile',
@@ -778,6 +784,7 @@ export type ExternalMcpValidateConnectionResponse = {
 // Agent configuration (types in desktopContractAgentConfig.ts)
 // ---------------------------------------------------------------------------
 
+// Private import for use in DesktopActionRequest and DesktopActionResponse unions below.
 import type {
   AgentConfigLoadAgentsRequest,
   AgentConfigLoadAgentsResponse,
@@ -791,6 +798,18 @@ import type {
   AgentConfigAddModelResponse,
   AgentConfigRemoveModelRequest,
   AgentConfigRemoveModelResponse,
+  AgentConfigListExtensionsRequest,
+  AgentConfigAddExtensionRequest,
+  AgentConfigReseedExtensionRequest,
+  AgentConfigDeleteExtensionRequest,
+  AgentConfigLoadExtensionAssignmentsRequest,
+  AgentConfigSaveExtensionAssignmentsRequest,
+  AgentConfigListExtensionsResponse,
+  AgentConfigAddExtensionResponse,
+  AgentConfigReseedExtensionResponse,
+  AgentConfigDeleteExtensionResponse,
+  AgentConfigLoadExtensionAssignmentsResponse,
+  AgentConfigSaveExtensionAssignmentsResponse,
 } from './desktopContractAgentConfig';
 
 export type {
@@ -808,6 +827,24 @@ export type {
   AgentConfigAddModelResponse,
   AgentConfigRemoveModelRequest,
   AgentConfigRemoveModelResponse,
+  AgentExtensionKind,
+  AgentExtensionSourceType,
+  AgentExtensionProviderId,
+  AgentExtensionAgentId,
+  AgentExtensionRendererCatalogEntry,
+  AgentLaunchExtensionAssignments,
+  AgentConfigListExtensionsRequest,
+  AgentConfigListExtensionsResponse,
+  AgentConfigAddExtensionRequest,
+  AgentConfigAddExtensionResponse,
+  AgentConfigReseedExtensionRequest,
+  AgentConfigReseedExtensionResponse,
+  AgentConfigDeleteExtensionRequest,
+  AgentConfigDeleteExtensionResponse,
+  AgentConfigLoadExtensionAssignmentsRequest,
+  AgentConfigLoadExtensionAssignmentsResponse,
+  AgentConfigSaveExtensionAssignmentsRequest,
+  AgentConfigSaveExtensionAssignmentsResponse,
 } from './desktopContractAgentConfig';
 
 export type { InstructionFileEntry, InstructionDirectory } from './desktopContractAgentInstructions';
@@ -1066,6 +1103,12 @@ export type DesktopActionRequest =
   | AgentConfigSaveAgentModelsRequest
   | AgentConfigAddModelRequest
   | AgentConfigRemoveModelRequest
+  | AgentConfigListExtensionsRequest
+  | AgentConfigAddExtensionRequest
+  | AgentConfigReseedExtensionRequest
+  | AgentConfigDeleteExtensionRequest
+  | AgentConfigLoadExtensionAssignmentsRequest
+  | AgentConfigSaveExtensionAssignmentsRequest
   | AgentInstructionsListFilesRequest
   | AgentInstructionsReadFileRequest
   | AgentInstructionsWriteFileRequest
@@ -1156,6 +1199,12 @@ export type DesktopActionResponse =
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
+  | AgentConfigListExtensionsResponse
+  | AgentConfigAddExtensionResponse
+  | AgentConfigReseedExtensionResponse
+  | AgentConfigDeleteExtensionResponse
+  | AgentConfigLoadExtensionAssignmentsResponse
+  | AgentConfigSaveExtensionAssignmentsResponse
   | AgentInstructionsListFilesResponse
   | AgentInstructionsReadFileResponse
   | AgentInstructionsWriteFileResponse

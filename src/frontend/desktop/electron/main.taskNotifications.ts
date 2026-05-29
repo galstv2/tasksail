@@ -95,6 +95,8 @@ export function sendTaskNotificationSnapshotToWindows(
 export function startTaskNotificationRuntime(): () => void {
   lastBroadcastSignature = undefined;
   lastBroadcastIds = new Set<string>();
+  badgeFailureModes = new Set<string>();
+  watcherFailureCodes = new Set<string>();
 
   let stopped = false;
   let watcher: fs.FSWatcher | undefined;

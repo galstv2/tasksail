@@ -11,6 +11,8 @@ const {
   brokerIsSessionActive,
   brokerStartSession,
   brokerEndSession,
+  brokerGetObservability,
+  resolveLilyPlannerLaunchExtensions,
 } = vi.hoisted(() => ({
   initializeStagedPlanningDraft: vi.fn(),
   clearStagingArtifacts: vi.fn(),
@@ -19,12 +21,18 @@ const {
   brokerIsSessionActive: vi.fn(() => false),
   brokerStartSession: vi.fn(),
   brokerEndSession: vi.fn(),
+  brokerGetObservability: vi.fn(() => ({ brokerStatus: 'idle', sessionId: null })),
+  resolveLilyPlannerLaunchExtensions: vi.fn(),
 }));
 
 vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: vi.fn(() => []) } }));
 vi.mock('./main.staging', () => ({ initializeStagedPlanningDraft, clearStagingArtifacts }));
 vi.mock('./log/logger', () => ({
   createLogger: vi.fn(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() })),
+}));
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./plannerLaunchExtensions')>()),
+  resolveLilyPlannerLaunchExtensions,
 }));
 vi.mock('./plannerParentBranchView', () => ({
   createPlannerParentBranchViewSession,
@@ -35,6 +43,7 @@ vi.mock('./plannerSessionBroker', () => ({
     isSessionActive = brokerIsSessionActive;
     startSession = brokerStartSession;
     endSession = brokerEndSession;
+    getObservability = brokerGetObservability;
     sendMessage = vi.fn();
   },
 }));
@@ -99,9 +108,19 @@ describe('plannerSession parent branch view orchestration', () => {
     vi.clearAllMocks();
     vi.spyOn(Date, 'now').mockReturnValue(1200);
     brokerIsSessionActive.mockReturnValue(false);
+    brokerGetObservability.mockReturnValue({ brokerStatus: 'idle', sessionId: null });
     brokerStartSession.mockReturnValue({ sessionId: 'planner-1200', created: true });
     clearStagingArtifacts.mockResolvedValue(undefined);
     initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    resolveLilyPlannerLaunchExtensions.mockResolvedValue({
+      plannerSessionId: 'unused',
+      launchExtensions: { pluginDirs: ['/stage/ext/plugins/p1'], skillDirs: ['/stage/ext/skills'] },
+      availabilityNote: 'LILY-EXTENSION-NOTE',
+      skillCount: 1,
+      pluginCount: 1,
+      extensionIds: ['p1'],
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
     createPlannerParentBranchViewSession.mockResolvedValue({
       focused: {
         primaryRepoRoot: '/runtime/platform',
@@ -135,7 +154,7 @@ describe('plannerSession parent branch view orchestration', () => {
     });
 
     expect(createPlannerParentBranchViewSession).toHaveBeenCalledWith(expect.objectContaining({
-      plannerSessionId: 'planner-1200',
+      plannerSessionId: `planner-1200-${process.pid}-0`,
       request: parentTaskBranchView,
       focused: expect.objectContaining({ primaryRepoRoot: '/repo/platform' }),
     }));
@@ -151,6 +170,11 @@ describe('plannerSession parent branch view orchestration', () => {
     expect(initializeStagedPlanningDraft).not.toHaveBeenCalledWith(expect.objectContaining({
       parentTaskBranchView: expect.anything(),
     }));
+    // Parent-branch-view allowedRoots remain parent-view roots only; extension stage paths
+    // travel solely through launchExtensions, never allowedRoots or focusEnv.
+    const startArgs = brokerStartSession.mock.calls[0]?.[0];
+    expect(startArgs.allowedRoots).not.toContain('/stage/ext/plugins/p1');
+    expect(startArgs.allowedRoots).not.toContain('/stage/ext/skills');
   });
 
   it('cleans created views when staging initialization fails before rethrowing', async () => {

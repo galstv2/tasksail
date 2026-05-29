@@ -5,11 +5,17 @@ import type { PlannerFocusSnapshot } from '../src/shared/desktopContract';
 
 const initializeStagedPlanningDraft = vi.fn();
 const clearStagingArtifacts = vi.fn();
+const resolveLilyPlannerLaunchExtensions = vi.fn();
 
 vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: vi.fn(() => []) } }));
 vi.mock('./main.staging', () => ({ initializeStagedPlanningDraft, clearStagingArtifacts }));
 vi.mock('./log/logger', () => ({
   createLogger: vi.fn(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() })),
+}));
+// Override only the resolver so real backend staging (lock + disk) never runs in this unit test.
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./plannerLaunchExtensions')>()),
+  resolveLilyPlannerLaunchExtensions,
 }));
 
 const snapshot: PlannerFocusSnapshot = {
@@ -56,6 +62,16 @@ describe('plannerSession childTaskExecutionScope staging', () => {
     vi.spyOn(Date, 'now').mockReturnValue(101);
     clearStagingArtifacts.mockResolvedValue(undefined);
     initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    // Enabled extensions present: prove they never bleed into child execution scope or staging.
+    resolveLilyPlannerLaunchExtensions.mockResolvedValue({
+      plannerSessionId: 'unused',
+      launchExtensions: { pluginDirs: ['/stage/ext/plugins/p1'], skillDirs: ['/stage/ext/skills'] },
+      availabilityNote: 'LILY-EXTENSION-NOTE',
+      skillCount: 1,
+      pluginCount: 1,
+      extensionIds: ['p1'],
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
   });
 
   it('passes childTaskExecutionScope as the staged child context override', async () => {
@@ -87,6 +103,10 @@ describe('plannerSession childTaskExecutionScope staging', () => {
     }));
     expect(initializeStagedPlanningDraft.mock.calls[0]?.[0].childTaskExecutionScope)
       .not.toHaveProperty('repositoryTypes');
+    // Lily extensions never enter the staged child execution scope, focus, or sidecar.
+    const stagedPayload = JSON.stringify(initializeStagedPlanningDraft.mock.calls);
+    expect(stagedPayload).not.toContain('/stage/ext');
+    expect(stagedPayload).not.toContain('LILY-EXTENSION-NOTE');
   });
 
   it('derives standard child execution primary authority from independent repository types', async () => {

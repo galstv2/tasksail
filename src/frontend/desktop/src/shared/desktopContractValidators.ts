@@ -3,6 +3,14 @@ import {
   type DesktopActionRequest,
 } from './desktopContract';
 import {
+  validateAddExtensionPayload,
+  validateDeleteExtensionPayload,
+  validateListExtensionsPayload,
+  validateLoadExtensionAssignmentsPayload,
+  validateReseedExtensionPayload,
+  validateSaveExtensionAssignmentsPayload,
+} from './desktopContractAgentConfigValidators';
+import {
   PLANNER_FOCUS_FALLBACK_MESSAGE,
   PLANNER_FOCUS_VALID_MESSAGE,
 } from './desktopContractPlanner';
@@ -662,6 +670,18 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       }
       return [];
     }
+    case 'agentConfig.listExtensions':
+      return validateListExtensionsPayload(request.payload);
+    case 'agentConfig.addExtension':
+      return validateAddExtensionPayload(request.payload);
+    case 'agentConfig.reseedExtension':
+      return validateReseedExtensionPayload(request.payload);
+    case 'agentConfig.deleteExtension':
+      return validateDeleteExtensionPayload(request.payload);
+    case 'agentConfig.loadExtensionAssignments':
+      return validateLoadExtensionAssignmentsPayload(request.payload);
+    case 'agentConfig.saveExtensionAssignments':
+      return validateSaveExtensionAssignmentsPayload(request.payload);
     case 'externalMcp.add':
     case 'externalMcp.update': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];

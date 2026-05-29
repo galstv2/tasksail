@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildPlannerCliInvocation,
@@ -8,6 +8,7 @@ import {
   spawnPlannerCliProcess,
 } from '../../../plannerCliProcess';
 import { REPO_ROOT } from '../../../paths';
+import { copilotProvider } from '../../../../../../backend/platform/cli-provider/providers/copilot/copilotProvider.js';
 
 function setPlatform(platform: NodeJS.Platform): () => void {
   const original = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -24,6 +25,10 @@ function setPlatform(platform: NodeJS.Platform): () => void {
 }
 
 const expectedProviderCommand = () => (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function plannerPromptArg(args: readonly string[]): string | undefined {
   const promptIndex = args.findIndex((arg) => arg === '--prompt' || arg === '-i');
@@ -146,6 +151,88 @@ describe('buildPlannerCliInvocation', () => {
 
     expect(invocation.plannerSessionId).toBe('planner-42');
     expect(invocation.env.PLANNER_SESSION_ID).toBe('planner-42');
+  });
+
+  it('forwards launch extensions to the provider launch options', () => {
+    const launchExtensions = {
+      pluginDirs: ['/extensions/plugin-a'],
+      skillDirs: ['/extensions/skills-a'],
+    };
+    const buildLaunchSpec = vi.spyOn(copilotProvider, 'buildPlannerLaunchSpec');
+
+    buildPlannerCliInvocation({
+      prompt: 'Plan with extensions.',
+      launchExtensions,
+    });
+
+    expect(buildLaunchSpec).toHaveBeenCalledWith(expect.objectContaining({
+      launchExtensions,
+    }));
+  });
+
+  it('keeps no-extension planner launch args and env free of Lily extension fields', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan without extensions.',
+    });
+
+    expect(invocation.args).not.toContain('--plugin-dir');
+    expect(invocation.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+  });
+
+  // Phase 2 confirmation: skill dirs → COPILOT_SKILLS_DIRS env; plugin dirs → --plugin-dir args.
+
+  it('phase2: renders each plugin dir as a repeated --plugin-dir arg pair', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan with plugins.',
+      launchExtensions: {
+        pluginDirs: ['/stage/p1', '/stage/p2'],
+        skillDirs: [],
+      },
+    });
+
+    // Each plugin dir must appear as a '--plugin-dir <dir>' pair in args.
+    const pairAt = (dir: string): boolean => {
+      const idx = invocation.args.indexOf(dir);
+      return idx > 0 && invocation.args[idx - 1] === '--plugin-dir';
+    };
+    expect(pairAt('/stage/p1')).toBe(true);
+    expect(pairAt('/stage/p2')).toBe(true);
+    // Two distinct --plugin-dir flags must be present.
+    expect(invocation.args.filter((a) => a === '--plugin-dir')).toHaveLength(2);
+  });
+
+  it('phase2: renders skill dirs as comma-joined COPILOT_SKILLS_DIRS env value', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan with skills.',
+      launchExtensions: {
+        pluginDirs: [],
+        skillDirs: ['/stage/skills-a', '/stage/skills-b'],
+      },
+    });
+
+    expect(invocation.env['COPILOT_SKILLS_DIRS']).toBe('/stage/skills-a,/stage/skills-b');
+    // Skills must NOT produce --plugin-dir args.
+    expect(invocation.args).not.toContain('--plugin-dir');
+  });
+
+  it('phase2: empty launchExtensions produces no --plugin-dir args and no COPILOT_SKILLS_DIRS', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan with empty extensions.',
+      launchExtensions: { pluginDirs: [], skillDirs: [] },
+    });
+
+    expect(invocation.args).not.toContain('--plugin-dir');
+    expect(invocation.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+  });
+
+  it('phase2: undefined launchExtensions produces no --plugin-dir args and no COPILOT_SKILLS_DIRS', () => {
+    const invocation = buildPlannerCliInvocation({
+      prompt: 'Plan with undefined extensions.',
+      launchExtensions: undefined,
+    });
+
+    expect(invocation.args).not.toContain('--plugin-dir');
+    expect(invocation.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
   });
 
   it('records explicit captured reasoning effort for planner launch', () => {

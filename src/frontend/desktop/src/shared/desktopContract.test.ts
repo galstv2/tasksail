@@ -607,4 +607,18 @@ describe('desktopContract', () => {
     ).toEqual([]);
   });
 
+  it('includes all six extension action names in DESKTOP_ACTION_NAMES', () => {
+    const extensionActions = [
+      'agentConfig.listExtensions',
+      'agentConfig.addExtension',
+      'agentConfig.reseedExtension',
+      'agentConfig.deleteExtension',
+      'agentConfig.loadExtensionAssignments',
+      'agentConfig.saveExtensionAssignments',
+    ] as const;
+    for (const action of extensionActions) {
+      expect(DESKTOP_ACTION_NAMES).toContain(action);
+    }
+  });
+
 });

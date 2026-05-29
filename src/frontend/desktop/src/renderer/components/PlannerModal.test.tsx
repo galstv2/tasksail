@@ -150,10 +150,12 @@ describe('PlannerModal', () => {
       onLilyPersonalityChange,
     })} />);
 
-    // Operator should be able to tell at a glance which style is locked.
+    // Operator should be able to tell at a glance which style is locked:
+    // the personality name is the dominant text element, alongside a lock
+    // icon. The title surfaces the unlock instruction on hover.
     const lockCopy = screen.getByLabelText(/Style locked to Clinical/);
-    expect(lockCopy).toHaveTextContent('Style locked: Clinical');
-    expect(lockCopy).toHaveAttribute('title', 'Start a new conversation to switch styles.');
+    expect(lockCopy).toHaveTextContent('Clinical');
+    expect(lockCopy).toHaveAttribute('title', 'Clinical style locked — start a new conversation to switch.');
     // Defense in depth: locked tray unmounts the buttons entirely so no stray
     // click handler can fire — the operator cannot interact with a control
     // that no longer exists in the DOM.
@@ -167,7 +169,7 @@ describe('PlannerModal', () => {
       lilyPersonalityId: 'balanced',
       personalityLocked: true,
     })} />);
-    expect(screen.getByLabelText(/Style locked to Balanced/)).toHaveTextContent('Style locked: Balanced');
+    expect(screen.getByLabelText(/Style locked to Balanced/)).toHaveTextContent('Balanced');
   });
 
   it('disables Child Task and Recent Task once a conversation is in flight', () => {
@@ -196,14 +198,14 @@ describe('PlannerModal', () => {
 
     const childTaskButton = screen.getByRole('button', { name: 'Toggle child-task mode' });
     expect(childTaskButton).toBeDisabled();
-    expect(childTaskButton).toHaveAttribute('title', 'Start a new conversation to switch styles.');
+    expect(childTaskButton).toHaveAttribute('title', 'Balanced style locked — start a new conversation to switch.');
     fireEvent.click(childTaskButton);
     expect(onToggleChildTaskMode).not.toHaveBeenCalled();
 
     const recentsButton = screen.getByRole('button', { name: /Recent conversations, 1 available/ });
     expect(recentsButton).toBeDisabled();
     expect(recentsButton).toHaveAttribute('aria-disabled', 'true');
-    expect(recentsButton).toHaveAttribute('title', 'Start a new conversation to switch styles.');
+    expect(recentsButton).toHaveAttribute('title', 'Balanced style locked — start a new conversation to switch.');
     fireEvent.click(recentsButton);
     // Popover should not have opened — trigger remains collapsed.
     expect(recentsButton).toHaveAttribute('aria-expanded', 'false');

@@ -14,8 +14,14 @@ vi.mock('../../core/index.js', () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    progress: vi.fn(),
     child: vi.fn().mockReturnThis(),
   }),
+}));
+
+vi.mock('../../agent-extensions/index.js', () => ({
+  reconcileAgentExtensions: vi.fn().mockResolvedValue({ materialized: 0, repaired: 0, unavailable: 0 }),
+  recoverAgentExtensionStagesOnStartup: vi.fn().mockResolvedValue({ removedStageCount: 0, skippedEntryCount: 0 }),
 }));
 
 vi.mock('../compose.js', () => ({
@@ -82,6 +88,7 @@ const { seedMcpRegistry } = await import('../../mcp-registry/seed.js');
 const { seedPlatformConfig } = await import('../../platform-config/seed.js');
 const { toServiceHealthSpecs } = await import('../../mcp-registry/healthSpecs.js');
 const { getEnabledComposeServices } = await import('../../mcp-registry/composeMetadata.js');
+const { reconcileAgentExtensions, recoverAgentExtensionStagesOnStartup } = await import('../../agent-extensions/index.js');
 
 describe('bootstrapServices', () => {
   const mockRuntime = {
@@ -100,6 +107,8 @@ describe('bootstrapServices', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(reconcileAgentExtensions).mockResolvedValue({ materialized: 0, repaired: 0, unavailable: 0 });
+    vi.mocked(recoverAgentExtensionStagesOnStartup).mockResolvedValue({ removedStageCount: 0, skippedEntryCount: 0 });
     vi.mocked(buildComposeCommand).mockReturnValue(['docker', 'compose', '-f', '/repo/runtime/docker/compose/docker-compose.yml', 'config']);
     vi.mocked(execCommand).mockResolvedValue({ stdout: 'repo-context-mcp\n', stderr: '' });
     vi.mocked(getEnabledComposeServices).mockReturnValue([
@@ -331,5 +340,54 @@ describe('bootstrapServices', () => {
 
     expect(mockRuntime.composeUp).not.toHaveBeenCalled();
     expect(mockRuntime.healthcheck).not.toHaveBeenCalled();
+  });
+
+  it('calls reconcileAgentExtensions once during bootstrap', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+
+    await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
+
+    expect(reconcileAgentExtensions).toHaveBeenCalledOnce();
+    expect(reconcileAgentExtensions).toHaveBeenCalledWith('/repo');
+  });
+
+  it('does not block bootstrap when reconcileAgentExtensions throws', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(reconcileAgentExtensions).mockRejectedValueOnce(
+      new Error('unexpected reconcile failure'),
+    );
+
+    // Bootstrap must succeed even if reconcile throws
+    await expect(bootstrapServices(mockRuntime, { repoRoot: '/repo' })).resolves.toBeUndefined();
+    expect(mockRuntime.composeUp).toHaveBeenCalled();
+  });
+
+  it('calls recoverAgentExtensionStagesOnStartup once during bootstrap', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+
+    await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
+
+    expect(recoverAgentExtensionStagesOnStartup).toHaveBeenCalledOnce();
+    expect(recoverAgentExtensionStagesOnStartup).toHaveBeenCalledWith('/repo');
+  });
+
+  it('does not block bootstrap when stage recovery throws (failure logs and continues)', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(recoverAgentExtensionStagesOnStartup).mockRejectedValueOnce(
+      new Error('unexpected stage recovery failure'),
+    );
+
+    await expect(bootstrapServices(mockRuntime, { repoRoot: '/repo' })).resolves.toBeUndefined();
+    expect(mockRuntime.composeUp).toHaveBeenCalled();
+  });
+
+  it('keeps existing seed behavior (ensureEnvFile, seedMcpRegistry, seedPlatformConfig all called)', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+
+    await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
+
+    expect(ensureEnvFile).toHaveBeenCalledWith('/repo');
+    expect(seedMcpRegistry).toHaveBeenCalledWith('/repo');
+    expect(seedPlatformConfig).toHaveBeenCalledWith('/repo');
   });
 });

@@ -275,6 +275,114 @@
   border-radius: var(--ts-radius-sm);
 }
 
+/* ── Skills & Plugins tab ──────────────────────────────────────────────────── */
+
+.agent-config__ext-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-config__ext-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--ts-border);
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.agent-config__ext-row:hover {
+  background: var(--ts-bg-hover);
+}
+
+.agent-config__ext-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.agent-config__ext-name {
+  color: var(--ts-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-config__ext-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.agent-config__ext-status--available {
+  background: color-mix(in srgb, var(--ts-success, #22c55e) 15%, transparent);
+  color: var(--ts-success, #22c55e);
+}
+
+.agent-config__ext-status--unavailable {
+  background: color-mix(in srgb, var(--ts-warning) 15%, transparent);
+  color: var(--ts-warning);
+}
+
+.agent-config__ext-desc {
+  color: var(--ts-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.agent-config__ext-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.agent-config__ext-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* Per-agent extension assignment multiselect */
+
+.agent-config__ext-assign {
+  margin-top: 0.2rem;
+}
+
+.agent-config__ext-assign-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.agent-config__ext-assign-item {
+  display: flex;
+}
+
+.agent-config__ext-assign-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--ts-text);
+}
+
+.agent-config__ext-assign-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-config__ext-assign-kind {
+  flex-shrink: 0;
+}
+
 @media (max-width: 720px) {
   .agent-config__header-main {
     flex-direction: column;

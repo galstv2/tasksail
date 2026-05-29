@@ -100,6 +100,9 @@ vi.mock('../../core/index.js', async () => {
     canonicalRoot: actual.canonicalRoot,
     isPathWithinBoundary: actual.isPathWithinBoundary,
     createLogger: () => testLogger,
+    emitTaskProgressEvent: vi.fn(async () => undefined),
+    normalizeAgentLaunchPhase: actual.normalizeAgentLaunchPhase,
+    normalizeTaskAgentLaunchOutcome: actual.normalizeTaskAgentLaunchOutcome,
     ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
     writeProtocolStdout: vi.fn(),
@@ -192,6 +195,24 @@ const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot)
 const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChanges);
 const mockedExistsSync = vi.mocked(existsSync);
 
+function mockTaskSidecarWorktrees(repoBindings: Array<{ originalRoot: string; worktreeRoot: string }>, readonlyContextBindings: Array<{ originalRoot: string; worktreeRoot: string; repoId?: string }> = []): void {
+  mockedReadTaskJsonSafe.mockReturnValue({
+    contextPackBinding: {
+      repoBindings: repoBindings.map((binding) => ({
+        ...binding,
+        worktreeBranch: 'task/t1',
+        baseCommitSha: 'abc123',
+      })),
+      readonlyContextBindings: readonlyContextBindings.map((binding) => ({
+        ...binding,
+        baseCommitSha: 'def456',
+        repoId: binding.repoId ?? 'support',
+        role: 'support',
+      })),
+    },
+  } as never);
+}
+
 function setupCommonMocks(): void {
   mockedRuntimeRequiresContainerPaths.mockResolvedValue(true);
   mockedResolvePaths.mockReturnValue({
@@ -244,7 +265,10 @@ function setupCommonMocks(): void {
   });
   mockedResolveFocusedRepoRoot.mockResolvedValue(undefined);
   mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
-  mockedReadTaskJsonSafe.mockReturnValue(null);
+  mockTaskSidecarWorktrees(
+    [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/wt/crud-app' }],
+    [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/wt/shared-lib' }],
+  );
   mockedLoadTaskPackSnapshot.mockResolvedValue({
     schemaVersion: 2,
     stagedAt: '2026-01-01T00:00:00Z',
@@ -275,7 +299,9 @@ function setupCommonMocks(): void {
     stderr: '',
     exitCode: 0,
   });
-  mockedCaptureChangedPathsSnapshot.mockResolvedValue({ byRepoRoot: {} });
+  mockedCaptureChangedPathsSnapshot.mockImplementation(async (roots: string[]) => ({
+    byRepoRoot: Object.fromEntries(roots.map((root) => [root, []])),
+  }));
   mockedValidateDaltonBoundaryChanges.mockResolvedValue(undefined);
   mockedCaptureCodeDiff.mockResolvedValue({
     stdout: 'crud-app',
@@ -421,40 +447,38 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
-    expect(launchOpts.cwd).toBe('/ctx/crud-app');
+    expect(launchOpts.cwd).toBe('/wt/crud-app');
     expect(mockedBuildAgentArgs).toHaveBeenCalledWith(
       '/repo',
       expect.anything(),
       expect.anything(),
       expect.objectContaining({
-        launchContext: expect.objectContaining({ requestedCwd: '/ctx/crud-app' }),
+        launchContext: expect.objectContaining({ requestedCwd: '/wt/crud-app' }),
       }),
     );
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(autonomyArgs.allowedDirs).not.toContain('/repo');
     expect(autonomyArgs.allowedDirs).not.toContain('/repo/AgentWorkSpace');
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/repo',
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/repo',
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.anything(),
       autonomyArgs,
       expect.anything(),
-      '/ctx/crud-app',
+      '/wt/crud-app',
       '/repo',
       expect.objectContaining({
-        primaryRepoRoot: '/ctx/crud-app',
-        visibleRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+        primaryRepoRoot: '/wt/crud-app',
+        visibleRepoRoots: ['/wt/crud-app', '/wt/shared-lib'],
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
@@ -522,8 +546,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/repo/AgentWorkSpace/templates',
       '/repo/AgentWorkSpace/tasks/t1',
       '/repo/AgentWorkSpace/qmd',
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     // Lily must NOT have pendingitems access — only product-manager (Alice)
     // gets it via per-profile allowed_dirs in registry.json.
@@ -542,8 +566,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/repo',
       '/repo',
       expect.objectContaining({
-        primaryRepoRoot: '/ctx/crud-app',
-        visibleRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+        primaryRepoRoot: '/wt/crud-app',
+        visibleRepoRoots: ['/wt/crud-app', '/wt/shared-lib'],
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
@@ -660,7 +684,33 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       selectedFocusIds: ['sink'],
       authoritySource: 'active-task-sidecar',
     } as never);
-    mockedExistsSync.mockImplementation((candidate: string) => candidate === '/ctx/mono/services/sink');
+    mockTaskSidecarWorktrees([{ originalRoot: '/ctx/mono', worktreeRoot: '/wt/mono' }]);
+    mockedLoadTaskPackSnapshot.mockResolvedValueOnce({
+      schemaVersion: 2,
+      stagedAt: '2026-01-01T00:00:00Z',
+      taskId: 't1',
+      contextPackDir: '/ctx',
+      contextPackId: 'ctx',
+      estateType: 'monolith',
+      primary: { repoId: 'mono', focusId: 'sink', repoRoot: '/ctx/mono', primaryFocusRelativePath: 'services/sink' },
+      support: [],
+      focusAreas: [],
+      selectedFocusIds: ['sink'],
+      qmdScopeRoot: '',
+      estateRepoIds: ['mono'],
+      declaredRepoRoots: ['/ctx/mono'],
+      deepFocus: {
+        enabled: false,
+        primaryFocusTargetKind: 'directory',
+        primaryFocusTargets: [],
+        selectedTestTarget: null,
+        supportTargets: [],
+        writableRoots: [],
+        readonlyContextRoots: [],
+        warnings: [],
+      },
+    } as never);
+    mockedExistsSync.mockImplementation((candidate: string) => candidate === '/wt/mono/services/sink');
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed.mockResolvedValue({
@@ -680,17 +730,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
-    expect(launchOpts.cwd).toBe('/ctx/mono/services/sink');
+    expect(launchOpts.cwd).toBe('/wt/mono/services/sink');
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/ctx/mono',
+      '/wt/mono',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/repo',
-      '/ctx/mono',
+      '/wt/mono',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/repo',
-      '/ctx/mono',
+      '/wt/mono',
     ]);
   });
 
@@ -977,10 +1025,10 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': [], '/ctx/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': ['src/leak.ts'] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } });
     mockedValidateDaltonBoundaryChanges.mockImplementation(() => {
-      throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
+      throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
     });
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
@@ -1008,18 +1056,16 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     })).rejects.toThrow('confinement retry exited with code 1');
 
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/repo',
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/repo',
-      '/ctx/crud-app',
-      '/ctx/shared-lib',
+      '/wt/crud-app',
+      '/wt/shared-lib',
     ]);
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
       '/repo/.platform-state/runtime/guardrails/dalton.json',
@@ -1028,6 +1074,90 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         exit_code: 1,
         stderr_tail: 'retry failed',
       }),
+    );
+  });
+
+  it('does not retry when only the live TaskSail checkout is dirty outside task sidecar roots', async () => {
+    process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
+    process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';
+    const autonomyArgs = {
+      model: 'gpt-4.1',
+      allowTools: [],
+      denyTools: [],
+      allowedDirs: [],
+      additionalFlags: [],
+    };
+    mockedResolveAutonomyProfile.mockReturnValue(autonomyArgs);
+    mockTaskSidecarWorktrees(
+      [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/task/worktrees/tasksail' }],
+      [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/task/worktrees/support' }],
+    );
+    mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+      primaryRepoId: 'tasksail',
+      primaryRepoRoot: '/ctx/crud-app',
+      visibleRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+      declaredRepoRoots: ['/ctx/crud-app', '/ctx/shared-lib'],
+      estateType: 'distributed-platform',
+      selectedRepoIds: ['tasksail'],
+      selectedFocusIds: [],
+      writableRoots: [{
+        repoLocalPath: '/task/worktrees/tasksail',
+        path: '',
+        kind: 'directory',
+        reason: 'selected-primary',
+      }],
+      readonlyContextRoots: [{
+        repoLocalPath: '/task/worktrees/support',
+        path: '',
+        kind: 'directory',
+        reason: 'support-target',
+      }],
+      authoritySource: 'active-task-sidecar',
+    } as never);
+    mockedCaptureChangedPathsSnapshot.mockImplementation(async (roots: string[]) => ({
+      byRepoRoot: Object.fromEntries(roots.map((root) => [
+        root,
+        root === '/repo' || root === '/live/tasksail'
+          ? ['operator-live-edit.ts']
+          : [],
+      ])),
+    }));
+    mockedValidateDaltonBoundaryChanges.mockImplementation(async (options: {
+      after: { byRepoRoot: Record<string, string[]> };
+    }) => {
+      if (options.after.byRepoRoot['/repo']?.length || options.after.byRepoRoot['/live/tasksail']?.length) {
+        throw new DaltonConfinementError('live checkout should not be monitored', ['/repo/operator-live-edit.ts']);
+      }
+    });
+    const fakeChild = { pid: 1234 } as never;
+    mockedLaunchAgent.mockReturnValue(fakeChild);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0,
+      stdoutTail: '',
+      stderrTail: '',
+      terminationReason: 'exited',
+      signalCode: null,
+    });
+
+    await expect(runRoleAgent({
+      agentId: 'dalton',
+      taskId: 'task-test-001',
+      contextPackDir: '/ctx',
+      skipWorkflowValidation: true,
+    })).resolves.toMatchObject({ exitCode: 0 });
+
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
+      '/task/worktrees/tasksail',
+      '/task/worktrees/support',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
+      '/task/worktrees/tasksail',
+      '/task/worktrees/support',
+    ]);
+    expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
+    expect(testLogger.warn).not.toHaveBeenCalledWith(
+      'dalton.confinement_retry.launching',
+      expect.anything(),
     );
   });
 
@@ -1054,12 +1184,14 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': [], '/ctx/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': [] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': [] } });
+    let sidecarReadsAtFirstValidation = 0;
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
+        sidecarReadsAtFirstValidation = mockedReadTaskJsonSafe.mock.calls.length;
+        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
@@ -1091,6 +1223,19 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     });
 
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
+      '/wt/crud-app',
+      '/wt/shared-lib',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
+      '/wt/crud-app',
+      '/wt/shared-lib',
+    ]);
+    expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(3, [
+      '/wt/crud-app',
+      '/wt/shared-lib',
+    ]);
+    expect(mockedReadTaskJsonSafe.mock.calls.length).toBe(sidecarReadsAtFirstValidation);
     expect(mockedWriteSessionStartReceipt).toHaveBeenCalledTimes(2);
     const initialReceipt = mockedWriteSessionStartReceipt.mock.calls[0]?.[0] as {
       launchId: string;
@@ -1116,7 +1261,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
-        expect.stringContaining('/ctx/shared-lib/src/leak.ts'),
+        expect.stringContaining('/wt/shared-lib/src/leak.ts'),
       ]),
     );
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
@@ -1156,12 +1301,12 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': [], '/ctx/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': [] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': [] } });
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
@@ -1224,15 +1369,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': [], '/ctx/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/repo': [], '/ctx/crud-app': ['src/app.ts'], '/ctx/shared-lib': ['src/leak.ts'] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } });
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('out-of-bound edits', ['/ctx/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('retry still out-of-bound', ['/ctx/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('retry still out-of-bound', ['/wt/shared-lib/src/leak.ts']);
       });
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
@@ -1265,7 +1410,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       expect.objectContaining({
         status: 'failed',
         termination_reason: 'confinement-violation',
-        violation_paths: ['/ctx/shared-lib/src/leak.ts'],
+        violation_paths: ['/wt/shared-lib/src/leak.ts'],
         writable_roots: [],
         readonly_context_roots: [],
       }),

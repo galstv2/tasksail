@@ -5,6 +5,7 @@ import { toServiceHealthSpecs } from '../mcp-registry/healthSpecs.js';
 import { getEnabledComposeServices } from '../mcp-registry/composeMetadata.js';
 import { seedMcpRegistry } from '../mcp-registry/seed.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
+import { reconcileAgentExtensions, recoverAgentExtensionStagesOnStartup } from '../agent-extensions/index.js';
 import type { ContainerRuntime, BootstrapOptions, ComposeOptions } from './types.js';
 import type { ServiceHealthSpec } from './types.js';
 import { resolveDefaultComposeFile } from './types.js';
@@ -52,6 +53,24 @@ export async function bootstrapServices(
     ensureEnvFile(options.repoRoot),
     seedMcpRegistry(options.repoRoot),
     seedPlatformConfig(options.repoRoot),
+    reconcileAgentExtensions(options.repoRoot).catch((err: unknown) => {
+      const reasonCode = (err instanceof Error && typeof (err as { code?: unknown }).code === 'string') ? (err as unknown as { code: string }).code : 'reconcile-unexpected-error';
+      log.progress({
+        level: 'warn',
+        event: 'agent_extensions.reconcile.entry_unavailable',
+        extra: { reasonCode },
+        text: '[bootstrap] agent-extensions reconcile failed unexpectedly',
+      });
+    }),
+    // Independent of MCP/platform-config seeding: remove leaked per-launch stage
+    // snapshots left by a prior process. A recovery failure must not block bootstrap.
+    recoverAgentExtensionStagesOnStartup(options.repoRoot).catch((err: unknown) => {
+      const reasonCode = (err instanceof Error && typeof (err as { code?: unknown }).code === 'string') ? (err as unknown as { code: string }).code : 'stage-recovery-unexpected-error';
+      log.warn('[bootstrap] agent-extension stage recovery failed', {
+        event: 'agent_extensions.stage.recovery.failed',
+        reasonCode,
+      });
+    }),
   ]);
 
   if (seedResult.action === 'failed') {

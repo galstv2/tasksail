@@ -15,6 +15,7 @@ const appendPendingMessage = vi.fn();
 const discardPendingRecord = vi.fn();
 const readWorkspaceSyncStateSnapshot = vi.fn();
 const assertPlannerHistoryRecordHydratable = vi.fn();
+const resolveLilyPlannerLaunchExtensions = vi.fn();
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -61,6 +62,11 @@ vi.mock('../../../backend/platform/context-pack/focusedRepo.js', async (importOr
     collectFocusedRepoTargetDirectoryRoots,
   };
 });
+
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./plannerLaunchExtensions')>()),
+  resolveLilyPlannerLaunchExtensions,
+}));
 
 function buildReplaySidecar() {
   return {
@@ -133,6 +139,15 @@ describe('planner history replay session bootstrap', () => {
       getObservability: vi.fn(() => ({ sessionId: null })),
     }));
     vi.spyOn(Date, 'now').mockReturnValue(999);
+    resolveLilyPlannerLaunchExtensions.mockResolvedValue({
+      plannerSessionId: 'unused',
+      launchExtensions: undefined,
+      availabilityNote: 'LILY-REPLAY-NOTE',
+      skillCount: 0,
+      pluginCount: 0,
+      extensionIds: [],
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
     readWorkspaceSyncStateSnapshot.mockResolvedValue({
       activeContextPackDir: '/contextpacks/historical',
       activeContextPackId: 'historical',
@@ -233,6 +248,14 @@ describe('planner history replay session bootstrap', () => {
       }),
     );
     expect(beginPendingRecord.mock.calls[0]?.[0]).not.toBe('source-record-session');
+
+    // Replay resolves a FRESH Lily assignment for the new session id, and the availability note
+    // is runtime-only — never persisted into pending history.
+    expect(resolveLilyPlannerLaunchExtensions).toHaveBeenCalledWith(
+      expect.objectContaining({ plannerSessionId: `planner-999-${process.pid}-0`, providerId: 'copilot' }),
+    );
+    expect(JSON.stringify(beginPendingRecord.mock.calls)).not.toContain('LILY-REPLAY-NOTE');
+    expect(JSON.stringify(appendPendingMessage.mock.calls)).not.toContain('LILY-REPLAY-NOTE');
   });
 
   it('looks up the replay record by the live workspace activeContextPackId, not by contextPackDir basename', async () => {

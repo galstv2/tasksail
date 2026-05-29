@@ -1533,14 +1533,13 @@ export type CompleteActiveItemResult =
   | { status: 'completed'; taskId: string }
   | { status: 'no-active-marker'; taskId: string };
 
+const READONLY_CONTEXT_SOURCE_BY_REASON: Record<string, ReadonlyContextSource> = {
+  'deep-focus-readonly': 'deep-focus-readonly-context',
+  'monolith-readonly': 'monolith-readonly-context',
+};
+
 function readonlyContextSourceForReason(reason: string): ReadonlyContextSource {
-  if (reason === 'deep-focus-readonly') {
-    return 'deep-focus-readonly-context';
-  }
-  if (reason === 'monolith-readonly') {
-    return 'monolith-readonly-context';
-  }
-  return 'standard-support';
+  return READONLY_CONTEXT_SOURCE_BY_REASON[reason] ?? 'standard-support';
 }
 
 /**

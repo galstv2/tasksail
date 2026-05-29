@@ -76,12 +76,14 @@ export function buildAgentRuntimePathManifest(args: {
   };
 }
 
-interface ProductManagerArtifactChecklistInput {
+interface BaseArtifactChecklistInput {
   taskId?: string;
   handoffsDir: string;
   implementationStepsDir: string;
   platformRepoRoot: string;
 }
+
+type ProductManagerArtifactChecklistInput = BaseArtifactChecklistInput;
 
 function buildProductManagerArtifactChecklist(input: ProductManagerArtifactChecklistInput): string[] {
   const implementationSpecPath = path.join(input.handoffsDir, 'implementation-spec.md');
@@ -115,11 +117,7 @@ function buildProductManagerArtifactChecklist(input: ProductManagerArtifactCheck
   ];
 }
 
-interface QaArtifactChecklistInput {
-  taskId?: string;
-  handoffsDir: string;
-  implementationStepsDir: string;
-  platformRepoRoot: string;
+interface QaArtifactChecklistInput extends BaseArtifactChecklistInput {
   taskBranchesInline?: string;
   taskBranchesFile?: string;
 }
@@ -155,21 +153,18 @@ function buildQaArtifactChecklist(input: QaArtifactChecklistInput): string[] {
   ];
 }
 
-function manifestEntryValue(manifest: AgentRuntimePathManifest, name: string): string | undefined {
-  return manifest.entries.find((entry) => entry.name === name)?.value;
-}
-
 function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[] {
-  if (manifest.includeRoleArtifactChecklist !== true || manifest.launchPhase !== undefined) {
+  if (!manifest.includeRoleArtifactChecklist || manifest.launchPhase !== undefined) {
     return [];
   }
-  const taskId = manifestEntryValue(manifest, 'TASKSAIL_TASK_ID');
-  const handoffsDir = manifestEntryValue(manifest, 'COPILOT_HANDOFFS_DIR');
-  const implementationStepsDir = manifestEntryValue(manifest, 'COPILOT_IMPL_STEPS_DIR');
-  const platformRepoRoot = manifestEntryValue(manifest, 'COPILOT_PLATFORM_REPO_ROOT');
+  const entryValues = new Map(manifest.entries.map((entry) => [entry.name, entry.value]));
+  const handoffsDir = entryValues.get('COPILOT_HANDOFFS_DIR');
+  const implementationStepsDir = entryValues.get('COPILOT_IMPL_STEPS_DIR');
+  const platformRepoRoot = entryValues.get('COPILOT_PLATFORM_REPO_ROOT');
   if (!handoffsDir || !implementationStepsDir || !platformRepoRoot) {
     return [];
   }
+  const taskId = entryValues.get('TASKSAIL_TASK_ID');
   if (manifest.agentId === 'product-manager') {
     return buildProductManagerArtifactChecklist({
       taskId,
@@ -184,8 +179,8 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
       handoffsDir,
       implementationStepsDir,
       platformRepoRoot,
-      taskBranchesInline: manifestEntryValue(manifest, 'TASKSAIL_TASK_BRANCHES'),
-      taskBranchesFile: manifestEntryValue(manifest, 'TASKSAIL_TASK_BRANCHES_FILE'),
+      taskBranchesInline: entryValues.get('TASKSAIL_TASK_BRANCHES'),
+      taskBranchesFile: entryValues.get('TASKSAIL_TASK_BRANCHES_FILE'),
     });
   }
   return [];

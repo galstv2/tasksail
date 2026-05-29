@@ -22,6 +22,12 @@ import {
   buildAgentRuntimePathManifest,
   prependRuntimePathManifestToPrompt,
 } from './agentRuntimePathManifest.js';
+import {
+  cleanupRoleAgentLaunchExtensions,
+  prependRoleAgentLaunchAvailabilityNote,
+  resolveRoleAgentLaunchExtensions,
+  type RoleAgentLaunchExtensionResolution,
+} from './roleLaunchExtensions.js';
 import type { AgentMcpLaunchStatus } from './types.js';
 
 const log = createLogger('platform/agent-runner/standaloneRoleAgent');
@@ -65,6 +71,32 @@ function uniqueAbsoluteDirs(repoRoot: string, dirs: string[]): string[] {
 export async function runStandaloneRoleAgent(
   options: StandaloneRoleAgentOptions,
 ): Promise<StandaloneRoleAgentResult> {
+  // Standalone realignment launches are always real (no dry-run). Generate the
+  // launch ID and capture the assigned extension snapshot before provider arg/env
+  // construction; resolveRoleAgentLaunchExtensions maps ron -> qa internally and
+  // returns a no-op when nothing is assigned. Cleanup runs exactly once in the
+  // finally, on success or failure.
+  const stageLaunchId = createRoleLaunchId();
+  const launchExtensionResolution = await resolveRoleAgentLaunchExtensions({
+    repoRoot: options.repoRoot,
+    runtimeAgentId: options.agentId,
+    stageLaunchId,
+  });
+  try {
+    return await runStandaloneRoleAgentInner(options, { stageLaunchId, launchExtensionResolution });
+  } finally {
+    await cleanupRoleAgentLaunchExtensions(launchExtensionResolution, {
+      repoRoot: options.repoRoot,
+      agentId: options.agentId,
+      launchId: stageLaunchId,
+    });
+  }
+}
+
+async function runStandaloneRoleAgentInner(
+  options: StandaloneRoleAgentOptions,
+  ext: { stageLaunchId: string; launchExtensionResolution: RoleAgentLaunchExtensionResolution },
+): Promise<StandaloneRoleAgentResult> {
   const startTime = Date.now();
   const registry = await loadAgentRegistry(options.repoRoot);
   const profile = resolveAgentProfile(registry, options.agentId);
@@ -96,7 +128,10 @@ export async function runStandaloneRoleAgent(
     repoRoot: options.repoRoot,
     requestedCwd: options.repoRoot,
   };
-  const argsResult = buildAgentArgs(options.repoRoot, profile, autonomyIntent, { launchContext });
+  const argsResult = buildAgentArgs(options.repoRoot, profile, autonomyIntent, {
+    launchContext,
+    launchExtensions: ext.launchExtensionResolution.launchExtensions,
+  });
   const cliArgs = [...argsResult.args];
 
   const wallClockTimeoutS = options.wallClockBudget ?? profile.wallClockTimeoutS;
@@ -136,6 +171,9 @@ export async function runStandaloneRoleAgent(
       skipHandoffEnvVars: true,
       wallClockTimeoutS,
       ...(sharedMcp ? { mcp: sharedMcp } : {}),
+      ...(ext.launchExtensionResolution.launchExtensions
+        ? { launchExtensions: ext.launchExtensionResolution.launchExtensions }
+        : {}),
     },
   );
   Object.assign(agentEnv, options.extraEnv ?? {});
@@ -181,7 +219,13 @@ export async function runStandaloneRoleAgent(
     providerEnvVars: provider.runtimeManifestEnvVars(),
   });
   const promptResult = provider.materializePrompt({
-    prompt: prependRuntimePathManifestToPrompt({ prompt: promptWithOverlay, manifest }),
+    prompt: prependRuntimePathManifestToPrompt({
+      prompt: prependRoleAgentLaunchAvailabilityNote({
+        prompt: promptWithOverlay,
+        availabilityNote: ext.launchExtensionResolution.availabilityNote,
+      }),
+      manifest,
+    }),
     promptPath: null,
     promptSource: 'override',
     profile,
@@ -191,7 +235,7 @@ export async function runStandaloneRoleAgent(
   cliArgs.push('-p', promptResult.effectivePrompt);
   cliArgs.push(...mcpConfigArgsToAppend);
 
-  const launchId = createRoleLaunchId();
+  const launchId = ext.stageLaunchId;
   const promptAudit = {
     promptPath: null,
     promptSource: 'override' as const,

@@ -81,6 +81,12 @@ import {
   buildAgentRuntimePathManifest,
   prependRuntimePathManifestToPrompt,
 } from './agentRuntimePathManifest.js';
+import {
+  cleanupRoleAgentLaunchExtensions,
+  prependRoleAgentLaunchAvailabilityNote,
+  resolveRoleAgentLaunchExtensions,
+  type RoleAgentLaunchExtensionResolution,
+} from './roleLaunchExtensions.js';
 
 function launchPromptKind(agentId: RunRoleAgentOptions['agentId']): ProviderPromptKind {
   return agentId === 'lily'
@@ -224,6 +230,33 @@ function extractPolicyViolationRuleIds(policyResult: { stdout: string }): string
  */
 export async function runRoleAgent(
   options: RunRoleAgentOptions,
+): Promise<AgentRunResult> {
+  const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
+  // Launch-extension staging happens INSIDE runRoleAgentInner, after the existing
+  // authorization and workflow-policy gates and before provider arg/env construction
+  // (exactDataFlow steps 1 -> 4). The inner reports its resolution back here via the
+  // callback so the stage is cleaned exactly once in this finally, however the inner
+  // returns or throws. A launch that fails an earlier gate never resolves — the
+  // resolution stays undefined and cleanup is a no-op, so no assignment read or stage
+  // directory is created for launches that should fail before extension work.
+  let launchExtensionResolution: RoleAgentLaunchExtensionResolution | undefined;
+  try {
+    return await runRoleAgentInner(options, {
+      setLaunchExtensionResolution: (resolution) => { launchExtensionResolution = resolution; },
+    });
+  } finally {
+    await cleanupRoleAgentLaunchExtensions(launchExtensionResolution, {
+      repoRoot: paths.repoRoot,
+      agentId: options.agentId,
+      taskId: options.taskId,
+      launchId: launchExtensionResolution?.stageLaunchId,
+    });
+  }
+}
+
+async function runRoleAgentInner(
+  options: RunRoleAgentOptions,
+  ext: { setLaunchExtensionResolution: (resolution: RoleAgentLaunchExtensionResolution | undefined) => void },
 ): Promise<AgentRunResult> {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const spanId = options.spanId ?? newSpanId();
@@ -377,8 +410,8 @@ export async function runRoleAgent(
           const daltonBoundary = await prepareDaltonBoundary(
             focused,
             {
-              agentId: options.agentId,
-              repoRoot: paths.repoRoot,
+              agentId: options.agentId, repoRoot: paths.repoRoot,
+              taskId: options.taskId,
               usesFocusedRepoLaunch,
               verificationTempAllowedDir,
             },
@@ -454,7 +487,24 @@ export async function runRoleAgent(
     ...(focused?.primaryRepoRoot ? { focusedRepoRoot: focused.primaryRepoRoot } : {}),
   };
   const reasoningEffort = await validateRoleAgentReasoningEffortBeforeSpawn({ provider, logger: launchLog, repoRoot: paths.repoRoot, taskId: options.taskId, agentId: options.agentId, modelId: autonomyArgs.model, effort: autonomyArgs.reasoningEffort });
-  const argsResult = buildAgentArgs(paths.repoRoot, profile, autonomyArgs, { launchContext });
+  // Resolve assigned launch extensions only after every pre-spawn gate above
+  // (expectRole, skipWorkflowValidation authorization, workflow policy, focused
+  // context, reasoning effort) and before the single buildAgentArgs/buildAgentEnvironment
+  // calls. Dry-run never resolves or stages, keeping its command clean. The resolution
+  // is reported to the wrapper so the stage is cleaned exactly once.
+  const primaryLaunchId = createRoleLaunchId();
+  const launchExtensionResolution: RoleAgentLaunchExtensionResolution | undefined = options.dryRun
+    ? undefined
+    : await resolveRoleAgentLaunchExtensions({
+        repoRoot: paths.repoRoot,
+        runtimeAgentId: options.agentId,
+        stageLaunchId: primaryLaunchId,
+      });
+  ext.setLaunchExtensionResolution(launchExtensionResolution);
+  const argsResult = buildAgentArgs(paths.repoRoot, profile, autonomyArgs, {
+    launchContext,
+    launchExtensions: launchExtensionResolution?.launchExtensions,
+  });
   const cliArgs = [...argsResult.args];
   agentCwd = argsResult.launchCwd;
   const includeGlobalInstructions = profile.autonomyProfile !== 'repo-executor';
@@ -474,7 +524,10 @@ export async function runRoleAgent(
     prompt: string, promptPath: string | null, promptSource: 'file' | 'override', manifest = agentRuntimePathManifest,
   ) => provider.materializePrompt({
     prompt: prependRuntimePathManifestToPrompt({
-      prompt: appendReinforcementOverlay(prompt),
+      prompt: prependRoleAgentLaunchAvailabilityNote({
+        prompt: appendReinforcementOverlay(prompt),
+        availabilityNote: launchExtensionResolution?.availabilityNote,
+      }),
       manifest,
     }),
     promptPath,
@@ -571,6 +624,9 @@ export async function runRoleAgent(
       focused,
       ...(sharedMcp ? { mcp: sharedMcp } : {}),
       ...(launchSnapshot ? { snapshot: launchSnapshot } : {}),
+      ...(launchExtensionResolution?.launchExtensions
+        ? { launchExtensions: launchExtensionResolution.launchExtensions }
+        : {}),
     },
     options.taskId,
   );
@@ -851,7 +907,9 @@ export async function runRoleAgent(
   );
 
   // Fleet sub-Daltons share agentId; each launch needs a unique receipt identity.
-  const launchId = createRoleLaunchId();
+  // The primary launch ID is generated above (before extension staging) and reused
+  // here for the initial session receipt.
+  const launchId = primaryLaunchId;
   const sessionInfo = {
     taskRuntime: paths.taskRuntime,
     launchId,

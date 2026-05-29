@@ -761,6 +761,66 @@ describe('electron preload bridge', () => {
     });
   });
 
+  describe('agentConfig extension IPC bridge', () => {
+    it('bridges all six extension actions over the approved invoke channel with correct action names', async () => {
+      const { desktopShellApi } = await import('./preload');
+
+      await desktopShellApi.listAgentExtensions();
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.listExtensions',
+      });
+
+      await desktopShellApi.addAgentExtension({
+        id: 'my-skill',
+        kind: 'skill',
+        provider_id: 'copilot',
+        source: { type: 'git', url: 'https://github.com/org/repo', ref: 'main' },
+      });
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.addExtension',
+        payload: expect.objectContaining({ id: 'my-skill' }),
+      });
+
+      await desktopShellApi.reseedAgentExtension({ id: 'my-skill' });
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.reseedExtension',
+        payload: { id: 'my-skill' },
+      });
+
+      await desktopShellApi.deleteAgentExtension({ id: 'my-skill' });
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.deleteExtension',
+        payload: { id: 'my-skill' },
+      });
+
+      await desktopShellApi.loadAgentExtensionAssignments();
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.loadExtensionAssignments',
+      });
+
+      await desktopShellApi.saveAgentExtensionAssignments({
+        assignments: [{ agent_id: 'software-engineer', extension_ids: ['my-skill'] }],
+      });
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.saveExtensionAssignments',
+        payload: expect.objectContaining({ assignments: expect.any(Array) }),
+      });
+    });
+
+    it('does not include COPILOT or provider-specific names in bridged extension action names', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const bridgedKeys = Object.keys(desktopShellApi).join('\n');
+
+      expect(bridgedKeys).not.toMatch(/COPILOT|copilot_/u);
+      expect(desktopShellApi).toHaveProperty('listAgentExtensions');
+      expect(desktopShellApi).toHaveProperty('addAgentExtension');
+      expect(desktopShellApi).toHaveProperty('reseedAgentExtension');
+      expect(desktopShellApi).toHaveProperty('deleteAgentExtension');
+      expect(desktopShellApi).toHaveProperty('loadAgentExtensionAssignments');
+      expect(desktopShellApi).toHaveProperty('saveAgentExtensionAssignments');
+    });
+  });
+
   describe('subscribeContextPackCatalogChanged validation', () => {
     it('invokes callback for well-formed context-pack catalog events', async () => {
       const { desktopShellApi } = await import('./preload');

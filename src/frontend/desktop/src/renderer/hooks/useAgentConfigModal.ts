@@ -4,8 +4,14 @@ import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 import { useToastContext } from '../contexts/ToastContext';
 import type { ProviderFrontendDescriptor } from '../../shared/desktopContractProvider';
+import type {
+  AgentExtensionRendererCatalogEntry,
+  AgentExtensionAgentId,
+  AgentExtensionKind,
+  AgentExtensionProviderId,
+} from '../../shared/desktopContractAgentConfig';
 
-export type AgentConfigTab = 'agents' | 'models';
+export type AgentConfigTab = 'agents' | 'models' | 'skills-plugins';
 
 export type AgentConfigAgent = {
   agent_id: string;
@@ -29,6 +35,7 @@ export type AgentConfigAgentRow = AgentConfigAgent & {
   effortOptions: string[];
   effortDisabled: boolean;
   currentModelMissing: boolean;
+  selectedExtensionIds: string[];
 };
 
 export type AgentConfigCatalogEntry = {
@@ -49,18 +56,43 @@ export type PendingModelChange = {
   previousSelectedModelId: string;
 };
 
+// Add-extension form state (transient — cleared after successful call)
+export type ExtensionAddSource =
+  | { type: 'git'; url: string; ref: string; source_subpath: string }
+  | { type: 'local'; path: string; source_subpath: string }
+  | { type: 'direct-attachment'; skill_markdown: string };
+
+export type ExtensionAddForm = {
+  id: string;
+  kind: AgentExtensionKind;
+  provider_id: AgentExtensionProviderId;
+  sourceType: 'git' | 'local' | 'direct-attachment';
+  gitUrl: string;
+  gitRef: string;
+  gitSubpath: string;
+  localPath: string;
+  localSubpath: string;
+  skillMarkdown: string;
+};
+
 export type AgentConfigModalProps = {
   isOpen: boolean;
   isLoading: boolean;
   activeTab: AgentConfigTab;
   agents: AgentConfigAgentRow[];
   models: AgentConfigCatalogRow[];
+  extensions: AgentExtensionRendererCatalogEntry[];
+  // Per-agent assignment map: agent_id → set of extension IDs
+  extensionAssignments: Record<string, string[]>;
+  addForm: ExtensionAddForm;
+  extensionSaving: boolean;
   newModelDisplayName: string;
   newModelId: string;
   removingModelId: string | null;
   saving: boolean;
   error: string | null;
   isDirty: boolean;
+  isAssignmentsDirty: boolean;
   showRestartNotice: boolean;
   effortWarning: string | null;
   pendingModelChange: PendingModelChange | null;
@@ -78,6 +110,14 @@ export type AgentConfigModalProps = {
   onConfirmRemoveModel: (modelId: string) => Promise<void>;
   onCancelRemoveModel: () => void;
   onSave: () => Promise<void>;
+  // Extension catalog actions
+  onAddFormChange: (patch: Partial<ExtensionAddForm>) => void;
+  onAddExtension: () => Promise<void>;
+  onReseedExtension: (id: string) => Promise<void>;
+  onDeleteExtension: (id: string) => Promise<void>;
+  // Assignment actions
+  onToggleExtensionAssignment: (agentId: string, extensionId: string, selected: boolean) => void;
+  onSaveAssignments: () => Promise<void>;
 };
 
 export type UseAgentConfigModalResult = {
@@ -158,10 +198,24 @@ type AgentConfigClientWithCapabilities = DesktopShellClient & {
 };
 
 const NO_REASONING_EFFORT = 'none';
+const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const UNAVAILABLE_CAPABILITIES_WARNING = 'Reasoning effort options could not be loaded from the installed Copilot CLI. Effort changes are blocked until capabilities can be discovered.';
 const STALE_CAPABILITIES_WARNING = 'Cached reasoning effort options may be out of date. Confirm the installed Copilot CLI supports the selected effort before saving.';
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
+
+const DEFAULT_ADD_FORM: ExtensionAddForm = {
+  id: '',
+  kind: 'skill',
+  provider_id: 'copilot',
+  sourceType: 'git',
+  gitUrl: '',
+  gitRef: '',
+  gitSubpath: '',
+  localPath: '',
+  localSubpath: '',
+  skillMarkdown: '',
+};
 
 function normalizeEffort(value: string | null | undefined): string {
   const normalized = value?.trim().toLowerCase() ?? '';
@@ -233,6 +287,17 @@ function applyPlannerRestartCheck(
   );
 }
 
+// Build a stable assignment map from the IPC response shape
+function toAssignmentMap(
+  assignments: Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }>,
+): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const entry of assignments) {
+    map[entry.agent_id] = [...entry.extension_ids];
+  }
+  return map;
+}
+
 export function useAgentConfigModal(
   client: DesktopShellClient = desktopShellClient,
 ): UseAgentConfigModalResult {
@@ -242,6 +307,13 @@ export function useAgentConfigModal(
   const [activeTab, setActiveTab] = useState<AgentConfigTab>('agents');
   const [agents, setAgents] = useState<AgentConfigAgent[]>([]);
   const [models, setModels] = useState<AgentConfigCatalogEntry[]>([]);
+  const [extensions, setExtensions] = useState<AgentExtensionRendererCatalogEntry[]>([]);
+  // Saved assignment map (reflects last-loaded or last-saved state)
+  const [savedAssignments, setSavedAssignments] = useState<Record<string, string[]>>({});
+  // Working (unsaved) assignment map
+  const [workingAssignments, setWorkingAssignments] = useState<Record<string, string[]>>({});
+  const [addForm, setAddForm] = useState<ExtensionAddForm>(DEFAULT_ADD_FORM);
+  const [extensionSaving, setExtensionSaving] = useState(false);
   const [newModelDisplayName, setNewModelDisplayName] = useState('');
   const [newModelId, setNewModelId] = useState('');
   const [removingModelId, setRemovingModelId] = useState<string | null>(null);
@@ -275,11 +347,13 @@ export function useAgentConfigModal(
               stale: true,
             },
           });
-      const [agentResultRaw, modelResultRaw, capabilityResultRaw, descriptorResult] = await Promise.all([
+      const [agentResultRaw, modelResultRaw, capabilityResultRaw, descriptorResult, extensionsResultRaw, assignmentsResultRaw] = await Promise.all([
         client.loadAgentConfig(),
         client.loadModelCatalog(),
         loadCapabilities,
         client.describeActiveProvider(),
+        client.listAgentExtensions(),
+        client.loadAgentExtensionAssignments(),
       ]);
       const agentResult = asAgentConfigResponse(agentResultRaw);
       const modelResult = asAgentConfigResponse(modelResultRaw);
@@ -322,6 +396,24 @@ export function useAgentConfigModal(
         nextError = capabilityResult.error;
       }
       setCapabilities(nextCapabilities);
+
+      // Extensions catalog — pure disk read, no rescan
+      const extResult = extensionsResultRaw as { ok: boolean; response?: { extensions?: AgentExtensionRendererCatalogEntry[] }; error?: string };
+      if (extResult.ok && extResult.response?.extensions) {
+        setExtensions(extResult.response.extensions);
+      } else if (!extResult.ok && nextError === null) {
+        nextError = (extResult.error as string) ?? 'Unable to load extensions.';
+      }
+
+      // Assignments — pure disk read, no rescan
+      const assignResult = assignmentsResultRaw as { ok: boolean; response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }> }; error?: string };
+      if (assignResult.ok && assignResult.response?.assignments) {
+        const map = toAssignmentMap(assignResult.response.assignments);
+        setSavedAssignments(map);
+        setWorkingAssignments(map);
+      } else if (!assignResult.ok && nextError === null) {
+        nextError = (assignResult.error as string) ?? 'Unable to load assignments.';
+      }
 
       setError(nextError);
     } catch (loadError) {
@@ -425,6 +517,16 @@ export function useAgentConfigModal(
     () => agents.some((agent) => agent.selected_model !== agent.current_model || agent.selected_effort !== agent.current_effort),
     [agents],
   );
+
+  const isAssignmentsDirty = useMemo(() => {
+    const agentIds = new Set([...Object.keys(savedAssignments), ...Object.keys(workingAssignments)]);
+    for (const agentId of agentIds) {
+      const saved = (savedAssignments[agentId] ?? []).slice().sort().join(',');
+      const working = (workingAssignments[agentId] ?? []).slice().sort().join(',');
+      if (saved !== working) return true;
+    }
+    return false;
+  }, [savedAssignments, workingAssignments]);
 
   const onSave = useCallback(async () => {
     if (!isDirty) {
@@ -602,9 +704,10 @@ export function useAgentConfigModal(
         effortOptions,
         effortDisabled,
         currentModelMissing: !catalogModelIds.has(agent.current_model),
+        selectedExtensionIds: workingAssignments[agent.agent_id] ?? [],
       };
     });
-  }, [agents, capabilities.effortChoices, models]);
+  }, [agents, capabilities.effortChoices, models, workingAssignments]);
 
   const effortWarning = useMemo(() => {
     if (capabilities.effortChoices.length === 0) {
@@ -631,6 +734,201 @@ export function useAgentConfigModal(
     [agents, models],
   );
 
+  // ── Extension catalog actions ────────────────────────────────────────────────
+
+  const onAddFormChange = useCallback((patch: Partial<ExtensionAddForm>) => {
+    setAddForm((current) => ({ ...current, ...patch }));
+    setError(null);
+  }, []);
+
+  const onAddExtension = useCallback(async () => {
+    const id = addForm.id.trim();
+    if (!id) {
+      setError('Extension ID is required.');
+      return;
+    }
+    if (!EXTENSION_ID_PATTERN.test(id)) {
+      setError('Extension ID must be a lowercase slug matching ^[a-z0-9][a-z0-9-]{0,63}$.');
+      return;
+    }
+
+    if (addForm.sourceType === 'direct-attachment' && addForm.kind === 'plugin') {
+      setError('Plugins require a git or local directory source in V1.');
+      return;
+    }
+
+    setExtensionSaving(true);
+    setError(null);
+
+    try {
+      let payload: Parameters<DesktopShellClient['addAgentExtension']>[0];
+
+      if (addForm.sourceType === 'git') {
+        payload = {
+          id,
+          kind: addForm.kind,
+          provider_id: addForm.provider_id,
+          source: {
+            type: 'git',
+            url: addForm.gitUrl.trim(),
+            ref: addForm.gitRef.trim(),
+            ...(addForm.gitSubpath.trim() ? { source_subpath: addForm.gitSubpath.trim() } : {}),
+          },
+        };
+      } else if (addForm.sourceType === 'local') {
+        payload = {
+          id,
+          kind: addForm.kind,
+          provider_id: addForm.provider_id,
+          source: {
+            type: 'local',
+            path: addForm.localPath.trim(),
+            ...(addForm.localSubpath.trim() ? { source_subpath: addForm.localSubpath.trim() } : {}),
+          },
+        };
+      } else {
+        // direct-attachment — skill only (plugin already rejected above)
+        payload = {
+          id,
+          kind: 'skill' as const,
+          provider_id: addForm.provider_id,
+          source: {
+            type: 'direct-attachment',
+            skill_markdown: addForm.skillMarkdown,
+          },
+        };
+      }
+
+      const result = await client.addAgentExtension(payload) as { ok: boolean; response?: { extension?: AgentExtensionRendererCatalogEntry }; error?: string };
+
+      if (result.ok && result.response?.extension) {
+        setExtensions((current) => [...current, result.response!.extension!]);
+        setAddForm(DEFAULT_ADD_FORM);
+        addToast({ severity: 'success', message: `Extension "${result.response.extension.display_name}" added.`, duration: 4000 });
+        return;
+      }
+
+      setError(result.error ?? 'Unable to add extension.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to add extension.');
+    } finally {
+      setExtensionSaving(false);
+    }
+  }, [addForm, addToast, client]);
+
+  const onReseedExtension = useCallback(async (id: string) => {
+    setExtensionSaving(true);
+    setError(null);
+
+    try {
+      const result = await client.reseedAgentExtension({ id }) as { ok: boolean; response?: { extension?: AgentExtensionRendererCatalogEntry }; error?: string };
+
+      if (result.ok && result.response?.extension) {
+        setExtensions((current) =>
+          current.map((entry) => (entry.id === id ? result.response!.extension! : entry)),
+        );
+        addToast({ severity: 'success', message: `Extension "${result.response.extension.display_name}" reseeded.`, duration: 4000 });
+        return;
+      }
+
+      setError(result.error ?? 'Unable to reseed extension.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to reseed extension.');
+    } finally {
+      setExtensionSaving(false);
+    }
+  }, [addToast, client]);
+
+  const onDeleteExtension = useCallback(async (id: string) => {
+    setExtensionSaving(true);
+    setError(null);
+
+    // The backend rejects deleting an assigned entry unless the same request clears
+    // assignments. Mirror the persisted (saved) assignment state — which is what the
+    // backend checks — to decide whether to opt into the combined delete-plus-unassign.
+    const wasAssigned = Object.values(savedAssignments).some((ids) => ids.includes(id));
+
+    try {
+      const result = await client.deleteAgentExtension({ id, remove_assignments: wasAssigned }) as { ok: boolean; response?: { id?: string }; error?: string };
+
+      if (result.ok) {
+        setExtensions((current) => current.filter((entry) => entry.id !== id));
+        // Remove from working assignments too
+        setWorkingAssignments((current) => {
+          const next = { ...current };
+          for (const agentId of Object.keys(next)) {
+            next[agentId] = next[agentId].filter((eid) => eid !== id);
+          }
+          return next;
+        });
+        setSavedAssignments((current) => {
+          const next = { ...current };
+          for (const agentId of Object.keys(next)) {
+            next[agentId] = next[agentId].filter((eid) => eid !== id);
+          }
+          return next;
+        });
+        addToast({
+          severity: 'success',
+          message: wasAssigned ? 'Extension deleted and unassigned from agents.' : 'Extension deleted.',
+          duration: 4000,
+        });
+        return;
+      }
+
+      setError(result.error ?? 'Unable to delete extension.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to delete extension.');
+    } finally {
+      setExtensionSaving(false);
+    }
+  }, [addToast, client, savedAssignments]);
+
+  const onToggleExtensionAssignment = useCallback((agentId: string, extensionId: string, selected: boolean) => {
+    setWorkingAssignments((current) => {
+      const current_ids = current[agentId] ?? [];
+      const next_ids = selected
+        ? current_ids.includes(extensionId) ? current_ids : [...current_ids, extensionId]
+        : current_ids.filter((eid) => eid !== extensionId);
+      return { ...current, [agentId]: next_ids };
+    });
+  }, []);
+
+  const onSaveAssignments = useCallback(async () => {
+    if (!isAssignmentsDirty) return;
+
+    setExtensionSaving(true);
+    setError(null);
+
+    try {
+      // Build payload — IDs only, identity mapping agent_id
+      const assignments = Object.entries(workingAssignments).map(([agent_id, extension_ids]) => ({
+        agent_id: agent_id as AgentExtensionAgentId,
+        extension_ids: [...extension_ids].sort(),
+      }));
+
+      const result = await client.saveAgentExtensionAssignments({ assignments }) as {
+        ok: boolean;
+        response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }> };
+        error?: string;
+      };
+
+      if (result.ok && result.response?.assignments !== undefined) {
+        const map = toAssignmentMap(result.response.assignments);
+        setSavedAssignments(map);
+        setWorkingAssignments(map);
+        addToast({ severity: 'success', message: 'Agent extension assignments saved.', duration: 4000 });
+        return;
+      }
+
+      setError(result.error ?? 'Unable to save assignments.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save assignments.');
+    } finally {
+      setExtensionSaving(false);
+    }
+  }, [addToast, client, isAssignmentsDirty, workingAssignments]);
+
   return {
     agentConfigModalProps: {
       isOpen,
@@ -638,12 +936,17 @@ export function useAgentConfigModal(
       activeTab,
       agents: agentRows,
       models: modelRows,
+      extensions,
+      extensionAssignments: workingAssignments,
+      addForm,
+      extensionSaving,
       newModelDisplayName,
       newModelId,
       removingModelId,
       saving,
       error,
       isDirty,
+      isAssignmentsDirty,
       showRestartNotice,
       effortWarning,
       pendingModelChange,
@@ -661,6 +964,12 @@ export function useAgentConfigModal(
       onConfirmRemoveModel,
       onCancelRemoveModel,
       onSave,
+      onAddFormChange,
+      onAddExtension,
+      onReseedExtension,
+      onDeleteExtension,
+      onToggleExtensionAssignment,
+      onSaveAssignments,
     },
     openAgentConfigModal,
   };

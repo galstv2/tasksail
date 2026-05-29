@@ -41,7 +41,6 @@ export async function validateDaltonBoundaryChanges(options: {
 }): Promise<void> {
   const violations: string[] = [];
   const roots = new Set([
-    options.platformRepoRoot,
     ...Object.keys(options.before.byRepoRoot),
     ...Object.keys(options.after.byRepoRoot),
   ]);

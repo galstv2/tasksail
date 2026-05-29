@@ -69,10 +69,16 @@ vi.mock('../../context-pack/focusedRepo.js', () => ({
   explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
 }));
 
+vi.mock('../../queue/taskJson.js', () => ({ readTaskJsonSafe: vi.fn() }));
+vi.mock('../../context-pack/taskPackSnapshot.js', () => ({ loadTaskPackSnapshot: vi.fn() }));
+
 vi.mock('../../core/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/index.js')>('../../core/index.js');
   return {
     resolvePaths: vi.fn(),
+    resolvePath: actual.resolvePath,
+    canonicalRoot: actual.canonicalRoot,
+    isPathWithinBoundary: actual.isPathWithinBoundary,
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
     createLogger: () => testLogger,
@@ -136,6 +142,8 @@ const { copilotProvider } = await import('../../cli-provider/providers/copilot/i
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
+const { readTaskJsonSafe } = await import('../../queue/taskJson.js');
+const { loadTaskPackSnapshot } = await import('../../context-pack/taskPackSnapshot.js');
 const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
@@ -161,6 +169,8 @@ const mockedEmitTaskProgressEvent = vi.mocked(emitTaskProgressEvent);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
+const mockedReadTaskJsonSafe = vi.mocked(readTaskJsonSafe);
+const mockedLoadTaskPackSnapshot = vi.mocked(loadTaskPackSnapshot);
 const mockedLaunchAgent = vi.mocked(launchAgent);
 const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
@@ -177,6 +187,10 @@ const mockedCaptureChangedPathsSnapshot = vi.mocked(captureChangedPathsSnapshot)
 const mockedValidateDaltonBoundaryChanges = vi.mocked(validateDaltonBoundaryChanges);
 const mockedExistsSync = vi.mocked(existsSync);
 
+async function advanceTimersUntilCalled(spy: ReturnType<typeof vi.fn>): Promise<void> {
+  for (let index = 0; index < 20 && !spy.mock.calls.length; index += 1) await vi.advanceTimersByTimeAsync(1000);
+  await vi.advanceTimersByTimeAsync(3000);
+}
 /** Shared mock setup used by all describe blocks. */
 function setupCommonMocks(): void {
   mockedRuntimeRequiresContainerPaths.mockResolvedValue(true);
@@ -230,6 +244,8 @@ function setupCommonMocks(): void {
   });
   mockedResolveFocusedRepoRoot.mockResolvedValue(undefined);
   mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
+  mockedLoadTaskPackSnapshot.mockResolvedValue({ schemaVersion: 2, stagedAt: '2026-01-01T00:00:00Z', taskId: 't1', contextPackDir: '/repo/context-pack', contextPackId: 'ctx', estateType: 'distributed-platform', primary: { repoId: 'platform', focusId: null, repoRoot: '/repo/source', primaryFocusRelativePath: null }, support: [], focusAreas: [], selectedFocusIds: [], qmdScopeRoot: '', estateRepoIds: ['platform'], declaredRepoRoots: ['/repo/source'], deepFocus: { enabled: false, primaryFocusTargetKind: null, primaryFocusTargets: [], selectedTestTarget: null, supportTargets: [], writableRoots: [], readonlyContextRoots: [], warnings: [] } } as never);
+  mockedReadTaskJsonSafe.mockReturnValue({ contextPackBinding: { repoBindings: [{ originalRoot: '/repo/source', worktreeRoot: '/repo/worktree', worktreeBranch: 'task/t1', baseCommitSha: 'abc123' }], readonlyContextBindings: [] } } as never);
   mockedRunRuntimePolicyCheck.mockResolvedValue({
     stdout: '',
     stderr: '',
@@ -1413,12 +1429,8 @@ describe('runRoleAgent autonomy env var export', () => {
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
     mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
-    const fakeChild = {
-      pid: 1234,
-      exitCode: null,
-      signalCode: null,
-      kill: vi.fn(),
-    } as never;
+    const killSpy = vi.fn();
+    const fakeChild = { pid: 1234, exitCode: null, signalCode: null, kill: killSpy } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -1432,18 +1444,14 @@ describe('runRoleAgent autonomy env var export', () => {
     });
     mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
 
-    const runPromise = runRoleAgent({
-      agentId: 'alice',
-      taskId: 't1',
-      skipWorkflowValidation: true,
-    });
+    const runPromise = runRoleAgent({ agentId: 'alice', taskId: 't1', skipWorkflowValidation: true });
 
-    await vi.advanceTimersByTimeAsync(2500);
+    await advanceTimersUntilCalled(killSpy);
     await expect(runPromise).resolves.toMatchObject({
       exitCode: 0,
       agentId: 'alice',
     });
-    expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(mockedCheckAgentArtifactCompletionDetails).toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -1462,12 +1470,8 @@ describe('runRoleAgent autonomy env var export', () => {
     } as never);
     mockedResolveActiveModel.mockReturnValue('gpt-5.4');
     mockedBuildAgentArgs.mockReturnValue({ args: [], launchCwd: '/repo', inlineAgentContext: false, resolvedToolPolicy: { allowAllTools: true, noAskUser: true, allowTools: [], denyTools: [] } });
-    const fakeChild = {
-      pid: 1234,
-      exitCode: null,
-      signalCode: null,
-      kill: vi.fn(),
-    } as never;
+    const killSpy = vi.fn();
+    const fakeChild = { pid: 1234, exitCode: null, signalCode: null, kill: killSpy } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -1481,18 +1485,14 @@ describe('runRoleAgent autonomy env var export', () => {
     });
     mockedCheckAgentArtifactCompletionDetails.mockResolvedValue({ complete: true, reasons: [] });
 
-    const runPromise = runRoleAgent({
-      agentId: 'ron',
-      taskId: 't1',
-      skipWorkflowValidation: true,
-    });
+    const runPromise = runRoleAgent({ agentId: 'ron', taskId: 't1', skipWorkflowValidation: true });
 
-    await vi.advanceTimersByTimeAsync(2500);
+    await advanceTimersUntilCalled(killSpy);
     await expect(runPromise).resolves.toMatchObject({
       exitCode: 0,
       agentId: 'ron',
     });
-    expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(mockedCheckAgentArtifactCompletionDetails).toHaveBeenCalled();
     vi.useRealTimers();
   });

@@ -1,9 +1,259 @@
 import { useCallback, useEffect } from 'react';
 
-import type { AgentConfigModalProps } from '../hooks/useAgentConfigModal';
+import type { AgentConfigModalProps, ExtensionAddForm } from '../hooks/useAgentConfigModal';
+import type { AgentExtensionRendererCatalogEntry } from '../../shared/desktopContractAgentConfig';
 import ConfirmOverlay from './ConfirmOverlay';
 import { CloseIcon } from './creation-steps/icons';
 import { roleKindSpriteMap } from './sprites';
+
+// ── Internal sub-components ──────────────────────────────────────────────────
+
+type ExtensionRowProps = {
+  entry: AgentExtensionRendererCatalogEntry;
+  saving: boolean;
+  onReseed: (id: string) => void;
+  onDelete: (id: string) => void;
+};
+
+function ExtensionRow({ entry, saving, onReseed, onDelete }: ExtensionRowProps): JSX.Element {
+  return (
+    <li className="agent-config__ext-row">
+      <div className="agent-config__ext-row-main">
+        <span className="agent-config__ext-name">{entry.display_name}</span>
+        <span className="agent-config__ext-badges">
+          <span className="mcp-modal__badge">{entry.kind === 'skill' ? 'Skill' : 'Plugin'}</span>
+          <span className="mcp-modal__badge">{entry.provider_id}</span>
+          <span className={`mcp-modal__badge agent-config__ext-status--${entry.status}`}>
+            {entry.status}
+          </span>
+        </span>
+      </div>
+      {entry.description && (
+        <div className="agent-config__ext-desc">{entry.description}</div>
+      )}
+      <div className="agent-config__ext-meta">
+        <span className="agent-config__model-id">source: {entry.source_type}</span>
+        {entry.metadata.skill_names && entry.metadata.skill_names.length > 0 && (
+          <span className="agent-config__model-id">skills: {entry.metadata.skill_names.join(', ')}</span>
+        )}
+        {entry.metadata.plugin_skill_count !== undefined && (
+          <span className="agent-config__model-id">plugin skills: {entry.metadata.plugin_skill_count}</span>
+        )}
+      </div>
+      <div className="agent-config__ext-actions">
+        {entry.source_type !== 'direct-attachment' && (
+          <button
+            type="button"
+            className="mcp-modal__btn"
+            disabled={saving}
+            onClick={() => onReseed(entry.id)}
+          >
+            Reseed
+          </button>
+        )}
+        <button
+          type="button"
+          className="mcp-modal__btn mcp-modal__btn--danger"
+          disabled={saving}
+          onClick={() => onDelete(entry.id)}
+        >
+          Delete
+        </button>
+      </div>
+    </li>
+  );
+}
+
+type AddExtensionFormProps = {
+  form: ExtensionAddForm;
+  saving: boolean;
+  onChange: (patch: Partial<ExtensionAddForm>) => void;
+  onSubmit: () => void;
+};
+
+function AddExtensionForm({ form, saving, onChange, onSubmit }: AddExtensionFormProps): JSX.Element {
+  const isDirectPlugin = form.sourceType === 'direct-attachment' && form.kind === 'plugin';
+
+  return (
+    <div className="agent-config__model-form">
+      <p className="agent-config__intro" style={{ fontWeight: 600, marginBottom: '0.5rem' }}>
+        Add Extension
+      </p>
+      <div className="mcp-form__row" style={{ flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
+        <label className="mcp-form__field">
+          <span className="mcp-form__label">ID (slug)</span>
+          <input
+            className="mcp-form__input"
+            placeholder="e.g. my-skill"
+            value={form.id}
+            onChange={(e) => onChange({ id: e.target.value })}
+          />
+        </label>
+        <label className="mcp-form__field">
+          <span className="mcp-form__label">Kind</span>
+          <select
+            className="mcp-form__select"
+            value={form.kind}
+            onChange={(e) => onChange({ kind: e.target.value as 'skill' | 'plugin' })}
+          >
+            <option value="skill">Skill</option>
+            <option value="plugin">Plugin</option>
+          </select>
+        </label>
+        <label className="mcp-form__field">
+          <span className="mcp-form__label">Source</span>
+          <select
+            className="mcp-form__select"
+            value={form.sourceType}
+            onChange={(e) => onChange({ sourceType: e.target.value as ExtensionAddForm['sourceType'] })}
+          >
+            <option value="git">Git</option>
+            <option value="local">Local path</option>
+            <option value="direct-attachment">Direct skill attachment</option>
+          </select>
+        </label>
+      </div>
+
+      {form.sourceType === 'git' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.4rem' }}>
+          <div className="mcp-form__row">
+            <label className="mcp-form__field mcp-form__field--grow">
+              <span className="mcp-form__label">Git URL</span>
+              <input
+                className="mcp-form__input"
+                placeholder="https://github.com/org/repo"
+                value={form.gitUrl}
+                onChange={(e) => onChange({ gitUrl: e.target.value })}
+              />
+            </label>
+            <label className="mcp-form__field">
+              <span className="mcp-form__label">Ref</span>
+              <input
+                className="mcp-form__input"
+                placeholder="main"
+                value={form.gitRef}
+                onChange={(e) => onChange({ gitRef: e.target.value })}
+              />
+            </label>
+          </div>
+          <label className="mcp-form__field">
+            <span className="mcp-form__label">Subpath (optional)</span>
+            <input
+              className="mcp-form__input"
+              placeholder="e.g. skills/my-skill"
+              value={form.gitSubpath}
+              onChange={(e) => onChange({ gitSubpath: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
+
+      {form.sourceType === 'local' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.4rem' }}>
+          <label className="mcp-form__field mcp-form__field--grow">
+            <span className="mcp-form__label">Local path</span>
+            <input
+              className="mcp-form__input"
+              placeholder="/absolute/path/to/extension"
+              value={form.localPath}
+              onChange={(e) => onChange({ localPath: e.target.value })}
+            />
+          </label>
+          <label className="mcp-form__field">
+            <span className="mcp-form__label">Subpath (optional)</span>
+            <input
+              className="mcp-form__input"
+              placeholder="e.g. skills/my-skill"
+              value={form.localSubpath}
+              onChange={(e) => onChange({ localSubpath: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
+
+      {form.sourceType === 'direct-attachment' && form.kind === 'skill' && (
+        <label className="mcp-form__field" style={{ marginBottom: '0.4rem' }}>
+          <span className="mcp-form__label">Skill Markdown (SKILL.md content)</span>
+          <textarea
+            className="mcp-form__input"
+            rows={6}
+            placeholder="# My Skill&#10;..."
+            value={form.skillMarkdown}
+            onChange={(e) => onChange({ skillMarkdown: e.target.value })}
+            style={{ resize: 'vertical', fontFamily: 'var(--ts-font-mono)', fontSize: '0.72rem' }}
+          />
+        </label>
+      )}
+
+      {isDirectPlugin && (
+        <div className="agent-config__warning" role="status" style={{ marginBottom: '0.4rem' }}>
+          Plugin direct attachment is not supported in V1. Plugins require a git or local directory source.
+        </div>
+      )}
+
+      <div className="agent-config__model-actions">
+        <button
+          type="button"
+          className="mcp-modal__btn mcp-modal__btn--primary"
+          disabled={saving || isDirectPlugin}
+          onClick={onSubmit}
+        >
+          Add Extension
+        </button>
+      </div>
+      <p className="mcp-form__hint">
+        Extension IDs are stable lowercase slugs (^[a-z0-9][a-z0-9-]{'{'}0,63{'}'})$.
+        Plugins require a git or local directory source — direct attachment is skill-only in V1.
+      </p>
+    </div>
+  );
+}
+
+// ── Per-agent extension multiselect ─────────────────────────────────────────
+
+type AgentExtensionSelectProps = {
+  agentId: string;
+  agentName: string;
+  extensions: AgentExtensionRendererCatalogEntry[];
+  selectedIds: string[];
+  onToggle: (agentId: string, extensionId: string, selected: boolean) => void;
+};
+
+function AgentExtensionSelect({ agentId, agentName, extensions, selectedIds, onToggle }: AgentExtensionSelectProps): JSX.Element | null {
+  if (extensions.length === 0) return null;
+  const selectedCount = selectedIds.length;
+
+  return (
+    <div className="agent-config__field agent-config__ext-assign">
+      <span className="mcp-form__label" aria-hidden="true">
+        Extensions{selectedCount > 0 ? ` (${selectedCount} selected)` : ''}
+      </span>
+      <ul className="agent-config__ext-assign-list" aria-label={`${agentName} extension assignments`}>
+        {extensions.map((entry) => {
+          const checked = selectedIds.includes(entry.id);
+          return (
+            <li key={entry.id} className="agent-config__ext-assign-item">
+              <label className="agent-config__ext-assign-label">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => onToggle(agentId, entry.id, e.target.checked)}
+                  aria-label={`Assign ${entry.display_name} (${entry.kind === 'skill' ? 'Skill' : 'Plugin'}) to ${agentName}`}
+                />
+                <span className="agent-config__ext-assign-name">{entry.display_name}</span>
+                <span className="agent-config__ext-assign-kind mcp-modal__badge">
+                  {entry.kind === 'skill' ? 'Skill' : 'Plugin'}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ── Main modal ───────────────────────────────────────────────────────────────
 
 function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
   const {
@@ -12,12 +262,17 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     activeTab,
     agents,
     models,
+    extensions,
+    extensionAssignments,
+    addForm,
+    extensionSaving,
     newModelDisplayName,
     newModelId,
     removingModelId,
     saving,
     error,
     isDirty,
+    isAssignmentsDirty,
     showRestartNotice,
     effortWarning,
     pendingModelChange,
@@ -35,6 +290,12 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     onConfirmRemoveModel,
     onCancelRemoveModel,
     onSave,
+    onAddFormChange,
+    onAddExtension,
+    onReseedExtension,
+    onDeleteExtension,
+    onToggleExtensionAssignment,
+    onSaveAssignments,
   } = props;
 
   const handleKeyDown = useCallback(
@@ -100,6 +361,15 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                 onClick={() => onSelectTab('models')}
               >
                 Models
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'skills-plugins'}
+                className={`agent-config__tab${activeTab === 'skills-plugins' ? ' agent-config__tab--active' : ''}`}
+                onClick={() => onSelectTab('skills-plugins')}
+              >
+                Skills &amp; Plugins
               </button>
             </div>
           </div>
@@ -179,12 +449,19 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                         Current assignment "{agent.current_model}" is missing from the catalog.
                       </div>
                     )}
+                    <AgentExtensionSelect
+                      agentId={agent.agent_id}
+                      agentName={agent.human_name}
+                      extensions={extensions}
+                      selectedIds={extensionAssignments[agent.agent_id] ?? []}
+                      onToggle={onToggleExtensionAssignment}
+                    />
                   </li>
                   );
                 })}
               </ul>
             </>
-          ) : (
+          ) : activeTab === 'models' ? (
             <>
               <p className="agent-config__intro">
                 These are the LLM models available to all agents. Display Name is what you see
@@ -252,6 +529,35 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                 <p className="mcp-form__hint">Models in use by agents cannot be removed.</p>
               </div>
             </>
+          ) : (
+            /* Skills & Plugins tab */
+            <>
+              <p className="agent-config__intro">
+                Manage trusted skills and plugins. Assign them to agents in the Agents tab.
+                Plugins require a git or local directory source — direct attachment is skill-only in V1.
+              </p>
+              {extensions.length === 0 ? (
+                <div className="agent-config__empty">No extensions added yet.</div>
+              ) : (
+                <ul className="agent-config__ext-list">
+                  {extensions.map((entry) => (
+                    <ExtensionRow
+                      key={entry.id}
+                      entry={entry}
+                      saving={extensionSaving}
+                      onReseed={onReseedExtension}
+                      onDelete={onDeleteExtension}
+                    />
+                  ))}
+                </ul>
+              )}
+              <AddExtensionForm
+                form={addForm}
+                saving={extensionSaving}
+                onChange={onAddFormChange}
+                onSubmit={() => void onAddExtension()}
+              />
+            </>
           )}
         </div>
 
@@ -264,14 +570,24 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
               </span>
             )}
             {activeTab === 'agents' && (
-              <button
-                type="button"
-                className="mcp-modal__btn mcp-modal__btn--primary"
-                onClick={() => void onSave()}
-                disabled={!isDirty || saving}
-              >
-                Save Changes
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="mcp-modal__btn mcp-modal__btn--primary"
+                  onClick={() => void onSaveAssignments()}
+                  disabled={!isAssignmentsDirty || extensionSaving}
+                >
+                  Save Assignments
+                </button>
+                <button
+                  type="button"
+                  className="mcp-modal__btn mcp-modal__btn--primary"
+                  onClick={() => void onSave()}
+                  disabled={!isDirty || saving}
+                >
+                  Save Changes
+                </button>
+              </>
             )}
           </div>
         </footer>

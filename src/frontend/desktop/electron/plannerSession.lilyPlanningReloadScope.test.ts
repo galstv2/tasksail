@@ -8,11 +8,17 @@ import type { PlannerChildTaskExecutionScope, PlannerFocusSnapshot } from '../sr
 
 const initializeStagedPlanningDraft = vi.fn();
 const clearStagingArtifacts = vi.fn();
+const resolveLilyPlannerLaunchExtensions = vi.fn();
 
 vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: vi.fn(() => []) } }));
 vi.mock('./main.staging', () => ({ initializeStagedPlanningDraft, clearStagingArtifacts }));
 vi.mock('./log/logger', () => ({
   createLogger: vi.fn(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() })),
+}));
+// Override only the resolver so real backend staging (lock + disk) never runs in this unit test.
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./plannerLaunchExtensions')>()),
+  resolveLilyPlannerLaunchExtensions,
 }));
 
 const snapshot: PlannerFocusSnapshot = {
@@ -71,8 +77,18 @@ describe('plannerSession Lily Planning Reload Scope', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.spyOn(Date, 'now').mockReturnValue(101);
     clearStagingArtifacts.mockResolvedValue(undefined);
     initializeStagedPlanningDraft.mockResolvedValue(undefined);
+    resolveLilyPlannerLaunchExtensions.mockResolvedValue({
+      plannerSessionId: 'unused',
+      launchExtensions: { pluginDirs: ['/stage/ext/plugins/p1'], skillDirs: ['/stage/ext/skills'] },
+      availabilityNote: 'LILY-EXTENSION-NOTE',
+      skillCount: 1,
+      pluginCount: 1,
+      extensionIds: ['p1'],
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    });
   });
 
   it('keeps reload scope out of staged child execution authority', async () => {
@@ -93,6 +109,10 @@ describe('plannerSession Lily Planning Reload Scope', () => {
     expect(initializeStagedPlanningDraft).not.toHaveBeenCalledWith(expect.objectContaining({
       lilyPlanningReloadScope: expect.anything(),
     }));
+    // Reload-scope behavior is unchanged by Lily extensions: no stage paths or note in staging.
+    const stagedPayload = JSON.stringify(initializeStagedPlanningDraft.mock.calls);
+    expect(stagedPayload).not.toContain('/stage/ext');
+    expect(stagedPayload).not.toContain('LILY-EXTENSION-NOTE');
   });
 
   it('uses the standard reload-scope primary role for Lily focused repo resolution', async () => {

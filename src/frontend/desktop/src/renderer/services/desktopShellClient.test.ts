@@ -569,11 +569,17 @@ describe('desktopShellClient', () => {
       deleteContextPack: vi.fn().mockResolvedValue({ ok: true, response: { action: 'contextPack.delete', mode: 'deleted', contextPackDir: '/tmp/context-pack', mirrorDir: '/tmp/mirror', message: 'Context pack deleted.' } }),
       cancelTask: vi.fn().mockResolvedValue({ ok: true, response: { action: 'cancel-task', mode: 'cancelled', message: 'Pipeline stopped.', taskId: 'TASK-1' } }),
       setTerminalTaskScope: vi.fn().mockResolvedValue({ ok: true, response: { action: 'terminal.setTaskScope', mode: 'scoped', selectedTaskGuid: null, events: [], taskScopes: [], message: 'Terminal task scope reset to all tasks.' } }),
+      listAgentExtensions: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.listExtensions', mode: 'read-only', message: '0 extension(s) loaded.', extensions: [] } }),
+      addAgentExtension: vi.fn().mockResolvedValue({ ok: false, action: 'agentConfig.addExtension', error: 'Mock: add not configured.' }),
+      reseedAgentExtension: vi.fn().mockResolvedValue({ ok: false, action: 'agentConfig.reseedExtension', error: 'Mock: reseed not configured.' }),
+      deleteAgentExtension: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.deleteExtension', mode: 'deleted', message: 'Deleted.', id: 'mock-id' } }),
+      loadAgentExtensionAssignments: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadExtensionAssignments', mode: 'read-only', message: '0 agent assignment(s) loaded.', assignments: [] } }),
+      saveAgentExtensionAssignments: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: 'Saved extension assignments for 0 agent(s).', assignments: [] } }),
       onStreamEvent: vi.fn().mockReturnValue(vi.fn()),
       onPlannerEvent: vi.fn().mockReturnValue(vi.fn()),
       onTaskBoardUpdate: vi.fn().mockReturnValue(vi.fn()),
       subscribeContextPackCatalogChanged: vi.fn().mockReturnValue(vi.fn()),
-    } as Window['desktopShell'];
+    } as unknown as Window['desktopShell'];
 
     await desktopShellClient.getQueueStatus();
     await desktopShellClient.pickContextPackDirectory('discovery-root');
@@ -737,6 +743,60 @@ describe('desktopShellClient', () => {
       contextPackDir: '/packs/pack-a',
       realignmentId: 'RA-1',
     });
+  });
+
+  it('delegates agent extension catalog methods through the shell seam', async () => {
+    const sampleEntry = {
+      id: 'my-skill',
+      kind: 'skill',
+      provider_id: 'copilot',
+      display_name: 'My Skill',
+      description: 'Does things.',
+      enabled: true,
+      source_type: 'git',
+      status: 'available',
+      metadata: {},
+    };
+    const listResp = { ok: true, response: { action: 'agentConfig.listExtensions', mode: 'read-only', message: '1 extension(s) loaded.', extensions: [sampleEntry] } };
+    const addResp = { ok: true, response: { action: 'agentConfig.addExtension', mode: 'mutated', message: 'Added.', extension: sampleEntry } };
+    const reseedResp = { ok: true, response: { action: 'agentConfig.reseedExtension', mode: 'mutated', message: 'Reseeded.', extension: sampleEntry } };
+    const deleteResp = { ok: true, response: { action: 'agentConfig.deleteExtension', mode: 'deleted', message: 'Deleted.', id: 'my-skill' } };
+    const loadAssignResp = { ok: true, response: { action: 'agentConfig.loadExtensionAssignments', mode: 'read-only', message: '1 agent(s).', assignments: [] } };
+    const saveAssignResp = { ok: true, response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: 'Saved.', assignments: [] } };
+
+    const shell = {
+      listAgentExtensions: vi.fn().mockResolvedValue(listResp),
+      addAgentExtension: vi.fn().mockResolvedValue(addResp),
+      reseedAgentExtension: vi.fn().mockResolvedValue(reseedResp),
+      deleteAgentExtension: vi.fn().mockResolvedValue(deleteResp),
+      loadAgentExtensionAssignments: vi.fn().mockResolvedValue(loadAssignResp),
+      saveAgentExtensionAssignments: vi.fn().mockResolvedValue(saveAssignResp),
+    } as unknown as Window['desktopShell'];
+
+    const client = createDesktopShellClient(() => shell);
+
+    await expect(client.listAgentExtensions()).resolves.toEqual(listResp);
+
+    const addPayload = {
+      id: 'my-skill' as const,
+      kind: 'skill' as const,
+      provider_id: 'copilot' as const,
+      source: { type: 'git' as const, url: 'https://github.com/org/repo', ref: 'main' },
+    };
+    await expect(client.addAgentExtension(addPayload)).resolves.toEqual(addResp);
+    expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).addAgentExtension).toHaveBeenCalledWith(addPayload);
+
+    await expect(client.reseedAgentExtension({ id: 'my-skill' })).resolves.toEqual(reseedResp);
+    expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).reseedAgentExtension).toHaveBeenCalledWith({ id: 'my-skill' });
+
+    await expect(client.deleteAgentExtension({ id: 'my-skill' })).resolves.toEqual(deleteResp);
+    expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).deleteAgentExtension).toHaveBeenCalledWith({ id: 'my-skill' });
+
+    await expect(client.loadAgentExtensionAssignments()).resolves.toEqual(loadAssignResp);
+
+    const savePayload = { assignments: [{ agent_id: 'software-engineer' as const, extension_ids: ['my-skill'] }] };
+    await expect(client.saveAgentExtensionAssignments(savePayload)).resolves.toEqual(saveAssignResp);
+    expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveAgentExtensionAssignments).toHaveBeenCalledWith(savePayload);
   });
 
   it('clientFactory mock returns cancelled response for pickMarkdownFile by default', async () => {

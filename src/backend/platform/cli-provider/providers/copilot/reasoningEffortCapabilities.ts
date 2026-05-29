@@ -12,7 +12,7 @@ const log = createLogger('platform/copilot/reasoningEffortCapabilities');
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CACHE_RELATIVE_PATH = path.join('.platform-state', 'copilot-cli-capabilities.json');
-const EFFORT_FLAG_HELP_TOKENS = [`--${'effort'}`, `--${'reasoning'}-effort`];
+const EFFORT_FLAG_HELP_TOKENS = ['--effort', '--reasoning-effort'];
 const ANSI_ESCAPE_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/gu;
 
 type CopilotCliCapabilitiesCache = {

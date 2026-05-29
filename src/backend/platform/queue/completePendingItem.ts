@@ -241,22 +241,23 @@ async function logAutoMergeResult(repoRoot: string, taskId: string, result: Auto
     return;
   }
   if (result.applied) {
-    const repos = result.results
-      .filter((item) => item.status === 'applied')
-      .map((item) => `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'}`)
-      .join(', ');
+    const appliedParts: string[] = [];
+    const skippedParts: string[] = [];
+    for (const item of result.results) {
+      const targetLabel = `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'}`;
+      if (item.status === 'applied') {
+        appliedParts.push(targetLabel);
+      } else {
+        skippedParts.push(`${targetLabel} ${item.status}: ${item.detail.replace(/\.+$/u, '')}`);
+      }
+    }
     await emitTaskProgressEvent({
       logger: log.child({ taskId }),
       repoRoot,
       taskId,
-      event: { type: 'auto_merge.applied', input: { repos } },
+      event: { type: 'auto_merge.applied', input: { repos: appliedParts.join(', ') } },
     });
-    const skippedDetail = result.results
-      .filter((item) => item.status !== 'applied')
-      .map((item) => (
-        `${item.repoLabel}:${item.sourceBranch}->${item.targetBranch ?? '(unknown)'} ${item.status}: ${item.detail.replace(/\.+$/u, '')}`
-      ))
-      .join('; ');
+    const skippedDetail = skippedParts.join('; ');
     if (skippedDetail) {
       await emitTaskProgressEvent({
         logger: log.child({ taskId }),
@@ -348,7 +349,7 @@ export async function completePendingItem(
     queuePaths.queueLockDir,
     'Completion',
   );
-  let resolvedArchiveMdPath: string | null | undefined;
+  let resolvedArchiveMdPath: string | null = null;
 
   try {
     const activeItemsDir = queuePaths.activeItemsDir;

@@ -46,12 +46,13 @@
 }
 
 /* Locked-out state: a planning conversation is in flight, so the operator
-   cannot pivot to a recent thread without losing the active session. */
+   cannot pivot to a recent thread without losing the active session.
+   Click is blocked by the native `disabled` attribute; we keep hover/tooltip
+   reachable so the operator can read the "why" via the title text. */
 .recents-trigger--disabled,
 .recents-trigger:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  pointer-events: none;
 }
 
 .recents-trigger__label {

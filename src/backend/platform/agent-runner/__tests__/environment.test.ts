@@ -56,6 +56,27 @@ describe('buildAgentEnvironment', () => {
     expect(env['TASKSAIL_TASK_ID']).toBe('');
   });
 
+  it('forwards launchExtensions skill dirs to provider.buildEnv without leaking plugin dirs or touching roots', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo', {
+      launchExtensions: {
+        pluginDirs: ['/stage/launch/plugins/p1'],
+        skillDirs: ['/stage/launch/skills'],
+      },
+    });
+    // Skill dirs surface as the provider's comma-joined env value.
+    expect(env['COPILOT_SKILLS_DIRS']).toBe('/stage/launch/skills');
+    // Plugin dirs are argv-only — they must never appear in any env value, and
+    // no staged path may leak into target/writable/focus root env keys.
+    expect(Object.values(env)).not.toContain('/stage/launch/plugins/p1');
+    expect(env).not.toHaveProperty('COPILOT_TARGET_REPOS_JSON');
+    expect(env).not.toHaveProperty('COPILOT_WRITABLE_ROOTS_JSON');
+  });
+
+  it('emits no COPILOT_SKILLS_DIRS when launchExtensions is omitted', () => {
+    const env = buildAgentEnvironment(profile, '/ctx', '/repo');
+    expect(env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+  });
+
   it('splits TASKSAIL branch-owned bindings from all task-visible worktrees', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-projection-'));
     try {

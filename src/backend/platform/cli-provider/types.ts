@@ -102,11 +102,13 @@ export interface BuildArgsResult {
 
 export interface BuildArgsOptions {
   launchContext: AgentLaunchContext;
+  launchExtensions?: AgentLaunchExtensionDirs;
 }
 
 export interface GenericAgentEnv {
   model: string;
   agentId: string;
+  launchExtensions?: AgentLaunchExtensionDirs;
   wallClockTimeoutS?: number;
   idleTimeoutS?: number;
   disableIdleTimeout?: boolean;
@@ -224,6 +226,15 @@ export interface PlannerEventParseResult {
   error?: { code: string; message: string; line: string };
 }
 
+export type AgentLaunchExtensionDirs = {
+  pluginDirs: readonly string[];
+  skillDirs: readonly string[];
+};
+
+// Compatibility alias for the Lily planner launch path. Type-identical to
+// AgentLaunchExtensionDirs so existing planner consumers compile unchanged.
+export type PlannerLaunchExtensionDirs = AgentLaunchExtensionDirs;
+
 export interface PlannerLaunchOptions {
   model: string;
   reasoningEffort?: string;
@@ -242,6 +253,7 @@ export interface PlannerLaunchOptions {
    */
   focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
   lilyPersonalityId?: PlannerLilyPersonalityId;
+  launchExtensions?: PlannerLaunchExtensionDirs;
 }
 
 export type PlannerLilyPersonalityId = 'balanced' | 'clinical';

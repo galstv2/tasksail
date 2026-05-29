@@ -3,6 +3,23 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAgentConfigHandlers } from './agentConfigHandlers';
+import { createAgentExtensionCatalogHandlers } from './agentExtensionCatalog';
+
+const mockListAgentExtensions = vi.fn();
+const mockAddAgentExtension = vi.fn();
+const mockReseedAgentExtension = vi.fn();
+const mockDeleteAgentExtension = vi.fn();
+const mockLoadAgentLaunchExtensionAssignments = vi.fn();
+const mockSaveAgentLaunchExtensionAssignments = vi.fn();
+
+vi.mock('../../../backend/platform/agent-extensions/index.js', () => ({
+  listAgentExtensions: (...args: unknown[]) => mockListAgentExtensions(...args),
+  addAgentExtension: (...args: unknown[]) => mockAddAgentExtension(...args),
+  reseedAgentExtension: (...args: unknown[]) => mockReseedAgentExtension(...args),
+  deleteAgentExtension: (...args: unknown[]) => mockDeleteAgentExtension(...args),
+  loadAgentLaunchExtensionAssignments: (...args: unknown[]) => mockLoadAgentLaunchExtensionAssignments(...args),
+  saveAgentLaunchExtensionAssignments: (...args: unknown[]) => mockSaveAgentLaunchExtensionAssignments(...args),
+}));
 
 vi.mock('../../../backend/platform/cli-provider/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../backend/platform/cli-provider/index.js')>();
@@ -587,5 +604,435 @@ describe('agentConfigHandlers', () => {
         'Cannot remove model "gpt-4.1" because it is assigned to: Lily (provider-planner).',
     });
     expect(memoryFs.files.get(catalogPath)).toBe(asJson(defaultCatalogDocument));
+  });
+});
+
+// ── agentExtensionCatalog handlers ───────────────────────────────────────────
+
+const sampleEntry = {
+  id: 'my-skill',
+  kind: 'skill' as const,
+  provider_id: 'copilot' as const,
+  display_name: 'My Skill',
+  description: 'Does things.',
+  enabled: true,
+  source_type: 'git' as const,
+  imported_at: '2026-01-01T00:00:00.000Z',
+  status: 'available' as const,
+  metadata: { skill_names: ['do-thing'] },
+};
+
+describe('agentExtensionCatalog handlers', () => {
+  it('listExtensions returns entries from the backend and does not expose raw paths', async () => {
+    mockListAgentExtensions.mockResolvedValueOnce([sampleEntry]);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.listExtensions();
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.listExtensions',
+        mode: 'read-only',
+        message: '1 extension(s) loaded.',
+        extensions: [sampleEntry],
+      },
+    });
+
+    // Verify no raw path fields are present in the response
+    const responseStr = JSON.stringify(result);
+    expect(responseStr).not.toMatch(/runtime_path/);
+    expect(responseStr).not.toMatch(/config_path/);
+  });
+
+  it('listExtensions returns a structured error when the backend throws', async () => {
+    mockListAgentExtensions.mockRejectedValueOnce(new Error('disk error'));
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.listExtensions();
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, action: 'agentConfig.listExtensions' }),
+    );
+  });
+
+  it('addExtension (git) delegates to backend and returns sanitized entry', async () => {
+    mockAddAgentExtension.mockResolvedValueOnce(sampleEntry);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.addExtension({
+      id: 'my-skill',
+      kind: 'skill',
+      provider_id: 'copilot',
+      source: { type: 'git', url: 'https://github.com/org/repo', ref: 'main' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.addExtension',
+        mode: 'mutated',
+        message: 'Added extension "My Skill".',
+        extension: sampleEntry,
+      },
+    });
+
+    expect(mockAddAgentExtension).toHaveBeenCalledWith(
+      repoRoot,
+      expect.objectContaining({ id: 'my-skill', kind: 'skill', source: expect.objectContaining({ type: 'git' }) }),
+    );
+  });
+
+  it('addExtension returns a structured error and does not leak source URLs', async () => {
+    mockAddAgentExtension.mockRejectedValueOnce(new Error('git clone failed'));
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.addExtension({
+      id: 'my-skill',
+      kind: 'skill',
+      provider_id: 'copilot',
+      source: { type: 'git', url: 'https://secret.host/private/repo', ref: 'main' },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Sanitized: no source URL in error
+      expect(result.error).not.toContain('secret.host');
+      // Sanitized: no raw git error message
+      expect(result.error).not.toContain('git clone failed');
+      // Fixed safe message
+      expect(result.error).toBe('Failed to add extension. Check the source configuration.');
+    }
+  });
+
+  it('addExtension (direct-attachment) forwards skill_markdown to the backend without writing SKILL.md itself', async () => {
+    // Use a real temp repoRoot so we can verify the handler does NOT touch the filesystem.
+    const { mkdtempSync, mkdirSync, existsSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const tmpRepoRoot = mkdtempSync(tmpdir() + '/test-direct-attach-');
+    mkdirSync(path.join(tmpRepoRoot, 'config'), { recursive: true });
+
+    const SKILL_MARKDOWN = '---\nname: Direct\ndescription: Direct skill\n---\n# Direct\n';
+    const expectedConfigPath = path.join(tmpRepoRoot, 'config', 'skill-authored', 'direct-skill', 'SKILL.md');
+
+    // The authored write now lives inside the backend transaction (single-writer),
+    // so the file must not exist at the moment the handler delegates.
+    let skillMdExistsAtCallTime = true;
+    mockAddAgentExtension.mockImplementationOnce(async () => {
+      skillMdExistsAtCallTime = existsSync(expectedConfigPath);
+      return { ...sampleEntry, source_type: 'direct-attachment' as const };
+    });
+
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot: tmpRepoRoot });
+    const result = await handlers.addExtension({
+      id: 'direct-skill',
+      kind: 'skill',
+      provider_id: 'copilot',
+      source: { type: 'direct-attachment', skill_markdown: SKILL_MARKDOWN },
+    });
+
+    // Handler must not write the authored file — the backend owns that write.
+    expect(skillMdExistsAtCallTime).toBe(false);
+    expect(existsSync(expectedConfigPath)).toBe(false);
+    // Handler forwards the raw markdown (not a config_path) to the backend.
+    expect(mockAddAgentExtension).toHaveBeenCalledWith(
+      tmpRepoRoot,
+      expect.objectContaining({
+        id: 'direct-skill',
+        source: { type: 'direct-attachment', skill_markdown: SKILL_MARKDOWN },
+      }),
+    );
+    expect(result.ok).toBe(true);
+
+    rmSync(tmpRepoRoot, { recursive: true, force: true });
+  });
+
+  it('reseedExtension delegates to backend and returns sanitized entry', async () => {
+    const reseededEntry = { ...sampleEntry, reseeded_at: '2026-02-01T00:00:00.000Z' };
+    mockReseedAgentExtension.mockResolvedValueOnce(reseededEntry);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.reseedExtension({ id: 'my-skill' });
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.reseedExtension',
+        mode: 'mutated',
+        message: 'Reseeded extension "My Skill".',
+        extension: reseededEntry,
+      },
+    });
+  });
+
+  it('reseedExtension returns error when backend throws', async () => {
+    mockReseedAgentExtension.mockRejectedValueOnce(new Error('not found'));
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.reseedExtension({ id: 'missing' });
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, action: 'agentConfig.reseedExtension' }),
+    );
+  });
+
+  it('deleteExtension delegates to backend and returns id', async () => {
+    mockDeleteAgentExtension.mockResolvedValueOnce(undefined);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.deleteExtension({ id: 'my-skill' });
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.deleteExtension',
+        mode: 'deleted',
+        message: 'Deleted extension "my-skill".',
+        id: 'my-skill',
+      },
+    });
+  });
+
+  it('deleteExtension forwards remove_assignments to the backend as removeAssignments', async () => {
+    mockDeleteAgentExtension.mockResolvedValueOnce(undefined);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    await handlers.deleteExtension({ id: 'my-skill', remove_assignments: true });
+
+    expect(mockDeleteAgentExtension).toHaveBeenCalledWith(
+      repoRoot,
+      'my-skill',
+      { removeAssignments: true },
+    );
+  });
+
+  it('deleteExtension defaults removeAssignments to false when omitted', async () => {
+    mockDeleteAgentExtension.mockResolvedValueOnce(undefined);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    await handlers.deleteExtension({ id: 'my-skill' });
+
+    expect(mockDeleteAgentExtension).toHaveBeenCalledWith(
+      repoRoot,
+      'my-skill',
+      { removeAssignments: false },
+    );
+  });
+
+  it('loadExtensionAssignments returns assignments from backend', async () => {
+    const assignments = {
+      schema_version: 1 as const,
+      assignments: [
+        { agent_id: 'software-engineer' as const, extension_ids: ['my-skill'] },
+      ],
+    };
+    mockLoadAgentLaunchExtensionAssignments.mockResolvedValueOnce(assignments);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.loadExtensionAssignments();
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadExtensionAssignments',
+        mode: 'read-only',
+        message: '1 agent assignment(s) loaded.',
+        assignments: assignments.assignments,
+      },
+    });
+
+    // Assignments must only contain IDs — no runtime paths
+    const responseStr = JSON.stringify(result);
+    expect(responseStr).not.toMatch(/runtime_path/);
+    expect(responseStr).not.toMatch(/source/);
+  });
+
+  it('saveExtensionAssignments delegates to backend and returns saved assignments', async () => {
+    const inputAssignments = [
+      { agent_id: 'software-engineer' as const, extension_ids: ['my-skill'] },
+    ];
+    const saved = {
+      schema_version: 1 as const,
+      assignments: inputAssignments,
+    };
+    mockSaveAgentLaunchExtensionAssignments.mockResolvedValueOnce(saved);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.saveExtensionAssignments({ assignments: inputAssignments });
+
+    expect(result).toEqual({
+      ok: true,
+      response: {
+        action: 'agentConfig.saveExtensionAssignments',
+        mode: 'mutated',
+        message: 'Saved extension assignments for 1 agent(s).',
+        assignments: inputAssignments,
+      },
+    });
+  });
+
+  it('saveExtensionAssignments returns error when backend rejects', async () => {
+    mockSaveAgentLaunchExtensionAssignments.mockRejectedValueOnce(
+      new Error('unknown extension id'),
+    );
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.saveExtensionAssignments({
+      assignments: [{ agent_id: 'software-engineer' as const, extension_ids: ['ghost-id'] }],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, action: 'agentConfig.saveExtensionAssignments' }),
+    );
+  });
+
+  it('existing model-save behavior is unaffected by extension handler changes', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(registryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const agentHandlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs });
+
+    const result = await agentHandlers.addModel({ display_name: 'GPT-5', model_id: 'gpt-5' });
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    if (result.ok) {
+      expect(result.response.action).toBe('agentConfig.addModel');
+    }
+  });
+
+  // ── Track F: Skills & Plugins catalog contract ───────────────────────────────
+
+  it('listExtensions for a plugin entry contains plugin_skill_count and no skill_names field', async () => {
+    const pluginEntry = {
+      id: 'my-plugin',
+      kind: 'plugin' as const,
+      provider_id: 'copilot' as const,
+      display_name: 'my-plugin',
+      description: 'A plugin.',
+      enabled: true,
+      source_type: 'local' as const,
+      imported_at: '2026-01-01T00:00:00.000Z',
+      status: 'available' as const,
+      metadata: { plugin_component_classes: ['FooPlugin'], plugin_skill_count: 2 },
+    };
+    mockListAgentExtensions.mockResolvedValueOnce([pluginEntry]);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.listExtensions();
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.response.action === 'agentConfig.listExtensions') {
+      const ext = result.response.extensions[0];
+      // Plugin display_name IS the manifest slug (lowercase), not a human label
+      expect(ext.display_name).toBe('my-plugin');
+      // Plugin metadata has plugin_skill_count
+      expect(ext.metadata.plugin_skill_count).toBe(2);
+      // Plugin metadata must NOT have skill_names (that is a skill-only field)
+      expect(ext.metadata.skill_names).toBeUndefined();
+    } else {
+      throw new Error('expected an ok agentConfig.listExtensions response');
+    }
+  });
+
+  it('listExtensions does NOT return skill_names for a plugin (negative: no bundled-skills disclosure)', async () => {
+    // A plugin with skill_names accidentally set should not surface them in catalog output
+    // (the backend contract guarantees this; the handler must not inject them)
+    const pluginEntry = {
+      id: 'bad-plugin',
+      kind: 'plugin' as const,
+      provider_id: 'copilot' as const,
+      display_name: 'bad-plugin',
+      description: '',
+      enabled: true,
+      source_type: 'git' as const,
+      status: 'available' as const,
+      // Simulates backend returning an entry without skill_names (production contract)
+      metadata: { plugin_component_classes: [] as string[], plugin_skill_count: 0 },
+    };
+    mockListAgentExtensions.mockResolvedValueOnce([pluginEntry]);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.listExtensions();
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.response.action === 'agentConfig.listExtensions') {
+      const ext = result.response.extensions[0];
+      expect(ext.metadata.skill_names).toBeUndefined();
+    } else {
+      throw new Error('expected an ok agentConfig.listExtensions response');
+    }
+  });
+
+  it('saveExtensionAssignments response contains only agent_id and extension_ids (IDs only, no paths)', async () => {
+    const inputAssignments = [
+      { agent_id: 'planning-agent' as const, extension_ids: ['my-skill', 'my-plugin'] },
+      { agent_id: 'qa' as const, extension_ids: [] },
+    ];
+    mockSaveAgentLaunchExtensionAssignments.mockResolvedValueOnce({
+      schema_version: 1 as const,
+      assignments: inputAssignments,
+    });
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.saveExtensionAssignments({ assignments: inputAssignments });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.response.action === 'agentConfig.saveExtensionAssignments') {
+      const responseStr = JSON.stringify(result.response);
+      // IDs only — no source paths, no metadata blobs, no runtime_path
+      expect(responseStr).not.toMatch(/source_path|runtime_path|skill_markdown|plugin_manifest/);
+      const plannerEntry = result.response.assignments.find((a) => a.agent_id === 'planning-agent');
+      expect(plannerEntry?.extension_ids).toEqual(['my-skill', 'my-plugin']);
+    } else {
+      throw new Error('expected an ok agentConfig.saveExtensionAssignments response');
+    }
+  });
+
+  it('saveExtensionAssignments with empty extension list for an agent stores an empty array (negative: no implicit defaults)', async () => {
+    const inputAssignments = [{ agent_id: 'software-engineer' as const, extension_ids: [] }];
+    mockSaveAgentLaunchExtensionAssignments.mockResolvedValueOnce({
+      schema_version: 1 as const,
+      assignments: inputAssignments,
+    });
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.saveExtensionAssignments({ assignments: inputAssignments });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.response.action === 'agentConfig.saveExtensionAssignments') {
+      const entry = result.response.assignments.find((a) => a.agent_id === 'software-engineer');
+      expect(entry?.extension_ids).toEqual([]);
+    } else {
+      throw new Error('expected an ok agentConfig.saveExtensionAssignments response');
+    }
+  });
+
+  it('reseedExtension supports manual reseed: delegates to backend and confirms response is the updated entry', async () => {
+    const updatedEntry = { ...sampleEntry, reseeded_at: '2026-05-28T00:00:00.000Z' };
+    mockReseedAgentExtension.mockResolvedValueOnce(updatedEntry);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.reseedExtension({ id: sampleEntry.id });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.response.action === 'agentConfig.reseedExtension') {
+      expect(result.response.extension.reseeded_at).toBe('2026-05-28T00:00:00.000Z');
+    } else {
+      throw new Error('expected an ok agentConfig.reseedExtension response');
+    }
+  });
+
+  it('reseedExtension without being called first (negative: no auto-reseed on list)', async () => {
+    // The list call must NOT trigger a reseed
+    mockListAgentExtensions.mockResolvedValueOnce([sampleEntry]);
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    await handlers.listExtensions();
+
+    expect(mockReseedAgentExtension).not.toHaveBeenCalled();
   });
 });

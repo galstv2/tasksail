@@ -28,8 +28,8 @@ export async function recordTaskNotification(args: {
   return withNotificationStoreLock(args.repoRoot, 'recordTaskNotification', async () => {
     const store = await readStoreForMutation(args.repoRoot);
     const dedupeKey = canonicalDedupeKey(args.record.type, args.record.taskId);
-    const existing = store.notifications.find((record) => record.dedupeKey === dedupeKey);
-    if (existing) {
+    const dedupeKeys = new Set(store.notifications.map((record) => record.dedupeKey));
+    if (dedupeKeys.has(dedupeKey)) {
       log.info('task_notifications.record.duplicate_ignored', { taskId: args.record.taskId, notificationType: args.record.type });
       return null;
     }
@@ -221,10 +221,19 @@ const visibleNotifications = (notifications: TaskNotificationRecord[]): TaskNoti
 
 function applyRetention(notifications: TaskNotificationRecord[]): TaskNotificationRecord[] {
   const sorted = [...notifications].sort(compareNotificationsNewestFirst);
-  const visible = sorted.filter((record) => record.dismissedAt === null).slice(0, MAX_VISIBLE_NOTIFICATIONS);
+  const visiblePool: TaskNotificationRecord[] = [];
+  const dismissedPool: TaskNotificationRecord[] = [];
+  for (const record of sorted) {
+    if (record.dismissedAt === null) {
+      visiblePool.push(record);
+    } else {
+      dismissedPool.push(record);
+    }
+  }
+  const visible = visiblePool.slice(0, MAX_VISIBLE_NOTIFICATIONS);
   const visibleIds = new Set(visible.map((record) => record.notificationId));
-  const dismissed = sorted
-    .filter((record) => record.dismissedAt !== null && !visibleIds.has(record.notificationId))
+  const dismissed = dismissedPool
+    .filter((record) => !visibleIds.has(record.notificationId))
     .slice(0, Math.max(0, MAX_PERSISTED_NOTIFICATIONS - visible.length));
 
   return [...visible, ...dismissed].sort(compareNotificationsNewestFirst);
@@ -302,8 +311,12 @@ const readNotificationType = (value: unknown): TaskNotificationRecord['type'] | 
 const readNotificationSeverity = (value: unknown): TaskNotificationRecord['severity'] | null =>
   value === 'success' || value === 'error' ? value : null;
 
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 function notificationIdForDedupeKey(dedupeKey: string): string {
-  return createHash('sha256').update(dedupeKey).digest('hex');
+  return sha256Hex(dedupeKey);
 }
 
 function canonicalDedupeKey(type: TaskNotificationRecord['type'], taskId: string): string {
@@ -329,7 +342,7 @@ function messageForRecord(
 }
 
 function hashForLog(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 12);
+  return sha256Hex(value).slice(0, 12);
 }
 
 const isoNow = (now: Date | undefined): string => (now ?? new Date()).toISOString();

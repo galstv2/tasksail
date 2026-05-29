@@ -32,6 +32,14 @@ import {
   saveAgentModels,
 } from './agentConfigHandlers';
 import {
+  listAgentExtensionsCatalog,
+  addAgentExtensionCatalog,
+  reseedAgentExtensionCatalog,
+  deleteAgentExtensionCatalog,
+  loadAgentExtensionAssignments,
+  saveAgentExtensionAssignments,
+} from './agentExtensionCatalog';
+import {
   listInstructionFiles,
   readInstructionFile,
   writeInstructionFile,
@@ -242,6 +250,20 @@ export type DesktopActionHandlers = {
   ) => Promise<DesktopInvokeResult>;
   removeAgentModel: (
     payload: import('../src/shared/desktopContract').AgentConfigRemoveModelRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  listAgentExtensions: () => Promise<DesktopInvokeResult>;
+  addAgentExtension: (
+    payload: import('../src/shared/desktopContract').AgentConfigAddExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  reseedAgentExtension: (
+    payload: import('../src/shared/desktopContract').AgentConfigReseedExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  deleteAgentExtension: (
+    payload: import('../src/shared/desktopContract').AgentConfigDeleteExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadAgentExtensionAssignments: () => Promise<DesktopInvokeResult>;
+  saveAgentExtensionAssignments: (
+    payload: import('../src/shared/desktopContract').AgentConfigSaveExtensionAssignmentsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   listInstructionFiles: (
     request: import('../src/shared/desktopContract').AgentInstructionsListFilesRequest,
@@ -618,6 +640,12 @@ export function createDefaultDesktopActionHandlers(
   saveAgentModels: (payload) => saveAgentModels(payload),
   addAgentModel: (payload) => addAgentModel(payload),
   removeAgentModel: (payload) => removeAgentModel(payload),
+  listAgentExtensions: () => listAgentExtensionsCatalog(),
+  addAgentExtension: (payload) => addAgentExtensionCatalog(payload),
+  reseedAgentExtension: (payload) => reseedAgentExtensionCatalog(payload),
+  deleteAgentExtension: (payload) => deleteAgentExtensionCatalog(payload),
+  loadAgentExtensionAssignments: () => loadAgentExtensionAssignments(),
+  saveAgentExtensionAssignments: (payload) => saveAgentExtensionAssignments(payload),
   listInstructionFiles: (request) => listInstructionFiles(request),
   readInstructionFile: (request) => readInstructionFile(request),
   writeInstructionFile: (request) => writeInstructionFile(request),

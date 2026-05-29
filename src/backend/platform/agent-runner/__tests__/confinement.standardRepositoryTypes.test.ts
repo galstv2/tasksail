@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
-import { validateDaltonBoundaryChanges } from '../confinement.js';
+import { DaltonConfinementError, validateDaltonBoundaryChanges } from '../confinement.js';
 
 describe('Dalton confinement standard repositoryTypes writable roots', () => {
   let root: string;
@@ -69,5 +69,37 @@ describe('Dalton confinement standard repositoryTypes writable roots', () => {
       before: { byRepoRoot: { [platformRepoRoot]: [], [toolsRepoRoot]: [] } },
       after: { byRepoRoot: { [platformRepoRoot]: ['src/a.ts'], [toolsRepoRoot]: ['src/b.ts'] } },
     })).resolves.toBeUndefined();
+  });
+
+  it('rejects standard support worktree writes outside selected primary writable roots', async () => {
+    const tasksailRoot = path.join(root, 'tasksail');
+    const platformRepoRoot = path.join(root, 'platform');
+    const toolsRepoRoot = path.join(root, 'tools');
+
+    mkdirSync(platformRepoRoot, { recursive: true });
+    mkdirSync(toolsRepoRoot, { recursive: true });
+    writeFileSync(path.join(toolsRepoRoot, 'support.ts'), 'changed');
+
+    await expect(validateDaltonBoundaryChanges({
+      platformRepoRoot: tasksailRoot,
+      focused: {
+        primaryRepoRoot: platformRepoRoot,
+        visibleRepoRoots: [platformRepoRoot, toolsRepoRoot],
+        declaredRepoRoots: [platformRepoRoot, toolsRepoRoot],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'platform',
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        writableRoots: [
+          { repoLocalPath: platformRepoRoot, path: '', kind: 'directory', reason: 'selected-primary' },
+        ],
+        readonlyContextRoots: [
+          { repoLocalPath: toolsRepoRoot, path: '', kind: 'directory', reason: 'support-target' },
+        ],
+        authoritySource: 'active-task-sidecar',
+      },
+      before: { byRepoRoot: { [platformRepoRoot]: [], [toolsRepoRoot]: [] } },
+      after: { byRepoRoot: { [platformRepoRoot]: ['src/a.ts'], [toolsRepoRoot]: ['support.ts'] } },
+    })).rejects.toThrow(DaltonConfinementError);
   });
 });

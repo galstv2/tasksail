@@ -7,6 +7,20 @@ type DesktopShellSource = Window['desktopShell'] & {
   ) => Promise<unknown>;
   addModel: (displayName: string, modelId: string) => Promise<unknown>;
   removeModel: (modelId: string) => Promise<unknown>;
+  listAgentExtensions: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  addAgentExtension: (
+    payload: import('../../shared/desktopContract').AgentConfigAddExtensionRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  reseedAgentExtension: (
+    payload: import('../../shared/desktopContract').AgentConfigReseedExtensionRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  deleteAgentExtension: (
+    payload: import('../../shared/desktopContract').AgentConfigDeleteExtensionRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  loadAgentExtensionAssignments: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  saveAgentExtensionAssignments: (
+    payload: import('../../shared/desktopContract').AgentConfigSaveExtensionAssignmentsRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
   describeActiveProvider: () => Promise<import('../../shared/desktopContract').ProviderFrontendDescriptor>;
   listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
   readInstructionFile: (relativePath: string) => Promise<unknown>;
@@ -75,6 +89,12 @@ type DesktopShellBaseClient = Pick<
   | 'saveAgentModels'
   | 'addModel'
   | 'removeModel'
+  | 'listAgentExtensions'
+  | 'addAgentExtension'
+  | 'reseedAgentExtension'
+  | 'deleteAgentExtension'
+  | 'loadAgentExtensionAssignments'
+  | 'saveAgentExtensionAssignments'
   | 'listInstructionFiles'
   | 'readInstructionFile'
   | 'writeInstructionFile'
@@ -242,6 +262,12 @@ export function createDesktopShellClient(
     saveAgentModels: (assignments) => readShell().saveAgentModels(assignments),
     addModel: (displayName, modelId) => readShell().addModel(displayName, modelId),
     removeModel: (modelId) => readShell().removeModel(modelId),
+    listAgentExtensions: () => readShell().listAgentExtensions(),
+    addAgentExtension: (payload) => readShell().addAgentExtension(payload),
+    reseedAgentExtension: (payload) => readShell().reseedAgentExtension(payload),
+    deleteAgentExtension: (payload) => readShell().deleteAgentExtension(payload),
+    loadAgentExtensionAssignments: () => readShell().loadAgentExtensionAssignments(),
+    saveAgentExtensionAssignments: (payload) => readShell().saveAgentExtensionAssignments(payload),
     listInstructionFiles: (directory) => readShell().listInstructionFiles(directory),
     readInstructionFile: (relativePath) => readShell().readInstructionFile(relativePath),
     writeInstructionFile: (relativePath, content) => readShell().writeInstructionFile(relativePath, content),

@@ -11,6 +11,7 @@ import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../queue/taskJ
 import type { TaskPackSnapshot } from '../context-pack/taskPackSnapshot.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { AutonomyIntent, BuildArgsResult } from '../cli-provider/index.js';
+import type { AgentLaunchExtensionDirs } from '../cli-provider/types.js';
 
 /**
  * Build the environment variables object for an agent invocation process.
@@ -40,6 +41,12 @@ export function buildAgentEnvironment(
      * agent launch path) must supply this from `loadTaskPackSnapshot`.
      */
     snapshot?: TaskPackSnapshot;
+    /**
+     * Provider-neutral launch-extension dirs captured for this launch. Forwarded
+     * into provider.buildEnv only; never added to allowed roots, writable roots,
+     * focused repo roots, or runtime path manifests.
+     */
+    launchExtensions?: AgentLaunchExtensionDirs;
   },
   taskId?: string,
 ): Record<string, string> {
@@ -63,6 +70,7 @@ export function buildAgentEnvironment(
   const providerEnv = provider.buildEnv({
     model: activeModel,
     agentId: toRegistryId(profile.id),
+    ...(options?.launchExtensions ? { launchExtensions: options.launchExtensions } : {}),
     wallClockTimeoutS: options?.wallClockTimeoutS ?? profile.wallClockTimeoutS,
     idleTimeoutS: profile.idleTimeoutS,
     disableIdleTimeout: profile.interactive,
@@ -204,9 +212,9 @@ function repoIdForBranchBinding(
   index: number,
   idsByRoot: ReadonlyMap<string, string>,
 ): string {
-  return idsByRoot.get(canonicalRoot(binding.originalRoot))
-    ?? path.basename(binding.worktreeRoot)
-    ?? `repo-${index + 1}`;
+  return (idsByRoot.get(canonicalRoot(binding.originalRoot))
+    ?? path.basename(binding.worktreeRoot))
+    || `repo-${index + 1}`;
 }
 
 /**

@@ -166,8 +166,8 @@ describe('§B2 commit-routing integration', () => {
 
   beforeEach(() => {
     platformRoot = mkdtempSync(path.join(tmpdir(), 'ts-commit-routing-'));
-    // captureChangedPathsSnapshot inside prepareDaltonBoundary will run
-    // `git status` against platformRoot — must be a real repo.
+    // prepareDaltonBoundary still uses git snapshots, so the platform root is
+    // initialized as a real repo for the surrounding commit-routing flow.
     initRepo(platformRoot);
     writePlatformJson(platformRoot);
     // Clear memoized config so prior tests with a different platformRoot
@@ -207,7 +207,7 @@ describe('§B2 commit-routing integration', () => {
     const autonomyArgs = makeAutonomyArgs();
     const boundary = await prepareDaltonBoundary(
       focused,
-      { agentId: 'dalton', repoRoot: platformRoot, usesFocusedRepoLaunch: true },
+      { agentId: 'dalton', repoRoot: platformRoot, taskId, usesFocusedRepoLaunch: true },
       autonomyArgs,
     );
 

@@ -95,11 +95,13 @@ const DEFAULT_COMPOSER_PLACEHOLDER = 'Start a conversation with Lily to begin pl
 const CHILD_PARENT_COMPOSER_PLACEHOLDER = 'Tell Lily what this child task should continue, change, or investigate.';
 const RECENT_COMPOSER_PLACEHOLDER = 'Continue this planning thread with Lily.';
 const CHILD_PARENT_REQUIRED_PLACEHOLDER = 'Select a parent task to begin child-task planning.';
-const PERSONALITY_LOCKED_HINT = 'Start a new conversation to switch styles.';
 const PERSONALITY_LABELS: Record<PlannerLilyPersonalityId, string> = {
   balanced: 'Balanced',
   clinical: 'Clinical',
 };
+function buildPersonalityLockedHint(styleName: string): string {
+  return `${styleName} style locked — start a new conversation to switch.`;
+}
 
 function ScopeInfoIcon(): JSX.Element {
   return (
@@ -107,6 +109,30 @@ function ScopeInfoIcon(): JSX.Element {
       <circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
       <circle cx="8" cy="5.1" r="0.95" fill="currentColor" />
       <rect x="7.15" y="7" width="1.7" height="4.7" rx="0.85" fill="currentColor" />
+    </svg>
+  );
+}
+
+function LockIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">
+      <path
+        d="M5 7V5a3 3 0 1 1 6 0v2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <rect
+        x="3.5"
+        y="7"
+        width="9"
+        height="6.5"
+        rx="1.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }
@@ -414,6 +440,8 @@ function PlannerModal({
   const showInlineChildScopeSummary = !adjustedChildScopeSummarySelection;
   const parentControlsActuallyCollapsed = parentControlsCollapsed && Boolean(selectedChildTaskParent);
   const hasOperatorMessage = messages.some((msg) => msg.role === 'operator');
+  const lockedStyleName = PERSONALITY_LABELS[lilyPersonalityId ?? 'balanced'];
+  const personalityLockedHint = buildPersonalityLockedHint(lockedStyleName);
   const composerPlaceholder = childTaskBlocked
     ? CHILD_PARENT_REQUIRED_PLACEHOLDER
     : selectedChildTaskParent
@@ -508,12 +536,12 @@ function PlannerModal({
               {personalityLocked ? (
                 <span
                   className="planner-modal__personality-lock-copy"
-                  title={PERSONALITY_LOCKED_HINT}
-                  aria-label={`Style locked to ${PERSONALITY_LABELS[lilyPersonalityId ?? 'balanced']}. ${PERSONALITY_LOCKED_HINT}`}
+                  title={personalityLockedHint}
+                  aria-label={`Style locked to ${lockedStyleName}. ${personalityLockedHint}`}
                 >
-                  Style locked:{' '}
+                  <LockIcon />
                   <strong className="planner-modal__personality-lock-name">
-                    {PERSONALITY_LABELS[lilyPersonalityId ?? 'balanced']}
+                    {lockedStyleName}
                   </strong>
                 </span>
               ) : (
@@ -541,7 +569,7 @@ function PlannerModal({
               disabled={!planningEnabled || personalityLocked}
               aria-pressed={!!childTaskMode}
               aria-label="Toggle child-task mode"
-              title={personalityLocked ? PERSONALITY_LOCKED_HINT : undefined}
+              title={personalityLocked ? personalityLockedHint : undefined}
             >
               Child Task
             </button>
@@ -554,7 +582,7 @@ function PlannerModal({
               popoverOpen={recentsOpen}
               onToggle={handleRecentsToggle}
               disabled={personalityLocked}
-              disabledHint={PERSONALITY_LOCKED_HINT}
+              disabledHint={personalityLockedHint}
             />
             <button type="button" className="planner-modal__close-btn" onClick={onClose} aria-label="Close planner">
               <CloseIcon />

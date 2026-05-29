@@ -23,6 +23,10 @@ export default defineConfig({
     include: [
       'src/backend/platform/**/__tests__/**/*.test.ts',
       'src/frontend/desktop/electron/**/__tests__/**/*.test.ts',
+      // Role-agent launch-extension integration test lives at the agent-runner
+      // root (per its execution spec), not under __tests__/, so it needs an
+      // explicit discovery glob.
+      'src/backend/platform/agent-runner/*.integration.test.ts',
     ],
     setupFiles: [childGuardPath, logIsolationPath],
     pool: 'forks',

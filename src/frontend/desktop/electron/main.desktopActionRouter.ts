@@ -622,6 +622,18 @@ export async function handleDesktopAction(
       return resolvedHandlers.addAgentModel(request.payload);
     case 'agentConfig.removeModel':
       return resolvedHandlers.removeAgentModel(request.payload);
+    case 'agentConfig.listExtensions':
+      return resolvedHandlers.listAgentExtensions();
+    case 'agentConfig.addExtension':
+      return resolvedHandlers.addAgentExtension(request.payload);
+    case 'agentConfig.reseedExtension':
+      return resolvedHandlers.reseedAgentExtension(request.payload);
+    case 'agentConfig.deleteExtension':
+      return resolvedHandlers.deleteAgentExtension(request.payload);
+    case 'agentConfig.loadExtensionAssignments':
+      return resolvedHandlers.loadAgentExtensionAssignments();
+    case 'agentConfig.saveExtensionAssignments':
+      return resolvedHandlers.saveAgentExtensionAssignments(request.payload);
     case 'agentInstructions.listFiles':
       return resolvedHandlers.listInstructionFiles(request);
     case 'agentInstructions.readFile':

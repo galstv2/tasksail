@@ -62,6 +62,10 @@ import {
 import {
   buildPlannerLaunchClassificationLogPayload,
 } from './plannerSession.launchClassification';
+import {
+  applyLilyLaunchAvailabilityNoteToFirstTurn,
+  resolveLilyPlannerLaunchExtensions,
+} from './plannerLaunchExtensions';
 
 const log = createLogger('electron/plannerSession');
 
@@ -134,6 +138,36 @@ const broker = new PlannerSessionBroker({
 /** Tracks whether the first operator message has been sent in the current session. */
 let firstMessageSent = false;
 let activeParentBranchViewSession: PlannerParentBranchViewSession | null = null;
+let activeLilyExtensionCleanup: (() => Promise<void>) | null = null;
+let activeLilyAvailabilityNote: string | undefined;
+let plannerSessionIdCounter = 0;
+
+/**
+ * Monotonic planner session ID: planner-<epochMs>-<pid>-<counter>. The counter guarantees
+ * distinct IDs for two sessions created in the same millisecond, so test determinism comes from
+ * mocked system time plus the counter without adding a startSession clock parameter.
+ */
+function nextPlannerSessionId(): string {
+  return `planner-${Date.now()}-${process.pid}-${plannerSessionIdCounter++}`;
+}
+
+/**
+ * First-turn transform shared by sendMessage and saveDraft. The single firstMessageSent flag is
+ * read and set in exactly one place here, so the first turn is consumed once regardless of which
+ * path fires first: it prepends the availability note (when present) and applies the fresh-session
+ * wrap; every later turn is returned unmodified.
+ */
+function applyFirstTurnTransform(rawText: string): string {
+  if (firstMessageSent) {
+    return rawText;
+  }
+  firstMessageSent = true;
+  return applyLilyLaunchAvailabilityNoteToFirstTurn({
+    guideText: rawText,
+    availabilityNote: activeLilyAvailabilityNote,
+    wrapFreshSession: wrapFreshSessionMessage,
+  });
+}
 
 export async function startSession(
   contextPackDir: string,
@@ -146,10 +180,23 @@ export async function startSession(
   parentTaskBranchView?: PlannerParentBranchViewRequest,
   lilyPersonalityId?: PlannerLilyPersonalityId,
 ): Promise<{ sessionId: string; created: boolean; parentBranchViewStatus?: PlannerParentBranchViewStatus }> {
-  if (broker.isSessionActive()) {
+  const observability = broker.getObservability();
+  if (broker.isSessionActive() && observability.brokerStatus !== 'failed') {
     return broker.startSession();
   }
+  if (broker.isSessionActive()) {
+    // A failed broker session is not reusable. Tear it down, discard pending state,
+    // and clean the failed session's stale extension/parent-branch-view handles here:
+    // reasoning-effort validation below can throw, so deferring cleanup to step 5 would
+    // orphan the prior session's stage and worktrees on a validation failure.
+    broker.endSession();
+    discardPendingRecord();
+    await cleanupActiveLilyExtensionStage();
+    await cleanupActiveParentBranchViewSession();
+  }
   const reasoningEffort = await validatePlanningAgentReasoningEffort();
+  // Clean any stale Lily extension stage and parent branch view before new-session setup.
+  await cleanupActiveLilyExtensionStage();
   await cleanupActiveParentBranchViewSession();
   if (childTaskLineage && !childTaskFocusSnapshot) {
     throw new Error('Child-task planner sessions require a focus snapshot.');
@@ -193,21 +240,30 @@ export async function startSession(
       ? await buildFocusedRepoFromUiSelection(contextPackDir, uiSelection)
       : await resolveSelectedPrimaryRepoRoot(contextPackDir, REPO_ROOT)
         ?? await resolveFocusedRepoRoot(contextPackDir, REPO_ROOT);
-  const plannerSessionId = parentTaskBranchView && childTaskFocusSnapshot && childTaskLineage
-    ? `planner-${Date.now()}`
-    : undefined;
+  const plannerSessionId = nextPlannerSessionId();
+  const resolvedLily = await resolveLilyPlannerLaunchExtensions({
+    repoRoot: REPO_ROOT,
+    plannerSessionId,
+    providerId: getActiveProvider(REPO_ROOT).id,
+  });
   let runtimeFocused = unrewrittenFocused;
   let parentBranchViewStatus: PlannerParentBranchViewStatus | undefined;
   let parentBranchViewSession: PlannerParentBranchViewSession | undefined;
-  if (plannerSessionId) {
-    const parentBranchView = await createPlannerParentBranchViewSession({
-      plannerSessionId,
-      focused: unrewrittenFocused,
-      request: parentTaskBranchView,
-    });
-    runtimeFocused = parentBranchView.focused;
-    parentBranchViewStatus = parentBranchView.status;
-    parentBranchViewSession = parentBranchView.session;
+  if (parentTaskBranchView && childTaskFocusSnapshot && childTaskLineage) {
+    try {
+      const parentBranchView = await createPlannerParentBranchViewSession({
+        plannerSessionId,
+        focused: unrewrittenFocused,
+        request: parentTaskBranchView,
+      });
+      runtimeFocused = parentBranchView.focused;
+      parentBranchViewStatus = parentBranchView.status;
+      parentBranchViewSession = parentBranchView.session;
+    } catch (error: unknown) {
+      // Parent branch view creation failed after staging: clean the stage before throwing.
+      await resolvedLily.cleanup();
+      throw error;
+    }
   }
   const platformAllowlist = getPlanningAgentAllowedRoots();
   const allowedRoots = dedupeRoots([
@@ -234,11 +290,20 @@ export async function startSession(
   // session once the broker confirms a newly created session.
   let result: ReturnType<typeof broker.startSession>;
   try {
-    result = broker.startSession({ sessionId: plannerSessionId, contextPackDir: effectiveContextPackDir, allowedRoots, focusEnv, reasoningEffort, lilyPersonalityId: lilyPersonalityId ?? 'balanced' });
+    result = broker.startSession({
+      sessionId: plannerSessionId,
+      contextPackDir: effectiveContextPackDir,
+      allowedRoots,
+      focusEnv,
+      reasoningEffort,
+      lilyPersonalityId: lilyPersonalityId ?? 'balanced',
+      launchExtensions: resolvedLily.launchExtensions,
+    });
   } catch (error: unknown) {
     if (parentBranchViewSession) {
       await cleanupParentBranchViewSession(parentBranchViewSession);
     }
+    await resolvedLily.cleanup();
     log.warn('planner.session.start.cleanup.failed', {
       contextPackDir: effectiveContextPackDir,
       reason: error instanceof Error ? error.message : String(error),
@@ -250,9 +315,12 @@ export async function startSession(
     if (parentBranchViewSession) {
       await cleanupParentBranchViewSession(parentBranchViewSession);
     }
+    await resolvedLily.cleanup();
     return result;
   }
   activeParentBranchViewSession = parentBranchViewSession ?? null;
+  activeLilyExtensionCleanup = resolvedLily.cleanup;
+  activeLilyAvailabilityNote = resolvedLily.availabilityNote;
 
   firstMessageSent = false;
 
@@ -287,6 +355,7 @@ export async function startSession(
     broker.endSession();
     discardPendingRecord();
     await cleanupActiveParentBranchViewSession();
+    await cleanupActiveLilyExtensionStage();
     log.warn('planner.session.start.cleanup.failed', {
       contextPackDir: effectiveContextPackDir,
       reason: error instanceof Error ? error.message : String(error),
@@ -645,11 +714,7 @@ function resolveRepoRootById(
 }
 
 export async function sendMessage(text: string, displayText?: string): Promise<PlannerSendResult> {
-  let message = text;
-  if (!firstMessageSent) {
-    firstMessageSent = true;
-    message = wrapFreshSessionMessage(text);
-  }
+  const message = applyFirstTurnTransform(text);
   const result = await broker.sendMessage(message);
   if (result === 'sent') {
     const sessionId = broker.getObservability().sessionId ?? undefined;
@@ -663,6 +728,7 @@ export async function endSession(): Promise<{ ended: boolean }> {
   broker.endSession();
   discardPendingRecord();
   await cleanupActiveParentBranchViewSession();
+  await cleanupActiveLilyExtensionStage();
   if (!sessionId) {
     return { ended: false };
   }
@@ -687,6 +753,18 @@ async function cleanupActiveParentBranchViewSession(): Promise<void> {
   await cleanupParentBranchViewSession(session);
 }
 
+async function cleanupActiveLilyExtensionStage(): Promise<void> {
+  if (!activeLilyExtensionCleanup) {
+    return;
+  }
+  const cleanup = activeLilyExtensionCleanup;
+  activeLilyExtensionCleanup = null;
+  activeLilyAvailabilityNote = undefined;
+  // The resolver's cleanup handle logs cleanup.completed/failed and never throws,
+  // so existing staging cleanup continues even when stage removal fails.
+  await cleanup();
+}
+
 async function cleanupParentBranchViewSession(session: PlannerParentBranchViewSession): Promise<void> {
   try {
     await cleanupPlannerParentBranchViewSession(session);
@@ -700,7 +778,7 @@ async function cleanupParentBranchViewSession(session: PlannerParentBranchViewSe
 }
 
 export async function saveDraft(): Promise<PlannerSendResult> {
-  return broker.saveDraft(PLANNER_SAVE_DRAFT_WORKFLOW.prompt);
+  return broker.saveDraft(applyFirstTurnTransform(PLANNER_SAVE_DRAFT_WORKFLOW.prompt));
 }
 
 export function isSessionActive(): boolean {

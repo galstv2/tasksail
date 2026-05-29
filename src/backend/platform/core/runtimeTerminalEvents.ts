@@ -452,19 +452,28 @@ export class RuntimeTerminalEvents {
     detail: string;
   }): Promise<void> {
     const target = input.targetBranch ?? '(unknown target branch)';
-    const applied = input.status === 'applied';
-    const message = applied
-      ? `Code changes from task branch ${input.sourceBranch} were successfully staged on target branch ${target} in target repo ${input.repoLabel} at ${input.targetRepoRoot}.`
-      : input.status === 'disabled'
-        ? `Auto-merge is disabled for target repo ${input.repoLabel} at ${input.targetRepoRoot}. Task branch ${input.sourceBranch} is ready for operator review.`
-        : `Target branch was not updated for ${input.repoLabel} at ${input.targetRepoRoot}: ${input.detail} Task branch ${input.sourceBranch} is ready for operator review.`;
+    const variants: Record<typeof input.status, { message: string; severity: RuntimeTerminalEventSeverity }> = {
+      applied: {
+        message: `Code changes from task branch ${input.sourceBranch} were successfully staged on target branch ${target} in target repo ${input.repoLabel} at ${input.targetRepoRoot}.`,
+        severity: 'success',
+      },
+      disabled: {
+        message: `Auto-merge is disabled for target repo ${input.repoLabel} at ${input.targetRepoRoot}. Task branch ${input.sourceBranch} is ready for operator review.`,
+        severity: 'info',
+      },
+      skipped: {
+        message: `Target branch was not updated for ${input.repoLabel} at ${input.targetRepoRoot}: ${input.detail} Task branch ${input.sourceBranch} is ready for operator review.`,
+        severity: 'warning',
+      },
+    };
+    const variant = variants[input.status];
     return this.append({
       eventId: `closeout.target_branch_update:${input.repoLabel}:${input.sourceBranch}:${input.status}:${target}`,
       source: 'runtime.closeout',
       role: 'pipeline',
-      severity: applied ? 'success' : input.status === 'disabled' ? 'info' : 'warning',
+      severity: variant.severity,
       visible: true,
-      message,
+      message: variant.message,
       extra: {
         repoLabel: input.repoLabel,
         targetRepoRoot: input.targetRepoRoot,

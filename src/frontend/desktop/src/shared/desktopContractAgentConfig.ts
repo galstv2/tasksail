@@ -1,5 +1,160 @@
 // Agent configuration contract types — extracted from desktopContract.ts for file-size compliance.
 
+// ── Renderer-safe extension catalog types ─────────────────────────────────────
+// These are re-declared here (structurally identical to backend types) so the
+// renderer never imports the node-side backend module directly.
+
+export type AgentExtensionKind = 'skill' | 'plugin';
+export type AgentExtensionSourceType = 'git' | 'local' | 'direct-attachment';
+export type AgentExtensionProviderId = 'copilot';
+export type AgentExtensionAgentId =
+  | 'planning-agent'
+  | 'product-manager'
+  | 'software-engineer'
+  | 'software-engineer-verify'
+  | 'qa';
+
+/** Renderer-safe catalog entry: no raw source paths, no runtime_path, no receipt bodies. */
+export type AgentExtensionRendererCatalogEntry = {
+  id: string;
+  kind: AgentExtensionKind;
+  provider_id: AgentExtensionProviderId;
+  display_name: string;
+  description: string;
+  enabled: boolean;
+  source_type: AgentExtensionSourceType;
+  imported_at?: string;
+  reseeded_at?: string;
+  status: 'available' | 'unavailable';
+  metadata: {
+    skill_names?: string[];
+    plugin_component_classes?: string[];
+    plugin_skill_count?: number;
+  };
+};
+
+export type AgentLaunchExtensionAssignments = {
+  schema_version: 1;
+  assignments: Array<{
+    agent_id: AgentExtensionAgentId;
+    extension_ids: string[];
+  }>;
+};
+
+// ── IPC request / response types ──────────────────────────────────────────────
+
+export type AgentConfigListExtensionsRequest = {
+  action: 'agentConfig.listExtensions';
+  payload?: undefined;
+};
+
+export type AgentConfigListExtensionsResponse = {
+  action: 'agentConfig.listExtensions';
+  mode: 'read-only';
+  message: string;
+  extensions: AgentExtensionRendererCatalogEntry[];
+};
+
+/**
+ * Discriminated add-extension request.
+ * - git:   carries source fields directly (url, ref, optional commit_sha/source_subpath)
+ * - local: carries source fields directly (path, optional source_subpath)
+ * - direct-attachment (skill only): carries skill_markdown. The backend
+ *   writes config/skill-authored/<id>/SKILL.md atomically inside the lock-held
+ *   addAgentExtension transaction; the handler never writes it directly.
+ *   Plugin + direct-attachment is rejected early in the validator.
+ */
+export type AgentConfigAddExtensionRequest =
+  | {
+      action: 'agentConfig.addExtension';
+      payload: {
+        id: string;
+        kind: AgentExtensionKind;
+        provider_id: AgentExtensionProviderId;
+        source: { type: 'git'; url: string; ref: string; commit_sha?: string; source_subpath?: string };
+      };
+    }
+  | {
+      action: 'agentConfig.addExtension';
+      payload: {
+        id: string;
+        kind: AgentExtensionKind;
+        provider_id: AgentExtensionProviderId;
+        source: { type: 'local'; path: string; source_subpath?: string };
+      };
+    }
+  | {
+      action: 'agentConfig.addExtension';
+      payload: {
+        id: string;
+        kind: 'skill'; // direct-attachment only valid for skills (V1)
+        provider_id: AgentExtensionProviderId;
+        source: { type: 'direct-attachment'; skill_markdown: string };
+      };
+    };
+
+export type AgentConfigAddExtensionResponse = {
+  action: 'agentConfig.addExtension';
+  mode: 'mutated';
+  message: string;
+  extension: AgentExtensionRendererCatalogEntry;
+};
+
+export type AgentConfigReseedExtensionRequest = {
+  action: 'agentConfig.reseedExtension';
+  payload: { id: string };
+};
+
+export type AgentConfigReseedExtensionResponse = {
+  action: 'agentConfig.reseedExtension';
+  mode: 'mutated';
+  message: string;
+  extension: AgentExtensionRendererCatalogEntry;
+};
+
+export type AgentConfigDeleteExtensionRequest = {
+  action: 'agentConfig.deleteExtension';
+  // remove_assignments=true performs the combined delete-plus-unassign transaction:
+  // the backend removes the ID from every agent (atomic assignment write) before
+  // deleting. Omitted/false keeps the fail-closed behavior for assigned entries.
+  payload: { id: string; remove_assignments?: boolean };
+};
+
+export type AgentConfigDeleteExtensionResponse = {
+  action: 'agentConfig.deleteExtension';
+  mode: 'deleted';
+  message: string;
+  id: string;
+};
+
+export type AgentConfigLoadExtensionAssignmentsRequest = {
+  action: 'agentConfig.loadExtensionAssignments';
+  payload?: undefined;
+};
+
+export type AgentConfigLoadExtensionAssignmentsResponse = {
+  action: 'agentConfig.loadExtensionAssignments';
+  mode: 'read-only';
+  message: string;
+  assignments: AgentLaunchExtensionAssignments['assignments'];
+};
+
+export type AgentConfigSaveExtensionAssignmentsRequest = {
+  action: 'agentConfig.saveExtensionAssignments';
+  payload: {
+    assignments: AgentLaunchExtensionAssignments['assignments'];
+  };
+};
+
+export type AgentConfigSaveExtensionAssignmentsResponse = {
+  action: 'agentConfig.saveExtensionAssignments';
+  mode: 'mutated';
+  message: string;
+  assignments: AgentLaunchExtensionAssignments['assignments'];
+};
+
+// ── Existing agent config types ────────────────────────────────────────────────
+
 export type AgentConfigAgentEntry = {
   agent_id: string;
   human_name: string;

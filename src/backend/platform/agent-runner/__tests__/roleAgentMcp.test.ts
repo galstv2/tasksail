@@ -78,13 +78,27 @@ vi.mock('../../context-pack/focusedRepo.js', () => ({
   explainSelectedPrimaryBoundaryFailure: vi.fn(async () => 'no authoritative selection found.'),
 }));
 
+vi.mock('../../queue/taskJson.js', () => ({
+  readTaskJsonSafe: vi.fn(),
+}));
+
+vi.mock('../../context-pack/taskPackSnapshot.js', () => ({
+  loadTaskPackSnapshot: vi.fn(),
+}));
+
 vi.mock('../../core/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/index.js')>('../../core/index.js');
   return {
     resolvePaths: vi.fn(),
+    resolvePath: actual.resolvePath,
+    canonicalRoot: actual.canonicalRoot,
+    isPathWithinBoundary: actual.isPathWithinBoundary,
     stripWrappingQuotes: actual.stripWrappingQuotes,
     getErrorMessage: actual.getErrorMessage,
     createLogger: () => testLogger,
+    emitTaskProgressEvent: vi.fn(async () => undefined),
+    normalizeAgentLaunchPhase: actual.normalizeAgentLaunchPhase,
+    normalizeTaskAgentLaunchOutcome: actual.normalizeTaskAgentLaunchOutcome,
     ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
   };
@@ -127,6 +141,8 @@ const { resolvePaths } = await import('../../core/index.js');
 const { readTextFile } = await import('../../core/io.js');
 const { resolveFocusedRepoRoot } = await import('../../context-pack/focusedRepo.js');
 const { resolveSelectedPrimaryRepoRoot } = await import('../../context-pack/focusedRepo.js');
+const { readTaskJsonSafe } = await import('../../queue/taskJson.js');
+const { loadTaskPackSnapshot } = await import('../../context-pack/taskPackSnapshot.js');
 const { launchAgent, waitForAgentDetailed } = await import('../processLifecycle.js');
 const { captureCodeDiff, prepareExternalMcpLaunchContext } = await import('../pythonHelpers.js');
 const { runRuntimePolicyCheck, writeGuardrailReceipt, guardrailReceiptPath } = await import('../guardrails.js');
@@ -149,6 +165,8 @@ const mockedResolvePaths = vi.mocked(resolvePaths);
 const mockedReadTextFile = vi.mocked(readTextFile);
 const mockedResolveFocusedRepoRoot = vi.mocked(resolveFocusedRepoRoot);
 const mockedResolveSelectedPrimaryRepoRoot = vi.mocked(resolveSelectedPrimaryRepoRoot);
+const mockedReadTaskJsonSafe = vi.mocked(readTaskJsonSafe);
+const mockedLoadTaskPackSnapshot = vi.mocked(loadTaskPackSnapshot);
 const mockedLaunchAgent = vi.mocked(launchAgent);
 const mockedWaitForAgentDetailed = vi.mocked(waitForAgentDetailed);
 const mockedCaptureCodeDiff = vi.mocked(captureCodeDiff);
@@ -219,6 +237,42 @@ function setupCommonMocks(): void {
   });
   mockedResolveFocusedRepoRoot.mockResolvedValue(undefined);
   mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
+  mockedLoadTaskPackSnapshot.mockResolvedValue({
+    schemaVersion: 2,
+    stagedAt: '2026-01-01T00:00:00Z',
+    taskId: 't1',
+    contextPackDir: '/ctx',
+    contextPackId: 'ctx',
+    estateType: 'single-repo',
+    primary: { repoId: 'platform', focusId: null, repoRoot: '/repo/source', primaryFocusRelativePath: null },
+    support: [],
+    focusAreas: [],
+    selectedFocusIds: [],
+    qmdScopeRoot: '',
+    estateRepoIds: ['platform'],
+    declaredRepoRoots: ['/repo/source'],
+    deepFocus: {
+      enabled: false,
+      primaryFocusTargetKind: null,
+      primaryFocusTargets: [],
+      selectedTestTarget: null,
+      supportTargets: [],
+      writableRoots: [],
+      readonlyContextRoots: [],
+      warnings: [],
+    },
+  } as never);
+  mockedReadTaskJsonSafe.mockReturnValue({
+    contextPackBinding: {
+      repoBindings: [{
+        originalRoot: '/repo/source',
+        worktreeRoot: '/repo',
+        worktreeBranch: 'task/t1',
+        baseCommitSha: 'abc123',
+      }],
+      readonlyContextBindings: [],
+    },
+  } as never);
   mockedRunRuntimePolicyCheck.mockResolvedValue({
     stdout: '',
     stderr: '',

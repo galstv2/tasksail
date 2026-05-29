@@ -25,27 +25,19 @@ export function hasReasoningEffort(value: unknown): boolean {
 
 export function orderProviderReasoningEffortChoices(choices: readonly string[]): string[] {
   const seen = new Set<string>();
-  const normalized: string[] = [];
   for (const choice of choices) {
     const effort = normalizeReasoningEffort(choice);
     if (effort && EFFORT_PATTERN.test(effort)) {
-      normalized.push(effort);
+      seen.add(effort);
     }
   }
 
   const preferred = ['low', 'medium', 'high', 'xhigh', 'max'];
-  const ordered = [
-    ...preferred.filter((choice) => normalized.includes(choice)),
-    ...normalized.filter((choice) => !preferred.includes(choice)).sort(),
+  const preferredSet = new Set(preferred);
+  return [
+    ...preferred.filter((choice) => seen.has(choice)),
+    ...[...seen].filter((choice) => !preferredSet.has(choice)).sort(),
   ];
-
-  return ordered.filter((choice) => {
-    if (seen.has(choice)) {
-      return false;
-    }
-    seen.add(choice);
-    return true;
-  });
 }
 
 export function validateReasoningEffortForCapabilities(input: {

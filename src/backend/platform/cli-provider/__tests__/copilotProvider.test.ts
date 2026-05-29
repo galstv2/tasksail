@@ -242,6 +242,59 @@ describe('copilotProvider', () => {
     expect(env).not.toHaveProperty('COPILOT_REASONING_EFFORT');
   });
 
+  it('buildArgs appends one --plugin-dir pair per staged plugin dir after add-dir roots', () => {
+    const result = copilotProvider.buildArgs(profile, intent, {
+      launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+      launchExtensions: {
+        pluginDirs: ['/stage/plugins/p1', '/stage/plugins/p2'],
+        skillDirs: ['/stage/skills'],
+      },
+    });
+
+    // Repeated --plugin-dir pairs in deterministic input order, after --add-dir.
+    expect(result.args.slice(result.args.lastIndexOf('--add-dir') + 2)).toEqual([
+      '--plugin-dir', '/stage/plugins/p1',
+      '--plugin-dir', '/stage/plugins/p2',
+    ]);
+    // Skill dirs are env-only; they never appear in argv.
+    expect(result.args).not.toContain('/stage/skills');
+  });
+
+  it('buildArgs emits no --plugin-dir when launchExtensions carries no plugin dirs', () => {
+    const result = copilotProvider.buildArgs(profile, intent, {
+      launchContext: { repoRoot: '/repo', requestedCwd: '/repo' },
+      launchExtensions: { pluginDirs: [], skillDirs: ['/stage/skills'] },
+    });
+    expect(result.args).not.toContain('--plugin-dir');
+  });
+
+  it('buildEnv adds COPILOT_SKILLS_DIRS only when skillDirs is non-empty and never leaks plugin dirs', () => {
+    const withSkills = copilotProvider.buildEnv({
+      model: 'gpt-5.2',
+      agentId: 'software-engineer',
+      platformRepoRoot: '/repo',
+      launchExtensions: { pluginDirs: ['/stage/plugins/p1'], skillDirs: ['/s/a', '/s/b'] },
+    });
+    expect(withSkills['COPILOT_SKILLS_DIRS']).toBe('/s/a,/s/b');
+    expect(Object.values(withSkills)).not.toContain('/stage/plugins/p1');
+
+    const noSkills = copilotProvider.buildEnv({
+      model: 'gpt-5.2',
+      agentId: 'software-engineer',
+      platformRepoRoot: '/repo',
+      launchExtensions: { pluginDirs: ['/stage/plugins/p1'], skillDirs: [] },
+    });
+    expect(noSkills).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+  });
+
+  it('treats COPILOT_SKILLS_DIRS as provider-controlled but never records it in runtime manifest env descriptors', () => {
+    // Controlled: scrubbed if inherited, so a stray ambient value cannot reach the agent.
+    expect(copilotProvider.controlledEnvKeys()).toContain('COPILOT_SKILLS_DIRS');
+    // Excluded from the runtime path manifest descriptors, so staged skill paths never
+    // surface in the runtime path manifest written into the launch payload.
+    expect(copilotProvider.runtimeManifestEnvVars().map((item) => item.name)).not.toContain('COPILOT_SKILLS_DIRS');
+  });
+
   it('exposes reasoning effort capabilities without effort env or runtime manifest leakage', async () => {
     fs.mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
     fs.writeFileSync(path.join(repoRoot, '.platform-state', 'copilot-cli-capabilities.json'), JSON.stringify({

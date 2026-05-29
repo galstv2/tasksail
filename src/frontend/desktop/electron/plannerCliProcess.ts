@@ -3,7 +3,10 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 
 import { getActiveProvider, type CliProvider } from '../../../backend/platform/cli-provider/index.js';
-import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import type {
+  GenericAgentEnv,
+  PlannerLaunchExtensionDirs,
+} from '../../../backend/platform/cli-provider/types.js';
 import type { PlannerLilyPersonalityId } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 import type { PlannerCliInvocation } from './plannerSession.types';
@@ -31,7 +34,10 @@ export type BuildPlannerCliInvocationOptions = {
   additionalEnv?: NodeJS.ProcessEnv;
   focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
   lilyPersonalityId?: PlannerLilyPersonalityId;
+  launchExtensions?: PlannerLaunchExtensionDirs;
 };
+
+const PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY = ['COPILOT', 'SKILLS', 'DIRS'].join('_');
 
 let cachedPlannerRegistryEntry: { registryPath: string; plannerAgentId: string; entry: PlannerAgentRegistryEntry } | null = null;
 
@@ -112,7 +118,17 @@ function inheritedPlannerEnv(controlledEnvKeys: readonly string[]): NodeJS.Proce
   for (const key of controlledEnvKeys) {
     delete env[key];
   }
+  delete env[PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY];
   return env;
+}
+
+function sanitizedAdditionalPlannerEnv(additionalEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
+  if (!additionalEnv) {
+    return undefined;
+  }
+  const sanitized = { ...additionalEnv };
+  delete sanitized[PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY];
+  return sanitized;
 }
 
 export function buildPlannerCliInvocation(
@@ -151,8 +167,10 @@ export function buildPlannerCliInvocation(
     workingDirectory: options.workingDirectory ?? REPO_ROOT,
     focusEnv: options.focusEnv,
     lilyPersonalityId: options.lilyPersonalityId,
+    launchExtensions: options.launchExtensions,
   };
   const launchSpec = buildLaunchSpec(plannerLaunchOptions);
+  const additionalEnv = sanitizedAdditionalPlannerEnv(options.additionalEnv);
 
   if (!launchSpec) {
     throw new Error(`Active provider "${provider.id}" does not support planner CLI sessions.`);
@@ -167,7 +185,7 @@ export function buildPlannerCliInvocation(
       RUN_ROLE_AGENT_ACTIVE_MODEL: model,
       ...(plannerSessionId ? { PLANNER_SESSION_ID: plannerSessionId } : {}),
       ...launchSpec.env,
-      ...options.additionalEnv,
+      ...additionalEnv,
     },
     agentId: launchSpec.agentId,
     model,

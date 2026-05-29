@@ -4,7 +4,10 @@ import {
   getActiveProvider,
   isReasoningEffortRejectionOutput,
 } from '../../../backend/platform/cli-provider/index.js';
-import type { GenericAgentEnv } from '../../../backend/platform/cli-provider/types.js';
+import type {
+  GenericAgentEnv,
+  PlannerLaunchExtensionDirs,
+} from '../../../backend/platform/cli-provider/types.js';
 import { createLogger } from '../../../backend/platform/core/logger.js';
 import type { PlannerLilyPersonalityId } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
@@ -53,6 +56,7 @@ type PlannerSessionRecord = {
   reasoningEffort: string | null;
   focusEnv: Omit<GenericAgentEnv, 'model' | 'agentId'> | null;
   lilyPersonalityId: PlannerLilyPersonalityId;
+  launchExtensions: PlannerLaunchExtensionDirs | null;
 };
 
 type PendingTurn = {
@@ -94,6 +98,18 @@ function createPlannerBrokerObservation(): PlannerBrokerObservation {
   };
 }
 
+function captureLaunchExtensions(
+  launchExtensions?: PlannerLaunchExtensionDirs,
+): PlannerLaunchExtensionDirs | null {
+  if (!launchExtensions) {
+    return null;
+  }
+  return Object.freeze({
+    pluginDirs: Object.freeze([...launchExtensions.pluginDirs]),
+    skillDirs: Object.freeze([...launchExtensions.skillDirs]),
+  });
+}
+
 export class PlannerSessionBroker {
   private readonly emitEvent: PlannerEventEmitter;
 
@@ -119,6 +135,7 @@ export class PlannerSessionBroker {
     reasoningEffort?: string;
     focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
     lilyPersonalityId?: PlannerLilyPersonalityId;
+    launchExtensions?: PlannerLaunchExtensionDirs;
   }): { sessionId: string; created: boolean } {
     if (this.session && this.session.state.brokerStatus !== 'failed') {
       this.session.endingSession = false;
@@ -150,6 +167,7 @@ export class PlannerSessionBroker {
       // Captured once at session start; planner sessions are stable scopes.
       focusEnv: options?.focusEnv ?? null,
       lilyPersonalityId: options?.lilyPersonalityId ?? 'balanced',
+      launchExtensions: captureLaunchExtensions(options?.launchExtensions),
     };
     this.observation = {
       ...createPlannerBrokerObservation(),
@@ -340,6 +358,7 @@ export class PlannerSessionBroker {
       additionalEnv: session.contextPackDir ? { ACTIVE_CONTEXT_PACK_DIR: session.contextPackDir } : undefined,
       focusEnv: session.focusEnv ?? undefined,
       lilyPersonalityId: session.lilyPersonalityId,
+      launchExtensions: session.launchExtensions === null ? undefined : session.launchExtensions,
     });
     session.activeProcess = child;
     this.observation = {

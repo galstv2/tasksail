@@ -6,6 +6,7 @@ import type { RunSummary } from './processLifecycle.js';
 import type { AgentLifecycleProgressInput } from '../core/taskProgressEvents.js';
 import { readTextFile } from '../core/io.js';
 import { createLogger, emitTaskProgressEvent, getErrorMessage } from '../core/index.js';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
 import {
   captureChangedPathsSnapshot,
   validateDaltonBoundaryChanges,
@@ -16,6 +17,11 @@ import { agentErrorWithTails } from './recoveryPasses.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 
 const log = createLogger('platform/agent-runner/daltonLaunchPrep');
+
+export interface DaltonBoundaryMonitorRoots {
+  readonly roots: string[];
+  readonly source: 'task-sidecar-worktrees' | 'legacy-focused-roots';
+}
 
 export function resolveDaltonLaunchCwd(
   focused: FocusedRepoResult,
@@ -48,11 +54,63 @@ export function resolveDaltonLaunchCwd(
   return focusCwd;
 }
 
+export function resolveDaltonBoundaryMonitorRoots(options: {
+  taskId?: string;
+  repoRoot: string;
+  focused: FocusedRepoResult;
+}): DaltonBoundaryMonitorRoots {
+  const taskId = options.taskId?.trim();
+  if (!taskId) {
+    return {
+      roots: [options.repoRoot, ...options.focused.declaredRepoRoots],
+      source: 'legacy-focused-roots',
+    };
+  }
+
+  const taskJson = readTaskJsonSafe(taskId, options.repoRoot);
+  if (!taskJson) {
+    throw new Error(
+      `Cannot prepare Dalton confinement for taskId=${taskId}: task sidecar is missing or unreadable.`,
+    );
+  }
+
+  const repoBindings = taskJson.contextPackBinding.repoBindings ?? [];
+  const readonlyBindings = taskJson.contextPackBinding.readonlyContextBindings ?? [];
+  if (repoBindings.length === 0 && readonlyBindings.length === 0) {
+    throw new Error(
+      `Cannot prepare Dalton confinement for taskId=${taskId}: no task worktree roots found in task sidecar.`,
+    );
+  }
+
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  for (const binding of [...repoBindings, ...readonlyBindings]) {
+    const root = binding.worktreeRoot;
+    if (!root.trim() || seen.has(root)) {
+      continue;
+    }
+    seen.add(root);
+    roots.push(root);
+  }
+
+  if (roots.length === 0) {
+    throw new Error(
+      `Cannot prepare Dalton confinement for taskId=${taskId}: no task worktree roots found in task sidecar.`,
+    );
+  }
+
+  return {
+    roots,
+    source: 'task-sidecar-worktrees',
+  };
+}
+
 export async function prepareDaltonBoundary(
   focused: FocusedRepoResult,
   options: {
     agentId: RunRoleAgentOptions['agentId'];
     repoRoot: string;
+    taskId?: string;
     usesFocusedRepoLaunch: boolean;
     verificationTempAllowedDir?: string;
   },
@@ -75,10 +133,12 @@ export async function prepareDaltonBoundary(
     }
   }
 
-  const preRunBoundarySnapshot = await captureChangedPathsSnapshot([
-    options.repoRoot,
-    ...focused.declaredRepoRoots,
-  ]);
+  const monitorRoots = resolveDaltonBoundaryMonitorRoots({
+    taskId: options.taskId,
+    repoRoot: options.repoRoot,
+    focused,
+  });
+  const preRunBoundarySnapshot = await captureChangedPathsSnapshot(monitorRoots.roots);
 
   return { agentCwd, preRunBoundarySnapshot };
 }
@@ -89,10 +149,9 @@ export async function validateDaltonPostRunBoundary(options: {
   preRunBoundarySnapshot: ChangedPathsSnapshot;
   agentSpawnedAtMs?: number;
 }): Promise<void> {
-  const postRunBoundarySnapshot = await captureChangedPathsSnapshot([
-    options.platformRepoRoot,
-    ...options.focused.declaredRepoRoots,
-  ]);
+  const postRunBoundarySnapshot = await captureChangedPathsSnapshot(
+    Object.keys(options.preRunBoundarySnapshot.byRepoRoot),
+  );
   await validateDaltonBoundaryChanges({
     platformRepoRoot: options.platformRepoRoot,
     focused: options.focused,

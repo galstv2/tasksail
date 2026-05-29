@@ -36,6 +36,16 @@ import {
   type AgentConfigRemoveModelResponse,
   type AgentConfigSaveAgentModelsRequest,
   type AgentConfigSaveAgentModelsResponse,
+  type AgentConfigListExtensionsResponse,
+  type AgentConfigAddExtensionResponse,
+  type AgentConfigReseedExtensionResponse,
+  type AgentConfigDeleteExtensionResponse,
+  type AgentConfigLoadExtensionAssignmentsResponse,
+  type AgentConfigSaveExtensionAssignmentsResponse,
+  type AgentConfigAddExtensionRequest,
+  type AgentConfigReseedExtensionRequest,
+  type AgentConfigDeleteExtensionRequest,
+  type AgentConfigSaveExtensionAssignmentsRequest,
   type AgentInstructionsListFilesResponse,
   type AgentInstructionsReadFileResponse,
   type AgentInstructionsWriteFileResponse,
@@ -572,6 +582,42 @@ export const desktopShellApi = {
       action: 'agentConfig.removeModel',
       payload: { model_id },
     }),
+  listAgentExtensions: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.listExtensions',
+    }),
+  addAgentExtension: async (
+    payload: AgentConfigAddExtensionRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.addExtension',
+      payload,
+    }),
+  reseedAgentExtension: async (
+    payload: AgentConfigReseedExtensionRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.reseedExtension',
+      payload,
+    }),
+  deleteAgentExtension: async (
+    payload: AgentConfigDeleteExtensionRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.deleteExtension',
+      payload,
+    }),
+  loadAgentExtensionAssignments: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadExtensionAssignments',
+    }),
+  saveAgentExtensionAssignments: async (
+    payload: AgentConfigSaveExtensionAssignmentsRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.saveExtensionAssignments',
+      payload,
+    }),
   listInstructionFiles: async (
     directory: InstructionDirectory,
   ): Promise<DesktopInvokeResult> =>
@@ -1063,6 +1109,20 @@ export type DesktopShellApi = {
   ) => Promise<DesktopInvokeResult>;
   addModel: (display_name: string, model_id: string) => Promise<DesktopInvokeResult>;
   removeModel: (model_id: string) => Promise<DesktopInvokeResult>;
+  listAgentExtensions: () => Promise<DesktopInvokeResult>;
+  addAgentExtension: (
+    payload: AgentConfigAddExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  reseedAgentExtension: (
+    payload: AgentConfigReseedExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  deleteAgentExtension: (
+    payload: AgentConfigDeleteExtensionRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadAgentExtensionAssignments: () => Promise<DesktopInvokeResult>;
+  saveAgentExtensionAssignments: (
+    payload: AgentConfigSaveExtensionAssignmentsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   listInstructionFiles: (directory: InstructionDirectory) => Promise<DesktopInvokeResult>;
   readInstructionFile: (relativePath: string) => Promise<DesktopInvokeResult>;
   writeInstructionFile: (relativePath: string, content: string) => Promise<DesktopInvokeResult>;
@@ -1178,6 +1238,12 @@ export type DesktopAllowedResponses =
   | AgentConfigSaveAgentModelsResponse
   | AgentConfigAddModelResponse
   | AgentConfigRemoveModelResponse
+  | AgentConfigListExtensionsResponse
+  | AgentConfigAddExtensionResponse
+  | AgentConfigReseedExtensionResponse
+  | AgentConfigDeleteExtensionResponse
+  | AgentConfigLoadExtensionAssignmentsResponse
+  | AgentConfigSaveExtensionAssignmentsResponse
   | AgentInstructionsListFilesResponse
   | AgentInstructionsReadFileResponse
   | AgentInstructionsWriteFileResponse

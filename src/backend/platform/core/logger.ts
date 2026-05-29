@@ -109,7 +109,18 @@ export type ProgressEvent =
   | 'guardrail.receipt.artifact_incomplete'
   | 'guardrail.receipt.policy_blocked'
   | 'guardrail.receipt.denied'
-  | 'guardrail.receipt.malformed';
+  | 'guardrail.receipt.malformed'
+  | 'agent_extensions.reconcile.started'
+  | 'agent_extensions.reconcile.completed'
+  | 'agent_extensions.reconcile.entry_unavailable'
+  | 'agent_extensions.catalog.added'
+  | 'agent_extensions.catalog.reseeded'
+  | 'agent_extensions.catalog.deleted'
+  | 'agent_extensions.catalog.add.failed'
+  | 'agent_extensions.catalog.reseed.failed'
+  | 'agent_extensions.catalog.delete.failed'
+  | 'agent_extensions.assignment.save.rejected'
+  | 'agent_extensions.assignment.save.completed';
 
 export type ProgressLevel = 'info' | 'warn' | 'error';
 

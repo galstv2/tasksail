@@ -8,15 +8,18 @@ import type {
   PlannerNormalizedEvent,
   PlannerUsage,
 } from '../../types.js';
+import { createLogger } from '../../../core/logger.js';
 import { normalizeReasoningEffort } from '../../reasoningEffort.js';
 import { REPO_EXECUTOR_DENY_FLOOR } from './denyRules.js';
 import { buildCopilotEnv } from './envMapper.js';
+import { buildCopilotPlannerLaunchExtensionArgs, buildCopilotPlannerLaunchExtensionEnv } from './launchExtensions.js';
 import { applyCopilotPlannerPersonality } from './plannerPersonality.js';
 
 const PLANNER_ALLOW_TOOLS = ['write'];
 // Planner runs as artifact-author with the repo-executor destructive-shell
 // floor plus a blanket shell deny — it should never spawn shells at all.
 const PLANNER_DENY_TOOLS = [...REPO_EXECUTOR_DENY_FLOOR, 'shell'];
+const log = createLogger('platform/copilot/plannerAdapter');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -337,6 +340,7 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
     .map((root) => (path.isAbsolute(root) ? root : path.join(launchCwd, root)));
 
   const reasoningEffort = normalizeReasoningEffort(options.reasoningEffort);
+  const launchExtensionArgs = buildCopilotPlannerLaunchExtensionArgs(options.launchExtensions);
   const args = [
     '--agent', COPILOT_PLANNER_AGENT_ID,
     '--model', options.model,
@@ -345,6 +349,7 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
     ...PLANNER_ALLOW_TOOLS.flatMap((tool) => ['--allow-tool', tool]),
     ...PLANNER_DENY_TOOLS.flatMap((tool) => ['--deny-tool', tool]),
     ...allowedRoots.flatMap((root) => ['--add-dir', root]),
+    ...launchExtensionArgs,
     ...(options.contextPackBoundaryEnforced ? ['--disallow-temp-dir'] : []),
     ...(options.resumeSessionId ? [`--resume=${options.resumeSessionId}`] : []),
     '--output-format', 'json',
@@ -366,12 +371,35 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
     }
   }
 
-  const providerEnv = buildCopilotEnv({
-    ...options.focusEnv,
-    model: options.model,
-    agentId: COPILOT_PLANNER_AGENT_ID,
-    platformRepoRoot: options.focusEnv?.platformRepoRoot ?? launchCwd,
-  });
+  const launchExtensionEnv = buildCopilotPlannerLaunchExtensionEnv(options.launchExtensions);
+  const providerEnv = {
+    ...buildCopilotEnv({
+      ...options.focusEnv,
+      model: options.model,
+      agentId: COPILOT_PLANNER_AGENT_ID,
+      platformRepoRoot: options.focusEnv?.platformRepoRoot ?? launchCwd,
+    }),
+    ...launchExtensionEnv,
+  };
+
+  const pluginDirCount = options.launchExtensions?.pluginDirs.length ?? 0;
+  const skillDirCount = options.launchExtensions?.skillDirs.length ?? 0;
+  if (pluginDirCount > 0) {
+    log.info('copilot.launch_extensions.plugin_dirs.applied', {
+      providerId: 'copilot',
+      plannerSessionId: options.plannerSessionId ?? null,
+      agentId: COPILOT_PLANNER_AGENT_ID,
+      count: pluginDirCount,
+    });
+  }
+  if (skillDirCount > 0) {
+    log.info('copilot.launch_extensions.skill_dirs.applied', {
+      providerId: 'copilot',
+      plannerSessionId: options.plannerSessionId ?? null,
+      agentId: COPILOT_PLANNER_AGENT_ID,
+      count: skillDirCount, envVarName: Object.keys(launchExtensionEnv)[0] ?? null,
+    });
+  }
 
   return {
     agentId: COPILOT_PLANNER_AGENT_ID,

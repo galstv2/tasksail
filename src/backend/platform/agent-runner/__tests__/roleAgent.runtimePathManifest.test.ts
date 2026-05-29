@@ -137,6 +137,9 @@ vi.mock('../../cli-provider/index.js', () => ({
     ],
     agentConfigPaths: () => ({ registry: '.github/agents/registry.json' }),
   })),
+  normalizeReasoningEffort: (effort?: string) => (effort && effort !== 'none' ? effort : undefined),
+  validateReasoningEffortForCapabilities: () => ({ status: 'ok' as const }),
+  isReasoningEffortRejectionOutput: () => false,
 }));
 vi.mock('../../core/io.js', () => ({ readTextFile: vi.fn(async () => 'Launch prompt.') }));
 vi.mock('../../container/sharedMcp.js', () => ({
@@ -247,6 +250,27 @@ describe('roleAgent Runtime Path Manifest', () => {
     expect(mocks.runAgentSession.mock.calls.at(-1)?.[0].cliArgs.at(-1)).toContain('## Runtime Path Manifest');
     for (const call of mocks.buildAgentRuntimePathManifest.mock.calls) {
       expect(call[0]).toEqual(expect.objectContaining({ includeRoleArtifactChecklist: false }));
+    }
+  });
+
+  it('keeps COPILOT_SKILLS_DIRS, --plugin-dir, and staged extension paths out of the manifest prompt', async () => {
+    for (const agentId of ['alice', 'ron'] as const) {
+      mocks.resolveAgentProfile.mockReturnValue(profile(agentId));
+      await runRoleAgent({ agentId, taskId: 'task-1', skipWorkflowValidation: true });
+    }
+
+    const prompts = mocks.runAgentSession.mock.calls.map((call) => call[0].cliArgs.at(-1) as string);
+    for (const prompt of prompts) {
+      expect(prompt).toContain('## Runtime Path Manifest');
+      expect(prompt).not.toContain('COPILOT_SKILLS_DIRS');
+      expect(prompt).not.toContain('--plugin-dir');
+      expect(prompt).not.toContain('.platform-state/agent-extension-stage');
+    }
+    // The provider env-var descriptors that feed the manifest never include the
+    // skills env, so staged skill dirs cannot reach prompt-visible manifest content.
+    for (const call of mocks.buildAgentRuntimePathManifest.mock.calls) {
+      const providerEnvVars = call[0].providerEnvVars as Array<{ name: string }>;
+      expect(providerEnvVars.map((entry) => entry.name)).not.toContain('COPILOT_SKILLS_DIRS');
     }
   });
 

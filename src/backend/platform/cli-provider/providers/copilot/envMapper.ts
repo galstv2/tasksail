@@ -1,4 +1,5 @@
 import type { GenericAgentEnv, ProviderRuntimeManifestEnvVar } from '../../types.js';
+import { buildCopilotLaunchExtensionEnv } from './launchExtensions.js';
 
 export const COPILOT_CONTROLLED_ENV_KEYS = [
   'COPILOT_MODEL',
@@ -19,6 +20,7 @@ export const COPILOT_CONTROLLED_ENV_KEYS = [
   'COPILOT_TEST_TARGET_KIND',
   'COPILOT_CONTEXT_PACK_PATHS',
   'COPILOT_CONTEXT_PACK_SEARCH_ROOTS',
+  'COPILOT_SKILLS_DIRS',
 ] as const;
 
 export const COPILOT_RUNTIME_MANIFEST_ENV_VARS: readonly ProviderRuntimeManifestEnvVar[] = [
@@ -66,6 +68,11 @@ export function buildCopilotEnv(generic: GenericAgentEnv): Record<string, string
   setOptional(env, 'COPILOT_TEST_TARGET_KIND', generic.testTargetKind);
   setOptional(env, 'COPILOT_CONTEXT_PACK_PATHS', generic.contextPackPaths);
   setOptional(env, 'COPILOT_CONTEXT_PACK_SEARCH_ROOTS', generic.contextPackSearchRoots);
+
+  // Staged skill dirs as the comma-joined COPILOT_SKILLS_DIRS value. This key
+  // is controlled (scrubbed if inherited) but intentionally excluded from
+  // COPILOT_RUNTIME_MANIFEST_ENV_VARS so staged paths never reach prompts.
+  Object.assign(env, buildCopilotLaunchExtensionEnv(generic.launchExtensions));
 
   return env;
 }

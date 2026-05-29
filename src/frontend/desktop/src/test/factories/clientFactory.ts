@@ -784,6 +784,52 @@ export function createMockClient(
         relativePath: '',
       },
     }),
+    listAgentExtensions: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.listExtensions',
+        mode: 'read-only',
+        message: '0 extension(s) loaded.',
+        extensions: [],
+      },
+    }),
+    addAgentExtension: vi.fn().mockResolvedValue({
+      ok: false,
+      action: 'agentConfig.addExtension',
+      error: 'Mock: add not configured.',
+    }),
+    reseedAgentExtension: vi.fn().mockResolvedValue({
+      ok: false,
+      action: 'agentConfig.reseedExtension',
+      error: 'Mock: reseed not configured.',
+    }),
+    deleteAgentExtension: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.deleteExtension',
+        mode: 'deleted',
+        message: 'Deleted.',
+        id: 'mock-id',
+      },
+    }),
+    loadAgentExtensionAssignments: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadExtensionAssignments',
+        mode: 'read-only',
+        message: '0 agent assignment(s) loaded.',
+        assignments: [],
+      },
+    }),
+    saveAgentExtensionAssignments: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.saveExtensionAssignments',
+        mode: 'mutated',
+        message: 'Saved extension assignments for 0 agent(s).',
+        assignments: [],
+      },
+    }),
     ...overrides,
   };
 }

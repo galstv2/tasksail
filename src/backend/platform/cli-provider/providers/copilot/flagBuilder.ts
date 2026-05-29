@@ -6,6 +6,7 @@ import type {
 } from '../../types.js';
 import { normalizeReasoningEffort } from '../../reasoningEffort.js';
 import { ARTIFACT_AUTHOR_DENY_FLOOR, REPO_EXECUTOR_DENY_FLOOR, hasShellAccess } from './denyRules.js';
+import { buildCopilotLaunchExtensionArgs } from './launchExtensions.js';
 import { isInlineAgentContext } from './launchContext.js';
 
 function addUnique(target: string[], values: readonly string[]): void {
@@ -67,6 +68,12 @@ export function buildCopilotArgs(
 
   for (const dir of intent.allowedDirs) {
     args.push('--add-dir', dir);
+  }
+
+  // Append staged plugin dirs (one --plugin-dir pair per dir, input order).
+  // Optional capability only; never alters allowed roots or autonomy policy.
+  for (const arg of buildCopilotLaunchExtensionArgs(options.launchExtensions)) {
+    args.push(arg);
   }
 
   return {

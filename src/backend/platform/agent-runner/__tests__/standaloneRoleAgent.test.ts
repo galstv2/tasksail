@@ -17,11 +17,24 @@ const mocks = vi.hoisted(() => ({
   resolveContextPackContainerPath: vi.fn(),
   createRoleLaunchId: vi.fn(),
   sha256Hex: vi.fn(),
+  loadAgentLaunchExtensionAssignments: vi.fn(),
+  createAgentExtensionStage: vi.fn(),
 }));
 
 vi.mock('../metadata.js', () => ({
   loadAgentRegistry: mocks.loadAgentRegistry,
   resolveAgentProfile: mocks.resolveAgentProfile,
+  toRegistryId: (id: string) => (
+    { lily: 'planning-agent', alice: 'product-manager', dalton: 'software-engineer', 'dalton-verify': 'software-engineer-verify', ron: 'qa' }[id]
+  ),
+}));
+
+vi.mock('../../agent-extensions/assignment.js', () => ({
+  loadAgentLaunchExtensionAssignments: mocks.loadAgentLaunchExtensionAssignments,
+}));
+
+vi.mock('../../agent-extensions/stage.js', () => ({
+  createAgentExtensionStage: mocks.createAgentExtensionStage,
 }));
 
 vi.mock('../autonomy.js', () => ({
@@ -82,8 +95,9 @@ function setupCommonMocks(): void {
     allowedDirs: ['/repo'],
     disallowTempDir: false,
   });
-  mocks.buildAgentArgs.mockReturnValue({
-    args: ['--agent', 'qa'],
+  // Faithful to the provider: append one --plugin-dir pair per staged plugin dir.
+  mocks.buildAgentArgs.mockImplementation((_repoRoot, _profile, _intent, options) => ({
+    args: ['--agent', 'qa', ...((options?.launchExtensions?.pluginDirs ?? []).flatMap((dir: string) => ['--plugin-dir', dir]))],
     launchCwd: '/repo',
     inlineAgentContext: false,
     resolvedToolPolicy: {
@@ -92,11 +106,27 @@ function setupCommonMocks(): void {
       allowTools: [],
       denyTools: [],
     },
-  });
-  mocks.buildAgentEnvironment.mockReturnValue({
+  }));
+  // Faithful to the provider: add COPILOT_SKILLS_DIRS only when skill dirs exist.
+  mocks.buildAgentEnvironment.mockImplementation((_profile, _ctx, _repo, options) => ({
     COPILOT_MODEL: 'gpt-4.1',
     COPILOT_AGENT_ID: 'qa',
     TASKSAIL_TASK_ID: '',
+    ...(options?.launchExtensions?.skillDirs?.length ? { COPILOT_SKILLS_DIRS: options.launchExtensions.skillDirs.join(',') } : {}),
+  }));
+  // Default: no assignments configured, so the lock-free pre-check short-circuits
+  // and createAgentExtensionStage is never reached (existing tests stay inert).
+  mocks.loadAgentLaunchExtensionAssignments.mockResolvedValue({
+    schema_version: 1,
+    assignments: [{ agent_id: 'qa', extension_ids: [] }],
+  });
+  mocks.createAgentExtensionStage.mockResolvedValue({
+    launchId: 'launch-1',
+    agentId: 'qa',
+    stageDir: null,
+    launchExtensions: undefined,
+    availabilityEntries: [],
+    cleanup: vi.fn().mockResolvedValue(undefined),
   });
   mocks.buildAutonomyEnvironment.mockImplementation((_profile, intent) => ({
     RUN_ROLE_AGENT_AUTONOMY_ALLOWED_DIRS_JSON: JSON.stringify(intent.allowedDirs),
@@ -372,5 +402,97 @@ describe('runStandaloneRoleAgent', () => {
         taskRuntime: '/runtime/realignment/r-1',
       }),
     }));
+  });
+});
+
+describe('runStandaloneRoleAgent launch extensions', () => {
+  const stageCleanup = vi.fn();
+
+  function withQaAssignments(): void {
+    mocks.loadAgentLaunchExtensionAssignments.mockResolvedValue({
+      schema_version: 1,
+      assignments: [{ agent_id: 'qa', extension_ids: ['ext-1'] }],
+    });
+    stageCleanup.mockResolvedValue(undefined);
+    mocks.createAgentExtensionStage.mockResolvedValue({
+      launchId: 'launch-1',
+      agentId: 'qa',
+      stageDir: '/repo/.platform-state/runtime/agent-extension-stage/launch-1',
+      launchExtensions: { pluginDirs: ['/stage/launch-1/plugins/p1'], skillDirs: ['/stage/launch-1/skills'] },
+      availabilityEntries: [
+        { id: 'sk1', kind: 'skill', display_name: 'Skill One', description: 'does X', metadata: {} },
+        { id: 'pl1', kind: 'plugin', display_name: 'Plugin One', description: 'does Y', metadata: { skill_names: ['bundledA'] } },
+      ],
+      cleanup: stageCleanup,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupCommonMocks();
+    stageCleanup.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('injects qa-assigned plugin args, skills env, and the availability note, then cleans up once on success', async () => {
+    withQaAssignments();
+
+    await runStandaloneRoleAgent({
+      agentId: 'ron',
+      repoRoot: '/repo',
+      runtimeDir: '/runtime/realignment/r-1',
+      launchPhase: 'Realignment Analysis',
+      promptOverride: 'Analyze.',
+    });
+
+    // ron maps to the qa assignment owner.
+    expect(mocks.createAgentExtensionStage).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'qa' }));
+    const call = mocks.runAgentSession.mock.calls[0][0];
+    expect(call.cliArgs).toEqual(expect.arrayContaining(['--plugin-dir', '/stage/launch-1/plugins/p1']));
+    expect(call.env['COPILOT_SKILLS_DIRS']).toBe('/stage/launch-1/skills');
+    const effectivePrompt = call.cliArgs.at(-1) as string;
+    expect(effectivePrompt).toContain('Optional Skills And Plugins Available For This Agent Launch');
+    expect(effectivePrompt).toContain('- Skill: Skill One - does X');
+    expect(effectivePrompt).toContain('- Plugin: Plugin One - does Y');
+    expect(effectivePrompt).toContain('Bundled skills: bundledA');
+    expect(stageCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up the stage exactly once even when the standalone launch fails', async () => {
+    withQaAssignments();
+    mocks.runAgentSession.mockResolvedValue({
+      runSummary: { exitCode: 7, stdoutTail: '', stderrTail: '', terminationReason: 'exited', signalCode: null },
+      greedyStopTriggered: false,
+      sessionReceiptFile: null,
+    });
+
+    await expect(runStandaloneRoleAgent({
+      agentId: 'ron',
+      repoRoot: '/repo',
+      runtimeDir: '/runtime/realignment/r-1',
+      launchPhase: 'Realignment Analysis',
+      promptOverride: 'Analyze.',
+    })).rejects.toThrow(/exited with code 7/);
+
+    expect(stageCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stage or inject extensions when qa has no assignment', async () => {
+    await runStandaloneRoleAgent({
+      agentId: 'ron',
+      repoRoot: '/repo',
+      runtimeDir: '/runtime/realignment/r-1',
+      launchPhase: 'Realignment Analysis',
+      promptOverride: 'Analyze.',
+    });
+
+    expect(mocks.createAgentExtensionStage).not.toHaveBeenCalled();
+    const call = mocks.runAgentSession.mock.calls[0][0];
+    expect(call.cliArgs).not.toContain('--plugin-dir');
+    expect(call.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
+    expect(call.cliArgs.at(-1) as string).not.toContain('Optional Skills And Plugins Available');
   });
 });

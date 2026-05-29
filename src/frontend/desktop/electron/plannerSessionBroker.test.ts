@@ -109,6 +109,184 @@ describe('PlannerSessionBroker stream identity', () => {
     secondChild.emit('exit', 0);
   });
 
+  it('captures launch extensions once and reuses them on every planner turn', async () => {
+    const firstChild = createFakeChildProcess();
+    const secondChild = createFakeChildProcess();
+    const spawnCliProcess = vi.fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
+    const sourceLaunchExtensions = {
+      pluginDirs: ['/plugins/original'],
+      skillDirs: ['/skills/original'],
+    };
+    const broker = new PlannerSessionBroker({
+      spawnCliProcess,
+      now: vi.fn()
+        .mockReturnValueOnce(901)
+        .mockReturnValueOnce(902)
+        .mockReturnValueOnce(903),
+    });
+
+    broker.startSession({ launchExtensions: sourceLaunchExtensions });
+    sourceLaunchExtensions.pluginDirs[0] = '/plugins/mutated';
+    sourceLaunchExtensions.pluginDirs.push('/plugins/late');
+    sourceLaunchExtensions.skillDirs[0] = '/skills/mutated';
+    await broker.sendMessage('First');
+    await Promise.resolve();
+    firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result',
+      sessionId: 'cli-session-1',
+      exitCode: 0,
+    }) + '\n'));
+    firstChild.emit('exit', 0);
+    await Promise.resolve();
+
+    await broker.sendMessage('Second');
+    await Promise.resolve();
+
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      launchExtensions: {
+        pluginDirs: ['/plugins/original'],
+        skillDirs: ['/skills/original'],
+      },
+    }));
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      launchExtensions: {
+        pluginDirs: ['/plugins/original'],
+        skillDirs: ['/skills/original'],
+      },
+    }));
+    const captured = spawnCliProcess.mock.calls[0]![0].launchExtensions;
+    expect(captured).toBeDefined();
+    expect(Object.isFrozen(captured!.pluginDirs)).toBe(true);
+    expect(Object.isFrozen(captured!.skillDirs)).toBe(true);
+    secondChild.emit('exit', 0);
+  });
+
+  it('does not let frozen resolver-returned arrays leak through the capture boundary', async () => {
+    const child = createFakeChildProcess();
+    const spawnCliProcess = vi.fn(() => child);
+    const resolverLaunchExtensions = { pluginDirs: Object.freeze(['/plugins/frozen']), skillDirs: Object.freeze(['/skills/frozen']) };
+    const broker = new PlannerSessionBroker({ spawnCliProcess, now: vi.fn(() => 1001) });
+
+    expect(() => (resolverLaunchExtensions.pluginDirs as string[]).push('/plugins/before')).toThrow();
+    broker.startSession({ launchExtensions: resolverLaunchExtensions });
+    expect(() => (resolverLaunchExtensions.skillDirs as string[]).push('/skills/after')).toThrow();
+    await broker.sendMessage('Hello');
+    await Promise.resolve();
+
+    expect(spawnCliProcess).toHaveBeenCalledWith(expect.objectContaining({
+      launchExtensions: {
+        pluginDirs: ['/plugins/frozen'],
+        skillDirs: ['/skills/frozen'],
+      },
+    }));
+    const capturedOptions = (spawnCliProcess.mock.calls as unknown as Array<[{ launchExtensions?: unknown }]>)[0]![0];
+    expect(capturedOptions.launchExtensions).not.toBe(resolverLaunchExtensions);
+    child.emit('exit', 0);
+  });
+
+  it('stores null launch-extension absence and passes undefined to planner turns', async () => {
+    const child = createFakeChildProcess();
+    const spawnCliProcess = vi.fn(() => child);
+    const broker = new PlannerSessionBroker({ spawnCliProcess, now: vi.fn(() => 801) });
+
+    broker.startSession();
+    await broker.sendMessage('Hello');
+    await Promise.resolve();
+
+    expect(spawnCliProcess).toHaveBeenCalledWith(expect.objectContaining({
+      launchExtensions: undefined,
+    }));
+    child.emit('exit', 0);
+  });
+
+  // Phase 2 confirmation: launchExtensions captured/frozen on session and surfaced for
+  // relaunch (used in every subsequent turn of the same session), null when absent.
+
+  it('phase2: captured launchExtensions are surfaced on every turn of the session including resumed turns', async () => {
+    const firstChild = createFakeChildProcess();
+    const secondChild = createFakeChildProcess();
+    const spawnCliProcess = vi.fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
+    const broker = new PlannerSessionBroker({
+      spawnCliProcess,
+      now: vi.fn()
+        .mockReturnValueOnce(601)
+        .mockReturnValueOnce(602)
+        .mockReturnValueOnce(603),
+    });
+
+    broker.startSession({
+      launchExtensions: { pluginDirs: ['/stage/plugin-a'], skillDirs: ['/stage/skill-a'] },
+    });
+
+    // First turn: broker uses captured extensions.
+    await broker.sendMessage('First');
+    await Promise.resolve();
+    firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result',
+      sessionId: 'cli-601',
+      exitCode: 0,
+    }) + '\n'));
+    firstChild.emit('exit', 0);
+    await Promise.resolve();
+
+    // Resumed turn: broker still supplies the same captured extensions.
+    await broker.sendMessage('Second');
+    await Promise.resolve();
+
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      launchExtensions: { pluginDirs: ['/stage/plugin-a'], skillDirs: ['/stage/skill-a'] },
+    }));
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      launchExtensions: { pluginDirs: ['/stage/plugin-a'], skillDirs: ['/stage/skill-a'] },
+      resumeSessionId: 'cli-601',
+    }));
+    secondChild.emit('exit', 0);
+  });
+
+  it('phase2: null (absent) launchExtensions surface as undefined on every turn', async () => {
+    const firstChild = createFakeChildProcess();
+    const secondChild = createFakeChildProcess();
+    const spawnCliProcess = vi.fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
+    const broker = new PlannerSessionBroker({
+      spawnCliProcess,
+      now: vi.fn()
+        .mockReturnValueOnce(701)
+        .mockReturnValueOnce(702)
+        .mockReturnValueOnce(703),
+    });
+
+    // No launchExtensions passed to startSession.
+    broker.startSession();
+
+    await broker.sendMessage('First');
+    await Promise.resolve();
+    firstChild.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result',
+      sessionId: 'cli-701',
+      exitCode: 0,
+    }) + '\n'));
+    firstChild.emit('exit', 0);
+    await Promise.resolve();
+
+    await broker.sendMessage('Second');
+    await Promise.resolve();
+
+    // Both turns must receive undefined (not null, not a stale value from a prior session).
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      launchExtensions: undefined,
+    }));
+    expect(spawnCliProcess).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      launchExtensions: undefined,
+    }));
+    secondChild.emit('exit', 0);
+  });
+
   it('adds sessionId to events and drops late events after endSession', async () => {
     const events: PlannerStreamEvent[] = [];
     const child = createFakeChildProcess();

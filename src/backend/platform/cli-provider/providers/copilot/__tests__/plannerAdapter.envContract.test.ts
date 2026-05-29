@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  COPILOT_CONTROLLED_ENV_KEYS,
+  COPILOT_RUNTIME_MANIFEST_ENV_VARS,
+} from '../envMapper.js';
 import { buildCopilotPlannerLaunchSpec } from '../plannerAdapter.js';
 
 describe('buildCopilotPlannerLaunchSpec planner env contract', () => {
@@ -90,6 +94,12 @@ describe('buildCopilotPlannerLaunchSpec planner env contract', () => {
 
     expect(spec.env?.COPILOT_MODEL).toBe('claude-sonnet-4.6');
     expect(spec.env?.COPILOT_AGENT_ID).toBe('planning-agent');
+  });
+
+  it('treats COPILOT_SKILLS_DIRS as controlled provider env only', () => {
+    expect(COPILOT_CONTROLLED_ENV_KEYS).toContain('COPILOT_SKILLS_DIRS');
+    expect(COPILOT_RUNTIME_MANIFEST_ENV_VARS.map((envVar) => envVar.name))
+      .not.toContain('COPILOT_SKILLS_DIRS');
   });
 
   it('emits planner effort only for non-empty non-none values and never through env', () => {
