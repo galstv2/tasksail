@@ -299,6 +299,25 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     autoMerge = rawAutoMerge;
   }
 
+  // external_mcp_local_enabled — opt-in gate for local (stdio) external MCP
+  // servers. Default false: when absent or invalid the launch path is
+  // fail-closed and local servers are excluded.
+  let externalMcpLocalEnabled = false;
+  const rawExternalMcpLocalEnabled = data['external_mcp_local_enabled'];
+  if (rawExternalMcpLocalEnabled === undefined) {
+    externalMcpLocalEnabled = false;
+  } else if (typeof rawExternalMcpLocalEnabled !== 'boolean') {
+    errors.push(
+      err(
+        'external_mcp_local_enabled',
+        `Must be a boolean, got ${JSON.stringify(rawExternalMcpLocalEnabled)}.`,
+        'Set external_mcp_local_enabled to true or false.',
+      ),
+    );
+  } else {
+    externalMcpLocalEnabled = rawExternalMcpLocalEnabled;
+  }
+
   // mcp_port
   let mcpPort = 8811;
   const rawPort = data['mcp_port'];
@@ -398,6 +417,7 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
       max_retry_generations_per_slug: maxRetryGenerationsPerSlug,
       completed_task_runtime_retention_ms: completedTaskRuntimeRetentionMs,
       auto_merge: autoMerge,
+      external_mcp_local_enabled: externalMcpLocalEnabled,
       mcp_port: mcpPort,
       repo_context_mcp_external_mount_roots: repoContextMcpExternalMountRoots,
     } satisfies PlatformConfig,

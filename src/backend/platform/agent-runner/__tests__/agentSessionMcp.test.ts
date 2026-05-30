@@ -16,11 +16,19 @@ vi.mock('../../cli-provider/index.js', () => ({
   })),
 }));
 
+vi.mock('../../platform-config/get.js', () => ({
+  getPlatformConfig: vi.fn(),
+}));
+
 const { mergeExternalMcpLaunchEnvironment } = await import('../agentSession.js');
+const { getPlatformConfig } = await import('../../platform-config/get.js');
+const mockedGetPlatformConfig = vi.mocked(getPlatformConfig);
 
 describe('mergeExternalMcpLaunchEnvironment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: local MCP disabled. Individual tests override as needed.
+    mockedGetPlatformConfig.mockResolvedValue({ external_mcp_local_enabled: false } as never);
   });
 
   afterEach(() => {
@@ -56,8 +64,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       agentId: 'dalton',
       repoRoot: '/repo',
       taskId: 't1',
-      agentEnv,
-    });
+      agentEnv,    });
 
     expect(result).toEqual({
       status: 'unavailable',
@@ -72,6 +79,41 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
     const warnings = String(warnSpy.mock.calls.flat().join('\n'));
     expect(warnings).toContain('external_mcp.config_render.failed');
     expect(warnings).toContain('render failed');
+  });
+
+  it('reads the opt-in flag from platform config and passes it to the helper subprocess env only', async () => {
+    mocks.prepareExternalMcpLaunchContext.mockResolvedValue({
+      status: 'not-applicable',
+      reason: 'no external MCP servers apply to this agent',
+      injectionEnabled: false,
+      envExports: {},
+      resolvedServers: [],
+      selectedServerIds: [],
+      excludedServerIds: [],
+    });
+
+    // Enabled → TASKSAIL_LOCAL_MCP_ENABLED='1', and the flag must not leak into agentEnv.
+    mockedGetPlatformConfig.mockResolvedValue({ external_mcp_local_enabled: true } as never);
+    const enabledEnv: Record<string, string> = { EXISTING: 'value' };
+    await mergeExternalMcpLaunchEnvironment({ agentId: 'dalton', repoRoot: '/repo', taskId: 't1', agentEnv: enabledEnv });
+    expect(mocks.prepareExternalMcpLaunchContext).toHaveBeenLastCalledWith(expect.objectContaining({
+      env: expect.objectContaining({ EXISTING: 'value', TASKSAIL_LOCAL_MCP_ENABLED: '1' }),
+    }));
+    expect(enabledEnv['TASKSAIL_LOCAL_MCP_ENABLED']).toBeUndefined();
+
+    // Disabled → ''.
+    mockedGetPlatformConfig.mockResolvedValue({ external_mcp_local_enabled: false } as never);
+    await mergeExternalMcpLaunchEnvironment({ agentId: 'dalton', repoRoot: '/repo', taskId: 't1', agentEnv: {} });
+    expect(mocks.prepareExternalMcpLaunchContext).toHaveBeenLastCalledWith(expect.objectContaining({
+      env: expect.objectContaining({ TASKSAIL_LOCAL_MCP_ENABLED: '' }),
+    }));
+
+    // Unreadable config → fail-closed ''.
+    mockedGetPlatformConfig.mockRejectedValue(new Error('platform.json missing'));
+    await mergeExternalMcpLaunchEnvironment({ agentId: 'dalton', repoRoot: '/repo', taskId: 't1', agentEnv: {} });
+    expect(mocks.prepareExternalMcpLaunchContext).toHaveBeenLastCalledWith(expect.objectContaining({
+      env: expect.objectContaining({ TASKSAIL_LOCAL_MCP_ENABLED: '' }),
+    }));
   });
 
   it('renders internal repo-context MCP without external injection', async () => {
@@ -94,8 +136,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       agentId: 'dalton',
       repoRoot: process.cwd(),
       taskId: 't1',
-      agentEnv,
-      internalMcpServer: {
+      agentEnv,      internalMcpServer: {
         id: 'repo-context-mcp',
         transport: 'sse',
         url: 'http://localhost:8811/sse',
@@ -138,8 +179,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       agentId: 'dalton',
       repoRoot: process.cwd(),
       taskId: 't1',
-      agentEnv,
-      internalMcpServer: {
+      agentEnv,      internalMcpServer: {
         id: 'repo-context-mcp',
         transport: 'sse',
         url: 'http://localhost:8811/sse',
@@ -179,8 +219,7 @@ describe('mergeExternalMcpLaunchEnvironment', () => {
       agentId: 'dalton',
       repoRoot: process.cwd(),
       taskId: 't1',
-      agentEnv: {},
-      internalMcpServer: {
+      agentEnv: {},      internalMcpServer: {
         id: 'repo-context-mcp',
         transport: 'sse',
         url: 'http://localhost:8811/sse',

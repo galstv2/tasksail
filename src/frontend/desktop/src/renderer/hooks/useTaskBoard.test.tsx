@@ -70,6 +70,97 @@ describe('useTaskBoard', () => {
     expect(result.current.board.completedItems.map((item) => item.taskId)).toEqual(['TASK-DONE']);
   });
 
+  it('forwards the optional artifact path and maps found/not-found readTaskContent responses', async () => {
+    const artifacts = [
+      { relativePath: 'archive.md', label: 'archive.md', sizeBytes: 10 },
+      { relativePath: 'handoffs/final-summary.md', label: 'handoffs/final-summary.md', sizeBytes: 20 },
+    ];
+    const readTaskContent = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readTaskContent',
+          mode: 'found',
+          message: 'Read DONE-A.md.',
+          content: '# Archive',
+          fileName: 'DONE-A.md',
+          artifactRelativePath: 'handoffs/final-summary.md',
+          artifacts,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'taskBoard.readTaskContent',
+          mode: 'not-found',
+          message: 'DONE-A.md not found.',
+          content: '',
+          fileName: 'DONE-A.md',
+        },
+      });
+    const client = createMockClient({ readTaskContent });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+
+    const found = await result.current.readTaskContent('DONE-A.md', 'completed', 'handoffs/final-summary.md');
+    expect(readTaskContent).toHaveBeenCalledWith('DONE-A.md', 'completed', 'handoffs/final-summary.md');
+    expect(found).toEqual({ content: '# Archive', artifactRelativePath: 'handoffs/final-summary.md', artifacts });
+
+    const missing = await result.current.readTaskContent('DONE-A.md', 'completed');
+    expect(readTaskContent).toHaveBeenLastCalledWith('DONE-A.md', 'completed', undefined);
+    expect(missing).toBeNull();
+  });
+
+  it('returns null and surfaces a toast when readTaskContent IPC rejects', async () => {
+    const readTaskContent = vi.fn().mockRejectedValue(new Error('read IPC failed'));
+    const client = createMockClient({ readTaskContent });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+
+    let outcome: Awaited<ReturnType<typeof result.current.readTaskContent>> | undefined;
+    await act(async () => {
+      outcome = await result.current.readTaskContent('DONE-A.md', 'completed');
+    });
+    expect(outcome).toBeNull();
+  });
+
+  it('forwards readChildChainBranchInventory and returns the typed response', async () => {
+    const loaded = {
+      ok: true,
+      response: {
+        action: 'taskBoard.readChildChainBranchInventory',
+        mode: 'loaded',
+        message: 'Loaded.',
+        inventory: {
+          schemaVersion: 1,
+          rootTaskId: 'ROOT-1',
+          selectedTaskId: 'CHILD-1',
+          currentTipTaskId: 'CHILD-1',
+          taskCount: 1,
+          rows: [],
+          generatedAt: '2026-05-30T00:00:00.000Z',
+        },
+      },
+    };
+    const readChildChainBranchInventory = vi.fn().mockResolvedValue(loaded);
+    const client = createMockClient({ readChildChainBranchInventory });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+
+    const response = await result.current.readChildChainBranchInventory('CHILD-1', 'ROOT-1');
+    expect(readChildChainBranchInventory).toHaveBeenCalledWith('CHILD-1', 'ROOT-1');
+    expect(response).toEqual(loaded.response);
+  });
+
+  it('returns null and surfaces a toast when readChildChainBranchInventory IPC rejects', async () => {
+    const readChildChainBranchInventory = vi.fn().mockRejectedValue(new Error('inventory IPC failed'));
+    const client = createMockClient({ readChildChainBranchInventory });
+    const { result } = renderHook(() => useTaskBoard(client), { wrapper });
+
+    let outcome: Awaited<ReturnType<typeof result.current.readChildChainBranchInventory>> | undefined;
+    await act(async () => {
+      outcome = await result.current.readChildChainBranchInventory('CHILD-1', 'ROOT-1');
+    });
+    expect(outcome).toBeNull();
+  });
+
   it('logs and returns false when delete task IPC rejects', async () => {
     const client = createMockClient({
       deleteTask: vi.fn().mockRejectedValue(new Error('Delete IPC failed.')),

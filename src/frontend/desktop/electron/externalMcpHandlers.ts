@@ -5,6 +5,7 @@
  * and use the atomic save helper. The modal cannot persist invalid state.
  */
 import path from 'node:path';
+import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -16,6 +17,7 @@ import {
 } from '../../../backend/platform/external-mcp-registry/load';
 import { saveExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/save';
 import type { ExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/types';
+import { getPlatformConfig } from '../../../backend/platform/platform-config/get';
 
 import type {
   DesktopInvokeResult,
@@ -25,6 +27,8 @@ import type {
   ExternalMcpRemoveRequest,
   ExternalMcpToggleEnabledRequest,
   ExternalMcpValidateConnectionRequest,
+  ExternalMcpValidateLocalCommandRequest,
+  ExternalMcpValidateLocalCommandResponse,
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 
@@ -80,6 +84,14 @@ function resolveHeaders(
 
 export async function listExternalMcpServers(): Promise<DesktopInvokeResult> {
   const registry = await loadRegistry();
+  let localEnabled = false;
+  try {
+    localEnabled = (await getPlatformConfig(REPO_ROOT)).external_mcp_local_enabled;
+  } catch {
+    // Platform config may be unreadable (fresh clone, pre-setup); default off
+    // so the renderer keeps the local option disabled (fail-closed).
+    localEnabled = false;
+  }
   return {
     ok: true,
     response: {
@@ -87,6 +99,7 @@ export async function listExternalMcpServers(): Promise<DesktopInvokeResult> {
       mode: 'read-only',
       message: `${registry.external_servers.length} server(s) configured.`,
       servers: registry.external_servers as ExternalMcpServerEntry[],
+      localEnabled,
     },
   };
 }
@@ -390,4 +403,83 @@ export async function validateExternalMcpConnection(
     const message = err instanceof Error ? err.message : String(err);
     return fail(`Connection failed: ${message}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local command validation — PATH-existence lookup ONLY.
+//
+// This affordance must never execute the operator-supplied command (no
+// --version probe, no spawn/exec): a configured MCP command may have side
+// effects, hang, or behave differently under a probe. It resolves the command
+// against process.env.PATH (plus PATHEXT on Windows) using fs stat/access and
+// never spawns any process. The configured command runs only at agent launch,
+// spawned by the Copilot CLI.
+// ---------------------------------------------------------------------------
+
+function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!fs.statSync(candidate).isFile()) {
+      return false;
+    }
+    if (process.platform !== 'win32') {
+      fs.accessSync(candidate, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * File names to probe for a bare command on PATH. POSIX: the command itself.
+ * Windows: the bare command FIRST (so names that already carry an executable
+ * suffix like `npx.cmd` / `node.exe` resolve), then each PATHEXT-appended
+ * variant (so extension-less names like `npx` resolve). Pure and exported so
+ * the platform/PATHEXT branches can be unit-tested without spawning anything.
+ */
+export function commandCandidates(command: string, platform: NodeJS.Platform, pathext: string): string[] {
+  if (platform !== 'win32') {
+    return [command];
+  }
+  const exts = pathext.split(';').map((e) => e.trim()).filter(Boolean);
+  return [...new Set([command, ...exts.map((ext) => command + ext)])];
+}
+
+function resolveCommandOnPath(command: string): string | undefined {
+  // An explicit path (contains a separator) is checked directly, not searched.
+  if (command.includes('/') || command.includes('\\')) {
+    return isExecutableFile(command) ? path.resolve(command) : undefined;
+  }
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const names = commandCandidates(
+    command,
+    process.platform,
+    process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM',
+  );
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      if (isExecutableFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
+export async function validateExternalMcpLocalCommand(
+  payload: ExternalMcpValidateLocalCommandRequest['payload'],
+): Promise<DesktopInvokeResult> {
+  const command = payload.command.trim();
+  const resolvedPath = command ? resolveCommandOnPath(command) : undefined;
+  const response: ExternalMcpValidateLocalCommandResponse = {
+    action: 'externalMcp.validateLocalCommand',
+    mode: 'validated',
+    found: resolvedPath !== undefined,
+    message: resolvedPath !== undefined
+      ? `Command found at ${resolvedPath}`
+      : 'Command not found on PATH.',
+    ...(resolvedPath !== undefined ? { resolvedPath } : {}),
+  };
+  return { ok: true, response };
 }

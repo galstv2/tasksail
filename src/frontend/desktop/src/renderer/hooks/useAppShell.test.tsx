@@ -183,6 +183,10 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="active-task-label">{result.activeTaskLabel ?? 'none'}</div>
       <div data-testid="active-context-pack-label">{result.activeContextPackLabel ?? 'none'}</div>
       <div data-testid="planner-modal-open">{String(result.plannerModalProps.isOpen)}</div>
+      <div data-testid="planner-scope-title">{result.plannerModalProps.workspaceScopeSummary?.title ?? 'none'}</div>
+      <div data-testid="planner-scope-flag">{result.plannerModalProps.workspaceScopeSummary?.flag ?? 'none'}</div>
+      <div data-testid="planner-scope-repos">{(result.plannerModalProps.workspaceScopeSummary?.selection.selectedRepoIds ?? []).join(',')}</div>
+      <div data-testid="sidebar-draft-repos">{result.contextPackSidebarProps.selectedRepoIds.join(',')}</div>
       <div data-testid="agent-config-modal-open">{String(result.agentConfigModalProps.isOpen)}</div>
       <div data-testid="terminal-feed-events">{result.terminalFeedProps.activityStream.length}</div>
       <div data-testid="terminal-feed-replayed-events">{result.terminalFeedProps.replayedEventIds.size}</div>
@@ -215,6 +219,36 @@ describe('useAppShell', () => {
       );
     });
     expect(screen.getByTestId('context-pack-count')).toHaveTextContent('1');
+  });
+
+  it('derives the planner workspace scope summary from active-pack last-applied scope, not the sidebar draft', async () => {
+    const activePack: ContextPackCatalogEntry = {
+      ...ordersEstatePack,
+      lastAppliedSelectedRepoIds: ['applied-only-marker'],
+      lastAppliedDeepFocusEnabled: false,
+    };
+    const client = createClient({
+      listContextPacks: vi.fn().mockResolvedValue({
+        ok: true,
+        response: createListContextPacksResponse([activePack], {
+          message: 'Discovered 1 context pack(s) from approved local sources.',
+          activeContextPackDir: '/tmp/context-packs/orders-estate',
+          recentContextPackDirs: ['/tmp/context-packs/orders-estate'],
+        }),
+      }),
+    });
+
+    render(<AppShellHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('planner-scope-repos')).toHaveTextContent('applied-only-marker');
+    });
+    expect(screen.getByTestId('planner-scope-title')).toHaveTextContent('Current workspace selection');
+    expect(screen.getByTestId('planner-scope-flag')).toHaveTextContent('Active');
+    // The marker id is not a focus target, so it can never appear in the sidebar
+    // draft selection. Its presence in the planner summary proves the summary is
+    // built from active-pack applied scope, not the draft.
+    expect(screen.getByTestId('sidebar-draft-repos')).not.toHaveTextContent('applied-only-marker');
   });
 
   it('returns context pack creation modal props in closed state', async () => {

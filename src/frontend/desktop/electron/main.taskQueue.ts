@@ -576,6 +576,7 @@ function validateUploadedSpecContent(
   content: string,
   sections: Map<string, string>,
   taskKind: PlannerTaskKind,
+  allowEmptyCarryForward = false,
 ): string | null {
   if (sections.size === 0) {
     return 'Uploaded file contains no markdown sections. The file must start from "## Request Summary" and follow the planning-intake template.';
@@ -590,7 +591,7 @@ function validateUploadedSpecContent(
     return 'Uploaded spec must not include a top-level title (# heading). Bypass Lily task titles are generated from uploaded content. Remove it and re-upload.';
   }
 
-  return validatePlanningIntakeDraft(content, taskKind, sections);
+  return validatePlanningIntakeDraft(content, taskKind, sections, { allowEmptyCarryForward });
 }
 
 function buildSidecarDropboxOptions(
@@ -652,7 +653,10 @@ async function submitUploadedSpecFromSidecar(
         parentQmdScope: sidecar.lineage.parentQmdScope,
         rootTaskId: sidecar.lineage.rootTaskId,
         followupReason: sidecar.lineage.followUpReason,
-        carryForwardSummary: editableDraft.carryForwardSummary,
+        carryForwardSummary:
+          editableDraft.carryForwardSummary.trim()
+          || chainContext.parentSummary.trim()
+          || `Carry-forward from parent task ${sidecar.lineage.parentTaskId}.`,
         deepFocusPrimaryRepoId: sidecar.contextPackBinding.deepFocusPrimaryRepoId,
         deepFocusPrimaryFocusId: sidecar.contextPackBinding.deepFocusPrimaryFocusId,
         branchChain: chainContext.branchChain,
@@ -682,7 +686,10 @@ export async function submitUploadedSpecHelper(
   const sections = parseMarkdownSections(content);
   const plannerSidecar = options.plannerSidecar ?? null;
   const taskKind = plannerSidecar?.lineage.taskKind ?? 'standard';
-  const validationError = validateUploadedSpecContent(content, sections, taskKind);
+  // Bypass child-task uploads synthesize the carry-forward summary from the
+  // parent archive after parsing, so an unauthored section is allowed here.
+  const allowEmptyCarryForward = plannerSidecar != null && taskKind === 'child-task';
+  const validationError = validateUploadedSpecContent(content, sections, taskKind, allowEmptyCarryForward);
   if (validationError) {
     return {
       ok: false,

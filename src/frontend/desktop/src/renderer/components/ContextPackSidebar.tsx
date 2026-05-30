@@ -7,6 +7,7 @@ import type {
   ContextPackReseedExecutionResult,
   ContextPackSwitchExecutionResult,
   ContextPackFocusFilter,
+  ContextPackFocusFilterSelection,
 } from '../../shared/desktopContract';
 import type { OpenContextPackCreationModal } from '../contextPackCreationTypes';
 import ContextPackSidebarCompact from './ContextPackSidebarCompact';
@@ -27,6 +28,8 @@ export type ContextPackSidebarProps = {
   selectedFocusTargets?: ContextPackPrimaryFocusTarget[];
   selectedTestTarget?: ContextPackDeepFocusTarget | null;
   selectedSupportTargets?: ContextPackDeepFocusTarget[];
+  /** Memoized current draft selection for the Focus Filters summary card. */
+  currentWorkspaceSelection: ContextPackFocusFilterSelection;
   focusFilters?: ContextPackFocusFilter[];
   focusFilterPending?: boolean;
   focusFilterError?: string;

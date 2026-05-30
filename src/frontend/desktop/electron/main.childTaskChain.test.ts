@@ -433,6 +433,68 @@ describe('resolveChildTaskChainCreationContext', () => {
     expect(result.branchChain.repos[1]?.parentBranchHead).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('uses the parent branch name for repos introduced by the first child', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', frontendDesktopRoot)]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: {
+        mode: 'found',
+        tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/custom-parent')] }],
+      },
+    });
+    readChildTaskChains.mockResolvedValue({ chains: {}, tasks: {} });
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'PARENT-1',
+      childExecutionScope: { ...binding, selectedRepoIds: ['tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({
+        repoRoot: frontendDesktopRoot,
+        sourceKind: 'introduced-by-child',
+        chainSourceBranch: 'task/custom-parent',
+      }),
+    ]);
+  });
+
+  it('uses the first recorded chain branch for repos introduced later in the chain', async () => {
+    resolveSelectedMaterializationRoots.mockResolvedValue([
+      selectedRoot('platform', platformRoot),
+      selectedRoot('tools', frontendDesktopRoot),
+    ]);
+    listArchivedTasksAction.mockResolvedValue({
+      ok: true,
+      response: { mode: 'found', tasks: [{ ...parent, branchHandoffs: [handoff(platformRoot, 'Platform', 'task/PARENT-1')] }] },
+    });
+    readChildTaskChains.mockResolvedValue(completedParentState({
+      parentBranchChainRepos: [branchChainRepo(platformRoot, 'task/custom-root')],
+    }));
+
+    const result = await resolveChildTaskChainCreationContext({
+      repoRoot: '/repo',
+      listContextPacks: vi.fn(),
+      parentTaskId: 'PARENT-1',
+      requestedRootTaskId: 'ROOT',
+      childExecutionScope: { ...binding, selectedRepoIds: ['platform', 'tools'] },
+    });
+
+    expect(result.branchChain.repos).toEqual([
+      expect.objectContaining({
+        repoRoot: platformRoot,
+        chainSourceBranch: 'task/custom-root',
+      }),
+      expect.objectContaining({
+        repoRoot: frontendDesktopRoot,
+        sourceKind: 'introduced-by-child',
+        chainSourceBranch: 'task/custom-root',
+      }),
+    ]);
+  });
+
   it('projects full divergence as historical handoff only', async () => {
     resolveSelectedMaterializationRoots.mockResolvedValue([selectedRoot('tools', toolsRoot)]);
     listArchivedTasksAction.mockResolvedValue({

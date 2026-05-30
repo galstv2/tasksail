@@ -169,6 +169,7 @@ export const DESKTOP_ACTION_NAMES = [
   'externalMcp.remove',
   'externalMcp.toggleEnabled',
   'externalMcp.validateConnection',
+  'externalMcp.validateLocalCommand',
   'agentConfig.loadAgents',
   'agentConfig.loadModelCatalog',
   'agentConfig.loadCapabilities',
@@ -186,6 +187,7 @@ export const DESKTOP_ACTION_NAMES = [
   'agentInstructions.writeFile',
   'taskBoard.readBoard',
   'taskBoard.readTaskContent',
+  'taskBoard.readChildChainBranchInventory',
   'taskBoard.reorderPending',
   'taskBoard.requeueErrorItem',
   'taskBoard.deleteTask',
@@ -687,21 +689,38 @@ export type ReinforcementDismissRealignmentResponse = {
 // External MCP server management
 // ---------------------------------------------------------------------------
 
-export type ExternalMcpServerEntry = {
+type ExternalMcpServerEntryBase = {
   id: string;
   display_name: string;
   purpose: string;
   preferred_for?: string[];
   fallback_description?: string;
   enabled: boolean;
-  transport: 'http' | 'sse';
-  url: string;
-  headers?: Record<string, string>;
   agent_scope: {
     mode: 'allowlist';
     agent_ids: string[];
   };
 };
+
+export type ExternalMcpUrlServerEntry = ExternalMcpServerEntryBase & {
+  transport: 'http' | 'sse';
+  url: string;
+  headers?: Record<string, string>;
+  // Optional tool allowlist; omit = all tools. '*' permitted for url servers.
+  tools?: string[];
+};
+
+export type ExternalMcpLocalServerEntry = ExternalMcpServerEntryBase & {
+  transport: 'local';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  // Required, non-empty tool allowlist; must not contain '*'.
+  tools: string[];
+};
+
+export type ExternalMcpServerEntry = ExternalMcpUrlServerEntry | ExternalMcpLocalServerEntry;
 
 export type ExternalMcpListRequest = {
   action: 'externalMcp.list';
@@ -713,6 +732,9 @@ export type ExternalMcpListResponse = {
   mode: 'read-only';
   message: string;
   servers: ExternalMcpServerEntry[];
+  // Operator opt-in flag for local (stdio) servers, sourced from platform
+  // config. The renderer gates the Local transport option on this.
+  localEnabled: boolean;
 };
 
 export type ExternalMcpAddRequest = {
@@ -778,6 +800,20 @@ export type ExternalMcpValidateConnectionResponse = {
   success: boolean;
   message: string;
   toolCount?: number;
+};
+
+export type ExternalMcpValidateLocalCommandRequest = {
+  action: 'externalMcp.validateLocalCommand';
+  payload: { command: string };
+};
+
+export type ExternalMcpValidateLocalCommandResponse = {
+  action: 'externalMcp.validateLocalCommand';
+  mode: 'validated';
+  // PATH-existence lookup only; the command is never executed.
+  found: boolean;
+  message: string;
+  resolvedPath?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -909,11 +945,18 @@ export type TaskBoardReadBoardResponse = {
 
 export type TaskBoardContentColumn = 'open' | 'pending' | 'error' | 'completed';
 
+export type TaskBoardMarkdownArtifact = {
+  relativePath: string; // POSIX-style path relative to archive root, e.g. "archive.md"
+  label: string;        // default label is relativePath
+  sizeBytes: number;
+};
+
 export type TaskBoardReadTaskContentRequest = {
   action: 'taskBoard.readTaskContent';
   payload: {
     fileName: string;
     column: TaskBoardContentColumn;
+    artifactRelativePath?: string;
   };
 };
 
@@ -923,6 +966,52 @@ export type TaskBoardReadTaskContentResponse = {
   message: string;
   content: string;
   fileName: string;
+  artifactRelativePath?: string;
+  artifacts?: TaskBoardMarkdownArtifact[];
+};
+
+// Read-only child-task-chain branch inventory. `legacy-root` is a UI-layer-only
+// source kind assigned to completedBranchHandoffs rows; it is a superset of the
+// backend TaskBranchChainRepoSourceKind (3 values) and is never written to markdown.ts.
+export type TaskBoardChildChainBranchSourceKind =
+  | 'parent-handoff'
+  | 'chain-history-handoff'
+  | 'introduced-by-child'
+  | 'legacy-root';
+
+export type TaskBoardChildChainBranchInventoryRow = {
+  repoRoot: string;
+  repoLabel: string;
+  chainSourceBranch: string;
+  sourceKind: TaskBoardChildChainBranchSourceKind;
+  introducedAtTaskId: string;
+  introducedAtDepth: number;
+  targetBranch: string | null;
+};
+
+export type TaskBoardChildChainBranchInventory = {
+  schemaVersion: 1;
+  rootTaskId: string;
+  selectedTaskId: string;
+  currentTipTaskId: string;
+  taskCount: number;
+  rows: TaskBoardChildChainBranchInventoryRow[];
+  generatedAt: string;
+};
+
+export type TaskBoardReadChildChainBranchInventoryRequest = {
+  action: 'taskBoard.readChildChainBranchInventory';
+  payload: {
+    taskId: string;
+    expectedRootTaskId?: string | null;
+  };
+};
+
+export type TaskBoardReadChildChainBranchInventoryResponse = {
+  action: 'taskBoard.readChildChainBranchInventory';
+  mode: 'loaded' | 'not-chain-task' | 'invalid-state';
+  message: string;
+  inventory?: TaskBoardChildChainBranchInventory;
 };
 
 export type TaskBoardReorderPendingRequest = {
@@ -1117,8 +1206,10 @@ export type DesktopActionRequest =
   | ExternalMcpRemoveRequest
   | ExternalMcpToggleEnabledRequest
   | ExternalMcpValidateConnectionRequest
+  | ExternalMcpValidateLocalCommandRequest
   | TaskBoardReadBoardRequest
   | TaskBoardReadTaskContentRequest
+  | TaskBoardReadChildChainBranchInventoryRequest
   | TaskBoardReorderPendingRequest
   | TaskBoardRequeueErrorItemRequest
   | TaskBoardDeleteTaskRequest
@@ -1213,8 +1304,10 @@ export type DesktopActionResponse =
   | ExternalMcpRemoveResponse
   | ExternalMcpToggleEnabledResponse
   | ExternalMcpValidateConnectionResponse
+  | ExternalMcpValidateLocalCommandResponse
   | TaskBoardReadBoardResponse
   | TaskBoardReadTaskContentResponse
+  | TaskBoardReadChildChainBranchInventoryResponse
   | TaskBoardReorderPendingResponse
   | TaskBoardRequeueErrorItemResponse
   | TaskBoardDeleteTaskResponse

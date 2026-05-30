@@ -9,6 +9,7 @@ import {
   isCreateResponse,
   isAgentConfigLoadCapabilitiesResponse,
   isTaskBoardReadBoardResponse,
+  isTaskBoardReadChildChainBranchInventoryResponse,
   isTaskBoardKillTaskResponse,
   isTaskBoardRetryKillCleanupResponse,
   isTaskNotificationEvent,
@@ -17,6 +18,89 @@ import {
   isTaskNotificationSnapshot,
 } from './desktopContractTypeGuards';
 import type { TaskNotificationRecord } from './desktopContractTaskNotifications';
+
+describe('isTaskBoardReadChildChainBranchInventoryResponse', () => {
+  const validRow = {
+    repoRoot: '/repos/app',
+    repoLabel: 'app',
+    chainSourceBranch: 'feature/x',
+    sourceKind: 'parent-handoff',
+    introducedAtTaskId: 'task-1',
+    introducedAtDepth: 0,
+    targetBranch: 'main',
+  };
+  const loaded = {
+    action: 'taskBoard.readChildChainBranchInventory',
+    mode: 'loaded',
+    message: 'ok',
+    inventory: {
+      schemaVersion: 1,
+      rootTaskId: 'root-1',
+      selectedTaskId: 'task-1',
+      currentTipTaskId: 'task-2',
+      taskCount: 2,
+      rows: [validRow],
+      generatedAt: '2026-05-30T00:00:00.000Z',
+    },
+  };
+
+  it('accepts a well-formed loaded response', () => {
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(loaded)).toBe(true);
+  });
+
+  it('accepts not-chain-task and invalid-state without inventory', () => {
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({
+      action: 'taskBoard.readChildChainBranchInventory',
+      mode: 'not-chain-task',
+      message: 'no',
+    })).toBe(true);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({
+      action: 'taskBoard.readChildChainBranchInventory',
+      mode: 'invalid-state',
+      message: 'bad',
+    })).toBe(true);
+  });
+
+  it('rejects a loaded response with a malformed row sourceKind', () => {
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({
+      ...loaded,
+      inventory: { ...loaded.inventory, rows: [{ ...validRow, sourceKind: 'bogus' }] },
+    })).toBe(false);
+  });
+
+  it('enforces per-field row validity (and permits an empty repoLabel)', () => {
+    const withRow = (over: Record<string, unknown>) => ({
+      ...loaded,
+      inventory: { ...loaded.inventory, rows: [{ ...validRow, ...over }] },
+    });
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ repoRoot: '' }))).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ chainSourceBranch: '' }))).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ introducedAtTaskId: '' }))).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ introducedAtDepth: Number.POSITIVE_INFINITY }))).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ introducedAtDepth: Number.NaN }))).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ targetBranch: 5 }))).toBe(false);
+    // repoLabel is a plain string per the contract; empty is allowed.
+    expect(isTaskBoardReadChildChainBranchInventoryResponse(withRow({ repoLabel: '' }))).toBe(true);
+  });
+
+  it('rejects loaded without inventory and non-loaded carrying inventory', () => {
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({
+      action: 'taskBoard.readChildChainBranchInventory',
+      mode: 'loaded',
+      message: 'ok',
+    })).toBe(false);
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({
+      action: 'taskBoard.readChildChainBranchInventory',
+      mode: 'not-chain-task',
+      message: 'no',
+      inventory: loaded.inventory,
+    })).toBe(false);
+  });
+
+  it('rejects a different action', () => {
+    expect(isTaskBoardReadChildChainBranchInventoryResponse({ action: 'taskBoard.readBoard' })).toBe(false);
+  });
+});
 
 describe('isContextPackListResponse', () => {
   it('returns true for a list response', () => {

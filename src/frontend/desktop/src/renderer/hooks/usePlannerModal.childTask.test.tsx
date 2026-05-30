@@ -857,7 +857,7 @@ describe('usePlannerModal child-task flows', () => {
     expect(hydratePlannerConversation).not.toHaveBeenCalled();
   });
 
-  it('onReturnToBlank clears child-task replay context', async () => {
+  it('onReturnToBlank clears recent replay context', async () => {
     const client = createClient({
       hydratePlannerConversation: vi.fn().mockResolvedValue({
         ok: true,
@@ -875,9 +875,10 @@ describe('usePlannerModal child-task flows', () => {
       result.current.plannerModalProps.onSelectConversation?.('rec-2');
     });
     await waitFor(() => {
-      expect(result.current.plannerModalProps.childTaskMode).toBe(true);
       expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-2');
     });
+    // Replaying a child record starts a standalone standard draft, not a child task.
+    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
 
     act(() => {
       result.current.plannerModalProps.onReturnToBlank?.();
@@ -886,5 +887,37 @@ describe('usePlannerModal child-task flows', () => {
     expect(result.current.plannerModalProps.childTaskMode).toBe(false);
     expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
     expect(result.current.plannerModalProps.selectedParentTask).toBeNull();
+  });
+
+  it('replays a child task as a standalone standard task while still surfacing its recent scope', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createChildTaskHistoryRecord({ id: 'child-rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('child-rec-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('child-rec-1');
+    });
+    // Replaying a child task produces a disjointed standalone standard task: not a
+    // child, not a follow-up — zero relation to the source chain.
+    expect(result.current.plannerModalProps.childTaskMode).toBe(false);
+    expect(result.current.plannerModalProps.isFollowUpDraft).toBe(false);
+    // It still surfaces the recent task's own scope (from the hydrated sidecar
+    // binding) so the operator can see what it was planned against.
+    const summary = result.current.plannerModalProps.workspaceScopeSummary;
+    expect(summary?.source).toBe('recent-task');
+    expect(summary?.title).toBe('Selected recent task scope');
   });
 });

@@ -15,6 +15,9 @@ import type {
   ContextPackSidebarStateLoadResponse,
   PackSeedState,
   TaskBoardReadBoardResponse,
+  TaskBoardReadChildChainBranchInventoryResponse,
+  TaskBoardChildChainBranchInventory,
+  TaskBoardChildChainBranchInventoryRow,
   TaskBoardKillTaskResponse,
   TaskBoardRetryKillCleanupResponse,
   TaskNotificationEvent,
@@ -250,6 +253,62 @@ export function isTaskBoardRetryKillCleanupResponse(
     && response.mode === 'cleanup-retry-scheduled'
     && typeof response.message === 'string'
     && typeof response.taskId === 'string';
+}
+
+function isTaskBoardChildChainBranchInventoryRow(
+  value: unknown,
+): value is TaskBoardChildChainBranchInventoryRow {
+  if (!isRecord(value)) return false;
+  if (!isNonEmptyString(value.repoRoot)) return false;
+  // repoLabel may be empty per the contract type and the aggregation merge logic.
+  if (typeof value.repoLabel !== 'string') return false;
+  if (!isNonEmptyString(value.chainSourceBranch)) return false;
+  if (!isNonEmptyString(value.introducedAtTaskId)) return false;
+  const kind = value.sourceKind;
+  if (
+    kind !== 'parent-handoff'
+    && kind !== 'chain-history-handoff'
+    && kind !== 'introduced-by-child'
+    && kind !== 'legacy-root'
+  ) {
+    return false;
+  }
+  if (!isFiniteNumber(value.introducedAtDepth)) return false;
+  if (!(value.targetBranch === null || typeof value.targetBranch === 'string')) return false;
+  return true;
+}
+
+function isTaskBoardChildChainBranchInventory(
+  value: unknown,
+): value is TaskBoardChildChainBranchInventory {
+  if (!isRecord(value)) return false;
+  if (value.schemaVersion !== 1) return false;
+  if (!isNonEmptyString(value.rootTaskId)) return false;
+  if (!isNonEmptyString(value.selectedTaskId)) return false;
+  if (!isNonEmptyString(value.currentTipTaskId)) return false;
+  if (!isFiniteNumber(value.taskCount)) return false;
+  if (typeof value.generatedAt !== 'string') return false;
+  if (!Array.isArray(value.rows)) return false;
+  return value.rows.every(isTaskBoardChildChainBranchInventoryRow);
+}
+
+export function isTaskBoardReadChildChainBranchInventoryResponse(
+  response: unknown,
+): response is TaskBoardReadChildChainBranchInventoryResponse {
+  if (!isRecord(response)) return false;
+  if (response.action !== 'taskBoard.readChildChainBranchInventory') return false;
+  if (
+    response.mode !== 'loaded'
+    && response.mode !== 'not-chain-task'
+    && response.mode !== 'invalid-state'
+  ) {
+    return false;
+  }
+  if (typeof response.message !== 'string') return false;
+  if (response.mode === 'loaded') {
+    return isTaskBoardChildChainBranchInventory(response.inventory);
+  }
+  return response.inventory === undefined;
 }
 
 const TASK_NOTIFICATION_TYPES = ['task-completed', 'task-failed'] as const;

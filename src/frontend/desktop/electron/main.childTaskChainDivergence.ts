@@ -60,6 +60,13 @@ export async function buildAdjustedChildBranchChainRepos(args: {
 
   const parentSources = buildImmediateParentSourceIndex(args);
   const { historicalSources, historicalBranchChainRoots } = buildHistoricalIndexes(args);
+  const introducedChainSourceBranch = resolveIntroducedChainSourceBranch({
+    rootTaskId: args.rootTaskId,
+    parentTaskId: args.parentTaskId,
+    childChainState: args.childChainState,
+    previousBranchChain: args.previousBranchChain,
+    parentSources,
+  });
   const selectedRootKeys = new Set(primaryRoots.map((root) => canonicalRoot(root.gitRoot)));
   let continuedImmediateRepoCount = 0;
   let continuedHistoricalRepoCount = 0;
@@ -98,8 +105,8 @@ export async function buildAdjustedChildBranchChainRepos(args: {
     }
 
     repos.push(await buildIntroducedRepo({
-      rootTaskId: args.rootTaskId,
       root,
+      chainSourceBranch: introducedChainSourceBranch,
       execFileAsync: args.execFileAsync ?? defaultExecFile,
     }));
     introducedRepoCount += 1;
@@ -217,6 +224,41 @@ function buildImmediateParentSourceIndex(args: {
   return sources;
 }
 
+function resolveIntroducedChainSourceBranch(args: {
+  rootTaskId: string;
+  parentTaskId: string;
+  childChainState: ChildTaskChainsState;
+  previousBranchChain: TaskBranchChainBinding | null;
+  parentSources: ReadonlyMap<string, ParentHandoffSource>;
+}): string {
+  const chain = args.childChainState.chains[args.rootTaskId];
+  if (chain) {
+    const parentIndex = chain.taskIds.indexOf(args.parentTaskId);
+    const taskIds = chain.taskIds.slice(0, parentIndex >= 0 ? parentIndex + 1 : undefined);
+    for (const taskId of taskIds) {
+      const task = args.childChainState.tasks[taskId];
+      const branchChainBranch = firstNonEmpty(task?.branchChain?.repos.map((repo) => repo.chainSourceBranch) ?? []);
+      if (branchChainBranch) return branchChainBranch;
+      const handoffBranch = firstNonEmpty(task?.completedBranchHandoffs?.map((handoff) => handoff.chainSourceBranch) ?? []);
+      if (handoffBranch) return handoffBranch;
+    }
+  }
+
+  const previousBranch = firstNonEmpty(args.previousBranchChain?.repos.map((repo) => repo.chainSourceBranch) ?? []);
+  if (previousBranch) return previousBranch;
+
+  const parentBranch = firstNonEmpty([...args.parentSources.values()].map((source) => source.branch));
+  return parentBranch ?? `task/${args.rootTaskId}`;
+}
+
+function firstNonEmpty(values: readonly string[]): string | null {
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 function buildHistoricalIndexes(args: {
   rootTaskId: string;
   parentTaskId: string;
@@ -277,8 +319,8 @@ function buildParentRepo(args: {
 }
 
 async function buildIntroducedRepo(args: {
-  rootTaskId: string;
   root: PrimaryRoot;
+  chainSourceBranch: string;
   execFileAsync: ExecFileAsync;
 }): Promise<ResolvedAdjustedChildBranchChainRepo> {
   const [headSha, currentBranch] = await Promise.all([
@@ -291,7 +333,7 @@ async function buildIntroducedRepo(args: {
   return {
     repoRoot: args.root.gitRoot,
     repoLabel: args.root.repoId,
-    chainSourceBranch: `task/${args.rootTaskId}`,
+    chainSourceBranch: args.chainSourceBranch,
     // Detached HEAD is valid for base capture; record the source as the literal 'HEAD'.
     parentSourceBranch: currentBranch ?? 'HEAD',
     parentBranchHead: headSha,

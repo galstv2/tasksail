@@ -25,6 +25,19 @@ describe('agent sprites', () => {
     expect(svg?.getAttribute('focusable')).toBe('false');
   });
 
+  it.each([
+    ['LilySprite', LilySprite, 'L'],
+    ['AliceSprite', AliceSprite, 'A'],
+    ['DaltonSprite', DaltonSprite, 'D'],
+    ['DaltonVerifySprite', DaltonVerifySprite, 'DV'],
+    ['RonSprite', RonSprite, 'R'],
+  ])('%s renders its capital identity letter', (_name, Sprite, letter) => {
+    const { container } = render(<Sprite size={36} />);
+    const letters = Array.from(container.querySelectorAll('text')).map((node) => node.textContent);
+    expect(letters.length).toBeGreaterThan(0);
+    expect(letters.every((value) => value === letter)).toBe(true);
+  });
+
   it('roleKindSpriteMap covers all role kinds', () => {
     expect(Object.keys(roleKindSpriteMap)).toEqual(
       expect.arrayContaining(['planner', 'pm', 'builder', 'verifier', 'qa']),

@@ -158,7 +158,11 @@ function buildPlannerSidecar(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockResolvedChildTaskChainContext(parentTaskId = 'PARENT-123', rootTaskId = 'ROOT-001') {
+function mockResolvedChildTaskChainContext(
+  parentTaskId = 'PARENT-123',
+  rootTaskId = 'ROOT-001',
+  parentSummary = `Completed-work summary for ${parentTaskId}.`,
+) {
   const childExecutionScope = {
     contextPackDir: '/context-packs/sample-pack',
     contextPackId: 'sample-pack-id',
@@ -192,6 +196,7 @@ function mockResolvedChildTaskChainContext(parentTaskId = 'PARENT-123', rootTask
     previousTaskId: parentTaskId,
     rootTaskId,
     depth: 1,
+    parentSummary,
   });
 }
 
@@ -662,7 +667,11 @@ Validation should be reviewed manually.
     expect(publishPendingItem).not.toHaveBeenCalled();
   });
 
-  it('rejects child-task Bypass Lily uploads without a carry-forward summary before writing a dropbox file', async () => {
+  it('synthesizes the carry-forward summary from the parent archive when a child-task Bypass Lily upload omits it', async () => {
+    vi.mocked(createFollowupTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_synthesized-child.md',
+    );
+
     const result = await submitUploadedSpecHelper(
       buildUploadedSpec(),
       {
@@ -680,13 +689,50 @@ Validation should be reviewed manually.
     );
 
     expect(result).toEqual({
-      ok: false,
-      action: 'planner.uploadSpec',
-      error: 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask Lily to complete the intake before finalizing.',
+      ok: true,
+      response: expect.objectContaining({
+        action: 'planner.uploadSpec',
+        mode: 'submitted',
+      }),
     });
+    // No carry-forward section in the upload -> synthesized from the parent archive summary.
+    expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
+      parentTaskId: 'PARENT-123',
+      carryForwardSummary: 'Completed-work summary for PARENT-123.',
+    }));
     expect(createDropboxTask).not.toHaveBeenCalled();
-    expect(createFollowupTask).not.toHaveBeenCalled();
     expect(publishPendingItem).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a parent-id carry-forward when neither the upload nor the parent archive supplies one', async () => {
+    vi.mocked(createFollowupTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_fallback-child.md',
+    );
+    mockResolvedChildTaskChainContext('PARENT-123', 'ROOT-001', '');
+
+    const result = await submitUploadedSpecHelper(
+      buildUploadedSpec(),
+      {
+        plannerSidecar: buildPlannerSidecar({
+          lineage: {
+            taskKind: 'child-task' as const,
+            parentTaskId: 'PARENT-123',
+            rootTaskId: 'ROOT-001',
+            parentQmdRecordId: 'qmd://parent',
+            parentQmdScope: 'qmd/context-packs/immutable-pack',
+            followUpReason: 'Continue from parent.',
+          },
+        }),
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      response: expect.objectContaining({ action: 'planner.uploadSpec', mode: 'submitted' }),
+    });
+    expect(createFollowupTask).toHaveBeenCalledWith(expect.objectContaining({
+      carryForwardSummary: 'Carry-forward from parent task PARENT-123.',
+    }));
   });
 
   it('continues rejecting platform-owned sections and top-level uploaded headings', async () => {

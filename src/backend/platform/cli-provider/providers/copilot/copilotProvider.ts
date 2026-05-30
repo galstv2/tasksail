@@ -18,6 +18,37 @@ import { parseChatagentProfile } from './profileParser.js';
 import { buildCopilotPlannerLaunchSpec, COPILOT_PLANNER_AGENT_ID, CopilotPlannerParser } from './plannerAdapter.js';
 import { getCopilotReasoningEffortCapabilities } from './reasoningEffortCapabilities.js';
 
+/**
+ * Project a resolved MCP server into a Copilot CLI mcp-config.json entry.
+ * Local (stdio) servers emit { type:'local', command, args, env, cwd?, tools };
+ * url servers keep { type, url, headers } and emit tools only when present
+ * (preserving existing behavior for url servers without an allowlist).
+ */
+function renderMcpServerEntry(server: ResolvedMcpServer): Record<string, unknown> {
+  if (server.transport === 'local') {
+    const entry: Record<string, unknown> = {
+      type: 'local',
+      command: server.command,
+      args: server.args,
+      env: server.env,
+      tools: server.tools,
+    };
+    if (server.cwd !== undefined) {
+      entry.cwd = server.cwd;
+    }
+    return entry;
+  }
+  const entry: Record<string, unknown> = {
+    type: server.transport,
+    url: server.url,
+    headers: server.headers,
+  };
+  if (server.tools !== undefined) {
+    entry.tools = server.tools;
+  }
+  return entry;
+}
+
 const AGENT_CONFIG_PATHS: AgentConfigPaths = {
   root: '.github/copilot',
   instructions: '.github/copilot/instructions',
@@ -105,14 +136,7 @@ export const copilotProvider: CliProvider = {
     mkdirSync(launchDir, { recursive: true });
     const configPath = path.join(launchDir, 'mcp-config.json');
     const mcpServers = Object.fromEntries(
-      servers.map((server) => [
-        server.id,
-        {
-          type: server.transport,
-          url: server.url,
-          headers: server.headers,
-        },
-      ]),
+      servers.map((server) => [server.id, renderMcpServerEntry(server)]),
     );
     writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2), 'utf-8');
     return configPath;

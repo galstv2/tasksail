@@ -312,6 +312,7 @@ function setupCommonMocks(): void {
     container_runtime: 'docker',
     container_engine_host: null,
     container_engine_wsl_distro: null,
+    external_mcp_local_enabled: false,
     mcp_port: 8811,
     repo_context_mcp_external_mount_roots: [],
   } as never);
@@ -382,9 +383,6 @@ describe('runRoleAgent external MCP launch integration', () => {
     expect(mockedPrepareExternalMcpLaunchContext).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'dalton',
       repoRoot: '/repo',
-      env: expect.objectContaining({
-        RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON: '{"profile":"repo-executor"}',
-      }),
       abortSignal: undefined,
     }));
     const launchCall = mockedLaunchAgent.mock.calls[0];
@@ -499,6 +497,42 @@ describe('runRoleAgent external MCP launch integration', () => {
           headers: { Authorization: 'Bearer test' },
         },
       },
+    });
+  });
+
+  it('renders a mixed local + sse external MCP config and injects --additional-mcp-config', async () => {
+    const launchDir = path.join(process.cwd(), '.platform-state', 'runtime', 'copilot-home', 'dalton-local-mix-test');
+    const configPath = path.join(launchDir, 'mcp-config.json');
+    mockedLaunchAgent.mockReturnValue({ pid: 1 } as never);
+    mockedWaitForAgentDetailed.mockResolvedValue({
+      exitCode: 0, stdoutTail: '', stderrTail: '', terminationReason: 'exited', signalCode: null,
+    });
+    mockedPrepareExternalMcpLaunchContext.mockResolvedValue({
+      status: 'available',
+      reason: '2 external MCP server(s) injected',
+      injectionEnabled: true,
+      launchDir,
+      contextFile: path.join(launchDir, 'mcp-capability-summary.md'),
+      resolvedServers: [
+        { id: 'vendor-sse', transport: 'sse', url: 'https://mcp.vendor.test/sse', headers: { Authorization: 'Bearer t' } },
+        { id: 'local-fs', transport: 'local', command: 'npx', args: ['-y', '@scope/fs'], env: { API_KEY: 'sek' }, tools: ['read_file', 'list_dir'] },
+      ],
+      envExports: { EXTERNAL_MCP_CONTEXT_STATUS: 'available' },
+      selectedServerIds: ['vendor-sse', 'local-fs'],
+      excludedServerIds: [],
+    });
+
+    await runRoleAgent({ agentId: 'dalton', taskId: 't1', skipWorkflowValidation: true });
+
+    const argsArg = mockedLaunchAgent.mock.calls[0]?.[0] as string[];
+    expect(argsArg).toEqual(expect.arrayContaining(['--additional-mcp-config', `@${configPath}`]));
+    const fs = await import('node:fs');
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(parsed.mcpServers['vendor-sse']).toEqual({
+      type: 'sse', url: 'https://mcp.vendor.test/sse', headers: { Authorization: 'Bearer t' },
+    });
+    expect(parsed.mcpServers['local-fs']).toEqual({
+      type: 'local', command: 'npx', args: ['-y', '@scope/fs'], env: { API_KEY: 'sek' }, tools: ['read_file', 'list_dir'],
     });
   });
 

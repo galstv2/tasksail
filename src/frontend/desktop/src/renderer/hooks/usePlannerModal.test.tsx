@@ -581,6 +581,139 @@ describe('usePlannerModal', () => {
     });
   });
 
+  it('stores a recent-task workspace scope summary from the hydrated sidecar after standard replay', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBe('rec-1');
+    });
+    const summary = result.current.plannerModalProps.workspaceScopeSummary;
+    expect(summary?.source).toBe('recent-task');
+    expect(summary?.title).toBe('Selected recent task scope');
+    // selection comes from the hydrated sidecar binding, not live current scope
+    expect(summary?.selection.selectedRepoIds).toEqual(['platform']);
+  });
+
+  it('does not surface a recent-task scope summary when hydration fails', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({ ok: false, error: 'hydrate failed' }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.draftError).toBe('hydrate failed');
+    });
+    expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
+    expect(result.current.plannerModalProps.workspaceScopeSummary).toBeNull();
+  });
+
+  it('does not surface a recent-task scope summary when replay start fails', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+      startPlannerSession: vi.fn().mockResolvedValue({ ok: false, error: 'no broker' }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.draftError).toBe('no broker');
+    });
+    expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
+    expect(result.current.plannerModalProps.workspaceScopeSummary).toBeNull();
+  });
+
+  it('clears the recent-task scope summary when returning to a blank planner', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.workspaceScopeSummary?.source).toBe('recent-task');
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onReturnToBlank?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.replaySourceRecordId).toBeNull();
+    });
+    expect(result.current.plannerModalProps.workspaceScopeSummary).toBeNull();
+  });
+
+  it('clears the recent-task scope summary when toggling child-task mode from a standard replay', async () => {
+    const client = createClient({
+      hydratePlannerConversation: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'planner.hydrateConversation',
+          mode: 'found',
+          message: 'Found planner conversation.',
+          record: createHistoryRecord({ id: 'rec-1' }),
+        },
+      }),
+    });
+    const { result } = renderPlannerModalHook(client);
+
+    await act(async () => {
+      result.current.plannerModalProps.onSelectConversation?.('rec-1');
+    });
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.workspaceScopeSummary?.source).toBe('recent-task');
+    });
+
+    await act(async () => {
+      result.current.plannerModalProps.onToggleChildTaskMode?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannerModalProps.childTaskMode).toBe(true);
+    });
+    expect(result.current.plannerModalProps.workspaceScopeSummary).toBeNull();
+  });
+
   it('uploads regular bypass specs without requiring planner sidecar authority', async () => {
     const uploadSpec = vi.fn().mockResolvedValue({
       ok: true,

@@ -112,6 +112,17 @@
   line-height: 1.4;
 }
 
+.mcp-modal__vetting-notice {
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.7rem;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-warning-tint);
+  border: 1px solid color-mix(in srgb, var(--ts-warning) 20%, transparent);
+  color: var(--ts-warning);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
 .mcp-modal__empty {
   text-align: center;
   padding: 2.5rem 1rem;
@@ -372,6 +383,16 @@
   font-size: 0.68rem;
   color: var(--ts-text-soft);
   line-height: 1.35;
+}
+
+.mcp-form__counter {
+  font-family: var(--ts-font-sans);
+  font-size: 0.68rem;
+  color: var(--ts-text-soft);
+}
+
+.mcp-form__counter--warning {
+  color: var(--ts-warning);
 }
 
 .mcp-form__error {

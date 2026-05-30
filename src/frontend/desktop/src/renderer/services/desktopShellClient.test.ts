@@ -266,6 +266,36 @@ describe('desktopShellClient', () => {
     expect(returnedUnsubscribe).toBe(unsubscribe);
   });
 
+  it('forwards optional readTaskContent artifactRelativePath unchanged through the shell seam', async () => {
+    const readTaskContent = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'taskBoard.readTaskContent', mode: 'not-found', message: 'Not found.', content: '', fileName: '' },
+    });
+    const shell = { readTaskContent } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+
+    await client.readTaskContent('task.md', 'completed');
+    await client.readTaskContent('task.md', 'completed', 'handoffs/final-summary.md');
+
+    expect(readTaskContent).toHaveBeenNthCalledWith(1, 'task.md', 'completed', undefined);
+    expect(readTaskContent).toHaveBeenNthCalledWith(2, 'task.md', 'completed', 'handoffs/final-summary.md');
+  });
+
+  it('forwards readChildChainBranchInventory args unchanged through the shell seam', async () => {
+    const readChildChainBranchInventory = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'taskBoard.readChildChainBranchInventory', mode: 'not-chain-task', message: 'Not a chain task.' },
+    });
+    const shell = { readChildChainBranchInventory } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+
+    await client.readChildChainBranchInventory('CHILD-1');
+    await client.readChildChainBranchInventory('CHILD-1', 'ROOT-1');
+
+    expect(readChildChainBranchInventory).toHaveBeenNthCalledWith(1, 'CHILD-1', undefined);
+    expect(readChildChainBranchInventory).toHaveBeenNthCalledWith(2, 'CHILD-1', 'ROOT-1');
+  });
+
   it('forwards validateChildTaskFocus payload unchanged through the shell seam', async () => {
     const validateChildTaskFocus = vi.fn().mockResolvedValue({
       ok: true,
@@ -534,6 +564,7 @@ describe('desktopShellClient', () => {
       removeExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.remove', servers: [] } }),
       toggleExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.toggleEnabled', servers: [] } }),
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', success: true } }),
+      validateExternalMcpLocalCommand: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateLocalCommand', mode: 'validated', found: false, message: 'Command not found on PATH.' } }),
       loadAgentConfig: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadAgents', agents: [] } }),
       loadModelCatalog: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadModelCatalog', models: [] } }),
       loadCapabilities: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.loadCapabilities', effortChoices: [] } }),
@@ -542,6 +573,7 @@ describe('desktopShellClient', () => {
       removeModel: vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.removeModel', models: [] } }),
       readTaskBoard: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.readBoard' } }),
       readTaskContent: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.readTaskContent', mode: 'not-found', message: 'Not found.', content: '', fileName: '' } }),
+      readChildChainBranchInventory: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.readChildChainBranchInventory', mode: 'not-chain-task', message: 'Not a chain task.' } }),
       reorderPending: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.reorderPending' } }),
       requeueErrorItem: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.requeueErrorItem' } }),
       deleteTask: vi.fn().mockResolvedValue({ ok: true, response: { action: 'taskBoard.deleteTask', mode: 'deleted', message: 'Deleted.', fileName: 'task.md', column: 'open' } }),
@@ -658,6 +690,7 @@ describe('desktopShellClient', () => {
     await desktopShellClient.validateExternalMcpConnection({
       transport: 'sse', url: 'https://x.com/sse',
     });
+    await desktopShellClient.validateExternalMcpLocalCommand({ command: 'npx' });
 
     expect(window.desktopShell.listExternalMcpServers).toHaveBeenCalledTimes(1);
     expect(window.desktopShell.addExternalMcpServer).toHaveBeenCalledWith(
@@ -671,6 +704,7 @@ describe('desktopShellClient', () => {
     expect(window.desktopShell.validateExternalMcpConnection).toHaveBeenCalledWith({
       transport: 'sse', url: 'https://x.com/sse',
     });
+    expect(window.desktopShell.validateExternalMcpLocalCommand).toHaveBeenCalledWith({ command: 'npx' });
 
     await desktopShellClient.loadAgentConfig();
     await desktopShellClient.loadModelCatalog();

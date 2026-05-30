@@ -9,14 +9,15 @@ afterEach(cleanup);
 function emptyDraft(): McpServerFormDraft {
   return {
     id: '', display_name: '', purpose: '', preferred_for: '',
-    fallback_description: '', url: '', transport: 'sse',
-    headers: [], agent_ids: [], enabled: true,
+    fallback_description: '', transport: 'sse', url: '', headers: [],
+    command: '', args: '', env: [], cwd: '', tools: '',
+    agent_ids: [], enabled: true,
   };
 }
 
 type FormProps = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
 >;
 
 const TEST_AGENT_ROSTER = {
@@ -30,6 +31,8 @@ function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
     draft: emptyDraft(),
     editingServerId: null,
     connectionValidation: { status: 'idle' },
+    localEnabled: false,
+    localCommandCheck: { status: 'idle' },
     fieldErrors: {},
     saving: false,
     saveEnabled: false,
@@ -37,6 +40,7 @@ function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
     error: null,
     onDraftChange: vi.fn(),
     onValidateConnection: vi.fn(),
+    onCheckLocalCommand: vi.fn(),
     onSave: vi.fn(),
     onCancel: vi.fn(),
     ...overrides,
@@ -55,7 +59,7 @@ describe('McpServerForm', () => {
 
   it('renders Preferred For guidance field', () => {
     render(<McpServerForm {...defaultProps()} />);
-    expect(screen.getByText('Preferred For (optional)')).toBeTruthy();
+    expect(screen.getByText('Preferred For *')).toBeTruthy();
   });
 
   it('renders Fallback Description field', () => {
@@ -65,8 +69,16 @@ describe('McpServerForm', () => {
 
   it('renders concise-guidance helper text', () => {
     render(<McpServerForm {...defaultProps()} />);
-    expect(screen.getByText(/injected into agent context/)).toBeTruthy();
+    expect(screen.getByText(/Describe what this server provides and when an agent should reach for it/)).toBeTruthy();
+    expect(screen.getByText('0 / 200, min 20')).toBeTruthy();
     expect(screen.getByText(/one short cue per line/i)).toBeTruthy();
+  });
+
+  it('renders the Preferred For required error inline', () => {
+    render(<McpServerForm {...defaultProps({
+      fieldErrors: { preferred_for: 'Preferred For requires at least one usage cue.' },
+    })} />);
+    expect(screen.getByText('Preferred For requires at least one usage cue.')).toBeTruthy();
   });
 
   it('renders Validate Connection button', () => {
@@ -191,5 +203,50 @@ describe('McpServerForm', () => {
     render(<McpServerForm {...defaultProps({ saving: true, saveEnabled: false })} />);
     expect(screen.getByText('Saving...')).toBeTruthy();
     expect((screen.getByText('Saving...') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disables the Local (stdio) option when localEnabled is false', () => {
+    render(<McpServerForm {...defaultProps({ localEnabled: false })} />);
+    const localOption = screen.getByText('Local (stdio) — disabled') as HTMLOptionElement;
+    expect(localOption.disabled).toBe(true);
+  });
+
+  it('enables the Local (stdio) option when localEnabled is true', () => {
+    render(<McpServerForm {...defaultProps({ localEnabled: true })} />);
+    const localOption = screen.getByText('Local (stdio)') as HTMLOptionElement;
+    expect(localOption.disabled).toBe(false);
+  });
+
+  it('renders local fields and hides the URL field when transport is local', () => {
+    const draft = { ...emptyDraft(), transport: 'local' as const };
+    render(<McpServerForm {...defaultProps({ draft, localEnabled: true })} />);
+    expect(screen.getByText("Local servers launch as a child process with the agent's OS permissions at each run.")).toBeTruthy();
+    expect(screen.getByText('Command *')).toBeTruthy();
+    expect(screen.getByText('Tools *')).toBeTruthy();
+    expect(screen.queryByText('URL *')).toBeNull();
+    // The local affordance is the advisory command check, not the network probe.
+    expect(screen.getByText('Check command')).toBeTruthy();
+    expect(screen.queryByText('Validate Connection')).toBeNull();
+  });
+
+  it('does not render the local child-process note for remote transports', () => {
+    render(<McpServerForm {...defaultProps()} />);
+    expect(screen.queryByText(/Local servers launch as a child process/)).toBeNull();
+  });
+
+  it('calls onCheckLocalCommand when the Check command button is clicked', () => {
+    const onCheckLocalCommand = vi.fn();
+    const draft = { ...emptyDraft(), transport: 'local' as const, command: 'npx' };
+    render(<McpServerForm {...defaultProps({ draft, localEnabled: true, onCheckLocalCommand })} />);
+    fireEvent.click(screen.getByText('Check command'));
+    expect(onCheckLocalCommand).toHaveBeenCalledOnce();
+  });
+
+  it('Save is gated to enabled only when saveEnabled is true for a local draft', () => {
+    const draft = { ...emptyDraft(), transport: 'local' as const, command: 'npx', tools: 'read_file' };
+    const { rerender } = render(<McpServerForm {...defaultProps({ draft, localEnabled: true, saveEnabled: false })} />);
+    expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(true);
+    rerender(<McpServerForm {...defaultProps({ draft, localEnabled: true, saveEnabled: true })} />);
+    expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(false);
   });
 });

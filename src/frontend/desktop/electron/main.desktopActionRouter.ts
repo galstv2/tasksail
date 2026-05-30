@@ -610,6 +610,8 @@ export async function handleDesktopAction(
       return resolvedHandlers.toggleExternalMcpServer(request.payload);
     case 'externalMcp.validateConnection':
       return resolvedHandlers.validateExternalMcpConnection(request.payload);
+    case 'externalMcp.validateLocalCommand':
+      return resolvedHandlers.validateExternalMcpLocalCommand(request.payload);
     case 'agentConfig.loadAgents':
       return resolvedHandlers.loadAgentConfigAgents();
     case 'agentConfig.loadModelCatalog':
@@ -652,6 +654,8 @@ export async function handleDesktopAction(
       return resolvedHandlers.dismissAllTaskNotifications();
     case 'taskBoard.readTaskContent':
       return resolvedHandlers.readTaskContent(request.payload);
+    case 'taskBoard.readChildChainBranchInventory':
+      return resolvedHandlers.readChildChainBranchInventory(request.payload);
     case 'taskBoard.reorderPending':
       return withStreamEvent(resolvedHandlers.reorderPending(request.payload),
         { message: 'Reordered pending queue.', source: 'taskBoard.reorderPending', role: 'queue' });

@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
 
-import type { McpConfigModalProps, ConnectionValidationState } from '../hooks/useMcpConfigModal';
+import type { McpConfigModalProps, ConnectionValidationState, LocalCommandCheckState } from '../hooks/useMcpConfigModal';
 import { classNames } from '../utils/classNames';
 
 type Props = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
 >;
 
 function isValidAbsoluteUrl(url: string): boolean {
@@ -34,10 +34,29 @@ function ValidationBadge({ state }: { state: ConnectionValidationState }): JSX.E
   }
 }
 
+function LocalCommandBadge({ state }: { state: LocalCommandCheckState }): JSX.Element | null {
+  switch (state.status) {
+    case 'idle':
+      return null;
+    case 'checking':
+      return <span className="mcp-form__validation mcp-form__validation--pending">Checking...</span>;
+    case 'found':
+      return (
+        <span className="mcp-form__validation mcp-form__validation--success">
+          Found{state.resolvedPath ? `: ${state.resolvedPath}` : ''}
+        </span>
+      );
+    case 'not-found':
+      return <span className="mcp-form__validation mcp-form__validation--failed">{state.message}</span>;
+  }
+}
+
 function McpServerForm({
   draft,
   editingServerId,
   connectionValidation,
+  localEnabled,
+  localCommandCheck,
   fieldErrors,
   saving,
   saveEnabled,
@@ -45,11 +64,14 @@ function McpServerForm({
   error,
   onDraftChange,
   onValidateConnection,
+  onCheckLocalCommand,
   onSave,
   onCancel,
 }: Props): JSX.Element {
   const [urlBlurError, setUrlBlurError] = useState<string | null>(null);
   const agentKeys = Object.keys(agentRoster);
+  const purposeLength = draft.purpose.length;
+  const purposeCounterWarning = draft.purpose.trim().length < 20;
 
   const handleUrlBlur = useCallback(() => {
     if (draft.url && !isValidAbsoluteUrl(draft.url)) {
@@ -100,14 +122,17 @@ function McpServerForm({
           type="text"
           value={draft.purpose}
           onChange={(e) => onDraftChange('purpose', e.target.value)}
-          placeholder="Vendor API documentation for the billing integration project"
+          placeholder="Use when the task involves vendor billing API calls or needs up-to-date endpoint schemas."
         />
-        <span className="mcp-form__hint">Short phrase — injected into agent context at launch time.</span>
+        <span className="mcp-form__hint">Describe what this server provides and when an agent should reach for it (min 20 characters). The more specific, the better the agent can judge relevance.</span>
+        <span className={classNames('mcp-form__counter', purposeCounterWarning && 'mcp-form__counter--warning')}>
+          {purposeLength} / 200, min 20
+        </span>
         {fieldErrors.purpose && <span className="mcp-form__error">{fieldErrors.purpose}</span>}
       </div>
 
       <div className="mcp-form__field">
-        <label className="mcp-form__label">Preferred For (optional)</label>
+        <label className="mcp-form__label">Preferred For *</label>
         <textarea
           className={classNames('mcp-form__textarea', fieldErrors.preferred_for && 'mcp-form__input--error')}
           value={draft.preferred_for}
@@ -133,18 +158,20 @@ function McpServerForm({
       </div>
 
       <div className="mcp-form__row">
-        <div className="mcp-form__field mcp-form__field--grow">
-          <label className="mcp-form__label">URL *</label>
-          <input
-            className={classNames('mcp-form__input', urlError && 'mcp-form__input--error')}
-            type="text"
-            value={draft.url}
-            onChange={(e) => { onDraftChange('url', e.target.value); setUrlBlurError(null); }}
-            onBlur={handleUrlBlur}
-            placeholder="https://mcp.vendor.example/sse"
-          />
-          {urlError && <span className="mcp-form__error">{urlError}</span>}
-        </div>
+        {draft.transport !== 'local' && (
+          <div className="mcp-form__field mcp-form__field--grow">
+            <label className="mcp-form__label">URL *</label>
+            <input
+              className={classNames('mcp-form__input', urlError && 'mcp-form__input--error')}
+              type="text"
+              value={draft.url}
+              onChange={(e) => { onDraftChange('url', e.target.value); setUrlBlurError(null); }}
+              onBlur={handleUrlBlur}
+              placeholder="https://mcp.vendor.example/sse"
+            />
+            {urlError && <span className="mcp-form__error">{urlError}</span>}
+          </div>
+        )}
         <div className="mcp-form__field">
           <label className="mcp-form__label">Transport</label>
           <select
@@ -154,57 +181,172 @@ function McpServerForm({
           >
             <option value="sse">SSE</option>
             <option value="http">HTTP</option>
+            <option
+              value="local"
+              disabled={!localEnabled}
+              title={localEnabled ? undefined : 'Enable external_mcp_local_enabled in platform settings to add local (stdio) servers.'}
+            >
+              Local (stdio){localEnabled ? '' : ' — disabled'}
+            </option>
           </select>
+          {!localEnabled && (
+            <span className="mcp-form__hint">
+              Enable <code>external_mcp_local_enabled</code> in platform settings to add local (stdio) servers.
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="mcp-form__field">
-        <label className="mcp-form__label">Headers</label>
-        {draft.headers.map((h, i) => (
-          <div key={i} className="mcp-form__header-row">
+      {draft.transport === 'local' ? (
+        <>
+          <span className="mcp-form__hint">
+            Local servers launch as a child process with the agent&apos;s OS permissions at each run.
+          </span>
+          <div className="mcp-form__field">
+            <label className="mcp-form__label">Command *</label>
             <input
-              className="mcp-form__input mcp-form__input--sm"
+              className={classNames('mcp-form__input', fieldErrors.command && 'mcp-form__input--error')}
               type="text"
-              value={h.key}
-              placeholder="Header name"
-              onChange={(e) => {
-                const next = [...draft.headers];
-                next[i] = { ...next[i], key: e.target.value };
-                onDraftChange('headers', next);
-              }}
+              value={draft.command}
+              onChange={(e) => onDraftChange('command', e.target.value)}
+              placeholder="npx"
             />
-            <input
-              className="mcp-form__input mcp-form__input--sm"
-              type="text"
-              value={h.value}
-              placeholder="${ENV_VAR_NAME}"
-              onChange={(e) => {
-                const next = [...draft.headers];
-                next[i] = { ...next[i], value: e.target.value };
-                onDraftChange('headers', next);
-              }}
+            <span className="mcp-form__hint">The launch command, resolved on PATH by the CLI at launch.</span>
+            {fieldErrors.command && <span className="mcp-form__error">{fieldErrors.command}</span>}
+          </div>
+
+          <div className="mcp-form__field">
+            <label className="mcp-form__label">Arguments (optional)</label>
+            <textarea
+              className="mcp-form__textarea"
+              value={draft.args}
+              onChange={(e) => onDraftChange('args', e.target.value)}
+              placeholder={'-y\n@scope/server'}
+              rows={3}
             />
+            <span className="mcp-form__hint">One argument per line.</span>
+          </div>
+
+          <div className="mcp-form__field">
+            <label className="mcp-form__label">Environment (optional)</label>
+            {draft.env.map((e, i) => (
+              <div key={i} className="mcp-form__header-row">
+                <input
+                  className="mcp-form__input mcp-form__input--sm"
+                  type="text"
+                  value={e.key}
+                  placeholder="VAR_NAME"
+                  onChange={(ev) => {
+                    const next = [...draft.env];
+                    next[i] = { ...next[i], key: ev.target.value };
+                    onDraftChange('env', next);
+                  }}
+                />
+                <input
+                  className="mcp-form__input mcp-form__input--sm"
+                  type="text"
+                  value={e.value}
+                  placeholder="${ENV_VAR_NAME}"
+                  onChange={(ev) => {
+                    const next = [...draft.env];
+                    next[i] = { ...next[i], value: ev.target.value };
+                    onDraftChange('env', next);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="mcp-form__btn-icon"
+                  aria-label="Remove env variable"
+                  onClick={() => onDraftChange('env', draft.env.filter((_, j) => j !== i))}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
             <button
               type="button"
-              className="mcp-form__btn-icon"
-              aria-label="Remove header"
-              onClick={() => {
-                const next = draft.headers.filter((_, j) => j !== i);
-                onDraftChange('headers', next);
-              }}
+              className="mcp-form__btn-link"
+              onClick={() => onDraftChange('env', [...draft.env, { key: '', value: '' }])}
             >
-              &times;
+              + Add env variable
             </button>
           </div>
-        ))}
-        <button
-          type="button"
-          className="mcp-form__btn-link"
-          onClick={() => onDraftChange('headers', [...draft.headers, { key: '', value: '' }])}
-        >
-          + Add header
-        </button>
-      </div>
+
+          <div className="mcp-form__field">
+            <label className="mcp-form__label">Working Directory (optional)</label>
+            <input
+              className={classNames('mcp-form__input', fieldErrors.cwd && 'mcp-form__input--error')}
+              type="text"
+              value={draft.cwd}
+              onChange={(e) => onDraftChange('cwd', e.target.value)}
+              placeholder="/absolute/path"
+            />
+            <span className="mcp-form__hint">If set, must be an absolute path.</span>
+            {fieldErrors.cwd && <span className="mcp-form__error">{fieldErrors.cwd}</span>}
+          </div>
+
+          <div className="mcp-form__field">
+            <label className="mcp-form__label">Tools *</label>
+            <textarea
+              className={classNames('mcp-form__textarea', fieldErrors.tools && 'mcp-form__input--error')}
+              value={draft.tools}
+              onChange={(e) => onDraftChange('tools', e.target.value)}
+              placeholder={'read_file\nlist_dir'}
+              rows={3}
+            />
+            <span className="mcp-form__hint">One tool name per line. Required for local servers; &quot;*&quot; is not allowed.</span>
+            {fieldErrors.tools && <span className="mcp-form__error">{fieldErrors.tools}</span>}
+          </div>
+        </>
+      ) : (
+        <div className="mcp-form__field">
+          <label className="mcp-form__label">Headers</label>
+          {draft.headers.map((h, i) => (
+            <div key={i} className="mcp-form__header-row">
+              <input
+                className="mcp-form__input mcp-form__input--sm"
+                type="text"
+                value={h.key}
+                placeholder="Header name"
+                onChange={(e) => {
+                  const next = [...draft.headers];
+                  next[i] = { ...next[i], key: e.target.value };
+                  onDraftChange('headers', next);
+                }}
+              />
+              <input
+                className="mcp-form__input mcp-form__input--sm"
+                type="text"
+                value={h.value}
+                placeholder="${ENV_VAR_NAME}"
+                onChange={(e) => {
+                  const next = [...draft.headers];
+                  next[i] = { ...next[i], value: e.target.value };
+                  onDraftChange('headers', next);
+                }}
+              />
+              <button
+                type="button"
+                className="mcp-form__btn-icon"
+                aria-label="Remove header"
+                onClick={() => {
+                  const next = draft.headers.filter((_, j) => j !== i);
+                  onDraftChange('headers', next);
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="mcp-form__btn-link"
+            onClick={() => onDraftChange('headers', [...draft.headers, { key: '', value: '' }])}
+          >
+            + Add header
+          </button>
+        </div>
+      )}
 
       <div className="mcp-form__field">
         <label className="mcp-form__label">Agent Scope</label>
@@ -248,15 +390,31 @@ function McpServerForm({
 
       <div className="mcp-form__actions">
         <div className="mcp-form__validation-group">
-          <button
-            type="button"
-            className="mcp-modal__btn"
-            onClick={onValidateConnection}
-            disabled={!draft.url || connectionValidation.status === 'validating'}
-          >
-            Validate Connection
-          </button>
-          <ValidationBadge state={connectionValidation} />
+          {draft.transport === 'local' ? (
+            <>
+              <button
+                type="button"
+                className="mcp-modal__btn"
+                onClick={onCheckLocalCommand}
+                disabled={!draft.command.trim() || localCommandCheck.status === 'checking'}
+              >
+                Check command
+              </button>
+              <LocalCommandBadge state={localCommandCheck} />
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="mcp-modal__btn"
+                onClick={onValidateConnection}
+                disabled={!draft.url || connectionValidation.status === 'validating'}
+              >
+                Validate Connection
+              </button>
+              <ValidationBadge state={connectionValidation} />
+            </>
+          )}
         </div>
         <div className="mcp-form__action-buttons">
           <button type="button" className="mcp-modal__btn" onClick={onCancel}>

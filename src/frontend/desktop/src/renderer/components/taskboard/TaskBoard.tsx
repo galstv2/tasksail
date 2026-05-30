@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 
-import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn, TaskBoardPendingItem } from '../../../shared/desktopContract';
-import type { TaskBoardState } from '../../hooks/useTaskBoard';
+import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn, TaskBoardPendingItem, TaskBoardReadChildChainBranchInventoryResponse } from '../../../shared/desktopContract';
+import type { TaskBoardContentResult, TaskBoardState } from '../../hooks/useTaskBoard';
 import { formatLocalTimeShort, formatRelativeDay } from '../../utils/localTimestamp';
 import TaskBoardColumn from './TaskBoardColumn';
 import TaskBoardCard from './TaskBoardCard';
 import TaskDetailModal from './TaskDetailModal';
+import ChildChainBranchInventoryModal from './ChildChainBranchInventoryModal';
 import { DND_MIME_SOURCE_COLUMN, DND_MIME_MOVABLE_TO_OPEN } from './dndConstants';
 
 export type TaskBoardProps = {
@@ -18,7 +19,15 @@ export type TaskBoardProps = {
   onMoveToOpen?: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<void>;
   onKillTask?: (fileName: string, taskId: string) => Promise<void>;
   onRetryKillCleanup?: (fileName: string, taskId: string) => Promise<void>;
-  readTaskContent?: (fileName: string, column: TaskBoardContentColumn) => Promise<string | null>;
+  readTaskContent?: (
+    fileName: string,
+    column: TaskBoardContentColumn,
+    artifactRelativePath?: string,
+  ) => Promise<TaskBoardContentResult | null>;
+  readChildChainBranchInventory?: (
+    taskId: string,
+    expectedRootTaskId?: string | null,
+  ) => Promise<TaskBoardReadChildChainBranchInventoryResponse | null>;
 };
 
 function computeDropIndex(
@@ -40,6 +49,9 @@ type SelectedTask = {
   fileName: string;
   title: string | null;
   column: TaskBoardContentColumn;
+  artifactRelativePath?: string;
+  taskId?: string;
+  childChain?: ArchivedTaskEntry['childChain'];
 };
 
 type DeleteTarget = {
@@ -110,6 +122,13 @@ function pendingMeta(item: TaskBoardPendingItem): string | null {
   return `Activating · ${phaseLabel}`;
 }
 
+function completedChildChainBadge(item: ArchivedTaskEntry): string | null {
+  if (!item.childChain) return null;
+  if (item.childChain.rootTaskId === item.taskId) return 'Chain root';
+  if (item.childChain.isCurrentTip) return 'Chain tip';
+  return 'Child task';
+}
+
 function TaskBoard({
   board,
   onReorderPending,
@@ -120,14 +139,21 @@ function TaskBoard({
   onKillTask,
   onRetryKillCleanup,
   readTaskContent,
+  readChildChainBranchInventory,
 }: TaskBoardProps): JSX.Element {
   const [dropActive, setDropActive] = useState(false);
   const [openDropActive, setOpenDropActive] = useState(false);
   const [pendingColumnEl, setPendingColumnEl] = useState<HTMLDivElement | null>(null);
   const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
-  const [modalContent, setModalContent] = useState<string | null>(null);
+  const [modalResult, setModalResult] = useState<TaskBoardContentResult | null>(null);
+  // Tracks which task the current modalResult belongs to, so a failed artifact
+  // re-read on the SAME task keeps the previous content, while switching tasks
+  // clears stale content if the new task's initial read fails.
+  const modalTaskFileNameRef = useRef<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [killTarget, setKillTarget] = useState<KillTarget | null>(null);
+  const [chainInventory, setChainInventory] = useState<TaskBoardReadChildChainBranchInventoryResponse | null>(null);
+  const [chainInventoryLoading, setChainInventoryLoading] = useState(false);
   const sortedCompletedItems = useMemo(
     () => board.completedItems
       .map((item, index) => ({ item, index, ms: archivedAtMs(item) }))
@@ -143,23 +169,60 @@ function TaskBoard({
 
   useEffect(() => {
     if (!selectedTask || !readTaskContent) {
-      setModalContent(null);
+      setModalResult(null);
+      modalTaskFileNameRef.current = null;
       return;
     }
+    const isTaskSwitch = modalTaskFileNameRef.current !== selectedTask.fileName;
+    if (isTaskSwitch) {
+      // New task: drop prior content so a failed initial read can't show stale content.
+      setModalResult(null);
+    }
+    modalTaskFileNameRef.current = selectedTask.fileName;
     let cancelled = false;
-    void readTaskContent(selectedTask.fileName, selectedTask.column).then((text) => {
-      if (!cancelled) setModalContent(text);
-    });
+    void readTaskContent(selectedTask.fileName, selectedTask.column, selectedTask.artifactRelativePath)
+      .then((result) => {
+        if (cancelled) return;
+        if (result) {
+          setModalResult(result);
+        } else if (isTaskSwitch) {
+          setModalResult(null);
+        }
+        // Same-task artifact read failed: keep the previous modalResult.
+      });
     return () => { cancelled = true; };
   }, [selectedTask, readTaskContent]);
 
   const handleCardClick = useCallback(
-    (fileName: string, title: string | null, column: TaskBoardContentColumn) => {
+    (fileName: string, title: string | null, column: TaskBoardContentColumn, completedEntry?: ArchivedTaskEntry) => {
       if (!readTaskContent) return;
-      setSelectedTask({ fileName, title, column });
+      // Omit artifactRelativePath so the initial completed read defaults to archive.md.
+      // Retain childChain metadata so the completed detail modal can offer View Chain
+      // without re-deriving chain membership from file names or markdown.
+      setSelectedTask({
+        fileName,
+        title,
+        column,
+        ...(completedEntry ? { taskId: completedEntry.taskId, childChain: completedEntry.childChain } : {}),
+      });
     },
     [readTaskContent],
   );
+
+  const handleSelectArtifact = useCallback((relativePath: string) => {
+    setSelectedTask((prev) => (prev ? { ...prev, artifactRelativePath: relativePath } : prev));
+  }, []);
+
+  const handleViewChain = useCallback(() => {
+    if (!readChildChainBranchInventory || !selectedTask) return;
+    if (selectedTask.column !== 'completed' || !selectedTask.taskId || !selectedTask.childChain) return;
+    setChainInventoryLoading(true);
+    void readChildChainBranchInventory(selectedTask.taskId, selectedTask.childChain.rootTaskId)
+      .then((response) => {
+        if (response) setChainInventory(response);
+      })
+      .finally(() => setChainInventoryLoading(false));
+  }, [readChildChainBranchInventory, selectedTask]);
 
   const handleOpenDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     if (!e.dataTransfer.types.includes(DND_MIME_MOVABLE_TO_OPEN)) return;
@@ -378,19 +441,47 @@ function TaskBoard({
                 title={item.title}
                 taskId={item.taskId}
                 meta={completedMeta(item.archivedAt)}
-                onClick={() => handleCardClick(`${item.taskId}.md`, item.title, 'completed')}
+                badge={completedChildChainBadge(item)}
+                onClick={() => handleCardClick(`${item.taskId}.md`, item.title, 'completed', item)}
               />
             ))
           )}
         </TaskBoardColumn>
       </div>
 
-      {selectedTask && modalContent !== null && (
+      {selectedTask && modalResult !== null && (
         <TaskDetailModal
           title={selectedTask.title}
-          content={modalContent}
+          content={modalResult.content}
           column={selectedTask.column}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => { setSelectedTask(null); setChainInventory(null); }}
+          artifactExplorer={
+            selectedTask.column === 'completed' && modalResult.artifacts
+              ? {
+                  artifacts: modalResult.artifacts,
+                  selectedRelativePath: modalResult.artifactRelativePath ?? 'archive.md',
+                  onSelectArtifact: handleSelectArtifact,
+                }
+              : undefined
+          }
+          childChainAction={
+            selectedTask.column === 'completed' && selectedTask.childChain
+              ? {
+                  onViewChain: handleViewChain,
+                  disabled: chainInventoryLoading,
+                  loading: chainInventoryLoading,
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {chainInventory && (
+        <ChildChainBranchInventoryModal
+          response={chainInventory}
+          onClose={() => setChainInventory(null)}
+          zIndex={102}
+          escPriority={20}
         />
       )}
 

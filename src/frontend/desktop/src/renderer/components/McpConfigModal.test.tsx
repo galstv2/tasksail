@@ -3,11 +3,11 @@ import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 
 import McpConfigModal from './McpConfigModal';
 import type { McpConfigModalProps, McpServerFormDraft } from '../hooks/useMcpConfigModal';
-import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
+import type { ExternalMcpServerEntry, ExternalMcpUrlServerEntry } from '../../shared/desktopContract';
 
 afterEach(cleanup);
 
-function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMcpServerEntry {
+function makeServer(overrides: Partial<ExternalMcpUrlServerEntry> = {}): ExternalMcpServerEntry {
   return {
     id: 'test-mcp',
     display_name: 'Test MCP Server',
@@ -23,8 +23,9 @@ function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMc
 function emptyDraft(): McpServerFormDraft {
   return {
     id: '', display_name: '', purpose: '', preferred_for: '',
-    fallback_description: '', url: '', transport: 'sse',
-    headers: [], agent_ids: [], enabled: true,
+    fallback_description: '', transport: 'sse', url: '', headers: [],
+    command: '', args: '', env: [], cwd: '', tools: '',
+    agent_ids: [], enabled: true,
   };
 }
 
@@ -46,6 +47,8 @@ function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigMo
     draft: emptyDraft(),
     agentRoster: TEST_AGENT_ROSTER,
     connectionValidation: { status: 'idle' },
+    localEnabled: false,
+    localCommandCheck: { status: 'idle' },
     removingServerId: null,
     saving: false,
     saveEnabled: false,
@@ -59,6 +62,7 @@ function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigMo
     onCancel: vi.fn(),
     onSave: vi.fn(),
     onValidateConnection: vi.fn(),
+    onCheckLocalCommand: vi.fn(),
     onDraftChange: vi.fn(),
     ...overrides,
   };
@@ -74,6 +78,11 @@ describe('McpConfigModal — list view', () => {
     render(<McpConfigModal {...defaultProps()} />);
     expect(screen.getByText('No external MCP servers configured.')).toBeTruthy();
     expect(screen.getByText('Add Server')).toBeTruthy();
+  });
+
+  it('renders the operator vetting notice with status role', () => {
+    render(<McpConfigModal {...defaultProps()} />);
+    expect(screen.getByRole('status').textContent).toContain('You are responsible for vetting every external MCP server');
   });
 
   it('renders server list with display name and badges', () => {
@@ -150,13 +159,18 @@ describe('McpConfigModal — form view', () => {
 
   it('renders preferred_for and fallback_description fields', () => {
     render(<McpConfigModal {...defaultProps({ view: 'form' })} />);
-    expect(screen.getByText('Preferred For (optional)')).toBeTruthy();
+    expect(screen.getByText('Preferred For *')).toBeTruthy();
     expect(screen.getByText('Fallback Description (optional)')).toBeTruthy();
   });
 
   it('shows helper text for guidance fields', () => {
     render(<McpConfigModal {...defaultProps({ view: 'form' })} />);
-    expect(screen.getByText(/injected into agent context/)).toBeTruthy();
+    expect(screen.getByText(/Describe what this server provides and when an agent should reach for it/)).toBeTruthy();
+  });
+
+  it('renders the operator vetting notice in form view with status role', () => {
+    render(<McpConfigModal {...defaultProps({ view: 'form' })} />);
+    expect(screen.getByRole('status').textContent).toContain('have agents corroborate its output');
   });
 
   it('Save is disabled before connection validation', () => {

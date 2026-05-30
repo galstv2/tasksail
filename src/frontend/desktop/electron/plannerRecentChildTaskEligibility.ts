@@ -34,10 +34,13 @@ export function derivePlannerHistoryTaskId(record: PlannerConversationRecord): s
   return basename(record.finalizedDestinationPath, '.md');
 }
 
+// Surfaced when replaying a recent that originated as a child task is blocked by the
+// retained eligibility gate. Replays create a standalone standard copy, so the wording
+// stays replay-neutral rather than referencing child-chain continuation.
 export function childTaskHydrateMessage(eligibility: RecentChildTaskEligibility): string {
   return eligibility.reason === 'child-chain-state-invalid'
-    ? 'Child-task recents are temporarily unavailable because child-task chain state is invalid.'
-    : 'This child-task recent is no longer the current child-chain tip.';
+    ? "This recent can't be replayed right now because its task data is being updated. Try again in a moment."
+    : "This recent can't be replayed right now because its underlying task has changed. Refresh the recent list and try again.";
 }
 
 function makeEligibility(

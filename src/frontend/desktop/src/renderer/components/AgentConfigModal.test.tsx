@@ -305,7 +305,7 @@ describe('AgentConfigModal', () => {
     })} />);
 
     // Warning message is shown
-    expect(screen.getByText(/Plugin direct attachment is not supported in V1/)).toBeTruthy();
+    expect(screen.getByText(/Plugin direct attachment is not supported/)).toBeTruthy();
     // Add Extension button is disabled
     const addBtn = screen.getByRole('button', { name: 'Add Extension' });
     expect(addBtn).toBeDisabled();
@@ -350,18 +350,21 @@ describe('AgentConfigModal', () => {
       })),
     })} />);
 
-    // Lily's assignment list
+    // Open Lily's multi-select menu to reveal the option rows.
+    fireEvent.click(screen.getByLabelText('Select skills and plugins for Lily'));
     const lilyList = screen.getByLabelText('Lily extension assignments');
     expect(lilyList).toBeTruthy();
 
-    // Code Helper entry: label contains name + Skill badge
-    const codeHelperLabel = within(lilyList).getByLabelText(/Assign Code Helper \(Skill\) to Lily/i);
-    expect(codeHelperLabel).toBeTruthy();
-    expect(codeHelperLabel).toBeChecked();
+    // Code Helper option: accessible name carries name + Skill kind, selected for Lily.
+    const codeHelperOption = within(lilyList).getByLabelText(/Assign Code Helper \(Skill\) to Lily/i);
+    expect(codeHelperOption).toHaveAttribute('aria-selected', 'true');
+    // The name is pinned left, the kind badge pinned right.
+    expect(within(codeHelperOption).getByText('Code Helper')).toBeTruthy();
+    expect(within(codeHelperOption).getByText('Skill')).toBeTruthy();
 
-    // Lint Plugin is unchecked for Lily
-    const lintLabel = within(lilyList).getByLabelText(/Assign Lint Plugin \(Plugin\) to Lily/i);
-    expect(lintLabel).not.toBeChecked();
+    // Lint Plugin is unselected for Lily.
+    const lintOption = within(lilyList).getByLabelText(/Assign Lint Plugin \(Plugin\) to Lily/i);
+    expect(lintOption).toHaveAttribute('aria-selected', 'false');
   });
 
   it('shows selected extension count in the assignment section label', () => {
@@ -381,7 +384,7 @@ describe('AgentConfigModal', () => {
     expect(screen.getByText('Extensions (2 selected)')).toBeTruthy();
   });
 
-  it('calls onToggleExtensionAssignment when a checkbox is toggled', () => {
+  it('calls onToggleExtensionAssignment when a menu option is toggled', () => {
     const skill = makeExtension({ id: 'sk-1', display_name: 'Code Helper', kind: 'skill' });
     const onToggle = vi.fn();
     render(<AgentConfigModal {...defaultProps({
@@ -391,8 +394,9 @@ describe('AgentConfigModal', () => {
       onToggleExtensionAssignment: onToggle,
     })} />);
 
-    const checkbox = screen.getByLabelText(/Assign Code Helper \(Skill\) to Lily/i);
-    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByLabelText('Select skills and plugins for Lily'));
+    const option = screen.getByLabelText(/Assign Code Helper \(Skill\) to Lily/i);
+    fireEvent.click(option);
     expect(onToggle).toHaveBeenCalledWith('provider-planner', 'sk-1', true);
   });
 
@@ -550,7 +554,8 @@ describe('AgentConfigModal', () => {
       extensionAssignments: {},
     })} />);
 
-    // The aria-label includes both name and kind for each extension entry
+    // Open Lily's menu; the option aria-labels include both name and kind.
+    fireEvent.click(screen.getByLabelText('Select skills and plugins for Lily'));
     expect(screen.getAllByLabelText(/Assign My Skill \(Skill\) to/i).length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText(/Assign phase2-cobalt-plugin \(Plugin\) to/i).length).toBeGreaterThan(0);
   });

@@ -35,6 +35,7 @@ const FULL_DEFAULT = {
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
   auto_merge: false,
+  external_mcp_local_enabled: false,
   mcp_port: 8811,
   repo_context_mcp_external_mount_roots: [],
 };
@@ -136,6 +137,7 @@ describe('loadPlatformConfig', () => {
         max_retry_generations_per_slug: 5,
         completed_task_runtime_retention_ms: 3600000,
         auto_merge: false,
+        external_mcp_local_enabled: false,
         mcp_port: 8811,
         repo_context_mcp_external_mount_roots: [],
       });
@@ -160,6 +162,7 @@ describe('loadPlatformConfig', () => {
       expect(result.config.max_retry_generations_per_slug).toBe(5);
       expect(result.config.completed_task_runtime_retention_ms).toBe(3600000);
       expect(result.config.auto_merge).toBe(false);
+      expect(result.config.external_mcp_local_enabled).toBe(false);
       expect(result.config.mcp_port).toBe(8811);
       expect(result.config.repo_context_mcp_external_mount_roots).toEqual([]);
     }
@@ -182,6 +185,26 @@ describe('loadPlatformConfig', () => {
     expect(rejected.valid).toBe(false);
     if (!rejected.valid) {
       expect(rejected.errors.some((e) => e.field === 'auto_merge')).toBe(true);
+    }
+  });
+
+  it('accepts boolean external_mcp_local_enabled and rejects non-boolean', async () => {
+    const accepted = await loadPlatformConfig(writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      external_mcp_local_enabled: true,
+    })));
+    expect(accepted.valid).toBe(true);
+    if (accepted.valid) {
+      expect(accepted.config.external_mcp_local_enabled).toBe(true);
+    }
+
+    const rejected = await loadPlatformConfig(writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      external_mcp_local_enabled: 'true',
+    })));
+    expect(rejected.valid).toBe(false);
+    if (!rejected.valid) {
+      expect(rejected.errors.some((e) => e.field === 'external_mcp_local_enabled')).toBe(true);
     }
   });
 

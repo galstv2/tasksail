@@ -19,6 +19,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   ALLOWED_TRANSPORTS,
   MAX_PURPOSE_LENGTH,
+  MIN_PURPOSE_LENGTH,
   MAX_PREFERRED_FOR_ITEM_LENGTH,
   MAX_PREFERRED_FOR_ITEMS,
   MAX_FALLBACK_DESCRIPTION_LENGTH,
@@ -68,22 +69,24 @@ describe('valid server parsing', () => {
     if (!result.ok) return;
     expect(result.registry.external_servers).toHaveLength(1);
     expect(result.registry.external_servers[0].id).toBe('vendor-docs');
-    expect(result.registry.external_servers[0].purpose).toBe('Vendor API docs');
+    expect(result.registry.external_servers[0].purpose).toBe('Vendor API docs for billing');
     expect(result.registry.external_servers[0].preferred_for).toEqual(['auth headers']);
     expect(result.registry.external_servers[0].fallback_description).toBe('Provides search_docs tool');
   });
 
-  it('accepts a valid server without optional fields', () => {
+  it('accepts a valid server without optional fallback and connection metadata fields', () => {
     const data = validRegistryWithServer();
-    delete (data.external_servers[0] as Record<string, unknown>)['preferred_for'];
     delete (data.external_servers[0] as Record<string, unknown>)['fallback_description'];
     delete (data.external_servers[0] as Record<string, unknown>)['headers'];
     const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.registry.external_servers[0].preferred_for).toBeUndefined();
-    expect(result.registry.external_servers[0].fallback_description).toBeUndefined();
-    expect(result.registry.external_servers[0].headers).toBeUndefined();
+    const server = result.registry.external_servers[0];
+    expect(server.preferred_for).toEqual(['auth headers']);
+    expect(server.fallback_description).toBeUndefined();
+    if (server.transport !== 'local') {
+      expect(server.headers).toBeUndefined();
+    }
   });
 
   it('accepts absent external_servers (defaults to empty)', () => {
@@ -114,7 +117,9 @@ describe('duplicate server IDs', () => {
 // ---------------------------------------------------------------------------
 
 describe('transport validation', () => {
-  for (const transport of ALLOWED_TRANSPORTS) {
+  // The url-shaped fixture is valid for http/sse; 'local' has a distinct shape
+  // and is covered by the dedicated local-transport suite below.
+  for (const transport of ALLOWED_TRANSPORTS.filter((t) => t !== 'local')) {
     it(`accepts "${transport}" transport`, () => {
       const data = validRegistryWithServer();
       (data.external_servers[0] as Record<string, unknown>).transport = transport;
@@ -131,6 +136,116 @@ describe('transport validation', () => {
       expect(result.ok).toBe(false);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Local (stdio) transport validation
+// ---------------------------------------------------------------------------
+
+describe('local transport validation', () => {
+  function localRegistry(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> & { external_servers: Record<string, unknown>[] } {
+    return {
+      schema_version: 1,
+      external_servers: [{
+        id: 'local-fs',
+        display_name: 'Local FS MCP',
+        purpose: 'Local filesystem tools',
+        preferred_for: ['local filesystem inspection'],
+        enabled: true,
+        transport: 'local',
+        command: 'npx',
+        args: ['-y', '@scope/server'],
+        tools: ['read_file', 'list_dir'],
+        agent_scope: { mode: 'allowlist', agent_ids: ['software-engineer'] },
+        ...overrides,
+      }],
+    };
+  }
+
+  it('accepts a valid local server with command and tools', () => {
+    const result = validateExternalMcpRegistry(localRegistry());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const server = result.registry.external_servers[0];
+    expect(server.transport).toBe('local');
+    if (server.transport !== 'local') return;
+    expect(server.command).toBe('npx');
+    expect(server.args).toEqual(['-y', '@scope/server']);
+    expect(server.tools).toEqual(['read_file', 'list_dir']);
+  });
+
+  it('accepts a local server with env ${ENV_VAR} references and an absolute cwd', () => {
+    const result = validateExternalMcpRegistry(localRegistry({
+      env: { API_KEY: '${VENDOR_TOKEN}', MODE: 'prod' },
+      cwd: process.cwd(),
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const server = result.registry.external_servers[0];
+    if (server.transport !== 'local') return;
+    expect(server.env).toEqual({ API_KEY: '${VENDOR_TOKEN}', MODE: 'prod' });
+    expect(server.cwd).toBe(process.cwd());
+  });
+
+  it('rejects a local server missing command', () => {
+    const data = localRegistry();
+    delete (data.external_servers[0] as Record<string, unknown>)['command'];
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.endsWith('.command'))).toBe(true);
+  });
+
+  it('rejects a local server whose tools contain "*"', () => {
+    const result = validateExternalMcpRegistry(localRegistry({ tools: ['*'] }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.endsWith('.tools') && e.message.includes('*'))).toBe(true);
+  });
+
+  it('rejects a local server with an empty tools allowlist', () => {
+    const result = validateExternalMcpRegistry(localRegistry({ tools: [] }));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a local server missing tools entirely', () => {
+    const data = localRegistry();
+    delete (data.external_servers[0] as Record<string, unknown>)['tools'];
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a local server with a relative cwd', () => {
+    const result = validateExternalMcpRegistry(localRegistry({ cwd: 'relative/dir' }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.endsWith('.cwd'))).toBe(true);
+  });
+
+  it('rejects a local server with a malformed env reference', () => {
+    const result = validateExternalMcpRegistry(localRegistry({
+      env: { API_KEY: 'Bearer ${TOKEN}' },
+    }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.includes('.env'))).toBe(true);
+  });
+
+  it('rejects a local server that also declares a url', () => {
+    const result = validateExternalMcpRegistry(localRegistry({ url: 'https://example.com/mcp' }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.endsWith('.url'))).toBe(true);
+  });
+
+  it('rejects a local server that also declares headers', () => {
+    const result = validateExternalMcpRegistry(localRegistry({ headers: { Authorization: '${TOKEN}' } }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.field.endsWith('.headers'))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,6 +374,22 @@ describe('purpose validation', () => {
     expect(result.errors.some((e) => e.message.includes('exceeding'))).toBe(true);
   });
 
+  it('rejects purpose below the minimum length', () => {
+    const data = validRegistryWithServer();
+    (data.external_servers[0] as Record<string, unknown>).purpose = 'short purpose';
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.message.includes(`at least ${MIN_PURPOSE_LENGTH} characters`))).toBe(true);
+  });
+
+  it('accepts purpose at the minimum length', () => {
+    const data = validRegistryWithServer();
+    (data.external_servers[0] as Record<string, unknown>).purpose = 'x'.repeat(MIN_PURPOSE_LENGTH);
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(true);
+  });
+
   it('accepts purpose at max length', () => {
     const data = validRegistryWithServer();
     (data.external_servers[0] as Record<string, unknown>).purpose = 'x'.repeat(MAX_PURPOSE_LENGTH);
@@ -272,13 +403,22 @@ describe('purpose validation', () => {
 // ---------------------------------------------------------------------------
 
 describe('preferred_for validation', () => {
+  it('rejects missing preferred_for', () => {
+    const data = validRegistryWithServer();
+    delete (data.external_servers[0] as Record<string, unknown>)['preferred_for'];
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.message.includes('requires at least one usage cue'))).toBe(true);
+  });
+
   it('rejects empty array', () => {
     const data = validRegistryWithServer();
     (data.external_servers[0] as Record<string, unknown>).preferred_for = [];
     const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.errors.some((e) => e.message.includes('non-empty'))).toBe(true);
+    expect(result.errors.some((e) => e.message.includes('requires at least one usage cue'))).toBe(true);
   });
 
   it('rejects non-array value', () => {
@@ -536,7 +676,8 @@ function validServer(
 ): ExternalMcpServer {
   return {
     display_name: 'Test MCP',
-    purpose: 'Test purpose',
+    purpose: 'Test purpose for agents',
+    preferred_for: ['test usage cue'],
     enabled: true,
     transport: 'sse' as const,
     url: 'https://mcp.example.com/sse',
@@ -551,7 +692,7 @@ function validRegistryWithServer(): Record<string, unknown> & { external_servers
     external_servers: [{
       id: 'vendor-docs',
       display_name: 'Vendor Docs MCP',
-      purpose: 'Vendor API docs',
+      purpose: 'Vendor API docs for billing',
       preferred_for: ['auth headers'],
       fallback_description: 'Provides search_docs tool',
       enabled: true,

@@ -321,7 +321,7 @@ describe('planner history recent list and hydrate filtering', () => {
     expect(result.response).toMatchObject({
       action: 'planner.hydrateConversation',
       mode: 'not-found',
-      message: 'This child-task recent is no longer the current child-chain tip.',
+      message: "This recent can't be replayed right now because its underlying task has changed. Refresh the recent list and try again.",
       record: null,
     });
     expect(mocks.loggerWarn).toHaveBeenCalledWith('planner-history.recent-child-task.hydrate-rejected', expect.objectContaining({
@@ -357,7 +357,7 @@ describe('planner history recent list and hydrate filtering', () => {
     expect(result.response).toMatchObject({
       action: 'planner.hydrateConversation',
       mode: 'not-found',
-      message: 'Child-task recents are temporarily unavailable because child-task chain state is invalid.',
+      message: "This recent can't be replayed right now because its task data is being updated. Try again in a moment.",
       record: null,
     });
   });

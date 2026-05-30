@@ -164,6 +164,70 @@ describe('prepareExternalMcpLaunchContext', () => {
     );
   });
 
+  it('parses a local resolved MCP server with command/args/env/cwd/tools', async () => {
+    mockedSafeJsonParse.mockReturnValue({
+      status: 'available',
+      reason: '1 external MCP server(s) injected',
+      injectionEnabled: true,
+      envExports: { EXTERNAL_MCP_CONTEXT_STATUS: 'available' },
+      launchDir: '/repo/.platform-state/runtime/copilot-home/dalton-1',
+      contextFile: '/repo/.platform-state/runtime/copilot-home/dalton-1/mcp-capability-summary.md',
+      resolvedServers: [{
+        id: 'local-fs',
+        transport: 'local',
+        command: 'npx',
+        args: ['-y', '@scope/fs'],
+        env: { API_KEY: 'sek' },
+        cwd: '/abs/work',
+        tools: ['read_file', 'list_dir'],
+      }],
+      selectedServerIds: ['local-fs'],
+      excludedServerIds: [],
+    });
+
+    const result = await prepareExternalMcpLaunchContext({
+      agentId: 'dalton',
+      repoRoot: '/repo',
+      taskId: TEST_TASK_ID,
+    });
+    expect(result.resolvedServers).toEqual([{
+      id: 'local-fs',
+      transport: 'local',
+      command: 'npx',
+      args: ['-y', '@scope/fs'],
+      env: { API_KEY: 'sek' },
+      cwd: '/abs/work',
+      tools: ['read_file', 'list_dir'],
+    }]);
+    expect(result.injectionEnabled).toBe(true);
+  });
+
+  it('rejects a local resolved server missing its tools allowlist', async () => {
+    mockedSafeJsonParse.mockReturnValue({
+      status: 'available',
+      reason: 'x',
+      injectionEnabled: true,
+      envExports: {},
+      launchDir: '/repo/.platform-state/runtime/copilot-home/dalton-1',
+      contextFile: '/repo/.platform-state/runtime/copilot-home/dalton-1/mcp-capability-summary.md',
+      resolvedServers: [{
+        id: 'local-bad',
+        transport: 'local',
+        command: 'npx',
+        args: [],
+        env: {},
+      }],
+      selectedServerIds: ['local-bad'],
+      excludedServerIds: [],
+    });
+
+    await expect(prepareExternalMcpLaunchContext({
+      agentId: 'dalton',
+      repoRoot: '/repo',
+      taskId: TEST_TASK_ID,
+    })).rejects.toThrow(/resolvedServers/);
+  });
+
   it('rejects snake_case launch context fallbacks', async () => {
     mockedSafeJsonParse.mockReturnValue({
       status: 'available',

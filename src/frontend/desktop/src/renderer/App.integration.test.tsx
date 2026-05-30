@@ -658,6 +658,7 @@ describe("App", () => {
           mode: 'read-only',
           message: '',
           servers: listCallCount <= 2 ? [] : [server],
+          localEnabled: false,
         },
       };
     });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   ContextPackCreateExecutionResult,
@@ -980,11 +980,35 @@ export function useContextPackSelection(
     return true;
   }, [client, refreshCatalog, saveSidebarState]);
 
+  // Reactive equivalent of currentSelectionSnapshot() for Focus Filters display.
+  // Reads selected (draft) state, not active-pack scope; planner display uses a
+  // separate active-pack helper.
+  const currentWorkspaceSelection = useMemo(
+    () =>
+      buildSelectionSnapshot({
+        selectedRepoIds,
+        selectedFocusIds,
+        selectedDeepFocusState,
+        selectedPack:
+          catalogResponse?.contextPacks.find(
+            (entry) => entry.contextPackDir === selectedContextPackDir,
+          ) ?? null,
+      }),
+    [
+      selectedRepoIds,
+      selectedFocusIds,
+      selectedDeepFocusState,
+      catalogResponse,
+      selectedContextPackDir,
+    ],
+  );
+
   return {
     contextPackSidebarProps: {
       contextPacks: catalogResponse?.contextPacks ?? [],
       activeContextPackDir: catalogResponse?.activeContextPackDir ?? null,
       selectedContextPackDir,
+      currentWorkspaceSelection,
       repoRoot,
       selectedRepoIds,
       selectedFocusIds,

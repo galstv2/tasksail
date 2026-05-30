@@ -234,6 +234,23 @@
   text-overflow: ellipsis;
 }
 
+.task-board-card__badge {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--ts-radius-pill);
+  border: 1px solid rgba(45, 122, 74, 0.18);
+  color: var(--ts-brand-green);
+  background: rgba(45, 122, 74, 0.08);
+  font-family: var(--ts-font-sans);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .task-board-card__meta {
   grid-column: 1 / -1;
   min-width: 0;
@@ -485,6 +502,48 @@
 .task-detail-modal__column-badge[data-column="completed"] { color: var(--ts-brand-green); border-color: rgba(45, 122, 74, 0.18); }
 .task-detail-modal__column-badge[data-column="completed"] .task-detail-modal__badge-dot { background: var(--ts-brand-green); }
 
+/* ── Artifact Explorer ─────────────────────────────────────────────── */
+/* Layout wrapper + completed green accent only; the dropdown palette and
+ * option styling come from the shared terminalSelectMenu.css. */
+
+.task-detail-modal__artifact {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
+}
+
+.task-detail-modal__artifact-label {
+  flex-shrink: 0;
+  color: var(--terminal-text-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-detail-modal__artifact .terminal-select-menu--artifact {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  max-width: 26rem;
+}
+
+.task-detail-modal__artifact .terminal-select-menu__trigger:focus-visible {
+  border-color: var(--ts-brand-green);
+  box-shadow: 0 0 0 2px rgba(45, 122, 74, 0.25);
+}
+
+.task-detail-modal__artifact .terminal-select-menu__option--selected {
+  background-color: rgba(45, 122, 74, 0.16);
+}
+
+.task-detail-modal__artifact .terminal-select-menu__option--selected.terminal-select-menu__option--active {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)),
+    rgba(45, 122, 74, 0.16);
+}
+
 /* ── Markdown View ────────────────────────────────────────────────── */
 
 .task-md-view {
@@ -601,4 +660,124 @@
   font-family: var(--ts-font-mono);
   font-size: 0.88em;
   color: var(--ts-brand-cloudblue);
+}
+
+
+/* ── Child Chain: footer View Chain button + read-only branch inventory modal ──
+ * The viewer renders on the always-dark terminal modal surface, so text uses the
+ * terminal-* tokens (always light) rather than the theme-dependent --ts-text-* set. */
+.task-detail-modal__view-chain-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid rgba(45, 122, 74, 0.45);
+  border-radius: var(--ts-radius-sm);
+  background: rgba(45, 122, 74, 0.16);
+  color: var(--ts-brand-green-light);
+  font-family: var(--ts-font-mono);
+  font-size: 0.7rem;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.task-detail-modal__view-chain-btn:hover:not(:disabled) {
+  background: rgba(45, 122, 74, 0.26);
+}
+
+.task-detail-modal__view-chain-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.task-detail-modal__view-chain-btn:focus-visible {
+  outline: 2px solid var(--ts-brand-green-light);
+  outline-offset: 2px;
+}
+
+.child-chain-inventory__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.child-chain-inventory__meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.child-chain-inventory__meta dt {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--terminal-text);
+  opacity: 0.62;
+}
+
+.child-chain-inventory__meta dd {
+  margin: 0;
+  font-family: var(--ts-font-mono);
+  font-size: 0.82rem;
+  color: var(--ts-brand-green-light);
+}
+
+.child-chain-inventory__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  color: var(--terminal-text);
+}
+
+.child-chain-inventory__table th {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--terminal-text);
+  opacity: 0.7;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.child-chain-inventory__table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  vertical-align: top;
+}
+
+.child-chain-inventory__repo-label {
+  display: block;
+  font-weight: 600;
+  color: var(--ts-brand-green-light);
+}
+
+.child-chain-inventory__repo-root,
+.child-chain-inventory__mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  color: var(--terminal-text);
+  opacity: 0.88;
+  word-break: break-all;
+}
+
+.child-chain-inventory__repo-root {
+  display: block;
+  opacity: 0.72;
+}
+
+.child-chain-inventory__depth {
+  color: var(--terminal-text);
+  opacity: 0.55;
+}
+
+.child-chain-inventory__empty,
+.child-chain-inventory__message {
+  margin: 0.5rem 0;
+  color: var(--terminal-text);
+  opacity: 0.85;
+  font-size: 0.85rem;
 }

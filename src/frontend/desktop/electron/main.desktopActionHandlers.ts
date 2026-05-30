@@ -22,6 +22,7 @@ import {
   removeExternalMcpServer,
   toggleExternalMcpServer,
   validateExternalMcpConnection,
+  validateExternalMcpLocalCommand,
 } from './externalMcpHandlers';
 import {
   addAgentModel,
@@ -48,6 +49,7 @@ import { listArchivedTasksAction } from './main.archivedTasks';
 import { readParentContextBundleAction } from './main.parentContextBundle';
 import { readParentChainArchiveBundleAction } from './main.parentChainArchiveBundle';
 import { readParentArchiveMarkdownAction } from './main.parentArchiveMarkdown';
+import { readChildTaskChainBranchInventoryAction } from './main.childTaskChainBranchInventory';
 import {
   readTaskBoard,
   readTaskContent as readTaskContentImpl,
@@ -239,6 +241,9 @@ export type DesktopActionHandlers = {
   validateExternalMcpConnection: (
     payload: import('../src/shared/desktopContract').ExternalMcpValidateConnectionRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  validateExternalMcpLocalCommand: (
+    payload: import('../src/shared/desktopContract').ExternalMcpValidateLocalCommandRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   loadAgentConfigAgents: () => Promise<DesktopInvokeResult>;
   loadAgentModelCatalog: () => Promise<DesktopInvokeResult>;
   loadAgentConfigCapabilities: () => Promise<DesktopInvokeResult>;
@@ -285,6 +290,9 @@ export type DesktopActionHandlers = {
   dismissAllTaskNotifications: () => Promise<DesktopInvokeResult>;
   readTaskContent: (
     payload: import('../src/shared/desktopContract').TaskBoardReadTaskContentRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  readChildChainBranchInventory: (
+    payload: import('../src/shared/desktopContract').TaskBoardReadChildChainBranchInventoryRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   reorderPending: (
     payload: import('../src/shared/desktopContract').TaskBoardReorderPendingRequest['payload'],
@@ -634,6 +642,7 @@ export function createDefaultDesktopActionHandlers(
   removeExternalMcpServer: (payload) => removeExternalMcpServer(payload),
   toggleExternalMcpServer: (payload) => toggleExternalMcpServer(payload),
   validateExternalMcpConnection: (payload) => validateExternalMcpConnection(payload),
+  validateExternalMcpLocalCommand: (payload) => validateExternalMcpLocalCommand(payload),
   loadAgentConfigAgents: () => loadAgentConfigAgents(),
   loadAgentModelCatalog: () => loadAgentModelCatalog(),
   loadAgentConfigCapabilities: () => loadAgentConfigCapabilities(),
@@ -655,6 +664,7 @@ export function createDefaultDesktopActionHandlers(
   dismissTaskNotification: (payload) => dismissTaskNotification(payload),
   dismissAllTaskNotifications: () => dismissAllTaskNotifications(),
   readTaskContent: (payload) => readTaskContentImpl(payload, listAvailableContextPacks),
+  readChildChainBranchInventory: (payload) => readChildTaskChainBranchInventoryAction(payload),
   reorderPending: (payload) => reorderPendingImpl(payload, listAvailableContextPacks),
   requeueErrorItem: async (payload) => {
     const result = await requeueErrorItemAction(payload, listAvailableContextPacks);

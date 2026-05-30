@@ -23,6 +23,7 @@ const {
   readFile,
   readdir,
   unlink,
+  lstat,
   loadTaskRegistry,
   getRegistryPath,
   listArchivedTasksAction,
@@ -52,6 +53,7 @@ const {
   readFile: vi.fn(async () => ''),
   readdir: vi.fn(async () => [] as string[]),
   unlink: vi.fn(async () => undefined),
+  lstat: vi.fn(async () => ({ isFile: () => true, isSymbolicLink: () => false, size: 0 })),
   loadTaskRegistry: vi.fn(),
   getRegistryPath: vi.fn(() => '/repo/.platform-state/task-registry.json'),
   listArchivedTasksAction: vi.fn(),
@@ -122,6 +124,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     readFile,
     readdir,
     unlink,
+    lstat,
   };
 });
 

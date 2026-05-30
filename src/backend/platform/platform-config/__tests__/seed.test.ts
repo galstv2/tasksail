@@ -24,6 +24,7 @@ const FULL_DEFAULT_JSON = JSON.stringify({
   max_retry_generations_per_slug: 5,
   completed_task_runtime_retention_ms: 3600000,
   auto_merge: false,
+  external_mcp_local_enabled: false,
   mcp_port: 8811,
   repo_context_mcp_external_mount_roots: [],
 });
@@ -171,6 +172,7 @@ describe('seedPlatformConfig', () => {
     expect(runtimeData.cli_provider).toBe('copilot');
     expect(runtimeData.mcp_port).toBe(8811);
     expect(runtimeData.auto_merge).toBe(false);
+    expect(runtimeData.external_mcp_local_enabled).toBe(false);
     expect(runtimeData.repo_context_mcp_external_mount_roots).toEqual([]);
 
     // getPlatformConfig returns seeded values
@@ -182,6 +184,7 @@ describe('seedPlatformConfig', () => {
     expect(config.max_retry_generations_per_slug).toBe(5);
     expect(config.completed_task_runtime_retention_ms).toBe(3600000);
     expect(config.auto_merge).toBe(false);
+    expect(config.external_mcp_local_enabled).toBe(false);
     expect(config.mcp_port).toBe(8811);
     expect(config.repo_context_mcp_external_mount_roots).toEqual([]);
   });

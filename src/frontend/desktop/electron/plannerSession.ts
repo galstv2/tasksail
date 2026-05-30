@@ -330,9 +330,12 @@ export async function startSession(
       sessionId: result.sessionId,
       contextPackDir: effectiveContextPackDir,
       focusedRepo: toStagingFocusedRepo(unrewrittenFocused),
+      // Replaying a recent task always starts a fresh standalone STANDARD task:
+      // the source lineage (including any child-task parent linkage) is dropped
+      // so the replay is a disjointed copy with zero effect on the source task's
+      // chain. Omitting lineage makes staging default to taskKind 'standard'.
       ...(replayRecord ? {
         title: replayRecord.sidecarSnapshot.title,
-        lineage: replayRecord.sidecarSnapshot.lineage,
         contextPackBinding: replayRecord.sidecarSnapshot.contextPackBinding,
       } : {}),
       ...(childTaskFocusSnapshot && childTaskLineage ? {

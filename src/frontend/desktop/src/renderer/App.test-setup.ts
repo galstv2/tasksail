@@ -773,13 +773,14 @@ export function installAppTestHarness(): void {
       }),
       listExternalMcpServers: vi.fn().mockResolvedValue({
         ok: true,
-        response: { action: 'externalMcp.list', mode: 'read-only', message: '0 server(s) configured.', servers: [] },
+        response: { action: 'externalMcp.list', mode: 'read-only', message: '0 server(s) configured.', servers: [], localEnabled: false },
       }),
       addExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.add', mode: 'mutated', message: 'Added.', servers: [] } }),
       updateExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.update', mode: 'mutated', message: 'Updated.', servers: [] } }),
       removeExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.remove', mode: 'mutated', message: 'Removed.', servers: [] } }),
       toggleExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.toggleEnabled', mode: 'mutated', message: 'Toggled.', servers: [] } }),
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK.' } }),
+      validateExternalMcpLocalCommand: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateLocalCommand', mode: 'validated', found: false, message: 'Command not found on PATH.' } }),
       loadAgentConfig: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -915,6 +916,14 @@ export function installAppTestHarness(): void {
           message: 'Not found.',
           content: '',
           fileName: '',
+        },
+      }),
+      readChildChainBranchInventory: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'taskBoard.readChildChainBranchInventory',
+          mode: 'not-chain-task',
+          message: 'Not a chain task.',
         },
       }),
       reorderPending: vi.fn().mockResolvedValue({

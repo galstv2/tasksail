@@ -13,6 +13,8 @@ export type {
   ExternalMcpTransport,
   ExternalMcpAgentScope,
   ExternalMcpServer,
+  ExternalMcpUrlServer,
+  ExternalMcpLocalServer,
   ExternalMcpRegistry,
   ExternalMcpValidationError,
   ExternalMcpRegistryLoadResult,
@@ -25,6 +27,10 @@ export {
   MAX_PREFERRED_FOR_ITEM_LENGTH,
   MAX_PREFERRED_FOR_ITEMS,
   MAX_FALLBACK_DESCRIPTION_LENGTH,
+  MAX_COMMAND_LENGTH,
+  MAX_ARGS_ITEMS,
+  MAX_ENV_VARS,
+  MAX_TOOLS_ITEMS,
 } from './types.js';
 
 export {

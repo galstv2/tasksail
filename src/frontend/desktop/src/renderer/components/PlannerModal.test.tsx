@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import PlannerModal from './PlannerModal';
 import type { PlannerModalProps } from './PlannerModal';
-import type { PlannerFocusSnapshot } from '../../shared/desktopContract';
+import type { ContextPackCatalogEntry, PlannerFocusSnapshot } from '../../shared/desktopContract';
+import type { PlannerWorkspaceScopeSummary } from '../plannerWorkspaceScope';
 import { PLANNER_FOCUS_FALLBACK_MESSAGE } from '../../shared/desktopContractPlanner';
 import { createLocalDraft } from '../plannerComposer';
 import type { PlannerConversationMessage } from '../plannerComposer';
@@ -83,6 +84,68 @@ function makeArchivedParentTask() {
     archivedAt: null,
     contextPackName: 'pack',
     plannerFocusSnapshot: makeFocusSnapshot(),
+  };
+}
+
+function makeScopePack(): ContextPackCatalogEntry {
+  return {
+    contextPackId: 'pack-1',
+    displayName: 'Pack One',
+    contextPackDir: '/packs/pack-1',
+    manifestPath: null,
+    bootstrapReady: true,
+    source: 'configured-path',
+    isActive: true,
+    estateType: 'distributed-platform',
+    defaultScopeMode: 'focused',
+    repoCount: 1,
+    primaryWorkingRepoIds: [],
+    focusTargets: [
+      {
+        focusId: 'api',
+        displayName: 'API',
+        kind: 'repository',
+        repoId: 'api',
+        repoLocalPath: '/repos/api',
+        serviceName: null,
+        systemLayer: null,
+        repoRole: null,
+        repositoryType: 'primary',
+        relativePath: null,
+        focusType: null,
+        group: null,
+        defaultFocusable: true,
+        activationPriority: 1,
+        adjacentRepoIds: [],
+        adjacentFocusIds: [],
+      },
+    ],
+  };
+}
+
+function makeCurrentScopeSummary(
+  overrides: Partial<PlannerWorkspaceScopeSummary> = {},
+): PlannerWorkspaceScopeSummary {
+  return {
+    source: 'current-workspace',
+    title: 'Current workspace selection',
+    triggerLabel: 'Current workspace selection details',
+    flag: 'Active',
+    selectedPack: makeScopePack(),
+    selection: {
+      selectedRepoIds: ['api'],
+      selectedFocusIds: [],
+      repositoryTypes: { api: 'primary' },
+      deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    },
+    ...overrides,
   };
 }
 
@@ -776,5 +839,72 @@ describe('PlannerModal', () => {
     rerender(<PlannerModal {...makeProps({ plannerFocusValidationIssues: [] })} />);
 
     expect(screen.queryByText('Selected repo ID: old-repo')).not.toBeInTheDocument();
+  });
+
+  it('renders the current workspace scope trigger and popover card in regular mode', () => {
+    render(<PlannerModal {...makeProps({ workspaceScopeSummary: makeCurrentScopeSummary() })} />);
+
+    expect(screen.getByLabelText('Current workspace selection details')).toBeInTheDocument();
+    const card = screen
+      .getByText('Current workspace selection')
+      .closest<HTMLElement>('.focus-selection-summary-card');
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText('Primary')).toBeInTheDocument();
+    expect(within(card!).getByText('API')).toBeInTheDocument();
+  });
+
+  it('renders the recent task scope trigger and title during standard replay', () => {
+    const summary = makeCurrentScopeSummary({
+      source: 'recent-task',
+      title: 'Selected recent task scope',
+      triggerLabel: 'Selected recent task scope details',
+      flag: 'Recent',
+    });
+
+    render(<PlannerModal {...makeProps({ workspaceScopeSummary: summary, replaySourceRecordId: 'rec-1' })} />);
+
+    expect(screen.getByLabelText('Selected recent task scope details')).toBeInTheDocument();
+    expect(screen.getByText('Selected recent task scope')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Current workspace selection details')).not.toBeInTheDocument();
+  });
+
+  it('renders Deep Focus groups with deep-focus data mode in the scope popover', () => {
+    const summary = makeCurrentScopeSummary({
+      flag: 'Deep Focus',
+      selection: {
+        selectedRepoIds: [],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'api',
+        deepFocusPrimaryFocusId: 'api',
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedFocusTargets: [],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    });
+
+    render(<PlannerModal {...makeProps({ workspaceScopeSummary: summary })} />);
+
+    const card = screen
+      .getByText('Current workspace selection')
+      .closest<HTMLElement>('.focus-selection-summary-card');
+    expect(card).not.toBeNull();
+    expect(card).toHaveAttribute('data-mode', 'deep-focus');
+    expect(within(card!).getByText('Primary')).toBeInTheDocument();
+    expect(within(card!).getByText('Test')).toBeInTheDocument();
+    expect(within(card!).getByText('Support')).toBeInTheDocument();
+  });
+
+  it('does not render the regular or recent scope trigger in child-task mode', () => {
+    render(
+      <PlannerModal
+        {...makeProps({ workspaceScopeSummary: makeCurrentScopeSummary(), childTaskMode: true })}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Current workspace selection details')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Selected recent task scope details')).not.toBeInTheDocument();
   });
 });

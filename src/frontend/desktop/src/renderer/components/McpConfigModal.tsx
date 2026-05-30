@@ -71,11 +71,16 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
         </header>
 
         <div className="mcp-modal__body">
+          <div className="mcp-modal__vetting-notice" role="status">
+            You are responsible for vetting every external MCP server you configure. Local servers run as child processes with the agent&apos;s OS permissions; remote servers receive any headers and environment you configure. Review a server before enabling it, and have agents corroborate its output.
+          </div>
           {view === 'form' ? (
             <McpServerForm
               draft={props.draft}
               editingServerId={props.editingServerId}
               connectionValidation={props.connectionValidation}
+              localEnabled={props.localEnabled}
+              localCommandCheck={props.localCommandCheck}
               fieldErrors={props.fieldErrors}
               saving={props.saving}
               saveEnabled={props.saveEnabled}
@@ -83,6 +88,7 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
               error={error}
               onDraftChange={props.onDraftChange}
               onValidateConnection={props.onValidateConnection}
+              onCheckLocalCommand={props.onCheckLocalCommand}
               onSave={props.onSave}
               onCancel={props.onCancel}
             />

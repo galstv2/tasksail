@@ -16,6 +16,7 @@ export type ResolvedChildTaskChainCreationContext = {
   parentArchiveArtifactDir: string | null;
   parentContextSnapshot: ChildTaskContextSnapshot | null;
   childExecutionScope: ChildTaskContextSnapshot;
+  parentSummary: string;
 };
 
 export async function resolveChildTaskChainCreationContext(args: {
@@ -100,6 +101,7 @@ export async function resolveChildTaskChainCreationContext(args: {
     parentArchiveArtifactDir: parent.archiveArtifactDir ?? null,
     parentContextSnapshot: contextSnapshotFromBinding(parent.plannerFocusSnapshot.contextPackBinding),
     childExecutionScope: contextSnapshotFromBinding(args.childExecutionScope),
+    parentSummary: parent.summary ?? '',
   };
 }
 

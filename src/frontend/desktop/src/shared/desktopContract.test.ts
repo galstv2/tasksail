@@ -109,6 +109,20 @@ describe('desktopContract', () => {
     })).toEqual([]);
   });
 
+  it('approves taskBoard.readChildChainBranchInventory and validates its payload', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('taskBoard.readChildChainBranchInventory');
+    expect(validateDesktopActionRequest({
+      action: 'taskBoard.readChildChainBranchInventory',
+      payload: { taskId: 'TASK-A', expectedRootTaskId: 'ROOT-A' },
+    })).toEqual([]);
+    const response: DesktopActionResponse = {
+      action: 'taskBoard.readChildChainBranchInventory',
+      mode: 'not-chain-task',
+      message: 'Not a chain task.',
+    };
+    expect(response.action).toBe('taskBoard.readChildChainBranchInventory');
+  });
+
   it('keeps task notification actions and channel approved', () => {
     expect(DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL).toBe('desktop-shell:task-notifications');
     expect(DESKTOP_ACTION_NAMES).toEqual(expect.arrayContaining([
@@ -128,6 +142,10 @@ describe('desktopContract', () => {
     };
     const desktopResponse: DesktopActionResponse = response;
     expect(desktopResponse.action).toBe('taskNotifications.read');
+  });
+
+  it('includes externalMcp.validateLocalCommand in DESKTOP_ACTION_NAMES', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('externalMcp.validateLocalCommand');
   });
 
   it('accepts optional test metadata on repo tree responses', () => {

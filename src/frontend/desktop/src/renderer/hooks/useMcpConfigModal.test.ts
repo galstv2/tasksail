@@ -3,7 +3,10 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 
 import { createMockClient } from '../../test/factories/clientFactory';
 import { useMcpConfigModal } from './useMcpConfigModal';
-import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
+import type { ExternalMcpServerEntry, ExternalMcpUrlServerEntry } from '../../shared/desktopContract';
+
+const VALID_PURPOSE = 'Use for vendor billing API documentation';
+const VALID_PREFERRED_FOR = 'vendor billing API tasks';
 
 const { logEmit } = vi.hoisted(() => {
   const logEmit = vi.fn(() => Promise.resolve({ ok: true }));
@@ -24,7 +27,7 @@ const { logEmit } = vi.hoisted(() => {
   return { logEmit };
 });
 
-function makeServer(overrides: Partial<ExternalMcpServerEntry> = {}): ExternalMcpServerEntry {
+function makeServer(overrides: Partial<ExternalMcpUrlServerEntry> = {}): ExternalMcpServerEntry {
   return {
     id: 'test-mcp',
     display_name: 'Test MCP',
@@ -297,7 +300,8 @@ describe('useMcpConfigModal', () => {
     act(() => { result.current.mcpConfigModalProps.onAdd(); });
     act(() => {
       result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test MCP');
-      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Test');
+      result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE);
+      result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR);
       result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse');
       result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']);
     });
@@ -311,6 +315,55 @@ describe('useMcpConfigModal', () => {
       level: 'warn',
       extra: { serverId: 'test-mcp', reason: 'Save failed.' },
     }));
+  });
+
+  it('disables Save for a short purpose until the purpose floor is met', async () => {
+    const client = createMockClient({
+      validateExternalMcpConnection: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK' },
+      }),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Short');
+      result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR);
+      result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse');
+    });
+    await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
+
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(false);
+    expect(result.current.mcpConfigModalProps.fieldErrors.purpose).toContain('at least 20 characters');
+
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE); });
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(true);
+  });
+
+  it('disables Save until Preferred For has at least one cue', async () => {
+    const client = createMockClient({
+      validateExternalMcpConnection: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK' },
+      }),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps).toBeTruthy());
+
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE);
+      result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse');
+    });
+    await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
+
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(false);
+    expect(result.current.mcpConfigModalProps.fieldErrors.preferred_for).toContain('at least one usage cue');
+
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR); });
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(true);
   });
 });
 
@@ -352,7 +405,8 @@ describe('useMcpConfigModal — integration round-trips', () => {
 
     // Fill draft and validate.
     act(() => { result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test MCP'); });
-    act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', 'Test'); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse'); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']); });
 
@@ -411,6 +465,10 @@ describe('useMcpConfigModal — integration round-trips', () => {
 
     // Fix URL (resets validation).
     act(() => { result.current.mcpConfigModalProps.onDraftChange('url', 'https://good.example.com/sse'); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test MCP'); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR); });
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']); });
     expect(result.current.mcpConfigModalProps.connectionValidation.status).toBe('idle');
 
     // Re-validate succeeds.
@@ -419,11 +477,6 @@ describe('useMcpConfigModal — integration round-trips', () => {
     expect(result.current.mcpConfigModalProps.saveEnabled).toBe(true);
 
     // Save succeeds.
-    act(() => {
-      result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test');
-      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Test');
-      result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']);
-    });
     await act(async () => { await result.current.mcpConfigModalProps.onSave(); });
     expect(result.current.mcpConfigModalProps.view).toBe('list');
   });
@@ -454,5 +507,113 @@ describe('useMcpConfigModal — integration round-trips', () => {
     expect(result.current.mcpConfigModalProps.view).toBe('list');
     expect(result.current.mcpConfigModalProps.editingServerId).toBeNull();
     expect(result.current.mcpConfigModalProps.servers).toHaveLength(0);
+  });
+
+  it('serializes a local draft to a local entry on save and bypasses the network-probe gate', async () => {
+    const client = createMockClient({
+      listExternalMcpServers: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.list', mode: 'read-only', message: '', servers: [], localEnabled: true },
+      }),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(client));
+    await waitFor(() => expect(result.current.mcpConfigModalProps.localEnabled).toBe(true));
+
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      result.current.mcpConfigModalProps.onDraftChange('display_name', 'Local FS');
+      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Local filesystem tools');
+      result.current.mcpConfigModalProps.onDraftChange('preferred_for', 'local file inspection');
+      result.current.mcpConfigModalProps.onDraftChange('transport', 'local');
+      result.current.mcpConfigModalProps.onDraftChange('command', 'npx');
+      result.current.mcpConfigModalProps.onDraftChange('args', '-y\n@scope/fs');
+      result.current.mcpConfigModalProps.onDraftChange('tools', 'read_file\nlist_dir');
+      result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['provider-builder']);
+    });
+
+    // The local gate is satisfied by command + tools without any connection probe.
+    expect(result.current.mcpConfigModalProps.connectionValidation.status).toBe('idle');
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(true);
+
+    await act(async () => { await result.current.mcpConfigModalProps.onSave(); });
+
+    expect(client.addExternalMcpServer).toHaveBeenCalledWith(expect.objectContaining({
+      transport: 'local',
+      command: 'npx',
+      args: ['-y', '@scope/fs'],
+      tools: ['read_file', 'list_dir'],
+    }));
+    const entry = vi.mocked(client.addExternalMcpServer).mock.calls[0]?.[0];
+    expect(entry && 'url' in entry).toBe(false);
+    expect(entry && 'headers' in entry).toBe(false);
+  });
+
+  it('gates local Save on the opt-in flag plus command + non-"*" tools', async () => {
+    // With localEnabled false, a fully-populated local draft must stay disabled
+    // (never persist a local server the launch path would exclude).
+    const disabledClient = createMockClient();
+    const { result: disabled } = renderHook(() => useMcpConfigModal(disabledClient));
+    await waitFor(() => expect(disabled.current.mcpConfigModalProps).toBeTruthy());
+    act(() => { disabled.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      disabled.current.mcpConfigModalProps.onDraftChange('transport', 'local');
+      disabled.current.mcpConfigModalProps.onDraftChange('purpose', 'Local filesystem tools');
+      disabled.current.mcpConfigModalProps.onDraftChange('preferred_for', 'local file inspection');
+      disabled.current.mcpConfigModalProps.onDraftChange('command', 'npx');
+      disabled.current.mcpConfigModalProps.onDraftChange('tools', 'read_file');
+    });
+    expect(disabled.current.mcpConfigModalProps.localEnabled).toBe(false);
+    expect(disabled.current.mcpConfigModalProps.saveEnabled).toBe(false);
+
+    // With localEnabled true, gate on command + non-'*' tools.
+    const enabledClient = createMockClient({
+      listExternalMcpServers: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'externalMcp.list', mode: 'read-only', message: '', servers: [], localEnabled: true },
+      }),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(enabledClient));
+    await waitFor(() => expect(result.current.mcpConfigModalProps.localEnabled).toBe(true));
+    act(() => { result.current.mcpConfigModalProps.onAdd(); });
+    act(() => {
+      result.current.mcpConfigModalProps.onDraftChange('transport', 'local');
+      result.current.mcpConfigModalProps.onDraftChange('purpose', 'Local filesystem tools');
+      result.current.mcpConfigModalProps.onDraftChange('preferred_for', 'local file inspection');
+      result.current.mcpConfigModalProps.onDraftChange('command', 'npx');
+    });
+    // Command present, tools missing → disabled.
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(false);
+
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('tools', '*'); });
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(false);
+
+    act(() => { result.current.mcpConfigModalProps.onDraftChange('tools', 'read_file'); });
+    expect(result.current.mcpConfigModalProps.saveEnabled).toBe(true);
+  });
+
+  it('surfaces localEnabled from the list response', async () => {
+    // localEnabled: true must flow from the list response into props. The hook
+    // initialises localEnabled to false, so observing true here proves the
+    // setLocalEnabled(response.localEnabled) read path (not just the default).
+    const enabledClient = createMockClient({
+      listExternalMcpServers: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'externalMcp.list',
+          mode: 'read-only',
+          message: '',
+          servers: [],
+          localEnabled: true,
+        },
+      }),
+    });
+    const { result } = renderHook(() => useMcpConfigModal(enabledClient));
+    await waitFor(() => expect(result.current.mcpConfigModalProps.localEnabled).toBe(true));
+
+    // A list reporting false flows through as false.
+    const disabledClient = createMockClient();
+    const { result: disabledResult } = renderHook(() => useMcpConfigModal(disabledClient));
+    await waitFor(() => expect(disabledResult.current.mcpConfigModalProps).toBeTruthy());
+    expect(disabledResult.current.mcpConfigModalProps.localEnabled).toBe(false);
   });
 });

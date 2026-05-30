@@ -26,20 +26,37 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function isResolvedMcpServerArray(value: unknown): value is ResolvedMcpServer[] {
-  if (!Array.isArray(value)) {
+function isResolvedMcpServer(value: unknown): value is ResolvedMcpServer {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  return value.every((server) => (
-    server != null
-    && typeof server === 'object'
-    && !Array.isArray(server)
-    && typeof (server as Record<string, unknown>)['id'] === 'string'
-    && ((server as Record<string, unknown>)['transport'] === 'http'
-      || (server as Record<string, unknown>)['transport'] === 'sse')
-    && typeof (server as Record<string, unknown>)['url'] === 'string'
-    && isStringRecord((server as Record<string, unknown>)['headers'])
-  ));
+  const server = value as Record<string, unknown>;
+  if (typeof server['id'] !== 'string') {
+    return false;
+  }
+  if (server['transport'] === 'local') {
+    return (
+      typeof server['command'] === 'string'
+      && server['command'].length > 0
+      && isStringArray(server['args'])
+      && isStringRecord(server['env'])
+      && (server['cwd'] === undefined || typeof server['cwd'] === 'string')
+      && isStringArray(server['tools'])
+      && (server['tools'] as string[]).length > 0
+    );
+  }
+  if (server['transport'] === 'http' || server['transport'] === 'sse') {
+    return (
+      typeof server['url'] === 'string'
+      && isStringRecord(server['headers'])
+      && (server['tools'] === undefined || isStringArray(server['tools']))
+    );
+  }
+  return false;
+}
+
+function isResolvedMcpServerArray(value: unknown): value is ResolvedMcpServer[] {
+  return Array.isArray(value) && value.every(isResolvedMcpServer);
 }
 
 function containsProviderHomeEnvKey(envExports: Record<string, string>): boolean {

@@ -157,6 +157,49 @@ describe('electron preload bridge', () => {
     });
   });
 
+  it('forwards taskBoard.readTaskContent with optional artifactRelativePath omitted and supplied', async () => {
+    const { desktopShellApi } = await import('./preload');
+
+    await desktopShellApi.readTaskContent('task.md', 'completed');
+    await desktopShellApi.readTaskContent('task.md', 'completed', 'handoffs/final-summary.md');
+
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.readTaskContent',
+      payload: { fileName: 'task.md', column: 'completed' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.readTaskContent',
+      payload: { fileName: 'task.md', column: 'completed', artifactRelativePath: 'handoffs/final-summary.md' },
+    });
+  });
+
+  it('forwards taskBoard.readChildChainBranchInventory with optional expectedRootTaskId omitted and supplied', async () => {
+    const { desktopShellApi } = await import('./preload');
+
+    await desktopShellApi.readChildChainBranchInventory('CHILD-1');
+    await desktopShellApi.readChildChainBranchInventory('CHILD-1', 'ROOT-1');
+
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.readChildChainBranchInventory',
+      payload: { taskId: 'CHILD-1' },
+    });
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.readChildChainBranchInventory',
+      payload: { taskId: 'CHILD-1', expectedRootTaskId: 'ROOT-1' },
+    });
+  });
+
+  it('bridges externalMcp.validateLocalCommand with the correct action and payload', async () => {
+    const { desktopShellApi } = await import('./preload');
+
+    await desktopShellApi.validateExternalMcpLocalCommand({ command: 'npx' });
+
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'externalMcp.validateLocalCommand',
+      payload: { command: 'npx' },
+    });
+  });
+
   it('invokes only approved IPC channels and does not expose unrestricted shell methods', async () => {
     invoke.mockResolvedValue({ ok: true, response: { action: 'queue.readStatus', mode: 'dry-run' } });
     const { desktopShellApi } = await import('./preload');

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import * as matchers from '@testing-library/jest-dom/matchers';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextPackCatalogEntry } from '../../shared/desktopContract';
@@ -42,6 +42,7 @@ const defaultProps = {
   selectedFocusTargetKind: null,
   selectedTestTarget: undefined,
   selectedSupportTargets: [],
+  currentWorkspaceSelection: { selectedRepoIds: [], selectedFocusIds: [], deepFocusEnabled: false, deepFocusPrimaryRepoId: null, deepFocusPrimaryFocusId: null, selectedFocusPath: null, selectedFocusTargetKind: null, selectedFocusTargets: [], selectedTestTarget: null, selectedSupportTargets: [] },
   actionPending: null as 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed' | null,
   message: '',
   error: '',
@@ -124,6 +125,68 @@ describe('ContextPackSidebarExpanded', () => {
 
     fireEvent.click(screen.getByLabelText('Manage focus filters'));
     expect(screen.getByRole('dialog', { name: 'Focus Filters' })).toBeInTheDocument();
+  });
+
+  it('forwards the centralized currentWorkspaceSelection into Focus Filters, not legacy selectedRepoIds', () => {
+    // Guards the Track A centralization: the Focus Filters "Current workspace
+    // selection" card must reflect the memoized currentWorkspaceSelection prop
+    // (api/Primary), not a selection rebuilt inline from selectedRepoIds
+    // (legacy-only).
+    const packs = [
+      makePack({
+        estateType: 'distributed-platform',
+        focusTargets: [
+          {
+            focusId: 'api',
+            displayName: 'API',
+            kind: 'repository',
+            repoId: 'api',
+            repoLocalPath: '/repos/api',
+            serviceName: null,
+            systemLayer: null,
+            repoRole: null,
+            repositoryType: 'primary',
+            relativePath: null,
+            focusType: null,
+            group: null,
+            defaultFocusable: true,
+            activationPriority: 1,
+            adjacentRepoIds: [],
+            adjacentFocusIds: [],
+          },
+        ],
+      }),
+    ];
+    render(
+      <ContextPackSidebarExpanded
+        {...defaultProps}
+        contextPacks={packs}
+        selectedContextPackDir="/packs/my-pack"
+        selectedRepoIds={['legacy-only']}
+        currentWorkspaceSelection={{
+          selectedRepoIds: ['api'],
+          selectedFocusIds: [],
+          repositoryTypes: { api: 'primary' },
+          deepFocusEnabled: false,
+          deepFocusPrimaryRepoId: null,
+          deepFocusPrimaryFocusId: null,
+          selectedFocusPath: null,
+          selectedFocusTargetKind: null,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Manage focus filters'));
+    const row = screen
+      .getByText('Current workspace selection')
+      .closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('Primary')).toBeInTheDocument();
+    expect(within(row!).getByText('API')).toBeInTheDocument();
+    expect(within(row!).queryByText('legacy-only')).toBeNull();
   });
 
   it('shows Applying… when apply is pending', () => {

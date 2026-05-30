@@ -32,6 +32,7 @@ export interface PlatformConfig {
   max_retry_generations_per_slug: number;
   completed_task_runtime_retention_ms: number;
   auto_merge: boolean;
+  external_mcp_local_enabled: boolean;
   mcp_port: number;
   repo_context_mcp_external_mount_roots: string[];
 }

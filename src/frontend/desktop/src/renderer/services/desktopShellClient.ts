@@ -84,6 +84,7 @@ type DesktopShellBaseClient = Pick<
   | 'removeExternalMcpServer'
   | 'toggleExternalMcpServer'
   | 'validateExternalMcpConnection'
+  | 'validateExternalMcpLocalCommand'
   | 'loadAgentConfig'
   | 'loadModelCatalog'
   | 'saveAgentModels'
@@ -111,6 +112,7 @@ type DesktopShellBaseClient = Pick<
   | 'dismissRealignment'
   | 'readTaskBoard'
   | 'readTaskContent'
+  | 'readChildChainBranchInventory'
   | 'reorderPending'
   | 'requeueErrorItem'
   | 'deleteTask'
@@ -250,6 +252,7 @@ export function createDesktopShellClient(
     removeExternalMcpServer: (serverId) => readShell().removeExternalMcpServer(serverId),
     toggleExternalMcpServer: (serverId) => readShell().toggleExternalMcpServer(serverId),
     validateExternalMcpConnection: (payload) => readShell().validateExternalMcpConnection(payload),
+    validateExternalMcpLocalCommand: (payload) => readShell().validateExternalMcpLocalCommand(payload),
     loadAgentConfig: () => readShell().loadAgentConfig(),
     loadModelCatalog: () => readShell().loadModelCatalog(),
     loadCapabilities: () => {
@@ -283,7 +286,10 @@ export function createDesktopShellClient(
     runRealignmentAnalysis: (payload) => readShell().runRealignmentAnalysis(payload),
     dismissRealignment: (payload) => readShell().dismissRealignment(payload),
     readTaskBoard: () => readShell().readTaskBoard(),
-    readTaskContent: (fileName, column) => readShell().readTaskContent(fileName, column),
+    readTaskContent: (fileName, column, artifactRelativePath) =>
+      readShell().readTaskContent(fileName, column, artifactRelativePath),
+    readChildChainBranchInventory: (taskId, expectedRootTaskId) =>
+      readShell().readChildChainBranchInventory(taskId, expectedRootTaskId),
     reorderPending: (order) => readShell().reorderPending(order),
     requeueErrorItem: (fileName, insertAtIndex) =>
       readShell().requeueErrorItem(fileName, insertAtIndex),

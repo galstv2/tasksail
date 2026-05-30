@@ -753,7 +753,7 @@ export function useAgentConfigModal(
     }
 
     if (addForm.sourceType === 'direct-attachment' && addForm.kind === 'plugin') {
-      setError('Plugins require a git or local directory source in V1.');
+      setError('Plugins require a git or local directory source.');
       return;
     }
 

@@ -23,6 +23,7 @@ const PLANNER_FOCUS_FALLBACK_DISMISS_MS = 5000;
 import type { PlannerConversationTranscriptMessage } from '../../../../../backend/platform/planner-history/types.js';
 import { buildChildTaskMarkdownReviewPrompt, buildChildTaskStarterPrompt, buildMarkdownReviewPrompt, PLANNER_SAVE_DRAFT_WORKFLOW } from '../../shared/plannerWorkflow';
 import type { PlannerModalProps, PlannerSessionStatus } from '../components/PlannerModal';
+import { buildRecentTaskScopeSummary, type PlannerWorkspaceScopeSummary } from '../plannerWorkspaceScope';
 import {
   createFollowUpDraft,
   createLocalDraft,
@@ -38,7 +39,7 @@ import {
   PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE,
   restartChildPlannerWithScope,
 } from '../plannerChildScopeSession';
-import { archivedTaskFromRecord, buildChildTaskLineage } from '../plannerArchivedTaskHelpers';
+import { buildChildTaskLineage } from '../plannerArchivedTaskHelpers';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { createLogger } from '../log/logger';
 import { normalizeIpcThrownError } from '../services/ipcErrorHelpers';
@@ -110,9 +111,9 @@ export function usePlannerModal(
   activeContextPackDir: string | null = null,
   deepFocusSelection?: PlannerStartSessionDeepFocusSelection,
   childScopeCatalog?: ChildTaskScopeCatalog,
+  currentWorkspaceScopeSummary?: PlannerWorkspaceScopeSummary | null,
 ): UsePlannerModalResult {
   const expectedSessionIdRef = useRef<string | null>(null);
-  const suppressNextArchivedFetchRef = useRef(false);
   const plannerStream = usePlannerStream({ expectedSessionIdRef });
   const parentArchivePreview = usePlannerParentArchivePreview(client);
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
@@ -127,6 +128,7 @@ export function usePlannerModal(
     setSessionStatus('connecting');
     setSessionStartError('');
     setPlannerFocusValidationIssues([]);
+    setRecentTaskScopeSummary(null);
     pendingChildTaskStarterPromptRef.current = null;
     parentContextBundleRef.current = undefined;
     parentChainArchiveBundleRef.current = undefined;
@@ -197,6 +199,7 @@ export function usePlannerModal(
     setLoadingRecentConversations(false);
     setReplayInFlight(false);
     setReplaySourceRecordId(null);
+    setRecentTaskScopeSummary(null);
     setLoadingChildTaskParent(false);
     selectedLilyPersonalityIdRef.current = 'balanced';
     setSelectedLilyPersonalityId('balanced');
@@ -242,6 +245,7 @@ export function usePlannerModal(
   const [loadingRecentConversations, setLoadingRecentConversations] = useState(false);
   const [replayInFlight, setReplayInFlight] = useState(false);
   const [replaySourceRecordId, setReplaySourceRecordId] = useState<string | null>(null);
+  const [recentTaskScopeSummary, setRecentTaskScopeSummary] = useState<PlannerWorkspaceScopeSummary | null>(null);
   const [selectedMarkdownFile, setSelectedMarkdownFile] = useState<MarkdownFileSelection | null>(null);
   const selectedMarkdownFileRef = useRef<MarkdownFileSelection | null>(null);
   selectedMarkdownFileRef.current = selectedMarkdownFile;
@@ -249,6 +253,8 @@ export function usePlannerModal(
   const [childTaskMode, setChildTaskMode] = useState(false);
   const childTaskModeRef = useRef(false);
   childTaskModeRef.current = childTaskMode;
+  const childScopeCatalogRef = useRef(childScopeCatalog);
+  childScopeCatalogRef.current = childScopeCatalog;
   const [selectedParentTask, setSelectedParentTask] = useState<ArchivedTaskEntry | null>(null);
   const selectedParentTaskRef = useRef<ArchivedTaskEntry | null>(null);
   selectedParentTaskRef.current = selectedParentTask;
@@ -430,11 +436,6 @@ export function usePlannerModal(
       return;
     }
     let cancelled = false;
-    if (suppressNextArchivedFetchRef.current) {
-      suppressNextArchivedFetchRef.current = false;
-      setLoadingArchivedTasks(false);
-      return;
-    }
     setLoadingArchivedTasks(true);
     client.listArchivedTasks()
       .then((result) => {
@@ -530,6 +531,7 @@ export function usePlannerModal(
   );
 
   const handleToggleChildTaskMode = useCallback(() => {
+    setRecentTaskScopeSummary(null);
     setChildTaskMode((prev) => {
       if (prev) {
         // Toggling off: reset draft back to standard
@@ -741,6 +743,7 @@ export function usePlannerModal(
     }
 
     setReplayInFlight(true);
+    setRecentTaskScopeSummary(null);
     void (async () => {
       try {
         pendingChildTaskStarterPromptRef.current = null;
@@ -757,6 +760,18 @@ export function usePlannerModal(
         }
 
         const record = hydrate.response.record;
+        // Recent-task scope is surfaced for both standard and child-task recent
+        // replays, sourced from the hydrated sidecar binding.
+        const recentScopeBinding = record.sidecarSnapshot.contextPackBinding;
+        const recentScopeMatchedPack = childScopeCatalogRef.current?.contextPacks?.find(
+          (entry) =>
+            entry.contextPackDir === recentScopeBinding.contextPackDir ||
+            entry.contextPackId === recentScopeBinding.contextPackId,
+        );
+        const recentScopeSummary: PlannerWorkspaceScopeSummary = buildRecentTaskScopeSummary(
+          recentScopeBinding,
+          recentScopeMatchedPack,
+        );
         expectedSessionIdRef.current = null;
         await client.endPlannerSession();
 
@@ -768,32 +783,13 @@ export function usePlannerModal(
         setComposerStage('compose');
         setArchivedTasks([]);
 
-        if (record.sidecarSnapshot.lineage.taskKind === 'child-task') {
-          const parentTask = archivedTaskFromRecord(record);
-          suppressNextArchivedFetchRef.current = !childTaskModeRef.current;
-          setChildTaskMode(true);
-          setSelectedParentTask(parentTask);
-          setDraft(createFollowUpDraft({
-            parentTaskId: parentTask.taskId,
-            parentTaskTitle: parentTask.title,
-            parentQmdRecordId: parentTask.qmdRecordId,
-            parentQmdScope: record.sidecarSnapshot.lineage.parentQmdScope,
-            rootTaskId: parentTask.rootTaskId,
-            followupReason: parentTask.followupReason,
-            carryForwardSummary: parentTask.summary,
-            childTitle: record.title,
-            requestedAdjustment: '',
-            desiredOutcome: '',
-            constraints: [],
-            acceptanceSignals: [],
-            planningNotes: '',
-            suggestedPath: 'sequential',
-          }));
-        } else {
-          setChildTaskMode(false);
-          setSelectedParentTask(null);
-          setDraft(createLocalDraft(EMPTY_DRAFT_SEED));
-        }
+        // Replaying a recent task — even one originally created as a child task —
+        // always starts a fresh standalone STANDARD draft. The source chain is left
+        // untouched; this is a disjointed copy, not a continuation. (Live child-task
+        // creation via the toggle/parent dropdown is unaffected.)
+        setChildTaskMode(false);
+        setSelectedParentTask(null);
+        setDraft(createLocalDraft(EMPTY_DRAFT_SEED));
 
         plannerStream.hydrateMessages(record.transcript.map(toRendererMessage));
         setSessionStatus('connecting');
@@ -812,6 +808,7 @@ export function usePlannerModal(
 
         expectedSessionIdRef.current = start.response.sessionId;
         setReplaySourceRecordId(recordId);
+        setRecentTaskScopeSummary(recentScopeSummary);
         setSessionStatus('active');
         if (start.response.message.toLowerCase().includes('focus') && start.response.message.toLowerCase().includes('resolved')) {
           setDraftError('Some referenced focus paths could not be resolved. Lily will use the saved variables you provided.');
@@ -1071,6 +1068,8 @@ export function usePlannerModal(
       loadingRecentConversations,
       replayInFlight,
       replaySourceRecordId,
+      // Recent replay (standard or child-task) shows the recent task's scope; non-recent child mode shows nothing here (parent/adjusted affordances cover it); standard non-recent shows the current workspaceScopeSummary.
+      workspaceScopeSummary: replaySourceRecordId !== null && recentTaskScopeSummary ? recentTaskScopeSummary : (childTaskMode ? null : currentWorkspaceScopeSummary ?? null),
       recentConversationsMessage,
       primaryActionLabel,
       stageCopy,
@@ -1114,7 +1113,7 @@ export function usePlannerModal(
       childScopePanelProps: childScopeOverride.childScopePanelProps,
       parentArchivePreview,
     }),
-    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, sessionStartError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, selectedLilyPersonalityId, personalityLocked, handleLilyPersonalityChange, busyBadgeLabel, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview],
+    [plannerModalOpen, closePlannerModal, draft, composerStage, handlePreview, handleConfirm, isFollowUpDraft, planningEnabled, contractError, sessionStartError, primaryActionLabel, stageCopy, mappedMessages, plannerStream.isStreaming, plannerStream.lastError, recentConversations, loadingRecentConversations, replayInFlight, replaySourceRecordId, recentConversationsMessage, handleSendMessage, handleSelectConversation, handleReturnToBlank, sessionStatus, selectedLilyPersonalityId, personalityLocked, handleLilyPersonalityChange, busyBadgeLabel, startSession, awaitingDraft, stagedDraft, draftError, plannerFocusValidationIssues, handleViewDraft, refreshStagedDraft, handleFinalizeSpec, selectedMarkdownFile, handlePickMarkdownFile, handleUploadSpec, handleDownloadTemplate, handleClearSelectedFile, childTaskMode, handleToggleChildTaskMode, selectableArchivedTasks, childParentBlockedTips, archivedTasks.length, selectedParentTask, handleSelectParentTask, loadingArchivedTasks, loadingChildTaskParent, childTaskBlocked, childScopeOverride, parentArchivePreview, currentWorkspaceScopeSummary, recentTaskScopeSummary],
   );
 
   return { plannerModalProps, openPlannerModal };

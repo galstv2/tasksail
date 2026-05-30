@@ -162,6 +162,7 @@ export function validatePlanningIntakeDraft(
   content: string,
   taskKind?: 'standard' | 'child-task',
   preParsedSections?: Map<string, string>,
+  options?: { allowEmptyCarryForward?: boolean },
 ): string | null {
   const sections = preParsedSections ?? parseMarkdownSections(content);
   const missingSections = REQUIRED_INTAKE_SECTIONS.filter(
@@ -181,7 +182,7 @@ export function validatePlanningIntakeDraft(
     return 'Staged draft Acceptance Signals must contain at least one bullet or numbered item before finalizing.';
   }
 
-  if (taskKind === 'child-task') {
+  if (taskKind === 'child-task' && !options?.allowEmptyCarryForward) {
     const carryForwardSummary = stripMarkdownComments(sections.get('Parent Task Carry-Forward Summary') ?? '');
     if (carryForwardSummary.length === 0) {
       return 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask Lily to complete the intake before finalizing.';

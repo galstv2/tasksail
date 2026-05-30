@@ -5,9 +5,11 @@ import type {
   TaskBoardContentColumn,
   TaskBoardDeleteColumn,
   TaskBoardItem,
+  TaskBoardMarkdownArtifact,
   TaskBoardPendingItem,
   TaskBoardReadBoardResponse,
   TaskBoardReadTaskContentResponse,
+  TaskBoardReadChildChainBranchInventoryResponse,
 } from '../../shared/desktopContract';
 import { isTaskBoardReadBoardResponse } from '../../shared/desktopContractTypeGuards';
 import { useToastContext } from '../contexts/ToastContext';
@@ -28,6 +30,12 @@ const EMPTY_BOARD: TaskBoardState = {
   completedItems: [],
 };
 
+export type TaskBoardContentResult = {
+  content: string;
+  artifactRelativePath?: string;
+  artifacts?: TaskBoardMarkdownArtifact[];
+};
+
 const log = createLogger('src/renderer/hooks/useTaskBoard');
 
 export type UseTaskBoardResult = {
@@ -40,7 +48,15 @@ export type UseTaskBoardResult = {
   moveToOpen: (fileName: string, sourceColumn?: 'error' | 'pending') => Promise<void>;
   killTask: (fileName: string, taskId: string) => Promise<void>;
   retryKillCleanup: (fileName: string, taskId: string) => Promise<void>;
-  readTaskContent: (fileName: string, column: TaskBoardContentColumn) => Promise<string | null>;
+  readTaskContent: (
+    fileName: string,
+    column: TaskBoardContentColumn,
+    artifactRelativePath?: string,
+  ) => Promise<TaskBoardContentResult | null>;
+  readChildChainBranchInventory: (
+    taskId: string,
+    expectedRootTaskId?: string | null,
+  ) => Promise<TaskBoardReadChildChainBranchInventoryResponse | null>;
 };
 
 export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
@@ -143,10 +159,14 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
   );
 
   const readTaskContent = useCallback(
-    async (fileName: string, column: TaskBoardContentColumn): Promise<string | null> => {
+    async (
+      fileName: string,
+      column: TaskBoardContentColumn,
+      artifactRelativePath?: string,
+    ): Promise<TaskBoardContentResult | null> => {
       let result: Awaited<ReturnType<DesktopShellClient['readTaskContent']>>;
       try {
-        result = await client.readTaskContent(fileName, column);
+        result = await client.readTaskContent(fileName, column, artifactRelativePath);
       } catch (error: unknown) {
         const reason = error instanceof Error ? error.message : 'Unable to read task content.';
         log.warn('task-board.read-task-content.failed', { fileName, column, reason });
@@ -156,7 +176,32 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
       if (!result.ok) return null;
       const resp = result.response as TaskBoardReadTaskContentResponse;
       if (resp.mode === 'not-found') return null;
-      return resp.content;
+      return {
+        content: resp.content,
+        artifactRelativePath: resp.artifactRelativePath,
+        artifacts: resp.artifacts,
+      };
+    },
+    [client, addToast],
+  );
+
+  const readChildChainBranchInventory = useCallback(
+    async (
+      taskId: string,
+      expectedRootTaskId?: string | null,
+    ): Promise<TaskBoardReadChildChainBranchInventoryResponse | null> => {
+      let result: Awaited<ReturnType<DesktopShellClient['readChildChainBranchInventory']>>;
+      try {
+        result = await client.readChildChainBranchInventory(taskId, expectedRootTaskId);
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unable to read child chain branches.';
+        log.warn('task-board.read-child-chain-branch-inventory.failed', { taskId, reason });
+        addToast({ severity: 'error', message: reason, duration: 6000 });
+        return null;
+      }
+      // not-chain-task and invalid-state are valid modal states, not failures.
+      if (!result.ok) return null;
+      return result.response as TaskBoardReadChildChainBranchInventoryResponse;
     },
     [client, addToast],
   );
@@ -285,5 +330,6 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
     killTask,
     retryKillCleanup,
     readTaskContent,
+    readChildChainBranchInventory,
   };
 }

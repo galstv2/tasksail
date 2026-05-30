@@ -1,0 +1,103 @@
+/*
+ * Regular and recent-task workspace scope affordance for the Planning Specialist
+ * stage bar. Extracted from planner.css so the new scope styles do not push
+ * planner.css past the CSS hard-fail threshold. The stage bar is the positioned
+ * container for the hover/focus popover. Child-task scope styling stays in
+ * planner-child-scope.css and is intentionally not reused here.
+ */
+
+.planner-modal__stage-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.74rem;
+  color: var(--ts-text-soft);
+  border-bottom: 1px solid var(--ts-border);
+  background: var(--ts-surface-alt);
+}
+
+/* Direct child only, so the scope trigger icon keeps its own styling. */
+.planner-modal__stage-bar > svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.planner-modal__stage-scope {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.planner-modal__stage-scope-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  color: var(--ts-text-muted);
+  cursor: help;
+}
+
+.planner-modal__stage-scope-trigger svg {
+  flex: 0 0 auto;
+}
+
+.planner-modal__stage-scope-trigger:hover,
+.planner-modal__stage-scope:focus-within .planner-modal__stage-scope-trigger {
+  background: var(--ts-accent-subtle);
+  color: var(--ts-text);
+}
+
+.planner-modal__stage-scope-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.planner-modal__stage-scope-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0.85rem;
+  left: auto;
+  z-index: var(--ts-z-popover);
+  width: min(30rem, calc(100% - 1.7rem));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-0.25rem);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.planner-modal__stage-scope:hover .planner-modal__stage-scope-popover,
+.planner-modal__stage-scope:focus-within .planner-modal__stage-scope-popover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.planner-modal__stage-scope-popover .focus-selection-summary-card {
+  margin: 0;
+  background: var(--ts-surface);
+  box-shadow: var(--ts-shadow-lg), 0 0 0 1px var(--ts-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal__stage-scope-popover {
+    transition: none;
+    transform: none;
+  }
+
+  .planner-modal__stage-scope:hover .planner-modal__stage-scope-popover,
+  .planner-modal__stage-scope:focus-within .planner-modal__stage-scope-popover {
+    transition: none;
+    transform: none;
+  }
+}

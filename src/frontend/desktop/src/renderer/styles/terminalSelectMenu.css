@@ -1,0 +1,155 @@
+/*
+ * Shared terminal-style single-select dropdown (TerminalSelectMenu).
+ * Base palette/interaction is owned here; callers (TerminalFeed task scope,
+ * Task Board Artifact Explorer) add only small layout/accent wrappers.
+ */
+
+.terminal-select-menu {
+  position: relative;
+  width: 13.6rem;
+  max-width: 30vw;
+}
+
+.terminal-select-menu__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.38rem;
+  width: 100%;
+  min-height: 1.45rem;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--terminal-chrome);
+  color: var(--terminal-text);
+  font-family: inherit;
+  font-size: 0.66rem;
+  padding: 0.14rem 0.38rem 0.14rem 0.47rem;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background-color var(--ts-duration) var(--ts-ease),
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
+}
+
+.terminal-select-menu__trigger:hover,
+.terminal-select-menu__trigger--open {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--terminal-border);
+}
+
+.terminal-select-menu__trigger:focus-visible {
+  outline: none;
+  border-color: var(--ts-brand-cloudblue);
+  box-shadow: 0 0 0 2px rgba(137, 184, 240, 0.25);
+}
+
+.terminal-select-menu__trigger-label {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.terminal-select-menu__chevron {
+  flex-shrink: 0;
+  color: var(--terminal-text-muted);
+  transition: transform var(--ts-duration) var(--ts-ease);
+}
+
+.terminal-select-menu__trigger--open .terminal-select-menu__chevron {
+  transform: rotate(180deg);
+}
+
+.terminal-select-menu__listbox {
+  position: absolute;
+  z-index: var(--ts-z-dropdown);
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 204px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--ts-radius-md);
+  padding: 3px;
+  background-color: var(--terminal-chrome);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.24),
+    0 16px 44px rgba(0, 0, 0, 0.18);
+  animation: terminal-select-menu-enter 150ms var(--ts-ease) both;
+}
+
+.terminal-select-menu__listbox:focus {
+  outline: none;
+}
+
+.terminal-select-menu__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.38rem;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: var(--ts-radius-md);
+  padding: 0.28rem 0.38rem;
+  background: transparent;
+  color: var(--terminal-text);
+  font-family: var(--ts-font-mono);
+  font-size: 0.66rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--ts-duration) var(--ts-ease);
+}
+
+.terminal-select-menu__option:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.terminal-select-menu__option--active {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.terminal-select-menu__option--selected {
+  background-color: rgba(137, 184, 240, 0.16);
+}
+
+.terminal-select-menu__option--selected.terminal-select-menu__option--active {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)),
+    rgba(137, 184, 240, 0.16);
+}
+
+.terminal-select-menu__option-primary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--terminal-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-select-menu__option-marker {
+  flex-shrink: 0;
+  color: var(--terminal-text-muted);
+  font-family: var(--ts-font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@keyframes terminal-select-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

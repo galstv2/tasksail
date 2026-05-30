@@ -99,6 +99,7 @@ function createSidebarProps() {
     selectedContextPackDir: '/tmp/context-packs/orders-estate',
     selectedRepoIds: ['orders-api'],
     selectedFocusIds: [],
+    currentWorkspaceSelection: { selectedRepoIds: ['orders-api'], selectedFocusIds: [], deepFocusEnabled: false, deepFocusPrimaryRepoId: null, deepFocusPrimaryFocusId: null, selectedFocusPath: null, selectedFocusTargetKind: null, selectedFocusTargets: [], selectedTestTarget: null, selectedSupportTargets: [] },
     actionPending: null,
     message: 'Discovered 2 context pack(s) from approved local sources.',
     error: '',

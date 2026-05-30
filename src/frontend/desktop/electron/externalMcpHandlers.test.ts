@@ -1,7 +1,29 @@
-import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import http from 'node:http';
+import path from 'node:path';
 
-import { validateExternalMcpConnection } from './externalMcpHandlers';
+// Partial-mock the load module: keep the real validateExternalMcpRegistry (so
+// add/update exercise real validation) but stub the registry read.
+vi.mock('../../../backend/platform/external-mcp-registry/save', () => ({
+  saveExternalMcpRegistry: vi.fn(),
+}));
+vi.mock('../../../backend/platform/external-mcp-registry/load', async (orig) => {
+  const actual = await orig<typeof import('../../../backend/platform/external-mcp-registry/load')>();
+  return { ...actual, loadExternalMcpRegistryWithFallback: vi.fn() };
+});
+
+import {
+  validateExternalMcpConnection,
+  validateExternalMcpLocalCommand,
+  addExternalMcpServer,
+  listExternalMcpServers,
+  commandCandidates,
+} from './externalMcpHandlers';
+import { loadExternalMcpRegistryWithFallback } from '../../../backend/platform/external-mcp-registry/load';
+import { saveExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/save';
+
+const mockedLoad = vi.mocked(loadExternalMcpRegistryWithFallback);
+const mockedSave = vi.mocked(saveExternalMcpRegistry);
 
 let server: http.Server;
 let port: number;
@@ -212,5 +234,152 @@ describe('validateExternalMcpConnection — SSE transport', () => {
     if (!result.ok) return;
     expect((result.response as { success: boolean }).success).toBe(false);
     expect((result.response as { message: string }).message).toContain('Connection failed');
+  });
+});
+
+describe('validateExternalMcpLocalCommand — PATH lookup only', () => {
+  it('returns found:true with a resolvedPath for an existing executable, without running it', async () => {
+    // process.execPath is the absolute node binary path — an existing
+    // executable. A PATH-existence check resolves it WITHOUT executing it
+    // (running node with no args would open a REPL and hang this test).
+    const result = await validateExternalMcpLocalCommand({ command: process.execPath });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const resp = result.response as { action: string; found: boolean; resolvedPath?: string };
+    expect(resp.action).toBe('externalMcp.validateLocalCommand');
+    expect(resp.found).toBe(true);
+    expect(resp.resolvedPath).toBe(path.resolve(process.execPath));
+  });
+
+  it('returns found:false for a command not on PATH', async () => {
+    const result = await validateExternalMcpLocalCommand({ command: 'tasksail-definitely-not-a-real-command-xyz' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const resp = result.response as { found: boolean; resolvedPath?: string };
+    expect(resp.found).toBe(false);
+    expect(resp.resolvedPath).toBeUndefined();
+  });
+
+  it('returns found:false for a blank command and never executes anything', async () => {
+    const result = await validateExternalMcpLocalCommand({ command: '   ' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.response as { found: boolean }).found).toBe(false);
+  });
+
+  it('resolves a bare command name found on PATH (no execution)', async () => {
+    // Make the lookup deterministic: put the node binary's directory on PATH,
+    // then resolve it by bare name. On Windows, PATHEXT supplies the extension,
+    // so strip a trailing .exe from the basename.
+    const binDir = path.dirname(process.execPath);
+    let bareName = path.basename(process.execPath);
+    if (process.platform === 'win32' && bareName.toLowerCase().endsWith('.exe')) {
+      bareName = bareName.slice(0, -4);
+    }
+    const originalPath = process.env.PATH;
+    process.env.PATH = binDir + path.delimiter + (originalPath ?? '');
+    try {
+      const result = await validateExternalMcpLocalCommand({ command: bareName });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const resp = result.response as { action: string; found: boolean; resolvedPath?: string };
+      expect(resp.action).toBe('externalMcp.validateLocalCommand');
+      expect(resp.found).toBe(true);
+      expect((resp.resolvedPath ?? '').length).toBeGreaterThan(0);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it('returns found:false for an absolute path that does not exist', async () => {
+    const missing = path.join(path.dirname(process.execPath), 'tasksail-no-such-binary-xyz');
+    const result = await validateExternalMcpLocalCommand({ command: missing });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const resp = result.response as { found: boolean; resolvedPath?: string };
+    expect(resp.found).toBe(false);
+    expect(resp.resolvedPath).toBeUndefined();
+  });
+});
+
+describe('list + add for local servers', () => {
+  beforeEach(() => {
+    mockedLoad.mockReset();
+    mockedSave.mockReset();
+  });
+
+  it('list response includes a localEnabled boolean', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [] });
+    const result = await listExternalMcpServers();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(typeof (result.response as { localEnabled: boolean }).localEnabled).toBe('boolean');
+  });
+
+  it('persists a valid local server through the real validator', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [] });
+    const localServer = {
+      id: 'local-fs',
+      display_name: 'Local FS',
+      purpose: 'Local filesystem tools',
+      enabled: true,
+      transport: 'local' as const,
+      command: 'npx',
+      args: ['-y', '@scope/fs'],
+      tools: ['read_file'],
+      agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
+    };
+    const result = await addExternalMcpServer({ server: localServer });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(mockedSave).toHaveBeenCalledOnce();
+    const resp = result.response as { servers: Array<{ id: string; transport: string }> };
+    expect(resp.servers.some((s) => s.id === 'local-fs' && s.transport === 'local')).toBe(true);
+  });
+
+  it('rejects a local server with a "*" tools wildcard via the real validator', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [] });
+    const result = await addExternalMcpServer({
+      server: {
+        id: 'local-bad',
+        display_name: 'Local Bad',
+        purpose: 'invalid local',
+        enabled: true,
+        transport: 'local' as const,
+        command: 'npx',
+        tools: ['*'],
+        agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(mockedSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('commandCandidates — PATH lookup candidate names', () => {
+  it('returns only the bare command on POSIX', () => {
+    expect(commandCandidates('npx', 'linux', '.EXE;.CMD')).toEqual(['npx']);
+    expect(commandCandidates('npx', 'darwin', '')).toEqual(['npx']);
+  });
+
+  it('includes the bare command FIRST on Windows so a suffixed name (npx.cmd) resolves', () => {
+    const c = commandCandidates('npx.cmd', 'win32', '.EXE;.CMD;.BAT');
+    expect(c[0]).toBe('npx.cmd');
+    // PATHEXT variants are also tried (harmless for an already-suffixed name).
+    expect(c).toContain('npx.cmd.CMD');
+  });
+
+  it('appends PATHEXT variants for an extension-less Windows command', () => {
+    const c = commandCandidates('npx', 'win32', '.EXE;.CMD;.BAT');
+    expect(c).toContain('npx');
+    expect(c).toContain('npx.EXE');
+    expect(c).toContain('npx.CMD');
+    expect(c).toContain('npx.BAT');
+  });
+
+  it('de-dupes candidates and tolerates whitespace/empties in PATHEXT', () => {
+    const c = commandCandidates('node.exe', 'win32', '.EXE; ;.CMD');
+    expect(new Set(c).size).toBe(c.length);
+    expect(c[0]).toBe('node.exe');
   });
 });

@@ -21,6 +21,10 @@ import { useTaskNotifications, type UseTaskNotificationsResult } from './useTask
 import type { TaskBoardProps } from '../components/taskboard/TaskBoard';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import type { PlannerStartSessionDeepFocusSelection } from '../../shared/desktopContract';
+import {
+  buildCurrentWorkspaceScopeSummary,
+  type PlannerWorkspaceScopeSummary,
+} from '../plannerWorkspaceScope';
 
 const AUTO_COLLAPSE_SIDEBAR_BREAKPOINT_PX = 1080;
 
@@ -141,6 +145,20 @@ export function useAppShell(
     ],
   );
 
+  // Regular planner transparency reflects the ACTIVE pack's last-applied scope,
+  // not the sidebar draft (which can diverge). Display-only; never launched.
+  const currentWorkspaceScopeSummary = useMemo<PlannerWorkspaceScopeSummary | null>(
+    () => {
+      const activeDir = contextPackSidebarProps.activeContextPackDir;
+      if (!activeDir) return null;
+      const activePack = contextPackSidebarProps.contextPacks.find(
+        (entry) => entry.contextPackDir === activeDir,
+      );
+      return activePack ? buildCurrentWorkspaceScopeSummary(activePack) : null;
+    },
+    [contextPackSidebarProps.activeContextPackDir, contextPackSidebarProps.contextPacks],
+  );
+
   const { plannerModalProps, openPlannerModal } = usePlannerModal(
     client,
     observability?.currentState,
@@ -155,6 +173,7 @@ export function useAppShell(
       selectedContextPackDir: contextPackSidebarProps.selectedContextPackDir,
       onListRepoTree: contextPackSidebarProps.onListRepoTree,
     },
+    currentWorkspaceScopeSummary,
   );
 
   const deleteBlockedByActiveTask = Boolean(
@@ -242,8 +261,9 @@ export function useAppShell(
       onKillTask: taskBoard.killTask,
       onRetryKillCleanup: taskBoard.retryKillCleanup,
       readTaskContent: taskBoard.readTaskContent,
+      readChildChainBranchInventory: taskBoard.readChildChainBranchInventory,
     }),
-    [taskBoard.board, taskBoard.reorderPending, taskBoard.requeueErrorItem, taskBoard.deleteTask, taskBoard.moveToPending, taskBoard.moveToOpen, taskBoard.killTask, taskBoard.retryKillCleanup, taskBoard.readTaskContent],
+    [taskBoard.board, taskBoard.reorderPending, taskBoard.requeueErrorItem, taskBoard.deleteTask, taskBoard.moveToPending, taskBoard.moveToOpen, taskBoard.killTask, taskBoard.retryKillCleanup, taskBoard.readTaskContent, taskBoard.readChildChainBranchInventory],
   );
 
   return {

@@ -382,6 +382,69 @@ describe('copilotProvider', () => {
     });
   });
 
+  it('renders local, url-with-tools, and url-without-tools MCP entries with correct shapes', () => {
+    const configPath = copilotProvider.renderMcpConfig(path.join(repoRoot, 'launch-mixed'), [
+      {
+        id: 'local-fs',
+        transport: 'local',
+        command: 'npx',
+        args: ['-y', '@scope/server'],
+        env: { API_KEY: 'resolved-secret' },
+        cwd: '/abs/work',
+        tools: ['read_file', 'list_dir'],
+      },
+      {
+        id: 'vendor-http',
+        transport: 'http',
+        url: 'https://mcp.vendor.com/mcp',
+        headers: { Authorization: 'Bearer tok' },
+        tools: ['search'],
+      },
+      {
+        id: 'plain-sse',
+        transport: 'sse',
+        url: 'https://mcp.example.com/sse',
+        headers: {},
+      },
+    ]);
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(parsed.mcpServers['local-fs']).toEqual({
+      type: 'local',
+      command: 'npx',
+      args: ['-y', '@scope/server'],
+      env: { API_KEY: 'resolved-secret' },
+      cwd: '/abs/work',
+      tools: ['read_file', 'list_dir'],
+    });
+    expect(parsed.mcpServers['vendor-http']).toEqual({
+      type: 'http',
+      url: 'https://mcp.vendor.com/mcp',
+      headers: { Authorization: 'Bearer tok' },
+      tools: ['search'],
+    });
+    // A url server without a tools allowlist omits tools entirely (prior behavior).
+    expect(parsed.mcpServers['plain-sse']).toEqual({
+      type: 'sse',
+      url: 'https://mcp.example.com/sse',
+      headers: {},
+    });
+    expect(parsed.mcpServers['plain-sse'].tools).toBeUndefined();
+  });
+
+  it('omits cwd for a local entry when not set', () => {
+    const configPath = copilotProvider.renderMcpConfig(path.join(repoRoot, 'launch-nocwd'), [{
+      id: 'local-nocwd',
+      transport: 'local',
+      command: 'mcp-server',
+      args: [],
+      env: {},
+      tools: ['t1'],
+    }]);
+    const entry = JSON.parse(fs.readFileSync(configPath, 'utf-8')).mcpServers['local-nocwd'];
+    expect(entry.cwd).toBeUndefined();
+    expect(entry).toEqual({ type: 'local', command: 'mcp-server', args: [], env: {}, tools: ['t1'] });
+  });
+
   it('builds planner launch specs and parses Copilot planner JSONL', () => {
     const spec = copilotProvider.buildPlannerLaunchSpec!({
       model: 'gpt-5.4',

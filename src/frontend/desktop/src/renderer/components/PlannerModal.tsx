@@ -15,6 +15,7 @@ import { ParentArchivePreviewModal } from './planner/ParentArchivePreviewModal';
 import ChildScopeOverridePanel, { type ChildScopeOverridePanelProps } from './planner/ChildScopeOverridePanel';
 import type { usePlannerParentArchivePreview } from '../hooks/usePlannerParentArchivePreview';
 import { childScopeToFocusFilterSelection } from '../plannerChildScope';
+import type { PlannerWorkspaceScopeSummary } from '../plannerWorkspaceScope';
 
 export type PlannerSessionStatus = 'idle' | 'connecting' | 'active' | 'busy' | 'failed';
 
@@ -57,6 +58,7 @@ export type PlannerModalProps = {
   selectedMarkdownFile?: MarkdownFileSelection | null;
   onPickMarkdownFile?: () => void;
   onClearSelectedFile?: () => void;
+  workspaceScopeSummary?: PlannerWorkspaceScopeSummary | null;
   childTaskMode?: boolean;
   onToggleChildTaskMode?: () => void;
   archivedTasks?: ArchivedTaskEntry[];
@@ -190,6 +192,36 @@ function ChildScopeSummaryAffordance({
   );
 }
 
+// Regular/recent-mode scope affordance for the stage bar. Compact info trigger
+// that reveals the shared scope card on hover/focus. Distinct from
+// ChildScopeSummaryAffordance, which stays unchanged for child-task mode.
+function WorkspaceScopeSummaryAffordance({
+  summary,
+}: {
+  summary: PlannerWorkspaceScopeSummary;
+}): JSX.Element {
+  return (
+    <span className="planner-modal__stage-scope">
+      <button
+        type="button"
+        className="planner-modal__stage-scope-trigger"
+        aria-label={summary.triggerLabel}
+        title={summary.triggerLabel}
+      >
+        <ScopeInfoIcon />
+      </button>
+      <span className="planner-modal__stage-scope-popover">
+        <FocusSelectionSummaryCard
+          selectedPack={summary.selectedPack}
+          selection={summary.selection}
+          title={summary.title}
+          flag={summary.flag}
+        />
+      </span>
+    </span>
+  );
+}
+
 function PlannerModal({
   isOpen,
   onClose,
@@ -228,6 +260,7 @@ function PlannerModal({
   selectedMarkdownFile,
   onPickMarkdownFile,
   onClearSelectedFile,
+  workspaceScopeSummary = null,
   childTaskMode,
   onToggleChildTaskMode,
   archivedTasks,
@@ -465,9 +498,9 @@ function PlannerModal({
         className="action-button"
         onClick={() => { void handleUploadSpecWithSail(); }}
         disabled={!planningEnabled || !!childTaskBlocked}
-        title="Upload a completed planning-intake markdown and submit directly — skips Lily"
+        title="Upload a completed planning-intake markdown and submit directly — skips the Planner"
       >
-        Bypass Lily
+        Bypass Planner
       </button>
     </div>
   );
@@ -719,6 +752,9 @@ function PlannerModal({
           <div className="planner-modal__stage-bar">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/><path d="M8 5v3.5H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             <span>{stageCopy}</span>
+            {!childTaskMode && workspaceScopeSummary ? (
+              <WorkspaceScopeSummaryAffordance summary={workspaceScopeSummary} />
+            ) : null}
           </div>
         )}
 

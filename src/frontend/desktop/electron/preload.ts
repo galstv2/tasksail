@@ -76,6 +76,7 @@ import {
   type QueueStatusResponse,
   type TaskBoardReadBoardResponse,
   type TaskBoardReadTaskContentResponse,
+  type TaskBoardReadChildChainBranchInventoryResponse,
   type TaskBoardReorderPendingResponse,
   type TaskBoardDeleteColumn,
   type TaskBoardDeleteTaskResponse,
@@ -675,6 +676,13 @@ export const desktopShellApi = {
       action: 'externalMcp.validateConnection',
       payload,
     }),
+  validateExternalMcpLocalCommand: async (
+    payload: import('../src/shared/desktopContract').ExternalMcpValidateLocalCommandRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'externalMcp.validateLocalCommand',
+      payload,
+    }),
   readTaskBoard: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'taskBoard.readBoard',
@@ -682,10 +690,19 @@ export const desktopShellApi = {
   readTaskContent: async (
     fileName: string,
     column: import('../src/shared/desktopContract').TaskBoardContentColumn,
+    artifactRelativePath?: string,
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'taskBoard.readTaskContent',
-      payload: { fileName, column },
+      payload: { fileName, column, ...(artifactRelativePath !== undefined ? { artifactRelativePath } : {}) },
+    }),
+  readChildChainBranchInventory: async (
+    taskId: string,
+    expectedRootTaskId?: string | null,
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'taskBoard.readChildChainBranchInventory',
+      payload: { taskId, ...(expectedRootTaskId !== undefined ? { expectedRootTaskId } : {}) },
     }),
   reorderPending: async (order: string[]): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
@@ -1138,10 +1155,18 @@ export type DesktopShellApi = {
   validateExternalMcpConnection: (
     payload: import('../src/shared/desktopContract').ExternalMcpValidateConnectionRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  validateExternalMcpLocalCommand: (
+    payload: import('../src/shared/desktopContract').ExternalMcpValidateLocalCommandRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   readTaskBoard: () => Promise<DesktopInvokeResult>;
   readTaskContent: (
     fileName: string,
     column: import('../src/shared/desktopContract').TaskBoardContentColumn,
+    artifactRelativePath?: string,
+  ) => Promise<DesktopInvokeResult>;
+  readChildChainBranchInventory: (
+    taskId: string,
+    expectedRootTaskId?: string | null,
   ) => Promise<DesktopInvokeResult>;
   reorderPending: (order: string[]) => Promise<DesktopInvokeResult>;
   requeueErrorItem: (fileName: string, insertAtIndex: number) => Promise<DesktopInvokeResult>;
@@ -1249,6 +1274,7 @@ export type DesktopAllowedResponses =
   | AgentInstructionsWriteFileResponse
   | TaskBoardReadBoardResponse
   | TaskBoardReadTaskContentResponse
+  | TaskBoardReadChildChainBranchInventoryResponse
   | TaskBoardReorderPendingResponse
   | TaskBoardRequeueErrorItemResponse
   | TaskBoardDeleteTaskResponse

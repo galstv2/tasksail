@@ -14,6 +14,7 @@ export type TaskBoardCardProps = {
   draggable?: boolean;
   sourceColumn?: string;
   meta?: string | null;
+  badge?: string | null;
   onClick?: () => void;
   onDelete?: () => void;
   onStop?: () => void;
@@ -31,6 +32,7 @@ function TaskBoardCard({
   draggable = false,
   sourceColumn,
   meta,
+  badge,
   onClick,
   onDelete,
   onStop,
@@ -90,6 +92,7 @@ function TaskBoardCard({
       data-filename={fileName}
     >
       <span className="task-board-card__title">{title ?? fileName}</span>
+      {badge ? <span className="task-board-card__badge">{badge}</span> : null}
       {onRetryCleanup ? (
         <button
           className="task-board-card__retry-cleanup"

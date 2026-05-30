@@ -26,6 +26,7 @@ function ContextPackSidebarExpanded({
   selectedFocusTargets,
   selectedTestTarget,
   selectedSupportTargets,
+  currentWorkspaceSelection,
   focusFilters = [],
   focusFilterPending = false,
   focusFilterError = '',
@@ -403,26 +404,7 @@ function ContextPackSidebarExpanded({
         isOpen={focusFilterModalOpen && Boolean(selectedPack)}
         selectedPack={selectedPack}
         filters={focusFilters}
-        currentSelection={{
-          selectedRepoIds,
-          selectedFocusIds,
-          repositoryTypes: Object.fromEntries(
-            (selectedPack?.focusTargets ?? [])
-              .filter((target) =>
-                (selectedRepoIds.includes(target.focusId) || selectedFocusIds.includes(target.focusId)) &&
-                target.repositoryType,
-              )
-              .map((target) => [target.focusId, target.repositoryType!]),
-          ),
-          deepFocusEnabled: deepFocusEnabled ?? false,
-          deepFocusPrimaryRepoId: deepFocusPrimaryRepoId ?? null,
-          deepFocusPrimaryFocusId: deepFocusPrimaryFocusId ?? null,
-          selectedFocusPath: selectedFocusPath ?? null,
-          selectedFocusTargetKind: selectedFocusTargetKind ?? null,
-          selectedFocusTargets: selectedFocusTargets ?? [],
-          selectedTestTarget,
-          selectedSupportTargets: selectedSupportTargets ?? [],
-        }}
+        currentSelection={currentWorkspaceSelection}
         pending={focusFilterPending}
         error={focusFilterError}
         onClose={() => setFocusFilterModalOpen(false)}

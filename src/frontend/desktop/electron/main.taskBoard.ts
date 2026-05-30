@@ -3,8 +3,8 @@
  * for the Kanban board UI, and delegates reorder/requeue to backend queue modules.
  */
 import { watch, type FSWatcher } from 'node:fs';
-import { readFile as fsReadFile, readdir, unlink as fsUnlink } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { readFile as fsReadFile, readdir, unlink as fsUnlink, lstat } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { BrowserWindow } from 'electron';
 
 import {
@@ -20,6 +20,7 @@ import type {
   TaskBoardKillTaskRequest,
   TaskBoardRetryKillCleanupRequest,
   TaskBoardItem,
+  TaskBoardMarkdownArtifact,
   TaskBoardPendingItem,
   TaskBoardReadBoardResponse,
   TaskBoardReadTaskContentRequest,
@@ -519,12 +520,235 @@ export function formatCompletedBranchHandoffText(task: ArchivedTaskEntry): strin
   return lines.join('\n');
 }
 
+// Internal artifact shape — carries the resolved absolute path that the public
+// TaskBoardMarkdownArtifact deliberately omits from the renderer contract.
+type CompletedMarkdownArtifact = {
+  relativePath: string;
+  label: string;
+  sizeBytes: number;
+  absolutePath: string;
+};
+
+const ARCHIVE_MD = 'archive.md';
+
+function toPublicArtifact(artifact: CompletedMarkdownArtifact): TaskBoardMarkdownArtifact {
+  return {
+    relativePath: artifact.relativePath,
+    label: artifact.label,
+    sizeBytes: artifact.sizeBytes,
+  };
+}
+
+// Resolve the directory to enumerate for a nested archive, or null when the task
+// must be treated as a flat legacy archive backed directly by archivePath.
+function resolveCompletedArtifactRoot(task: ArchivedTaskEntry): string | null {
+  if (task.archiveArtifactDir) {
+    return task.archiveArtifactDir;
+  }
+  if (basename(task.archivePath) === ARCHIVE_MD) {
+    return dirname(task.archivePath);
+  }
+  return null;
+}
+
+// Recursively enumerate regular, non-symlink markdown files under the archive
+// root. Skips dot-files/dot-directories, symlinks, and non-markdown files.
+// Returns artifacts sorted archive.md-first, then case-insensitively by path.
+async function listCompletedMarkdownArtifacts(root: string): Promise<CompletedMarkdownArtifact[]> {
+  const collected: CompletedMarkdownArtifact[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.isSymbolicLink()) {
+        continue;
+      }
+      const absolutePath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolutePath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.md')) {
+        continue;
+      }
+      let stat;
+      try {
+        stat = await lstat(absolutePath);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        continue;
+      }
+      const relativePath = relative(root, absolutePath).replace(/\\/g, '/');
+      collected.push({ relativePath, label: relativePath, sizeBytes: stat.size, absolutePath });
+    }
+  }
+
+  await walk(root);
+  return collected.sort((a, b) => {
+    if (a.relativePath === ARCHIVE_MD) return b.relativePath === ARCHIVE_MD ? 0 : -1;
+    if (b.relativePath === ARCHIVE_MD) return 1;
+    return a.relativePath.toLowerCase().localeCompare(b.relativePath.toLowerCase());
+  });
+}
+
+// Normalize a renderer-supplied artifact path to a safe POSIX relative path, or
+// null if it is empty, absolute, or contains a traversal segment. Membership in
+// the enumerated artifact set is enforced separately by the caller.
+function normalizeRequestedArtifactPath(value: string): string | null {
+  const posix = value.replace(/\\/g, '/').trim();
+  if (posix.length === 0 || posix.startsWith('/') || isAbsolute(value) || isAbsolute(posix)) {
+    return null;
+  }
+  const segments = posix.split('/');
+  if (segments.some((segment) => segment === '..' || segment.length === 0)) {
+    return null;
+  }
+  return segments.join('/');
+}
+
+// Artifact selection lookup: defaults to archive.md when no path was requested,
+// otherwise returns the enumerated artifact whose path matches the normalized
+// request, or null when the request is invalid or unknown.
+function selectArtifact(
+  artifacts: CompletedMarkdownArtifact[],
+  requested: string | undefined,
+): CompletedMarkdownArtifact | null {
+  if (requested === undefined) {
+    return artifacts.find((artifact) => artifact.relativePath === ARCHIVE_MD) ?? null;
+  }
+  const normalized = normalizeRequestedArtifactPath(requested);
+  if (normalized === null) {
+    return null;
+  }
+  return artifacts.find((artifact) => artifact.relativePath === normalized) ?? null;
+}
+
+// A requested path that, once normalized, is not archive.md cannot be served by
+// a flat/unreadable archive that only exposes archive.md.
+function requestedNestedArtifact(requested: string | undefined): boolean {
+  return requested !== undefined && normalizeRequestedArtifactPath(requested) !== ARCHIVE_MD;
+}
+
+async function makeFlatArchiveArtifact(archivePath: string): Promise<CompletedMarkdownArtifact> {
+  let sizeBytes = 0;
+  try {
+    const stat = await lstat(archivePath);
+    if (stat.isFile()) {
+      sizeBytes = stat.size;
+    }
+  } catch {
+    // Size is best-effort metadata; the actual read enforces existence.
+  }
+  return { relativePath: ARCHIVE_MD, label: ARCHIVE_MD, sizeBytes, absolutePath: archivePath };
+}
+
+async function readCompletedTaskContent(
+  base: string,
+  artifactRelativePath: string | undefined,
+  listContextPacks: ContextPackLister,
+): Promise<DesktopInvokeResult> {
+  const taskId = base.replace(/\.md$/, '');
+  const archivedResult = await listArchivedTasksAction(listContextPacks);
+  if (!(archivedResult.ok && 'tasks' in archivedResult.response)) {
+    return notFoundResult(base);
+  }
+  const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
+  const match = tasks.find((t) => t.taskId === taskId);
+
+  let artifacts: CompletedMarkdownArtifact[];
+  let archivedTask: ArchivedTaskEntry | null = null;
+
+  if (match?.archivePath) {
+    archivedTask = match;
+    const root = resolveCompletedArtifactRoot(match);
+    let listed: CompletedMarkdownArtifact[] | null = null;
+    if (root) {
+      try {
+        listed = await listCompletedMarkdownArtifacts(root);
+      } catch {
+        // Archive root unreadable — fall back to the flat archive.md below.
+        listed = null;
+      }
+    }
+    if (listed && listed.length > 0) {
+      artifacts = listed;
+    } else {
+      if (requestedNestedArtifact(artifactRelativePath)) {
+        return notFoundResult(base);
+      }
+      artifacts = [await makeFlatArchiveArtifact(match.archivePath)];
+    }
+  } else {
+    // Scoped registry fallback: a legacy single-artifact archive. archiveArtifactDir
+    // is structurally unavailable here (the registry match yields only archivePath),
+    // so this is always a flat archive.md and carries no branch-handoff source.
+    const scope = await resolveActiveContextPackTaskScope(listContextPacks);
+    if (!scope) {
+      return notFoundResult(base);
+    }
+    const registry = await loadTaskRegistry(REPO_ROOT);
+    const registryMatch = filterRegistryTaskSetsForScope(registry, scope)
+      .completed
+      .find((entry) => entry.taskId === taskId && entry.archivePath);
+    if (!registryMatch?.archivePath) {
+      return notFoundResult(base);
+    }
+    if (requestedNestedArtifact(artifactRelativePath)) {
+      return notFoundResult(base);
+    }
+    artifacts = [await makeFlatArchiveArtifact(registryMatch.archivePath)];
+  }
+
+  const selected = selectArtifact(artifacts, artifactRelativePath);
+  if (!selected) {
+    return notFoundResult(base);
+  }
+  const selectedRelativePath = selected.relativePath;
+
+  let content: string;
+  try {
+    content = await fsReadFile(selected.absolutePath, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return notFoundResult(base);
+    }
+    throw err;
+  }
+
+  // Branch-handoff text belongs only on archive.md; nested artifacts render verbatim.
+  if (selectedRelativePath === 'archive.md' && archivedTask) {
+    const handoffText = formatCompletedBranchHandoffText(archivedTask);
+    if (
+      handoffText
+      && !content.includes('## Source Branches for Operator Review')
+      && !content.includes(handoffText.trim())
+    ) {
+      content = `${handoffText}\n${content}`;
+    }
+  }
+
+  return {
+    ok: true,
+    response: {
+      action: 'taskBoard.readTaskContent' as const,
+      mode: 'found' as const,
+      message: `Read ${base}.`,
+      content,
+      fileName: base,
+      artifactRelativePath: selectedRelativePath,
+      artifacts: artifacts.map(toPublicArtifact),
+    },
+  };
+}
+
 export async function readTaskContent(
   payload: TaskBoardReadTaskContentRequest['payload'],
   listContextPacks?: ContextPackLister,
 ): Promise<DesktopInvokeResult> {
   try {
-    const { fileName, column } = payload;
+    const { fileName, column, artifactRelativePath } = payload;
     const base = basename(fileName);
     if (!base.endsWith('.md') || base.startsWith('.')) {
       return {
@@ -534,53 +758,29 @@ export async function readTaskContent(
       };
     }
 
-    let filePath: string;
-    let archivedTask: ArchivedTaskEntry | null = null;
     if (column === 'completed') {
       if (!listContextPacks) {
         return notFoundResult(base);
       }
-      const taskId = base.replace(/\.md$/, '');
-      const archivedResult = await listArchivedTasksAction(listContextPacks);
-      if (archivedResult.ok && 'tasks' in archivedResult.response) {
-        const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
-        const match = tasks.find((t) => t.taskId === taskId);
-        if (match?.archivePath) {
-          filePath = match.archivePath;
-          archivedTask = match;
-        } else {
-          const scope = await resolveActiveContextPackTaskScope(listContextPacks);
-          if (!scope) {
-            return notFoundResult(base);
-          }
-          const registry = await loadTaskRegistry(REPO_ROOT);
-          const registryMatch = filterRegistryTaskSetsForScope(registry, scope)
-            .completed
-            .find((entry) => entry.taskId === taskId && entry.archivePath);
-          if (!registryMatch?.archivePath) {
-            return notFoundResult(base);
-          }
-          filePath = registryMatch.archivePath;
-        }
-      } else {
-        return notFoundResult(base);
-      }
-    } else {
-      const mutationContext = await resolveVisibleMutationContext(listContextPacks);
-      const isVisible = mutationContext
-        ? await isFileVisibleForScope({
-        fileName: base,
-        dir: COLUMN_DIR_MAP[column],
-        column,
-        scope: mutationContext.scope,
-        registry: mutationContext.registry,
-          })
-        : false;
-      if (!isVisible) {
-        return notFoundResult(base);
-      }
-      filePath = join(COLUMN_DIR_MAP[column], base);
+      return readCompletedTaskContent(base, artifactRelativePath, listContextPacks);
     }
+
+    // Open, pending, and failed reads ignore artifactRelativePath and preserve
+    // existing visibility checks and not-found behavior.
+    const mutationContext = await resolveVisibleMutationContext(listContextPacks);
+    const isVisible = mutationContext
+      ? await isFileVisibleForScope({
+          fileName: base,
+          dir: COLUMN_DIR_MAP[column],
+          column,
+          scope: mutationContext.scope,
+          registry: mutationContext.registry,
+        })
+      : false;
+    if (!isVisible) {
+      return notFoundResult(base);
+    }
+    const filePath = join(COLUMN_DIR_MAP[column], base);
 
     let content: string;
     try {
@@ -590,14 +790,6 @@ export async function readTaskContent(
         return notFoundResult(base);
       }
       throw err;
-    }
-    const handoffText = archivedTask ? formatCompletedBranchHandoffText(archivedTask) : '';
-    if (
-      handoffText
-      && !content.includes('## Source Branches for Operator Review')
-      && !content.includes(handoffText.trim())
-    ) {
-      content = `${handoffText}\n${content}`;
     }
 
     return {

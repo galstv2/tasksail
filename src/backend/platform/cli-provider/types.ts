@@ -8,12 +8,29 @@ export interface AutonomyIntent {
   disallowTempDir: boolean;
 }
 
-export interface ResolvedMcpServer {
+/** URL-based resolved MCP server (http/sse). */
+interface ResolvedUrlMcpServer {
   id: string;
   transport: 'http' | 'sse';
   url: string;
   headers: Record<string, string>;
+  /** Optional tool allowlist; emitted only when present. */
+  tools?: string[];
 }
+
+/** Local (stdio) resolved MCP server, launched as a child process by the CLI. */
+interface ResolvedLocalMcpServer {
+  id: string;
+  transport: 'local';
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
+  /** Required, non-empty tool allowlist (never '*'). */
+  tools: string[];
+}
+
+export type ResolvedMcpServer = ResolvedUrlMcpServer | ResolvedLocalMcpServer;
 
 export type TerminationReason =
   | 'exited'

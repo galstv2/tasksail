@@ -328,6 +328,7 @@ export function createMockClient(
           mode: 'read-only',
           message: '0 server(s) configured.',
           servers: [],
+          localEnabled: false,
         },
       }),
     addExternalMcpServer: vi
@@ -383,6 +384,17 @@ export function createMockClient(
           mode: 'validated',
           success: true,
           message: 'Connection successful.',
+        },
+      }),
+    validateExternalMcpLocalCommand: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'externalMcp.validateLocalCommand',
+          mode: 'validated',
+          found: false,
+          message: 'Command not found on PATH.',
         },
       }),
     loadAgentConfig: vi
@@ -612,6 +624,16 @@ export function createMockClient(
           message: 'Not found.',
           content: '',
           fileName: '',
+        },
+      }),
+    readChildChainBranchInventory: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'taskBoard.readChildChainBranchInventory',
+          mode: 'not-chain-task',
+          message: 'Not a chain task.',
         },
       }),
     readTaskBoard: vi

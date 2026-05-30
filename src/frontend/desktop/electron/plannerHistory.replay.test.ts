@@ -215,10 +215,6 @@ describe('planner history replay session bootstrap', () => {
       sessionId: 'planner-999',
       contextPackDir: '/contextpacks/historical',
       title: 'historical child task',
-      lineage: expect.objectContaining({
-        taskKind: 'child-task',
-        parentTaskId: 'TASK-1',
-      }),
       contextPackBinding: expect.objectContaining({
         contextPackDir: '/contextpacks/historical',
         selectedRepoIds: ['historical-repo'],
@@ -247,6 +243,9 @@ describe('planner history replay session bootstrap', () => {
         title: 'historical child task',
       }),
     );
+    // Replaying a child task drops the source lineage so the staged draft defaults
+    // to a standalone standard task — no parent linkage carried into the new chain.
+    expect(initializeStagedPlanningDraft.mock.calls[0]?.[0]?.lineage).toBeUndefined();
     expect(beginPendingRecord.mock.calls[0]?.[0]).not.toBe('source-record-session');
 
     // Replay resolves a FRESH Lily assignment for the new session id, and the availability note
@@ -286,7 +285,7 @@ describe('planner history replay session bootstrap', () => {
     const plannerSession = await import('./plannerSession');
     await expect(
       plannerSession.startSession('/contextpacks/live', undefined, 'source-record-session'),
-    ).rejects.toThrow('This child-task recent is no longer the current child-chain tip.');
+    ).rejects.toThrow("This recent can't be replayed right now because its underlying task has changed. Refresh the recent list and try again.");
 
     expect(clearStagingArtifacts).not.toHaveBeenCalled();
     expect(initializeStagedPlanningDraft).not.toHaveBeenCalled();
@@ -307,7 +306,7 @@ describe('planner history replay session bootstrap', () => {
     const plannerSession = await import('./plannerSession');
     await expect(
       plannerSession.startSession('/contextpacks/live', undefined, 'source-record-session'),
-    ).rejects.toThrow('Child-task recents are temporarily unavailable because child-task chain state is invalid.');
+    ).rejects.toThrow("This recent can't be replayed right now because its task data is being updated. Try again in a moment.");
 
     expect(clearStagingArtifacts).not.toHaveBeenCalled();
     expect(initializeStagedPlanningDraft).not.toHaveBeenCalled();

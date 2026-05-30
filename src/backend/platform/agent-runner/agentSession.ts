@@ -24,6 +24,7 @@ import {
 } from './sessionReceipts.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 import type { ResolvedMcpServer } from '../cli-provider/index.js';
+import { getPlatformConfig } from '../platform-config/get.js';
 
 const log = createLogger('platform/agent-runner/agentSession');
 
@@ -151,13 +152,28 @@ export async function mergeExternalMcpLaunchEnvironment(options: {
     }
   };
 
+  // Read the local-MCP opt-in flag here, the single helper-env-assembly seam.
+  // A failed/unreadable config is treated as disabled (fail-closed). Its own
+  // try/catch keeps a config error from being misread as a helper failure.
+  let localMcpEnabled = false;
+  try {
+    localMcpEnabled = (await getPlatformConfig(options.repoRoot)).external_mcp_local_enabled;
+  } catch {
+    localMcpEnabled = false;
+  }
+
   let launchContext: ExternalMcpLaunchContext;
   try {
     launchContext = await prepareExternalMcpLaunchContext({
       agentId: options.agentId,
       repoRoot: options.repoRoot,
       taskId: options.taskId,
-      env: options.agentEnv,
+      // Pass the opt-in flag to the helper subprocess only; do not add it to
+      // agentEnv so it never leaks into the launched agent's process env.
+      env: {
+        ...options.agentEnv,
+        TASKSAIL_LOCAL_MCP_ENABLED: localMcpEnabled ? '1' : '',
+      },
       abortSignal: options.abortSignal,
     });
   } catch (err) {

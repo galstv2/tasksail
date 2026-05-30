@@ -47,6 +47,8 @@ export {
   validatePlannerFocusSnapshot,
 } from './desktopContractValidationCore';
 
+const EXTERNAL_MCP_MIN_PURPOSE_LENGTH = 20;
+
 function validateTaskNotificationsMarkSeenPayload(value: unknown): string[] {
   if (!isRecord(value)) {
     return ['payload must be an object.'];
@@ -690,10 +692,32 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       const errors: string[] = [];
       if (!isNonEmptyString(s.id)) errors.push('payload.server.id must be a non-empty string.');
       if (!isNonEmptyString(s.display_name)) errors.push('payload.server.display_name must be a non-empty string.');
-      if (!isNonEmptyString(s.purpose)) errors.push('payload.server.purpose must be a non-empty string.');
+      if (!isNonEmptyString(s.purpose) || s.purpose.trim().length < EXTERNAL_MCP_MIN_PURPOSE_LENGTH) {
+        errors.push(`payload.server.purpose must describe when to use this server (at least ${EXTERNAL_MCP_MIN_PURPOSE_LENGTH} characters).`);
+      }
+      if (
+        !Array.isArray(s.preferred_for) ||
+        !s.preferred_for.some((item) => isNonEmptyString(item))
+      ) {
+        errors.push('payload.server.preferred_for requires at least one usage cue.');
+      }
       if (!isNonEmptyString(s.transport)) errors.push('payload.server.transport must be a non-empty string.');
-      if (!isNonEmptyString(s.url)) errors.push('payload.server.url must be a non-empty string.');
       if (typeof s.enabled !== 'boolean') errors.push('payload.server.enabled must be a boolean.');
+      // Transport-conditional shape checks. The platform validator
+      // (validateExternalMcpRegistry) remains the deep authority for url
+      // scheme, env-reference format, command, tools, and cwd rules.
+      if (s.transport === 'local') {
+        if (!isNonEmptyString(s.command)) {
+          errors.push('payload.server.command must be a non-empty string for a local server.');
+        }
+        if (!Array.isArray(s.tools) || s.tools.length === 0 || !s.tools.every(isNonEmptyString)) {
+          errors.push('payload.server.tools must be a non-empty array of strings for a local server.');
+        } else if (s.tools.includes('*')) {
+          errors.push('payload.server.tools must not contain "*" for a local server.');
+        }
+      } else if (!isNonEmptyString(s.url)) {
+        errors.push('payload.server.url must be a non-empty string.');
+      }
       return errors;
     }
     case 'externalMcp.remove':
@@ -706,6 +730,11 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
       if (!isNonEmptyString(request.payload.transport)) return ['payload.transport must be a non-empty string.'];
       if (!isNonEmptyString(request.payload.url)) return ['payload.url must be a non-empty string.'];
+      return [];
+    }
+    case 'externalMcp.validateLocalCommand': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      if (!isNonEmptyString(request.payload.command)) return ['payload.command must be a non-empty string.'];
       return [];
     }
     case 'taskBoard.readBoard':
@@ -727,6 +756,27 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       const validColumns = ['open', 'pending', 'error', 'completed'] as const;
       if (!isOneOf(request.payload.column, validColumns)) {
         errors.push('payload.column must be open, pending, error, or completed.');
+      }
+      if (
+        request.payload.artifactRelativePath !== undefined
+        && !isNonEmptyString(request.payload.artifactRelativePath)
+      ) {
+        errors.push('payload.artifactRelativePath must be a non-empty string when provided.');
+      }
+      return errors;
+    }
+    case 'taskBoard.readChildChainBranchInventory': {
+      if (!isRecord(request.payload)) return ['payload must be an object.'];
+      const errors: string[] = [];
+      if (!isNonEmptyString(request.payload.taskId)) {
+        errors.push('payload.taskId must be a non-empty string.');
+      }
+      if (
+        request.payload.expectedRootTaskId !== undefined
+        && request.payload.expectedRootTaskId !== null
+        && !isNonEmptyString(request.payload.expectedRootTaskId)
+      ) {
+        errors.push('payload.expectedRootTaskId must be a non-empty string or null when provided.');
       }
       return errors;
     }

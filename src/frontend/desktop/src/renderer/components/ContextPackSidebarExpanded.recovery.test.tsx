@@ -38,6 +38,7 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       selectedFocusTargetKind={null}
       selectedTestTarget={null}
       selectedSupportTargets={[]}
+      currentWorkspaceSelection={{ selectedRepoIds: [], selectedFocusIds: [], deepFocusEnabled: false, deepFocusPrimaryRepoId: null, deepFocusPrimaryFocusId: null, selectedFocusPath: null, selectedFocusTargetKind: null, selectedFocusTargets: [], selectedTestTarget: null, selectedSupportTargets: [] }}
       actionPending={null}
       message=""
       error=""

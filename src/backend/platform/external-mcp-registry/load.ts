@@ -14,19 +14,26 @@ import { isRecord } from '../core/guards.js';
 
 import type {
   ExternalMcpAgentScope,
+  ExternalMcpLocalServer,
   ExternalMcpRegistry,
   ExternalMcpRegistryLoadResult,
   ExternalMcpServer,
   ExternalMcpTransport,
+  ExternalMcpUrlServer,
   ExternalMcpValidationError,
 } from './types.js';
 import {
   ALLOWED_TRANSPORTS,
   CURRENT_SCHEMA_VERSION,
+  MAX_ARGS_ITEMS,
+  MAX_COMMAND_LENGTH,
+  MAX_ENV_VARS,
   MAX_FALLBACK_DESCRIPTION_LENGTH,
   MAX_PREFERRED_FOR_ITEM_LENGTH,
   MAX_PREFERRED_FOR_ITEMS,
   MAX_PURPOSE_LENGTH,
+  MIN_PURPOSE_LENGTH,
+  MAX_TOOLS_ITEMS,
 } from './types.js';
 
 /** Default seed registry path relative to repo root. */
@@ -204,16 +211,29 @@ function validateServerEntry(
       `Keep purpose to a short phrase (max ${MAX_PURPOSE_LENGTH} characters).`,
     ));
   }
+  if (purpose !== undefined && purpose.length < MIN_PURPOSE_LENGTH) {
+    errors.push(err(
+      `${prefix}.purpose`,
+      `Server purpose must describe when to use this server (at least ${MIN_PURPOSE_LENGTH} characters).`,
+      `Describe what this server provides and when an agent should use it (min ${MIN_PURPOSE_LENGTH} characters).`,
+    ));
+  }
 
-  // preferred_for — optional, must be non-empty array of short strings
+  // preferred_for — required, must be non-empty array of short strings
   let preferredFor: string[] | undefined;
-  if (data['preferred_for'] !== undefined) {
+  if (data['preferred_for'] === undefined) {
+    errors.push(err(
+      `${prefix}.preferred_for`,
+      'Server preferred_for requires at least one usage cue.',
+      'Add "preferred_for": ["cue"] with at least one task cue for when agents should use this server.',
+    ));
+  } else {
     if (!Array.isArray(data['preferred_for'])) {
-      errors.push(err(`${prefix}.preferred_for`, 'Must be an array of strings.', 'Set "preferred_for": ["cue1", "cue2"] or omit it.'));
+      errors.push(err(`${prefix}.preferred_for`, 'Must be an array of strings.', 'Set "preferred_for": ["cue1", "cue2"] with at least one usage cue.'));
     } else {
       const arr = data['preferred_for'] as unknown[];
       if (arr.length === 0) {
-        errors.push(err(`${prefix}.preferred_for`, 'Must be a non-empty array if provided.', 'Add at least one item or omit the field entirely.'));
+        errors.push(err(`${prefix}.preferred_for`, 'Server preferred_for requires at least one usage cue.', 'Add at least one usage cue.'));
       } else if (arr.length > MAX_PREFERRED_FOR_ITEMS) {
         errors.push(err(
           `${prefix}.preferred_for`,
@@ -238,6 +258,9 @@ function validateServerEntry(
             continue;
           }
           preferredFor.push(trimmed);
+        }
+        if (preferredFor.length === 0) {
+          errors.push(err(`${prefix}.preferred_for`, 'Server preferred_for requires at least one usage cue.', 'Add at least one non-empty usage cue.'));
         }
       }
     }
@@ -277,42 +300,96 @@ function validateServerEntry(
     ));
   }
 
-  // url — must be absolute https:// (or http:// for local dev)
-  const url = requireString(data, 'url', prefix, errors);
-  if (url !== undefined) {
-    validateUrl(url, `${prefix}.url`, errors);
-  }
+  // Transport-conditional fields. Local servers carry command/args/env/cwd
+  // and a required tools allowlist; url servers carry url/headers and an
+  // optional tools allowlist.
+  const isLocalTransport = transport === 'local';
 
-  // headers — optional, values may contain ${ENV_VAR} references
+  let url: string | undefined;
   let headers: Record<string, string> | undefined;
-  if (data['headers'] !== undefined) {
-    if (!isRecord(data['headers'])) {
-      errors.push(err(`${prefix}.headers`, 'Must be an object.', 'Use "headers": { "Name": "value" } with string values.'));
+  let command: string | undefined;
+  let args: string[] | undefined;
+  let env: Record<string, string> | undefined;
+  let cwd: string | undefined;
+  let tools: string[] | undefined;
+
+  if (isLocalTransport) {
+    // Local (stdio) server: command-launched child process. url/headers are
+    // not valid on a local entry.
+    if (data['url'] !== undefined) {
+      errors.push(err(`${prefix}.url`, 'A local server must not declare a url.', 'Remove "url" from local entries and set "command".'));
+    }
+    if (data['headers'] !== undefined) {
+      errors.push(err(`${prefix}.headers`, 'A local server must not declare headers.', 'Remove "headers"; use "env" for local server environment variables.'));
+    }
+
+    command = requireString(data, 'command', prefix, errors);
+    if (command !== undefined && command.length > MAX_COMMAND_LENGTH) {
+      errors.push(err(
+        `${prefix}.command`,
+        `Command is ${command.length} characters, exceeding the ${MAX_COMMAND_LENGTH}-character limit.`,
+        `Keep command under ${MAX_COMMAND_LENGTH} characters.`,
+      ));
+    }
+
+    // args preserve their exact value (no trim); env values may be ${ENV_VAR}.
+    args = validateStringArrayField(data, 'args', prefix, errors, MAX_ARGS_ITEMS, false);
+    env = validateEnvRefMap(data, 'env', prefix, errors, MAX_ENV_VARS);
+    cwd = validateAbsoluteCwd(data, prefix, errors);
+
+    // tools: required, non-empty, must not contain '*'.
+    if (data['tools'] === undefined) {
+      errors.push(err(`${prefix}.tools`, 'A local server must declare a non-empty tools allowlist.', 'Set "tools": ["tool_a", "tool_b"]; explicit tools are required for local servers.'));
     } else {
-      headers = {};
-      for (const [key, val] of Object.entries(data['headers'] as Record<string, unknown>)) {
-        if (typeof val !== 'string') {
-          errors.push(err(`${prefix}.headers.${key}`, 'Value must be a string.', 'Header values must be strings or ${ENV_VAR} references.'));
-          continue;
+      tools = validateStringArrayField(data, 'tools', prefix, errors, MAX_TOOLS_ITEMS, true);
+      if (tools !== undefined) {
+        if (tools.length === 0) {
+          errors.push(err(`${prefix}.tools`, 'tools must be a non-empty array.', 'List at least one tool name; local servers cannot use an empty allowlist.'));
+        } else if (tools.includes('*')) {
+          errors.push(err(`${prefix}.tools`, 'A local server must not use the "*" tool wildcard.', 'List explicit tool names; "*" is not permitted for local servers.'));
         }
-        const trimmed = val.trim();
-        if (trimmed.length === 0) {
-          errors.push(err(`${prefix}.headers.${key}`, 'Value must be non-empty.', 'Provide a header value or ${ENV_VAR} reference.'));
-          continue;
-        }
-        if (HAS_VAR_REF.test(trimmed)) {
-          if (!ENV_VAR_REF_PATTERN.test(trimmed)) {
-            errors.push(err(
-              `${prefix}.headers.${key}`,
-              `Malformed variable reference "${trimmed}".`,
-              'Use the format ${ENV_VAR_NAME}. The entire value must be a single reference.',
-            ));
-            continue;
-          }
-        }
-        headers[key] = trimmed;
       }
     }
+  } else {
+    // URL-based server (http/sse).
+    url = requireString(data, 'url', prefix, errors);
+    if (url !== undefined) {
+      validateUrl(url, `${prefix}.url`, errors);
+    }
+
+    // headers — optional, values may contain ${ENV_VAR} references
+    if (data['headers'] !== undefined) {
+      if (!isRecord(data['headers'])) {
+        errors.push(err(`${prefix}.headers`, 'Must be an object.', 'Use "headers": { "Name": "value" } with string values.'));
+      } else {
+        headers = {};
+        for (const [key, val] of Object.entries(data['headers'] as Record<string, unknown>)) {
+          if (typeof val !== 'string') {
+            errors.push(err(`${prefix}.headers.${key}`, 'Value must be a string.', 'Header values must be strings or ${ENV_VAR} references.'));
+            continue;
+          }
+          const trimmed = val.trim();
+          if (trimmed.length === 0) {
+            errors.push(err(`${prefix}.headers.${key}`, 'Value must be non-empty.', 'Provide a header value or ${ENV_VAR} reference.'));
+            continue;
+          }
+          if (HAS_VAR_REF.test(trimmed)) {
+            if (!ENV_VAR_REF_PATTERN.test(trimmed)) {
+              errors.push(err(
+                `${prefix}.headers.${key}`,
+                `Malformed variable reference "${trimmed}".`,
+                'Use the format ${ENV_VAR_NAME}. The entire value must be a single reference.',
+              ));
+              continue;
+            }
+          }
+          headers[key] = trimmed;
+        }
+      }
+    }
+
+    // tools — optional allowlist; '*' is permitted for url servers.
+    tools = validateStringArrayField(data, 'tools', prefix, errors, MAX_TOOLS_ITEMS, true);
   }
 
   // agent_scope
@@ -327,15 +404,46 @@ function validateServerEntry(
     return { errors };
   }
 
-  const server: ExternalMcpServer = {
-    id: id!,
-    display_name: displayName!,
-    purpose: purpose!,
-    enabled: enabled!,
-    transport: transport as ExternalMcpTransport,
-    url: url!,
-    agent_scope: agentScope!,
-  };
+  let server: ExternalMcpServer;
+  if (isLocalTransport) {
+    const localServer: ExternalMcpLocalServer = {
+      id: id!,
+      display_name: displayName!,
+      purpose: purpose!,
+      enabled: enabled!,
+      transport: 'local',
+      command: command!,
+      tools: tools!,
+      agent_scope: agentScope!,
+    };
+    if (args !== undefined) {
+      localServer.args = args;
+    }
+    if (env !== undefined && Object.keys(env).length > 0) {
+      localServer.env = env;
+    }
+    if (cwd !== undefined) {
+      localServer.cwd = cwd;
+    }
+    server = localServer;
+  } else {
+    const urlServer: ExternalMcpUrlServer = {
+      id: id!,
+      display_name: displayName!,
+      purpose: purpose!,
+      enabled: enabled!,
+      transport: transport as 'http' | 'sse',
+      url: url!,
+      agent_scope: agentScope!,
+    };
+    if (headers !== undefined && Object.keys(headers).length > 0) {
+      urlServer.headers = headers;
+    }
+    if (tools !== undefined) {
+      urlServer.tools = tools;
+    }
+    server = urlServer;
+  }
 
   if (preferredFor !== undefined) {
     server.preferred_for = preferredFor;
@@ -343,11 +451,125 @@ function validateServerEntry(
   if (fallbackDescription !== undefined) {
     server.fallback_description = fallbackDescription;
   }
-  if (headers !== undefined && Object.keys(headers).length > 0) {
-    server.headers = headers;
-  }
 
   return { server };
+}
+
+/**
+ * Validate an optional array-of-strings field. Returns the (optionally
+ * trimmed) values, or undefined when the field is absent. A present-but-
+ * malformed field pushes errors and returns an empty array. args preserve
+ * their exact value (trim=false); identifier-like fields such as tools are
+ * trimmed (trim=true).
+ */
+function validateStringArrayField(
+  data: Record<string, unknown>,
+  field: string,
+  prefix: string,
+  errors: ExternalMcpValidationError[],
+  maxItems: number,
+  trim: boolean,
+): string[] | undefined {
+  const raw = data[field];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw)) {
+    errors.push(err(`${prefix}.${field}`, 'Must be an array of strings.', `Set "${field}": ["a", "b"] or omit it.`));
+    return [];
+  }
+  if (raw.length > maxItems) {
+    errors.push(err(`${prefix}.${field}`, `Too many items (${raw.length}), maximum is ${maxItems}.`, `Keep ${field} to at most ${maxItems} entries.`));
+    return [];
+  }
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      errors.push(err(`${prefix}.${field}[${i}]`, 'Must be a non-empty string.', `Each ${field} entry must be a non-empty string.`));
+      continue;
+    }
+    out.push(trim ? item.trim() : item);
+  }
+  return out;
+}
+
+/**
+ * Validate a string→string map whose values are literals or whole-value
+ * ${ENV_VAR} references (the same convention as header values). Returns the
+ * trimmed map, or undefined when the field is absent.
+ */
+function validateEnvRefMap(
+  data: Record<string, unknown>,
+  field: string,
+  prefix: string,
+  errors: ExternalMcpValidationError[],
+  maxVars: number,
+): Record<string, string> | undefined {
+  const raw = data[field];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    errors.push(err(`${prefix}.${field}`, 'Must be an object.', `Use "${field}": { "NAME": "value" } with string values.`));
+    return {};
+  }
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > maxVars) {
+    errors.push(err(`${prefix}.${field}`, `Too many entries (${entries.length}), maximum is ${maxVars}.`, `Keep ${field} to at most ${maxVars} variables.`));
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, val] of entries) {
+    if (key.trim().length === 0) {
+      errors.push(err(`${prefix}.${field}`, 'Variable names must be non-empty.', `Each ${field} key must be a non-empty variable name.`));
+      continue;
+    }
+    if (typeof val !== 'string') {
+      errors.push(err(`${prefix}.${field}.${key}`, 'Value must be a string.', `${field} values must be strings or \${ENV_VAR} references.`));
+      continue;
+    }
+    const trimmed = val.trim();
+    if (trimmed.length === 0) {
+      errors.push(err(`${prefix}.${field}.${key}`, 'Value must be non-empty.', `Provide a ${field} value or \${ENV_VAR} reference.`));
+      continue;
+    }
+    if (HAS_VAR_REF.test(trimmed) && !ENV_VAR_REF_PATTERN.test(trimmed)) {
+      errors.push(err(
+        `${prefix}.${field}.${key}`,
+        `Malformed variable reference "${trimmed}".`,
+        'Use the format ${ENV_VAR_NAME}. The entire value must be a single reference.',
+      ));
+      continue;
+    }
+    out[key] = trimmed;
+  }
+  return out;
+}
+
+/**
+ * Validate an optional cwd field: must be an absolute path when present.
+ * A relative cwd is rejected to avoid surprising resolution against the
+ * launcher working directory.
+ */
+function validateAbsoluteCwd(
+  data: Record<string, unknown>,
+  prefix: string,
+  errors: ExternalMcpValidationError[],
+): string | undefined {
+  const raw = data['cwd'];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    errors.push(err(`${prefix}.cwd`, 'Must be a non-empty string.', 'Set cwd to an absolute path or omit it.'));
+    return undefined;
+  }
+  if (!path.isAbsolute(raw)) {
+    errors.push(err(`${prefix}.cwd`, `cwd must be an absolute path, got "${raw}".`, 'Use an absolute path for cwd to avoid surprising resolution against the launcher working directory.'));
+    return undefined;
+  }
+  return raw;
 }
 
 // ---------------------------------------------------------------------------

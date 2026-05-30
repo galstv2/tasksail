@@ -221,23 +221,6 @@
   white-space: nowrap;
 }
 
-.planner-modal__stage-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.74rem;
-  color: var(--ts-text-soft);
-  border-bottom: 1px solid var(--ts-border);
-  background: var(--ts-surface-alt);
-}
-
-.planner-modal__stage-bar svg {
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-
 .planner-modal__error {
   padding: 0.4rem 0.85rem;
   font-size: 0.76rem;

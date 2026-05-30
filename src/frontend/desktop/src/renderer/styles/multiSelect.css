@@ -1,0 +1,169 @@
+/* ── Shared MultiSelect primitive ──────────────────────────────────────── */
+
+.ts-multiselect {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.ts-multiselect__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.38rem 0.5rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface-alt);
+  color: var(--ts-text);
+  font-family: var(--ts-font-sans);
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--ts-duration) var(--ts-ease),
+    box-shadow var(--ts-duration) var(--ts-ease);
+}
+
+.ts-multiselect__trigger:hover:not(:disabled) {
+  border-color: var(--ts-border-strong);
+}
+
+.ts-multiselect__trigger:focus-visible {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 3px var(--ts-accent-subtle);
+}
+
+.ts-multiselect__trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ts-multiselect__summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ts-multiselect__summary--placeholder {
+  color: var(--ts-text-soft);
+}
+
+.ts-multiselect__chevron {
+  flex-shrink: 0;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--ts-text-soft);
+  transition: transform var(--ts-duration) var(--ts-ease);
+}
+
+.ts-multiselect__trigger[aria-expanded='true'] .ts-multiselect__chevron {
+  transform: rotate(180deg);
+}
+
+.ts-multiselect__menu {
+  /* Floats above the page (portaled to body); positioned via inline style. */
+  position: fixed;
+  z-index: var(--ts-z-popover);
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface);
+  box-shadow: var(--ts-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
+  animation: tsMultiselectMenuIn 120ms var(--ts-ease);
+}
+
+@keyframes tsMultiselectMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ts-multiselect__option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.32rem 0.4rem;
+  border-radius: var(--ts-radius-sm);
+  font-size: 0.78rem;
+  color: var(--ts-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ts-multiselect__option:hover,
+.ts-multiselect__option:focus-visible {
+  outline: none;
+  background: var(--ts-bg-hover);
+}
+
+.ts-multiselect__option[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The focus styles above rely on background/box-shadow, which the system
+   palette overrides in forced-colors mode. Restore a visible focus ring. */
+@media (forced-colors: active) {
+  .ts-multiselect__trigger:focus-visible,
+  .ts-multiselect__option:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+.ts-multiselect__check {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--ts-text-inverse);
+  background: var(--ts-surface);
+}
+
+.ts-multiselect__option--selected .ts-multiselect__check {
+  background: var(--ts-accent);
+  border-color: var(--ts-accent);
+}
+
+.ts-multiselect__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ts-multiselect__option-trailing {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--ts-radius-pill);
+  background: var(--ts-surface-alt);
+  color: var(--ts-text-muted);
+  font-size: 0.66rem;
+  font-weight: 500;
+}

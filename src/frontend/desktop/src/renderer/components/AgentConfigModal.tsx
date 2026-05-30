@@ -3,6 +3,7 @@ import { useCallback, useEffect } from 'react';
 import type { AgentConfigModalProps, ExtensionAddForm } from '../hooks/useAgentConfigModal';
 import type { AgentExtensionRendererCatalogEntry } from '../../shared/desktopContractAgentConfig';
 import ConfirmOverlay from './ConfirmOverlay';
+import MultiSelect, { type MultiSelectOption } from './MultiSelect';
 import { CloseIcon } from './creation-steps/icons';
 import { roleKindSpriteMap } from './sprites';
 
@@ -187,7 +188,7 @@ function AddExtensionForm({ form, saving, onChange, onSubmit }: AddExtensionForm
 
       {isDirectPlugin && (
         <div className="agent-config__warning" role="status" style={{ marginBottom: '0.4rem' }}>
-          Plugin direct attachment is not supported in V1. Plugins require a git or local directory source.
+          Plugin direct attachment is not supported. Plugins require a git or local directory source.
         </div>
       )}
 
@@ -203,7 +204,7 @@ function AddExtensionForm({ form, saving, onChange, onSubmit }: AddExtensionForm
       </div>
       <p className="mcp-form__hint">
         Extension IDs are stable lowercase slugs (^[a-z0-9][a-z0-9-]{'{'}0,63{'}'})$.
-        Plugins require a git or local directory source — direct attachment is skill-only in V1.
+        Plugins require a git or local directory source — direct attachment is skill-only.
       </p>
     </div>
   );
@@ -223,32 +224,29 @@ function AgentExtensionSelect({ agentId, agentName, extensions, selectedIds, onT
   if (extensions.length === 0) return null;
   const selectedCount = selectedIds.length;
 
+  const options: MultiSelectOption[] = extensions.map((entry) => {
+    const kindLabel = entry.kind === 'skill' ? 'Skill' : 'Plugin';
+    return {
+      value: entry.id,
+      label: entry.display_name,
+      trailingLabel: kindLabel,
+      optionAriaLabel: `Assign ${entry.display_name} (${kindLabel}) to ${agentName}`,
+    };
+  });
+
   return (
     <div className="agent-config__field agent-config__ext-assign">
       <span className="mcp-form__label" aria-hidden="true">
         Extensions{selectedCount > 0 ? ` (${selectedCount} selected)` : ''}
       </span>
-      <ul className="agent-config__ext-assign-list" aria-label={`${agentName} extension assignments`}>
-        {extensions.map((entry) => {
-          const checked = selectedIds.includes(entry.id);
-          return (
-            <li key={entry.id} className="agent-config__ext-assign-item">
-              <label className="agent-config__ext-assign-label">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) => onToggle(agentId, entry.id, e.target.checked)}
-                  aria-label={`Assign ${entry.display_name} (${entry.kind === 'skill' ? 'Skill' : 'Plugin'}) to ${agentName}`}
-                />
-                <span className="agent-config__ext-assign-name">{entry.display_name}</span>
-                <span className="agent-config__ext-assign-kind mcp-modal__badge">
-                  {entry.kind === 'skill' ? 'Skill' : 'Plugin'}
-                </span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
+      <MultiSelect
+        options={options}
+        selectedValues={selectedIds}
+        onToggle={(value, selected) => onToggle(agentId, value, selected)}
+        ariaLabel={`${agentName} extension assignments`}
+        triggerAriaLabel={`Select skills and plugins for ${agentName}`}
+        placeholder="Select skills & plugins…"
+      />
     </div>
   );
 }
@@ -339,7 +337,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
               <h2 className="mcp-modal__title">Agent Configuration</h2>
               {descriptor && (
                 <div className="agent-config__provider-subtitle">
-                  Provider: {descriptor.providerId} · Registry: {descriptor.agentConfigPaths.registry}
+                  Provider: {descriptor.providerId}
                 </div>
               )}
             </div>
@@ -534,7 +532,7 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
             <>
               <p className="agent-config__intro">
                 Manage trusted skills and plugins. Assign them to agents in the Agents tab.
-                Plugins require a git or local directory source — direct attachment is skill-only in V1.
+                Plugins require a git or local directory source — direct attachment is skill-only.
               </p>
               {extensions.length === 0 ? (
                 <div className="agent-config__empty">No extensions added yet.</div>
