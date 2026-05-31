@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { ProviderRuntimeManifestEnvVar } from '../cli-provider/index.js';
 import { SPEC_REQUIRED_SECTION_SPECS } from '../workflow-policy/models.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
 
 export type AgentRuntimePathManifestValueKind = 'path' | 'json' | 'file' | 'scalar';
 
@@ -32,7 +33,8 @@ const PLATFORM_RUNTIME_MANIFEST_ENV_VARS: readonly ProviderRuntimeManifestEnvVar
   { name: 'TASKSAIL_TASK_BRANCHES_FILE', kind: 'file', description: 'File containing branch-owned task repo metadata when the inline value is too large.' },
   { name: 'TASKSAIL_TASK_WORKTREES', kind: 'json', description: 'Inline JSON worktree metadata for all task-visible worktrees.' },
   { name: 'TASKSAIL_TASK_WORKTREES_FILE', kind: 'file', description: 'File containing all task-visible worktree metadata when the inline value is too large.' },
-  { name: 'TASKSAIL_REALIGNMENT_STAGING_PATH', kind: 'path', description: 'Standalone realignment markdown staging file path.' },
+  { name: 'TASKSAIL_SLICE_ARTIFACT_FORMAT', kind: 'scalar', description: 'Frozen slice artifact format for this task. Use the active-format artifact checklist for authoring rules.' },
+  { name: 'TASKSAIL_REALIGNMENT_STAGING_PATH', kind: 'path', description: 'Standalone realignment staging file path.' },
   { name: 'RUN_ROLE_AGENT_AUTONOMY_PROFILE_JSON', kind: 'json', description: 'Structured launch autonomy profile and boundary metadata.' },
   { name: 'RUN_ROLE_AGENT_AUTONOMY_ALLOWED_DIRS_JSON', kind: 'json', description: 'JSON array of allowed directories for this launch.' },
   { name: 'RUN_ROLE_AGENT_AUTONOMY_WORKING_DIR', kind: 'path', description: 'Working directory advertised by the autonomy boundary.' },
@@ -81,15 +83,55 @@ interface BaseArtifactChecklistInput {
   handoffsDir: string;
   implementationStepsDir: string;
   platformRepoRoot: string;
+  sliceArtifactFormat: SliceArtifactFormat;
 }
 
 type ProductManagerArtifactChecklistInput = BaseArtifactChecklistInput;
 
 function buildProductManagerArtifactChecklist(input: ProductManagerArtifactChecklistInput): string[] {
+  const isXml = input.sliceArtifactFormat === 'xml';
+  const templateFilename = isXml ? 'slice-template.xml' : 'slice-template.md';
+  const sliceFilenamePattern = isXml ? 'slice-N.xml' : 'slice-N.md';
+  const sliceGlob = isXml ? 'slice-*.xml' : 'slice-*.md';
   const implementationSpecPath = path.join(input.handoffsDir, 'implementation-spec.md');
   const intakePath = path.join(input.handoffsDir, 'intake.md');
   const parallelOkPath = path.join(input.handoffsDir, 'parallel-ok.md');
-  const sliceTemplatePath = path.join(input.platformRepoRoot, 'AgentWorkSpace', 'templates', 'slice-template.md');
+  const sliceTemplatePath = path.join(input.platformRepoRoot, 'AgentWorkSpace', 'templates', templateFilename);
+  const authoringRules: string[] = isXml
+    ? [
+        `Active slice format: xml. Slice files are ${sliceFilenamePattern} under ${input.implementationStepsDir}.`,
+        `implementation-spec.md and parallel-ok.md are required handoff documents at the paths above.`,
+        `Authoring rules for active XML slices:`,
+        `- Copy ${templateFilename} from ${sliceTemplatePath} for each slice; do not edit the template.`,
+        `- Save each slice as ${sliceFilenamePattern} under ${input.implementationStepsDir}.`,
+        `- Preserve the executionSlice XML structure exactly. Set the executionSlice id attribute to slice-N and the metadata/sliceId element text to slice-N.`,
+        `- Populate every required element (those with required="true") with substantive task-specific content. Default to plain element text; prose needs no CDATA.`,
+        `- For refactors, extractions, routes, endpoints, handlers, or controllers, populate executionScope/currentSymbols with every relevant existing source symbol found during source inspection, then classify each entry in executionScope/includedSymbols or executionScope/excludedSymbols. If source inspection finds no existing symbols, say that explicitly instead of inventing symbols.`,
+        `- Wrap a field's content in a CDATA section when it contains code, commands, pseudocode, or literal < > & characters (for example generics like Promise<T>, file globs like <taskId>, or shell snippets). The validationCommands element is always CDATA.`,
+        `- For an isolated < or & in otherwise-plain prose, escape it as &lt; / &amp; or wrap the field in CDATA.`,
+        `- Do not invent new XML sections or rename existing elements. Populate only within the existing structure.`,
+        `Reader-side guidance for active XML slices:`,
+        `- Slice files are ${sliceGlob} under ${input.implementationStepsDir}.`,
+        `- Acceptance criteria: acceptanceAndValidation/acceptanceCriteria element.`,
+        `- Files to change: filesAndInterfaces/files element.`,
+        `- Validation commands: acceptanceAndValidation/validationCommands element.`,
+        `- Source inventory and inclusion boundaries: executionScope/currentSymbols, executionScope/includedSymbols, and executionScope/excludedSymbols elements.`,
+        `- Scope and required changes: executionScope/scope and implementation/requiredChanges elements.`,
+      ]
+    : [
+        `Active slice format: markdown. Slice files are ${sliceFilenamePattern} under ${input.implementationStepsDir}.`,
+        `implementation-spec.md remains markdown. parallel-ok.md remains markdown.`,
+        `Authoring rules (markdown mode):`,
+        `- Copy ${templateFilename} from ${sliceTemplatePath} for each slice; do not edit the template.`,
+        `- Save each slice as ${sliceFilenamePattern} under ${input.implementationStepsDir}.`,
+        `- Preserve every seeded ## and ### heading exactly. Do not delete, rename, reorder, promote, or demote headings.`,
+        `- Populate content only under the existing seeded headings. Write None under any seeded section that does not apply.`,
+        `- For refactors, extractions, routes, endpoints, handlers, or controllers, populate Current Symbols with every relevant existing source symbol found during source inspection, then classify each entry in Included Symbols or Excluded Symbols. If source inspection finds no existing symbols, say that explicitly instead of inventing symbols.`,
+        `- Write parallel-ok.md last, after implementation-spec.md and every planned slice are complete.`,
+        `Reader-side guidance (markdown mode — for slice consumers: Ron, Dalton execution/remediation):`,
+        `- Slice files are ${sliceGlob} under ${input.implementationStepsDir}.`,
+        `- Content lives under seeded ## and ### headings: Purpose, Depends On, Scope, Current Symbols, Included Symbols, Excluded Symbols, Files, Acceptance Criteria, Unit Tests, Validation Commands, Guards.`,
+      ];
   return [
     '## Product Manager Artifact Checklist',
     '',
@@ -97,23 +139,25 @@ function buildProductManagerArtifactChecklist(input: ProductManagerArtifactCheck
     `- implementation-spec.md: ${implementationSpecPath}`,
     `- intake.md: ${intakePath}`,
     `- ImplementationSteps directory: ${input.implementationStepsDir}`,
-    `- slice-template.md: ${sliceTemplatePath}`,
+    `- ${templateFilename}: ${sliceTemplatePath}`,
     `- parallel-ok.md: ${parallelOkPath}`,
     '',
     'Artifact ownership:',
     `- Read only: intake.md (${intakePath}). Read it as source context; do not edit it.`,
-    `- Read only template: slice-template.md (${sliceTemplatePath}). Copy its shape; do not edit the template.`,
+    `- Read only template: ${templateFilename} (${sliceTemplatePath}). Copy its shape; do not edit the template.`,
     `- Write in place: implementation-spec.md (${implementationSpecPath}). Fill every required section with substantive task-specific content.`,
-    `- Create and populate: slice-N.md files under ${input.implementationStepsDir}. Copy each from slice-template.md, then populate it.`,
+    `- Create and populate: ${sliceFilenamePattern} files under ${input.implementationStepsDir}. Copy each from ${templateFilename}, then populate it.`,
     `- Write last: parallel-ok.md (${parallelOkPath}). Set Decision to Simple or Complex only after implementation-spec.md and every planned slice are complete.`,
     '',
     'Required implementation-spec sections:',
     ...SPEC_REQUIRED_SECTION_SPECS.map((section) => `- ${section.preferredHeading}`),
     '',
     'Headings, blank lines, HTML comments, and placeholder text are not completion. Populate each required section with task-specific content.',
-    'Write order: complete implementation-spec.md, create every slice-N.md from slice-template.md, populate every slice, then write parallel-ok.md last.',
+    `Write order: complete implementation-spec.md, create every ${sliceFilenamePattern} from ${templateFilename}, populate every slice, then write parallel-ok.md last.`,
     'Use Decision Simple for one coherent implementation path or when orchestration does not improve reliability.',
-    'Use Decision Complex only when orchestration improves reliability. Complex requires bullets under Independent Slices that name existing slice-N.md files.',
+    `Use Decision Complex only when orchestration improves reliability. Complex requires bullets under Independent Slices that name existing ${sliceFilenamePattern} files.`,
+    '',
+    ...authoringRules,
   ];
 }
 
@@ -123,6 +167,7 @@ interface QaArtifactChecklistInput extends BaseArtifactChecklistInput {
 }
 
 function buildQaArtifactChecklist(input: QaArtifactChecklistInput): string[] {
+  const sliceGlob = input.sliceArtifactFormat === 'xml' ? 'slice-*.xml' : 'slice-*.md';
   const taskBranchesEvidence = input.taskBranchesFile
     ? `TASKSAIL_TASK_BRANCHES_FILE: ${input.taskBranchesFile}`
     : input.taskBranchesInline !== undefined
@@ -142,7 +187,7 @@ function buildQaArtifactChecklist(input: QaArtifactChecklistInput): string[] {
     `- ${taskBranchesEvidence}`,
     '',
     'Artifact ownership:',
-    `- Read only: implementation-spec.md (${path.join(input.handoffsDir, 'implementation-spec.md')}), code-changes.diff (${path.join(input.handoffsDir, 'code-changes.diff')}), and ImplementationSteps/slice-*.md under ${input.implementationStepsDir}.`,
+    `- Read only: implementation-spec.md (${path.join(input.handoffsDir, 'implementation-spec.md')}), code-changes.diff (${path.join(input.handoffsDir, 'code-changes.diff')}), and ImplementationSteps/${sliceGlob} under ${input.implementationStepsDir}.`,
     `- Write for every review outcome: issues.md (${path.join(input.handoffsDir, 'issues.md')}).`,
     `- Write only for pass or advisory: retrospective-input.md (${path.join(input.handoffsDir, 'retrospective-input.md')}), then final-summary.md (${path.join(input.handoffsDir, 'final-summary.md')}) last.`,
     '- Do not edit Alice artifacts or source code during QA.',
@@ -165,12 +210,16 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
     return [];
   }
   const taskId = entryValues.get('TASKSAIL_TASK_ID');
+  // Default to markdown when the env var is absent (legacy/non-task launches).
+  const rawFormat = entryValues.get('TASKSAIL_SLICE_ARTIFACT_FORMAT');
+  const sliceArtifactFormat: SliceArtifactFormat = rawFormat === 'xml' ? 'xml' : 'markdown';
   if (manifest.agentId === 'product-manager') {
     return buildProductManagerArtifactChecklist({
       taskId,
       handoffsDir,
       implementationStepsDir,
       platformRepoRoot,
+      sliceArtifactFormat,
     });
   }
   if (manifest.agentId === 'qa') {
@@ -179,6 +228,7 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
       handoffsDir,
       implementationStepsDir,
       platformRepoRoot,
+      sliceArtifactFormat,
       taskBranchesInline: entryValues.get('TASKSAIL_TASK_BRANCHES'),
       taskBranchesFile: entryValues.get('TASKSAIL_TASK_BRANCHES_FILE'),
     });

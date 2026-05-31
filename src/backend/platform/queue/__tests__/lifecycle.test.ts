@@ -305,3 +305,141 @@ describe('§4.3 CLI cap=2 — complete without --task-id exits with completion-r
     expect(errorMsg).toContain(activeIds[1]!);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Track B: initializeTaskArtifacts slice template staging (format-aware)
+// ---------------------------------------------------------------------------
+
+describe('initializeTaskArtifacts slice template staging', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-lifecycle-slice-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  function seedBasicFixture(repoRoot: string): {
+    handoffsDir: string;
+    templatesDir: string;
+    implementationStepsDir: string;
+  } {
+    const handoffsDir = path.join(repoRoot, 'handoffs');
+    const templatesDir = path.join(repoRoot, 'templates');
+    const implementationStepsDir = path.join(repoRoot, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(templatesDir, { recursive: true });
+    // Seed both templates
+    writeFileSync(path.join(templatesDir, 'slice-template.md'), '# MD slice\n');
+    writeFileSync(path.join(templatesDir, 'slice-template.xml'), '<?xml version="1.0"?><executionSlice/>\n');
+    for (const f of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, f), `# ${f}\n`);
+    }
+    return { handoffsDir, templatesDir, implementationStepsDir };
+  }
+
+  it('markdown mode copies slice-template.md into ImplementationSteps/', async () => {
+    const { handoffsDir, templatesDir, implementationStepsDir } = seedBasicFixture(tmpRoot);
+    const { initializeTaskArtifacts: init } = await import('../lifecycle.js');
+
+    await init({
+      handoffsDir,
+      templatesDir,
+      implementationStepsDir,
+      sliceArtifactFormat: 'markdown',
+    });
+
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.md'))).toBe(true);
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.xml'))).toBe(false);
+  });
+
+  it('xml mode copies slice-template.xml into ImplementationSteps/', async () => {
+    const { handoffsDir, templatesDir, implementationStepsDir } = seedBasicFixture(tmpRoot);
+    const { initializeTaskArtifacts: init } = await import('../lifecycle.js');
+
+    await init({
+      handoffsDir,
+      templatesDir,
+      implementationStepsDir,
+      sliceArtifactFormat: 'xml',
+    });
+
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.xml'))).toBe(true);
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.md'))).toBe(false);
+  });
+
+  it('default (no sliceArtifactFormat) copies slice-template.md', async () => {
+    const { handoffsDir, templatesDir, implementationStepsDir } = seedBasicFixture(tmpRoot);
+    const { initializeTaskArtifacts: init } = await import('../lifecycle.js');
+
+    await init({ handoffsDir, templatesDir, implementationStepsDir });
+
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.md'))).toBe(true);
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.xml'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Track B: resetHandoffArtifacts removes .xml files from ImplementationSteps
+// ---------------------------------------------------------------------------
+
+describe('resetHandoffArtifacts ImplementationSteps cleanup', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-lifecycle-reset-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  });
+
+  it('removes .xml files from ImplementationSteps when implementationStepsDir is provided', async () => {
+    const { resetHandoffArtifacts } = await import('../lifecycle.js');
+    const handoffsDir = path.join(tmpRoot, 'handoffs');
+    const implementationStepsDir = path.join(tmpRoot, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implementationStepsDir, { recursive: true });
+    writeFileSync(path.join(implementationStepsDir, 'slice-1.xml'), '<executionSlice/>');
+    writeFileSync(path.join(implementationStepsDir, 'slice-template.xml'), '<?xml?>');
+    writeFileSync(path.join(implementationStepsDir, 'notes.txt'), 'keep me');
+
+    await resetHandoffArtifacts(handoffsDir, HANDOFF_FILES, { implementationStepsDir });
+
+    expect(existsSync(path.join(implementationStepsDir, 'slice-1.xml'))).toBe(false);
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.xml'))).toBe(false);
+    // Non-md/non-xml files are not removed
+    expect(existsSync(path.join(implementationStepsDir, 'notes.txt'))).toBe(true);
+  });
+
+  it('removes .md files from ImplementationSteps (existing behavior preserved)', async () => {
+    const { resetHandoffArtifacts } = await import('../lifecycle.js');
+    const handoffsDir = path.join(tmpRoot, 'handoffs');
+    const implementationStepsDir = path.join(tmpRoot, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implementationStepsDir, { recursive: true });
+    writeFileSync(path.join(implementationStepsDir, 'slice-1.md'), '# slice');
+    writeFileSync(path.join(implementationStepsDir, 'slice-template.md'), '# template');
+
+    await resetHandoffArtifacts(handoffsDir, HANDOFF_FILES, { implementationStepsDir });
+
+    expect(existsSync(path.join(implementationStepsDir, 'slice-1.md'))).toBe(false);
+    expect(existsSync(path.join(implementationStepsDir, 'slice-template.md'))).toBe(false);
+  });
+
+  it('does not touch ImplementationSteps when implementationStepsDir is not provided', async () => {
+    const { resetHandoffArtifacts } = await import('../lifecycle.js');
+    const handoffsDir = path.join(tmpRoot, 'handoffs');
+    const implementationStepsDir = path.join(tmpRoot, 'ImplementationSteps');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implementationStepsDir, { recursive: true });
+    writeFileSync(path.join(implementationStepsDir, 'slice-1.xml'), '<executionSlice/>');
+
+    await resetHandoffArtifacts(handoffsDir, HANDOFF_FILES);
+
+    // Without implementationStepsDir, xml files are left alone
+    expect(existsSync(path.join(implementationStepsDir, 'slice-1.xml'))).toBe(true);
+  });
+});

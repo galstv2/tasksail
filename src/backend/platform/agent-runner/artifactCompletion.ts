@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readTextFile } from '../core/index.js';
+import { readTextFile, writeTextFileAtomic } from '../core/index.js';
 import { remediationHasBlockingFindings } from './pipeline/remediation.js';
 import {
   renderHandoffArtifactLabel,
@@ -11,6 +11,21 @@ import {
   parseSemanticSections,
   resolveSemanticSection,
 } from '../workflow-policy/artifacts.js';
+import {
+  describeSliceArtifactFormat,
+  listSliceArtifactFiles,
+  listWrongFormatSliceFiles,
+  MARKDOWN_SCOPE_INVENTORY_SECTION_SPECS,
+  missingRequiredAttributeFields,
+  missingRequiredSliceFields,
+  normalizeParallelSliceReference,
+  parseSliceArtifactContent,
+  repairXmlSliceStructure,
+  REPAIR_NO_STRUCTURAL_ISSUES_REASON,
+  sliceIdFromFilename,
+} from '../workflow-policy/sliceArtifacts.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
 import { extractBulletItems, normalizeAgentId, normalizeText } from '../workflow-policy/matching.js';
 import { GENERATED_INTAKE_SPINE_RULE_IDS } from '../workflow-policy/rules/spec.js';
 import {
@@ -44,14 +59,24 @@ const MULTILINE_HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const TEMPLATE_BOILERPLATE_RE = /^(?:[-*]\s*|```\w*|#\s.*)$/;
 const PLACEHOLDER_ONLY_RE = /^(?:[-*]\s*)?(?:tbd|todo|tba|placeholder)\.?$/i;
 const ARTIFACT_COMPLETION_REASON_CAP = 20;
-const PRODUCT_MANAGER_SLICE_FILENAME_RE = /^slice-[1-9]\d*\.md$/;
-const PARALLEL_OK_SLICE_ID_RE = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.md)\b/g;
+const PARALLEL_OK_SLICE_ID_RE = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.(?:md|xml))\b/g;
 const PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX = 'ImplementationSteps slice ';
 const PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER = ' missing required semantic section: ';
 const PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON =
   'parallel-ok.md Complex decision requires Independent Slices to list existing slice-N.md files';
+const PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON_XML =
+  'parallel-ok.md Complex decision requires Independent Slices to list existing slice-N.xml files';
 const PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX =
   'parallel-ok.md Complex Independent Slices references missing slice file: ';
+// Prefixes intentionally start with "ImplementationSteps XML"/"ImplementationSteps wrong-format"
+// (not "ImplementationSteps slice ") so they never collide with
+// PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX in remediation-bullet prefix matching.
+const PRODUCT_MANAGER_SLICE_XML_STRUCTURE_REJECTED_PREFIX =
+  'ImplementationSteps XML structure rejected for ';
+const PRODUCT_MANAGER_SLICE_XML_REQUIRED_ATTR_PREFIX =
+  'ImplementationSteps XML required attribute missing for ';
+const PRODUCT_MANAGER_WRONG_FORMAT_SLICES_PREFIX =
+  'ImplementationSteps wrong-format slice files: ';
 
 // QA artifact-completion reason strings. Centralized so the emitter
 // (qaFinalSummaryCompletionReasons), the bullet mapper (qaRemediationBulletForReason),
@@ -88,6 +113,12 @@ function toRecoveryPromptPath(repoRoot: string, relativePath: string): string {
   return path.join(repoRoot, relativePath);
 }
 
+/** Resolve the frozen slice artifact format for a task. Defaults to markdown. */
+function resolveSliceFormat(taskId: string | undefined, repoRoot: string): SliceArtifactFormat {
+  if (!taskId) return 'markdown';
+  return readTaskJsonSafe(taskId, repoRoot)?.sliceArtifactFormat ?? 'markdown';
+}
+
 const ISSUES_NON_FINDING_SECTIONS = new Set(['Task Metadata', 'Review Outcome']);
 
 function AGENT_REQUIRED_ARTIFACTS_FOR(taskId: string): Record<string, string[]> {
@@ -103,7 +134,7 @@ function AGENT_REQUIRED_ARTIFACTS_FOR(taskId: string): Record<string, string[]> 
 function remediationInstructionsFor(taskId: string): Record<string, string> {
   return {
     [renderHandoffArtifactLabel(taskId, 'issues.md')]: 'Set Review Outcome in issues.md. If the code diff has no issues, set Review Outcome to pass and leave all finding sections empty. Do NOT review or create findings about AgentWorkSpace files — only review code in the diff.',
-    [renderHandoffArtifactLabel(taskId, 'implementation-spec.md')]: 'Fill in implementation-spec.md: Goals and Non-Goals need substantive content, Validation Strategy needs a code-fenced command block, and Files or Areas Likely to Change must list file paths.',
+    [renderHandoffArtifactLabel(taskId, 'implementation-spec.md')]: 'Fill in implementation-spec.md: Goals and Non-Goals need substantive content, Source Inventory and Slice Partition must anchor slice derivation, Validation Strategy needs a code-fenced command block, and Files or Areas Likely to Change must list file paths.',
     [renderHandoffArtifactLabel(taskId, 'final-summary.md')]: 'Fill in final-summary.md: leave platform-populated Closeout Owner Agent ID unchanged, set Difficulty Level to Easy/Medium/Hard, and populate Completed Work, Key Design Decisions, and Known Limitations.',
     [renderHandoffArtifactLabel(taskId, 'retrospective-input.md')]: 'Fill in retrospective-input.md: always populate Retrospective Summary, Meeting Context, and Lily/Alice/Dalton/Ron contribution sections for the current task. If Retrospective Required is false, leave cycle-level sections empty. If true, populate cycle-level sections only when this launch is the retrospective phase.',
   };
@@ -166,17 +197,17 @@ export async function listSliceFiles(stepsDir: string): Promise<string[]> {
   return listWorkflowPolicySliceFiles(stepsDir);
 }
 
-function isProductManagerSliceFile(filePath: string): boolean {
-  return PRODUCT_MANAGER_SLICE_FILENAME_RE.test(path.basename(filePath));
+function isProductManagerSliceFile(filePath: string, format: SliceArtifactFormat): boolean {
+  return describeSliceArtifactFormat(format).filenamePattern.test(path.basename(filePath));
 }
 
-function productManagerSliceFiles(sliceFiles: readonly string[]): string[] {
-  return sliceFiles.filter(isProductManagerSliceFile);
+function productManagerSliceFiles(sliceFiles: readonly string[], format: SliceArtifactFormat): string[] {
+  return sliceFiles.filter((f) => isProductManagerSliceFile(f, format));
 }
 
-function invalidProductManagerSliceBasenames(sliceFiles: readonly string[]): string[] {
+function invalidProductManagerSliceBasenames(sliceFiles: readonly string[], format: SliceArtifactFormat): string[] {
   return sliceFiles
-    .filter((filePath) => !isProductManagerSliceFile(filePath))
+    .filter((filePath) => !isProductManagerSliceFile(filePath, format))
     .map((filePath) => path.basename(filePath));
 }
 
@@ -232,12 +263,45 @@ function describeSemanticSectionSpec(
   return details.join(' ');
 }
 
-async function sliceMissingRequiredSections(slicePath: string): Promise<string[]> {
+async function sliceMissingRequiredSections(slicePath: string, format: SliceArtifactFormat): Promise<string[]> {
   const text = (await readTextFile(slicePath)) ?? '';
+  if (format === 'xml') {
+    const content = parseSliceArtifactContent({ filePath: slicePath, text, format: 'xml' });
+    return missingRequiredSliceFields(content);
+  }
   const sections = parseSemanticSections(text);
-  return SLICE_REQUIRED_SECTION_SPECS.filter((sectionSpec) => (
+  return [...SLICE_REQUIRED_SECTION_SPECS, ...MARKDOWN_SCOPE_INVENTORY_SECTION_SPECS].filter((sectionSpec) => (
     normalizeText(stripBoilerplate(resolveSemanticSection(sections, sectionSpec).content)).length === 0
   )).map((sectionSpec) => sectionSpec.key);
+}
+
+// Auto-heal unambiguous XML slice structural issues (missing XML declaration, id
+// attribute, or closing tag) in place before completion validation. Returns the
+// rejection reason when the slice is structurally non-repairable (no executionSlice
+// root, duplicate required fields, or a markdown body), or null when the slice was
+// healed or is already well-formed. Markdown is never touched.
+async function repairXmlSliceStructureInPlace(
+  slicePath: string,
+  format: SliceArtifactFormat,
+): Promise<string | null> {
+  if (format !== 'xml') return null;
+  const text = (await readTextFile(slicePath)) ?? '';
+  if (!text) return null;
+  const result = repairXmlSliceStructure({
+    filePath: slicePath,
+    text,
+    expectedSliceId: sliceIdFromFilename(slicePath, format),
+  });
+  if (result.repaired && result.text !== text) {
+    await writeTextFileAtomic(slicePath, result.text);
+    return null;
+  }
+  // Surface only genuine non-repairable structural failures; an already-well-formed
+  // slice reports the benign REPAIR_NO_STRUCTURAL_ISSUES_REASON, which is not a failure.
+  if (!result.repaired && result.reason && result.reason !== REPAIR_NO_STRUCTURAL_ISSUES_REASON) {
+    return result.reason;
+  }
+  return null;
 }
 
 function implementationSpecMissingRequiredSections(spec: WorkspaceArtifact): string[] {
@@ -246,14 +310,24 @@ function implementationSpecMissingRequiredSections(spec: WorkspaceArtifact): str
   )).map((sectionSpec) => sectionSpec.key);
 }
 
-function parallelOkIndependentSliceIds(artifact: WorkspaceArtifact): string[] {
+function parallelOkIndependentSliceIds(artifact: WorkspaceArtifact, format: SliceArtifactFormat): string[] {
   const lines = stripBoilerplate(artifact.sections['Independent Slices'] ?? []);
-  const bulletIds = extractBulletItems(lines)
-    .flatMap((item) => item.match(PARALLEL_OK_SLICE_ID_RE) ?? [])
-    .map((item) => item.replace(/\.md$/i, ''));
-  const ids = bulletIds.length > 0
-    ? bulletIds
-    : (normalizeText(lines).match(PARALLEL_OK_SLICE_ID_RE) ?? []).map((item) => item.replace(/\.md$/i, ''));
+  const normalizeRef = (s: string): string => s.replace(/\.(md|xml)$/i, '');
+  // When raw bullets exist, normalize them format-aware (XML mode rejects a
+  // slice-N.md reference to ''); do not fall back to the free-text regex, which
+  // would strip the extension and silently re-accept the wrong-format reference.
+  const rawBullets = extractBulletItems(lines);
+  if (rawBullets.length > 0) {
+    return [...new Set(
+      rawBullets
+        .map((item) => normalizeParallelSliceReference(
+          item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '') ?? '',
+          format,
+        ))
+        .filter(Boolean),
+    )];
+  }
+  const ids = (normalizeText(lines).match(PARALLEL_OK_SLICE_ID_RE) ?? []).map(normalizeRef);
   return [...new Set(ids)];
 }
 
@@ -380,6 +454,7 @@ function qaFinalSummaryCompletionReasons(args: {
 async function productManagerArtifactCompletionDetails(
   options: AgentArtifactCompletionOptions,
   slices: readonly string[],
+  format: SliceArtifactFormat,
 ): Promise<AgentArtifactCompletionDetails> {
   const reasons: string[] = [];
   const spec = await readHandoffArtifact(options.handoffsDir, 'implementation-spec.md');
@@ -395,29 +470,51 @@ async function productManagerArtifactCompletionDetails(
   if (!parallelOk.exists || !parallelOkDecision) {
     reasons.push('parallel-ok.md missing or Decision is not Simple or Complex');
   }
-  const invalidSlices = invalidProductManagerSliceBasenames(slices);
+  const invalidSlices = invalidProductManagerSliceBasenames(slices, format);
   if (invalidSlices.length > 0) {
     reasons.push(`ImplementationSteps invalid slice filenames: ${invalidSlices.join(', ')}`);
   }
-  const canonicalSlices = productManagerSliceFiles(slices);
+  // Wrong-format active slice files (slice-N.md in XML mode, slice-N.xml in markdown
+  // mode) are invalid even when a valid-format slice also exists; reject them at the
+  // completion gate rather than deferring to archive filing.
+  const wrongFormatSlices = await listWrongFormatSliceFiles(options.implStepsDir, format);
+  if (wrongFormatSlices.length > 0) {
+    reasons.push(`${PRODUCT_MANAGER_WRONG_FORMAT_SLICES_PREFIX}${wrongFormatSlices.map((f) => path.basename(f)).join(', ')}`);
+  }
+  const canonicalSlices = productManagerSliceFiles(slices, format);
   if (canonicalSlices.length === 0) {
     reasons.push('ImplementationSteps missing slice files');
   } else {
     for (const slicePath of canonicalSlices) {
       const sliceBasename = path.basename(slicePath);
-      for (const sectionKey of await sliceMissingRequiredSections(slicePath)) {
-        reasons.push(`${PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX}${sliceBasename}${PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER}${describeSemanticSectionSpec(sectionKey)}`);
+      const xmlStructureRejection = await repairXmlSliceStructureInPlace(slicePath, format);
+      if (xmlStructureRejection !== null) {
+        reasons.push(`${PRODUCT_MANAGER_SLICE_XML_STRUCTURE_REJECTED_PREFIX}${sliceBasename}: ${xmlStructureRejection}`);
+        continue;
+      }
+      for (const sectionKey of await sliceMissingRequiredSections(slicePath, format)) {
+        reasons.push(`${PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX}${sliceBasename}${PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER}${describeSemanticSectionSpec(sectionKey, [...SLICE_REQUIRED_SECTION_SPECS, ...MARKDOWN_SCOPE_INVENTORY_SECTION_SPECS])}`);
+      }
+      if (format === 'xml') {
+        const sliceText = (await readTextFile(slicePath)) ?? '';
+        for (const fieldPath of missingRequiredAttributeFields(sliceText)) {
+          reasons.push(`${PRODUCT_MANAGER_SLICE_XML_REQUIRED_ATTR_PREFIX}${sliceBasename}: ${fieldPath}`);
+        }
       }
     }
     if (parallelOkDecision === 'complex') {
-      const existingSliceIds = new Set(canonicalSlices.map((slicePath) => path.basename(slicePath, '.md')));
-      const listedSliceIds = parallelOkIndependentSliceIds(parallelOk);
+      const existingSliceIds = new Set(canonicalSlices.map((slicePath) => sliceIdFromFilename(slicePath, format)));
+      const listedSliceIds = parallelOkIndependentSliceIds(parallelOk, format);
+      const ext = describeSliceArtifactFormat(format).extension;
+      const independentSlicesMissingReason = format === 'xml'
+        ? PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON_XML
+        : PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON;
       if (listedSliceIds.length === 0) {
-        reasons.push(PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON);
+        reasons.push(independentSlicesMissingReason);
       }
       for (const sliceId of listedSliceIds) {
         if (!existingSliceIds.has(sliceId)) {
-          reasons.push(`${PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX}${sliceId}.md`);
+          reasons.push(`${PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX}${sliceId}${ext}`);
         }
       }
     }
@@ -496,8 +593,14 @@ export async function checkAgentArtifactCompletionDetails(
   }
 
   if (agentId === 'product-manager') {
-    const slices = await listSliceFiles(options.implStepsDir);
-    return productManagerArtifactCompletionDetails(options, slices);
+    const format = resolveSliceFormat(options.taskId, options.repoRoot);
+    // For markdown: use listSliceFiles (all .md non-template) so invalid names are detected.
+    // For XML: use listSliceArtifactFiles (pattern-matched); XML invalid-name detection is a
+    //          wrong-format check rather than a naming check.
+    const slices = format === 'xml'
+      ? await listSliceArtifactFiles(options.implStepsDir, format)
+      : await listSliceFiles(options.implStepsDir);
+    return productManagerArtifactCompletionDetails(options, slices, format);
   }
 
   const required = AGENT_REQUIRED_ARTIFACTS_FOR(options.taskId ?? '')[agentId];
@@ -532,9 +635,14 @@ export async function checkAgentArtifactCompletion(options: AgentArtifactComplet
 function productManagerRemediationBulletForReason(
   reason: string,
   options: AgentArtifactCompletionOptions,
+  format: SliceArtifactFormat = 'markdown',
 ): string {
   const taskId = options.taskId ?? '';
-  const sliceTemplatePath = toRecoveryPromptPath(options.repoRoot, path.join('AgentWorkSpace', 'templates', 'slice-template.md'));
+  const sliceDesc = describeSliceArtifactFormat(format);
+  const sliceTemplatePath = toRecoveryPromptPath(
+    options.repoRoot,
+    path.join('AgentWorkSpace', 'templates', sliceDesc.templateFilename),
+  );
   if (reason === 'implementation-spec.md missing or empty') {
     return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: complete the implementation spec with substantive planning content before deciding whether execution should be Simple or Complex.`;
   }
@@ -546,13 +654,33 @@ function productManagerRemediationBulletForReason(
   if (reason === 'parallel-ok.md missing or Decision is not Simple or Complex') {
     return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: set the Decision section to exactly 'Simple' or 'Complex'. Default to 'Simple' unless fleet Dalton execution is truly required.`;
   }
+  const sliceN = sliceDesc.displayGlob.replace('*', '<number>');
   if (reason === 'ImplementationSteps missing slice files') {
-    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: create the required slice-<number>.md file or files by copying ${sliceTemplatePath} exactly, preserving every seeded ## and ### heading, then populate content only under the existing headings.`;
+    if (format === 'xml') {
+      return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: create the required ${sliceN} file or files by copying ${sliceTemplatePath} exactly, preserving the executionSlice XML structure, setting the executionSlice id attribute and the metadata/sliceId element text to slice-N, and populating required elements without inventing replacement sections.`;
+    }
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: create the required ${sliceN} file or files by copying ${sliceTemplatePath} exactly, preserving every seeded ## and ### heading, then populate content only under the existing headings.`;
   }
   const invalidSlicePrefix = 'ImplementationSteps invalid slice filenames: ';
   if (reason.startsWith(invalidSlicePrefix)) {
     const invalidNames = reason.slice(invalidSlicePrefix.length);
-    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: replace invalid slice file name(s) (${invalidNames}) with sequential slice-<number>.md file names. Move any useful content into valid slice files copied from ${sliceTemplatePath}, preserve every seeded ## and ### heading, and do not keep invalid slice files as active slices.`;
+    if (format === 'xml') {
+      return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: replace invalid slice file name(s) (${invalidNames}) with sequential ${sliceN} file names. Move any useful content into valid slice files copied from ${sliceTemplatePath}, preserve the executionSlice XML structure, and do not keep invalid slice files as active slices.`;
+    }
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: replace invalid slice file name(s) (${invalidNames}) with sequential ${sliceN} file names. Move any useful content into valid slice files copied from ${sliceTemplatePath}, preserve every seeded ## and ### heading, and do not keep invalid slice files as active slices.`;
+  }
+  if (reason.startsWith(PRODUCT_MANAGER_WRONG_FORMAT_SLICES_PREFIX)) {
+    const wrongNames = reason.slice(PRODUCT_MANAGER_WRONG_FORMAT_SLICES_PREFIX.length);
+    const wrongExt = format === 'xml' ? '.md' : '.xml';
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: remove wrong-format slice file(s) (${wrongNames}); ${sliceDesc.extension} is the active slice format for this task. Move any needed content into ${sliceDesc.displayGlob.replace('*', 'N')} files copied from ${sliceTemplatePath}, then delete the ${wrongExt} files.`;
+  }
+  if (reason.startsWith(PRODUCT_MANAGER_SLICE_XML_STRUCTURE_REJECTED_PREFIX)) {
+    const detail = reason.slice(PRODUCT_MANAGER_SLICE_XML_STRUCTURE_REJECTED_PREFIX.length);
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: rebuild the malformed XML slice against ${sliceTemplatePath} (${detail}). Preserve the executionSlice XML structure: keep the XML declaration, a single executionSlice root with its id attribute, exactly one occurrence of each required element, and no markdown headings.`;
+  }
+  if (reason.startsWith(PRODUCT_MANAGER_SLICE_XML_REQUIRED_ATTR_PREFIX)) {
+    const detail = reason.slice(PRODUCT_MANAGER_SLICE_XML_REQUIRED_ATTR_PREFIX.length);
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: restore the required="true" attribute on the XML element noted (${detail}) by copying ${sliceTemplatePath} as the shape authority; do not strip the template's required="true" markers.`;
   }
   if (reason.startsWith(PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX)) {
     const rest = reason.slice(PRODUCT_MANAGER_SLICE_MISSING_SECTION_PREFIX.length);
@@ -560,13 +688,17 @@ function productManagerRemediationBulletForReason(
     const sliceBasename = markerIndex === -1 ? '' : rest.slice(0, markerIndex);
     const missingSection = markerIndex === -1 ? rest : rest.slice(markerIndex + PRODUCT_MANAGER_SLICE_MISSING_SECTION_MARKER.length);
     const slicePath = toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, sliceBasename));
+    if (format === 'xml') {
+      return `- ${slicePath}: populate the required XML element still missing content: ${missingSection}. Copy ${sliceTemplatePath} as the shape authority; preserve the executionSlice XML structure and do not invent replacement elements.`;
+    }
     const headingInstruction = missingSection.includes('Guards and Coordination')
       ? ' Restore the seeded template heading structure: use top-level ## Guards and Coordination with nested ### Guards, then populate that existing section.'
       : ' Restore the seeded slice template heading structure before filling this section; do not add a custom heading under a different container.';
     return `- ${slicePath}: rebuild this malformed slice against ${sliceTemplatePath}; preserve every seeded ## and ### heading, move useful existing content under the matching seeded headings, remove custom replacement headings such as ## Steps, ## Validation, or ## Notes, then fill the required slice semantic section still missing content: ${missingSection}.${headingInstruction}`;
   }
-  if (reason === PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON) {
-    return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: Decision is Complex, so add bullets under Independent Slices naming existing slice-N.md files from ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}.`;
+  if (reason === PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON
+      || reason === PRODUCT_MANAGER_COMPLEX_INDEPENDENT_SLICES_MISSING_REASON_XML) {
+    return `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'parallel-ok.md'))}: Decision is Complex, so add bullets under Independent Slices naming existing ${sliceDesc.displayGlob} files from ${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}.`;
   }
   if (reason.startsWith(PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX)) {
     const missingSlice = reason.slice(PRODUCT_MANAGER_COMPLEX_MISSING_SLICE_PREFIX.length);
@@ -642,9 +774,12 @@ export async function buildAgentArtifactRemediationPrompt(options: {
 
   if (agentId === 'product-manager') {
     const taskId = options.taskId ?? '';
-    const slices = await listSliceFiles(options.implStepsDir);
-    const details = await productManagerArtifactCompletionDetails(options, slices);
-    const missingParts = details.reasons.map((reason) => productManagerRemediationBulletForReason(reason, options));
+    const format = resolveSliceFormat(options.taskId, options.repoRoot);
+    const slices = format === 'xml'
+      ? await listSliceArtifactFiles(options.implStepsDir, format)
+      : await listSliceFiles(options.implStepsDir);
+    const details = await productManagerArtifactCompletionDetails(options, slices, format);
+    const missingParts = details.reasons.map((reason) => productManagerRemediationBulletForReason(reason, options, format));
     if (options.policyViolationRuleIds?.some((ruleId) => GENERATED_INTAKE_SPINE_RULE_IDS.has(ruleId))) {
       missingParts.push(
         `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))}: ` +
@@ -655,22 +790,37 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       );
     }
     if (options.policyViolationRuleIds?.some((ruleId) => SLICE_REQUIREMENT_TRACEABILITY_RULE_IDS.has(ruleId))) {
-      missingParts.push(
-        `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))} and ` +
-        `${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: ` +
-        'account for every generated CR-*, COMP-*, and VAL-* ID by exact ID from ## Intake Requirements. ' +
-        'Put global or cross-cutting IDs in ### Requirement Handling, put slice-owned IDs in the relevant slice content including ### Requirement Coverage, ' +
-        'put every VAL-* in a validation surface, and remove or correct any unknown requirement ID. ' +
-        'Do not paste every ID into every slice.',
-      );
+      if (format === 'xml') {
+        missingParts.push(
+          `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))} and ` +
+          `${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: ` +
+          'account for every generated CR-*, COMP-*, and VAL-* ID by exact ID from ## Intake Requirements. ' +
+          'Put global or cross-cutting IDs in executionScope/requirementCoverage or the implementation-spec Requirement Handling section, put slice-owned IDs in the relevant slice content including executionScope/requirementCoverage, ' +
+          'put every VAL-* in a validation surface (acceptanceAndValidation/validationCommands or acceptanceCriteria), and remove or correct any unknown requirement ID. ' +
+          'Do not paste every ID into every slice.',
+        );
+      } else {
+        missingParts.push(
+          `- ${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'implementation-spec.md'))} and ` +
+          `${toRecoveryPromptPath(options.repoRoot, renderImplementationStepsLabel(taskId, ''))}: ` +
+          'account for every generated CR-*, COMP-*, and VAL-* ID by exact ID from ## Intake Requirements. ' +
+          'Put global or cross-cutting IDs in ### Requirement Handling, put slice-owned IDs in the relevant slice content including ### Requirement Coverage, ' +
+          'put every VAL-* in a validation surface, and remove or correct any unknown requirement ID. ' +
+          'Do not paste every ID into every slice.',
+        );
+      }
     }
     if (missingParts.length === 0) {
       return '';
     }
+    const sliceDesc = describeSliceArtifactFormat(format);
+    const sliceShapeInstruction = format === 'xml'
+      ? `If repairing slices, use AgentWorkSpace/templates/${sliceDesc.templateFilename} as the shape authority. Every ${sliceDesc.displayGlob.replace('*', 'N')} must preserve the executionSlice XML structure, set the executionSlice id attribute and the metadata/sliceId element text to slice-N, and populate required elements without inventing replacement sections.`
+      : `If repairing slices, use AgentWorkSpace/templates/${sliceDesc.templateFilename} as the shape authority. Every ${sliceDesc.displayGlob.replace('*', 'N')} must preserve every seeded ## and ### heading and place content only under those headings.`;
     return [
       'You exited without completing all required artifacts. The following artifacts are still incomplete:',
       'Product-manager artifact repair protocol: read .github/copilot/instructions/product-manager.instructions.md, edit only the listed workflow artifacts, preserve seeded template headings exactly, and do not answer with a prose-only status update.',
-      'If repairing slices, use AgentWorkSpace/templates/slice-template.md as the shape authority. Every slice-N.md must preserve every seeded ## and ### heading and place content only under those headings.',
+      sliceShapeInstruction,
       'If inspecting source during repair, use task worktree roots from TASKSAIL_TASK_WORKTREES or TASKSAIL_TASK_WORKTREES_FILE. Do not inspect contextpacks/... paths as source code.',
       ...dedupeBullets(missingParts),
       'Do not do any other work. Only fill in the missing artifacts above.',

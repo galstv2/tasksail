@@ -247,7 +247,9 @@ export async function repairQueue(
       });
 
       if (!dryRun && autoFix && !stuckMidCompletionTaskIds.has(taskId)) {
-        await resetHandoffArtifacts(taskHandoffsPath, HANDOFF_FILES, {});
+        await resetHandoffArtifacts(taskHandoffsPath, HANDOFF_FILES, {
+          implementationStepsDir: queuePaths.taskImplementationSteps(taskId),
+        });
         try {
           await unlink(path.join(queuePaths.activeItemsDir, markerName));
         } catch { /* already removed */ }

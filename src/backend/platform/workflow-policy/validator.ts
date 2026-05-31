@@ -8,6 +8,13 @@ import {
   resolveSemanticSection,
 } from './artifacts.js';
 import {
+  missingRequiredSliceFields,
+  parseSliceArtifactContent,
+  sliceIdFromFilename,
+} from './sliceArtifacts.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
+import { readTaskJsonSafe } from '../queue/taskJson.js';
+import {
   FAIL_CLOSED_DEFAULT_MODES,
   FINAL_SUMMARY_RELATIVE_PATH,
   HANDOFF_RELATIVE_PATHS,
@@ -122,6 +129,7 @@ export class PolicyValidator {
   private evaluatedRulesInternal = new Set<string>();
   private violationsInternal: Violation[] = [];
   private resolvedContextPackDir: string | null = null;
+  private resolvedSliceArtifactFormat: SliceArtifactFormat = 'markdown';
 
   constructor(options: PolicyValidatorOptions) {
     this.rootDir = options.rootDir;
@@ -185,6 +193,16 @@ export class PolicyValidator {
     return this.resolvedContextPackDir;
   }
 
+  /**
+   * The frozen slice artifact format for this task, read from .task.json.
+   * Defaults to 'markdown' when no taskId, no sidecar, or legacy sidecar.
+   * Must be called after initialize().
+   */
+  get sliceArtifactFormat(): SliceArtifactFormat {
+    this.requireInitialized();
+    return this.resolvedSliceArtifactFormat;
+  }
+
   async initialize(): Promise<void> {
     if (!this.initializePromise) {
       this.initializePromise = this.initializeInternal();
@@ -215,6 +233,12 @@ export class PolicyValidator {
     this.namedAgentTeamInternal = namedAgentTeam.team;
     this.namedAgentRegistryErrorsInternal = namedAgentTeam.errors;
     this.resolvedContextPackDir = await inferContextPackDir(this.rootDir, this.requestedContextPackDir);
+    // Resolve frozen slice format from .task.json. Missing sidecar (legacy or
+    // no-taskId) defaults to markdown. readTaskJsonSafe returns null on any error.
+    if (this._taskId) {
+      const sidecar = readTaskJsonSafe(this._taskId, this.rootDir);
+      this.resolvedSliceArtifactFormat = sidecar?.sliceArtifactFormat ?? 'markdown';
+    }
     this.initialized = true;
   }
 
@@ -328,7 +352,17 @@ export class PolicyValidator {
   async sliceArtifactIsParallelReady(
     slicePath: string,
   ): Promise<{ ready: boolean; missingSections: string[]; sliceId: string }> {
+    const format = this.sliceArtifactFormat;
     const text = (await readTextFile(slicePath)) ?? '';
+    const sliceId = sliceIdFromFilename(slicePath, format);
+
+    if (format === 'xml') {
+      const content = parseSliceArtifactContent({ filePath: slicePath, text, format });
+      const missing = missingRequiredSliceFields(content);
+      return { ready: missing.length === 0, missingSections: missing, sliceId };
+    }
+
+    // markdown path: delegate to existing semantic sections
     const sections = parseSemanticSections(text);
     const missingSections = SLICE_REQUIRED_SECTION_SPECS
       .filter((sectionSpec) => (
@@ -339,7 +373,7 @@ export class PolicyValidator {
     return {
       ready: missingSections.length === 0,
       missingSections: [...missingSections],
-      sliceId: slicePath.replace(/^.*\//, '').replace(/\.md$/, ''),
+      sliceId,
     };
   }
 

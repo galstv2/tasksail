@@ -22,6 +22,10 @@ import {
   normalizeText,
 } from '../matching.js';
 import { listSliceFiles, parseSemanticSections, resolveSemanticSection } from '../artifacts.js';
+import {
+  listSliceArtifactFiles,
+  parseSliceArtifactContent,
+} from '../sliceArtifacts.js';
 import { toHandoffKey } from '../validator.js';
 import { loadMarkdownContract } from '../contracts/markdownContract.js';
 import type { WorkspaceArtifact } from '../types.js';
@@ -67,9 +71,12 @@ export async function evaluateSliceQualityRules(validator: PolicyValidator): Pro
   }
 
   const stepsDir = validator.implementationStepsDir;
-  const sliceFiles = await listSliceFiles(stepsDir);
+  const format = validator.sliceArtifactFormat;
+  const sliceFiles = format === 'xml'
+    ? await listSliceArtifactFiles(stepsDir, 'xml')
+    : await listSliceFiles(stepsDir);
   if (TRACEABILITY_MODES.has(validator.mode)) {
-    await evaluateRequirementTraceabilityRules(validator, sliceFiles);
+    await evaluateRequirementTraceabilityRules(validator, sliceFiles, format);
   }
   if (sliceFiles.length === 0) {
     return;
@@ -78,6 +85,12 @@ export async function evaluateSliceQualityRules(validator: PolicyValidator): Pro
   for (const slicePath of sliceFiles) {
     const relative = path.relative(validator.rootDir, slicePath);
     const text = (await readTextFile(slicePath)) ?? '';
+    if (format === 'xml') {
+      // XML slices: skip markdown heading validation (no semantic sections)
+      // Structural field validation is handled by missingRequiredSliceFields in
+      // artifact completion; here we just record that the rules ran.
+      continue;
+    }
     const sections = parseSemanticSections(text);
     validateSingleSlice(validator, relative, sections);
   }
@@ -156,6 +169,7 @@ function validationSurfaceLines(sections: Record<string, string[]>, specs: reado
 async function evaluateRequirementTraceabilityRules(
   validator: PolicyValidator,
   sliceFiles: readonly string[],
+  format: 'markdown' | 'xml' = 'markdown',
 ): Promise<void> {
   const spec = await validator.getArtifact(SPEC_RELATIVE_PATH);
   if (!spec.exists || !spec.hasSubstantiveContent) {
@@ -180,10 +194,21 @@ async function evaluateRequirementTraceabilityRules(
   for (const slicePath of sliceFiles) {
     const relative = path.relative(validator.rootDir, slicePath);
     const text = (await readTextFile(slicePath)) ?? '';
-    const sections = parseSemanticSections(text);
-    authoredByArtifact.set(relative, extractRequirementIds(text));
-    for (const id of extractRequirementIds(validationSurfaceLines(sections, VALIDATION_SLICE_SECTIONS))) {
-      validationIds.add(id);
+
+    if (format === 'xml') {
+      // XML mode: source requirement IDs from parsed text; validation surface from
+      // parseSliceArtifactContent().validationSurfaceText (NOT parseSemanticSections).
+      const parsed = parseSliceArtifactContent({ filePath: slicePath, text, format: 'xml' });
+      authoredByArtifact.set(relative, extractRequirementIds(parsed.text));
+      for (const id of extractRequirementIds(parsed.validationSurfaceText)) {
+        validationIds.add(id);
+      }
+    } else {
+      const sections = parseSemanticSections(text);
+      authoredByArtifact.set(relative, extractRequirementIds(text));
+      for (const id of extractRequirementIds(validationSurfaceLines(sections, VALIDATION_SLICE_SECTIONS))) {
+        validationIds.add(id);
+      }
     }
   }
 

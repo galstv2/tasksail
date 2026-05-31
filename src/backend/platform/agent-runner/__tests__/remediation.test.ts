@@ -210,3 +210,89 @@ describe('remediationRunQaLoop', () => {
     expect(runRoleAgent.mock.calls[1][0].promptOverride).not.toContain('## External MCP Guidance');
   });
 });
+
+describe('remediationRunQaLoop — XML slice format', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'remediation-xml-test-'));
+    mkdirSync(path.join(repoRoot, '.git'));
+    mkdirSync(perTaskHandoffsDir(repoRoot), { recursive: true });
+    mkdirSync(perTaskImplStepsDir(repoRoot), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'templates', 'issues.md'),
+      '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Severity\n\n',
+      'utf-8',
+    );
+    // Write frozen .task.json with xml format
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId: TEST_TASK_ID,
+        sliceArtifactFormat: 'xml',
+        contextPackBinding: { contextPackPath: null, dataHostDir: null, dataContainerDir: null, repoBindings: [] },
+        materialization: { strategy: 'copy', cloned: [], skipped: [], composeProjectName: '' },
+        frozenAt: '2025-01-01T00:00:00.000Z',
+        finalizedAt: null,
+        state: 'active',
+      }),
+      'utf-8',
+    );
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('XML remediation prompt includes slice-N.xml bodies and uses slice-N as logical ID', async () => {
+    const xmlSlice = `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <implementation><requiredChanges><![CDATA[Fix the XML widget.]]></requiredChanges></implementation>
+</executionSlice>`;
+    const blockingIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Review Outcome\n\nblocking\n';
+    writeFileSync(path.join(perTaskHandoffsDir(repoRoot), 'issues.md'), blockingIssues, 'utf-8');
+    writeFileSync(path.join(perTaskImplStepsDir(repoRoot), 'slice-1.xml'), xmlSlice, 'utf-8');
+    runRoleAgent
+      .mockResolvedValueOnce({ exitCode: 0, agentId: 'dalton', durationMs: 1 })
+      .mockRejectedValueOnce(new Error('qa crashed'));
+
+    const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
+    await expect(
+      remediationRunQaLoop({ repoRoot, taskId: TEST_TASK_ID, maxCycles: 1 }),
+    ).rejects.toThrow('failed during QA revalidation');
+
+    const daltonPrompt = runRoleAgent.mock.calls[0][0].promptOverride as string;
+    expect(daltonPrompt).toContain('### Slice: slice-1');
+    expect(daltonPrompt).not.toContain('### Slice: slice-1.xml');
+    expect(daltonPrompt).toContain('Fix the XML widget.');
+  });
+
+  it('XML remediation prompt does not inject wrong-format slice-N.md', async () => {
+    const blockingIssues = '# QA Issues\n\n## Task Metadata\n\n- Task ID: T-1\n\n## Review Outcome\n\nblocking\n';
+    writeFileSync(path.join(perTaskHandoffsDir(repoRoot), 'issues.md'), blockingIssues, 'utf-8');
+    // Wrong-format slice (markdown when xml mode)
+    writeFileSync(
+      path.join(perTaskImplStepsDir(repoRoot), 'slice-1.md'),
+      '# Markdown Slice\nShould not appear.',
+      'utf-8',
+    );
+    runRoleAgent
+      .mockResolvedValueOnce({ exitCode: 0, agentId: 'dalton', durationMs: 1 })
+      .mockRejectedValueOnce(new Error('qa crashed'));
+
+    const { remediationRunQaLoop } = await import('../pipeline/remediation.js');
+    await expect(
+      remediationRunQaLoop({ repoRoot, taskId: TEST_TASK_ID, maxCycles: 1 }),
+    ).rejects.toThrow('failed during QA revalidation');
+
+    const daltonPrompt = runRoleAgent.mock.calls[0][0].promptOverride as string;
+    expect(daltonPrompt).not.toContain('Should not appear.');
+    expect(daltonPrompt).not.toContain('## Original Task Slices');
+  });
+});

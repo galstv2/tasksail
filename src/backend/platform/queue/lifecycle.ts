@@ -12,8 +12,10 @@ import {
   HANDOFF_FILES,
   PUBLISH_MARKER,
   SLICE_TEMPLATE_FILENAME,
+  SLICE_TEMPLATE_FILENAME_XML,
   implementationStepsTemplatePath,
 } from './paths.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
 import { stampHandoffTemplate } from './artifacts.js';
 
 export interface InitializeTaskOptions {
@@ -24,6 +26,8 @@ export interface InitializeTaskOptions {
   lineage?: Record<string, string>;
   sections?: Record<string, string>;
   implementationStepsDir?: string;
+  /** Frozen at activation time; controls which slice template is staged into ImplementationSteps/. */
+  sliceArtifactFormat?: SliceArtifactFormat;
 }
 
 /**
@@ -42,6 +46,7 @@ export async function initializeTaskArtifacts(
     lineage = {},
     sections = {},
     implementationStepsDir,
+    sliceArtifactFormat = 'markdown',
   } = options;
 
   const stagingDir = path.join(handoffsDir, `.staging.${Date.now()}`);
@@ -88,17 +93,18 @@ export async function initializeTaskArtifacts(
     // Publish complete — remove the marker
     try { await unlink(publishMarker); } catch { /* best-effort */ }
 
-    // Copy slice templates into ImplementationSteps/ if specified
+    // Copy the active-format slice template into ImplementationSteps/ if specified.
+    // Markdown mode copies slice-template.md; XML mode copies slice-template.xml.
     if (implementationStepsDir) {
       await ensureDir(implementationStepsDir);
-      const sliceTemplate = templateSourceFor(
-        SLICE_TEMPLATE_FILENAME,
-        templatesDir,
-      );
+      const templateFilename = sliceArtifactFormat === 'xml'
+        ? SLICE_TEMPLATE_FILENAME_XML
+        : SLICE_TEMPLATE_FILENAME;
+      const sliceTemplate = templateSourceFor(templateFilename, templatesDir);
       if (existsSync(sliceTemplate)) {
         await copyFileSafe(
           sliceTemplate,
-          implementationStepsTemplatePath(implementationStepsDir),
+          implementationStepsTemplatePath(implementationStepsDir, sliceArtifactFormat),
         );
       }
     }
@@ -143,11 +149,12 @@ export async function resetHandoffArtifacts(
     await unlink(publishMarker);
   }
 
-  // Clear ImplementationSteps/ if specified
+  // Clear ImplementationSteps/ if specified: remove .md and .xml files only.
+  // This preserves both markdown slice cleanup behavior and removes stale XML artifacts.
   if (options?.implementationStepsDir && existsSync(options.implementationStepsDir)) {
     const files = await readdir(options.implementationStepsDir);
     for (const file of files) {
-      if (file.endsWith('.md')) {
+      if (file.endsWith('.md') || file.endsWith('.xml')) {
         await unlink(path.join(options.implementationStepsDir, file));
       }
     }

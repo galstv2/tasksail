@@ -2,6 +2,7 @@ import { collectSliceValidationCommands } from './testCapture.js';
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { SliceArtifactFormat } from '../../platform-config/types.js';
 
 /**
  * Build the prompt for the verification Dalton pass.
@@ -124,8 +125,9 @@ export async function resolveVerificationDaltonPrompt(
   externalMcpRegistry?: ExternalMcpRegistry,
   verificationDiffAbsolutePath?: string,
   verificationDiffWarning?: string,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<string | undefined> {
-  const commands = await collectSliceValidationCommands(implStepsDir)
+  const commands = await collectSliceValidationCommands(implStepsDir, format)
     .catch(() => [] as string[]);
   if (commands.length === 0) {
     return undefined;

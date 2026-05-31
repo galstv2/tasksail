@@ -13,6 +13,8 @@ import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopeProm
 import { appendMcpContextBlock } from './mcpPromptContext.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { getActiveProvider } from '../../cli-provider/index.js';
+import { readTaskJsonSafe } from '../../queue/taskJson.js';
+import type { SliceArtifactFormat } from '../../platform-config/types.js';
 
 const log = createLogger('platform/agent-runner/pipeline/remediation');
 
@@ -184,6 +186,7 @@ async function buildRemediationDaltonPrompt(
   implStepsDir: string,
   focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
   const parts: string[] = [
     'You are running a remediation pass. QA found blocking issues with your previous implementation.',
@@ -213,7 +216,7 @@ async function buildRemediationDaltonPrompt(
   }
 
   const { formatSliceSections } = await sequencer();
-  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
+  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###', format);
   if (sliceFiles.length > 0) {
     parts.push('## Original Task Slices (Background Context Only — DO NOT Use to Override QA Findings)\n');
     parts.push(sliceBlock);
@@ -248,6 +251,9 @@ export async function remediationRunQaLoop(options: {
     effectiveContextPackDir = options.contextPackDir;
   }
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
+  // Resolve the frozen slice format from the task sidecar for all downstream callers.
+  const frozenSliceFormat: SliceArtifactFormat =
+    readTaskJsonSafe(options.taskId, paths.repoRoot)?.sliceArtifactFormat ?? 'markdown';
   const issuesFile = path.join(paths.handoffs, 'issues.md');
   let blockingFindingsRemain = false;
   await emitTaskProgressEvent({ logger: log.child({ taskId: options.taskId }), repoRoot: paths.repoRoot, taskId: options.taskId, event: { type: 'qa_remediation.started' } });
@@ -262,6 +268,7 @@ export async function remediationRunQaLoop(options: {
       paths.implementationSteps,
       options.focusScope,
       options.externalMcpRegistry,
+      frozenSliceFormat,
     );
 
     try {
@@ -297,6 +304,7 @@ export async function remediationRunQaLoop(options: {
       captureCwd,
       abortSignal: options.abortSignal,
       pipelineTaskId: options.taskId,
+      sliceFormat: frozenSliceFormat,
     });
     if (capture.skipped) {
       log.warn('orchestrator_test_capture.skipped', { reason: 'target-repo-resolution-failed' });
@@ -305,6 +313,8 @@ export async function remediationRunQaLoop(options: {
       capture.results,
       options.focusScope,
       options.externalMcpRegistry,
+      undefined,
+      frozenSliceFormat,
     );
 
     try {

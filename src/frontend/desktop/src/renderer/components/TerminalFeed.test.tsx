@@ -549,6 +549,21 @@ describe('TerminalFeed', () => {
     expect(onClearTerminal).toHaveBeenCalledTimes(1);
   });
 
+  it('clear terminal button is disabled while active context-pack tasks are running', () => {
+    const onClearTerminal = vi.fn();
+    renderFeed({
+      activityStream: [makeEvent({ id: 'evt-clear-1' })],
+      onClearTerminal,
+      clearTerminalDisabledReason: 'Clear disabled while active context-pack tasks are running.',
+    });
+
+    const clear = screen.getByRole('button', { name: /clear terminal/i });
+    expect(clear).toBeDisabled();
+    expect(clear).toHaveAttribute('title', 'Clear disabled while active context-pack tasks are running.');
+    fireEvent.click(clear);
+    expect(onClearTerminal).not.toHaveBeenCalled();
+  });
+
   it('renders blinking cursor', () => {
     renderFeed();
     const cursor = document.querySelector('.terminal-cursor');

@@ -466,3 +466,76 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
     expect(Array.isArray(result.structuredIssues)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Track B: check-5 partial-publish repair clears ImplementationSteps artifacts
+// ---------------------------------------------------------------------------
+
+describe('repairQueue check-5: partial-publish repair clears ImplementationSteps', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), 'tq-repair-implsteps-'));
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items'), { recursive: true });
+    mkdirSync(path.join(tmpRoot, 'AgentWorkSpace', 'templates'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('auto-fix clears stale .md slice files in ImplementationSteps on partial-publish reset', async () => {
+    const taskId = 'task-partial-md';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'handoffs');
+    const implStepsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'ImplementationSteps');
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
+    writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Task\n\nContent');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# slice');
+    writeFileSync(path.join(implStepsDir, 'slice-template.md'), '# template');
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+
+    await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(existsSync(path.join(implStepsDir, 'slice-1.md'))).toBe(false);
+    expect(existsSync(path.join(implStepsDir, 'slice-template.md'))).toBe(false);
+  });
+
+  it('auto-fix clears stale .xml slice files in ImplementationSteps on partial-publish reset', async () => {
+    const taskId = 'task-partial-xml';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'handoffs');
+    const implStepsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'ImplementationSteps');
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
+    writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Task\n\nContent');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), '<executionSlice/>');
+    writeFileSync(path.join(implStepsDir, 'slice-template.xml'), '<?xml?>');
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+
+    await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(existsSync(path.join(implStepsDir, 'slice-1.xml'))).toBe(false);
+    expect(existsSync(path.join(implStepsDir, 'slice-template.xml'))).toBe(false);
+  });
+
+  it('auto-fix leaves non-md/non-xml files in ImplementationSteps untouched', async () => {
+    const taskId = 'task-partial-other';
+    const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'handoffs');
+    const implStepsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId, 'ImplementationSteps');
+    const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(implStepsDir, { recursive: true });
+    writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
+    writeFileSync(path.join(handoffsDir, 'professional-task.md'), '# Task\n\nContent');
+    writeFileSync(path.join(implStepsDir, 'notes.txt'), 'keep me');
+    writeFileSync(path.join(activeItemsDir, taskId), '');
+
+    await repairQueue({ repoRoot: tmpRoot, autoFix: true });
+
+    expect(existsSync(path.join(implStepsDir, 'notes.txt'))).toBe(true);
+  });
+});

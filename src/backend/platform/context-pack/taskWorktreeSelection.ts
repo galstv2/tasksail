@@ -83,14 +83,16 @@ export async function resolveSelectedMaterializationRoots(options: {
     }
     addTarget(options.binding.selectedTestTarget, 'support', 'selectedTestTarget');
     if (roots.length === 0) {
+      const fallbackPrimaryRepoId = options.binding.deepFocusPrimaryRepoId
+        ?? options.binding.selectedRepoIds[0];
       const fallbackRepoIds = [
-        options.binding.deepFocusPrimaryRepoId,
+        fallbackPrimaryRepoId,
         ...options.binding.selectedRepoIds,
       ].filter((repoId): repoId is string => typeof repoId === 'string' && repoId.trim().length > 0);
       for (const repoId of fallbackRepoIds) {
         addRoot(resolveRepoRoot({
           repoId,
-          role: repoId === options.binding.deepFocusPrimaryRepoId ? 'primary' : 'support',
+          role: repoId === fallbackPrimaryRepoId ? 'primary' : 'support',
           repoById,
           contextPackDir,
           taskId: options.taskId,

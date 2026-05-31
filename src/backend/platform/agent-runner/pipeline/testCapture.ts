@@ -4,7 +4,6 @@ import { spawn } from 'node:child_process';
 import { createLogger, readTextFile, getErrorMessage } from '../../core/index.js';
 import { isWindowsPlatform } from '../../core/platform.js';
 import { getEffectiveScopeForPrimary, resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
-import { listSliceFiles } from '../artifactCompletion.js';
 import {
   applyWorktreeInjectionToFocused,
   buildWorktreeBindingMap,
@@ -19,6 +18,12 @@ import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
 import { SLICE_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
 import { loadMarkdownContract } from '../../workflow-policy/contracts/markdownContract.js';
+import {
+  listSliceArtifactFiles,
+  extractSliceValidationCommands,
+  describeSliceArtifactFormat,
+} from '../../workflow-policy/sliceArtifacts.js';
+import type { SliceArtifactFormat } from '../../platform-config/types.js';
 
 const log = createLogger('platform/agent-runner/pipeline/testCapture');
 
@@ -385,29 +390,33 @@ export async function runTestCapture(
 /**
  * Collect all validation commands from slice files. Shared by both the
  * verification prompt builder and the test capture runner.
+ * Uses the frozen slice format to only read active-format slices.
  */
 export async function collectSliceValidationCommands(
   implementationStepsDir: string,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<string[]> {
-  const sliceFiles = await listSliceFiles(implementationStepsDir);
+  const sliceFiles = await listSliceArtifactFiles(implementationStepsDir, format);
   const sliceContents = await Promise.all(sliceFiles.map((f) => readTextFile(f)));
   return sliceContents
     .filter((c): c is string => c != null)
-    .flatMap((c) => extractValidationCommands(c));
+    .flatMap((c) => extractSliceValidationCommands({ text: c, format }));
 }
 
 /**
  * Read slice files from the implementation steps directory, extract validation
  * commands, and run them. Returns empty array when no commands are found or
  * when any step fails — test capture must never kill the pipeline.
+ * Malformed XML slices are non-fatal and preserve existing capture behavior.
  */
 export async function captureSliceValidation(
   implementationStepsDir: string,
   cwd: string,
   signal?: AbortSignal,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<TestCaptureResult[]> {
   try {
-    const allCommands = await collectSliceValidationCommands(implementationStepsDir);
+    const allCommands = await collectSliceValidationCommands(implementationStepsDir, format);
     if (allCommands.length === 0) return [];
     return await runTestCapture(allCommands, cwd, DEFAULT_COMMAND_TIMEOUT_MS, signal);
   } catch (err) {
@@ -424,13 +433,14 @@ export function buildTestCapturePrompt(
   focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   warning?: string,
+  format: SliceArtifactFormat = 'markdown',
 ): string {
   const evidence = formatTestCaptureForPrompt(results, warning);
   const parts = [
     'Review the code changes and orchestrator test results below.',
     '',
   ];
-  appendRonArtifactContract(parts);
+  appendRonArtifactContract(parts, format);
   appendFocusBlock(parts, {
     ...focusScope,
     launchContextLine: 'Use the primary focus as the review starting point while reviewing the changes below.',
@@ -441,7 +451,8 @@ export function buildTestCapturePrompt(
   return parts.join('\n');
 }
 
-function appendRonArtifactContract(parts: string[]): void {
+function appendRonArtifactContract(parts: string[], format: SliceArtifactFormat = 'markdown'): void {
+  const sliceGlob = describeSliceArtifactFormat(format).displayGlob;
   parts.push(
     '## Mandatory QA Output Contract',
     '',
@@ -454,7 +465,7 @@ function appendRonArtifactContract(parts: string[]): void {
     '',
     'Write artifacts in this exact order:',
     '',
-    '1. Read `$COPILOT_HANDOFFS_DIR/code-changes.diff`, every `$COPILOT_IMPL_STEPS_DIR/slice-*.md`, and the actual task worktree source files before deciding the review outcome.',
+    `1. Read \`$COPILOT_HANDOFFS_DIR/code-changes.diff\`, every \`$COPILOT_IMPL_STEPS_DIR/${sliceGlob}\`, and the actual task worktree source files before deciding the review outcome.`,
     '2. Write `$COPILOT_HANDOFFS_DIR/issues.md` exactly once for this review cycle.',
     '3. If Review Outcome is `blocking`, stop after `issues.md`; do not write `retrospective-input.md` or `final-summary.md`.',
     '4. If Review Outcome is `pass` or `advisory`, write `$COPILOT_HANDOFFS_DIR/retrospective-input.md`.',

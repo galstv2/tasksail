@@ -33,7 +33,13 @@ from lib.archive.cycle_summary import CycleSummaryBuilder
 from lib.archive.global_history import build_global_history_entry, collect_recent_task_ids
 from lib.archive.indexes import write_archive_indexes, write_global_retrospective_indexes
 from lib.archive.parent import update_parent_archive
-from lib.archive.payload import build_archive_payload
+from lib.archive.payload import (
+    build_archive_payload,
+    is_active_slice_file,
+    is_slice_template_file,
+    is_wrong_format_slice_file,
+    resolve_slice_format,
+)
 from lib.archive.planner_focus_snapshot import load_or_build_planner_focus_snapshot
 from lib.archive.retrospective import build_retrospective_archive
 from lib.archive.shared_memory import build_shared_retrospective_memory
@@ -90,7 +96,7 @@ def _is_transient_handoff_file(name: str) -> bool:
 
 
 def _is_transient_implementation_step(name: str) -> bool:
-    return name == "slice-template.md" or name.endswith(".lock") or name.endswith(".tmp")
+    return is_slice_template_file(name) or name.endswith(".lock") or name.endswith(".tmp")
 
 
 def _collect_direct_files(
@@ -140,6 +146,19 @@ def _collect_handoff_artifacts(repo_root: Path, task_id: str) -> dict[str, Any]:
     if not handoffs.exists():
         raise ValueError(f"Archive filing blocked: active handoffs directory is missing for task {task_id}: {handoffs}")
 
+    # Resolve the frozen slice format; fails closed on invalid sidecar value.
+    slice_format = resolve_slice_format(repo_root, task_id)
+
+    # Fail archive filing when a wrong-format active slice is found (content-safe).
+    if implementation_steps.exists():
+        for entry in sorted(implementation_steps.iterdir(), key=lambda e: e.name):
+            if entry.is_file() and is_wrong_format_slice_file(entry.name, slice_format):
+                raise ValueError(
+                    f"Archive filing blocked: wrong-format slice file found for "
+                    f"slice_format={slice_format!r}: {entry.name}. "
+                    f"Remove or rename it before archiving."
+                )
+
     handoff_files, handoff_skipped = _collect_direct_files(
         repo_root=repo_root,
         source_dir=handoffs,
@@ -153,7 +172,7 @@ def _collect_handoff_artifacts(repo_root: Path, task_id: str) -> dict[str, Any]:
         source_dir=implementation_steps,
         archive_root="ImplementationSteps",
         kind="implementation-step",
-        include_file=lambda name: name.endswith(".md"),
+        include_file=lambda name: is_active_slice_file(name, slice_format),
         is_transient=_is_transient_implementation_step,
     )
     return {

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-N" version="1.0">
+  <!-- Authoring: write each field as plain element text. Use a CDATA block (as shown for validationCommands) only when the content is code, commands, pseudocode, or contains literal < > & characters. -->
+  <metadata>
+    <format>xml</format>
+    <sliceId>slice-N</sliceId>
+    <title required="true">
+      <!-- concise slice title; do not leave template-only -->
+    </title>
+    <status>draft</status>
+  </metadata>
+  <sourceTrace>
+    <implementationSpecPath>AgentWorkSpace/tasks/&lt;taskId&gt;/handoffs/implementation-spec.md</implementationSpecPath>
+    <notes>
+      <!-- Optional for Alice: add a short pointer to relevant implementation-spec.md sections or requirement IDs when it helps Dalton. Leave as "None" when this would duplicate other slice fields. This block is traceability context only; it does not expand this slice's execution scope. -->
+      None
+    </notes>
+  </sourceTrace>
+  <objective>
+    <purpose required="true">
+      <!-- concrete outcome for this slice and why it exists in the overall plan; reference relevant CR-*, COMP-*, or VAL-* IDs only when they directly affect this slice -->
+    </purpose>
+    <inputsToRead required="true">
+      <!-- exact files, tests, helpers, existing patterns, generated handoff sections, or "None" only when this slice genuinely needs no pre-read beyond files it edits -->
+    </inputsToRead>
+  </objective>
+  <dependenciesAndOrder>
+    <dependsOn required="true">
+      <!-- prerequisite slice IDs, generated files, helpers, sequencing constraints, or "None" when independent -->
+    </dependsOn>
+  </dependenciesAndOrder>
+  <executionScope>
+    <scope required="true">
+      <!-- required changes, data flow, failure behavior, integration boundaries, and relevant requirement IDs; include enough detail that Dalton can execute without guessing -->
+    </scope>
+    <currentSymbols required="true">
+      <!-- source-derived inventory of every existing route group, endpoint, class, handler, file, or other symbol whose inclusion or exclusion affects this slice; for refactors/extractions, list all relevant current symbols found in source, not only the ones being changed; write "Source inspection found no existing source symbols" only when source inspection proves there are none; use "None" only when no source symbol inventory applies -->
+    </currentSymbols>
+    <includedSymbols required="true">
+      <!-- exact currentSymbols entries this slice may change, move, extract, or otherwise implement; use "None" only when this slice changes no existing source symbols -->
+    </includedSymbols>
+    <excludedSymbols required="true">
+      <!-- exact currentSymbols entries intentionally left unchanged or out of scope, with a short reason when useful; use "None" only when every current symbol is intentionally included or no source symbol inventory applies -->
+    </excludedSymbols>
+    <requirementCoverage required="true">
+      <!-- only the CR-*, COMP-*, and VAL-* IDs this slice implements, preserves, or validates; "None" only when no generated requirement applies directly -->
+    </requirementCoverage>
+    <allowedChanges required="true">
+      <!-- exact files, directories, modules, tests, or docs this slice may edit; include ownership boundaries when multiple slices exist -->
+    </allowedChanges>
+    <outOfScope required="true">
+      <!-- exact files, behavior, features, cleanup, refactors, or validation changes this slice must not perform; prefix hard exclusions with "NOT:" -->
+    </outOfScope>
+    <preservedBehavior required="true">
+      <!-- existing behavior, APIs, artifact formats, compatibility paths, or workflows that must remain unchanged while this slice is implemented -->
+    </preservedBehavior>
+  </executionScope>
+  <implementation>
+    <requiredChanges required="true">
+      <!-- concrete implementation steps for this slice only; no speculative features, unrelated refactors, or broad cleanup -->
+    </requiredChanges>
+  </implementation>
+  <filesAndInterfaces>
+    <files required="true">
+      <!-- each file with expected edit type, new/existing/read-only status, and interface or contract notes when relevant -->
+    </files>
+    <unitTests required="true">
+      <!-- test files and the behavior they prove; include focused regression coverage and explicit no-test rationale only when appropriate -->
+    </unitTests>
+  </filesAndInterfaces>
+  <acceptanceAndValidation>
+    <acceptanceCriteria required="true">
+      <!-- measurable criteria only; each item should be provable by command, grep, or test assertion -->
+    </acceptanceCriteria>
+    <validationCommands required="true"><![CDATA[
+```bash
+# commands here
+```
+    ]]></validationCommands>
+    <staleAssumptionHandling required="true">
+      <!-- if a named file/symbol/test moved, find the nearest current equivalent and preserve required behavior; if acceptance conflicts with allowed changes, stop expanding scope and report the blocker -->
+    </staleAssumptionHandling>
+  </acceptanceAndValidation>
+  <guardsAndCoordination>
+    <guards required="true">
+      <!-- preserved invariants, compatibility requirements, concurrency/order/locking constraints, and directly relevant requirement IDs; "None" only when there are no special guards -->
+    </guards>
+    <coordination required="true">
+      <!-- coordination notes with other slices, shared files, ordering constraints, or "None" when this slice is independent -->
+    </coordination>
+    <closeoutRequirements required="true">
+      <!-- files changed, tests run, validation not run, remaining risks, and deferred external actions that Dalton must report -->
+    </closeoutRequirements>
+  </guardsAndCoordination>
+</executionSlice>

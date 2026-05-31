@@ -6,6 +6,7 @@ import type {
   PlatformConfig,
   PlatformConfigLoadResult,
   PlatformConfigValidationError,
+  SliceArtifactFormat,
 } from './types.js';
 import {
   CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
@@ -399,6 +400,23 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
     }
   }
 
+  // slice_artifact_format — optional; absent defaults to 'markdown'; only 'markdown' or 'xml' accepted.
+  let sliceArtifactFormat: SliceArtifactFormat = 'markdown';
+  const rawSliceArtifactFormat = data['slice_artifact_format'];
+  if (rawSliceArtifactFormat !== undefined) {
+    if (rawSliceArtifactFormat !== 'markdown' && rawSliceArtifactFormat !== 'xml') {
+      errors.push(
+        err(
+          'slice_artifact_format',
+          `Must be "markdown" or "xml", got ${JSON.stringify(rawSliceArtifactFormat)}.`,
+          'Set slice_artifact_format to "markdown" or "xml".',
+        ),
+      );
+    } else {
+      sliceArtifactFormat = rawSliceArtifactFormat;
+    }
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -420,6 +438,7 @@ function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadR
       external_mcp_local_enabled: externalMcpLocalEnabled,
       mcp_port: mcpPort,
       repo_context_mcp_external_mount_roots: repoContextMcpExternalMountRoots,
+      slice_artifact_format: sliceArtifactFormat,
     } satisfies PlatformConfig,
     raw,
   };

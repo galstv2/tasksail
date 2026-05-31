@@ -39,6 +39,7 @@ vi.mock('../../context-pack/focusedRepo.js', () => ({
 
 const {
   buildTestCapturePrompt,
+  collectSliceValidationCommands,
   extractValidationCommands,
   resolveTestCaptureCwd,
   runTestCapture,
@@ -64,7 +65,6 @@ const tempDirs: string[] = [];
 function makeFocused(overrides: Partial<FocusedRepoResult> & { primaryRepoRoot: string }): FocusedRepoResult {
   const primaryRepoRoot = overrides.primaryRepoRoot;
   return {
-    primaryRepoRoot,
     visibleRepoRoots: [primaryRepoRoot],
     declaredRepoRoots: [primaryRepoRoot],
     estateType: 'monolith',
@@ -700,5 +700,69 @@ describe('runTestCapture', () => {
 
     expect(processKillSpy).not.toHaveBeenCalledWith(-child.pid, expect.anything());
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+});
+
+describe('collectSliceValidationCommands — XML format', () => {
+  const XML_SLICE_WITH_COMMANDS = `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <acceptanceAndValidation>
+    <validationCommands><![CDATA[
+\`\`\`bash
+pnpm test
+pnpm lint
+\`\`\`
+    ]]></validationCommands>
+  </acceptanceAndValidation>
+</executionSlice>`;
+
+  const XML_SLICE_NO_COMMANDS = `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <acceptanceAndValidation>
+    <validationCommands><![CDATA[
+<!-- no commands -->
+    ]]></validationCommands>
+  </acceptanceAndValidation>
+</executionSlice>`;
+
+  it('extracts commands from XML validationCommands CDATA', async () => {
+    const dir = await createTempDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'slice-1.xml'), XML_SLICE_WITH_COMMANDS, 'utf-8');
+
+    const commands = await collectSliceValidationCommands(dir, 'xml');
+    expect(commands).toEqual(['pnpm test', 'pnpm lint']);
+  });
+
+  it('returns empty array when XML validationCommands has no commands', async () => {
+    const dir = await createTempDir();
+    await writeFile(path.join(dir, 'slice-1.xml'), XML_SLICE_NO_COMMANDS, 'utf-8');
+
+    const commands = await collectSliceValidationCommands(dir, 'xml');
+    expect(commands).toEqual([]);
+  });
+
+  it('markdown collectSliceValidationCommands remains behavior-equivalent', async () => {
+    const dir = await createTempDir();
+    await writeFile(
+      path.join(dir, 'slice-1.md'),
+      '## Validation Commands\n\n```bash\npnpm test\n```\n',
+      'utf-8',
+    );
+
+    const commands = await collectSliceValidationCommands(dir, 'markdown');
+    expect(commands).toEqual(['pnpm test']);
+  });
+
+  it('buildTestCapturePrompt uses slice-*.xml glob when format is xml', () => {
+    const prompt = buildTestCapturePrompt([], undefined, undefined, undefined, 'xml');
+    expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.xml');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.md');
+  });
+
+  it('buildTestCapturePrompt uses slice-*.md glob when format is markdown (behavior-equivalent)', () => {
+    const prompt = buildTestCapturePrompt([], undefined, undefined, undefined, 'markdown');
+    expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.md');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.xml');
   });
 });

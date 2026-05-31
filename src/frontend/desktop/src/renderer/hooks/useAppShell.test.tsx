@@ -193,6 +193,7 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="terminal-feed-task-scopes">{result.terminalFeedProps.taskScopes.length}</div>
       <div data-testid="terminal-feed-selected-task">{result.terminalFeedProps.selectedTaskGuid ?? 'all'}</div>
       <div data-testid="terminal-feed-select-handler">{String(typeof result.terminalFeedProps.onSelectTaskScope === 'function')}</div>
+      <div data-testid="terminal-clear-disabled-reason">{result.terminalFeedProps.clearTerminalDisabledReason ?? 'none'}</div>
       <div data-testid="reinforcement-modal-open">{String(result.reinforcementModalProps.isOpen)}</div>
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
       <div data-testid="has-open-reinforcement">{String(typeof result.openReinforcementModal === 'function')}</div>
@@ -280,9 +281,34 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('terminal-feed-task-scopes')).toHaveTextContent('0');
     expect(screen.getByTestId('terminal-feed-selected-task')).toHaveTextContent('all');
     expect(screen.getByTestId('terminal-feed-select-handler')).toHaveTextContent('true');
+    expect(screen.getByTestId('terminal-clear-disabled-reason')).toHaveTextContent(
+      'Clear disabled while active context-pack tasks are running.',
+    );
     expect(screen.getByTestId('delete-blocked-by-active-task')).toHaveTextContent('true');
     expect(screen.getByTestId('active-task-label')).toHaveTextContent('Observe queue artifacts');
     expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
+  });
+
+  it('blocks terminal clear from active-context-pack scoped operator tasks', async () => {
+    const client = createClient({
+      getObservabilitySnapshot: vi.fn().mockResolvedValue({
+        ok: true,
+        response: createObservabilitySnapshot({
+          operatorStatus: {
+            activeTaskId: 'TASK-ACTIVE',
+            activeTasks: [{ taskId: 'TASK-ACTIVE', phase: 'active', startedAt: '2026-05-31T00:00:00Z' }],
+          },
+        }),
+      }),
+    });
+
+    render(<AppShellHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('terminal-clear-disabled-reason')).toHaveTextContent(
+        'Clear disabled while active context-pack tasks are running.',
+      );
+    });
   });
 
   it('wires reinforcement modal props and sidebar callback', async () => {

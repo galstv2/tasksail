@@ -434,3 +434,102 @@ describe('buildSimpleDaltonPrompt', () => {
     expect(prompt).not.toContain('## External MCP Guidance');
   });
 });
+
+describe('XML slice format — Dalton prompt injection', () => {
+  const XML_SLICE_CONTENT = `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <metadata><title><![CDATA[Feature slice]]></title></metadata>
+  <implementation><requiredChanges><![CDATA[Add the widget.]]></requiredChanges></implementation>
+</executionSlice>`;
+
+  it('buildSimpleDaltonPrompt includes slice-N.xml bodies and strips .xml suffix for logical ID', async () => {
+    const dir = makeTmpDir();
+    const handoffsDir = path.join(dir, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(dir, 'slice-1.xml'), XML_SLICE_CONTENT);
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      handoffsDir,
+      undefined,
+      undefined,
+      undefined,
+      'xml',
+    );
+    expect(prompt).toContain('### Slice: slice-1');
+    expect(prompt).not.toContain('### Slice: slice-1.xml');
+    expect(prompt).toContain('Add the widget.');
+  });
+
+  it('buildFleetPrompt includes slice-N.xml bodies and strips .xml suffix for logical ID', async () => {
+    const dir = makeTmpDir();
+    const handoffsDir = path.join(dir, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(dir, 'slice-1.xml'), XML_SLICE_CONTENT);
+    const prompt = await buildFleetPrompt(
+      dir,
+      handoffsDir,
+      undefined,
+      undefined,
+      undefined,
+      'xml',
+    );
+    expect(prompt).toContain('## Slice: slice-1');
+    expect(prompt).not.toContain('## Slice: slice-1.xml');
+    expect(prompt).toContain('Add the widget.');
+  });
+
+  it('buildSimpleDaltonPrompt does not inject wrong-format slice-N.md when format is xml', async () => {
+    const dir = makeTmpDir();
+    const handoffsDir = path.join(dir, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nMarkdown content.');
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      handoffsDir,
+      undefined,
+      undefined,
+      undefined,
+      'xml',
+    );
+    expect(prompt).not.toContain('Markdown content.');
+    expect(prompt).not.toContain('## Implementation Slices');
+  });
+
+  it('buildSimpleDaltonPrompt does not inject wrong-format slice-N.xml when format is markdown', async () => {
+    const dir = makeTmpDir();
+    const handoffsDir = path.join(dir, 'handoffs');
+    mkdirSync(handoffsDir, { recursive: true });
+    writeFileSync(path.join(dir, 'slice-1.xml'), XML_SLICE_CONTENT);
+    const prompt = await buildSimpleDaltonPrompt(
+      dir,
+      handoffsDir,
+      undefined,
+      undefined,
+      undefined,
+      'markdown',
+    );
+    expect(prompt).not.toContain('Add the widget.');
+    expect(prompt).not.toContain('## Implementation Slices');
+  });
+
+  it('formatSliceSections with xml format strips .xml for the slice heading', async () => {
+    const { formatSliceSections } = await import('../pipeline/sequencer.js');
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-2.xml'), XML_SLICE_CONTENT);
+    const { files, formatted } = await formatSliceSections(dir, '##', 'xml');
+    expect(files).toHaveLength(1);
+    expect(formatted).toContain('## Slice: slice-2');
+    expect(formatted).not.toContain('slice-2.xml');
+  });
+
+  it('formatSliceSections with markdown format remains behavior-equivalent', async () => {
+    const { formatSliceSections } = await import('../pipeline/sequencer.js');
+    const dir = makeTmpDir();
+    writeFileSync(path.join(dir, 'slice-1.md'), '# Slice 1\nDo the work.');
+    const { files, formatted } = await formatSliceSections(dir, '##', 'markdown');
+    expect(files).toHaveLength(1);
+    expect(formatted).toContain('## Slice: slice-1');
+    expect(formatted).not.toContain('slice-1.md');
+    expect(formatted).toContain('Do the work.');
+  });
+});

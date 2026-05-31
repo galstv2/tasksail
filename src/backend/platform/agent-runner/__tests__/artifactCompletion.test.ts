@@ -14,7 +14,7 @@ vi.mock('../../core/index.js', async () => {
   };
 });
 
-const { checkAgentArtifactCompletion, buildAgentArtifactRemediationPrompt, detectParallelOk } = await import('../artifactCompletion.js');
+const { checkAgentArtifactCompletion, checkAgentArtifactCompletionDetails, buildAgentArtifactRemediationPrompt, detectParallelOk } = await import('../artifactCompletion.js');
 
 describe('artifactCompletion', () => {
   const TEST_TASK_ID = 'task-test-001';
@@ -70,19 +70,21 @@ describe('artifactCompletion', () => {
     );
   };
 
-  const completeImplementationSpec = (): string => '# Implementation Spec\n\n'
+  const completeImplementationSpec = (partitionSlices: readonly string[] = ['slice-1']): string => '# Implementation Spec\n\n'
     + '## Problem and Outcome\n\n'
     + '### Problem Statement\n\nCLI help and unknown command behavior needs clearer guidance.\n\n'
     + '### Goals\n\n- Add clear help and unknown command guidance.\n\n'
     + '### Non-Goals\n\n- Do not change unrelated CLI behavior.\n\n'
     + '## Current State and Boundaries\n\n'
     + '### Codebase Analysis\n\n- Commands.cs owns command dispatch.\n\n'
+    + '### Source Inventory\n\n- SYM-001: crud.py search behavior.\n- Bar: bar module current behavior.\n\n'
     + '### Dependency Analysis\n\n| Dependency | Impact |\n| --- | --- |\n| tools CLI | direct |\n\n'
     + '### Change Boundaries\n\n- Keep changes in CLI command handling and tests.\n\n'
     + '## Implementation Plan\n\n'
     + '### Architecture Summary\n\nUse the existing command registry and output path.\n\n'
     + '### Touched Systems\n\n- tools CLI\n\n'
     + '### Proposed Structure\n\n- Add help command and tests.\n\n'
+    + `### Slice Partition\n\n${partitionSlices.map((slice) => `- ${slice} owns part of the plan with focused validation.`).join('\n')}\n\n`
     + '## Validation and Evidence\n\n'
     + '### Validation Strategy\n\n```bash\npytest -q\n```\n\n'
     + '## Change Surface\n\n'
@@ -104,6 +106,7 @@ describe('artifactCompletion', () => {
       + '## Acceptance Criteria\n\n- search works\n\n'
       + '## Unit Tests\n\n- test_search\n\n'
       + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Guards\n\nNo unrelated changes.\n',
       'utf-8',
     );
@@ -254,6 +257,7 @@ describe('artifactCompletion', () => {
       + '## Objective\n\nAdd search support.\n\n'
       + '## Dependencies\n\nNone.\n\n'
       + '## Execution Scope\n\n- add exact-match search\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Files and Interfaces\n\n- crud.py\n\n'
       + '## Acceptance\n\n- search works\n\n'
       + '## Tests\n\n- test_search\n\n'
@@ -288,6 +292,7 @@ describe('artifactCompletion', () => {
       + '## Depends On\n\nNone.\n\n'
       + '## Scope\n\n- add exact-match search\n\n'
       + '## Files\n\n- crud.py\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Acceptance and Validation\n\n'
       + '### Acceptance Criteria\n\n- search works\n\n'
       + '### Unit Tests\n\n- test_search\n\n'
@@ -307,7 +312,7 @@ describe('artifactCompletion', () => {
   it('requires the final product-manager slice to be runtime ready', async () => {
     writeFileSync(
       path.join(handoffsDir, 'implementation-spec.md'),
-      completeImplementationSpec(),
+      completeImplementationSpec(['slice-1', 'slice-2']),
       'utf-8',
     );
     writeFileSync(
@@ -325,6 +330,7 @@ describe('artifactCompletion', () => {
       + '## Acceptance Criteria\n\n- search works\n\n'
       + '## Unit Tests\n\n- test_search\n\n'
       + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Guards\n\nNo unrelated changes.\n',
       'utf-8',
     );
@@ -347,6 +353,7 @@ describe('artifactCompletion', () => {
       + '## Purpose\n\nFinish CRUD tests.\n\n'
       + '## Depends On\n\nslice-1\n\n'
       + '## Scope\n\n- add search assertions\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Files\n\n- test_crud.py: extend tests\n\n'
       + '## Acceptance Criteria\n\n- search coverage passes\n\n'
       + '## Unit Tests\n\n- test_search_filters_matching_records\n\n'
@@ -453,6 +460,7 @@ describe('artifactCompletion', () => {
       + '## Acceptance Criteria\n\n- search works\n\n'
       + '## Unit Tests\n\n- test_search\n\n'
       + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Guards\n\nNo unrelated changes.\n',
       'utf-8',
     );
@@ -993,5 +1001,521 @@ describe('artifactCompletion', () => {
       repoRoot,
       taskId: 't1',
     })).resolves.toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // XML format — product manager completion
+  // ---------------------------------------------------------------------------
+
+  function writeXmlTaskJson(taskId: string, dir: string): void {
+    const taskDir = path.join(dir, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        title: 'XML Test Task',
+        state: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        finalizedAt: null,
+        sliceArtifactFormat: 'xml',
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        bindings: [],
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+      }),
+      'utf-8',
+    );
+  }
+
+  const completeMarkdownSliceText = (purpose: string): string =>
+    '# Slice Template\n\n'
+    + `## Purpose\n\n${purpose}\n\n`
+    + '## Depends On\n\nNone.\n\n'
+    + '## Scope\n\n- focused change\n\n'
+    + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
+    + '## Files\n\n- crud.py\n\n'
+    + '## Acceptance Criteria\n\n- works\n\n'
+    + '## Unit Tests\n\n- test\n\n'
+    + '## Validation Commands\n\n```bash\npytest -q\n```\n\n'
+    + '## Guards\n\nNo unrelated changes.\n';
+
+  it('rejects a markdown slice that omits the source inventory sections (markdown/xml parity)', async () => {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nSimple\n', 'utf-8');
+    writeFileSync(
+      path.join(implStepsDir, 'slice-1.md'),
+      '# Slice Template\n\n## Purpose\n\nAdd search.\n\n## Depends On\n\nNone.\n\n## Scope\n\n- add search\n\n'
+      + '## Files\n\n- crud.py\n\n## Acceptance Criteria\n\n- works\n\n## Unit Tests\n\n- test\n\n'
+      + '## Validation Commands\n\n```bash\npytest -q\n```\n\n## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({ agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot });
+
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) => r.startsWith('ImplementationSteps slice slice-1.md missing required semantic section: Current Symbols'))).toBe(true);
+    expect(details.reasons.some((r) => r.startsWith('ImplementationSteps slice slice-1.md missing required semantic section: Included Symbols'))).toBe(true);
+    expect(details.reasons.some((r) => r.startsWith('ImplementationSteps slice slice-1.md missing required semantic section: Excluded Symbols'))).toBe(true);
+  });
+
+  it('does not require every slice file to be named in Slice Partition prose', async () => {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(['slice-1']), 'utf-8');
+    writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nSimple\n', 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeMarkdownSliceText('First slice.'), 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-2.md'), completeMarkdownSliceText('Second slice.'), 'utf-8');
+
+    await expect(checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toEqual({
+      complete: true,
+      reasons: [],
+    });
+  });
+
+  it('does not require Slice Partition prose to exactly match slice files', async () => {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(['slice-1', 'slice-2']), 'utf-8');
+    writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nSimple\n', 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeMarkdownSliceText('Only slice.'), 'utf-8');
+
+    await expect(checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+    })).resolves.toEqual({
+      complete: true,
+      reasons: [],
+    });
+  });
+
+  it('does not over-constrain: accepts None Current Symbols even when scope mentions refactor/extract', async () => {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(['slice-1']), 'utf-8');
+    writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nSimple\n', 'utf-8');
+    writeFileSync(
+      path.join(implStepsDir, 'slice-1.md'),
+      '# Slice Template\n\n## Purpose\n\nRefactor the search module.\n\n## Depends On\n\nNone.\n\n'
+      + '## Scope\n\n- refactor and extract the search handler\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
+      + '## Files\n\n- crud.py\n\n## Acceptance Criteria\n\n- works\n\n## Unit Tests\n\n- test\n\n'
+      + '## Validation Commands\n\n```bash\npytest -q\n```\n\n## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({ agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot })).resolves.toBe(true);
+  });
+
+  const COMPLETE_XML_SLICE = `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <metadata>
+    <format>xml</format>
+    <sliceId>slice-1</sliceId>
+    <title required="true"><![CDATA[Implement foo feature]]></title>
+    <status>draft</status>
+  </metadata>
+  <sourceTrace>
+    <implementationSpecPath>AgentWorkSpace/tasks/task-test-001/handoffs/implementation-spec.md</implementationSpecPath>
+    <notes><![CDATA[None]]></notes>
+  </sourceTrace>
+  <objective>
+    <purpose required="true"><![CDATA[Add foo support to bar module.]]></purpose>
+    <inputsToRead required="true"><![CDATA[src/backend/bar.ts]]></inputsToRead>
+  </objective>
+  <dependenciesAndOrder>
+    <dependsOn required="true"><![CDATA[None]]></dependsOn>
+  </dependenciesAndOrder>
+  <executionScope>
+    <scope required="true"><![CDATA[Add foo method to bar module.]]></scope>
+    <currentSymbols required="true"><![CDATA[Bar]]></currentSymbols>
+    <includedSymbols required="true"><![CDATA[Bar]]></includedSymbols>
+    <excludedSymbols required="true"><![CDATA[None]]></excludedSymbols>
+    <requirementCoverage required="true"><![CDATA[CR-001]]></requirementCoverage>
+    <allowedChanges required="true"><![CDATA[src/backend/bar.ts]]></allowedChanges>
+    <outOfScope required="true"><![CDATA[NOT: database migrations]]></outOfScope>
+    <preservedBehavior required="true"><![CDATA[Existing bar API unchanged]]></preservedBehavior>
+  </executionScope>
+  <implementation>
+    <requiredChanges required="true"><![CDATA[1. Add foo method]]></requiredChanges>
+  </implementation>
+  <filesAndInterfaces>
+    <files required="true"><![CDATA[src/backend/bar.ts - new foo method]]></files>
+    <unitTests required="true"><![CDATA[src/backend/__tests__/bar.test.ts]]></unitTests>
+  </filesAndInterfaces>
+  <acceptanceAndValidation>
+    <acceptanceCriteria required="true"><![CDATA[- foo returns correct result]]></acceptanceCriteria>
+    <validationCommands required="true"><![CDATA[\`\`\`bash
+pnpm test
+\`\`\`]]></validationCommands>
+    <staleAssumptionHandling required="true"><![CDATA[Find bar.ts if moved.]]></staleAssumptionHandling>
+  </acceptanceAndValidation>
+  <guardsAndCoordination>
+    <guards required="true"><![CDATA[None]]></guards>
+    <coordination required="true"><![CDATA[None]]></coordination>
+    <closeoutRequirements required="true"><![CDATA[Report files changed.]]></closeoutRequirements>
+  </guardsAndCoordination>
+</executionSlice>`;
+
+  it('accepts complete XML slice for product manager completion', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), COMPLETE_XML_SLICE, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n\n## Coordination Notes\n\nNo split.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    })).resolves.toBe(true);
+  });
+
+  it('accepts XML slice when implementation-spec Slice Partition is a populated table', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    const tableSpec = completeImplementationSpec()
+      .replace(
+        '- slice-1 owns part of the plan with focused validation.',
+        [
+          '| Slice | Owned work |',
+          '| --- | --- |',
+          '| `slice-1.xml` | Owns the XML execution slice; no slice 2 is planned. |',
+        ].join('\n'),
+      );
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), tableSpec, 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), COMPLETE_XML_SLICE, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n\n## Coordination Notes\n\nNo split.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    })).resolves.toBe(true);
+  });
+
+  it('rejects XML product-manager when slice-N.xml has missing required elements', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    // Slice with template-comment-only title (incomplete)
+    const incompleteSlice = COMPLETE_XML_SLICE.replace(
+      'Implement foo feature',
+      '<!-- concise slice title; do not leave template-only -->',
+    );
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), incompleteSlice, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(details).toBe(false);
+  });
+
+  it('XML mode product-manager ignores slice-N.md as wrong format', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    // Only a markdown slice — in XML mode this is wrong format, not recognized
+    writeFileSync(
+      path.join(implStepsDir, 'slice-1.md'),
+      '# Slice Template\n\n## Purpose\n\nAdd search support.\n\n## Depends On\n\nNone.\n\n## Scope\n\n- add exact-match search\n\n## Files\n\n- crud.py\n\n## Acceptance Criteria\n\n- search works\n\n## Unit Tests\n\n- test_search\n\n## Validation Commands\n\n```bash\npytest -q\n```\n\n## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    // Should be incomplete: missing xml slices
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    })).resolves.toBe(false);
+  });
+
+  it('XML remediation prompt names slice-template.xml as shape authority', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+    // No slices written — should trigger missing slice files reason
+
+    const prompt = await buildAgentArtifactRemediationPrompt({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    });
+
+    expect(prompt).toContain('slice-template.xml');
+    expect(prompt).toContain('slice-N.xml');
+  });
+
+  it('XML sourceTrace notes as None/comment-only does not block PM completion', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    // Slice with sourceTrace notes as None (default template)
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), COMPLETE_XML_SLICE, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    })).resolves.toBe(true);
+  });
+
+  it('auto-heals repairable XML slice structure in place during product-manager completion', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(
+      path.join(handoffsDir, 'implementation-spec.md'),
+      completeImplementationSpec(),
+      'utf-8',
+    );
+    // Structurally broken but unambiguously repairable: missing XML declaration
+    // and a wrong executionSlice id. All required field bodies are present.
+    const brokenSlice = COMPLETE_XML_SLICE
+      .replace('<?xml version="1.0" encoding="UTF-8"?>\n', '')
+      .replace('id="slice-1"', 'id="slice-99"');
+    expect(brokenSlice.startsWith('<?xml')).toBe(false);
+    const slicePath = path.join(implStepsDir, 'slice-1.xml');
+    writeFileSync(slicePath, brokenSlice, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    await expect(checkAgentArtifactCompletion({
+      agentId: 'product-manager',
+      handoffsDir,
+      implStepsDir,
+      repoRoot,
+      taskId: TEST_TASK_ID,
+    })).resolves.toBe(true);
+
+    // Completion must have repaired the slice on disk (proves auto-heal is wired
+    // into completion, not merely unit-tested): declaration restored, id fixed.
+    const healed = await readFile(slicePath, 'utf-8');
+    expect(healed.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
+    expect(healed).toContain('id="slice-1"');
+    expect(healed).not.toContain('id="slice-99"');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Non-repairable XML structural rejections are surfaced as completion reasons
+  // (not silently passed) — R1.
+  // ---------------------------------------------------------------------------
+
+  it('rejects an XML slice with no executionSlice root (structural rejection surfaced)', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    const noRoot = COMPLETE_XML_SLICE
+      .replace('<executionSlice id="slice-1" version="1.0">', '<config>')
+      .replace('</executionSlice>', '</config>');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), noRoot, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) => r.startsWith('ImplementationSteps XML structure rejected for slice-1.xml'))).toBe(true);
+  });
+
+  it('rejects an XML slice with a duplicate required field (ambiguous structural rejection)', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    const dupTitle = COMPLETE_XML_SLICE.replace(
+      '<status>draft</status>',
+      '<status>draft</status>\n    <title required="true"><![CDATA[Duplicate]]></title>',
+    );
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), dupTitle, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) => r.includes('slice-1.xml') && r.includes('ambiguous'))).toBe(true);
+  });
+
+  it('rejects an XML slice whose body uses markdown headings (markdown-body structural rejection)', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    const mdBody = COMPLETE_XML_SLICE.replace(
+      '<purpose required="true"><![CDATA[Add foo support to bar module.]]></purpose>',
+      '<purpose required="true"><![CDATA[Add foo.]]></purpose>\n## Steps\n',
+    );
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), mdBody, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) => r.startsWith('ImplementationSteps XML structure rejected for slice-1.xml'))).toBe(true);
+  });
+
+  it('rejects an XML slice whose required element is missing required="true" (R1 attribute check)', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    const noAttr = COMPLETE_XML_SLICE.replace('<title required="true">', '<title>');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), noAttr, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) =>
+      r.startsWith('ImplementationSteps XML required attribute missing for slice-1.xml') && r.includes('metadata/title'),
+    )).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Wrong-format active slice files are rejected at the completion gate even
+  // when a valid-format slice also exists — R5.
+  // ---------------------------------------------------------------------------
+
+  it('XML mode rejects a wrong-format slice-N.md alongside a valid slice-N.xml', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), COMPLETE_XML_SLICE, 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-2.md'), '# Stale\n\n## Purpose\n\nLegacy.\n', 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n\n## Coordination Notes\n\nNo split.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) =>
+      r.startsWith('ImplementationSteps wrong-format slice files:') && r.includes('slice-2.md'),
+    )).toBe(true);
+  });
+
+  it('markdown mode rejects a wrong-format slice-N.xml alongside a valid slice-N.md', async () => {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    writeFileSync(
+      path.join(implStepsDir, 'slice-1.md'),
+      '# Slice Template\n\n## Purpose\n\nAdd search support.\n\n## Depends On\n\nNone.\n\n## Scope\n\n- add exact-match search\n\n## Files\n\n- crud.py\n\n## Acceptance Criteria\n\n- search works\n\n## Unit Tests\n\n- test_search\n\n## Validation Commands\n\n```bash\npytest -q\n```\n\n## Guards\n\nNo unrelated changes.\n',
+      'utf-8',
+    );
+    writeFileSync(path.join(implStepsDir, 'slice-2.xml'), '<executionSlice/>', 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n\n## Coordination Notes\n\nNo split.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot,
+    });
+    expect(details.complete).toBe(false);
+    expect(details.reasons.some((r) =>
+      r.startsWith('ImplementationSteps wrong-format slice files:') && r.includes('slice-2.xml'),
+    )).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Complex Independent Slices reject a wrong-format .md reference in XML mode — R4.
+  // ---------------------------------------------------------------------------
+
+  it('XML Complex parallel-ok rejects a slice-N.md independent-slice reference', async () => {
+    writeXmlTaskJson(TEST_TASK_ID, repoRoot);
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.xml'), COMPLETE_XML_SLICE, 'utf-8');
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nComplex\n\n## Independent Slices\n\n- slice-1.md\n\n## Constraints\n\nNone.\n',
+      'utf-8',
+    );
+
+    const details = await checkAgentArtifactCompletionDetails({
+      agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
+    });
+    expect(details.complete).toBe(false);
+    // slice-1.md is dropped (not normalized to slice-1), so Complex has no valid independent slices.
+    expect(details.reasons).toContain(
+      'parallel-ok.md Complex decision requires Independent Slices to list existing slice-N.xml files',
+    );
   });
 });

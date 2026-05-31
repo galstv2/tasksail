@@ -14,6 +14,7 @@ import type {
   TaskContextPackTarget,
 } from './markdown.js';
 import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
 
 // ---------------------------------------------------------------------------
 // Schema types
@@ -98,6 +99,11 @@ export interface TaskJson {
    * next sweep pass.
    */
   state: 'active' | 'completed' | 'failed' | 'merged';
+  /**
+   * Frozen at activation time from platform config slice_artifact_format.
+   * Absent on legacy sidecars — normalized readers return 'markdown' for them.
+   */
+  sliceArtifactFormat: SliceArtifactFormat;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +301,19 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
   // all optional, so v1 records simply surface `undefined` for them.
   if (typeof json['schema_version'] === 'number' && json['schema_version'] < CURRENT_TASK_JSON_SCHEMA_VERSION) {
     json['schema_version'] = CURRENT_TASK_JSON_SCHEMA_VERSION;
+  }
+
+  // sliceArtifactFormat normalization: absent on legacy sidecars defaults to 'markdown';
+  // present but invalid value fails closed as corrupt task metadata.
+  const rawSliceArtifactFormat = json['sliceArtifactFormat'];
+  if (rawSliceArtifactFormat === undefined || rawSliceArtifactFormat === null) {
+    json['sliceArtifactFormat'] = 'markdown';
+  } else if (rawSliceArtifactFormat !== 'markdown' && rawSliceArtifactFormat !== 'xml') {
+    throwCorrupt(
+      taskId,
+      sidecarPath,
+      `sliceArtifactFormat must be "markdown" or "xml", got ${JSON.stringify(rawSliceArtifactFormat)}`,
+    );
   }
 
   return json as unknown as TaskJson;

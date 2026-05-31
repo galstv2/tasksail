@@ -6,13 +6,20 @@
 
 import path from 'node:path';
 import { extractBulletItems, normalizeText } from '../matching.js';
-import { listSliceFiles, parallelOkHasActiveApproval } from '../artifacts.js';
+import { parallelOkHasActiveApproval } from '../artifacts.js';
+import {
+  describeSliceArtifactFormat,
+  listSliceArtifactFiles,
+  normalizeParallelSliceReference,
+  sliceIdFromFilename,
+} from '../sliceArtifacts.js';
 import type { WorkspaceArtifact } from '../types.js';
 import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
 const ARTIFACT = toHandoffKey('parallel-ok.md');
-const SLICE_ID_PATTERN = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.md)\b/g;
+// Accept bare slice-N, slice-N.md, or slice-N.xml references
+const SLICE_ID_PATTERN = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.(?:md|xml))\b/g;
 
 function shouldFire(validator: PolicyValidator): boolean {
   return (
@@ -55,7 +62,7 @@ function checkIndependentSlices(
   validator: PolicyValidator,
   artifact: WorkspaceArtifact,
 ): void {
-  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? []);
+  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? [], validator.sliceArtifactFormat);
   if (!items.length) {
     validator.addViolation({
       rule_id: 'parallel-ok.independent-slices-has-items',
@@ -87,40 +94,49 @@ async function checkSlicesExist(
   validator: PolicyValidator,
   artifact: WorkspaceArtifact,
 ): Promise<void> {
-  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? []);
+  const items = independentSliceItems(artifact.sections['Independent Slices'] ?? [], validator.sliceArtifactFormat);
   if (!items.length) {
     return;
   }
 
   const stepsDir = validator.implementationStepsDir;
-  const sliceFiles = await listSliceFiles(stepsDir);
+  const format = validator.sliceArtifactFormat;
+  const sliceFiles = await listSliceArtifactFiles(stepsDir, format);
   const existingIds = new Set(
-    sliceFiles.map((p) => path.basename(p, '.md')),
+    sliceFiles.map((p) => sliceIdFromFilename(p, format)),
   );
   const stepsDirRelative = path.relative(validator.rootDir, stepsDir);
 
   for (const item of items) {
-    const sliceId = item.trim().replace(/\.md$/i, '');
+    const sliceId = normalizeParallelSliceReference(item, format);
     if (sliceId && !existingIds.has(sliceId)) {
       validator.addViolation({
         rule_id: 'parallel-ok.slices-exist',
         artifact: ARTIFACT,
         severity: 'warning',
         message: `Independent Slices references '${sliceId}' but no matching file exists in ${stepsDirRelative}/.`,
-        remediation: `Create ${stepsDirRelative}/${sliceId}.md or remove it from the Independent Slices list.`,
+        remediation: `Create ${stepsDirRelative}/${sliceId}${describeSliceArtifactFormat(format).extension} or remove it from the Independent Slices list.`,
       });
     }
   }
 }
 
-function independentSliceItems(lines: readonly string[]): string[] {
-  const bulletItems = extractBulletItems(lines)
-    .map((item) => item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '').replace(/\.md$/i, '') ?? '')
-    .filter(Boolean);
-  if (bulletItems.length > 0) {
-    return [...new Set(bulletItems)];
+function independentSliceItems(lines: readonly string[], format: 'markdown' | 'xml' = 'markdown'): string[] {
+  // When raw bullets exist, use them (format-aware) even if all are rejected —
+  // falling back to the free-text regex would re-extract a wrong-format ref as a
+  // bare id (the regex strips .md/.xml greedily), silently re-accepting it.
+  const rawBullets = extractBulletItems(lines);
+  if (rawBullets.length > 0) {
+    return [...new Set(
+      rawBullets
+        .map((item) => normalizeParallelSliceReference(
+          item.trim().split(/\s/)[0]?.replace(/^`|`$/g, '') ?? '',
+          format,
+        ))
+        .filter(Boolean),
+    )];
   }
   const content = normalizeText(lines);
   const matches = content.match(SLICE_ID_PATTERN) ?? [];
-  return [...new Set(matches.map((match) => match.replace(/\.md$/i, '')))];
+  return [...new Set(matches.map((match) => normalizeParallelSliceReference(match, format)).filter(Boolean))];
 }

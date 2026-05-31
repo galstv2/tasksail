@@ -181,6 +181,14 @@ export function useAppShell(
     || observability?.activeTasks?.length
     || observability?.operatorStatus?.activeTasks.length,
   );
+  const hasActiveContextPackTask = Boolean(
+    observability?.operatorStatus?.activeTasks.length
+    || observability?.activeTasks?.length
+    || observability?.activeTaskId,
+  );
+  const clearTerminalDisabledReason = hasActiveContextPackTask
+    ? 'Clear disabled while active context-pack tasks are running.'
+    : null;
 
   const mergedSidebarProps = useMemo(
     () => ({
@@ -218,6 +226,7 @@ export function useAppShell(
         await refreshObservedState();
       },
       onClearTerminal: clearTerminalEvents,
+      clearTerminalDisabledReason,
     }),
     [
       streamEvents,
@@ -231,6 +240,7 @@ export function useAppShell(
       addToast,
       refreshObservedState,
       clearTerminalEvents,
+      clearTerminalDisabledReason,
     ],
   );
 

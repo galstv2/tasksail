@@ -166,4 +166,16 @@ describe('getPlatformConfig', () => {
     expect(_ENV_SNAPSHOT_KEYS).toContain('TASKSAIL_CLI_PROVIDER');
   });
 
+  it('returns slice_artifact_format=markdown when absent from runtime config', async () => {
+    writeRuntimeConfig(tmpDir, FULL_CONFIG);
+    const config = await getPlatformConfig(tmpDir);
+    expect(config.slice_artifact_format).toBe('markdown');
+  });
+
+  it('returns slice_artifact_format=xml when runtime config declares it', async () => {
+    writeRuntimeConfig(tmpDir, { ...FULL_CONFIG, slice_artifact_format: 'xml' });
+    const config = await getPlatformConfig(tmpDir);
+    expect(config.slice_artifact_format).toBe('xml');
+  });
+
 });

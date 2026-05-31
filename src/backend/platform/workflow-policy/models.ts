@@ -236,9 +236,23 @@ export const SPEC_REQUIRED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
     containerHeadings: ['Current State and Boundaries'],
   },
   {
+    key: 'source-inventory',
+    preferredHeading: 'Source Inventory',
+    aliases: ['Current Symbols', 'Current Source Symbols'],
+    containerHeadings: ['Current State and Boundaries'],
+    allowContainerFallback: false,
+  },
+  {
     key: 'proposed-structure',
     preferredHeading: 'Proposed Structure',
     containerHeadings: ['Implementation Plan'],
+  },
+  {
+    key: 'slice-partition',
+    preferredHeading: 'Slice Partition',
+    aliases: ['Slice Plan', 'Slice Decomposition'],
+    containerHeadings: ['Implementation Plan'],
+    allowContainerFallback: false,
   },
   {
     key: 'validation-strategy',

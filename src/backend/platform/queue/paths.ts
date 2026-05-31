@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { readdirSync } from 'node:fs';
 import { findRepoRoot } from '../core/index.js';
+import type { SliceArtifactFormat } from '../platform-config/types.js';
 
 /**
  * Standard handoff artifact filenames that live in per-task handoffs directories.
@@ -17,8 +18,11 @@ export const HANDOFF_FILES: readonly string[] = [
 /** Marker file written during the handoff publish rename loop. */
 export const PUBLISH_MARKER = '.publish-in-progress';
 
-/** Canonical starter-slice template filename staged into ImplementationSteps/. */
+/** Canonical starter-slice template filename staged into ImplementationSteps/ (markdown mode). */
 export const SLICE_TEMPLATE_FILENAME = 'slice-template.md';
+
+/** Canonical starter-slice template filename for XML mode, staged into ImplementationSteps/. */
+export const SLICE_TEMPLATE_FILENAME_XML = 'slice-template.xml';
 
 /** Directory name that stores execution slices for the active task. */
 export const IMPLEMENTATION_STEPS_DIRNAME = 'ImplementationSteps';
@@ -174,11 +178,14 @@ export function templateSourceFor(
 
 /**
  * Resolve the canonical slice-template placeholder inside ImplementationSteps/.
+ * In xml mode the destination filename is slice-template.xml; otherwise slice-template.md.
  */
 export function implementationStepsTemplatePath(
   implementationStepsDir: string,
+  format: SliceArtifactFormat = 'markdown',
 ): string {
-  return path.join(implementationStepsDir, SLICE_TEMPLATE_FILENAME);
+  const filename = format === 'xml' ? SLICE_TEMPLATE_FILENAME_XML : SLICE_TEMPLATE_FILENAME;
+  return path.join(implementationStepsDir, filename);
 }
 
 /**

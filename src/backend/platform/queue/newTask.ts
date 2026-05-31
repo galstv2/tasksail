@@ -8,6 +8,7 @@ import {
   templateSourceFor,
 } from './paths.js';
 import { initializeTaskArtifacts, handoffWorkspaceIsReady, hasSubstantiveContent } from './lifecycle.js';
+import { loadPlatformConfig } from '../platform-config/load.js';
 import { stampRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import {
   buildImplementationSpecSectionsFromIntake,
@@ -221,6 +222,20 @@ export async function initializeTask(
   });
 
   if (withStarterSlice) {
+    // Fail closed before writing any starter slice when the configured future-task
+    // slice format is xml. Starter slices are markdown-only in this feature.
+    {
+      const platformConfigPath = path.join(repoRoot, '.platform-state', 'platform.json');
+      const platformConfigResult = await loadPlatformConfig(platformConfigPath);
+      if (platformConfigResult.valid && platformConfigResult.config.slice_artifact_format === 'xml') {
+        throw new Error(
+          '--with-starter-slice is not supported when slice_artifact_format is "xml". ' +
+          'Starter slices are markdown-only in this feature. ' +
+          'Set slice_artifact_format to "markdown" or omit --with-starter-slice.',
+        );
+      }
+    }
+
     // Verify pre-slice artifacts exist before creating a starter slice.
     const implSpec = path.join(perTaskHandoffsDir, 'implementation-spec.md');
     const hasImplSpec = await hasAuthoredContent(implSpec);

@@ -14,6 +14,7 @@ import {
   parseSections,
 } from '../index.js';
 import {
+  findSectionSpec,
   SLICE_REQUIRED_SECTION_SPECS,
   SPEC_REQUIRED_SECTION_SPECS,
 } from '../models.js';
@@ -185,9 +186,10 @@ describe('workflow-policy artifacts and formatting', () => {
       ],
     };
 
-    expect(
-      resolveSemanticSection(specSections, SPEC_REQUIRED_SECTION_SPECS[1]!),
-    ).toMatchObject({
+    expect(resolveSemanticSection(
+      specSections,
+      findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'goals'),
+    )).toMatchObject({
       heading: 'Desired Outcomes',
       source: 'nested-heading',
       content: ['- Preserve compatibility.'],
@@ -250,22 +252,34 @@ describe('workflow-policy artifacts and formatting', () => {
       ],
     };
 
-    expect(resolveSemanticSection(specSections, SPEC_REQUIRED_SECTION_SPECS[2]!)).toMatchObject({
+    expect(resolveSemanticSection(
+      specSections,
+      findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'non-goals'),
+    )).toMatchObject({
       heading: 'Non-Goals',
       source: 'nested-heading',
       content: ['- Do not rework queue behavior.'],
     });
-    expect(resolveSemanticSection(specSections, SPEC_REQUIRED_SECTION_SPECS[3]!)).toMatchObject({
+    expect(resolveSemanticSection(
+      specSections,
+      findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'architecture-summary'),
+    )).toMatchObject({
       heading: 'Architecture Summary',
       source: 'nested-heading',
       content: ['Grouped sections keep the scaffold stable.', ''],
     });
-    expect(resolveSemanticSection(specSections, SPEC_REQUIRED_SECTION_SPECS[4]!)).toMatchObject({
+    expect(resolveSemanticSection(
+      specSections,
+      findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'touched-systems'),
+    )).toMatchObject({
       heading: 'Touched Systems',
       source: 'nested-heading',
       content: ['- workflow-policy', ''],
     });
-    expect(resolveSemanticSection(specSections, SPEC_REQUIRED_SECTION_SPECS[8]!)).toMatchObject({
+    expect(resolveSemanticSection(
+      specSections,
+      findSectionSpec(SPEC_REQUIRED_SECTION_SPECS, 'proposed-structure'),
+    )).toMatchObject({
       heading: 'Proposed Structure',
       source: 'nested-heading',
       content: [''],
@@ -283,8 +297,10 @@ describe('workflow-policy artifacts and formatting', () => {
       'goals',
       'non-goals',
       'codebase-analysis',
+      'source-inventory',
       'dependency-analysis',
       'change-boundaries',
+      'slice-partition',
       'validation-strategy',
       'files-likely-to-change',
     ]) {

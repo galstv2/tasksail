@@ -534,3 +534,83 @@ describe('initializeTask — stamps Core Metadata and Task Lineage labels', () =
     expect(stamped).toContain('- Root Task ID:\n');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Track B: --with-starter-slice fail-closed when slice_artifact_format = xml
+// ---------------------------------------------------------------------------
+
+describe('--with-starter-slice: fail-closed in xml mode', () => {
+  let repoRoot: string;
+  let templatesDir: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-starter-slice-xml-'));
+    templatesDir = path.join(repoRoot, 'AgentWorkSpace', 'templates');
+    mkdirSync(templatesDir, { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
+
+    for (const filename of HANDOFF_FILES) {
+      writeFileSync(path.join(templatesDir, filename), `# ${filename}\n`);
+    }
+    writeFileSync(path.join(templatesDir, SLICE_TEMPLATE_FILENAME), '# slice\n');
+    // Also seed xml template so init does not fail on missing template
+    writeFileSync(path.join(templatesDir, 'slice-template.xml'), '<?xml?>\n');
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('fails before writing any starter slice when slice_artifact_format is xml', async () => {
+    // Seed platform config with xml format
+    const stateDir = path.join(repoRoot, '.platform-state');
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(
+      path.join(stateDir, 'platform.json'),
+      JSON.stringify({ schema_version: 1, container_runtime: 'docker', slice_artifact_format: 'xml' }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    // The xml guard fires BEFORE the hasAuthoredContent check, so no need to pre-seed content.
+    const taskId = 'xml-starter-blocked';
+
+    await expect(
+      initializeTask({ repoRoot, taskId, withStarterSlice: true, force: true }),
+    ).rejects.toThrow(/--with-starter-slice is not supported when slice_artifact_format is "xml"/);
+
+    // No starter slice must have been written
+    const implStepsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'ImplementationSteps');
+    const sliceFiles = existsSync(implStepsDir)
+      ? readdirSync(implStepsDir).filter((f) => f.startsWith('slice-0'))
+      : [];
+    expect(sliceFiles).toHaveLength(0);
+  });
+
+  it('does NOT throw xml guard error when slice_artifact_format is markdown (guard is format-gated)', async () => {
+    // When format is markdown the xml guard must not fire; the function proceeds
+    // past it. The hasAuthoredContent check may still block (blank template),
+    // but that is a distinct error — proof the xml guard does not trigger.
+    const stateDir = path.join(repoRoot, '.platform-state');
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(
+      path.join(stateDir, 'platform.json'),
+      JSON.stringify({ schema_version: 1, container_runtime: 'docker', slice_artifact_format: 'markdown' }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    const taskId = 'md-starter-guard-skip';
+    await expect(
+      initializeTask({ repoRoot, taskId, title: 'MD Starter', withStarterSlice: true, force: true }),
+    ).rejects.toThrow(/missing pre-slice artifacts/);
+    // The xml guard error is NOT thrown — the error message must not contain the xml guard text
+  });
+
+  it('does NOT throw xml guard error when no platform config file exists (defaults to markdown guard-skip)', async () => {
+    // No .platform-state directory — format defaults to markdown; xml guard must not fire.
+    const taskId = 'no-config-guard-skip';
+    await expect(
+      initializeTask({ repoRoot, taskId, title: 'No Config Starter', withStarterSlice: true, force: true }),
+    ).rejects.toThrow(/missing pre-slice artifacts/);
+    // Distinct from the xml guard error
+  });
+});

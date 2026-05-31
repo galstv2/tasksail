@@ -8,6 +8,7 @@ import {
   HANDOFF_TEMPLATE_SPECS,
   TEMPLATE_SOURCE_PATHS,
 } from '../rules/templateSpecs.js';
+import { missingRequiredSliceFields, parseSliceArtifactContent } from '../sliceArtifacts.js';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../../..');
 const RETROSPECTIVE_TEMPLATE = 'retrospective-input.md';
@@ -142,11 +143,33 @@ describe('implementation-spec template structure', () => {
     expect(implementationPlan).toContain('### Touched Systems');
     expect(implementationPlan).toContain('### Requirement Handling');
     expect(implementationPlan).toContain('### Proposed Structure');
+    expect(implementationPlan).toContain('### Slice Partition');
     expect(implementationPlan.indexOf('### Touched Systems')).toBeLessThan(
       implementationPlan.indexOf('### Requirement Handling'),
     );
     expect(implementationPlan.indexOf('### Requirement Handling')).toBeLessThan(
       implementationPlan.indexOf('### Proposed Structure'),
+    );
+    expect(implementationPlan.indexOf('### Proposed Structure')).toBeLessThan(
+      implementationPlan.indexOf('### Slice Partition'),
+    );
+  });
+
+  it('keeps Source Inventory nested under Current State and Boundaries', () => {
+    const markdown = readFileSync(
+      join(REPO_ROOT, 'AgentWorkSpace/templates/implementation-spec.md'),
+      'utf-8',
+    );
+    const currentState = sectionBody(markdown, 'Current State and Boundaries');
+
+    expect(currentState).toContain('### Codebase Analysis');
+    expect(currentState).toContain('### Source Inventory');
+    expect(currentState).toContain('### Dependency Analysis');
+    expect(currentState.indexOf('### Codebase Analysis')).toBeLessThan(
+      currentState.indexOf('### Source Inventory'),
+    );
+    expect(currentState.indexOf('### Source Inventory')).toBeLessThan(
+      currentState.indexOf('### Dependency Analysis'),
     );
   });
 
@@ -184,6 +207,9 @@ describe('implementation-spec template structure', () => {
     ]);
     expect(nestedHeadings).toEqual(expect.arrayContaining([
       'Inputs to Read',
+      'Current Symbols',
+      'Included Symbols',
+      'Excluded Symbols',
       'Requirement Coverage',
       'Allowed Changes',
       'Out of Scope',
@@ -200,9 +226,21 @@ describe('implementation-spec template structure', () => {
     const executionScope = sectionBody(markdown, 'Execution Scope');
 
     expect(executionScope).toContain('### Scope');
+    expect(executionScope).toContain('### Current Symbols');
+    expect(executionScope).toContain('### Included Symbols');
+    expect(executionScope).toContain('### Excluded Symbols');
     expect(executionScope).toContain('### Requirement Coverage');
     expect(executionScope).toContain('### Allowed Changes');
     expect(executionScope.indexOf('### Scope')).toBeLessThan(
+      executionScope.indexOf('### Current Symbols'),
+    );
+    expect(executionScope.indexOf('### Current Symbols')).toBeLessThan(
+      executionScope.indexOf('### Included Symbols'),
+    );
+    expect(executionScope.indexOf('### Included Symbols')).toBeLessThan(
+      executionScope.indexOf('### Excluded Symbols'),
+    );
+    expect(executionScope.indexOf('### Excluded Symbols')).toBeLessThan(
       executionScope.indexOf('### Requirement Coverage'),
     );
     expect(executionScope.indexOf('### Requirement Coverage')).toBeLessThan(
@@ -264,5 +302,113 @@ describe('Ron closeout template structure', () => {
     expect(headings).toContain('Review Outcome');
     expect(sectionBody(issues, 'Expectation Violated')).toContain('generated requirement');
     expect(sectionBody(issues, 'Expectation Violated')).toContain('CR-*, COMP-*, or VAL-*');
+  });
+});
+
+describe('XML slice template structure', () => {
+  const XML_TEMPLATE_PATH = join(REPO_ROOT, 'AgentWorkSpace/templates/slice-template.xml');
+
+  const XML_REQUIRED_FIELDS = [
+    'metadata/title',
+    'objective/purpose',
+    'objective/inputsToRead',
+    'dependenciesAndOrder/dependsOn',
+    'executionScope/scope',
+    'executionScope/currentSymbols',
+    'executionScope/includedSymbols',
+    'executionScope/excludedSymbols',
+    'executionScope/requirementCoverage',
+    'executionScope/allowedChanges',
+    'executionScope/outOfScope',
+    'executionScope/preservedBehavior',
+    'implementation/requiredChanges',
+    'filesAndInterfaces/files',
+    'filesAndInterfaces/unitTests',
+    'acceptanceAndValidation/acceptanceCriteria',
+    'acceptanceAndValidation/validationCommands',
+    'acceptanceAndValidation/staleAssumptionHandling',
+    'guardsAndCoordination/guards',
+    'guardsAndCoordination/coordination',
+    'guardsAndCoordination/closeoutRequirements',
+  ] as const;
+
+  it('slice-template.xml exists at the expected path', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    expect(content).toContain('<?xml');
+    expect(content).toContain('<executionSlice');
+  });
+
+  it('every required field has required="true" attribute', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    for (const fieldPath of XML_REQUIRED_FIELDS) {
+      const element = fieldPath.split('/')[1]!;
+      expect(
+        content,
+        `required field <${element}> must have required="true"`,
+      ).toMatch(new RegExp(`<${element}\\s+required="true"`));
+    }
+  });
+
+  it('every required prose field carries guidance as a plain XML comment (no CDATA); validationCommands uses CDATA', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    // Prose fields: guidance is a plain XML comment in the element body. CDATA is
+    // reserved for validationCommands, which wraps a literal bash code block.
+    const proseFields = XML_REQUIRED_FIELDS.filter(
+      (f) => f !== 'acceptanceAndValidation/validationCommands',
+    );
+    for (const fieldPath of proseFields) {
+      const element = fieldPath.split('/')[1]!;
+      const elementPattern = new RegExp(
+        `<${element}[^>]*>([\\s\\S]*?)</${element}>`,
+      );
+      const match = elementPattern.exec(content);
+      expect(match, `<${element}> must be present`).toBeTruthy();
+      const body = match![1] ?? '';
+      expect(body, `<${element}> must carry XML-comment guidance`).toContain('<!--');
+      expect(body, `<${element}> is prose and must not use CDATA`).not.toContain('<![CDATA[');
+    }
+    const vc = /<validationCommands[^>]*>([\s\S]*?)<\/validationCommands>/.exec(content);
+    expect(vc, 'validationCommands must be present').toBeTruthy();
+    expect(vc![1] ?? '', 'validationCommands must use CDATA for its code block').toContain('<![CDATA[');
+  });
+
+  it('sourceTrace is not in required fields and parseSliceArtifactContent excludes it', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    // parseSliceArtifactContent on the template with comment-only bodies
+    const parsed = parseSliceArtifactContent({
+      filePath: XML_TEMPLATE_PATH,
+      text: content,
+      format: 'xml',
+    });
+    expect(Object.keys(parsed.requiredFields)).not.toContain('sourceTrace/notes');
+    expect(Object.keys(parsed.requiredFields)).not.toContain('sourceTrace/implementationSpecPath');
+  });
+
+  it('template fields are all considered incomplete (comment-only/template-only)', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    const parsed = parseSliceArtifactContent({
+      filePath: XML_TEMPLATE_PATH,
+      text: content,
+      format: 'xml',
+    });
+    // Template fields are all incomplete — that's expected (they are the template)
+    const missing = missingRequiredSliceFields(parsed);
+    // All required fields should appear as missing (template-comment-only)
+    expect(missing.length).toBeGreaterThan(0);
+    expect(missing).toContain('metadata/title');
+    expect(missing).toContain('objective/purpose');
+    expect(missing).toContain('executionScope/scope');
+  });
+
+  it('validationCommands has a bash fence placeholder (not comment-only)', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    // validationCommands has ``` bash fence with "# commands here" inside
+    expect(content).toContain('```bash');
+    expect(content).toContain('# commands here');
+  });
+
+  it('executionSlice root element has id="slice-N" and version="1.0"', () => {
+    const content = readFileSync(XML_TEMPLATE_PATH, 'utf-8');
+    expect(content).toContain('<executionSlice id="slice-N" version="1.0">');
   });
 });

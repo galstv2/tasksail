@@ -39,6 +39,7 @@ import {
 } from './markdown.js';
 import { registerTask, removeTask, transitionTask } from './taskRegistry.js';
 import { getPlatformConfig } from '../platform-config/get.js';
+import { loadPlatformConfig } from '../platform-config/load.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
 import { startPipeline } from '../agent-runner/pipelineSupervisor.js';
 import { ensureSharedMcpRunning } from '../container/sharedMcp.js';
@@ -1277,6 +1278,28 @@ export async function activateNextPendingItemIfReady(
     });
   }
 
+  // Resolve slice artifact format from platform config. Call loadPlatformConfig directly
+  // (not getPlatformConfig) so we can distinguish absent-file (=> markdown default) from
+  // invalid-field (=> fail closed). Absence of .platform-state/platform.json is allowed
+  // in isolated test environments; any other validation error blocks activation.
+  let sliceArtifactFormat: import('../platform-config/types.js').SliceArtifactFormat = 'markdown';
+  {
+    const platformConfigPath = path.join(repoRoot, '.platform-state', 'platform.json');
+    const platformConfigResult = await loadPlatformConfig(platformConfigPath);
+    if (platformConfigResult.valid) {
+      sliceArtifactFormat = platformConfigResult.config.slice_artifact_format;
+    } else {
+      const isFileMissing = platformConfigResult.errors.every((e) => e.field === '(file)');
+      if (!isFileMissing) {
+        const details = platformConfigResult.errors
+          .map((e) => `${e.field}: ${e.message} (${e.fix})`)
+          .join('; ');
+        throw new Error(`Invalid platform config; cannot activate task "${taskId}": ${details}`);
+      }
+      // File absent: default to markdown for compatibility.
+    }
+  }
+
   const perTaskSidecar = {
     schema_version: 1,
     taskId,
@@ -1298,6 +1321,7 @@ export async function activateNextPendingItemIfReady(
     frozenAt: new Date().toISOString(),
     finalizedAt: null,
     state: 'active',
+    sliceArtifactFormat,
   };
 
   await writeFile(
@@ -1318,6 +1342,7 @@ export async function activateNextPendingItemIfReady(
       lineage,
       sections,
       implementationStepsDir: taskImplStepsDir,
+      sliceArtifactFormat,
     });
     // Stage the intake markdown into the per-task handoffs dir so agents
     // (notably Alice) can read their own task's intake without being granted

@@ -598,6 +598,125 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(b2!.mergedVia).toBe('branch-deleted');
   });
 
+  // -------------------------------------------------------------------------
+  // sliceArtifactFormat normalization
+  // -------------------------------------------------------------------------
+
+  it('sliceArtifactFormat: absent field normalizes to markdown', () => {
+    const taskId = 'legacy-no-format';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.sliceArtifactFormat).toBe('markdown');
+  });
+
+  it('sliceArtifactFormat: markdown value reads correctly', () => {
+    const taskId = 'format-markdown';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        sliceArtifactFormat: 'markdown',
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.sliceArtifactFormat).toBe('markdown');
+  });
+
+  it('sliceArtifactFormat: xml value reads correctly', () => {
+    const taskId = 'format-xml';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        sliceArtifactFormat: 'xml',
+      }, null, 2) + '\n',
+    );
+
+    const result = readTaskJson(taskId, repoRoot);
+    expect(result.sliceArtifactFormat).toBe('xml');
+  });
+
+  it('sliceArtifactFormat: invalid value fails closed as corrupt task metadata', () => {
+    const taskId = 'format-invalid';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 2,
+        taskId,
+        state: 'active',
+        frozenAt: new Date().toISOString(),
+        finalizedAt: null,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        sliceArtifactFormat: 'json',
+      }, null, 2) + '\n',
+    );
+
+    let caughtPayload: Record<string, unknown> | undefined;
+    try {
+      readTaskJson(taskId, repoRoot);
+    } catch (err) {
+      if (isTaskSidecarError(err)) {
+        caughtPayload = err.payload as unknown as Record<string, unknown>;
+      }
+    }
+    expect(caughtPayload).toBeDefined();
+    expect(caughtPayload!['code']).toBe('task-sidecar-corrupt');
+  });
+
   // §3.5 Phase 3 gate — sidecar wins over mutated .env under TASKSAIL_TASK_ID.
   it('§3.5: with TASKSAIL_TASK_ID set, returns the sidecar-bound pack even when .env is mutated mid-run', async () => {
     const taskId = 'task-a';

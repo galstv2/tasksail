@@ -118,6 +118,9 @@ export function buildAgentEnvironment(
     // Windows env-block ceiling, spills to <name>_FILE instead.
     if (taskId) {
       const taskSidecar = readTaskJsonSafe(taskId, effectiveRepoRoot);
+      // Emit frozen slice artifact format so agents know which format Alice used.
+      // Legacy sidecars without the field normalize to 'markdown' in readTaskJsonSafe.
+      env['TASKSAIL_SLICE_ARTIFACT_FORMAT'] = taskSidecar?.sliceArtifactFormat ?? 'markdown';
       if (
         taskSidecar
         && (

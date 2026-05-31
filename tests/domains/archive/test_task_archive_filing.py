@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -868,6 +869,265 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             self.assertEqual(archive_payload["difficulty_level"], "Medium")
             self.assertNotIn("<!--", json.dumps(archive_payload))
             self.assertNotIn("<!--", archive_markdown)
+
+
+    def _write_task_sidecar(self, repo_root: Path, task_id: str, slice_format: str | None) -> Path:
+        """Write a .task.json sidecar under AgentWorkSpace/tasks/<task_id>/."""
+        task_dir = repo_root / "AgentWorkSpace" / "tasks" / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        sidecar: dict = {
+            "schema_version": 2,
+            "taskId": task_id,
+            "contextPackBinding": {
+                "contextPackPath": None,
+                "dataHostDir": None,
+                "dataContainerDir": None,
+                "repoBindings": [],
+            },
+            "materialization": {
+                "strategy": "copy",
+                "cloned": [],
+                "skipped": [],
+                "composeProjectName": "",
+            },
+            "frozenAt": "2026-01-01T00:00:00.000Z",
+            "finalizedAt": None,
+            "state": "active",
+        }
+        if slice_format is not None:
+            sidecar["sliceArtifactFormat"] = slice_format
+        path = task_dir / ".task.json"
+        path.write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def _run_archive_script_with_task_env(
+        self,
+        *,
+        repo_root: Path,
+        context_pack_dir: Path,
+        task_env: str | None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        if task_env is None:
+            env.pop("TASKSAIL_TASK_ID", None)
+        else:
+            env["TASKSAIL_TASK_ID"] = task_env
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.script_path),
+                "--repo-root",
+                str(repo_root),
+                "--context-pack-dir",
+                str(context_pack_dir),
+                "--qmd-scope",
+                "qmd/context-packs/sample-org",
+            ],
+            cwd=self.repo_root,
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+
+    def test_archive_xml_slices_included_and_template_skipped(self) -> None:
+        """XML mode archives slice-N.xml and skips slice-template.xml."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self._write_task_sidecar(repo_root, "CAP-2001", "xml")
+            impl_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            impl_steps.mkdir(parents=True, exist_ok=True)
+            (impl_steps / "slice-1.xml").write_text(
+                '<?xml version="1.0"?><executionSlice id="slice-1"/>', encoding="utf-8"
+            )
+            (impl_steps / "slice-template.xml").write_text(
+                '<?xml version="1.0"?><executionSlice id="slice-N"/>', encoding="utf-8"
+            )
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            result = json.loads(completed.stdout)
+            manifest_path = self.task_archive_manifest_path(context_pack_dir)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            archived_names = [
+                Path(f["archive_relative_path"]).name
+                for f in manifest["files"]
+                if f["kind"] == "implementation-step"
+            ]
+            self.assertIn("slice-1.xml", archived_names, "slice-1.xml should be archived in xml mode")
+            self.assertNotIn("slice-template.xml", archived_names, "slice-template.xml must be skipped")
+
+    def test_archive_slice_format_uses_archived_task_id_not_task_env(self) -> None:
+        """Archive slice format is resolved from the task being archived, not ambient env."""
+        for task_env in (None, "STALE-TASK"):
+            with self.subTest(task_env=task_env):
+                with tempfile.TemporaryDirectory() as temp_root:
+                    temp_path = Path(temp_root)
+                    repo_root = temp_path / "repo"
+                    context_pack_dir = temp_path / "sample-org"
+                    context_pack_dir.mkdir(parents=True, exist_ok=True)
+                    self.base_handoffs(repo_root, child_task=False)
+                    self._write_task_sidecar(repo_root, "CAP-2001", "xml")
+                    active_root = (
+                        repo_root / "AgentWorkSpace"
+                        if task_env is None
+                        else repo_root / "AgentWorkSpace" / "tasks" / task_env
+                    )
+                    shutil.copytree(
+                        repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "handoffs",
+                        active_root / "handoffs",
+                    )
+                    if task_env is not None:
+                        self._write_task_sidecar(repo_root, task_env, "markdown")
+                    impl_steps = active_root / "ImplementationSteps"
+                    impl_steps.mkdir(parents=True, exist_ok=True)
+                    (impl_steps / "slice-1.xml").write_text(
+                        '<?xml version="1.0"?><executionSlice id="slice-1"/>',
+                        encoding="utf-8",
+                    )
+
+                    completed = self._run_archive_script_with_task_env(
+                        repo_root=repo_root,
+                        context_pack_dir=context_pack_dir,
+                        task_env=task_env,
+                    )
+
+                    self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+                    manifest = json.loads(
+                        self.task_archive_manifest_path(context_pack_dir).read_text(encoding="utf-8")
+                    )
+                    archived_names = [
+                        Path(f["archive_relative_path"]).name
+                        for f in manifest["files"]
+                        if f["kind"] == "implementation-step"
+                    ]
+                    self.assertEqual(archived_names, ["slice-1.xml"])
+
+    def test_archive_xml_mode_fails_when_stray_md_slice_present(self) -> None:
+        """XML archive mode fails closed when a wrong-format slice-N.md is present."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self._write_task_sidecar(repo_root, "CAP-2001", "xml")
+            impl_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            impl_steps.mkdir(parents=True, exist_ok=True)
+            # Wrong-format file: markdown slice in xml mode
+            (impl_steps / "slice-1.md").write_text("# Slice 1\nContent.", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertNotEqual(completed.returncode, 0, "archive should fail when wrong-format slice found")
+            self.assertIn("wrong-format", completed.stderr)
+            self.assertIn("slice-1.md", completed.stderr)
+
+    def test_archive_markdown_mode_fails_when_stray_xml_slice_present(self) -> None:
+        """Markdown archive mode fails closed when a wrong-format slice-N.xml is present."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self._write_task_sidecar(repo_root, "CAP-2001", "markdown")
+            impl_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            impl_steps.mkdir(parents=True, exist_ok=True)
+            # Wrong-format file: xml slice in markdown mode
+            (impl_steps / "slice-1.xml").write_text(
+                '<?xml version="1.0"?><executionSlice id="slice-1"/>', encoding="utf-8"
+            )
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertNotEqual(completed.returncode, 0, "archive should fail when wrong-format slice found")
+            self.assertIn("wrong-format", completed.stderr)
+            self.assertIn("slice-1.xml", completed.stderr)
+
+    def test_archive_invalid_sidecar_slice_format_fails(self) -> None:
+        """Invalid sliceArtifactFormat in .task.json fails archive as corrupt task metadata."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            self._write_task_sidecar(repo_root, "CAP-2001", "invalid-format")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertNotEqual(completed.returncode, 0, "archive should fail on invalid sliceArtifactFormat")
+            self.assertIn("invalid", completed.stderr.lower())
+
+    def test_archive_missing_sidecar_slice_format_defaults_to_markdown(self) -> None:
+        """Missing sliceArtifactFormat in .task.json archives as markdown (legacy behavior)."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            # Write sidecar without sliceArtifactFormat field
+            self._write_task_sidecar(repo_root, "CAP-2001", None)
+            impl_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            impl_steps.mkdir(parents=True, exist_ok=True)
+            (impl_steps / "slice-1.md").write_text("# Slice 1\nContent.", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            manifest_path = self.task_archive_manifest_path(context_pack_dir)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            archived_names = [
+                Path(f["archive_relative_path"]).name
+                for f in manifest["files"]
+                if f["kind"] == "implementation-step"
+            ]
+            self.assertIn("slice-1.md", archived_names)
+
+    def test_archive_markdown_behavior_unchanged_without_sidecar(self) -> None:
+        """Markdown archive behavior is unchanged when no .task.json sidecar exists."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+            self.base_handoffs(repo_root, child_task=False)
+            # No sidecar written — legacy behavior
+            impl_steps = repo_root / "AgentWorkSpace" / "tasks" / "CAP-2001" / "ImplementationSteps"
+            impl_steps.mkdir(parents=True, exist_ok=True)
+            (impl_steps / "slice-1.md").write_text("# Slice 1\nContent.", encoding="utf-8")
+            (impl_steps / "slice-template.md").write_text("# Template", encoding="utf-8")
+
+            completed = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            manifest_path = self.task_archive_manifest_path(context_pack_dir)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            archived_names = [
+                Path(f["archive_relative_path"]).name
+                for f in manifest["files"]
+                if f["kind"] == "implementation-step"
+            ]
+            self.assertIn("slice-1.md", archived_names)
+            self.assertNotIn("slice-template.md", archived_names)
 
 
 if __name__ == "__main__":

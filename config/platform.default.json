@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "cli_provider": "copilot",
+  "slice_artifact_format": "markdown",
   "container_runtime": "direct",
   "container_engine_host": "auto",
   "container_engine_wsl_distro": null,

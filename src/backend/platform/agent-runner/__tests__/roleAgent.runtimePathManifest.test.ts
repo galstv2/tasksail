@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   formatAgentCommand: vi.fn(() => 'cmd'),
   buildAgentEnvironment: vi.fn(() => ({
     TASKSAIL_TASK_ID: 'task-1',
+    TASKSAIL_SLICE_ARTIFACT_FORMAT: 'markdown',
     TASKSAIL_TASK_BRANCHES: '[{"repoId":"platform","role":"primary","branch":"task"}]',
     COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-1/handoffs',
     COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-1/ImplementationSteps',
@@ -272,6 +273,14 @@ describe('roleAgent Runtime Path Manifest', () => {
       const providerEnvVars = call[0].providerEnvVars as Array<{ name: string }>;
       expect(providerEnvVars.map((entry) => entry.name)).not.toContain('COPILOT_SKILLS_DIRS');
     }
+  });
+
+  it('passes TASKSAIL_SLICE_ARTIFACT_FORMAT from final env into the manifest', async () => {
+    mocks.resolveAgentProfile.mockReturnValue(profile('alice'));
+    await runRoleAgent({ agentId: 'alice', taskId: 'task-1', skipWorkflowValidation: true });
+
+    const manifestCall = mocks.buildAgentRuntimePathManifest.mock.calls[0];
+    expect(manifestCall[0].env).toHaveProperty('TASKSAIL_SLICE_ARTIFACT_FORMAT', 'markdown');
   });
 
   it('keeps dry-run side-effect-free and skips Runtime Path Manifest construction', async () => {

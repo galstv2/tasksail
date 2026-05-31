@@ -147,6 +147,33 @@ describe('seedPlatformConfig', () => {
     }
   });
 
+  it('propagates default-declared slice_artifact_format into the runtime and wins over runtime edits', async () => {
+    const defaultWithFormat = JSON.stringify({
+      schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+      cli_provider: 'copilot',
+      container_runtime: 'docker',
+      slice_artifact_format: 'markdown',
+    });
+    writeDefault(defaultWithFormat);
+
+    // First seed propagates the committed default value into the runtime file.
+    await seedPlatformConfig(tmpDir);
+    let data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
+    expect(data.slice_artifact_format).toBe('markdown');
+
+    // Operator edits the runtime file directly; the committed default still wins on re-seed
+    // (default keys override the runtime file), so the format reverts to the declared value.
+    data.slice_artifact_format = 'xml';
+    fs.writeFileSync(runtimePath(), JSON.stringify(data), 'utf-8');
+
+    const result = await seedPlatformConfig(tmpDir);
+    expect(result.action).toBe('updated');
+
+    data = JSON.parse(fs.readFileSync(runtimePath(), 'utf-8'));
+    expect(data.slice_artifact_format).toBe('markdown');
+    expect(data.container_runtime).toBe('docker');
+  });
+
   it('seeding a runtime file missing new fields rewrites it to match default; getPlatformConfig returns seeded values', async () => {
     // Write a full default with all new fields
     writeDefault(FULL_DEFAULT_JSON);

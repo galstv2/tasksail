@@ -19,7 +19,60 @@ from .storage import (
     detect_source_ref,
 )
 
-SLICE_PATTERN = re.compile(r"\b(slice-[A-Za-z0-9-]+\.md)\b")
+# Matches active-format slice filenames (md or xml) referenced in text bodies.
+SLICE_PATTERN = re.compile(r"\b(slice-[A-Za-z0-9-]+\.(?:md|xml))\b")
+
+_VALID_SLICE_FORMATS = frozenset({"markdown", "xml"})
+
+
+def resolve_slice_format(repo_root: Path, task_id: str) -> str:
+    """Read the frozen slice format from .task.json for the archived task.
+
+    Returns 'markdown' when the sidecar is absent or the format field is missing.
+    Raises ValueError when the format field is present but has an invalid value.
+    """
+    normalized_task_id = task_id.strip()
+    if not normalized_task_id:
+        return "markdown"
+    sidecar_path = repo_root / "AgentWorkSpace" / "tasks" / normalized_task_id / ".task.json"
+    if not sidecar_path.exists():
+        return "markdown"
+    try:
+        raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(
+            f"Archive filing blocked: .task.json is not valid JSON for task {normalized_task_id}: {exc}"
+        ) from exc
+    raw_format = raw.get("sliceArtifactFormat")
+    if raw_format is None:
+        return "markdown"
+    if raw_format not in _VALID_SLICE_FORMATS:
+        raise ValueError(
+            f'Archive filing blocked: sliceArtifactFormat in .task.json is invalid '
+            f'(got {raw_format!r}); expected "markdown" or "xml" for task {normalized_task_id}'
+        )
+    # Return the validated value as the local slice_format
+    slice_format: str = raw_format
+    return slice_format
+
+
+def is_active_slice_file(name: str, slice_format: str) -> bool:
+    """Return True if the filename is an active-format slice file (not the template)."""
+    if slice_format == "xml":
+        return bool(re.match(r"^slice-[1-9]\d*\.xml$", name))
+    return bool(re.match(r"^slice-[1-9]\d*\.md$", name))
+
+
+def is_wrong_format_slice_file(name: str, slice_format: str) -> bool:
+    """Return True if the filename is a wrong-format active slice (not a template)."""
+    if slice_format == "xml":
+        return bool(re.match(r"^slice-[1-9]\d*\.md$", name))
+    return bool(re.match(r"^slice-[1-9]\d*\.xml$", name))
+
+
+def is_slice_template_file(name: str) -> bool:
+    """Return True if the filename is a slice template (excluded from archival)."""
+    return name in ("slice-template.md", "slice-template.xml")
 logger = logging.getLogger(__name__)
 
 

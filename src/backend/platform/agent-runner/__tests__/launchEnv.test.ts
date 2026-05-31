@@ -9,6 +9,7 @@ const TASKSAIL_LAUNCH_CONTROLLED_ENV_KEYS = [
   'TASKSAIL_TASK_BRANCHES_FILE',
   'TASKSAIL_TASK_WORKTREES',
   'TASKSAIL_TASK_WORKTREES_FILE',
+  'TASKSAIL_SLICE_ARTIFACT_FORMAT',
   'RUN_ROLE_AGENT_ACTIVE_MODEL',
   'RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS',
   'RUN_ROLE_AGENT_ORCHESTRATOR_ID',
@@ -98,6 +99,15 @@ describe('buildTaskLaunchBaseEnv', () => {
     expect(env).toEqual({ PATH: '/usr/bin' });
     expect(baseEnv).toHaveProperty('TASKSAIL_TASK_ID', 'stale');
     expect(baseEnv).toHaveProperty('UNDEFINED_VALUE', undefined);
+  });
+
+  it('scrubs TASKSAIL_SLICE_ARTIFACT_FORMAT from inherited operator shell', () => {
+    const env = buildTaskLaunchBaseEnv({
+      PATH: '/usr/bin',
+      TASKSAIL_SLICE_ARTIFACT_FORMAT: 'xml',
+    });
+    expect(env).not.toHaveProperty('TASKSAIL_SLICE_ARTIFACT_FORMAT');
+    expect(env['PATH']).toBe('/usr/bin');
   });
 
   it('allows explicit per-launch overlays after scrubbing', () => {

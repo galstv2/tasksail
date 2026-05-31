@@ -2,6 +2,8 @@ import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 
 export const CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION = 1;
 
+export type SliceArtifactFormat = 'markdown' | 'xml';
+
 export const VALID_ENGINE_HOSTS: ReadonlySet<ContainerEngineHost> = new Set([
   'auto',
   'native',
@@ -35,6 +37,7 @@ export interface PlatformConfig {
   external_mcp_local_enabled: boolean;
   mcp_port: number;
   repo_context_mcp_external_mount_roots: string[];
+  slice_artifact_format: SliceArtifactFormat;
 }
 
 export interface PlatformConfigValidationError {

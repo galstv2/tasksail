@@ -61,12 +61,14 @@ describe('artifact completion details', () => {
     + '### Non-Goals\n\n- Do not change unrelated behavior.\n\n'
     + '## Current State and Boundaries\n\n'
     + '### Codebase Analysis\n\n- Existing files define the current behavior.\n\n'
+    + '### Source Inventory\n\n- SYM-001: src/example.ts focused behavior.\n\n'
     + '### Dependency Analysis\n\n| Dependency | Impact |\n| --- | --- |\n| platform | direct |\n\n'
     + '### Change Boundaries\n\n- Keep the change scoped.\n\n'
     + '## Implementation Plan\n\n'
     + '### Architecture Summary\n\nUse the existing implementation path.\n\n'
     + '### Touched Systems\n\n- platform\n\n'
     + '### Proposed Structure\n\n- Update focused code and tests.\n\n'
+    + '### Slice Partition\n\n- slice-1 owns SYM-001 and focused validation.\n\n'
     + '## Validation and Evidence\n\n'
     + '### Validation Strategy\n\n```bash\npnpm test\n```\n\n'
     + '## Change Surface\n\n'
@@ -78,6 +80,7 @@ describe('artifact completion details', () => {
     writeFileSync(
       path.join(implStepsDir, 'slice-1.md'),
       '# Slice\n\n## Purpose\n\nDo work.\n\n## Depends On\n\nNone.\n\n## Scope\n\n- code\n\n'
+      + '## Current Symbols\n\nNone.\n\n## Included Symbols\n\nNone.\n\n## Excluded Symbols\n\nNone.\n\n'
       + '## Files\n\n- file.ts\n\n## Acceptance Criteria\n\n- works\n\n## Unit Tests\n\n- test\n\n'
       + '## Validation Commands\n\n```bash\npnpm test\n```\n\n## Guards\n\nNo drift.\n',
       'utf-8',

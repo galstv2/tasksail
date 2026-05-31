@@ -19,6 +19,15 @@
 ### Scope
 <!-- required changes, preserved behavior, and relevant requirement IDs from Intake Requirements. For small tasks, use a few exact bullets; for large tasks, include sequencing, data flow, failure behavior, and integration boundaries in enough detail to prevent guessing. -->
 
+### Current Symbols
+<!-- source-derived inventory of every existing route group, endpoint, class, handler, file, or other symbol whose inclusion or exclusion affects this slice; for refactors/extractions, list all relevant current symbols found in source, not only the ones being changed; write "Source inspection found no existing source symbols" only when source inspection proves there are none; write "None" only when no source symbol inventory applies -->
+
+### Included Symbols
+<!-- exact Current Symbols entries this slice may change, move, extract, or otherwise implement; write "None" only when this slice changes no existing source symbols -->
+
+### Excluded Symbols
+<!-- exact Current Symbols entries intentionally left unchanged or out of scope, with a short reason when useful; write "None" only when every current symbol is intentionally included or no source symbol inventory applies -->
+
 ### Requirement Coverage
 <!-- List only the CR-*, COMP-*, and VAL-* IDs this slice implements, preserves, or validates. Write "None" only when no generated requirement applies directly to this slice. Do not paste every ID by default. -->
 

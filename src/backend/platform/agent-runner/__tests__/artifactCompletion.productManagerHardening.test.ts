@@ -53,7 +53,7 @@ describe('product-manager artifact completion hardening', () => {
     taskId,
   });
 
-  function completeImplementationSpec(): string {
+  function completeImplementationSpec(partitionSlices: readonly string[] = ['slice-1']): string {
     return [
       '# Implementation Spec',
       '',
@@ -73,6 +73,9 @@ describe('product-manager artifact completion hardening', () => {
       '### Codebase Analysis',
       '- Existing code owns current behavior.',
       '',
+      '### Source Inventory',
+      '- SYM-001: src/example.ts focused behavior.',
+      '',
       '### Dependency Analysis',
       '| Dependency | Impact |',
       '| --- | --- |',
@@ -91,6 +94,9 @@ describe('product-manager artifact completion hardening', () => {
       '',
       '### Proposed Structure',
       '- Update focused code and tests.',
+      '',
+      '### Slice Partition',
+      ...partitionSlices.map((slice) => `- ${slice} owns part of the plan with focused validation.`),
       '',
       '## Validation and Evidence',
       '',
@@ -119,6 +125,15 @@ describe('product-manager artifact completion hardening', () => {
       '## Scope',
       '- Focused code change.',
       '',
+      '## Current Symbols',
+      'None.',
+      '',
+      '## Included Symbols',
+      'None.',
+      '',
+      '## Excluded Symbols',
+      'None.',
+      '',
       '## Files',
       '- src/example.ts',
       '',
@@ -138,8 +153,8 @@ describe('product-manager artifact completion hardening', () => {
     ].join('\n');
   }
 
-  function writeBaseArtifacts(decision = 'Simple', independentSlices = 'None.'): void {
-    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(), 'utf-8');
+  function writeBaseArtifacts(decision = 'Simple', independentSlices = 'None.', partitionSlices: readonly string[] = ['slice-1']): void {
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), completeImplementationSpec(partitionSlices), 'utf-8');
     writeFileSync(
       path.join(handoffsDir, 'parallel-ok.md'),
       [
@@ -190,7 +205,7 @@ describe('product-manager artifact completion hardening', () => {
   });
 
   it('accepts Complex when Independent Slices lists existing complete slices', async () => {
-    writeBaseArtifacts('Complex', '- slice-1.md\n- slice-2.md\n- slice-3.md');
+    writeBaseArtifacts('Complex', '- slice-1.md\n- slice-2.md\n- slice-3.md', ['slice-1', 'slice-2', 'slice-3']);
     writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeSlice('First slice.'), 'utf-8');
     writeFileSync(path.join(implStepsDir, 'slice-2.md'), completeSlice('Second slice.'), 'utf-8');
     writeFileSync(path.join(implStepsDir, 'slice-3.md'), completeSlice('Third slice.'), 'utf-8');
@@ -204,6 +219,36 @@ describe('product-manager artifact completion hardening', () => {
   it('keeps Simple valid without Independent Slices content', async () => {
     writeBaseArtifacts('Simple', 'None.');
     writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeSlice('Implement the simple path.'), 'utf-8');
+
+    await expect(checkAgentArtifactCompletionDetails(options())).resolves.toEqual({
+      complete: true,
+      reasons: [],
+    });
+  });
+
+  it('accepts substantive Slice Partition prose without parsing slice ids', async () => {
+    writeBaseArtifacts('Simple', 'None.', ['Slice 1', 'No slice 2 is planned']);
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeSlice('Only slice.'), 'utf-8');
+
+    await expect(checkAgentArtifactCompletionDetails(options())).resolves.toEqual({
+      complete: true,
+      reasons: [],
+    });
+  });
+
+  it('accepts substantive Slice Partition tables without parsing slice ids', async () => {
+    writeBaseArtifacts('Simple', 'None.');
+    const tableSpec = completeImplementationSpec()
+      .replace(
+        '- slice-1 owns part of the plan with focused validation.',
+        [
+          '| Slice | Owned work |',
+          '| --- | --- |',
+          '| `slice-1.md` | Owns the implementation plan; no slice 2 is planned. |',
+        ].join('\n'),
+    );
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), tableSpec, 'utf-8');
+    writeFileSync(path.join(implStepsDir, 'slice-1.md'), completeSlice('Only slice.'), 'utf-8');
 
     await expect(checkAgentArtifactCompletionDetails(options())).resolves.toEqual({
       complete: true,

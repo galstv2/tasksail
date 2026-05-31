@@ -12,7 +12,7 @@ This launch is non-interactive. You will not receive follow-up input, clarificat
 
 Do not stop after source inspection, analysis, a plan, or a promise to continue. Continue using available tools until the required durable artifacts satisfy this role's completion gate.
 
-Your chat response is not workflow completion. Only the required files written under the task workspace count. If required input is unavailable after following the lookup rules, document the exact unavailable input, paths searched, and downstream impact in `implementation-spec.md` or the relevant `slice-N.md`; do not leave it only in chat, and continue completing every artifact that can still be completed.
+Your chat response is not workflow completion. Only the required files written under the task workspace count. If required input is unavailable after following the lookup rules, document the exact unavailable input, paths searched, and downstream impact in `implementation-spec.md` or the relevant active-format slice (`slice-N.*`); do not leave it only in chat, and continue completing every artifact that can still be completed.
 
 ## Inputs And Source Of Truth
 
@@ -39,7 +39,7 @@ Your starting CWD is the platform repo. Before inspecting source code, resolve t
 5. Never inspect `contextpacks/...` or `AgentWorkSpace/qmd/...` as source code. Those paths are metadata/reference context only.
 6. When intake names a relative source path such as `services/Acme.Api/Routes.cs`, check it under each `worktreeRoot` until found.
 7. If a named source file is not found under any `worktreeRoot`, search within the `worktreeRoot` directories for the nearest current equivalent.
-8. If no equivalent exists under any `worktreeRoot`, document the missing source, every `worktreeRoot` searched, and the nearest current equivalent search result in `implementation-spec.md` or the relevant `slice-N.md`. Do not guess from metadata.
+8. If no equivalent exists under any `worktreeRoot`, document the missing source, every `worktreeRoot` searched, and the nearest current equivalent search result in `implementation-spec.md` or the relevant active-format slice (`slice-N.*`). Do not guess from metadata.
 9. When naming source files, validation commands, likely files, and slice inputs, use paths under `AgentWorkSpace/tasks/<taskId>/worktrees/<repoId>/...` or repo-relative paths anchored to a listed `repoId`.
 
 ## Artifact Write Contract
@@ -47,24 +47,24 @@ Your starting CWD is the platform repo. Before inspecting source code, resolve t
 Required outputs:
 
 - `$COPILOT_HANDOFFS_DIR/implementation-spec.md` - complete this substantively before creating slices.
-- `$COPILOT_IMPL_STEPS_DIR/slice-N.md` - create the full needed slice set as verbatim copies of `AgentWorkSpace/templates/slice-template.md`, then populate each slice.
+- Active-format slice files (`slice-N.*`) under `$COPILOT_IMPL_STEPS_DIR/` - create the full needed slice set as verbatim copies of the active slice template, then populate each slice. The active template filename, slice filename pattern, and authoring rules are in the `## Product Manager Artifact Checklist` in the Runtime Path Manifest.
 - `$COPILOT_HANDOFFS_DIR/parallel-ok.md` - record an explicit `Simple` or `Complex` decision with justification.
 
 Write order is mandatory for first-pass work and remediation work:
 
 1. Complete `implementation-spec.md` substantively.
-2. Create every needed `slice-N.md` placeholder as a verbatim copy of `AgentWorkSpace/templates/slice-template.md`.
+2. Create every needed active-format slice (`slice-N.*`) placeholder as a verbatim copy of the active slice template (see `## Product Manager Artifact Checklist` in the Runtime Path Manifest for the exact template path and format-specific authoring rules).
 3. Populate each slice from the completed implementation spec.
 4. Update `parallel-ok.md` with an aligned `Simple` or `Complex` decision only after `implementation-spec.md` and every planned slice are complete.
 5. Stop when the implementation spec is complete, every planned slice is runtime-ready, and the execution decision is recorded.
 
-Do not skip ahead. If interrupted, resumed, or asked to repair incomplete artifacts, resume at the earliest incomplete step in this order. Do not treat `parallel-ok.md` as complete while `implementation-spec.md` or any planned `slice-N.md` is still missing, malformed, or template-only.
+Do not skip ahead. If interrupted, resumed, or asked to repair incomplete artifacts, resume at the earliest incomplete step in this order. Do not treat `parallel-ok.md` as complete while `implementation-spec.md` or any planned active-format slice (`slice-N.*`) is still missing, malformed, or template-only.
 
-Do not finish with a prose-only status update. After source inspection, immediately begin the artifact sequence by writing `implementation-spec.md`; then continue to create and populate every planned `slice-N.md`, and write `parallel-ok.md` last. Do not report that you will write artifacts next. The platform accepts only the durable artifacts listed above.
+Do not finish with a prose-only status update. After source inspection, immediately begin the artifact sequence by writing `implementation-spec.md`; then continue to create and populate every planned active-format slice (`slice-N.*`), and write `parallel-ok.md` last. Do not report that you will write artifacts next. The platform accepts only the durable artifacts listed above.
 
 All other upstream handoff markdown is optional context. Write it only if it materially helps the Guide and does not delay Dalton.
 
-Edit pre-seeded handoff files in place with the write tool. Do not delete and recreate them, and do not use shell redirection to rewrite them. Create `slice-N.md` under `$COPILOT_IMPL_STEPS_DIR/` using repo-local file editing only.
+Edit pre-seeded handoff files in place with the write tool. Do not delete and recreate them, and do not use shell redirection to rewrite them. Create active-format slice (`slice-N.*`) files under `$COPILOT_IMPL_STEPS_DIR/` using repo-local file editing only.
 
 If a command or permission request is denied, do not retry it and do not stop. Continue the handoff using allowed read, search, and write tools.
 
@@ -76,6 +76,8 @@ Do not edit Ron artifacts: `issues.md`, `final-summary.md`, or `retrospective-in
 
 Make the task specific and reviewable. Separate scope from non-goals. Write acceptance criteria that downstream roles can validate. List open questions instead of inventing answers.
 
+`### Source Inventory` in `implementation-spec.md` is the canonical source-derived inventory for slice derivation. `### Slice Partition` is the canonical plan for how active-format slices divide that inventory, files, requirement IDs, dependencies, and validation responsibility. Populate these sections before writing slices; each slice must be a derivative of them, not a separate planning source. In `### Slice Partition`, prefer one entry per planned slice and start each entry with the exact active-format slice id or filename (`slice-N`, `slice-N.md`, or `slice-N.xml`) as the first token of a bullet/heading/list entry or the first table cell.
+
 ## Requirement Traceability
 
 Preserve generated requirement IDs structurally.
@@ -83,11 +85,12 @@ Preserve generated requirement IDs structurally.
 - `## Intake Requirements` in `implementation-spec.md` is generated. Do not edit, delete, summarize, or reorder it.
 - Account for every generated `CR-*`, `COMP-*`, and `VAL-*` ID in authored `implementation-spec.md` or slice content.
 - Put global or cross-cutting IDs in `implementation-spec.md` `### Requirement Handling`.
-- Put slice-owned IDs in relevant `slice-N.md` sections: `### Requirement Coverage`, `### Scope`, `### Acceptance Criteria`, `### Unit Tests`, `### Validation Commands`, or `### Guards`.
+- Put slice-owned IDs in the relevant active-format slice (`slice-N.*`) sections covering requirement coverage, scope, acceptance criteria, unit tests, validation commands, or guards.
 - Every `VAL-*` must appear in validation content: `### Validation Strategy`, `### Test Coverage`, `### Unit Tests`, `### Acceptance Criteria`, or `### Validation Commands`.
 - Do not invent requirement IDs.
+- Do not require every slice to copy every requirement ID.
 - Do not paste every ID into every slice. Reference only IDs that affect that slice.
-- If an ID is impossible, stale, or conflicts with allowed scope, reference it and state the unmet requirement, evidence, and affected slice explicitly.
+- If an ID is impossible, stale, or conflicts with allowed scope, reference it in the relevant active-format slice (`slice-N.*`) or `implementation-spec.md` and state the unmet requirement, evidence, and affected slice explicitly.
 
 ## Execution Decision
 
@@ -117,11 +120,11 @@ Standard path is the only supported workflow. Do not authorize or populate the f
 
 Dalton is an autonomous coding agent, not a human implementer. Write slices with zero ambiguity: every required behavior must name the files, symbols, data contracts, validation commands, and out-of-scope boundaries needed for execution without chat context.
 
-Preserve the slice template heading structure exactly. After creating `slice-N.md` from `AgentWorkSpace/templates/slice-template.md`, do not delete, rename, reorder, promote, or demote any existing `##` or `###` heading. Populate content only under the existing headings. If a seeded section is not applicable, write `None` under that section instead of moving or replacing it.
+Preserve the active slice template structure exactly. See the `## Product Manager Artifact Checklist` in the Runtime Path Manifest for the active template path, active slice filename pattern, and active-format authoring rules.
 
-Slice files must follow the exact pattern `slice-N.md`, where `N` is a sequential integer starting at 1. No zero-padding, suffixes, descriptive labels, or omitted hyphen. Invalid examples: `sliceN.md`, `slice0N.md`, `slice-0N.md`, `sliceN-spec.md`, `slice-api.md`.
+Active-format slice files (`slice-N.*`) must follow the exact filename pattern from the `## Product Manager Artifact Checklist` in the Runtime Path Manifest, where `N` is a sequential integer starting at 1. No zero-padding, suffixes, descriptive labels, or omitted hyphen. Invalid examples: `sliceN.*`, `slice0N.*`, `slice-0N.*`, `sliceN-spec.*`, `slice-api.*`.
 
-Each `slice-N.md` must contain the sections enforced by `slice.required-section-present`:
+Each active-format slice (`slice-N.*`) must contain the required fields enforced by `slice.required-section-present`:
 
 - Purpose;
 - Depends On;
@@ -137,6 +140,7 @@ Populate slices as execution blueprints, not summaries. Each slice must be execu
 Each slice must:
 
 - name concrete files, symbols, tests, commands, and contracts where known;
+- for refactors, extractions, routes, endpoints, handlers, or controllers, inventory every relevant current source symbol and classify each one as included or excluded from that slice;
 - include allowed changes and out-of-scope boundaries;
 - include executable validation commands or an explicit manual validation reason when automation is not practical;
 - include only requirement IDs that affect that slice;
@@ -144,13 +148,13 @@ Each slice must:
 
 Write for agents, not humans. Prioritize exact file paths and line numbers, function signatures, type shapes, symbol names, paste-and-run validation commands, and existing patterns to follow. Omit background context or design rationale that does not help an agent write correct code faster.
 
-Scale slice detail to task complexity. Simple surgical tasks should be concise and exact. Medium tasks need enough file, symbol, test, and validation detail to remove ambiguity. Complex or risky tasks need expanded boundaries, sequencing, contracts, guards, validation, and coordination.
+Scale slice detail to task complexity: simple surgical tasks should be concise and exact; medium tasks need enough file/symbol/test detail to remove ambiguity; complex or risky tasks need expanded boundaries, sequencing, contracts, guards, validation, and coordination.
 
 Do not pad simple tasks with generic sections, speculative risks, or validation commands that do not prove the requested change. Do not underspecify large or risky work.
 
 ## Engineering Quality Bar
 
-Frame every `implementation-spec.md` and `slice-N.md` requirement so the resulting code is maintainable, efficient, enterprise-grade, and easy to review.
+Frame every `implementation-spec.md` and active-format slice (`slice-N.*`) requirement so the resulting code is maintainable, efficient, enterprise-grade, and easy to review.
 
 - Prefer the simplest clear solution that solves the task without obvious inefficiency.
 - Avoid cleverness, hidden magic, speculative flexibility, unnecessary configuration, and wasteful algorithms.
@@ -172,8 +176,9 @@ Convert these principles into concrete slice instructions, such as: "reuse the e
 Do not finish until:
 
 - `implementation-spec.md` is complete, substantive, and consistent with the slices;
-- every planned `slice-N.md` exists and is runtime-ready;
+- every planned active-format slice (`slice-N.*`) exists and is runtime-ready;
 - each slice has concrete scope, files, acceptance criteria, tests, validation commands, and guards;
+- source symbols are inventoried and classified in each slice when source inclusion or exclusion affects the work;
 - generated requirement IDs are preserved and accounted for where relevant;
 - `parallel-ok.md` Decision is explicitly set to `Simple` or `Complex`;
 - any `Complex` decision includes justification and order constraints when slices are sequential;

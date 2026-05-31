@@ -421,6 +421,97 @@ describe('buildAgentEnvironment', () => {
     expect(env['COPILOT_READONLY_CONTEXT_ROOTS_JSON']).toBe('[]');
   });
 
+  describe('TASKSAIL_SLICE_ARTIFACT_FORMAT', () => {
+    it('emits markdown for a task sidecar with sliceArtifactFormat markdown', () => {
+      const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-format-'));
+      try {
+        const taskId = 'task-fmt-md';
+        const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+        mkdirSync(taskDir, { recursive: true });
+        writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+          schema_version: 2,
+          taskId,
+          sliceArtifactFormat: 'markdown',
+          contextPackBinding: {
+            contextPackPath: null,
+            dataHostDir: null,
+            dataContainerDir: null,
+            repoBindings: [],
+          },
+          materialization: { strategy: 'copy', cloned: [], skipped: [] },
+          frozenAt: '2026-01-01T00:00:00Z',
+          finalizedAt: null,
+          state: 'active',
+        }), 'utf-8');
+        const env = buildAgentEnvironment(profile, '/ctx', repoRoot, undefined, taskId);
+        expect(env['TASKSAIL_SLICE_ARTIFACT_FORMAT']).toBe('markdown');
+      } finally {
+        rmSync(repoRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('emits xml for a task sidecar with sliceArtifactFormat xml', () => {
+      const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-format-'));
+      try {
+        const taskId = 'task-fmt-xml';
+        const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+        mkdirSync(taskDir, { recursive: true });
+        writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+          schema_version: 2,
+          taskId,
+          sliceArtifactFormat: 'xml',
+          contextPackBinding: {
+            contextPackPath: null,
+            dataHostDir: null,
+            dataContainerDir: null,
+            repoBindings: [],
+          },
+          materialization: { strategy: 'copy', cloned: [], skipped: [] },
+          frozenAt: '2026-01-01T00:00:00Z',
+          finalizedAt: null,
+          state: 'active',
+        }), 'utf-8');
+        const env = buildAgentEnvironment(profile, '/ctx', repoRoot, undefined, taskId);
+        expect(env['TASKSAIL_SLICE_ARTIFACT_FORMAT']).toBe('xml');
+      } finally {
+        rmSync(repoRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('emits markdown when sidecar lacks sliceArtifactFormat (legacy sidecar)', () => {
+      const repoRoot = mkdtempSync(path.join(tmpdir(), 'agent-env-format-'));
+      try {
+        const taskId = 'task-fmt-legacy';
+        const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+        mkdirSync(taskDir, { recursive: true });
+        writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+          schema_version: 2,
+          taskId,
+          contextPackBinding: {
+            contextPackPath: null,
+            dataHostDir: null,
+            dataContainerDir: null,
+            repoBindings: [],
+          },
+          materialization: { strategy: 'copy', cloned: [], skipped: [] },
+          frozenAt: '2026-01-01T00:00:00Z',
+          finalizedAt: null,
+          state: 'active',
+        }), 'utf-8');
+        const env = buildAgentEnvironment(profile, '/ctx', repoRoot, undefined, taskId);
+        expect(env['TASKSAIL_SLICE_ARTIFACT_FORMAT']).toBe('markdown');
+      } finally {
+        rmSync(repoRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('emits markdown when no taskId is provided (non-task launch)', () => {
+      const env = buildAgentEnvironment(profile, '/ctx', '/repo');
+      // No taskId => TASKSAIL_SLICE_ARTIFACT_FORMAT not set by the task-only path
+      expect(env['TASKSAIL_SLICE_ARTIFACT_FORMAT']).toBeUndefined();
+    });
+  });
+
   describe('model-pin regression', () => {
     const aliceProfile: AgentProfile = {
       id: 'alice',

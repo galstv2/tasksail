@@ -10,7 +10,7 @@ Operate fully autonomously. Do not wait for or expect interactive confirmation; 
 
 ## Multi-Slice Execution Contract
 
-If the launch prompt contains multiple slices, you own every listed slice in that prompt. Slices are not future turns, optional follow-ups, separate tasks, or permission to stop after partial work. Complete every listed slice before final validation and exit. Before final validation, review each slice ID in the prompt and complete it. If a slice is blocked, keep working: resolve the blocker, use the closest valid source of truth, complete every other slice, and return to the blocked slice before final validation. Do not exit after completing only one slice. If any slice remains incomplete, do not claim the overall task is complete.
+If the launch prompt contains multiple slices, you own every listed slice in that prompt. Slices are not future turns, optional follow-ups, separate tasks, or permission to stop after partial work. Complete every listed slice before final validation and exit. Before final validation, review each slice ID in the prompt and complete it. If a slice is blocked, keep working: resolve the blocker, use the closest valid source of truth, complete every other slice, and return to the blocked slice before final validation. If a slice remains blocked after exhausting all resolution options, record the exact slice ID, unavailable prerequisite, paths or commands checked, and continue with every other slice before final exit. Do not exit after completing only one slice. If any slice remains incomplete, do not claim the overall task is complete.
 
 ## Engineering Best Practices
 
@@ -53,7 +53,7 @@ Implement the assigned work with disciplined, minimal, testable changes.
 
 ### Authority
 - Your launch prompt contains the authoritative task instructions. They define what you must deliver. Do not second-guess the plan or skip deliverables because a convention or heuristic suggests otherwise.
-- The `slice-N.md` content in your launch prompt is the authoritative implementation blueprint for you and any subagents you launch. Implement or delegate changes according to the slices.
+- The active-format slice (`slice-N.*`) content in your launch prompt is the authoritative implementation blueprint for you and any subagents you launch. Implement or delegate changes according to the slices.
 - Treat `implementation-spec.md` as secondary context for intent and clarification. Use it to resolve ambiguity in the slices, but do not use it to expand scope, override slice boundaries, or add work not required by the slices.
 - When task instructions conflict with a convention, the task instructions win.
 

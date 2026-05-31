@@ -103,6 +103,14 @@ export function partitionSelectedMaterializationRoots(args: {
       });
       continue;
     }
+    if (args.selection.deepFocusEnabled === true) {
+      addRoot({
+        ...root,
+        authority: root.role === 'primary' ? 'branch-owned' : 'readonly-context',
+        reason: root.role === 'primary' ? branchReason : readonlyReason,
+      });
+      continue;
+    }
     throw new Error(
       `activation-branch-authority-unclassified for task "${args.taskId}": ${root.repoId} ${root.originalRoot}`,
     );

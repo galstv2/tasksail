@@ -42,6 +42,9 @@
 ### Codebase Analysis
 <!-- concrete current-state facts from files inspected; include exact file paths and symbol names when known. For simple tasks, one concise bullet is acceptable. -->
 
+### Source Inventory
+<!-- canonical source-derived inventory for slice derivation. List every existing route group, endpoint, class, handler, file, or other symbol whose inclusion or exclusion affects the task; use stable local IDs such as SYM-001 when useful. For refactors/extractions, list all relevant current symbols found in source, not only the ones likely to change. Write "Source inspection found no existing source symbols" only when inspection proves there are none. Write "None" only when no source symbol inventory applies to this task. -->
+
 ### Dependency Analysis
 <!-- (required) must contain a markdown table (| col | col |) or a fenced code block; bullets and prose alone fail validation. Internal and external dependencies. -->
 
@@ -61,6 +64,9 @@
 
 ### Proposed Structure
 <!-- file layout, module decomposition, or class hierarchy; use nested bullets, tables, or code fences when authored -->
+
+### Slice Partition
+<!-- canonical active-format slice plan derived from this implementation spec. Prefer one entry per planned slice, starting with slice-N, slice-N.md, or slice-N.xml as the first token of a bullet/heading/list entry or the first table cell. For each planned slice-N, list the owned symbols/files, excluded or preserved symbols/files, dependency/order constraints, requirement IDs, and validation responsibility. Use one slice entry for Simple execution. -->
 
 ### Contracts
 <!-- exact API, data, section, file-format, IPC, or CLI contracts changed; write "None" when no contract changes exist -->

@@ -140,6 +140,7 @@ describe('loadPlatformConfig', () => {
         external_mcp_local_enabled: false,
         mcp_port: 8811,
         repo_context_mcp_external_mount_roots: [],
+        slice_artifact_format: 'markdown',
       });
     }
   });
@@ -362,6 +363,70 @@ describe('loadPlatformConfig', () => {
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.config.repo_context_mcp_external_mount_roots).toEqual([root]);
+    }
+  });
+
+  // ---- slice_artifact_format ----
+
+  it('defaults slice_artifact_format to markdown when absent', async () => {
+    const configPath = writeConfig(JSON.stringify({
+      schema_version: CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION,
+      container_runtime: 'podman',
+    }));
+    const result = await loadPlatformConfig(configPath);
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.config.slice_artifact_format).toBe('markdown');
+    }
+  });
+
+  it('accepts slice_artifact_format=markdown', async () => {
+    const configPath = writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      slice_artifact_format: 'markdown',
+    }));
+    const result = await loadPlatformConfig(configPath);
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.config.slice_artifact_format).toBe('markdown');
+    }
+  });
+
+  it('accepts slice_artifact_format=xml', async () => {
+    const configPath = writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      slice_artifact_format: 'xml',
+    }));
+    const result = await loadPlatformConfig(configPath);
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.config.slice_artifact_format).toBe('xml');
+    }
+  });
+
+  it('rejects invalid slice_artifact_format with actionable fix text', async () => {
+    const configPath = writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      slice_artifact_format: 'json',
+    }));
+    const result = await loadPlatformConfig(configPath);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      const err = result.errors.find((e) => e.field === 'slice_artifact_format');
+      expect(err).toBeDefined();
+      expect(err!.fix).toBe('Set slice_artifact_format to "markdown" or "xml".');
+    }
+  });
+
+  it('rejects slice_artifact_format=true (non-string)', async () => {
+    const configPath = writeConfig(JSON.stringify({
+      ...FULL_DEFAULT,
+      slice_artifact_format: true,
+    }));
+    const result = await loadPlatformConfig(configPath);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.field === 'slice_artifact_format')).toBe(true);
     }
   });
 

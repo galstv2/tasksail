@@ -32,6 +32,7 @@ export type TerminalFeedProps = {
   environmentStatus: EnvironmentStatusResponse | null;
   onDeletePendingItem?: (queueName: string) => Promise<void>;
   onClearTerminal?: () => void;
+  clearTerminalDisabledReason?: string | null;
 };
 
 const ROLE_TABS: Array<{ value: StreamRole | 'all'; label: string }> = [
@@ -124,6 +125,7 @@ function TerminalFeed({
   environmentStatus,
   onDeletePendingItem = async () => {},
   onClearTerminal = () => {},
+  clearTerminalDisabledReason = null,
 }: TerminalFeedProps): JSX.Element {
   const [roleFilter, setRoleFilter] = useState<StreamRole | 'all'>('all');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -131,6 +133,8 @@ function TerminalFeed({
   const [autoScroll, setAutoScroll] = useState(true);
 
   const visibleEvents = filterActivityStream(activityStream, roleFilter);
+  const clearTerminalDisabled = activityStream.length === 0 || Boolean(clearTerminalDisabledReason);
+  const clearTerminalTitle = clearTerminalDisabledReason ?? 'Clear terminal';
   const taskScopeOptions = useMemo<TerminalSelectMenuOption[]>(
     () => [
       { value: TASK_SCOPE_ALL_VALUE, id: 'terminal-task-scope-option-all', primaryLabel: 'All Tasks' },
@@ -246,9 +250,9 @@ function TerminalFeed({
             type="button"
             className="observability-drawer__clear"
             onClick={onClearTerminal}
-            disabled={activityStream.length === 0}
+            disabled={clearTerminalDisabled}
             aria-label="Clear terminal"
-            title="Clear terminal"
+            title={clearTerminalTitle}
           >
             <span className="observability-drawer__clear-glyph" aria-hidden="true">⌫</span>
             <span>Clear</span>

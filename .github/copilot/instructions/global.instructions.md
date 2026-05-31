@@ -67,7 +67,7 @@ Durable workflow artifacts:
 
 - `$COPILOT_HANDOFFS_DIR/intake.md`
 - `$COPILOT_HANDOFFS_DIR/implementation-spec.md`
-- `$COPILOT_IMPL_STEPS_DIR/slice-N.md`
+- Active-format slice artifact under `$COPILOT_IMPL_STEPS_DIR/` (format and filename pattern from the Runtime Path Manifest)
 - `$COPILOT_HANDOFFS_DIR/parallel-ok.md`
 - `$COPILOT_HANDOFFS_DIR/issues.md`
 - `$COPILOT_HANDOFFS_DIR/final-summary.md`

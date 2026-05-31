@@ -163,6 +163,154 @@ describe('agentRuntimePathManifest', () => {
     expect(checklist).not.toContain(['AgentWorkSpace/tasks', 'active'].join('/'));
   });
 
+  it('PM markdown-mode checklist preserves slice-template.md and slice-N.md authoring rules', () => {
+    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      agentId: 'product-manager',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-md-001',
+        TASKSAIL_SLICE_ARTIFACT_FORMAT: 'markdown',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-md-001/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-md-001/ImplementationSteps',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      includeRoleArtifactChecklist: true,
+    }));
+    const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
+
+    expect(checklist).toContain('slice-template.md');
+    expect(checklist).toContain('slice-N.md');
+    expect(checklist).toContain('implementation-spec.md remains markdown');
+    expect(checklist).toContain('parallel-ok.md');
+    expect(checklist).toContain('Preserve every seeded ## and ### heading exactly');
+    expect(checklist).toContain('Current Symbols');
+    expect(checklist).toContain('Included Symbols');
+    expect(checklist).toContain('Excluded Symbols');
+    expect(checklist).not.toContain('slice-template.xml');
+    expect(checklist).not.toContain('slice-N.xml');
+  });
+
+  it('PM xml-mode checklist names slice-template.xml and slice-N.xml', () => {
+    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      agentId: 'product-manager',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-xml-001',
+        TASKSAIL_SLICE_ARTIFACT_FORMAT: 'xml',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-xml-001/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-xml-001/ImplementationSteps',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      includeRoleArtifactChecklist: true,
+    }));
+    const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
+
+    expect(checklist).toContain('slice-template.xml');
+    expect(checklist).toContain('slice-N.xml');
+    expect(checklist).toContain('slice-*.xml');
+    expect(checklist).toContain('implementation-spec.md and parallel-ok.md are required handoff documents at the paths above.');
+    expect(checklist).toContain('parallel-ok.md');
+    expect(checklist).toContain('executionSlice XML structure');
+    // Reader-side guidance
+    expect(checklist).toContain('acceptanceAndValidation/acceptanceCriteria');
+    expect(checklist).toContain('filesAndInterfaces/files');
+    expect(checklist).toContain('acceptanceAndValidation/validationCommands');
+    expect(checklist).toContain('executionScope/currentSymbols');
+    expect(checklist).toContain('executionScope/includedSymbols');
+    expect(checklist).toContain('executionScope/excludedSymbols');
+    expect(checklist).toContain('executionScope/scope');
+    expect(checklist).toContain('implementation/requiredChanges');
+    // CDATA-for-code guidance (hardened): default plain text, CDATA for code/pseudocode/special chars
+    expect(checklist).toContain('Default to plain element text');
+    expect(checklist).toContain('CDATA section when it contains code, commands, pseudocode');
+    expect(checklist).not.toContain('markdown mode');
+    expect(checklist).not.toContain('remains markdown');
+    expect(checklist).not.toContain('slice-template.md');
+    expect(checklist).not.toContain('slice-N.md');
+  });
+
+  it('QA markdown-mode checklist uses slice-*.md glob', () => {
+    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      agentId: 'qa',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-qa-md',
+        TASKSAIL_SLICE_ARTIFACT_FORMAT: 'markdown',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-md/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-md/ImplementationSteps',
+        TASKSAIL_TASK_BRANCHES: '[{"repoId":"platform","role":"primary","branch":"task"}]',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      includeRoleArtifactChecklist: true,
+    }));
+    const checklist = renderedSection(rendered, '## QA Artifact Checklist');
+
+    expect(checklist).toContain('ImplementationSteps/slice-*.md');
+    expect(checklist).not.toContain('ImplementationSteps/slice-*.xml');
+  });
+
+  it('QA xml-mode checklist uses slice-*.xml glob', () => {
+    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      agentId: 'qa',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-qa-xml',
+        TASKSAIL_SLICE_ARTIFACT_FORMAT: 'xml',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-xml/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-xml/ImplementationSteps',
+        TASKSAIL_TASK_BRANCHES: '[{"repoId":"platform","role":"primary","branch":"task"}]',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      includeRoleArtifactChecklist: true,
+    }));
+    const checklist = renderedSection(rendered, '## QA Artifact Checklist');
+
+    expect(checklist).toContain('ImplementationSteps/slice-*.xml');
+    expect(checklist).not.toContain('ImplementationSteps/slice-*.md');
+  });
+
+  it('manifest defaults to markdown format when TASKSAIL_SLICE_ARTIFACT_FORMAT is absent', () => {
+    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      agentId: 'product-manager',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-no-format',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-no-format/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-no-format/ImplementationSteps',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      includeRoleArtifactChecklist: true,
+    }));
+    const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
+    // When absent, defaults to markdown
+    expect(checklist).toContain('slice-template.md');
+    expect(checklist).toContain('slice-N.md');
+  });
+
+  it('TASKSAIL_SLICE_ARTIFACT_FORMAT appears in manifest entries when set', () => {
+    const manifest = buildAgentRuntimePathManifest({
+      agentId: 'product-manager',
+      agentCwd: '/repo',
+      env: {
+        TASKSAIL_TASK_ID: 'task-fmt',
+        TASKSAIL_SLICE_ARTIFACT_FORMAT: 'xml',
+        COPILOT_PLATFORM_REPO_ROOT: '/repo',
+        COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-fmt/handoffs',
+        COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-fmt/ImplementationSteps',
+      },
+      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+    });
+    const formatEntry = manifest.entries.find((e) => e.name === 'TASKSAIL_SLICE_ARTIFACT_FORMAT');
+    expect(formatEntry).toBeDefined();
+    expect(formatEntry?.value).toBe('xml');
+    expect(formatEntry?.kind).toBe('scalar');
+  });
+
   it('omits role artifact checklists for unsupported agents, missing path inputs, and non-first-pass launch phases', () => {
     const baseEnv = {
       TASKSAIL_TASK_ID: 'task-test-001',

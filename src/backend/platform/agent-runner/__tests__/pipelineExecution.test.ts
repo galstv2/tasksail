@@ -445,6 +445,7 @@ describe('runPipelineSequence', () => {
         'code-changes.diff',
       ),
       undefined,
+      'markdown',
     );
     expect(existsSync(path.join(
       repoRoot,

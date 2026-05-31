@@ -212,6 +212,39 @@ describe('activation branch authority partition', () => {
     ]);
   });
 
+  it('falls back to resolved Deep Focus roles when scoped snapshot roots are unavailable', () => {
+    const base = tempRoot();
+    const platform = root(base, 'platform');
+    const tools = root(base, 'tools');
+
+    const result = partition({
+      selection: selection({
+        deepFocusEnabled: true,
+        selectedRepoIds: ['platform', 'tools'],
+      }),
+      selectedRoots: [
+        selected('platform', platform, 'primary'),
+        selected('tools', tools, 'support'),
+      ],
+      snapshot: snapshot({
+        estateType: 'distributed-platform',
+        deepFocus: {
+          ...snapshot({}).deepFocus,
+          enabled: true,
+          writableRoots: [],
+          readonlyContextRoots: [],
+        },
+      }),
+    });
+
+    expect(result.branchOwnedRoots.map((entry) => [entry.repoId, entry.reason])).toEqual([
+      ['platform', 'deep-focus-writable'],
+    ]);
+    expect(result.readonlyContextRoots.map((entry) => [entry.repoId, entry.reason])).toEqual([
+      ['tools', 'deep-focus-readonly'],
+    ]);
+  });
+
   it('dedupes same-root monolith support by keeping the branch-owned root only', () => {
     const base = tempRoot();
     const mono = root(base, 'mono');

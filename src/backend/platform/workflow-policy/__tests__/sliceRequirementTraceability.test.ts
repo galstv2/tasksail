@@ -7,6 +7,36 @@ import { resolvePaths } from '../../core/index.js';
 import { PolicyValidator } from '../index.js';
 import { evaluateSliceQualityRules } from '../rules/slice.js';
 
+// ---------------------------------------------------------------------------
+// Helpers for XML task setup
+// ---------------------------------------------------------------------------
+
+function writeTaskJson(repoRoot: string, sliceArtifactFormat: 'markdown' | 'xml'): void {
+  const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID);
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(
+    path.join(taskDir, '.task.json'),
+    JSON.stringify({
+      schema_version: 2,
+      taskId: TEST_TASK_ID,
+      title: 'Test Task',
+      state: 'active',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      finalizedAt: null,
+      sliceArtifactFormat,
+      contextPackBinding: {
+        contextPackPath: null,
+        dataHostDir: null,
+        dataContainerDir: null,
+        repoBindings: [],
+      },
+      bindings: [],
+      materialization: { strategy: 'copy', cloned: [], skipped: [] },
+    }),
+    'utf-8',
+  );
+}
+
 const TEST_TASK_ID = 'task-test-001';
 
 function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
@@ -341,5 +371,128 @@ describe('slice requirement traceability', () => {
     }), 'utf-8');
 
     await expect(runSliceRules(repoRoot, 'pre-slice')).resolves.toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// XML format traceability — parity with markdown rule behavior
+// ---------------------------------------------------------------------------
+
+/** Minimal complete XML slice for traceability testing. */
+function xmlSlice(options: {
+  requirementCoverage?: string;
+  scope?: string;
+  acceptanceCriteria?: string;
+  validationCommands?: string;
+} = {}): string {
+  const coverage = options.requirementCoverage ?? 'CR-001';
+  const scope = options.scope ?? 'Implement code for CR-001. COMP-001 preserved.';
+  const acceptance = options.acceptanceCriteria ?? 'COMP-001 remains compatible.';
+  const validation = options.validationCommands ?? '```bash\npnpm run lint\n```\n- VAL-001';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<executionSlice id="slice-1" version="1.0">
+  <metadata>
+    <format>xml</format>
+    <sliceId>slice-1</sliceId>
+    <title required="true"><![CDATA[Test slice]]></title>
+    <status>draft</status>
+  </metadata>
+  <sourceTrace>
+    <implementationSpecPath>AgentWorkSpace/tasks/task-test-001/handoffs/implementation-spec.md</implementationSpecPath>
+    <notes><![CDATA[None]]></notes>
+  </sourceTrace>
+  <objective>
+    <purpose required="true"><![CDATA[Implement the focused change.]]></purpose>
+    <inputsToRead required="true"><![CDATA[src/backend/example.ts]]></inputsToRead>
+  </objective>
+  <dependenciesAndOrder>
+    <dependsOn required="true"><![CDATA[None]]></dependsOn>
+  </dependenciesAndOrder>
+  <executionScope>
+    <scope required="true"><![CDATA[${scope}]]></scope>
+    <requirementCoverage required="true"><![CDATA[${coverage}]]></requirementCoverage>
+    <allowedChanges required="true"><![CDATA[src/backend/example.ts]]></allowedChanges>
+    <outOfScope required="true"><![CDATA[NOT: unrelated changes]]></outOfScope>
+    <preservedBehavior required="true"><![CDATA[Existing API unchanged]]></preservedBehavior>
+  </executionScope>
+  <implementation>
+    <requiredChanges required="true"><![CDATA[1. Update example.ts]]></requiredChanges>
+  </implementation>
+  <filesAndInterfaces>
+    <files required="true"><![CDATA[src/backend/example.ts - edit]]></files>
+    <unitTests required="true"><![CDATA[src/backend/__tests__/example.test.ts]]></unitTests>
+  </filesAndInterfaces>
+  <acceptanceAndValidation>
+    <acceptanceCriteria required="true"><![CDATA[${acceptance}]]></acceptanceCriteria>
+    <validationCommands required="true"><![CDATA[${validation}]]></validationCommands>
+    <staleAssumptionHandling required="true"><![CDATA[Find nearest equivalent if moved.]]></staleAssumptionHandling>
+  </acceptanceAndValidation>
+  <guardsAndCoordination>
+    <guards required="true"><![CDATA[None]]></guards>
+    <coordination required="true"><![CDATA[None]]></coordination>
+    <closeoutRequirements required="true"><![CDATA[Report files changed, tests run.]]></closeoutRequirements>
+  </guardsAndCoordination>
+</executionSlice>`;
+}
+
+describe('XML slice requirement traceability — parity with markdown', () => {
+  const createdRoots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(createdRoots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
+  });
+
+  function setup(): { repoRoot: string; handoffsDir: string; stepsDir: string } {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'xml-slice-traceability-'));
+    createdRoots.push(repoRoot);
+    createWorkspace(repoRoot);
+    writeTaskJson(repoRoot, 'xml');
+    const { handoffs, implementationSteps } = resolvePaths({ repoRoot, taskId: TEST_TASK_ID });
+    return { repoRoot, handoffsDir: handoffs, stepsDir: implementationSteps };
+  }
+
+  it('passes XML traceability when all generated IDs are covered', async () => {
+    const { repoRoot, handoffsDir, stepsDir } = setup();
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), implementationSpec(), 'utf-8');
+    writeFileSync(path.join(stepsDir, 'slice-1.xml'), xmlSlice(), 'utf-8');
+
+    await expect(runSliceRules(repoRoot)).resolves.toEqual([]);
+  });
+
+  it('XML mode fires unknown-requirement-ID rule for unknown IDs (parity with markdown)', async () => {
+    const { repoRoot, handoffsDir, stepsDir } = setup();
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), implementationSpec(), 'utf-8');
+    // Include an unknown COMP-009 ID in the XML slice
+    writeFileSync(path.join(stepsDir, 'slice-1.xml'), xmlSlice({
+      requirementCoverage: 'CR-001\nCOMP-009',
+    }), 'utf-8');
+
+    const violations = await runSliceRules(repoRoot);
+    expect(violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rule_id: 'slice.requirement-id-known',
+        message: expect.stringContaining('COMP-009'),
+      }),
+    ]));
+  });
+
+  it('XML mode fires missing-VAL-coverage rule when VAL-* absent from validation surface (parity with markdown)', async () => {
+    const { repoRoot, handoffsDir, stepsDir } = setup();
+    writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), implementationSpec({
+      requirementHandling: '- CR-001 handled globally. - COMP-001 handled globally. - VAL-001 handled outside validation.',
+      validationStrategy: '- Run the required command.',
+    }), 'utf-8');
+    // Slice has VAL-001 in scope but not in validationCommands or acceptanceCriteria
+    writeFileSync(path.join(stepsDir, 'slice-1.xml'), xmlSlice({
+      scope: 'Implement code for CR-001. VAL-001 appears here.',
+      requirementCoverage: 'CR-001',
+      acceptanceCriteria: 'COMP-001 remains compatible.',
+      validationCommands: '```bash\npnpm run lint\n```',
+    }), 'utf-8');
+
+    const violations = await runSliceRules(repoRoot);
+    expect(violations.filter((v) => v.message.includes('VAL-001'))).toEqual([
+      expect.objectContaining({ rule_id: 'slice.validation-id-covered' }),
+    ]);
   });
 });

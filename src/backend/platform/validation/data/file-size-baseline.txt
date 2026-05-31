@@ -37,5 +37,6 @@
 
 1500 src/backend/platform/queue/operations.ts
 1558 src/backend/platform/agent-runner/roleAgent.ts
+1522 src/backend/platform/agent-runner/__tests__/artifactCompletion.test.ts
 # Frontend CSS
 908 src/frontend/desktop/src/renderer/styles/reinforcement.css

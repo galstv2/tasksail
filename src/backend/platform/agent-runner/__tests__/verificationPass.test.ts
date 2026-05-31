@@ -91,7 +91,7 @@ describe('verification Dalton prompts', () => {
       'The orchestrator could not stage the verification diff file.',
     );
 
-    expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps');
+    expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps', 'markdown');
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('## Verification Diff File');
     expect(prompt).toContain('Primary focus path: `services/sink/`');
@@ -143,5 +143,50 @@ describe('verification Dalton prompts', () => {
     expect(prompt).toContain('If the file contains an empty-diff sentinel');
     expect(prompt).not.toContain('assigned slice');
     expect(prompt).toContain('inspect the changed repo files manually');
+  });
+});
+
+describe('verification Dalton — XML format', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resolveVerificationDaltonPrompt passes xml commands when format is xml', async () => {
+    collectSliceValidationCommands.mockResolvedValue(['pnpm test', 'pnpm lint']);
+
+    const { resolveVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = await resolveVerificationDaltonPrompt(
+      '/handoffs',
+      '/implementation-steps',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'xml',
+    );
+
+    expect(collectSliceValidationCommands).toHaveBeenCalledWith('/implementation-steps', 'xml');
+    expect(prompt).toContain('pnpm test');
+    expect(prompt).toContain('pnpm lint');
+    expect(prompt).toContain('## Validation Commands');
+  });
+
+  it('resolveVerificationDaltonPrompt returns undefined when xml slices have no commands', async () => {
+    collectSliceValidationCommands.mockResolvedValue([]);
+
+    const { resolveVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
+
+    const prompt = await resolveVerificationDaltonPrompt(
+      '/handoffs',
+      '/implementation-steps',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'xml',
+    );
+
+    expect(prompt).toBeUndefined();
   });
 });

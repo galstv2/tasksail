@@ -17,7 +17,7 @@ import {
   issuesSectionsHaveFindings,
   normalizeText,
 } from '../matching.js';
-import { listSliceFiles } from '../artifacts.js';
+import { listSliceArtifactFiles } from '../sliceArtifacts.js';
 import { renderHandoffArtifactLabel } from '../../queue/paths.js';
 import type { WorkspaceArtifact } from '../types.js';
 import type { PolicyValidator } from '../validator.js';
@@ -76,7 +76,7 @@ export async function evaluateQaExecutionRules(validator: PolicyValidator): Prom
   }
 
   const stepsDir = validator.implementationStepsDir;
-  const sliceFiles = await listSliceFiles(stepsDir);
+  const sliceFiles = await listSliceArtifactFiles(stepsDir, validator.sliceArtifactFormat);
   if (sliceFiles.length === 0) {
     return;
   }

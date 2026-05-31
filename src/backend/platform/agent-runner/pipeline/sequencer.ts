@@ -17,7 +17,12 @@ import { readTaskJsonSafe } from '../../queue/taskJson.js';
 import type { PipelineOptions, PipelineReceipt } from '../types.js';
 import { runRoleAgent } from '../roleAgent.js';
 import { runRuntimePolicyCheck } from '../guardrails.js';
-import { detectParallelOk, listSliceFiles } from '../artifactCompletion.js';
+import { detectParallelOk } from '../artifactCompletion.js';
+import {
+  listSliceArtifactFiles,
+  sliceIdFromFilename,
+} from '../../workflow-policy/sliceArtifacts.js';
+import type { SliceArtifactFormat } from '../../platform-config/types.js';
 import { prewarmPipelineContext } from './contextPrewarm.js';
 import { getCachedExternalMcpRegistry, getCachedExternalMcpRegistryHealth } from './externalMcpRegistryCache.js';
 import { appendMcpContextBlock } from './mcpPromptContext.js';
@@ -405,21 +410,23 @@ export async function readImplSpec(handoffsDir: string): Promise<string | undefi
 }
 
 /**
- * Read all slices from implStepsDir and format them as markdown sections.
+ * Read active-format slices from implStepsDir and format them as prompt sections.
  * Used by fleet, simple, and remediation prompt builders.
+ * Only slices matching the frozen format are injected; wrong-format slices are skipped.
  */
 export async function formatSliceSections(
   implStepsDir: string,
   headingLevel: '##' | '###' = '##',
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<{ files: string[]; formatted: string }> {
-  const sliceFiles = await listSliceFiles(implStepsDir);
+  const sliceFiles = await listSliceArtifactFiles(implStepsDir, format);
   if (sliceFiles.length === 0) {
     return { files: [], formatted: '' };
   }
   const sliceContents = await Promise.all(sliceFiles.map((f) => readTextFile(f)));
   const parts: string[] = [];
   for (let i = 0; i < sliceFiles.length; i++) {
-    const sliceId = path.basename(sliceFiles[i], '.md');
+    const sliceId = sliceIdFromFilename(sliceFiles[i], format);
     parts.push(`${headingLevel} Slice: ${sliceId}`);
     parts.push('');
     if (sliceContents[i]?.trim()) {
@@ -437,8 +444,9 @@ export async function buildFleetPrompt(
   focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   regularDaltonContext?: RegularDaltonPromptContext,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
-  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir);
+  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '##', format);
   if (sliceFiles.length === 0) {
     throw new Error('Fleet mode triggered but no slice files found in ImplementationSteps/');
   }
@@ -488,8 +496,9 @@ export async function buildSimpleDaltonPrompt(
   focusScope?: FocusScopePromptOptions,
   externalMcpRegistry?: ExternalMcpRegistry,
   regularDaltonContext?: RegularDaltonPromptContext,
+  format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
-  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###');
+  const { files: sliceFiles, formatted: sliceBlock } = await formatSliceSections(implStepsDir, '###', format);
 
   const implSpec = await readImplSpec(handoffsDir);
 
@@ -565,6 +574,7 @@ export async function runTestCaptureWithPhaseTracking(options: {
   abortSignal?: AbortSignal;
   pipelineTaskId?: string;
   repoRoot?: string;
+  sliceFormat?: SliceArtifactFormat;
 }): Promise<{ results: TestCaptureResult[]; skipped: boolean }> {
   const emitPipelinePhaseProgress = async (
     nextPhase: string,
@@ -598,7 +608,7 @@ export async function runTestCaptureWithPhaseTracking(options: {
     await writePipelinePhase(options.taskRuntime, 'test-capture-started');
     await emitPipelinePhaseProgress('test-capture-started');
     await emitTestCaptureEvent('test_capture.started');
-    const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal);
+    const results = await captureSliceValidation(options.implementationStepsDir, options.captureCwd, options.abortSignal, options.sliceFormat);
     await writePipelinePhase(options.taskRuntime, 'test-capture-completed');
     await emitPipelinePhaseProgress('test-capture-completed', 'test-capture-started');
     await emitTestCaptureEvent('test_capture.completed');
@@ -808,6 +818,10 @@ export async function runPipelineSequence(
   );
   const effectiveContextPackDir = taskBoundContextPackDir ?? undefined;
 
+  // Resolve the frozen slice format from the task sidecar once for all downstream callers.
+  const frozenSliceFormat: SliceArtifactFormat =
+    readTaskJsonSafe(pipelineTaskId, paths.repoRoot)?.sliceArtifactFormat ?? 'markdown';
+
   try {
     ensurePipelineNotKilled(paths.repoRoot, pipelineTaskId, abortController);
     workflowPath = await detectWorkflowPath(paths.handoffs);
@@ -881,6 +895,7 @@ export async function runPipelineSequence(
             externalMcpRegistry,
             stagedVerificationDiff.staged ? verificationDiffStage.verificationDiffAbsolutePath : undefined,
             joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
+            frozenSliceFormat,
           );
           if (verificationPrompt) {
             await emitTaskProgressEvent({
@@ -933,6 +948,7 @@ export async function runPipelineSequence(
         captureCwd: testCaptureCwd,
         abortSignal: abortController.signal,
         pipelineTaskId,
+        sliceFormat: frozenSliceFormat,
       });
       if (capture.skipped) {
         log.warn('test_capture.skipped', { reason: 'target-repo-resolution-failed' });
@@ -978,6 +994,7 @@ export async function runPipelineSequence(
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
             },
+            frozenSliceFormat,
           );
           const daltonResult = await runRoleAgent({
             agentId: 'dalton',
@@ -1040,6 +1057,7 @@ export async function runPipelineSequence(
             repoRoot: paths.repoRoot,
             contextPackDir: effectiveContextPackDir,
           },
+          frozenSliceFormat,
         );
       } else if (agentId === 'ron') {
         agentPromptOverride = buildTestCapturePrompt(
@@ -1047,6 +1065,7 @@ export async function runPipelineSequence(
           focusScope,
           externalMcpRegistry,
           testCaptureWarning,
+          frozenSliceFormat,
         );
       }
 
