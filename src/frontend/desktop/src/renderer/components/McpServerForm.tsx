@@ -5,7 +5,7 @@ import { classNames } from '../utils/classNames';
 
 type Props = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
 >;
 
 function isValidAbsoluteUrl(url: string): boolean {
@@ -51,6 +51,58 @@ function LocalCommandBadge({ state }: { state: LocalCommandCheckState }): JSX.El
   }
 }
 
+const LOCAL_GUIDE_ROWS: ReadonlyArray<{ term: string; copy: string }> = [
+  {
+    term: 'Command',
+    copy: 'Executable on PATH or an absolute executable path. Examples: npx, node, python, /opt/mcp/bin/server.',
+  },
+  {
+    term: 'Arguments',
+    copy: 'One argv item per line, in order. Example for npm servers: -y on one line and @vendor/mcp-server on the next line.',
+  },
+  {
+    term: 'Environment',
+    copy: 'Variables passed to the local server process. Use ${ENV_VAR_NAME} for secrets that already exist in the launch environment; avoid pasting raw secrets.',
+  },
+  {
+    term: 'Working Directory',
+    copy: 'Optional absolute cwd for servers that read local project files. Leave blank unless the server docs require it.',
+  },
+  {
+    term: 'Tools',
+    copy: 'Required allowlist, one exact MCP tool name per line. "*" is rejected for local servers.',
+  },
+  {
+    term: 'Assignment',
+    copy: 'Managed separately in Agent Configuration; this form only configures the server.',
+  },
+  {
+    term: 'Check command',
+    copy: 'PATH lookup only. It does not start the server or validate arguments, env, cwd, tools, or trustworthiness.',
+  },
+];
+
+function LocalTransportGuide(): JSX.Element {
+  return (
+    <div className="mcp-form__local-guide">
+      <p className="mcp-form__local-guide-title">Local transport setup</p>
+      <p className="mcp-form__local-guide-copy">
+        Local servers run from a command on this machine when an assigned agent starts. Put only the
+        executable in Command; put flags, package names, and server options in Arguments. Assign servers
+        to agents separately in Agent Configuration.
+      </p>
+      <dl className="mcp-form__local-guide-list">
+        {LOCAL_GUIDE_ROWS.map((row) => (
+          <div key={row.term} className="mcp-form__local-guide-row">
+            <dt className="mcp-form__local-guide-term">{row.term}:</dt>
+            <dd className="mcp-form__local-guide-copy">{row.copy}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function McpServerForm({
   draft,
   editingServerId,
@@ -60,7 +112,6 @@ function McpServerForm({
   fieldErrors,
   saving,
   saveEnabled,
-  agentRoster = {},
   error,
   onDraftChange,
   onValidateConnection,
@@ -69,7 +120,6 @@ function McpServerForm({
   onCancel,
 }: Props): JSX.Element {
   const [urlBlurError, setUrlBlurError] = useState<string | null>(null);
-  const agentKeys = Object.keys(agentRoster);
   const purposeLength = draft.purpose.length;
   const purposeCounterWarning = draft.purpose.trim().length < 20;
 
@@ -202,6 +252,7 @@ function McpServerForm({
           <span className="mcp-form__hint">
             Local servers launch as a child process with the agent&apos;s OS permissions at each run.
           </span>
+          <LocalTransportGuide />
           <div className="mcp-form__field">
             <label className="mcp-form__label">Command *</label>
             <input
@@ -211,7 +262,7 @@ function McpServerForm({
               onChange={(e) => onDraftChange('command', e.target.value)}
               placeholder="npx"
             />
-            <span className="mcp-form__hint">The launch command, resolved on PATH by the CLI at launch.</span>
+            <span className="mcp-form__hint">Executable only; put flags, package names, and server options in Arguments.</span>
             {fieldErrors.command && <span className="mcp-form__error">{fieldErrors.command}</span>}
           </div>
 
@@ -224,7 +275,7 @@ function McpServerForm({
               placeholder={'-y\n@scope/server'}
               rows={3}
             />
-            <span className="mcp-form__hint">One argument per line.</span>
+            <span className="mcp-form__hint">One argument per line; each line becomes one argv item in order.</span>
           </div>
 
           <div className="mcp-form__field">
@@ -270,6 +321,9 @@ function McpServerForm({
             >
               + Add env variable
             </button>
+            <span className="mcp-form__hint">
+              {'Values may be literal strings or whole-value ${ENV_VAR_NAME} references. Prefer env references for secrets.'}
+            </span>
           </div>
 
           <div className="mcp-form__field">
@@ -281,7 +335,7 @@ function McpServerForm({
               onChange={(e) => onDraftChange('cwd', e.target.value)}
               placeholder="/absolute/path"
             />
-            <span className="mcp-form__hint">If set, must be an absolute path.</span>
+            <span className="mcp-form__hint">Optional absolute path used as the server process cwd.</span>
             {fieldErrors.cwd && <span className="mcp-form__error">{fieldErrors.cwd}</span>}
           </div>
 
@@ -294,7 +348,7 @@ function McpServerForm({
               placeholder={'read_file\nlist_dir'}
               rows={3}
             />
-            <span className="mcp-form__hint">One tool name per line. Required for local servers; &quot;*&quot; is not allowed.</span>
+            <span className="mcp-form__hint">One exact MCP tool name per line. Required for local servers; &quot;*&quot; is not allowed.</span>
             {fieldErrors.tools && <span className="mcp-form__error">{fieldErrors.tools}</span>}
           </div>
         </>
@@ -347,31 +401,6 @@ function McpServerForm({
           </button>
         </div>
       )}
-
-      <div className="mcp-form__field">
-        <label className="mcp-form__label">Agent Scope</label>
-        <div className="mcp-form__agent-list">
-          {agentKeys.map((key) => {
-            const profile = agentRoster[key];
-            const checked = draft.agent_ids.includes(key);
-            return (
-              <label key={key} className="mcp-form__agent-item">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => {
-                    const next = checked
-                      ? draft.agent_ids.filter((id) => id !== key)
-                      : [...draft.agent_ids, key];
-                    onDraftChange('agent_ids', next);
-                  }}
-                />
-                <span>{profile.displayName}</span>
-              </label>
-            );
-          })}
-        </div>
-      </div>
 
       <div className="mcp-form__field">
         <label className="mcp-form__toggle-inline">

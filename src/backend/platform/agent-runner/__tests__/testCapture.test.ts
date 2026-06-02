@@ -3,7 +3,17 @@ import path from 'node:path';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { ExternalMcpPromptScope } from '../pipeline/mcpPromptContext.js';
+
+// Inline runtime-nickname -> provider-agent-ID fixture (Copilot roster). Importing
+// the provider module here collides with this file's hoisted node:fs mock.
+const toProviderAgentIdFixture = (agentId: string): string => (({
+  lily: 'planning-agent',
+  alice: 'product-manager',
+  dalton: 'software-engineer',
+  'dalton-verify': 'software-engineer-verify',
+  ron: 'qa',
+} as Record<string, string>)[agentId] ?? agentId);
 import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
 
 const existsSync = vi.fn();
@@ -45,19 +55,34 @@ const {
   runTestCapture,
 } = await import('../pipeline/testCapture.js');
 
-const externalRegistry: ExternalMcpRegistry = {
-  schema_version: 1,
-  external_servers: [
-    {
-      id: 'qa-helper',
-      display_name: 'QA Helper',
-      purpose: 'reviewing captured validation evidence',
-      enabled: true,
-      transport: 'http',
-      url: 'http://localhost:8080/mcp',
-      agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
-    },
-  ],
+// Ron maps to the qa provider ID; the test capture prompt targets 'ron'.
+const externalScope: ExternalMcpPromptScope = {
+  runtimeToProviderAgentId: toProviderAgentIdFixture,
+  registry: {
+    schema_version: 1,
+    external_servers: [
+      {
+        id: 'qa-helper',
+        display_name: 'QA Helper',
+        purpose: 'reviewing captured validation evidence',
+        enabled: true,
+        transport: 'http',
+        url: 'http://localhost:8080/mcp',
+      },
+    ],
+  },
+  assignments: {
+    schema_version: 1,
+    assignments: [{ agent_id: 'qa', external_mcp_server_ids: ['qa-helper'] }],
+  },
+};
+
+const testCapturePromptProvider = {
+  instructionPathForRole: (agentId: string): string => `.github/copilot/instructions/${agentId}.instructions.md`,
+  promptPathEnvVars: (): { handoffsDir: string; implStepsDir: string } => ({
+    handoffsDir: 'COPILOT_HANDOFFS_DIR',
+    implStepsDir: 'COPILOT_IMPL_STEPS_DIR',
+  }),
 };
 
 const tempDirs: string[] = [];
@@ -485,7 +510,7 @@ describe('buildTestCapturePrompt', () => {
   it('puts a mandatory artifact-first QA contract in the launch prompt', () => {
     const prompt = buildTestCapturePrompt([
       { command: 'dotnet test', exitCode: 1, stdout: '', stderr: 'Routes.cs: No such file', timedOut: false },
-    ]);
+    ], testCapturePromptProvider);
 
     expect(prompt).toContain('## Mandatory QA Output Contract');
     expect(prompt).toContain('read `.github/copilot/instructions/qa.instructions.md`');
@@ -509,9 +534,30 @@ describe('buildTestCapturePrompt', () => {
     expect(prompt.indexOf('Write artifacts in this exact order')).toBeLessThan(prompt.indexOf('## Orchestrator Test Results'));
   });
 
+  it('uses provider-supplied QA instruction and prompt path env references', () => {
+    const prompt = buildTestCapturePrompt(
+      [],
+      {
+        instructionPathForRole: (agentId: string) => `provider/instructions/${agentId}.md`,
+        promptPathEnvVars: () => ({
+          handoffsDir: 'PROVIDER_HANDOFFS_DIR',
+          implStepsDir: 'PROVIDER_IMPL_STEPS_DIR',
+        }),
+      },
+    );
+
+    expect(prompt).toContain('read `provider/instructions/qa.md`');
+    expect(prompt).toContain('$PROVIDER_HANDOFFS_DIR/issues.md');
+    expect(prompt).toContain('$PROVIDER_IMPL_STEPS_DIR/slice-*.md');
+    expect(prompt).not.toContain('.github/copilot/instructions/qa.instructions.md');
+    expect(prompt).not.toContain('$COPILOT_HANDOFFS_DIR');
+    expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR');
+  });
+
   it('points Ron at readonly support context through task worktree metadata', () => {
     const prompt = buildTestCapturePrompt(
       [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      testCapturePromptProvider,
       {
         estateType: 'distributed-platform',
         primaryFocusRelativePath: 'services/api',
@@ -535,8 +581,9 @@ describe('buildTestCapturePrompt', () => {
   it('adds Ron-scoped external MCP guidance when matching servers exist', () => {
     const prompt = buildTestCapturePrompt(
       [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      testCapturePromptProvider,
       { primaryFocusRelativePath: 'services/sink' },
-      externalRegistry,
+      externalScope,
     );
 
     expect(prompt).toContain('## Monolith Focus Scope');
@@ -550,20 +597,27 @@ describe('buildTestCapturePrompt', () => {
   it('omits the MCP block when only non-Ron servers are available', () => {
     const prompt = buildTestCapturePrompt(
       [{ command: 'pnpm test', exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }],
+      testCapturePromptProvider,
       undefined,
       {
-        schema_version: 1,
-        external_servers: [
-          {
-            id: 'dalton-only',
-            display_name: 'Dalton Only',
-            purpose: 'implementation work',
-            enabled: true,
-            transport: 'http',
-            url: 'http://localhost:8080/mcp',
-            agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
-          },
-        ],
+        runtimeToProviderAgentId: toProviderAgentIdFixture,
+        registry: {
+          schema_version: 1,
+          external_servers: [
+            {
+              id: 'dalton-only',
+              display_name: 'Dalton Only',
+              purpose: 'implementation work',
+              enabled: true,
+              transport: 'http',
+              url: 'http://localhost:8080/mcp',
+            },
+          ],
+        },
+        assignments: {
+          schema_version: 1,
+          assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['dalton-only'] }],
+        },
       },
     );
 
@@ -700,6 +754,13 @@ describe('runTestCapture', () => {
 
     expect(processKillSpy).not.toHaveBeenCalledWith(-child.pid, expect.anything());
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    // Windows cleanup must kill the whole cmd.exe tree via taskkill, not just
+    // the shell, so npx/tsx descendants do not survive.
+    expect(spawn).toHaveBeenCalledWith(
+      'taskkill.exe',
+      expect.arrayContaining(['/T', '/F']),
+      expect.anything(),
+    );
   });
 });
 
@@ -755,13 +816,13 @@ pnpm lint
   });
 
   it('buildTestCapturePrompt uses slice-*.xml glob when format is xml', () => {
-    const prompt = buildTestCapturePrompt([], undefined, undefined, undefined, 'xml');
+    const prompt = buildTestCapturePrompt([], testCapturePromptProvider, undefined, undefined, undefined, 'xml');
     expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.xml');
     expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.md');
   });
 
   it('buildTestCapturePrompt uses slice-*.md glob when format is markdown (behavior-equivalent)', () => {
-    const prompt = buildTestCapturePrompt([], undefined, undefined, undefined, 'markdown');
+    const prompt = buildTestCapturePrompt([], testCapturePromptProvider, undefined, undefined, undefined, 'markdown');
     expect(prompt).toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.md');
     expect(prompt).not.toContain('$COPILOT_IMPL_STEPS_DIR/slice-*.xml');
   });

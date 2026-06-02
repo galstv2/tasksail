@@ -16,24 +16,26 @@ import {
 import { runRoleAgent } from './roleAgent.js';
 import { runPipelineSequence } from './pipeline/sequencer.js';
 import { fromRegistryId } from './metadata.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 import { clearPipelineKill, requestPipelineKill } from './pipeline/runtimeControl.js';
 
 const VALID_AGENT_IDS = new Set<string>(ALL_AGENT_IDS);
 
-function normalizeAgentId(value: string): AgentId | undefined {
+function normalizeAgentId(value: string, provider: CliProvider): AgentId | undefined {
   if (VALID_AGENT_IDS.has(value)) {
     return value as AgentId;
   }
-  return fromRegistryId(value);
+  return fromRegistryId(provider, value);
 }
 
 /**
  * Normalize and validate an agent ID from a CLI flag.
  * Returns the normalized ID, or `undefined` after writing an error if invalid.
  */
-function requireAgentId(raw: string | undefined, flag: string): AgentId | undefined {
+function requireAgentId(raw: string | undefined, flag: string, provider: CliProvider): AgentId | undefined {
   if (!raw) return undefined;
-  const normalized = normalizeAgentId(raw);
+  const normalized = normalizeAgentId(raw, provider);
   if (!normalized) {
     writeProtocolStderr(`Error: unknown agent-id for ${flag}: "${raw}"\n`);
     process.exitCode = 1;
@@ -165,10 +167,11 @@ async function handleRun(args: string[]): Promise<void> {
     return;
   }
 
-  const normalizedAgentId = requireAgentId(agentId, '--agent-id');
+  const provider = getActiveProvider(process.cwd());
+  const normalizedAgentId = requireAgentId(agentId, '--agent-id', provider);
   if (!normalizedAgentId) return;
 
-  const normalizedExpectRole = requireAgentId(expectRole, '--expect-role');
+  const normalizedExpectRole = requireAgentId(expectRole, '--expect-role', provider);
   if (expectRole && !normalizedExpectRole) return;
 
   await runRoleAgent({
@@ -230,10 +233,11 @@ async function handlePipeline(args: string[]): Promise<void> {
     return;
   }
 
-  const normalizedStartAt = requireAgentId(startAt, '--start-at');
+  const provider = getActiveProvider(process.cwd());
+  const normalizedStartAt = requireAgentId(startAt, '--start-at', provider);
   if (startAt && !normalizedStartAt) return;
 
-  const normalizedStopAfter = requireAgentId(stopAfter, '--stop-after');
+  const normalizedStopAfter = requireAgentId(stopAfter, '--stop-after', provider);
   if (stopAfter && !normalizedStopAfter) return;
 
   await runPipelineSequence({

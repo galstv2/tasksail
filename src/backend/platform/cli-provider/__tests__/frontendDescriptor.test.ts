@@ -42,6 +42,7 @@ describe('getProviderFrontendDescriptor', () => {
 
     expect(JSON.parse(JSON.stringify(descriptor))).toEqual(descriptor);
     expect(descriptor.providerId).toBe('copilot');
+    expect(descriptor.cliDisplayName).toBe('Copilot CLI');
     expect(descriptor.homeDirName).toBe('copilot-home');
     expect(descriptor.registryPath).toBe(path.join(repoRoot, '.github/agents/registry.json'));
     expect(descriptor.agentConfigPaths.registry).toBe('.github/agents/registry.json');

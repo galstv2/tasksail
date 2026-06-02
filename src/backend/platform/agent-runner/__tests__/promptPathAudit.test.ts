@@ -3,9 +3,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { buildAgentRuntimePathManifest } from '../agentRuntimePathManifest.js';
-import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
+import { getActiveProvider } from '../../cli-provider/index.js';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../../..');
+const provider = getActiveProvider(REPO_ROOT);
 
 function repoRelative(filePath: string): string {
   return relative(REPO_ROOT, filePath).split(sep).join('/');
@@ -86,7 +87,7 @@ describe('promptPathAudit — §1.7 migration', () => {
       agentId: 'ron',
       agentCwd: '/repo',
       env: manifestEnv,
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
     }).entries.map((entry) => entry.name));
 
     const corpus = MIGRATED_FILES.map((file) => readFileSync(join(REPO_ROOT, file), 'utf-8')).join('\n');

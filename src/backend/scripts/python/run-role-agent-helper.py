@@ -19,14 +19,12 @@ from lib.role_agent.code_diff import capture_code_diff  # noqa: E402
 from lib.role_agent.corrections_cmds import cmd_render_corrections_context  # noqa: E402
 from lib.role_agent.external_mcp import (  # noqa: E402
     LaunchContext,
-    load_validated_external_mcp,
     prepare_launch_context,
-    select_servers_for_agent,
+    resolve_assigned_servers_for_agent,
 )
 from lib.role_agent.external_mcp.loader import ExternalMcpLoadError  # noqa: E402
 from lib.role_agent.json_cmds import cmd_print_json_array_lines  # noqa: E402
 from lib.role_agent.metadata import cmd_resolve_agent_metadata  # noqa: E402
-from lib.role_agent.reinforcement_cmds import cmd_render_reinforcement_context  # noqa: E402
 from lib.role_agent.tests_md_append import (  # noqa: E402
     cmd_check_parallel_tests_md_section,
     cmd_write_parallel_tests_md_stub,
@@ -76,10 +74,7 @@ def _cmd_prepare_external_mcp_launch_context(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo_root).resolve()
 
     try:
-        registry = load_validated_external_mcp(repo_root)
-        servers = select_servers_for_agent(
-            registry.get("external_servers", []), args.agent_id,
-        )
+        servers = resolve_assigned_servers_for_agent(repo_root, args.agent_id)
         context = prepare_launch_context(repo_root, args.agent_id, servers)
     except ExternalMcpLoadError as exc:
         context = LaunchContext(
@@ -93,6 +88,11 @@ def _cmd_prepare_external_mcp_launch_context(args: argparse.Namespace) -> int:
 
     write_protocol_stdout(str(json.dumps(_launch_context_payload(context))) + '\n')
     return 0
+
+
+def _cmd_render_reinforcement_context(args: argparse.Namespace) -> int:
+    from lib.role_agent.reinforcement_cmds import cmd_render_reinforcement_context
+    return cmd_render_reinforcement_context(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--repo-root", dest="repo_root",
         default=str(Path(__file__).resolve().parents[4]),
     )
-    reinforcement_parser.set_defaults(func=cmd_render_reinforcement_context)
+    reinforcement_parser.set_defaults(func=_cmd_render_reinforcement_context)
 
     diff_parser = subparsers.add_parser("capture-code-diff")
     diff_parser.add_argument("output_path")

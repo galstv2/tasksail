@@ -3,6 +3,8 @@ import { readTextFile } from '../core/index.js';
 import path from 'node:path';
 import type { ResolvedContext } from './types.js';
 import { resolveBehavioralBaseRegistryId } from './conventions.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 
 /** All active workflow roles consume behavior corrections. */
 const CORRECTIONS_AGENTS = new Set([
@@ -15,8 +17,8 @@ const CORRECTIONS_AGENTS = new Set([
 /**
  * Check whether an agent role requires corrections context injection.
  */
-export function roleRequiresCorrections(agentId: AgentId): boolean {
-  return CORRECTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
+export function roleRequiresCorrections(provider: CliProvider, agentId: AgentId): boolean {
+  return CORRECTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(provider, agentId));
 }
 
 /**
@@ -28,7 +30,7 @@ export async function resolveCorrectionsContext(
   contextPackDir: string | undefined,
   repoRoot: string,
 ): Promise<ResolvedContext> {
-  if (!roleRequiresCorrections(agentId)) {
+  if (!roleRequiresCorrections(getActiveProvider(repoRoot), agentId)) {
     return {
       status: 'not-applicable',
       reason: 'Agent role does not require corrections context by default.',

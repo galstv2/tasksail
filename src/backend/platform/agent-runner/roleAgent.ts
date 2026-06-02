@@ -263,8 +263,9 @@ async function runRoleAgentInner(
   const startTime = Date.now();
 
   // 1. Load registry and resolve agent profile.
+  const provider = getActiveProvider(paths.repoRoot);
   const registry = await loadAgentRegistry(paths.repoRoot);
-  const profile = resolveAgentProfile(registry, options.agentId);
+  const profile = resolveAgentProfile(provider, registry, options.agentId);
   const activeModel = resolveActiveModel(options.agentId, profile);
 
   // 1b. Optional role expectation check.
@@ -474,7 +475,6 @@ async function runRoleAgentInner(
   }
 
   // 4. Build provider CLI args and resolve launch prompt.
-  const provider = getActiveProvider(paths.repoRoot);
   const launchLog = log.child({
     taskId: options.taskId,
     agentId: options.agentId,
@@ -529,6 +529,7 @@ async function runRoleAgentInner(
         availabilityNote: launchExtensionResolution?.availabilityNote,
       }),
       manifest,
+      provider,
     }),
     promptPath,
     promptSource,

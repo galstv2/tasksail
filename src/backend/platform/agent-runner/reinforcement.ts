@@ -5,6 +5,7 @@ import { runPython, writeTextFile } from '../core/index.js';
 import type { ResolvedContext } from './types.js';
 import { resolveBehavioralBaseRegistryId } from './conventions.js';
 import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 
 /** Active workflow roles consume reinforcement context. */
 const REINFORCEMENT_AGENTS = new Set([
@@ -17,8 +18,8 @@ const REINFORCEMENT_AGENTS = new Set([
 /**
  * Check whether an agent role requires reinforcement context injection.
  */
-export function roleRequiresReinforcement(agentId: AgentId): boolean {
-  return REINFORCEMENT_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
+export function roleRequiresReinforcement(provider: CliProvider, agentId: AgentId): boolean {
+  return REINFORCEMENT_AGENTS.has(resolveBehavioralBaseRegistryId(provider, agentId));
 }
 
 function helperPathForRepo(repoRoot: string): string {
@@ -121,7 +122,8 @@ export async function resolveReinforcementContext(
   contextPackDir: string | undefined,
   repoRoot: string,
 ): Promise<ResolvedContext> {
-  if (!roleRequiresReinforcement(agentId)) {
+  const provider = getActiveProvider(repoRoot);
+  if (!roleRequiresReinforcement(provider, agentId)) {
     return {
       status: 'not-applicable',
       reason: 'Agent role does not require reinforcement context by default.',
@@ -129,7 +131,7 @@ export async function resolveReinforcementContext(
     };
   }
 
-  const baseAgentId = resolveBehavioralBaseRegistryId(agentId);
+  const baseAgentId = resolveBehavioralBaseRegistryId(provider, agentId);
 
   if (!contextPackDir) {
     return returnWithDiagnostics(repoRoot, baseAgentId, {
@@ -141,7 +143,6 @@ export async function resolveReinforcementContext(
 
   const outputPath = renderedContextPath(repoRoot, baseAgentId);
   const exportPath = renderedExportPath(repoRoot, baseAgentId);
-  const provider = getActiveProvider(repoRoot);
 
   try {
     await runPython(

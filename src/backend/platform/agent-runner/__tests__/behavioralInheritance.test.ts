@@ -31,9 +31,17 @@ vi.mock('../../cli-provider/index.js', () => ({
   getActiveProvider: () => ({
     homeDirName: () => '.copilot',
     agentConfigPaths: () => ({ registry: '.github/copilot/agents/registry.json' }),
+    runtimeToProviderAgentId: (agentId: string) => (({
+      lily: 'planning-agent',
+      alice: 'product-manager',
+      dalton: 'software-engineer',
+      'dalton-verify': 'software-engineer-verify',
+      ron: 'qa',
+    } as Record<string, string>)[agentId] ?? agentId),
   }),
 }));
 
+import { getActiveProvider } from '../../cli-provider/index.js';
 import {
   resolveBehavioralBaseRegistryId,
   roleRequiresConventions,
@@ -58,15 +66,17 @@ describe('Dalton-family behavioral inheritance', () => {
   });
 
   it('maps dalton-verify to the software-engineer behavioral base registry id', () => {
-    expect(resolveBehavioralBaseRegistryId('dalton' as AgentId)).toBe('software-engineer');
-    expect(resolveBehavioralBaseRegistryId('dalton-verify' as AgentId)).toBe('software-engineer');
-    expect(resolveBehavioralBaseRegistryId('ron' as AgentId)).toBe('qa');
+    const provider = getActiveProvider('');
+    expect(resolveBehavioralBaseRegistryId(provider, 'dalton' as AgentId)).toBe('software-engineer');
+    expect(resolveBehavioralBaseRegistryId(provider, 'dalton-verify' as AgentId)).toBe('software-engineer');
+    expect(resolveBehavioralBaseRegistryId(provider, 'ron' as AgentId)).toBe('qa');
   });
 
   it('keeps dalton-verify eligible for conventions, corrections, and reinforcement', () => {
-    expect(roleRequiresConventions('dalton-verify' as AgentId)).toBe(true);
-    expect(roleRequiresCorrections('dalton-verify' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement('dalton-verify' as AgentId)).toBe(true);
+    const provider = getActiveProvider('');
+    expect(roleRequiresConventions(provider, 'dalton-verify' as AgentId)).toBe(true);
+    expect(roleRequiresCorrections(provider, 'dalton-verify' as AgentId)).toBe(true);
+    expect(roleRequiresReinforcement(provider, 'dalton-verify' as AgentId)).toBe(true);
   });
 
   it('reuses the software-engineer rendered reinforcement context for dalton-verify', async () => {

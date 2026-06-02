@@ -16,6 +16,7 @@ import { useAgentInstructionsModal, type AgentInstructionsBrowserProps, type Age
 import { useMcpConfigModal, type McpConfigModalProps } from './useMcpConfigModal';
 import { usePlannerModal } from './usePlannerModal';
 import { useReinforcementModal, type ReinforcementModalProps } from './useReinforcementModal';
+import { useSystemSettingsModal, type SystemSettingsModalProps } from './useSystemSettingsModal';
 import { useTaskBoard } from './useTaskBoard';
 import { useTaskNotifications, type UseTaskNotificationsResult } from './useTaskNotifications';
 import type { TaskBoardProps } from '../components/taskboard/TaskBoard';
@@ -50,6 +51,8 @@ export type UseAppShellResult = {
   enabledMcpServerCount: number;
   reinforcementModalProps: ReinforcementModalProps;
   openReinforcementModal: () => void;
+  systemSettingsModalProps: SystemSettingsModalProps;
+  openSystemSettingsModal: () => void;
   taskBoardProps: TaskBoardProps;
   notificationCenterProps: UseTaskNotificationsResult;
 };
@@ -112,6 +115,7 @@ export function useAppShell(
   const { agentConfigModalProps, openAgentConfigModal } = useAgentConfigModal(client);
   const { browserProps: instructionsBrowserProps, editorProps: instructionsEditorProps, openAgentInstructionsModal } = useAgentInstructionsModal(client);
   const { mcpConfigModalProps, openMcpConfigModal, enabledServerCount: enabledMcpServerCount } = useMcpConfigModal(client);
+  const { systemSettingsModalProps, openSystemSettingsModal } = useSystemSettingsModal(client);
   const { reinforcementModalProps, openReinforcementModal } = useReinforcementModal(
     hasActiveContextPack,
     contextPackSidebarProps.activeContextPackDir,
@@ -298,6 +302,8 @@ export function useAppShell(
     enabledMcpServerCount,
     reinforcementModalProps,
     openReinforcementModal,
+    systemSettingsModalProps,
+    openSystemSettingsModal,
     taskBoardProps,
     notificationCenterProps,
   };

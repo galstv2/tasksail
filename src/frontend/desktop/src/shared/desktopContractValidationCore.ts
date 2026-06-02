@@ -26,6 +26,17 @@ const CONTEXT_PACK_CREATE_MODES = [
   'monolith-platform',
 ] as const;
 const CONTEXT_PACK_REPOSITORY_TYPES = ['primary', 'support'] as const;
+export const CONTEXT_PACK_REPO_CATEGORIES = [
+  'service',
+  'application',
+  'frontend',
+  'library',
+  'infrastructure',
+  'data',
+  'documentation',
+  'tool',
+  'unknown',
+] as const;
 const CONTEXT_PACK_SYSTEM_LAYERS = [
   'backend',
   'frontend',
@@ -67,6 +78,42 @@ export function isAbsolutePath(value: unknown): value is string {
   if (value.startsWith('/')) return true;
   if (/^[A-Za-z]:[\\/]/.test(value)) return true;
   return false;
+}
+
+/**
+ * Validates that a value is a safe repo-relative path: no leading slash or
+ * backslash, no Windows drive prefix, no UNC prefix, no `..` segments, no
+ * trailing slash or backslash, and no empty string. Returns normalized form
+ * with forward-slash separators on success (empty error array).
+ *
+ * Used for: contextPack.listRepoTree relativePath, contextPack.create
+ * focusableAreas[].relativePath. Shared to avoid duplication.
+ */
+export function validateRepoRelativePath(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (!isString(value)) {
+    return [`${fieldName} must be a string.`];
+  }
+  if (!value.trim()) {
+    return [`${fieldName} must be a non-empty string.`];
+  }
+  // Reject ".." only as a path SEGMENT (traversal), not as a substring — a
+  // legitimate name like "v1..draft" contains ".." without being traversal.
+  const hasTraversalSegment = value.split(/[\\/]/).some((segment) => segment === '..');
+  if (
+    value.startsWith('/')
+    || value.startsWith('\\')
+    || /^[A-Za-z]:[\\/]/.test(value)
+    || /^\\\\/.test(value)
+    || hasTraversalSegment
+    || value.endsWith('/')
+    || value.endsWith('\\')
+  ) {
+    return [`${fieldName} must be a repo-root-relative path without traversal.`];
+  }
+  return [];
 }
 
 function validateSelectedIds(
@@ -799,6 +846,38 @@ function validateContextPackBootstrapRepositoryInput(
       `payload.bootstrapAnswers.repositories[${index}].repositoryType must be primary or support when provided.`,
     );
   }
+  if (
+    value.repoFocus !== undefined &&
+    !isOneOf(value.repoFocus, CONTEXT_PACK_REPOSITORY_TYPES)
+  ) {
+    errors.push(
+      `payload.bootstrapAnswers.repositories[${index}].repoFocus must be primary or support when provided.`,
+    );
+  }
+  if (
+    value.repoFocusAuthored !== undefined &&
+    typeof value.repoFocusAuthored !== 'boolean'
+  ) {
+    errors.push(
+      `payload.bootstrapAnswers.repositories[${index}].repoFocusAuthored must be a boolean when provided.`,
+    );
+  }
+  if (
+    value.repoCategory !== undefined &&
+    !isOneOf(value.repoCategory, CONTEXT_PACK_REPO_CATEGORIES)
+  ) {
+    errors.push(
+      `payload.bootstrapAnswers.repositories[${index}].repoCategory must be service, application, frontend, library, infrastructure, data, documentation, tool, or unknown when provided.`,
+    );
+  }
+  if (
+    value.repoCategoryAuthored !== undefined &&
+    typeof value.repoCategoryAuthored !== 'boolean'
+  ) {
+    errors.push(
+      `payload.bootstrapAnswers.repositories[${index}].repoCategoryAuthored must be a boolean when provided.`,
+    );
+  }
   if (!isOneOf(value.systemLayer, CONTEXT_PACK_SYSTEM_LAYERS)) {
     errors.push(
       `payload.bootstrapAnswers.repositories[${index}].systemLayer must be backend, frontend, infrastructure, database, documents, or shared.`,
@@ -857,6 +936,14 @@ function validateContextPackBootstrapFocusAreaInput(
   ) {
     errors.push(
       `payload.bootstrapAnswers.focusableAreas[${index}] must include focusId, relativePath, or an absolute path.`,
+    );
+  }
+  if (isString(value.relativePath) && value.relativePath.trim()) {
+    errors.push(
+      ...validateRepoRelativePath(
+        value.relativePath,
+        `payload.bootstrapAnswers.focusableAreas[${index}].relativePath`,
+      ),
     );
   }
   errors.push(

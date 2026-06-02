@@ -8,6 +8,7 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metadata-test-'));
+  inspectPluginMetadata.mockClear();
 });
 
 afterEach(() => {
@@ -26,7 +27,6 @@ describe('inspectAgentExtensionMetadata (skill)', () => {
   it('extracts name and description from SKILL.md frontmatter', async () => {
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), VALID_SKILL_MD);
     const result = await inspectAgentExtensionMetadata({
-      providerId: 'copilot',
       kind: 'skill',
       runtimePath: tmpDir,
     });
@@ -38,7 +38,6 @@ describe('inspectAgentExtensionMetadata (skill)', () => {
   it('does not return SKILL.md body content', async () => {
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), VALID_SKILL_MD);
     const result = await inspectAgentExtensionMetadata({
-      providerId: 'copilot',
       kind: 'skill',
       runtimePath: tmpDir,
     });
@@ -48,7 +47,7 @@ describe('inspectAgentExtensionMetadata (skill)', () => {
 
   it('throws (fail-closed) when SKILL.md is missing', async () => {
     await expect(
-      inspectAgentExtensionMetadata({ providerId: 'copilot', kind: 'skill', runtimePath: tmpDir }),
+      inspectAgentExtensionMetadata({ kind: 'skill', runtimePath: tmpDir }),
     ).rejects.toThrow('SKILL.md');
   });
 
@@ -59,7 +58,7 @@ description: Only description
 `;
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), content);
     await expect(
-      inspectAgentExtensionMetadata({ providerId: 'copilot', kind: 'skill', runtimePath: tmpDir }),
+      inspectAgentExtensionMetadata({ kind: 'skill', runtimePath: tmpDir }),
     ).rejects.toThrow(/name/);
   });
 
@@ -71,21 +70,20 @@ description:
 `;
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), content);
     await expect(
-      inspectAgentExtensionMetadata({ providerId: 'copilot', kind: 'skill', runtimePath: tmpDir }),
+      inspectAgentExtensionMetadata({ kind: 'skill', runtimePath: tmpDir }),
     ).rejects.toThrow(/description/);
   });
 
   it('throws when SKILL.md has no frontmatter', async () => {
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), '# Just a heading\nNo frontmatter.');
     await expect(
-      inspectAgentExtensionMetadata({ providerId: 'copilot', kind: 'skill', runtimePath: tmpDir }),
+      inspectAgentExtensionMetadata({ kind: 'skill', runtimePath: tmpDir }),
     ).rejects.toThrow(/frontmatter/);
   });
 
   it('includes skill_names in metadata', async () => {
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), VALID_SKILL_MD);
     const result = await inspectAgentExtensionMetadata({
-      providerId: 'copilot',
       kind: 'skill',
       runtimePath: tmpDir,
     });
@@ -96,7 +94,6 @@ description:
   it('does not include plugin_component_classes for skills', async () => {
     fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), VALID_SKILL_MD);
     const result = await inspectAgentExtensionMetadata({
-      providerId: 'copilot',
       kind: 'skill',
       runtimePath: tmpDir,
     });
@@ -104,36 +101,29 @@ description:
   });
 });
 
-// Plugin-kind test uses vi.mock hoisting — must be at top level (see Vitest docs)
-vi.mock('../../cli-provider/providers/copilot/launchExtensions.js', () => ({
-  readCopilotPluginManifestSummary: vi.fn(async (runtimePath: string) => ({
+const inspectPluginMetadata = vi.fn(async (runtimePath: string) => ({
     name: 'Test Plugin',
     manifestPath: path.join(runtimePath, 'manifest.json'),
     declaredComponentClasses: ['MyExtension', 'MyOtherExtension'],
     skillPathCount: 3,
-  })),
 }));
 
 describe('inspectAgentExtensionMetadata (plugin)', () => {
   it('returns plugin_component_classes + plugin_skill_count and exposes NO manifest body', async () => {
-    const MOCK_DESCRIPTION = 'A test plugin description.';
-
-    // Write a manifest.json so the description read succeeds
     const manifestJson = JSON.stringify({
       name: 'Test Plugin',
-      description: MOCK_DESCRIPTION,
       internalField: 'SHOULD NOT APPEAR',
     });
     fs.writeFileSync(path.join(tmpDir, 'manifest.json'), manifestJson);
 
     const result = await inspectAgentExtensionMetadata({
-      providerId: 'copilot',
       kind: 'plugin',
       runtimePath: tmpDir,
+      inspectPluginMetadata,
     });
 
     expect(result.display_name).toBe('Test Plugin');
-    expect(result.description).toBe(MOCK_DESCRIPTION);
+    expect(result.description).toBe('Plugin Test Plugin.');
     expect(result.metadata.plugin_component_classes).toEqual(['MyExtension', 'MyOtherExtension']);
     expect(result.metadata.plugin_skill_count).toBe(3);
 
@@ -141,5 +131,23 @@ describe('inspectAgentExtensionMetadata (plugin)', () => {
     const resultStr = JSON.stringify(result);
     expect(resultStr).not.toContain('SHOULD NOT APPEAR');
     expect(resultStr).not.toContain('internalField');
+  });
+
+  it('uses provider-supplied plugin descriptions when present', async () => {
+    inspectPluginMetadata.mockResolvedValueOnce({
+      name: 'Described Plugin',
+      description: 'A provider description.',
+      manifestPath: path.join(tmpDir, 'manifest.json'),
+      declaredComponentClasses: [],
+      skillPathCount: 0,
+    });
+
+    const result = await inspectAgentExtensionMetadata({
+      kind: 'plugin',
+      runtimePath: tmpDir,
+      inspectPluginMetadata,
+    });
+
+    expect(result.description).toBe('A provider description.');
   });
 });

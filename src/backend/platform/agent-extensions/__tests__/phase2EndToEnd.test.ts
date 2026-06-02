@@ -24,8 +24,8 @@ const ALL_AGENTS: AgentExtensionAgentId[] = [
   'planning-agent',
   'product-manager',
   'software-engineer',
-  'software-engineer-verify',
   'qa',
+  'software-engineer-verify',
 ];
 
 let repo: string;
@@ -35,12 +35,29 @@ beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2-e2e-'));
   fs.mkdirSync(path.join(repo, '.platform-state'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'config'), { recursive: true });
+  writeProviderRegistry();
   fs.writeFileSync(
     path.join(repo, 'config', 'agent-extensions.default.json'),
     JSON.stringify({ schema_version: 1, extensions: [] }),
   );
   handle = createPhase2Fixtures();
 });
+
+function writeProviderRegistry(): void {
+  fs.mkdirSync(path.join(repo, '.github', 'agents'), { recursive: true });
+  fs.writeFileSync(
+    path.join(repo, '.github', 'agents', 'registry.json'),
+    JSON.stringify({
+      schema_version: 1,
+      agents: ALL_AGENTS.map((agent_id, index) => ({
+        agent_id,
+        role_name: agent_id,
+        human_name: agent_id,
+        workflow_order: index,
+      })),
+    }),
+  );
+}
 
 afterEach(() => {
   handle?.cleanup();
@@ -177,6 +194,28 @@ describe('Phase 2 confirmation — catalog-local-plugin', () => {
     expect(fs.readFileSync(bundled, 'utf-8')).toContain(plugin.marker);
 
     expect(fs.existsSync(receiptPath('plugins', plugin.id))).toBe(true);
+  });
+
+  it('imports a local plugin whose manifest omits the optional description field', async () => {
+    const plugin = handle.fixture.plugin;
+    const manifestPath = path.join(plugin.sourceDir, 'plugin.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>;
+    delete manifest.description;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await importLocalPlugin();
+
+    const listed = await listAgentExtensions(repo);
+    const cobalt = listed.find((e) => e.id === plugin.id);
+    expect(cobalt).toMatchObject({
+      id: plugin.id,
+      kind: 'plugin',
+      display_name: plugin.manifestName,
+      description: `Plugin ${plugin.manifestName}.`,
+      source_type: 'local',
+      status: 'available',
+    });
+    expect(cobalt?.metadata.plugin_skill_count).toBe(1);
   });
 });
 

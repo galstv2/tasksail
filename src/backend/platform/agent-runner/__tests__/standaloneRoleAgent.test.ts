@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../metadata.js', () => ({
   loadAgentRegistry: mocks.loadAgentRegistry,
   resolveAgentProfile: mocks.resolveAgentProfile,
-  toRegistryId: (id: string) => (
+  toRegistryId: (_provider: unknown, id: string) => (
     { lily: 'planning-agent', alice: 'product-manager', dalton: 'software-engineer', 'dalton-verify': 'software-engineer-verify', ron: 'qa' }[id]
   ),
 }));

@@ -33,6 +33,10 @@ import {
   saveAgentModels,
 } from './agentConfigHandlers';
 import {
+  readSystemSettingsAction,
+  saveSystemSettingsAction,
+} from './systemSettingsHandlers';
+import {
   listAgentExtensionsCatalog,
   addAgentExtensionCatalog,
   reseedAgentExtensionCatalog,
@@ -40,6 +44,10 @@ import {
   loadAgentExtensionAssignments,
   saveAgentExtensionAssignments,
 } from './agentExtensionCatalog';
+import {
+  loadExternalMcpAssignments,
+  saveExternalMcpAssignments,
+} from './externalMcpAssignmentHandlers';
 import {
   listInstructionFiles,
   readInstructionFile,
@@ -126,6 +134,9 @@ export type DesktopActionHandlerDeps = {
     | null
     | undefined;
   schedulePipelineAutoStart?: () => void;
+  // Full TaskSail restart, injected from main.ts (has electron `app`). Used by the
+  // System Settings save flow so saved platform settings take effect on relaunch.
+  restartApp?: () => void;
 };
 
 export type DesktopActionHandlers = {
@@ -244,6 +255,11 @@ export type DesktopActionHandlers = {
   validateExternalMcpLocalCommand: (
     payload: import('../src/shared/desktopContract').ExternalMcpValidateLocalCommandRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  readSystemSettings: () => Promise<DesktopInvokeResult>;
+  saveSystemSettings: (
+    payload: import('../src/shared/desktopContract').SystemSettingsSaveRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  restartApp: () => Promise<DesktopInvokeResult>;
   loadAgentConfigAgents: () => Promise<DesktopInvokeResult>;
   loadAgentModelCatalog: () => Promise<DesktopInvokeResult>;
   loadAgentConfigCapabilities: () => Promise<DesktopInvokeResult>;
@@ -269,6 +285,10 @@ export type DesktopActionHandlers = {
   loadAgentExtensionAssignments: () => Promise<DesktopInvokeResult>;
   saveAgentExtensionAssignments: (
     payload: import('../src/shared/desktopContract').AgentConfigSaveExtensionAssignmentsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadExternalMcpAssignments: () => Promise<DesktopInvokeResult>;
+  saveExternalMcpAssignments: (
+    payload: import('../src/shared/desktopContract').AgentConfigSaveExternalMcpAssignmentsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   listInstructionFiles: (
     request: import('../src/shared/desktopContract').AgentInstructionsListFilesRequest,
@@ -643,6 +663,26 @@ export function createDefaultDesktopActionHandlers(
   toggleExternalMcpServer: (payload) => toggleExternalMcpServer(payload),
   validateExternalMcpConnection: (payload) => validateExternalMcpConnection(payload),
   validateExternalMcpLocalCommand: (payload) => validateExternalMcpLocalCommand(payload),
+  readSystemSettings: () => readSystemSettingsAction(),
+  saveSystemSettings: (payload) => saveSystemSettingsAction(payload),
+  restartApp: async () => {
+    if (!deps.restartApp) {
+      return {
+        ok: false,
+        action: 'systemSettings.restart',
+        error: 'Restart is not available in this context.',
+      } as const;
+    }
+    deps.restartApp();
+    return {
+      ok: true,
+      response: {
+        action: 'systemSettings.restart' as const,
+        mode: 'restarting' as const,
+        message: 'Restarting TaskSail to apply settings…',
+      },
+    };
+  },
   loadAgentConfigAgents: () => loadAgentConfigAgents(),
   loadAgentModelCatalog: () => loadAgentModelCatalog(),
   loadAgentConfigCapabilities: () => loadAgentConfigCapabilities(),
@@ -655,6 +695,8 @@ export function createDefaultDesktopActionHandlers(
   deleteAgentExtension: (payload) => deleteAgentExtensionCatalog(payload),
   loadAgentExtensionAssignments: () => loadAgentExtensionAssignments(),
   saveAgentExtensionAssignments: (payload) => saveAgentExtensionAssignments(payload),
+  loadExternalMcpAssignments: () => loadExternalMcpAssignments(),
+  saveExternalMcpAssignments: (payload) => saveExternalMcpAssignments(payload),
   listInstructionFiles: (request) => listInstructionFiles(request),
   readInstructionFile: (request) => readInstructionFile(request),
   writeInstructionFile: (request) => writeInstructionFile(request),

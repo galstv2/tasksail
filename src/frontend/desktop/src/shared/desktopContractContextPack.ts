@@ -85,6 +85,9 @@ export type ContextPackDiscoveredRepo = {
   path: string;
   relativePath: string;
   highSignalPaths: string[];
+  repoCategory?: ContextPackRepoCategory;
+  repoCategoryConfidence?: ContextPackClassificationConfidence;
+  suggestedSystemLayer?: ContextPackBootstrapRepositoryInput['systemLayer'];
   repositoryType?: ContextPackRepositoryType;
   classificationConfidence?: ContextPackClassificationConfidence;
 };
@@ -103,6 +106,18 @@ export type ContextPackDiscoveredHighSignalPath = {
   path: string;
   relativePath: string;
   signalType: string;
+};
+
+/**
+ * A repo-like folder discovery skipped because it lacks a top-level Git marker
+ * (existing-source creation only). Informational; surfaced to the operator so
+ * they can `git init` the folder if they want it in the context pack.
+ */
+export type ContextPackSkippedRepoMissingGit = {
+  repoName: string;
+  path: string;
+  relativePath: string;
+  message: string;
 };
 
 export type ContextPackDiscoverPrefillRequest = {
@@ -126,6 +141,7 @@ export type ContextPackDiscoverPrefillResponse = {
   candidateRepos: ContextPackDiscoveredRepo[];
   candidateFocusAreas: ContextPackDiscoveredFocusArea[];
   highSignalPaths: ContextPackDiscoveredHighSignalPath[];
+  skippedReposMissingGit?: ContextPackSkippedRepoMissingGit[];
 };
 
 export type ContextPackBootstrapRepositoryInput = {
@@ -263,6 +279,8 @@ export type ContextPackFocusTarget = {
   /** @deprecated Superseded by repositoryType; removal deferred (Phase 6 Gate G7). */
   repoRole: string | null;
   repositoryType: ContextPackRepositoryType | null;
+  repoCategory?: ContextPackRepoCategory | null;
+  repoCategoryAuthored?: boolean;
   relativePath: string | null;
   focusType: string | null;
   group: string | null;
@@ -407,7 +425,7 @@ export type ContextPackSetRepoCategoryRequest = {
   payload: {
     contextPackDir: string;
     repoId: string;
-    repoCategory: string;
+    repoCategory: ContextPackRepoCategory;
   };
 };
 

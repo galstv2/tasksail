@@ -648,7 +648,7 @@ describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', ()
     // Spy on resolveActiveModel to avoid registry lookup in the test
     vi.mock('../../agent-runner/metadata.js', () => ({
       resolveActiveModel: () => 'gpt-4.1',
-      toRegistryId: (id: string) => id,
+      toRegistryId: (_provider: unknown, id: string) => id,
     }));
 
     const env = buildAgentEnvironment(
@@ -716,7 +716,7 @@ describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', ()
 
     vi.mock('../../agent-runner/metadata.js', () => ({
       resolveActiveModel: () => 'gpt-4.1',
-      toRegistryId: (id: string) => id,
+      toRegistryId: (_provider: unknown, id: string) => id,
     }));
 
     const env = buildAgentEnvironment(

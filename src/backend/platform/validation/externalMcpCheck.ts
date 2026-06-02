@@ -1,20 +1,25 @@
 /**
  * External MCP registry validation for local-checks.
  *
- * Validates the external MCP registry and produces advisory warnings
- * for agent scope references that don't match the agent registry.
- * Warnings never fail local-checks — they are surfaced separately.
+ * Validates the external MCP registry and the external MCP agent-assignment
+ * store (.platform-state/external-mcp-agent-assignments.json). Unknown agent IDs
+ * and unknown server IDs in the assignment file are hard failures. Stale
+ * agent_scope on a server entry is no longer assignment data and is not checked.
  */
 import path from 'node:path';
 
+import { readTextFile, safeJsonParse } from '../core/io.js';
 import { loadAgentRegistry } from '../agent-runner/metadata.js';
-import { getActiveProvider } from '../cli-provider/index.js';
 import {
   loadExternalMcpRegistry,
   loadDefaultExternalRegistry,
   FILE_NOT_FOUND_FIELD,
   RUNTIME_REGISTRY_PATH,
 } from '../external-mcp-registry/load.js';
+import {
+  EXTERNAL_MCP_ASSIGNMENTS_PATH,
+  validateAssignmentsDocument,
+} from '../external-mcp-registry/index.js';
 
 export interface ExternalMcpCheckResult {
   valid: boolean;
@@ -23,19 +28,18 @@ export interface ExternalMcpCheckResult {
 }
 
 /**
- * Validate the external MCP registry and check agent scope references.
+ * Validate the external MCP registry and the agent-assignment store.
  *
  * - Validates the runtime registry if it exists, otherwise the default.
- * - Reports validation errors as failures (unlike the fallback helper
- *   which swallows errors for the launch path).
- * - Warns (does not fail) if agent_scope.agent_ids reference IDs not
- *   found in the active provider's agent registry.
+ * - Reports registry validation errors as failures (unlike the fallback
+ *   helper which swallows errors for the launch path).
+ * - When an assignment file is present, fails on malformed JSON, unknown
+ *   agent IDs, and unknown server IDs.
  */
 export async function checkExternalMcpRegistry(
   repoRoot: string,
 ): Promise<ExternalMcpCheckResult> {
   const warnings: string[] = [];
-  const registryRelativePath = getActiveProvider(repoRoot).agentConfigPaths().registry;
 
   // Try runtime first, fall back to default on file-not-found.
   const runtimePath = path.join(repoRoot, RUNTIME_REGISTRY_PATH);
@@ -64,7 +68,7 @@ export async function checkExternalMcpRegistry(
     return { valid: false, errors, warnings };
   }
 
-  // Registry is valid — check agent scope references against the roster.
+  // Registry is valid — validate the assignment store against the roster.
   let knownAgentIds: Set<string> | null = null;
   try {
     const agentRegistry = await loadAgentRegistry(repoRoot);
@@ -72,18 +76,27 @@ export async function checkExternalMcpRegistry(
       agentRegistry.agents.map((a) => a.agent_id).filter(Boolean),
     );
   } catch {
-    // Agent registry not readable — skip scope validation.
+    // Agent registry not readable — skip assignment validation.
   }
 
   if (knownAgentIds) {
-    for (const server of result.registry.external_servers) {
-      for (const agentId of server.agent_scope.agent_ids) {
-        if (!knownAgentIds.has(agentId)) {
-          warnings.push(
-            `External MCP server "${server.id}": agent_scope references ` +
-            `unknown agent ID "${agentId}" (not in ${registryRelativePath}).`,
-          );
-        }
+    const assignmentsPath = path.join(repoRoot, EXTERNAL_MCP_ASSIGNMENTS_PATH);
+    const assignmentsRaw = await readTextFile(assignmentsPath);
+    if (assignmentsRaw !== undefined) {
+      let parsed: unknown;
+      try {
+        parsed = safeJsonParse(assignmentsRaw, EXTERNAL_MCP_ASSIGNMENTS_PATH);
+      } catch (e) {
+        return {
+          valid: false,
+          errors: [e instanceof Error ? e.message : 'Invalid JSON in external MCP assignments file.'],
+          warnings,
+        };
+      }
+      const knownServerIds = new Set(result.registry.external_servers.map((s) => s.id));
+      const validation = validateAssignmentsDocument(parsed, [...knownAgentIds], knownServerIds);
+      if (!validation.ok) {
+        return { valid: false, errors: validation.errors, warnings };
       }
     }
   }

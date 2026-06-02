@@ -99,6 +99,10 @@ describe('getQueueStatus', () => {
 
     expect(status.activeTasks).toHaveLength(1);
     expect(status.activeTasks[0]!.taskId).toBe('active-task');
+    // Back-compat getter derives the marker filename from the task dir via
+    // path.dirname/path.basename (separator-aware), not a POSIX "/handoffs"
+    // string strip that no-ops on Windows and would yield "handoffs.md".
+    expect(status.activeItem).toBe('active-task.md');
   });
 
   it('detects active marker with blank workspace as degraded state', async () => {

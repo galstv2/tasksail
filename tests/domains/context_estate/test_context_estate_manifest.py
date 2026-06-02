@@ -125,6 +125,10 @@ class ContextEstateManifestTests(unittest.TestCase):
                 "primary",
             )
             self.assertEqual(
+                repo_map["services-orders-api"]["repo_focus"],
+                "primary",
+            )
+            self.assertEqual(
                 repo_map["services-orders-web"]["depends_on_repo_ids"],
                 ["services-orders-api"],
             )
@@ -135,6 +139,13 @@ class ContextEstateManifestTests(unittest.TestCase):
             self.assertEqual(
                 repo_map["services-orders-web"]["repository_type"],
                 "support",
+            )
+            self.assertEqual(
+                repo_map["services-orders-web"]["repo_focus"],
+                "support",
+            )
+            self.assertFalse(
+                repo_map["services-orders-web"]["repo_focus_authored"],
             )
 
     def test_monolith_manifest_approval_from_reviewed_draft(self) -> None:

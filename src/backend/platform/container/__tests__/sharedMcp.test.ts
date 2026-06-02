@@ -27,6 +27,19 @@ vi.mock('../directRuntimeProcess.js', () => ({
   isDirectMcpHealthy: vi.fn(),
 }));
 
+// Hoist the mock so it can be referenced in the factory below.
+const { toEngineHostPathMock } = vi.hoisted(() => ({
+  toEngineHostPathMock: vi.fn((p: string) => p),
+}));
+
+vi.mock('../../core/platform.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/platform.js')>();
+  return {
+    ...actual,
+    toEngineHostPath: toEngineHostPathMock,
+  };
+});
+
 const { mkdir, readFile, rename, rm, stat, writeFile } = await import('node:fs/promises');
 const { getPlatformConfig } = await import('../../platform-config/get.js');
 const { checkServiceHealth } = await import('../healthcheck.js');
@@ -56,6 +69,8 @@ describe('shared MCP helpers', () => {
     mockCheckServiceHealth.mockReset();
     mockCreateRuntimeFromConfig.mockReset();
     mockIsDirectMcpHealthy.mockReset();
+    toEngineHostPathMock.mockReset();
+    toEngineHostPathMock.mockImplementation((p: string) => p);
     vi.mocked(mkdir).mockClear();
     vi.mocked(readFile).mockReset();
     vi.mocked(readFile).mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
@@ -75,11 +90,11 @@ describe('shared MCP helpers', () => {
     expect(mockGetPlatformConfig).toHaveBeenCalledTimes(1);
   });
 
-  it('builds shared SSE and health URLs from the configured port', async () => {
+  it('builds shared SSE and health URLs using 127.0.0.1', async () => {
     mockGetPlatformConfig.mockResolvedValue({ mcp_port: 8817 } as never);
 
-    await expect(getSharedMcpUrl('/repo')).resolves.toBe('http://localhost:8817/sse');
-    await expect(getSharedMcpHealthUrl('/repo')).resolves.toBe('http://localhost:8817/health');
+    await expect(getSharedMcpUrl('/repo')).resolves.toBe('http://127.0.0.1:8817/sse');
+    await expect(getSharedMcpHealthUrl('/repo')).resolves.toBe('http://127.0.0.1:8817/health');
   });
 
   it('maps context packs under the repo root to /workspace', () => {
@@ -178,7 +193,7 @@ describe('shared MCP helpers', () => {
         '        read_only: true',
         '',
       ].join('\n'),
-      'utf-8',
+      expect.objectContaining({ encoding: 'utf-8' }),
     );
     expect(rename).toHaveBeenCalledWith(
       expect.stringMatching(/shared-mcp-compose\.override\.yml\.tmp-/),
@@ -211,6 +226,51 @@ describe('shared MCP helpers', () => {
     expect(runtime.bootstrap).toHaveBeenCalledTimes(1);
   });
 
+  it('translates bind sources via toEngineHostPath for WSL engine mode', async () => {
+    // Use POSIX absolute paths: the path must pass path.isAbsolute() on the test host.
+    // The WSL translation is mocked — we verify the wiring, not the shell-out.
+    const repoRoot = path.join(path.sep, 'repo');
+    const externalRoot = path.join(path.sep, 'host', 'ops', 'packs');
+    const translatedRoot = '/mnt/c/Users/ops/packs';
+    toEngineHostPathMock.mockImplementation((p: string) => {
+      if (p === path.resolve(externalRoot)) return translatedRoot;
+      return p;
+    });
+
+    await generateSharedMcpComposeOverride(
+      repoRoot,
+      [externalRoot],
+      { engineHost: 'wsl', wslDistro: 'Ubuntu' },
+    );
+
+    expect(toEngineHostPathMock).toHaveBeenCalledWith(
+      path.resolve(externalRoot),
+      { engineHost: 'wsl', wslDistro: 'Ubuntu' },
+    );
+    expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
+      expect.stringMatching(/shared-mcp-compose\.override\.yml\.tmp-/),
+      expect.stringContaining(JSON.stringify(translatedRoot)),
+      expect.objectContaining({ encoding: 'utf-8' }),
+    );
+  });
+
+  it('leaves bind sources unchanged for native engine mode', async () => {
+    const repoRoot = path.join(path.sep, 'repo');
+    const firstRoot = path.join(path.sep, 'external-a');
+
+    await generateSharedMcpComposeOverride(repoRoot, [firstRoot]);
+
+    expect(toEngineHostPathMock).toHaveBeenCalledWith(
+      path.resolve(firstRoot),
+      {},
+    );
+    expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
+      expect.stringMatching(/shared-mcp-compose\.override\.yml\.tmp-/),
+      expect.stringContaining(JSON.stringify(firstRoot)),
+      expect.objectContaining({ encoding: 'utf-8' }),
+    );
+  });
+
   it('rejects missing external mount roots during override generation', async () => {
     vi.mocked(stat).mockRejectedValueOnce(new Error('ENOENT'));
 
@@ -232,7 +292,7 @@ describe('shared MCP helpers', () => {
     expect(mockCheckServiceHealth).toHaveBeenCalledTimes(1);
     expect(mockCheckServiceHealth).toHaveBeenCalledWith({
       name: 'repo-context-mcp',
-      url: 'http://localhost:8817/health',
+      url: 'http://127.0.0.1:8817/health',
       maxRetries: 1,
       retryIntervalMs: 0,
     });

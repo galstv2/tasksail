@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { createLogger, readTextFile, getErrorMessage } from '../../core/index.js';
+import { createLogger, killWindowsProcessTree, readTextFile, getErrorMessage } from '../../core/index.js';
 import { isWindowsPlatform } from '../../core/platform.js';
 import { getEffectiveScopeForPrimary, resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
 import {
@@ -13,8 +13,7 @@ import {
   type FocusScopePromptOptions,
 } from './focusScopePrompt.js';
 import type { FocusTarget, PrimaryFocusTarget } from '../../context-pack/deepFocusNormalization.js';
-import { appendMcpContextBlock } from './mcpPromptContext.js';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import { appendMcpContextBlock, type ExternalMcpPromptScope } from './mcpPromptContext.js';
 import { parseSections, resolveSemanticSection } from '../../workflow-policy/artifacts.js';
 import { SLICE_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
 import { loadMarkdownContract } from '../../workflow-policy/contracts/markdownContract.js';
@@ -24,6 +23,7 @@ import {
   describeSliceArtifactFormat,
 } from '../../workflow-policy/sliceArtifacts.js';
 import type { SliceArtifactFormat } from '../../platform-config/types.js';
+import type { CliProvider } from '../../cli-provider/index.js';
 
 const log = createLogger('platform/agent-runner/pipeline/testCapture');
 
@@ -34,6 +34,8 @@ export interface TestCaptureResult {
   stderr: string;
   timedOut: boolean;
 }
+
+export type TestCapturePromptProvider = Pick<CliProvider, 'instructionPathForRole' | 'promptPathEnvVars'>;
 
 export function resolveTestCaptureCwdFromFocused(
   focused: {
@@ -234,6 +236,10 @@ function killProcessGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signal
   }
 
   if (isWindowsPlatform()) {
+    // taskkill /T /F kills the whole cmd.exe tree (child.kill alone would leave
+    // npx/tsx descendants running). child.kill also terminates the immediate
+    // child and is the fallback when taskkill is unavailable.
+    killWindowsProcessTree(child.pid);
     try { child.kill(signal); } catch { /* already dead */ }
     return;
   }
@@ -430,8 +436,9 @@ export async function captureSliceValidation(
  */
 export function buildTestCapturePrompt(
   results: TestCaptureResult[],
+  provider: TestCapturePromptProvider,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   warning?: string,
   format: SliceArtifactFormat = 'markdown',
 ): string {
@@ -440,36 +447,43 @@ export function buildTestCapturePrompt(
     'Review the code changes and orchestrator test results below.',
     '',
   ];
-  appendRonArtifactContract(parts, format);
+  appendRonArtifactContract(parts, provider, format);
   appendFocusBlock(parts, {
     ...focusScope,
     launchContextLine: 'Use the primary focus as the review starting point while reviewing the changes below.',
     scopeLine: 'Writable roots describe Dalton implementation authority; this prompt does not change your launch CWD or broader QA authority.',
   });
-  appendMcpContextBlock(parts, externalMcpRegistry, 'ron');
+  appendMcpContextBlock(parts, externalMcpScope, 'ron');
   parts.push(evidence);
   return parts.join('\n');
 }
 
-function appendRonArtifactContract(parts: string[], format: SliceArtifactFormat = 'markdown'): void {
+function appendRonArtifactContract(
+  parts: string[],
+  provider: TestCapturePromptProvider,
+  format: SliceArtifactFormat = 'markdown',
+): void {
   const sliceGlob = describeSliceArtifactFormat(format).displayGlob;
+  const promptEnvVars = provider.promptPathEnvVars();
+  const handoffsDirRef = `$${promptEnvVars.handoffsDir}`;
+  const implStepsDirRef = `$${promptEnvVars.implStepsDir}`;
   parts.push(
     '## Mandatory QA Output Contract',
     '',
-    'Before doing QA, read `.github/copilot/instructions/qa.instructions.md` from the platform repo and follow it. This block summarizes the non-negotiable filesystem output gates.',
+    `Before doing QA, read \`${provider.instructionPathForRole('qa')}\` from the platform repo and follow it. This block summarizes the non-negotiable filesystem output gates.`,
     'For concrete artifact paths and branch evidence, use the `## QA Artifact Checklist` in the Runtime Path Manifest when it is present.',
     '',
     'This QA launch is non-interactive. You will not receive follow-up input, clarification, confirmation, or permission during this run.',
     '',
-    'Your chat response is not closeout. The platform accepts only required files written under `$COPILOT_HANDOFFS_DIR`.',
+    `Your chat response is not closeout. The platform accepts only required files written under \`${handoffsDirRef}\`.`,
     '',
     'Write artifacts in this exact order:',
     '',
-    `1. Read \`$COPILOT_HANDOFFS_DIR/code-changes.diff\`, every \`$COPILOT_IMPL_STEPS_DIR/${sliceGlob}\`, and the actual task worktree source files before deciding the review outcome.`,
-    '2. Write `$COPILOT_HANDOFFS_DIR/issues.md` exactly once for this review cycle.',
+    `1. Read \`${handoffsDirRef}/code-changes.diff\`, every \`${implStepsDirRef}/${sliceGlob}\`, and the actual task worktree source files before deciding the review outcome.`,
+    `2. Write \`${handoffsDirRef}/issues.md\` exactly once for this review cycle.`,
     '3. If Review Outcome is `blocking`, stop after `issues.md`; do not write `retrospective-input.md` or `final-summary.md`.',
-    '4. If Review Outcome is `pass` or `advisory`, write `$COPILOT_HANDOFFS_DIR/retrospective-input.md`.',
-    '5. Write `$COPILOT_HANDOFFS_DIR/final-summary.md` last.',
+    `4. If Review Outcome is \`pass\` or \`advisory\`, write \`${handoffsDirRef}/retrospective-input.md\`.`,
+    `5. Write \`${handoffsDirRef}/final-summary.md\` last.`,
     '',
     'Do not finish with a prose-only QA verdict. Before exit, re-open the required artifact files for the recorded Review Outcome and verify their seeded sections are populated.',
     'For pass or advisory closeout, re-open `final-summary.md` before exit and verify every generated `CR-*`, `COMP-*`, and `VAL-*` entry is marked `verified` or `advisory` with evidence. No generated requirement line may remain `pending`.',

@@ -478,11 +478,13 @@ describe('RuntimeTerminalEvents', () => {
 
   it('dedupes repeated reasoning effort rejection terminal events', async () => {
     const events = RuntimeTerminalEvents.forTask(repoRoot, 'task-effort');
+    const message = 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.';
     const input = {
       agentId: 'dalton',
       modelId: 'gpt-5.4',
       effort: 'ultra',
       reason: 'unsupported-by-cli' as const,
+      message,
     };
 
     await events.reasoningEffortRejectedBeforeSpawn(input);
@@ -495,8 +497,13 @@ describe('RuntimeTerminalEvents', () => {
         role: 'pipeline',
         severity: 'error',
         visible: true,
-        message: 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.',
-        extra: input,
+        message,
+        extra: {
+          agentId: 'dalton',
+          modelId: 'gpt-5.4',
+          effort: 'ultra',
+          reason: 'unsupported-by-cli',
+        },
       },
     ]);
   });

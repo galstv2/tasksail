@@ -473,6 +473,7 @@ describe('emitTaskProgressEvent', () => {
           modelId: 'gpt-5.4',
           effort: 'ultra',
           reason: 'unsupported-by-cli',
+          message: 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.',
         },
       },
     });
@@ -502,6 +503,7 @@ describe('emitTaskProgressEvent', () => {
           modelId: 'gpt-5.4',
           effort: 'ultra',
           reason: 'unsupported-by-cli',
+          message: 'Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.',
         }),
       }),
     ]));

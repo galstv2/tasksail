@@ -12,7 +12,6 @@ import * as os from 'node:os';
 import {
   validateExternalMcpRegistry,
   loadExternalMcpRegistry,
-  getExternalServersForAgent,
   FILE_NOT_FOUND_FIELD,
 } from '../load.js';
 import {
@@ -24,7 +23,7 @@ import {
   MAX_PREFERRED_FOR_ITEMS,
   MAX_FALLBACK_DESCRIPTION_LENGTH,
 } from '../types.js';
-import type { ExternalMcpRegistry, ExternalMcpServer } from '../types.js';
+import type { ExternalMcpRegistry } from '../types.js';
 
 const REAL_DEFAULT = fs.readFileSync(
   path.resolve(__dirname, '..', '..', '..', '..', '..', 'config', 'mcp-registry-external.default.json'),
@@ -493,48 +492,6 @@ describe('fallback_description validation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent scope and filtering
-// ---------------------------------------------------------------------------
-
-describe('agent scope filtering', () => {
-  it('returns only enabled servers matching the agent', () => {
-    const registry: ExternalMcpRegistry = {
-      schema_version: 1,
-      external_servers: [
-        validServer({ id: 'a', agent_scope: { mode: 'allowlist', agent_ids: ['swe'] } }),
-        validServer({ id: 'b', agent_scope: { mode: 'allowlist', agent_ids: ['qa'] } }),
-        validServer({ id: 'c', agent_scope: { mode: 'allowlist', agent_ids: ['swe', 'qa'] } }),
-      ],
-    };
-    const result = getExternalServersForAgent(registry, 'swe');
-    expect(result).toHaveLength(2);
-    expect(result.map((s) => s.id)).toEqual(['a', 'c']);
-  });
-
-  it('returns empty for agents not in any scope', () => {
-    const registry: ExternalMcpRegistry = {
-      schema_version: 1,
-      external_servers: [
-        validServer({ id: 'a', agent_scope: { mode: 'allowlist', agent_ids: ['swe'] } }),
-      ],
-    };
-    const result = getExternalServersForAgent(registry, 'qa');
-    expect(result).toHaveLength(0);
-  });
-
-  it('excludes disabled servers even if agent matches', () => {
-    const registry: ExternalMcpRegistry = {
-      schema_version: 1,
-      external_servers: [
-        validServer({ id: 'a', enabled: false, agent_scope: { mode: 'allowlist', agent_ids: ['swe'] } }),
-      ],
-    };
-    const result = getExternalServersForAgent(registry, 'swe');
-    expect(result).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Schema version validation
 // ---------------------------------------------------------------------------
 
@@ -625,66 +582,41 @@ describe('corrupt file detection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent scope validation
+// Stale agent_scope handling (no longer assignment data)
 // ---------------------------------------------------------------------------
 
-describe('agent scope validation', () => {
-  it('rejects missing agent_scope', () => {
+describe('stale agent_scope handling', () => {
+  it('accepts a server with no agent_scope', () => {
     const data = validRegistryWithServer();
     delete (data.external_servers[0] as Record<string, unknown>)['agent_scope'];
     const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
   });
 
-  it('rejects unsupported mode', () => {
+  it('strips a stale agent_scope from normalized output', () => {
+    const data = validRegistryWithServer(); // fixture carries agent_scope
+    const result = validateExternalMcpRegistry(data);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect('agent_scope' in result.registry.external_servers[0]).toBe(false);
+  });
+
+  it('tolerates a malformed stale agent_scope (ignored, not validated)', () => {
     const data = validRegistryWithServer();
     (data.external_servers[0] as Record<string, unknown>).agent_scope = {
       mode: 'denylist',
-      agent_ids: ['swe'],
-    };
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(false);
-  });
-
-  it('rejects empty agent_ids', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).agent_scope = {
-      mode: 'allowlist',
       agent_ids: [],
     };
     const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(false);
-  });
-
-  it('does NOT validate agent IDs against the agent registry', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).agent_scope = {
-      mode: 'allowlist',
-      agent_ids: ['nonexistent-agent-xyz'],
-    };
-    const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect('agent_scope' in result.registry.external_servers[0]).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function validServer(
-  overrides: Partial<Record<string, unknown>> & { id: string },
-): ExternalMcpServer {
-  return {
-    display_name: 'Test MCP',
-    purpose: 'Test purpose for agents',
-    preferred_for: ['test usage cue'],
-    enabled: true,
-    transport: 'sse' as const,
-    url: 'https://mcp.example.com/sse',
-    agent_scope: { mode: 'allowlist' as const, agent_ids: ['swe'] },
-    ...overrides,
-  } as ExternalMcpServer;
-}
 
 function validRegistryWithServer(): Record<string, unknown> & { external_servers: Record<string, unknown>[] } {
   return {

@@ -66,7 +66,11 @@ jobs:
 
   python-smoke-lane:
     name: Python Smoke Lane
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     needs:
       - repository-structure
     steps:
@@ -83,6 +87,13 @@ jobs:
 
       - name: Run ruff lint
         run: ruff check .
+
+      # Representative Python unit lane across the OS matrix: PackWriter
+      # (cross-platform lock), MCP preflight (path/version), and QMD scope
+      # containment — the path/process/MCP regressions most likely to be
+      # Windows-specific.
+      - name: Run representative Python unit lane
+        run: python -m pytest tests/domains/pack_writer tests/domains/pack_preflight tests/domains/qmd/test_stub_scope.py -q
 
   node-test-lane:
     strategy:
@@ -125,58 +136,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
+      # Cross-platform changed-domain discovery + manifest routing (no Bash).
+      # Uses the PR base SHA (github.event.pull_request.base.sha) and the shared
+      # tests/test_manifest.json so the workflow and local checks agree.
       - name: Run manifest-targeted domain lane for changed files
-        shell: bash
-        env:
-          PMSE_SHA: ${{ github.event.pull_request.pmse.sha }}
-          HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          mapfile -t changed_files < <(git diff --name-only "$PMSE_SHA" "$HEAD_SHA")
-          if [[ ${#changed_files[@]} -eq 0 ]]; then
-            printf 'No changed files detected for pull request.\n'
-            exit 0
-          fi
-
-          resolve_args=(
-            python3
-            ./src/backend/scripts/python/run-targeted-tests.py
-            --manifest
-            ./tests/test_manifest.json
-            --resolve-only
-          )
-          for changed_file in "${changed_files[@]}"; do
-            resolve_args+=(--changed-path "$changed_file")
-          done
-
-          if ! resolution_output="$("${resolve_args[@]}" 2>&1)"; then
-            if [[ "$resolution_output" == *"No test modules were selected by the provided selectors."* ]]; then
-              printf 'No manifest-mapped domains matched changed files.\n'
-              exit 0
-            fi
-            printf '%s\n' "$resolution_output" >&2
-            exit 1
-          fi
-
-          printf 'Resolved changed-path modules:\n%s\n' "$resolution_output"
-
-          run_args=(
-            python3
-            ./src/backend/scripts/python/run-targeted-tests.py
-            --manifest
-            ./tests/test_manifest.json
-          )
-          for changed_file in "${changed_files[@]}"; do
-            run_args+=(--changed-path "$changed_file")
-          done
-
-          "${run_args[@]}"
+        run: pnpm exec tsx src/backend/platform/validation/changedDomainFiles.ts --base-sha "${{ github.event.pull_request.base.sha }}" --head-sha "${{ github.sha }}" --manifest ./tests/test_manifest.json
 
   full-python-suite:
     name: Full Python Suite
@@ -199,6 +181,55 @@ jobs:
         run: |
           coverage run -m unittest discover -s tests -v
           coverage report --fail-under=60
+
+  direct-runtime-smoke:
+    name: Direct Runtime Smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    needs:
+      - repository-structure
+    env:
+      CONTAINER_RUNTIME: direct
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Set up TaskSail (direct runtime)
+        run: pnpm run setup
+
+      # Boots the direct MCP as a local Python daemon (no Docker), health-checks
+      # it, and stops it — exercised on Windows too, where termination uses
+      # taskkill /T /F.
+      - name: Boot the direct MCP daemon
+        run: pnpm exec tsx src/backend/platform/container/cli.ts bootstrap
+
+      - name: Health-check the direct MCP
+        run: pnpm exec tsx src/backend/platform/container/cli.ts healthcheck
+
+      - name: Stop the direct MCP daemon
+        if: always()
+        run: pnpm exec tsx src/backend/platform/container/cli.ts down
 
   container-bootstrap:
     runs-on: ubuntu-latest

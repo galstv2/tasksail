@@ -63,6 +63,7 @@ function ContextPackCreationModal({
   canGoBack,
   canGoNext,
   canGoNextReason,
+  gitRepositoryWarnings = [],
   onClose,
   onDiscardDraft,
   onBrowseDiscoveryRoot,
@@ -209,6 +210,23 @@ function ContextPackCreationModal({
       {error ? <p className="panel__error">{error}</p> : null}
       {!isWizardSetup && !canGoNext && canGoNextReason ? (
         <p className="panel__error">{canGoNextReason}</p>
+      ) : null}
+
+      {gitRepositoryWarnings.length > 0 ? (
+        <div className="context-pack-modal__info-callout" role="status" aria-live="polite">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.1" />
+            <path d="M8 7.25v3.5M8 5.25v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <div>
+            <p className="context-pack-modal__info-callout-title">Some folders were skipped</p>
+            <ul className="context-pack-modal__info-callout-list">
+              {gitRepositoryWarnings.map((warning) => (
+                <li key={warning.path}>{warning.message}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
       ) : null}
 
       {step === 'setup' ? (

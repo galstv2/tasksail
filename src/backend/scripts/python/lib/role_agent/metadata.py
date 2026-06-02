@@ -9,6 +9,8 @@ from pathlib import Path
 from ..protocol_output import write_protocol_stdout
 from ..workspace_paths import handoffs_dir
 
+PROVIDER_REQUIRED_REGISTRY_FIELDS = ("instruction_path", "agent_profile_path")
+
 
 def read_markdown_file(path: Path) -> str:
     """Read a markdown file, returning ``""`` when the file is missing."""
@@ -45,16 +47,31 @@ def find_agent_entry(
     return None
 
 
+def required_registry_value(entry: dict, field_name: str) -> str:
+    """Return a provider-required registry field or fail closed."""
+    value = str(entry.get(field_name, "")).strip()
+    if not value:
+        raise ValueError(
+            f"Agent '{entry.get('agent_id', '')}' is missing provider-required "
+            f"registry field '{field_name}'"
+        )
+    return value
+
+
 def cmd_resolve_agent_metadata(args: argparse.Namespace) -> int:
     """Print agent registry fields for a given agent ID."""
     payload = json.loads(args.registry_path.read_text(encoding="utf-8"))
     found = find_agent_entry(payload, args.agent_id)
     if found is None:
         return 2
-    write_protocol_stdout(str(found.get("agent_profile_path", "")) + '\n')
+    provider_fields = {
+        field_name: required_registry_value(found, field_name)
+        for field_name in PROVIDER_REQUIRED_REGISTRY_FIELDS
+    }
+    write_protocol_stdout(provider_fields["agent_profile_path"] + '\n')
     write_protocol_stdout(str(found.get("required_model", "")) + '\n')
     write_protocol_stdout(str(found.get("role_name", "")) + '\n')
-    write_protocol_stdout(str(found.get("instruction_path", "")) + '\n')
+    write_protocol_stdout(provider_fields["instruction_path"] + '\n')
     write_protocol_stdout(str(found.get("autonomy_profile", "")) + '\n')
     write_protocol_stdout(str(str(found.get("pre_task", False)).lower()) + '\n')
     return 0

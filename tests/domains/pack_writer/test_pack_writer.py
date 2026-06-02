@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import threading
 from pathlib import Path
 
@@ -115,7 +114,7 @@ def test_write_manifest_derives_focus_area_types(tmp_path: Path) -> None:
 # Test 4: update_manifest authorship guard — repo_focus
 # ------------------------------------------------------------------
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+
 def test_update_manifest_authorship_guard_repo_focus(tmp_path: Path) -> None:
     pack_dir, _ = _make_pack_dir(tmp_path)
 
@@ -146,7 +145,7 @@ def test_update_manifest_authorship_guard_repo_focus(tmp_path: Path) -> None:
 # Test 5: update_manifest authorship guard — repo_category
 # ------------------------------------------------------------------
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+
 def test_update_manifest_authorship_guard_repo_category(tmp_path: Path) -> None:
     pack_dir, _ = _make_pack_dir(tmp_path)
 
@@ -174,7 +173,7 @@ def test_update_manifest_authorship_guard_repo_category(tmp_path: Path) -> None:
 # Test 6: update_manifest — repo_focus is operator-owned
 # ------------------------------------------------------------------
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+
 def test_update_manifest_preserves_repo_focus_without_authored_flag(tmp_path: Path) -> None:
     pack_dir, _ = _make_pack_dir(tmp_path)
 
@@ -239,7 +238,7 @@ def test_manifest_file_override(tmp_path: Path) -> None:
 # Test 10: idempotent update — same mutator twice produces same bytes
 # ------------------------------------------------------------------
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+
 def test_idempotent_update(tmp_path: Path) -> None:
     pack_dir, manifest_path = _make_pack_dir(tmp_path)
 
@@ -300,7 +299,7 @@ def test_synthesis_of_primary_focus_area_ids(tmp_path: Path) -> None:
 # Test 12: lock contention — second writer times out and raises PackWriterContended
 # ------------------------------------------------------------------
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+
 def test_lock_contention_raises_after_timeout(tmp_path: Path) -> None:
     """Two PackWriter instances on the same pack: second raises PackWriterContended."""
     pack_dir, _ = _make_pack_dir(tmp_path)

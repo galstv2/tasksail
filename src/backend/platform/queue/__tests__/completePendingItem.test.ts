@@ -291,7 +291,9 @@ describe('completePendingItem archive integration', () => {
           auto_merge: {
             enabled: false,
             status: 'disabled',
-            target_branch: null,
+            // Auto-merge disabled, but the target repo is checked out on main, so the
+            // best-effort fallback resolver captures it for non-child-chain closeout.
+            target_branch: 'main',
             detail: 'Auto-merge is disabled.',
           },
         }),
@@ -306,7 +308,7 @@ describe('completePendingItem archive integration', () => {
           auto_merge: {
             enabled: false,
             status: 'disabled',
-            target_branch: null,
+            target_branch: 'main',
             detail: 'Auto-merge is disabled.',
           },
         }),
@@ -321,6 +323,40 @@ describe('completePendingItem archive integration', () => {
     });
 
     expect(mockFileTaskArchive).toHaveBeenCalled();
+  });
+
+  it('records null target_branch without blocking closeout when the target repo is in detached HEAD', async () => {
+    const platform = createSourceRepo(repoRoot, 'platform');
+    // Detach HEAD so `git rev-parse --abbrev-ref HEAD` returns "HEAD" and the
+    // best-effort fallback resolver yields null instead of a branch name.
+    execFileSync('git', ['checkout', '--detach'], { cwd: platform.repoRoot, stdio: 'pipe' });
+    writeTaskSidecar(repoRoot, FAKE_TASK_ID, [{
+      originalRoot: platform.repoRoot,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'worktrees', 'platform'),
+      worktreeBranch: platform.branch,
+      baseCommitSha: platform.baseCommitSha,
+    }]);
+
+    mockFileTaskArchive.mockImplementation(async () => {
+      const ledgerPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', FAKE_TASK_ID, 'handoffs', 'branch-handoffs.json');
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
+      expect(ledger[0].auto_merge).toEqual({
+        enabled: false,
+        status: 'disabled',
+        target_branch: null,
+        detail: 'Auto-merge is disabled.',
+      });
+      return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
+    });
+
+    await expect(completePendingItem({
+      taskId: FAKE_TASK_ID,
+      skipValidation: true,
+      repoRoot,
+    })).resolves.toBeUndefined();
+
+    expect(mockFileTaskArchive).toHaveBeenCalled();
+    expect(mockFinalizeTaskWorktrees).toHaveBeenCalled();
   });
 
   it('excludes readonly context bindings from archived branch handoffs', async () => {

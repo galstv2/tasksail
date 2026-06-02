@@ -21,6 +21,10 @@ type DesktopShellSource = Window['desktopShell'] & {
   saveAgentExtensionAssignments: (
     payload: import('../../shared/desktopContract').AgentConfigSaveExtensionAssignmentsRequest['payload'],
   ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  loadExternalMcpAssignments: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  saveExternalMcpAssignments: (
+    payload: import('../../shared/desktopContract').AgentConfigSaveExternalMcpAssignmentsRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
   describeActiveProvider: () => Promise<import('../../shared/desktopContract').ProviderFrontendDescriptor>;
   listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
   readInstructionFile: (relativePath: string) => Promise<unknown>;
@@ -85,6 +89,9 @@ type DesktopShellBaseClient = Pick<
   | 'toggleExternalMcpServer'
   | 'validateExternalMcpConnection'
   | 'validateExternalMcpLocalCommand'
+  | 'readSystemSettings'
+  | 'saveSystemSettings'
+  | 'restartTaskSail'
   | 'loadAgentConfig'
   | 'loadModelCatalog'
   | 'saveAgentModels'
@@ -96,6 +103,8 @@ type DesktopShellBaseClient = Pick<
   | 'deleteAgentExtension'
   | 'loadAgentExtensionAssignments'
   | 'saveAgentExtensionAssignments'
+  | 'loadExternalMcpAssignments'
+  | 'saveExternalMcpAssignments'
   | 'listInstructionFiles'
   | 'readInstructionFile'
   | 'writeInstructionFile'
@@ -253,6 +262,9 @@ export function createDesktopShellClient(
     toggleExternalMcpServer: (serverId) => readShell().toggleExternalMcpServer(serverId),
     validateExternalMcpConnection: (payload) => readShell().validateExternalMcpConnection(payload),
     validateExternalMcpLocalCommand: (payload) => readShell().validateExternalMcpLocalCommand(payload),
+    readSystemSettings: () => readShell().readSystemSettings(),
+    saveSystemSettings: (payload) => readShell().saveSystemSettings(payload),
+    restartTaskSail: () => readShell().restartTaskSail(),
     loadAgentConfig: () => readShell().loadAgentConfig(),
     loadModelCatalog: () => readShell().loadModelCatalog(),
     loadCapabilities: () => {
@@ -271,6 +283,8 @@ export function createDesktopShellClient(
     deleteAgentExtension: (payload) => readShell().deleteAgentExtension(payload),
     loadAgentExtensionAssignments: () => readShell().loadAgentExtensionAssignments(),
     saveAgentExtensionAssignments: (payload) => readShell().saveAgentExtensionAssignments(payload),
+    loadExternalMcpAssignments: () => readShell().loadExternalMcpAssignments(),
+    saveExternalMcpAssignments: (payload) => readShell().saveExternalMcpAssignments(payload),
     listInstructionFiles: (directory) => readShell().listInstructionFiles(directory),
     readInstructionFile: (relativePath) => readShell().readInstructionFile(relativePath),
     writeInstructionFile: (relativePath, content) => readShell().writeInstructionFile(relativePath, content),

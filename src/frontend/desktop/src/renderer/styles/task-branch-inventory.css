@@ -1,0 +1,204 @@
+/* ── Branch inventory: completed-task detail footer action + read-only branch
+ * inventory modals (child-chain "View Chain" and regular-task "View Branches").
+ * Viewers render on the always-dark terminal modal surface, so text uses the
+ * terminal-* tokens (always light) rather than the theme-dependent --ts-text-* set. */
+.task-detail-modal__branch-action-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid rgba(45, 122, 74, 0.45);
+  border-radius: var(--ts-radius-sm);
+  background: rgba(45, 122, 74, 0.16);
+  color: var(--ts-brand-green-light);
+  font-family: var(--ts-font-mono);
+  font-size: 0.7rem;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background var(--ts-duration) var(--ts-ease);
+}
+
+.task-detail-modal__branch-action-btn:hover:not(:disabled) {
+  background: rgba(45, 122, 74, 0.26);
+}
+
+.task-detail-modal__branch-action-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.task-detail-modal__branch-action-btn:focus-visible {
+  outline: 2px solid var(--ts-brand-green-light);
+  outline-offset: 2px;
+}
+
+.child-chain-inventory__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.child-chain-inventory__meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.child-chain-inventory__meta dt {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--terminal-text);
+  opacity: 0.62;
+}
+
+.child-chain-inventory__meta dd {
+  margin: 0;
+  font-family: var(--ts-font-mono);
+  font-size: 0.82rem;
+  color: var(--ts-brand-green-light);
+}
+
+.child-chain-inventory__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  color: var(--terminal-text);
+}
+
+.child-chain-inventory__table th {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--terminal-text);
+  opacity: 0.7;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.child-chain-inventory__table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  vertical-align: top;
+}
+
+.child-chain-inventory__repo-label {
+  display: block;
+  font-weight: 600;
+  color: var(--ts-brand-green-light);
+}
+
+.child-chain-inventory__repo-root,
+.child-chain-inventory__mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  color: var(--terminal-text);
+  opacity: 0.88;
+  word-break: break-all;
+}
+
+.child-chain-inventory__repo-root {
+  display: block;
+  opacity: 0.72;
+}
+
+.child-chain-inventory__depth {
+  color: var(--terminal-text);
+  opacity: 0.55;
+}
+
+.child-chain-inventory__empty,
+.child-chain-inventory__message {
+  margin: 0.5rem 0;
+  color: var(--terminal-text);
+  opacity: 0.85;
+  font-size: 0.85rem;
+}
+
+/* ── Regular-task branch inventory ("View Branches" → "Task Branches" modal) ──
+ * Mirrors the child-chain table presentation on the same terminal surface. */
+.task-branch-inventory__subtitle {
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.78rem;
+  color: var(--terminal-text);
+  opacity: 0.78;
+}
+
+.task-branch-inventory__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  color: var(--terminal-text);
+}
+
+.task-branch-inventory__table th {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--terminal-text);
+  opacity: 0.7;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.task-branch-inventory__table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  vertical-align: top;
+}
+
+.task-branch-inventory__repo-label {
+  display: block;
+  font-weight: 600;
+  color: var(--ts-brand-green-light);
+}
+
+.task-branch-inventory__repo-root,
+.task-branch-inventory__mono {
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  color: var(--terminal-text);
+  opacity: 0.88;
+  word-break: break-all;
+}
+
+.task-branch-inventory__repo-root {
+  display: block;
+  opacity: 0.72;
+}
+
+.task-branch-inventory__sha {
+  display: block;
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+  color: var(--terminal-text);
+  opacity: 0.88;
+}
+
+.task-branch-inventory__status {
+  display: block;
+  color: var(--ts-brand-green-light);
+  font-size: 0.78rem;
+}
+
+.task-branch-inventory__ahead,
+.task-branch-inventory__detail,
+.task-branch-inventory__not-captured {
+  display: block;
+  color: var(--terminal-text);
+  opacity: 0.6;
+  font-size: 0.7rem;
+}
+
+.task-branch-inventory__empty {
+  margin: 0.5rem 0;
+  color: var(--terminal-text);
+  opacity: 0.85;
+  font-size: 0.85rem;
+}

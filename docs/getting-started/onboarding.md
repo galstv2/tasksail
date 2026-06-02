@@ -10,11 +10,26 @@ one intentionally small starter task before attempting broader workflow changes.
 - Git
 - GitHub CLI (`gh`)
 - GitHub Copilot CLI access (the shipped TaskSail CLI provider is `copilot`)
-- Docker Desktop, or Podman with `podman-compose` installed
-- Python 3
+- Docker Desktop, or Podman Desktop (≥ 4.0) — TaskSail uses the integrated `docker compose` / `podman compose` subcommands; standalone `docker-compose` / `podman-compose` are not required
+- Python 3.12 (preferred); Python 3.12+ is compatible
 
 Podman operators on macOS and Windows must also have a running `podman machine`
 before starting platform services.
+
+## Enterprise mirrors / internal registries
+
+If you work behind a corporate firewall that proxies npm, PyPI, or container
+base images through an internal mirror (such as JFrog Artifactory), configure it
+before you install. Package managers do not read the repo `.env` file during the
+first install, so export the native variables — `NPM_CONFIG_REGISTRY`,
+`NPM_CONFIG_REPLACE_REGISTRY_HOST=npmjs`, and `PIP_INDEX_URL` — in your shell
+before running `pnpm install` or `pip install`. After `.env` exists, `pnpm run
+setup` also reads the TaskSail alias variables (`TASKSAIL_NPM_REGISTRY`,
+`TASKSAIL_PYPI_INDEX_URL`, `TASKSAIL_PYTHON_BASE_IMAGE`). Both POSIX and
+PowerShell examples and the full variable list live in
+[`../cross-os-setup.md`](../cross-os-setup.md#enterprise-mirrors-internal-registries).
+Every supported environment variable is catalogued in
+[`../reference/environment-variables.md`](../reference/environment-variables.md).
 
 ## Authentication expectations
 
@@ -168,13 +183,16 @@ Use a tiny starter task for the first validation pass.
   follow-up creation now block when the retrospective is missing or incomplete.
 - Use `pnpm run local-checks` as the normal operator entrypoint for the
   shared local policy gate before opening a pull request.
-- Use `make test-smoke`, `make test-domain DOMAIN=workflow`, or
-  `make test-targeted CHANGED=src/backend/platform/workflow-policy/validator.ts`
+- Use `pnpm run test:smoke`, `pnpm run test:domain -- --domain workflow`, or
+  `pnpm run test:targeted -- --changed src/backend/platform/workflow-policy/validator.ts`
   during active implementation when you want fast manifest-backed feedback.
-- Use `make test-contracts` when the change touches docs, prompt contracts, or
-  CI contract surfaces.
-- Keep `make local-checks` as the final full local confidence gate before
-  merge.
+  On Unix/macOS/Linux, `make test-smoke`, `make test-domain DOMAIN=workflow`, and
+  `make test-targeted CHANGED=<path>` are available as convenience aliases, but
+  `make` is not available by default on native Windows.
+- Use `pnpm run test:contracts` (or `make test-contracts` on Unix/macOS/Linux)
+  when the change touches docs, prompt contracts, or CI contract surfaces.
+- Keep `pnpm run local-checks` (or `make local-checks` on Unix/macOS/Linux)
+  as the final full local confidence gate before merge.
 - Expect the `CI` workflow to run the smoke lane, a pull-request changed-path
   domain lane, and the full Python suite, while `Docs Check` runs markdown,
   docs validators, the docs-and-contract lane, targeted desktop shell
@@ -234,10 +252,10 @@ Follow-up work after closeout becomes a new child task.
 - `pnpm run queue-status`
 - `pnpm run complete-pending-item`
 - `pnpm run local-checks`
-- `make test-smoke`
-- `make test-domain DOMAIN=workflow`
-- `make test-contracts`
-- `make local-checks`
+- `pnpm run test:smoke`
+- `pnpm run test:domain -- --domain workflow`
+- `pnpm run test:contracts`
+- On Unix/macOS/Linux, `make` aliases exist for the above (e.g. `make test-smoke`, `make local-checks`); these are not available on native Windows.
 - `cd src/frontend/desktop && npm run validate:desktop`
 - `cd src/frontend/desktop && npm run package:mac` / `npm run package:win` / `npm run package:linux`
 

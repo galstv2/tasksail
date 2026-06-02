@@ -8,6 +8,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { terminateProcessTree } from '../../../backend/platform/core/processTree.js';
 
 import type {
   BackendServiceStatus,
@@ -45,8 +46,9 @@ const RUNTIME_CHECK_TIMEOUT_MS = 15_000;
 const SIGKILL_GRACE_MS = 5_000;
 
 type ContainerRuntimeBinary = 'docker' | 'podman';
+type ContainerRuntime = ContainerRuntimeBinary | 'direct';
 type RuntimeResolution =
-  | { ok: true; runtimeBinary: ContainerRuntimeBinary }
+  | { ok: true; runtimeBinary: ContainerRuntime }
   | { ok: false; error: string };
 
 type SpawnResult = { exitCode: number; stdout: string; stderr: string };
@@ -98,17 +100,9 @@ function spawnCli(
     child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-    // Escalate from SIGTERM → SIGKILL if the process does not exit.
+    // Terminate the full process tree (Windows: taskkill /T /F; POSIX: SIGTERM→SIGKILL).
     const timer = setTimeout(() => {
-      if (isWindowsPlatform()) {
-        child.kill();
-        return;
-      }
-
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      }, SIGKILL_GRACE_MS);
+      terminateProcessTree(child, { graceMs: SIGKILL_GRACE_MS });
     }, timeoutMs);
 
     child.on('close', (code) => {
@@ -131,9 +125,10 @@ function spawnCli(
   });
 }
 
-function isSupportedRuntime(value: unknown): value is ContainerRuntimeBinary {
-  return value === 'docker' || value === 'podman';
+function isSupportedRuntime(value: unknown): value is ContainerRuntime {
+  return value === 'docker' || value === 'podman' || value === 'direct';
 }
+
 
 function describeRuntimeInstall(runtimeBinary: ContainerRuntimeBinary): string {
   return runtimeBinary === 'podman'
@@ -175,7 +170,7 @@ function readRuntimeFromConfigFile(
       ok: false,
       error:
         `Invalid container runtime configuration in ${relPath}: ` +
-        `container_runtime must be "docker" or "podman" (received ${renderedValue}). ` +
+        `container_runtime must be "docker", "podman", or "direct" (received ${renderedValue}). ` +
         'Delete .platform-state/platform.json and re-run pnpm run setup.',
     };
   }
@@ -192,7 +187,7 @@ function resolveRuntimeBinary(repoRoot: string): RuntimeResolution {
 
     return {
       ok: false,
-      error: `Invalid CONTAINER_RUNTIME value "${envOverride}". Expected "docker" or "podman".`,
+      error: `Invalid CONTAINER_RUNTIME value "${envOverride}". Expected "docker", "podman", or "direct".`,
     };
   }
 
@@ -228,11 +223,21 @@ export function checkContainerRuntimeAvailable(
       return;
     }
 
+    // direct (any OS, including native Windows): no container binary to probe —
+    // allow startup to proceed via the backend bootstrap, which starts the
+    // direct MCP process (DirectRuntime; Windows termination uses taskkill).
+    if (runtime.runtimeBinary === 'direct') {
+      resolve(runtime);
+      return;
+    }
+
+    // docker / podman: probe the binary as before.
+    const runtimeBinary = runtime.runtimeBinary;
     let settled = false;
     const unavailableResult: RuntimeResolution = {
       ok: false,
       error:
-        `${runtime.runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtime.runtimeBinary)}`,
+        `${runtimeBinary} is not available. Ensure ${describeRuntimeInstall(runtimeBinary)}`,
     };
 
     function settle(result: RuntimeResolution): void {
@@ -242,19 +247,12 @@ export function checkContainerRuntimeAvailable(
       resolve(result);
     }
 
-    const child = spawn(runtime.runtimeBinary, ['version', '--format', 'json'], {
+    const child = spawn(runtimeBinary, ['version', '--format', 'json'], {
       stdio: 'ignore',
     });
 
     const timer = setTimeout(() => {
-      if (isWindowsPlatform()) {
-        child.kill();
-      } else {
-        child.kill('SIGTERM');
-        setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        }, SIGKILL_GRACE_MS);
-      }
+      terminateProcessTree(child, { graceMs: SIGKILL_GRACE_MS });
       settle(unavailableResult);
     }, RUNTIME_CHECK_TIMEOUT_MS);
 
@@ -326,15 +324,13 @@ export async function stopBackendServices(
  */
 export function stopBackendServicesDetached(repoRoot: string): void {
   try {
-    const child = spawn(
-      'npx',
-      ['tsx', CLI_PATH, 'down'],
-      {
-        cwd: repoRoot,
-        detached: true,
-        stdio: 'ignore',
-      },
-    );
+    const cliAbsPath = join(repoRoot, CLI_PATH);
+    const cliCommand = resolveCliCommand(cliAbsPath, 'down', []);
+    const child = spawn(cliCommand.command, cliCommand.args, {
+      cwd: repoRoot,
+      detached: true,
+      stdio: 'ignore',
+    });
     child.unref();
   } catch {
     // Best-effort — quit must not be blocked by spawn failures.

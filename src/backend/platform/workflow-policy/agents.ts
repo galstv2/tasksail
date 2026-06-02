@@ -1,9 +1,10 @@
 import path from 'node:path';
+import { getActiveProvider } from '../cli-provider/index.js';
 import { readTextFile, safeJsonParse } from '../core/index.js';
 import {
-  REQUIRED_AGENT_REGISTRY_FIELDS,
   createNamedAgentRecord,
   getAgentRegistryRelativePath,
+  getRequiredAgentRegistryFields,
 } from './models.js';
 import type { NamedAgentTeam } from './types.js';
 
@@ -108,6 +109,8 @@ export async function loadNamedAgentTeam(
 
   const team: NamedAgentTeam = {};
   const errors: string[] = [];
+  const providerRequiredFields = getActiveProvider(rootDir).requiredRegistryFields();
+  const requiredFields = getRequiredAgentRegistryFields(rootDir);
 
   for (const item of agentsPayload as RegistryAgentEntry[]) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -127,7 +130,7 @@ export async function loadNamedAgentTeam(
       continue;
     }
 
-    const missingFields = [...REQUIRED_AGENT_REGISTRY_FIELDS].filter((field) => !presentFields.has(field));
+    const missingFields = [...requiredFields].filter((field) => !presentFields.has(field));
     if (missingFields.length > 0) {
       errors.push(
         `Registry entry '${agentId}' is missing required fields: ${missingFields.sort().join(', ')}.`,
@@ -151,13 +154,11 @@ export async function loadNamedAgentTeam(
       continue;
     }
 
-    if (!instructionPath) {
-      errors.push(`Registry entry '${agentId}' must declare a non-empty instruction_path.`);
-      continue;
-    }
-
-    if (!agentProfilePath) {
-      errors.push(`Registry entry '${agentId}' must declare a non-empty agent_profile_path.`);
+    const emptyProviderFields = providerRequiredFields.filter((field) => !String(item[field] ?? '').trim());
+    if (emptyProviderFields.length > 0) {
+      errors.push(
+        `Registry entry '${agentId}' must declare non-empty provider-required fields: ${emptyProviderFields.sort().join(', ')}.`,
+      );
       continue;
     }
 

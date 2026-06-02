@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 
+import {
+  reasoningEffortErrorMessage,
+  reasoningEffortRejectedBeforeSpawnMessage,
+} from '../../../reasoningEffort.js';
+
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
 }));
@@ -65,9 +70,9 @@ function writeCache(overrides: Record<string, unknown> = {}): void {
   }, null, 2));
 }
 
-function mockProbe(version = 'GitHub Copilot CLI 1.0.55', help = HELP): void {
+function mockProbe(version = 'GitHub Copilot CLI 1.0.55', help = HELP, expectedCommand = 'copilot'): void {
   mockedExecFile.mockImplementation((cmd, args, ...rest: unknown[]) => {
-    expect(cmd).toBe('copilot');
+    expect(cmd).toBe(expectedCommand);
     expect(args).toEqual((args as string[])[0] === '--version' ? ['--version'] : ['--help']);
     const cb = rest.find((value) => typeof value === 'function') as
       | ((err: Error | null, stdout: string, stderr: string) => void)
@@ -94,6 +99,22 @@ afterEach(() => {
 });
 
 describe('Copilot reasoning effort capability discovery', () => {
+  it('formats Copilot reasoning-effort messages through the provider CLI display name', () => {
+    expect(reasoningEffortErrorMessage({
+      cliDisplayName: 'Copilot CLI',
+      agentId: 'dalton',
+      modelId: 'gpt-5.4',
+      effort: 'ultra',
+      reason: 'unsupported-by-cli',
+    })).toBe('Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra: the installed Copilot CLI does not advertise that reasoning effort. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.');
+    expect(reasoningEffortRejectedBeforeSpawnMessage({
+      cliDisplayName: 'Copilot CLI',
+      agentId: 'dalton',
+      modelId: 'gpt-5.4',
+      effort: 'ultra',
+    })).toBe('Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.');
+  });
+
   it('extracts provider-advertised choices from wrapped help text', async () => {
     const { parseCopilotReasoningEffortChoices } = await importSubject();
 
@@ -123,12 +144,24 @@ describe('Copilot reasoning effort capability discovery', () => {
     writeCache();
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
-    await expect(getCopilotReasoningEffortCapabilities(repoRoot)).resolves.toMatchObject({
+    await expect(getCopilotReasoningEffortCapabilities(repoRoot, 'copilot')).resolves.toMatchObject({
       source: 'cache',
       stale: false,
       effortChoices: ['low', 'medium', 'high'],
     });
     expect(mockedExecFile).not.toHaveBeenCalled();
+  });
+
+  it('forwards the resolved command to execFile so Windows probes copilot.cmd', async () => {
+    mockProbe(undefined, undefined, 'copilot.cmd');
+    const { getCopilotReasoningEffortCapabilities } = await importSubject();
+
+    await expect(
+      getCopilotReasoningEffortCapabilities(repoRoot, 'copilot.cmd'),
+    ).resolves.toMatchObject({ providerId: 'copilot' });
+
+    expect(mockedExecFile).toHaveBeenCalled();
+    expect(mockedExecFile.mock.calls.every((call) => call[0] === 'copilot.cmd')).toBe(true);
   });
 
   it.each([
@@ -148,7 +181,7 @@ describe('Copilot reasoning effort capability discovery', () => {
     mockProbe();
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
-    await expect(getCopilotReasoningEffortCapabilities(repoRoot)).resolves.toMatchObject({
+    await expect(getCopilotReasoningEffortCapabilities(repoRoot, 'copilot')).resolves.toMatchObject({
       source: 'probe',
       stale: false,
       cliVersion: 'GitHub Copilot CLI 1.0.55',
@@ -162,9 +195,9 @@ describe('Copilot reasoning effort capability discovery', () => {
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
     await Promise.all([
-      getCopilotReasoningEffortCapabilities(repoRoot),
-      getCopilotReasoningEffortCapabilities(repoRoot),
-      getCopilotReasoningEffortCapabilities(repoRoot),
+      getCopilotReasoningEffortCapabilities(repoRoot, 'copilot'),
+      getCopilotReasoningEffortCapabilities(repoRoot, 'copilot'),
+      getCopilotReasoningEffortCapabilities(repoRoot, 'copilot'),
     ]);
     expect(mockedExecFile).toHaveBeenCalledTimes(2);
   });
@@ -179,7 +212,7 @@ describe('Copilot reasoning effort capability discovery', () => {
     });
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
-    await expect(getCopilotReasoningEffortCapabilities(repoRoot)).resolves.toMatchObject({
+    await expect(getCopilotReasoningEffortCapabilities(repoRoot, 'copilot')).resolves.toMatchObject({
       source: 'unavailable',
       stale: true,
       effortChoices: [],
@@ -191,7 +224,7 @@ describe('Copilot reasoning effort capability discovery', () => {
     mockProbe('GitHub Copilot CLI 1.0.55', 'Usage: copilot [options]\\n  --model <model> Set model');
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
-    await expect(getCopilotReasoningEffortCapabilities(repoRoot)).resolves.toMatchObject({
+    await expect(getCopilotReasoningEffortCapabilities(repoRoot, 'copilot')).resolves.toMatchObject({
       source: 'unavailable',
       stale: true,
       effortChoices: [],
@@ -203,7 +236,7 @@ describe('Copilot reasoning effort capability discovery', () => {
     mockProbe('GitHub Copilot CLI 1.0.55', 'Usage: copilot [options]\\n  --effort <level> Set reasoning effort');
     const { getCopilotReasoningEffortCapabilities } = await importSubject();
 
-    await expect(getCopilotReasoningEffortCapabilities(repoRoot)).resolves.toMatchObject({
+    await expect(getCopilotReasoningEffortCapabilities(repoRoot, 'copilot')).resolves.toMatchObject({
       source: 'unavailable',
       stale: true,
       effortChoices: [],

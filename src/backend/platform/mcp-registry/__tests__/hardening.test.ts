@@ -67,7 +67,7 @@ describe('default registry alignment', () => {
     const specs = toServiceHealthSpecs(data);
     expect(specs).toEqual([{
       name: 'repo-context-mcp',
-      url: 'http://localhost:8811/health',
+      url: 'http://127.0.0.1:8811/health',
       maxRetries: 10,
       retryIntervalMs: 2000,
     }]);

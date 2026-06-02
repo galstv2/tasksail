@@ -13,7 +13,6 @@ import { readTextFile, safeJsonParse } from '../core/io.js';
 import { isRecord } from '../core/guards.js';
 
 import type {
-  ExternalMcpAgentScope,
   ExternalMcpLocalServer,
   ExternalMcpRegistry,
   ExternalMcpRegistryLoadResult,
@@ -392,13 +391,9 @@ function validateServerEntry(
     tools = validateStringArrayField(data, 'tools', prefix, errors, MAX_TOOLS_ITEMS, true);
   }
 
-  // agent_scope
-  let agentScope: ExternalMcpAgentScope | undefined;
-  if (!isRecord(data['agent_scope'])) {
-    errors.push(err(`${prefix}.agent_scope`, 'Must be an object.', 'Add "agent_scope": { "mode": "allowlist", "agent_ids": [...] }.'));
-  } else {
-    agentScope = validateAgentScope(data['agent_scope'], `${prefix}.agent_scope`, errors);
-  }
+  // agent_scope is no longer an assignment source. A stale agent_scope field in
+  // input JSON is ignored here and stripped from normalized output (see below);
+  // per-agent assignment now lives in external-mcp-agent-assignments.json.
 
   if (errors.length > 0) {
     return { errors };
@@ -414,7 +409,6 @@ function validateServerEntry(
       transport: 'local',
       command: command!,
       tools: tools!,
-      agent_scope: agentScope!,
     };
     if (args !== undefined) {
       localServer.args = args;
@@ -434,7 +428,6 @@ function validateServerEntry(
       enabled: enabled!,
       transport: transport as 'http' | 'sse',
       url: url!,
-      agent_scope: agentScope!,
     };
     if (headers !== undefined && Object.keys(headers).length > 0) {
       urlServer.headers = headers;
@@ -609,71 +602,6 @@ function validateUrl(
       'Use https:// for remote endpoints or http://localhost for local dev.',
     ));
   }
-}
-
-// ---------------------------------------------------------------------------
-// Agent scope validation
-// ---------------------------------------------------------------------------
-
-function validateAgentScope(
-  data: Record<string, unknown>,
-  prefix: string,
-  errors: ExternalMcpValidationError[],
-): ExternalMcpAgentScope | undefined {
-  const mode = data['mode'];
-  if (mode !== 'allowlist') {
-    errors.push(err(`${prefix}.mode`, `Unsupported mode "${String(mode)}".`, 'Use "mode": "allowlist".'));
-  }
-
-  if (!Array.isArray(data['agent_ids'])) {
-    errors.push(err(`${prefix}.agent_ids`, 'Must be an array of agent ID strings.', 'Add "agent_ids": ["software-engineer", "qa"] listing which agents should see this server.'));
-    return undefined;
-  }
-
-  const agentIds: string[] = [];
-  for (let i = 0; i < (data['agent_ids'] as unknown[]).length; i++) {
-    const item = (data['agent_ids'] as unknown[])[i];
-    if (typeof item !== 'string' || item.trim().length === 0) {
-      errors.push(err(`${prefix}.agent_ids[${i}]`, 'Must be a non-empty string.', 'Each agent_id must be a string identifier.'));
-      continue;
-    }
-    agentIds.push(item.trim());
-  }
-
-  if (agentIds.length === 0 && errors.length === 0) {
-    errors.push(err(`${prefix}.agent_ids`, 'Must contain at least one agent ID.', 'Add at least one agent ID to the allowlist.'));
-    return undefined;
-  }
-
-  if (errors.length > 0) {
-    return undefined;
-  }
-
-  return { mode: 'allowlist', agent_ids: agentIds };
-}
-
-// ---------------------------------------------------------------------------
-// Agent filtering
-// ---------------------------------------------------------------------------
-
-/**
- * Return enabled external servers whose agent_scope includes the given agent.
- *
- * Agent IDs in agent_scope are NOT validated against the agent registry.
- * Unknown IDs are harmless no-ops.
- */
-export function resolveBehavioralBaseMcpAgentId(agentId: string): string {
-  return agentId === 'dalton-verify' ? 'dalton' : agentId;
-}
-
-export function getExternalServersForAgent(
-  registry: ExternalMcpRegistry,
-  agentId: string,
-): ExternalMcpServer[] {
-  const effectiveAgentId = resolveBehavioralBaseMcpAgentId(agentId);
-  return registry.external_servers.filter((s) =>
-    s.enabled && s.agent_scope.agent_ids.includes(effectiveAgentId),
-  );
 }
 
 // ---------------------------------------------------------------------------

@@ -32,6 +32,9 @@ import {
   type AgentConfigAddModelResponse,
   type AgentConfigLoadCapabilitiesResponse,
   type AgentConfigLoadAgentsResponse,
+  type SystemSettingsReadResponse,
+  type SystemSettingsSaveResponse,
+  type SystemSettingsRestartResponse,
   type AgentConfigLoadModelCatalogResponse,
   type AgentConfigRemoveModelResponse,
   type AgentConfigSaveAgentModelsRequest,
@@ -46,6 +49,7 @@ import {
   type AgentConfigReseedExtensionRequest,
   type AgentConfigDeleteExtensionRequest,
   type AgentConfigSaveExtensionAssignmentsRequest,
+  type AgentConfigSaveExternalMcpAssignmentsRequest,
   type AgentInstructionsListFilesResponse,
   type AgentInstructionsReadFileResponse,
   type AgentInstructionsWriteFileResponse,
@@ -551,6 +555,21 @@ export const desktopShellApi = {
       action: 'reinforcement.dismissRealignment',
       payload,
     }),
+  readSystemSettings: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'systemSettings.read',
+    }),
+  saveSystemSettings: async (
+    payload: import('../src/shared/desktopContract').SystemSettingsSaveRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'systemSettings.save',
+      payload,
+    }),
+  restartTaskSail: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'systemSettings.restart',
+    }),
   loadAgentConfig: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.loadAgents',
@@ -617,6 +636,17 @@ export const desktopShellApi = {
   ): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.saveExtensionAssignments',
+      payload,
+    }),
+  loadExternalMcpAssignments: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.loadExternalMcpAssignments',
+    }),
+  saveExternalMcpAssignments: async (
+    payload: AgentConfigSaveExternalMcpAssignmentsRequest['payload'],
+  ): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'agentConfig.saveExternalMcpAssignments',
       payload,
     }),
   listInstructionFiles: async (
@@ -1118,6 +1148,11 @@ export type DesktopShellApi = {
   dismissRealignment: (
     payload: ReinforcementDismissRealignmentRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
+  readSystemSettings: () => Promise<DesktopInvokeResult>;
+  saveSystemSettings: (
+    payload: import('../src/shared/desktopContract').SystemSettingsSaveRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  restartTaskSail: () => Promise<DesktopInvokeResult>;
   loadAgentConfig: () => Promise<DesktopInvokeResult>;
   loadModelCatalog: () => Promise<DesktopInvokeResult>;
   loadCapabilities?: () => Promise<DesktopInvokeResult>;
@@ -1139,6 +1174,10 @@ export type DesktopShellApi = {
   loadAgentExtensionAssignments: () => Promise<DesktopInvokeResult>;
   saveAgentExtensionAssignments: (
     payload: AgentConfigSaveExtensionAssignmentsRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
+  loadExternalMcpAssignments: () => Promise<DesktopInvokeResult>;
+  saveExternalMcpAssignments: (
+    payload: AgentConfigSaveExternalMcpAssignmentsRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   listInstructionFiles: (directory: InstructionDirectory) => Promise<DesktopInvokeResult>;
   readInstructionFile: (relativePath: string) => Promise<DesktopInvokeResult>;
@@ -1282,7 +1321,10 @@ export type DesktopAllowedResponses =
   | TaskBoardMoveToOpenResponse
   | TaskNotificationSnapshot
   | TaskNotificationMutationResponse
-  | ServicesReadStatusResponse;
+  | ServicesReadStatusResponse
+  | SystemSettingsReadResponse
+  | SystemSettingsSaveResponse
+  | SystemSettingsRestartResponse;
 
 export function exposeDesktopShell(): void {
   contextBridge.exposeInMainWorld('desktopShell', desktopShellApi);

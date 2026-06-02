@@ -1,12 +1,17 @@
 import type { NamedAgentTeam } from './types.js';
 
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
-const AGENT_ID_ALIASES: Record<string, string> = {
-  lily: 'planning-agent',
-  alice: 'product-manager',
-  dalton: 'software-engineer',
-  ron: 'qa',
-};
+
+// Runtime nicknames the human-reference parser maps to provider-agent IDs via the
+// supplied provider mapper. dalton-verify is intentionally omitted: it is not a
+// human-reference alias and passes through unchanged, preserving the prior
+// behavior where the alias map had no dalton-verify entry.
+const RUNTIME_ALIAS_ALLOW_SET: ReadonlySet<string> = new Set([
+  'lily',
+  'alice',
+  'dalton',
+  'ron',
+]);
 
 const ISSUES_NON_FINDING_SECTIONS = new Set(['Task Metadata', 'Review Outcome']);
 
@@ -26,16 +31,22 @@ export function normalizeIdentifier(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-export function normalizeAgentId(value: string): string {
+export function normalizeAgentId(
+  value: string,
+  runtimeToProviderAgentId: (agentId: string) => string,
+): string {
   const normalized = value.replace(HTML_COMMENT_RE, '').trim().toLowerCase();
-  return AGENT_ID_ALIASES[normalized] ?? normalized;
+  return RUNTIME_ALIAS_ALLOW_SET.has(normalized)
+    ? runtimeToProviderAgentId(normalized)
+    : normalized;
 }
 
 export function readAgentIdFromSection(
   sections: Record<string, string[]>,
   sectionName: string,
+  runtimeToProviderAgentId: (agentId: string) => string,
 ): string {
-  return normalizeAgentId(normalizeText(sections[sectionName] ?? []));
+  return normalizeAgentId(normalizeText(sections[sectionName] ?? []), runtimeToProviderAgentId);
 }
 
 export function decisionOwnerMatchesAgent(
@@ -67,8 +78,12 @@ export function decisionOwnerMatchesAgent(
   return agentKey === 'product-manager' && tokens.has('pm');
 }
 
-export function agentIdExists(value: string, namedAgentTeam: NamedAgentTeam): boolean {
-  return normalizeAgentId(value) in namedAgentTeam;
+export function agentIdExists(
+  value: string,
+  namedAgentTeam: NamedAgentTeam,
+  runtimeToProviderAgentId: (agentId: string) => string,
+): boolean {
+  return normalizeAgentId(value, runtimeToProviderAgentId) in namedAgentTeam;
 }
 
 export function issuesSectionsHaveFindings(sections: Record<string, string[]>): boolean {

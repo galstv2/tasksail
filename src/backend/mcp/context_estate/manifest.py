@@ -151,20 +151,32 @@ def build_approved_manifest(
                 "_authored_repository_type",
                 False,
             )
-            expected_type = (
+            expected_focus = (
                 "primary"
                 if repo["repo_id"] in primary_repo_id_set
                 else DEFAULT_REPOSITORY_TYPE
             )
+            inbound_repo_focus = repo.get("repo_focus")
+            repo_focus_authored = bool(repo.get("repo_focus_authored", False))
+            if repo_focus_authored and inbound_repo_focus != expected_focus:
+                raise ValueError(
+                    "primary_working_repo_ids and repo_focus entries are "
+                    f"inconsistent for repo_id={repo['repo_id']}"
+                )
             if (
                 authored_repository_type
-                and repo.get("repository_type") != expected_type
+                and repo.get("repository_type") != expected_focus
             ):
                 raise ValueError(
                     "primary_working_repo_ids and repository_type entries are "
                     f"inconsistent for repo_id={repo['repo_id']}"
                 )
-            repo["repository_type"] = expected_type
+            repo["repo_focus"] = expected_focus
+            repo["repository_type"] = expected_focus
+            repo["repo_focus_authored"] = (
+                repo_focus_authored
+                and inbound_repo_focus == expected_focus
+            )
         primary_typed = [
             repo
             for repo in repositories

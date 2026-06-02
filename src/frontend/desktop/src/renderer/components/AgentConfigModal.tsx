@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 
 import type { AgentConfigModalProps, ExtensionAddForm } from '../hooks/useAgentConfigModal';
 import type { AgentExtensionRendererCatalogEntry } from '../../shared/desktopContractAgentConfig';
+import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
 import ConfirmOverlay from './ConfirmOverlay';
 import MultiSelect, { type MultiSelectOption } from './MultiSelect';
 import { CloseIcon } from './creation-steps/icons';
@@ -251,6 +252,54 @@ function AgentExtensionSelect({ agentId, agentName, extensions, selectedIds, onT
   );
 }
 
+type ExternalMcpServerSelectProps = {
+  agentId: string;
+  agentName: string;
+  servers: ExternalMcpServerEntry[];
+  selectedIds: string[];
+  onToggle: (agentId: string, serverId: string, selected: boolean) => void;
+};
+
+const EXTERNAL_MCP_TRANSPORT_LABEL: Record<string, string> = {
+  http: 'HTTP',
+  sse: 'SSE',
+  local: 'Local',
+};
+
+function ExternalMcpServerSelect({ agentId, agentName, servers, selectedIds, onToggle }: ExternalMcpServerSelectProps): JSX.Element | null {
+  // Only render when at least one external MCP server exists.
+  if (servers.length === 0) return null;
+  const selectedCount = selectedIds.length;
+
+  const options: MultiSelectOption[] = servers.map((server) => {
+    const trailingLabel = server.enabled
+      ? (EXTERNAL_MCP_TRANSPORT_LABEL[server.transport] ?? server.transport)
+      : 'Disabled';
+    return {
+      value: server.id,
+      label: server.display_name,
+      trailingLabel,
+      optionAriaLabel: `Assign ${server.display_name} (${trailingLabel}) to ${agentName}`,
+    };
+  });
+
+  return (
+    <div className="agent-config__field agent-config__ext-assign">
+      <span className="mcp-form__label" aria-hidden="true">
+        External MCP{selectedCount > 0 ? ` (${selectedCount} selected)` : ''}
+      </span>
+      <MultiSelect
+        options={options}
+        selectedValues={selectedIds}
+        onToggle={(value, selected) => onToggle(agentId, value, selected)}
+        ariaLabel={`${agentName} external MCP assignments`}
+        triggerAriaLabel={`Select external MCP servers for ${agentName}`}
+        placeholder="Select external MCP servers..."
+      />
+    </div>
+  );
+}
+
 // ── Main modal ───────────────────────────────────────────────────────────────
 
 function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
@@ -294,6 +343,9 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     onDeleteExtension,
     onToggleExtensionAssignment,
     onSaveAssignments,
+    externalMcpServers,
+    externalMcpAssignments,
+    onToggleExternalMcpAssignment,
   } = props;
 
   const handleKeyDown = useCallback(
@@ -453,6 +505,13 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                       extensions={extensions}
                       selectedIds={extensionAssignments[agent.agent_id] ?? []}
                       onToggle={onToggleExtensionAssignment}
+                    />
+                    <ExternalMcpServerSelect
+                      agentId={agent.agent_id}
+                      agentName={agent.human_name}
+                      servers={externalMcpServers}
+                      selectedIds={externalMcpAssignments[agent.agent_id] ?? []}
+                      onToggle={onToggleExternalMcpAssignment}
                     />
                   </li>
                   );

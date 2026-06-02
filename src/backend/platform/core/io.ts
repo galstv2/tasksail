@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile, rename, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, copyFile, unlink } from 'node:fs/promises';
 import { mkdtempSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -39,22 +40,53 @@ export async function writeTextFile(
 
 /**
  * Atomically write text content to a file using a temp file + rename.
- * Writes to `${filePath}.tmp-${process.pid}-${Date.now()}` then renames
- * into place, so a crash mid-write never leaves a torn destination file.
- * Creates parent directories if needed.
+ *
+ * The temp name uses a cryptographically random suffix and is created with an
+ * exclusive `wx` flag, so concurrent or rapid same-process writes can never
+ * collide on the same temp path (a pid+millisecond name could). On the rare
+ * EEXIST it retries with a fresh suffix. The destination file, encoding, and
+ * serialization are unchanged — only temp naming and write atomicity differ.
+ * Cleanup only ever removes the temp path this call created.
  */
 export async function writeTextFileAtomic(
   filePath: string,
   content: string,
 ): Promise<void> {
   await ensureDir(path.dirname(filePath));
-  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const maxAttempts = 5;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const tmpPath = `${filePath}.tmp-${process.pid}-${randomBytes(8).toString('hex')}`;
+    try {
+      // `wx` fails if the temp path already exists, so we never clobber a temp
+      // file owned by a concurrent writer.
+      await writeFile(tmpPath, content, { encoding: 'utf-8', flag: 'wx' });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+    try {
+      await rename(tmpPath, filePath);
+      return;
+    } catch (err) {
+      await unlinkQuiet(tmpPath);
+      throw err;
+    }
+  }
+  throw new Error(
+    `writeTextFileAtomic: could not allocate a unique temp file for ${filePath} after ${maxAttempts} attempts`,
+    { cause: lastError },
+  );
+}
+
+async function unlinkQuiet(targetPath: string): Promise<void> {
   try {
-    await writeFile(tmpPath, content, 'utf-8');
-    await rename(tmpPath, filePath);
-  } catch (err) {
-    try { await import('node:fs/promises').then(({ unlink }) => unlink(tmpPath)); } catch { /* best-effort cleanup */ }
-    throw err;
+    await unlink(targetPath);
+  } catch {
+    /* best-effort cleanup */
   }
 }
 

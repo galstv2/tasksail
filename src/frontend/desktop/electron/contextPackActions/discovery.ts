@@ -6,6 +6,8 @@ import type {
   ContextPackDiscoveredFocusArea,
   ContextPackDiscoveredHighSignalPath,
   ContextPackDiscoveredRepo,
+  ContextPackSkippedRepoMissingGit,
+  ContextPackRepoCategory,
   ContextPackRepositoryType,
   ContextPackEstateType,
   ContextPackPickDirectoryRequest,
@@ -35,6 +37,33 @@ function normalizeRepositoryType(value: unknown): ContextPackRepositoryType | nu
   return value === 'primary' || value === 'support' ? value : null;
 }
 
+function normalizeRepoCategory(value: unknown): ContextPackRepoCategory | undefined {
+  return value === 'service'
+    || value === 'application'
+    || value === 'frontend'
+    || value === 'library'
+    || value === 'infrastructure'
+    || value === 'data'
+    || value === 'documentation'
+    || value === 'tool'
+    || value === 'unknown'
+    ? value
+    : undefined;
+}
+
+function normalizeSuggestedSystemLayer(
+  value: unknown,
+): ContextPackDiscoveredRepo['suggestedSystemLayer'] | undefined {
+  return value === 'backend'
+    || value === 'frontend'
+    || value === 'infrastructure'
+    || value === 'database'
+    || value === 'documents'
+    || value === 'shared'
+    ? value
+    : undefined;
+}
+
 function normalizeClassificationConfidence(
   value: unknown,
 ): 'high' | 'medium' | 'low' | undefined {
@@ -49,6 +78,9 @@ function normalizeDiscoveredRepo(value: Record<string, unknown>): ContextPackDis
     path: stringOrNull(value.path) ?? '',
     relativePath: stringOrNull(value.relative_path) ?? '',
     highSignalPaths: stringArray(value.high_signal_paths),
+    repoCategory: normalizeRepoCategory(value.repo_category),
+    repoCategoryConfidence: normalizeClassificationConfidence(value.repo_category_confidence),
+    suggestedSystemLayer: normalizeSuggestedSystemLayer(value.suggested_system_layer),
     repositoryType: repositoryType ?? undefined,
     classificationConfidence: normalizeClassificationConfidence(value.classification_confidence),
   };
@@ -71,6 +103,15 @@ function normalizeDiscoveredHighSignalPath(value: Record<string, unknown>): Cont
     path: stringOrNull(value.path) ?? '',
     relativePath: stringOrNull(value.relative_path) ?? '',
     signalType: stringOrNull(value.signal_type) ?? 'general',
+  };
+}
+
+function normalizeSkippedRepoMissingGit(value: Record<string, unknown>): ContextPackSkippedRepoMissingGit {
+  return {
+    repoName: stringOrNull(value.repo_name) ?? '',
+    path: stringOrNull(value.path) ?? '',
+    relativePath: stringOrNull(value.relative_path) ?? '',
+    message: stringOrNull(value.message) ?? '',
   };
 }
 
@@ -164,6 +205,11 @@ export async function executeContextPackDiscoveryAction(
         ? parsed.high_signal_paths
           .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)
           .map(normalizeDiscoveredHighSignalPath)
+        : [],
+      skippedReposMissingGit: Array.isArray(parsed.skipped_repos_missing_git)
+        ? parsed.skipped_repos_missing_git
+          .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)
+          .map(normalizeSkippedRepoMissingGit)
         : [],
     };
     return { ok: true, response };

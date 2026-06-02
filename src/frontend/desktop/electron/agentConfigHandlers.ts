@@ -2,7 +2,6 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
 } from '../../../backend/platform/workflow-policy/index.js';
 import {
@@ -25,7 +24,6 @@ import type {
 } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
 
-const MODEL_CATALOG_RELATIVE_PATH = '.platform-state/agent-model-catalog.json';
 const MODEL_CATALOG_SCHEMA_VERSION = 1;
 
 type JsonRecord = Record<string, unknown>;
@@ -208,11 +206,11 @@ function buildRegistryPath(repoRoot: string): string {
 }
 
 function buildModelCatalogPath(repoRoot: string): string {
-  return path.join(repoRoot, MODEL_CATALOG_RELATIVE_PATH);
+  return path.join(repoRoot, getActiveProvider(repoRoot).modelCatalogPaths().runtime);
 }
 
 function buildDefaultModelCatalogPath(repoRoot: string): string {
-  return path.join(repoRoot, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+  return path.join(repoRoot, getActiveProvider(repoRoot).modelCatalogPaths().default);
 }
 
 async function writeModelCatalog(
@@ -242,10 +240,11 @@ async function readDefaultModelCatalogDocument(
   repoRoot: string,
   fsAdapter: FileSystemAdapter,
 ): Promise<AgentModelCatalogDocument> {
-  const defaultPath = path.join(repoRoot, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+  const defaultRelativePath = getActiveProvider(repoRoot).modelCatalogPaths().default;
+  const defaultPath = path.join(repoRoot, defaultRelativePath);
   const raw = await fsAdapter.readTextFile(defaultPath);
   return normalizeModelCatalogDocument(
-    parseJsonDocument(raw, AGENT_MODEL_CATALOG_RELATIVE_PATH),
+    parseJsonDocument(raw, defaultRelativePath),
   );
 }
 
@@ -300,6 +299,14 @@ function validateReasoningEffortSyntax(action: string, effort: string): DesktopI
   return fail(action, `Reasoning effort "${effort}" must be lowercase letters, numbers, or hyphens.`);
 }
 
+function providerProductDisplayName(cliDisplayName: string): string {
+  return cliDisplayName.replace(/\s+CLI$/u, '') || cliDisplayName;
+}
+
+function providerAdvertisedReasoningEffortLabel(cliDisplayName: string): string {
+  return `${providerProductDisplayName(cliDisplayName)}-advertised`;
+}
+
 async function loadProviderCapabilities(repoRoot: string): Promise<ProviderReasoningEffortCapabilities> {
   const provider = getActiveProvider(repoRoot);
   const capabilityProvider = provider as typeof provider & ReasoningEffortCapabilityProvider;
@@ -310,7 +317,7 @@ async function loadProviderCapabilities(repoRoot: string): Promise<ProviderReaso
       effortChoices: [],
       source: 'unavailable',
       stale: true,
-      error: 'Active provider does not expose reasoning effort capabilities.',
+      error: `${provider.cliDisplayName()} does not expose reasoning effort capabilities.`,
     };
   }
   return capabilityProvider.reasoningEffortCapabilities(repoRoot);
@@ -327,6 +334,7 @@ function buildLoadAgentsResponse(agents: AgentConfigAgentEntry[]): AgentConfigLo
 
 function buildLoadCapabilitiesResponse(
   capabilities: ProviderReasoningEffortCapabilities,
+  cliDisplayName: string,
 ): AgentConfigLoadCapabilitiesResponse {
   const choices = capabilities.effortChoices;
   const unavailable = capabilities.source === 'unavailable' || choices.length === 0;
@@ -334,7 +342,7 @@ function buildLoadCapabilitiesResponse(
     action: 'agentConfig.loadCapabilities',
     mode: 'read-only',
     message: unavailable
-      ? 'Reasoning effort options could not be loaded from the installed Copilot CLI.'
+      ? `Reasoning effort options could not be loaded from the installed ${cliDisplayName}.`
       : `Loaded ${choices.length} reasoning effort option(s).`,
     providerId: capabilities.providerId,
     cliVersion: capabilities.cliVersion,
@@ -397,24 +405,25 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
     },
 
     loadCapabilities: async (): Promise<DesktopInvokeResult> => {
-      const providerId = getActiveProvider(repoRoot).id;
+      const provider = getActiveProvider(repoRoot);
+      const cliDisplayName = provider.cliDisplayName();
       try {
         const capabilities = await loadCapabilities(repoRoot);
         return {
           ok: true,
-          response: buildLoadCapabilitiesResponse(capabilities),
+          response: buildLoadCapabilitiesResponse(capabilities, cliDisplayName),
         };
       } catch (err) {
         return {
           ok: true,
           response: buildLoadCapabilitiesResponse({
-            providerId,
+            providerId: provider.id,
             cliVersion: null,
             effortChoices: [],
             source: 'unavailable',
             stale: true,
             error: err instanceof Error ? err.message : String(err),
-          }),
+          }, cliDisplayName),
         };
       }
     },
@@ -473,18 +482,20 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
         }
 
         if (requestedEfforts.size > 0) {
+          const cliDisplayName = getActiveProvider(repoRoot).cliDisplayName();
           const capabilities = await loadCapabilities(repoRoot);
           for (const effort of requestedEfforts) {
             const validation = validateReasoningEffortForCapabilities({
               providerId: capabilities.providerId,
+              cliDisplayName,
               modelId: 'selected model',
               effort,
               capabilities,
             });
             if (!validation.ok) {
               const error = validation.reason === 'capability-discovery-failed'
-                ? 'Reasoning effort options could not be loaded from the installed Copilot CLI. Set reasoning effort to None or try again after capabilities are available.'
-                : `Reasoning effort "${effort}" is not advertised by the installed Copilot CLI. Select None or a Copilot-advertised effort.`;
+                ? `Reasoning effort options could not be loaded from the installed ${cliDisplayName}. Set reasoning effort to None or try again after capabilities are available.`
+                : `Reasoning effort "${effort}" is not advertised by the installed ${cliDisplayName}. Select None or a ${providerAdvertisedReasoningEffortLabel(cliDisplayName)} effort.`;
               return fail('agentConfig.saveAgentModels', error);
             }
           }

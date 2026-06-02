@@ -15,7 +15,6 @@ function makeServer(overrides: Partial<ExternalMcpUrlServerEntry> = {}): Externa
     enabled: true,
     transport: 'sse',
     url: 'https://mcp.example.com/sse',
-    agent_scope: { mode: 'allowlist', agent_ids: ['swe', 'provider-qa'] },
     ...overrides,
   };
 }
@@ -25,16 +24,9 @@ function emptyDraft(): McpServerFormDraft {
     id: '', display_name: '', purpose: '', preferred_for: '',
     fallback_description: '', transport: 'sse', url: '', headers: [],
     command: '', args: '', env: [], cwd: '', tools: '',
-    agent_ids: [], enabled: true,
+    enabled: true,
   };
 }
-
-const TEST_AGENT_ROSTER = {
-  'provider-builder': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
-  'provider-qa': { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
-  'provider-pm': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
-  'provider-planner': { role: 'Planning Specialist', humanName: 'Lily', displayName: 'Lily (Planning Specialist)' },
-};
 
 function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigModalProps {
   return {
@@ -45,7 +37,6 @@ function defaultProps(overrides: Partial<McpConfigModalProps> = {}): McpConfigMo
     fieldErrors: {},
     editingServerId: null,
     draft: emptyDraft(),
-    agentRoster: TEST_AGENT_ROSTER,
     connectionValidation: { status: 'idle' },
     localEnabled: false,
     localCommandCheck: { status: 'idle' },
@@ -85,21 +76,11 @@ describe('McpConfigModal — list view', () => {
     expect(screen.getByRole('status').textContent).toContain('You are responsible for vetting every external MCP server');
   });
 
-  it('renders server list with display name and badges', () => {
+  it('renders server list with display name and transport badge', () => {
     const servers = [makeServer()];
     render(<McpConfigModal {...defaultProps({ servers })} />);
     expect(screen.getByText('Test MCP Server')).toBeTruthy();
     expect(screen.getByText('sse')).toBeTruthy();
-    expect(screen.getByText('2 agents')).toBeTruthy();
-  });
-
-  it('shows "all agents" badge when all workflow agents are selected', () => {
-    const allAgentIds = [
-      'provider-planner', 'provider-pm', 'provider-builder', 'provider-qa',
-    ];
-    const servers = [makeServer({ agent_scope: { mode: 'allowlist', agent_ids: allAgentIds } })];
-    render(<McpConfigModal {...defaultProps({ servers })} />);
-    expect(screen.getByText('all agents')).toBeTruthy();
   });
 
   it('renders edit and remove buttons per server row', () => {
@@ -153,7 +134,6 @@ describe('McpConfigModal — form view', () => {
     expect(screen.getByText('Purpose *')).toBeTruthy();
     expect(screen.getByText('URL *')).toBeTruthy();
     expect(screen.getByText('Transport')).toBeTruthy();
-    expect(screen.getByText('Agent Scope')).toBeTruthy();
     expect(screen.getByText('Validate Connection')).toBeTruthy();
   });
 
@@ -221,12 +201,6 @@ describe('McpConfigModal — form view', () => {
       fieldErrors: { purpose: 'Purpose is too long.' },
     })} />);
     expect(screen.getByText('Purpose is too long.')).toBeTruthy();
-  });
-
-  it('renders agent scope checkboxes with human names', () => {
-    render(<McpConfigModal {...defaultProps({ view: 'form' })} />);
-    expect(screen.getByText(/Dalton \(Software Engineer\)/)).toBeTruthy();
-    expect(screen.getByText(/Ron \(QA and Closeout\)/)).toBeTruthy();
   });
 
   it('shows URL validation error on blur for invalid URL', () => {

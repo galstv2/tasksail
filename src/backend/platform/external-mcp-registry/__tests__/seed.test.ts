@@ -139,11 +139,11 @@ describe('round-trip with operator mutations', () => {
       external_servers: [{
         id: 'my-mcp',
         display_name: 'My MCP',
-        purpose: 'Test MCP server',
+        purpose: 'Operator-added MCP server for round-trip tests.',
+        preferred_for: ['testing'],
         enabled: true,
         transport: 'sse' as const,
         url: 'https://mcp.example.com/sse',
-        agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
       }],
     };
     await saveExternalMcpRegistry(runtimePath(), mutated);
@@ -173,11 +173,11 @@ describe('atomic save', () => {
         external_servers: [{
           id: `svc-${i}`,
           display_name: `Service ${i}`,
-          purpose: 'Concurrent test',
+          purpose: 'Concurrent write integrity test server.',
+          preferred_for: ['testing'],
           enabled: true,
           transport: 'sse' as const,
           url: 'https://mcp.example.com/sse',
-          agent_scope: { mode: 'allowlist' as const, agent_ids: ['swe'] },
         }],
       }),
     );

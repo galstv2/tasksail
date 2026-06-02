@@ -23,11 +23,6 @@ export class DirectRuntime implements ContainerRuntime {
     engineHost: ContainerEngineHost = 'native',
     wslDistro: string | null = null,
   ) {
-    if (process.platform === 'win32') {
-      throw new Error(
-        'container_runtime="direct" is not supported on Windows in v1. Set container_runtime to "docker" or "podman" and use Docker Desktop or Podman instead.',
-      );
-    }
     this.engineHost = engineHost;
     this.wslDistro = wslDistro;
   }
@@ -41,7 +36,11 @@ export class DirectRuntime implements ContainerRuntime {
       throw new Error('DirectRuntime.composeUp: env.TASKSAIL_REPO_ROOT is required.');
     }
     const config = await getPlatformConfig(repoRoot);
-    await spawnDirectMcp({ repoRoot, port: config.mcp_port, env: options.env });
+    await spawnDirectMcp({
+      repoRoot,
+      port: config.mcp_port,
+      env: options.env,
+    });
   }
 
   async composeDown(options: ComposeOptions): Promise<void> {

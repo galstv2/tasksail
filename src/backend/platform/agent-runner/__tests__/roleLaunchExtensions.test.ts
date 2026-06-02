@@ -33,6 +33,7 @@ function assignmentsEmpty(): { schema_version: 1; assignments: Array<{ agent_id:
 
 import { AgentExtensionError } from '../../agent-extensions/ids.js';
 import { toRegistryId } from '../metadata.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 import {
   buildRoleAgentLaunchAvailabilityNote,
   cleanupRoleAgentLaunchExtensions,
@@ -44,21 +45,21 @@ import {
 
 describe('roleAgentToExtensionAgentId', () => {
   it('maps role agents to their registry assignment IDs sourced from toRegistryId', () => {
-    expect(roleAgentToExtensionAgentId('alice')).toBe('product-manager');
-    expect(roleAgentToExtensionAgentId('dalton')).toBe('software-engineer');
-    expect(roleAgentToExtensionAgentId('dalton-verify')).toBe('software-engineer-verify');
-    expect(roleAgentToExtensionAgentId('ron')).toBe('qa');
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'alice')).toBe('product-manager');
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'dalton')).toBe('software-engineer');
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'dalton-verify')).toBe('software-engineer-verify');
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'ron')).toBe('qa');
     // Identity against the canonical registry-id map proves there is no second map.
-    expect(roleAgentToExtensionAgentId('alice')).toBe(toRegistryId('alice'));
-    expect(roleAgentToExtensionAgentId('ron')).toBe(toRegistryId('ron'));
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'alice')).toBe(toRegistryId(copilotProvider, 'alice'));
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'ron')).toBe(toRegistryId(copilotProvider, 'ron'));
   });
 
   it('returns undefined for planning-agent (lily) so Lily is never staged here', () => {
-    expect(roleAgentToExtensionAgentId('lily')).toBeUndefined();
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'lily')).toBeUndefined();
   });
 
   it('returns undefined for an unmapped runtime agent ID', () => {
-    expect(roleAgentToExtensionAgentId('ghost' as unknown as AgentId)).toBeUndefined();
+    expect(roleAgentToExtensionAgentId(copilotProvider, 'ghost' as unknown as AgentId)).toBeUndefined();
   });
 });
 

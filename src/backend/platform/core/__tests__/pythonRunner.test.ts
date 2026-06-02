@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runPython, detectPythonBin } from '../pythonRunner.js';
 import { PythonRunError } from '../types.js';
 
@@ -7,6 +7,47 @@ describe('detectPythonBin', () => {
     const bin = detectPythonBin();
     expect(bin).toBeTruthy();
     expect(typeof bin).toBe('string');
+  });
+});
+
+describe('detectPythonBin override priority', () => {
+  const keys = ['TASKSAIL_PYTHON_312_BIN', 'TASKSAIL_PYTHON_BIN', 'PYTHON_BIN'] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of keys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of keys) {
+      if (saved[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = saved[key];
+      }
+    }
+  });
+
+  it('prefers TASKSAIL_PYTHON_312_BIN over the other overrides', () => {
+    process.env['TASKSAIL_PYTHON_312_BIN'] = '/a/py312';
+    process.env['TASKSAIL_PYTHON_BIN'] = '/b/py';
+    process.env['PYTHON_BIN'] = '/c/py';
+    expect(detectPythonBin()).toBe('/a/py312');
+  });
+
+  it('falls back to TASKSAIL_PYTHON_BIN then PYTHON_BIN', () => {
+    process.env['TASKSAIL_PYTHON_BIN'] = '/b/py';
+    process.env['PYTHON_BIN'] = '/c/py';
+    expect(detectPythonBin()).toBe('/b/py');
+    delete process.env['TASKSAIL_PYTHON_BIN'];
+    expect(detectPythonBin()).toBe('/c/py');
+  });
+
+  it('falls back to a platform default (python3 / python) when no override is set', () => {
+    expect(detectPythonBin()).toMatch(/(^|\/)python3?(\.exe)?$|(^|\\)python(\.exe)?$/);
   });
 });
 

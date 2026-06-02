@@ -8,6 +8,7 @@ import {
 } from '../core/index.js';
 import { assertPolicyPasses } from './policyValidation.js';
 import { normalizeRetrospectiveListSectionsMarkdown } from '../workflow-policy/rules/retrospectiveHelpers.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 export interface FileTaskArchiveOptions {
   contextPackDir: string;
@@ -45,6 +46,14 @@ async function normalizeRetrospectiveContributionsForArchive(
   if (normalized !== current) {
     await writeTextFileAtomic(retrospectivePath, normalized);
   }
+}
+
+function buildArchiveProviderEnv(repoRoot: string): Record<string, string> {
+  const provider = getActiveProvider(repoRoot);
+  return {
+    TASKSAIL_CLI_HOME_DIR_NAME: provider.homeDirName(),
+    TASKSAIL_AGENT_REGISTRY_PATH: path.join(repoRoot, provider.agentConfigPaths().registry),
+  };
 }
 
 /**
@@ -87,7 +96,10 @@ export async function fileTaskArchive(
     const result = await runPython(scriptPath, args, {
       cwd: repoRoot,
       timeout: 60_000,
-      env: { TASKSAIL_TASK_ID: options.taskId },
+      env: {
+        ...buildArchiveProviderEnv(repoRoot),
+        TASKSAIL_TASK_ID: options.taskId,
+      },
     });
     let data: Record<string, unknown> | undefined;
     try {

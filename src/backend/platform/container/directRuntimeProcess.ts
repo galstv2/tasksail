@@ -4,7 +4,9 @@ import net from 'node:net';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { createLogger, loadEnv } from '../core/index.js';
+import { createLogger, killWindowsProcessTree, loadEnv } from '../core/index.js';
+import { classifyPythonVersion, formatPythonVersion, resolveInterpreter, resolveRuntimePython } from '../core/pythonResolver.js';
+import { isWindowsPlatform } from '../core/platform.js';
 import { ensureDir, writeTextFileAtomic } from '../core/io.js';
 import { checkServiceHealth } from './healthcheck.js';
 import { createSharedMcpBootstrapEnv } from './sharedMcp.js';
@@ -60,15 +62,18 @@ async function spawnDirectMcpUncoalesced(opts: DirectProcessSpawnOptions): Promi
 
   warnIfContainerOnlyContextPath(opts.env);
   const env = await buildDirectRuntimeEnv(opts);
+  const python = resolveDirectRuntimePython(opts);
   const logFd = openSync(logPath, 'a');
   const child = spawn(
-    opts.pythonBinary ?? 'python3',
-    ['-m', 'src.backend.mcp.repo_context_mcp'],
+    python.bin,
+    [...python.baseArgs, '-m', 'src.backend.mcp.repo_context_mcp'],
     {
       cwd: opts.repoRoot,
       env,
       detached: true,
       stdio: ['ignore', logFd, logFd],
+      // Keep the daemon off a visible console on Windows; harmless elsewhere.
+      windowsHide: true,
     },
   );
   // Release the parent's copy of the inherited log fd; the child holds its own.
@@ -96,11 +101,53 @@ async function spawnDirectMcpUncoalesced(opts: DirectProcessSpawnOptions): Promi
   }
 }
 
+function resolveDirectRuntimePython(opts: DirectProcessSpawnOptions): { bin: string; baseArgs: string[] } {
+  const resolved = opts.pythonBinary
+    ? resolveInterpreter([{ bin: opts.pythonBinary, baseArgs: [], source: 'pythonBinary option' }])
+    : resolveRuntimePython({ repoRoot: opts.repoRoot });
+  const classification = classifyPythonVersion(resolved.version);
+  if (classification === 'reject') {
+    throw new Error(
+      `TaskSail requires Python 3.12+; resolved ${formatPythonVersion(resolved.version)} from ${resolved.candidate.source}. Set TASKSAIL_PYTHON_312_BIN to a Python 3.12+ interpreter.`,
+    );
+  }
+  if (classification === 'compatible') {
+    log.warn('repo_context_mcp.python.compatible_fallback', {
+      message: `Using compatible fallback Python ${formatPythonVersion(resolved.version)} from ${resolved.candidate.source}; Python 3.12 is preferred.`,
+    });
+  }
+  return {
+    bin: resolved.candidate.bin,
+    baseArgs: resolved.candidate.baseArgs,
+  };
+}
+
+/**
+ * Terminate the daemon on Windows. Windows has no POSIX signals, so a graceful
+ * SIGTERM is meaningless; taskkill /PID <pid> /T /F kills the whole process tree
+ * (any child processes the interpreter spawned) forcefully. Retried once if the
+ * process is still alive after the grace period.
+ */
+async function killWindowsDaemonTree(pid: number): Promise<void> {
+  killWindowsProcessTree(pid);
+  await waitForExit(pid, SHUTDOWN_GRACE_MS);
+  if (isAlive(pid)) {
+    killWindowsProcessTree(pid);
+  }
+}
+
 export async function stopDirectMcp(repoRoot: string): Promise<void> {
   const pidPath = path.join(repoRoot, PID_REL_PATH);
   if (!existsSync(pidPath)) return;
   const pid = readPid(pidPath);
   if (pid === undefined) {
+    unlinkMissingOk(pidPath);
+    return;
+  }
+  if (isWindowsPlatform()) {
+    if (isAlive(pid)) {
+      await killWindowsDaemonTree(pid);
+    }
     unlinkMissingOk(pidPath);
     return;
   }
@@ -159,17 +206,21 @@ async function killStaleProcessIfPresent(pidPath: string): Promise<void> {
     return;
   }
   if (isAlive(pid)) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      // Continue to PID cleanup; the process may have exited.
-    }
-    await waitForExit(pid, SHUTDOWN_GRACE_MS);
-    if (isAlive(pid)) {
+    if (isWindowsPlatform()) {
+      await killWindowsDaemonTree(pid);
+    } else {
       try {
-        process.kill(pid, 'SIGKILL');
+        process.kill(pid, 'SIGTERM');
       } catch {
         // Continue to PID cleanup; the process may have exited.
+      }
+      await waitForExit(pid, SHUTDOWN_GRACE_MS);
+      if (isAlive(pid)) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Continue to PID cleanup; the process may have exited.
+        }
       }
     }
   }

@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { samePathIdentity } from '../core/paths.js';
 import {
   existingBranchPreconditionsPass,
   newBranchPreconditionsPass,
@@ -125,7 +126,7 @@ export function matchBranchChainRepoForRoot(
 ): TaskBranchChainRepo | null {
   const normalizedGitRoot = normalizeActivationRepoRoot(gitRoot);
   return binding.repos.find((repo) =>
-    normalizeActivationRepoRoot(repo.repoRoot) === normalizedGitRoot
+    samePathIdentity(normalizeActivationRepoRoot(repo.repoRoot), normalizedGitRoot)
   ) ?? null;
 }
 
@@ -137,7 +138,7 @@ export function assertEveryMaterializedRepoHasBranchChainEntry(
   for (const origin of materializationOrigins) {
     const normalizedGitRoot = normalizeActivationRepoRoot(origin.gitRoot);
     const matches = binding.repos.filter((repo) =>
-      normalizeActivationRepoRoot(repo.repoRoot) === normalizedGitRoot
+      samePathIdentity(normalizeActivationRepoRoot(repo.repoRoot), normalizedGitRoot)
     );
     if (matches.length === 0) {
       throw new Error(

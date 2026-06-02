@@ -6,7 +6,7 @@ import {
   readFile as fsReadFile,
   stat as fsStat,
 } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type {
@@ -45,6 +45,11 @@ function isMonolithEstateMode(mode: ContextPackEstateType): boolean {
 
 function isPathInside(child: string, parent: string): boolean {
   const rel = relative(parent, child);
+  // On Windows, path.relative returns an absolute path when child and parent
+  // are on different drives. Reject any such cross-drive result.
+  if (isAbsolute(rel)) {
+    return false;
+  }
   return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/') && rel !== '.');
 }
 
@@ -85,6 +90,170 @@ async function initGitReposForNewProject(
   }
 }
 
+type MissingGitRepositoryWarning = {
+  repoName: string;
+  path: string;
+  relativePath: string;
+  message: string;
+};
+
+type GitGuardOutcome =
+  | { ok: true; payload: ContextPackCreateRequest['payload']; warnings: MissingGitRepositoryWarning[] }
+  | { ok: false; error: ContextPackPreflightError };
+
+/** Same marker semantics as Python discovery: a `.git` directory or file is valid. */
+async function hasGitMarker(repoRoot: string): Promise<boolean> {
+  try {
+    const stats = await fsStat(join(repoRoot, '.git'));
+    return stats.isDirectory() || stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True if `repoRoot` or any ancestor has a top-level `.git` marker. An
+ * existing-source monolith selection may be a subtree of a larger repo (a
+ * monorepo subdirectory) whose `.git` lives in an ancestor, so the selected
+ * root is Git-backed even without its own `.git`.
+ */
+async function isWithinGitWorktree(repoRoot: string): Promise<boolean> {
+  let current = resolve(repoRoot);
+  for (;;) {
+    if (await hasGitMarker(current)) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+function buildMissingGitWarning(
+  repo: ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'][number],
+  discoveryRoot: string,
+): MissingGitRepositoryWarning {
+  const repoRoot = repo.repoRoot ? resolve(repo.repoRoot) : '';
+  const repoName = repo.repoName || repo.repoId || 'repository';
+  const rel = repoRoot ? relative(discoveryRoot, repoRoot) : '';
+  return {
+    repoName,
+    path: repoRoot,
+    relativePath: rel === '' ? '.' : rel.split(sep).join('/'),
+    message:
+      `repo ${repoName} does not have .git folder, if you would like it part `
+      + 'of this context pack please initialize git in this repo.',
+  };
+}
+
+function applyGitRepoFiltering(
+  payload: ContextPackCreateRequest['payload'],
+  keptRepos: ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'],
+  removedRepoIds: Set<string>,
+): ContextPackCreateRequest['payload'] {
+  const pruneIds = (ids: string[] | undefined): string[] | undefined =>
+    ids ? ids.filter((id) => !removedRepoIds.has(id)) : ids;
+  const repositories = keptRepos.map((repo) => {
+    const next = { ...repo };
+    if (next.adjacentRepoIds) next.adjacentRepoIds = pruneIds(next.adjacentRepoIds);
+    if (next.dependsOnRepoIds) next.dependsOnRepoIds = pruneIds(next.dependsOnRepoIds);
+    if (next.usedByRepoIds) next.usedByRepoIds = pruneIds(next.usedByRepoIds);
+    return next;
+  });
+  return {
+    ...payload,
+    bootstrapAnswers: {
+      ...payload.bootstrapAnswers,
+      primaryWorkingRepoIds: pruneIds(payload.bootstrapAnswers.primaryWorkingRepoIds),
+      repositories,
+    },
+  };
+}
+
+/**
+ * Existing-source create-time guard. Runs after preflight succeeds and before
+ * any disk write/bootstrap. New-project creation (initGitRepos true) bypasses
+ * this entirely. Distributed modes filter non-Git repos and prune their IDs;
+ * monolith modes require repository index 0 to be Git-backed and never drop or
+ * promote it; monolith-platform additionally filters invalid side repos.
+ */
+async function filterExistingSourceRepositoriesWithoutGit(
+  payload: ContextPackCreateRequest['payload'],
+): Promise<GitGuardOutcome> {
+  const repos = payload.bootstrapAnswers.repositories;
+  const discoveryRoot = payload.discoveryRoot;
+  const markers = await Promise.all(
+    repos.map((repo) => (repo.repoRoot ? hasGitMarker(resolve(repo.repoRoot)) : Promise.resolve(false))),
+  );
+
+  if (isMonolithEstateMode(payload.mode)) {
+    // The selected monolith root may be a subtree of a larger repo; accept an
+    // ancestor .git marker, not just one in the root folder itself.
+    const rootValid = repos[0]?.repoRoot
+      ? await isWithinGitWorktree(repos[0].repoRoot)
+      : false;
+    if (!rootValid) {
+      const offending = repos[0];
+      return {
+        ok: false,
+        error: {
+          code: 'repo-missing-top-level-git',
+          field: 'bootstrapAnswers.repositories[0].repoRoot',
+          message:
+            'The selected monolith root does not have a top-level .git folder. '
+            + 'Initialize Git in the repo before creating this context pack.',
+          details: {
+            skippedRepositories: offending ? [buildMissingGitWarning(offending, discoveryRoot)] : [],
+          },
+        },
+      };
+    }
+    if (payload.mode === 'monolith') {
+      return { ok: true, payload, warnings: [] };
+    }
+    // monolith-platform: filter invalid side repositories (index >= 1) only.
+    const keptRepos: typeof repos = [];
+    const skipped: MissingGitRepositoryWarning[] = [];
+    const removedRepoIds = new Set<string>();
+    repos.forEach((repo, index) => {
+      if (index === 0 || markers[index]) {
+        keptRepos.push(repo);
+        return;
+      }
+      skipped.push(buildMissingGitWarning(repo, discoveryRoot));
+      if (repo.repoId) removedRepoIds.add(repo.repoId);
+    });
+    if (skipped.length === 0) return { ok: true, payload, warnings: [] };
+    return { ok: true, payload: applyGitRepoFiltering(payload, keptRepos, removedRepoIds), warnings: skipped };
+  }
+
+  // distributed / distributed-platform: filter every non-Git repository.
+  const keptRepos: typeof repos = [];
+  const skipped: MissingGitRepositoryWarning[] = [];
+  const removedRepoIds = new Set<string>();
+  repos.forEach((repo, index) => {
+    if (markers[index]) {
+      keptRepos.push(repo);
+      return;
+    }
+    skipped.push(buildMissingGitWarning(repo, discoveryRoot));
+    if (repo.repoId) removedRepoIds.add(repo.repoId);
+  });
+  if (keptRepos.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: 'repo-missing-top-level-git',
+        field: 'bootstrapAnswers.repositories',
+        message:
+          'No repositories with a top-level .git folder were found. '
+          + 'Initialize Git in at least one repo before creating this context pack.',
+        details: { skippedRepositories: skipped },
+      },
+    };
+  }
+  if (skipped.length === 0) return { ok: true, payload, warnings: [] };
+  return { ok: true, payload: applyGitRepoFiltering(payload, keptRepos, removedRepoIds), warnings: skipped };
+}
+
 function buildContextPackBootstrapAnswersPayload(payload: ContextPackCreateRequest['payload']): Record<string, unknown> {
   return {
     context_pack_id: payload.bootstrapAnswers.contextPackId,
@@ -97,6 +266,7 @@ function buildContextPackBootstrapAnswersPayload(payload: ContextPackCreateReque
       system_layer: r.systemLayer, languages: r.languages, artifact_roots: r.artifactRoots,
       document_paths: r.documentPaths, bounded_context: r.boundedContext,
       service_name: r.serviceName, repo_role: r.repoRole, repository_type: r.repositoryType,
+      repo_category: r.repoCategory, repo_category_authored: r.repoCategoryAuthored,
       workspace_activation_group: r.workspaceActivationGroup,
       default_focusable: r.defaultFocusable, activation_priority: r.activationPriority,
       adjacent_repo_ids: r.adjacentRepoIds, depends_on_repo_ids: r.dependsOnRepoIds,
@@ -291,8 +461,30 @@ export async function executeContextPackCreateAction(
       };
     }
 
+    let effectivePayload = np;
+    let gitGuardWarnings: MissingGitRepositoryWarning[] = [];
+    if (np.initGitRepos !== true) {
+      const gitGuard = await filterExistingSourceRepositoriesWithoutGit(np);
+      if (!gitGuard.ok) {
+        log.warn('context-pack.create.git-guard.rejected', {
+          ...contextPackCreateLogContext(np),
+          error: gitGuard.error,
+        });
+        return {
+          ok: false,
+          action: 'contextPack.create',
+          errorCode: 'preflight-failed',
+          error: gitGuard.error.message,
+          details: [gitGuard.error.message],
+          preflightErrors: [gitGuard.error],
+        };
+      }
+      effectivePayload = gitGuard.payload;
+      gitGuardWarnings = gitGuard.warnings;
+    }
+
     await fsMkdir(np.discoveryRoot, { recursive: true });
-    const answersJson = JSON.stringify(buildContextPackBootstrapAnswersPayload(np));
+    const answersJson = JSON.stringify(buildContextPackBootstrapAnswersPayload(effectivePayload));
     const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np), { stdin: answersJson });
     let bp: Record<string, unknown>;
     try {
@@ -339,12 +531,16 @@ export async function executeContextPackCreateAction(
         });
       }
     }
+    const baseResult = normalizeContextPackCreateExecutionResult(bp, effectivePayload, seedStatus);
+    const result = gitGuardWarnings.length > 0
+      ? { ...baseResult, warnings: [...baseResult.warnings, ...gitGuardWarnings.map((warning) => warning.message)] }
+      : baseResult;
     const response: ContextPackCreateResponse = {
       action: 'contextPack.create',
       mode: 'created',
       message: 'Context-pack creation completed through the shared bootstrap, planning, and initial seeding seams.',
       commandPath: toRepoRelativePath(CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH),
-      result: normalizeContextPackCreateExecutionResult(bp, np, seedStatus),
+      result,
     };
     return { ok: true, response };
   } catch (error: unknown) {

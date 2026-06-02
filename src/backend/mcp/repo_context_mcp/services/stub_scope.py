@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..record_factory import pack_seed_state_path
-from ..utils import load_json, utc_now, write_json_atomic
+from ..utils import load_json, resolve_path_within, utc_now, write_json_atomic
 from .qmd_index_service import QmdIndexService
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ def write_empty_scope_tree(
         )
         qmd_scope_root_rel = f"qmd/context-packs/{context_pack_dir.name}"
 
-    scope_dir = (context_pack_dir / qmd_scope_root_rel).resolve()
+    scope_dir = resolve_path_within(context_pack_dir, qmd_scope_root_rel, "qmd_scope_root")
 
     # Repositories list — may be missing or empty for a brand-new pack.
     raw_repos: list[Any] = []

@@ -14,6 +14,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import McpConfigModal from './components/McpConfigModal';
 import ReinforcementModal from './components/reinforcement/ReinforcementModal';
 import McpConfigRail from './components/McpConfigRail';
+import SystemSettingsRail from './components/SystemSettingsRail';
+import SystemSettingsModal from './components/SystemSettingsModal';
 import TerminalFeed from './components/TerminalFeed';
 import PlannerModal from './components/PlannerModal';
 import { ObservabilityProvider } from './contexts/ObservabilityContext';
@@ -43,6 +45,8 @@ function AppContent(): JSX.Element {
     enabledMcpServerCount,
     reinforcementModalProps,
     openReinforcementModal,
+    systemSettingsModalProps,
+    openSystemSettingsModal,
     taskBoardProps,
     notificationCenterProps,
   } = useAppShell();
@@ -145,6 +149,7 @@ function AppContent(): JSX.Element {
           <McpConfigRail enabledCount={enabledMcpServerCount} onClick={openMcpConfigModal} />
           <AgentConfigRail onClick={openAgentConfigModal} />
           <InstructionsRail onClick={openAgentInstructionsModal} />
+          <SystemSettingsRail onClick={openSystemSettingsModal} />
         </ConfigRailStack>
       </div>
       <PlannerModal {...plannerModalProps} />
@@ -153,6 +158,7 @@ function AppContent(): JSX.Element {
       <AgentInstructionsBrowser {...instructionsBrowserProps} />
       <AgentInstructionsEditor {...instructionsEditorProps} />
       <McpConfigModal {...mcpConfigModalProps} />
+      <SystemSettingsModal {...systemSettingsModalProps} />
       {reinforcementModalProps.isOpen && <ReinforcementModal {...reinforcementModalProps} />}
       {shouldRenderNotificationPanel && (
         <TaskNotificationPanel

@@ -65,8 +65,8 @@ export interface RegistryAgentEntry {
   agent_id: string;
   role_name: string;
   human_name: string;
-  instruction_path: string;
-  agent_profile_path: string;
+  instruction_path?: string;
+  agent_profile_path?: string;
   autonomy_profile: string;
   required_model: string;
   reasoning_effort?: string;

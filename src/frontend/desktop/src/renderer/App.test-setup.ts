@@ -3,6 +3,24 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { createProviderFrontendDescriptor } from '../test/factories/fixtureFactory';
 
+const SYSTEM_SETTINGS_CONFIG = {
+  schema_version: 1,
+  cli_provider: 'copilot',
+  slice_artifact_format: 'markdown',
+  container_runtime: 'direct',
+  container_engine_host: 'auto',
+  container_engine_wsl_distro: null,
+  max_parallel_tasks: 10,
+  retain_failed_task_worktrees: true,
+  max_retained_failed_task_worktrees: 10,
+  max_retry_generations_per_slug: 5,
+  completed_task_runtime_retention_ms: 3600000,
+  auto_merge: false,
+  external_mcp_local_enabled: true,
+  mcp_port: 8811,
+  repo_context_mcp_external_mount_roots: [],
+};
+
 export function installAppTestHarness(): void {
   afterEach(() => {
     cleanup();
@@ -50,7 +68,7 @@ export function installAppTestHarness(): void {
           queueDepth: 2,
           pendingReviewCount: 1,
           activeTaskId: 'CAP-CUSTOM-TERMINAL-04',
-          operatorStatus: 'RUNNING',
+          operatorStatus: { activeTasks: [], activeTaskId: null },
           message: 'Observed repo queue state: 2 queued, 1 active. Current lifecycle: active.',
         },
       }),
@@ -118,7 +136,7 @@ export function installAppTestHarness(): void {
           activeTaskId: 'CAP-CUSTOM-TERMINAL-04',
           activeTaskTitle: 'Observe queue artifacts',
           currentState: 'active',
-          operatorStatus: 'RUNNING',
+          operatorStatus: { activeTasks: [], activeTaskId: null },
           activeTasks: [],
           pendingQueueItems: [],
           lifecycle: [
@@ -781,6 +799,18 @@ export function installAppTestHarness(): void {
       toggleExternalMcpServer: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.toggleEnabled', mode: 'mutated', message: 'Toggled.', servers: [] } }),
       validateExternalMcpConnection: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateConnection', mode: 'validated', success: true, message: 'OK.' } }),
       validateExternalMcpLocalCommand: vi.fn().mockResolvedValue({ ok: true, response: { action: 'externalMcp.validateLocalCommand', mode: 'validated', found: false, message: 'Command not found on PATH.' } }),
+      loadCapabilities: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'agentConfig.loadCapabilities',
+          mode: 'read-only',
+          message: '',
+          providerId: 'copilot',
+          cliVersion: null,
+          effortChoices: ['none', 'low', 'medium', 'high'],
+          stale: false,
+        },
+      }),
       loadAgentConfig: vi.fn().mockResolvedValue({
         ok: true,
         response: {
@@ -1039,6 +1069,58 @@ export function installAppTestHarness(): void {
       saveAgentExtensionAssignments: vi.fn().mockResolvedValue({
         ok: true,
         response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: 'Saved extension assignments for 0 agent(s).', assignments: [] },
+      }),
+      loadExternalMcpAssignments: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'agentConfig.loadExternalMcpAssignments', mode: 'read-only', message: '0 agent assignment(s) loaded.', assignments: [] },
+      }),
+      saveExternalMcpAssignments: vi.fn().mockResolvedValue({
+        ok: true,
+        response: { action: 'agentConfig.saveExternalMcpAssignments', mode: 'mutated', message: 'Saved external MCP assignments for 0 agent(s).', assignments: [] },
+      }),
+      readSystemSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.read',
+          mode: 'read-only',
+          message: 'Loaded platform settings.',
+          defaultConfigPath: '/repo/config/platform.default.json',
+          runtimeConfigPath: '/repo/.platform-state/platform.json',
+          defaultFileHash: 'system-settings-hash-1',
+          runtimeFileHash: 'system-settings-rt-1',
+          config: SYSTEM_SETTINGS_CONFIG,
+          runtimeConfig: SYSTEM_SETTINGS_CONFIG,
+          runtimeStatus: 'valid',
+          runtimeWarning: null,
+          tasksActive: false,
+          envOverrides: [],
+        },
+      }),
+      saveSystemSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.save',
+          mode: 'saved',
+          message: 'Saved platform settings.',
+          defaultConfigPath: '/repo/config/platform.default.json',
+          runtimeConfigPath: '/repo/.platform-state/platform.json',
+          defaultFileHash: 'system-settings-hash-2',
+          runtimeFileHash: 'system-settings-rt-2',
+          config: SYSTEM_SETTINGS_CONFIG,
+          runtimeConfig: SYSTEM_SETTINGS_CONFIG,
+          runtimeStatus: 'valid',
+          runtimeWarning: null,
+          tasksActive: false,
+          envOverrides: [],
+        },
+      }),
+      restartTaskSail: vi.fn().mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.restart',
+          mode: 'restarting',
+          message: 'Restarting TaskSail to apply settings…',
+        },
       }),
     } as unknown as typeof window.desktopShell & Record<string, unknown>;
   });

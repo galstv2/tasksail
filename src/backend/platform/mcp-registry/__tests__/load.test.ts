@@ -426,7 +426,7 @@ describe('loadMcpRegistry', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.registry.services[0].id).toBe('repo-context-mcp');
-      expect(result.registry.services[0].health.url).toBe('http://localhost:8811/health');
+      expect(result.registry.services[0].health.url).toBe('http://127.0.0.1:8811/health');
     }
   });
 });

@@ -22,6 +22,7 @@ from src.backend.mcp.context_estate.helpers import (
     resolve_candidate,
 )
 from src.backend.mcp.git_roots import local_path_entry
+from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
 from src.backend.mcp.repo_context_mcp.utils import (
     ensure_non_empty_string,
     normalize_bool,
@@ -55,6 +56,24 @@ def _normalize_repository_type(
     if normalized not in REPOSITORY_TYPES:
         return DEFAULT_REPOSITORY_TYPE
     return normalized
+
+
+def _normalize_repo_category(value: Any) -> str | None:
+    normalized = normalize_optional_string(value)
+    if not normalized:
+        return None
+    if normalized not in ALLOWED_REPO_CATEGORIES:
+        return "unknown"
+    return normalized
+
+
+def _is_authored_repository_type(raw_repo: dict[str, Any]) -> bool:
+    marker = raw_repo.get("repository_type_authored")
+    if marker is None:
+        marker = raw_repo.get("_authored_repository_type")
+    if marker is None:
+        return True
+    return normalize_bool(marker, default=False)
 
 
 def _normalize_focus_type(value: Any) -> str:
@@ -182,13 +201,24 @@ def _normalize_distributed_repositories(
         )
         if repository_type is not None:
             repo_entry["repository_type"] = repository_type
-            repo_entry["_authored_repository_type"] = True
+            repo_entry["_authored_repository_type"] = _is_authored_repository_type(raw_repo)
 
-        # v2 fields — pass through when provided by the review payload
-        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
-            value = raw_repo.get(v2_field)
-            if value is not None:
-                repo_entry[v2_field] = value
+        repo_focus = _normalize_repository_type(raw_repo.get("repo_focus"))
+        if repo_focus is not None:
+            repo_entry["repo_focus"] = repo_focus
+        if raw_repo.get("repo_focus_authored") is not None:
+            repo_entry["repo_focus_authored"] = normalize_bool(
+                raw_repo.get("repo_focus_authored"),
+                default=False,
+            )
+        repo_category = _normalize_repo_category(raw_repo.get("repo_category"))
+        if repo_category is not None:
+            repo_entry["repo_category"] = repo_category
+        if raw_repo.get("repo_category_authored") is not None:
+            repo_entry["repo_category_authored"] = normalize_bool(
+                raw_repo.get("repo_category_authored"),
+                default=False,
+            ) and repo_category is not None
 
         approved_entries.append(repo_entry)
 
@@ -260,11 +290,22 @@ def _normalize_monolith_repository(
         repo_entry["repository_type"] = repository_type
         repo_entry["_authored_repository_type"] = True
 
-    # v2 fields — pass through when provided by the review payload
-    for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
-        value = repository.get(v2_field)
-        if value is not None:
-            repo_entry[v2_field] = value
+    repo_focus = _normalize_repository_type(repository.get("repo_focus"))
+    if repo_focus is not None:
+        repo_entry["repo_focus"] = repo_focus
+    if repository.get("repo_focus_authored") is not None:
+        repo_entry["repo_focus_authored"] = normalize_bool(
+            repository.get("repo_focus_authored"),
+            default=False,
+        )
+    repo_category = _normalize_repo_category(repository.get("repo_category"))
+    if repo_category is not None:
+        repo_entry["repo_category"] = repo_category
+    if repository.get("repo_category_authored") is not None:
+        repo_entry["repo_category_authored"] = normalize_bool(
+            repository.get("repo_category_authored"),
+            default=False,
+        ) and repo_category is not None
 
     return [repo_entry]
 
@@ -334,10 +375,22 @@ def _normalize_monolith_extra_repositories(
             repository_type = "support"
         repo_entry["repository_type"] = repository_type
 
-        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
-            value = raw_repo.get(v2_field)
-            if value is not None:
-                repo_entry[v2_field] = value
+        repo_focus = _normalize_repository_type(raw_repo.get("repo_focus"))
+        if repo_focus is not None:
+            repo_entry["repo_focus"] = repo_focus
+        if raw_repo.get("repo_focus_authored") is not None:
+            repo_entry["repo_focus_authored"] = normalize_bool(
+                raw_repo.get("repo_focus_authored"),
+                default=False,
+            )
+        repo_category = _normalize_repo_category(raw_repo.get("repo_category"))
+        if repo_category is not None:
+            repo_entry["repo_category"] = repo_category
+        if raw_repo.get("repo_category_authored") is not None:
+            repo_entry["repo_category_authored"] = normalize_bool(
+                raw_repo.get("repo_category_authored"),
+                default=False,
+            ) and repo_category is not None
 
         normalized.append(repo_entry)
     return normalized

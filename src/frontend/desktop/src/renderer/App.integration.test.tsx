@@ -443,7 +443,8 @@ describe("App", () => {
     const rail = screen.getByLabelText('Configuration rail');
     expect(rail).toBeTruthy();
     expect(rail.classList.contains('config-rail')).toBe(true);
-    expect(rail.querySelectorAll('button')).toHaveLength(3);
+    // System Settings gear + MCP + Agent Configuration + Instructions.
+    expect(rail.querySelectorAll('button')).toHaveLength(4);
   });
 
   it('CSS enforces fixed 40px rail width', async () => {
@@ -625,7 +626,7 @@ describe("App", () => {
     fireEvent.click(screen.getByText('Save Changes'));
 
     await waitFor(() => {
-      expect(screen.getByText(/Restart TaskSail for the planner model change/)).toBeTruthy();
+      expect(screen.getByText(/Restart TaskSail for planner model or reasoning effort/)).toBeTruthy();
     });
 
     expect(desktopShell.saveAgentModels).toHaveBeenCalledWith([
@@ -644,7 +645,6 @@ describe("App", () => {
       enabled: true,
       transport: 'sse' as const,
       url: 'https://mcp.test.example/sse',
-      agent_scope: { mode: 'allowlist' as const, agent_ids: ['provider-builder'] },
     };
 
     // Track list call count to return empty first, then with server after add.
@@ -724,19 +724,15 @@ describe("App", () => {
     fireEvent.change(screen.getByPlaceholderText('Vendor Docs MCP'), {
       target: { value: 'Integration MCP' },
     });
-    fireEvent.change(screen.getByPlaceholderText(/Vendor API documentation/), {
-      target: { value: 'Integration test' },
+    fireEvent.change(screen.getByPlaceholderText(/vendor billing API calls/), {
+      target: { value: 'Integration test purpose for the round-trip flow' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/auth header requirements/), {
+      target: { value: 'integration usage cue' },
     });
     fireEvent.change(screen.getByPlaceholderText('https://mcp.vendor.example/sse'), {
       target: { value: 'https://mcp.test.example/sse' },
     });
-
-    // Check agent scope checkbox for provider-builder.
-    const agentCheckboxes = screen.getAllByRole('checkbox');
-    const sweCheckbox = agentCheckboxes.find(
-      (cb) => cb.closest('label')?.textContent?.includes('Software Engineer'),
-    );
-    if (sweCheckbox) fireEvent.click(sweCheckbox);
 
     // 4. Save is disabled before validation.
     expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(true);
@@ -777,5 +773,42 @@ describe("App", () => {
       expect(screen.getByText('No external MCP servers configured.')).toBeTruthy();
     });
     expect(window.desktopShell.removeExternalMcpServer).toHaveBeenCalledWith('integration-mcp');
+  });
+
+  it('opens System Settings from the rail and saves with the loaded hash, leaving other rails intact', async () => {
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Open system settings')).toBeTruthy();
+    });
+    // Existing rails remain present and behavior-equivalent.
+    expect(screen.getByLabelText('Open MCP configuration')).toBeTruthy();
+    expect(screen.getByLabelText('Open agent configuration')).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText('Open system settings'));
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'System Settings' })).toBeTruthy();
+    });
+
+    // Dirty the draft so Save Changes enables, then confirm the restart warning.
+    fireEvent.change(screen.getByLabelText('MCP port'), { target: { value: '9000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Restart TaskSail?')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save.*restart/i }));
+
+    await waitFor(() => {
+      expect(window.desktopShell.saveSystemSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseDefaultFileHash: 'system-settings-hash-1',
+          config: expect.objectContaining({ mcp_port: 9000 }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(window.desktopShell.restartTaskSail).toHaveBeenCalled();
+    });
   });
 });

@@ -21,6 +21,13 @@ vi.mock('../../cli-provider/index.js', () => ({
   getActiveProvider: () => ({
     homeDirName: () => '.copilot',
     agentConfigPaths: () => ({ registry: '.github/copilot/agents/registry.json' }),
+    runtimeToProviderAgentId: (agentId: string) => (({
+      lily: 'planning-agent',
+      alice: 'product-manager',
+      dalton: 'software-engineer',
+      'dalton-verify': 'software-engineer-verify',
+      ron: 'qa',
+    } as Record<string, string>)[agentId] ?? agentId),
   }),
 }));
 
@@ -31,6 +38,7 @@ vi.mock('../../core/paths.js', () => ({
   ensurePathWithinDropbox: vi.fn(),
 }));
 
+import { getActiveProvider } from '../../cli-provider/index.js';
 import {
   resolveReinforcementContext,
   roleRequiresReinforcement,
@@ -38,14 +46,15 @@ import {
 
 describe('roleRequiresReinforcement', () => {
   it('returns true for workflow agents', () => {
-    expect(roleRequiresReinforcement('lily' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement('alice' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement('dalton' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement('ron' as AgentId)).toBe(true);
+    const provider = getActiveProvider('');
+    expect(roleRequiresReinforcement(provider, 'lily' as AgentId)).toBe(true);
+    expect(roleRequiresReinforcement(provider, 'alice' as AgentId)).toBe(true);
+    expect(roleRequiresReinforcement(provider, 'dalton' as AgentId)).toBe(true);
+    expect(roleRequiresReinforcement(provider, 'ron' as AgentId)).toBe(true);
   });
 
   it('returns false for non-workflow agents', () => {
-    expect(roleRequiresReinforcement('unknown-agent' as AgentId)).toBe(false);
+    expect(roleRequiresReinforcement(getActiveProvider(''), 'unknown-agent' as AgentId)).toBe(false);
   });
 });
 

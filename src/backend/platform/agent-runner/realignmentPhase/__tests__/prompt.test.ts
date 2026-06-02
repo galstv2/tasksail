@@ -1,10 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { buildRealignmentPrompt } from '../prompt.js';
 import type { RealignmentBundle } from '../bundle.js';
+
+// buildRealignmentPrompt pairs the threaded registry with the cached assignment
+// snapshot (ron -> qa). Stub the cache to assign the server to qa.
+vi.mock('../../pipeline/externalMcpRegistryCache.js', () => ({
+  getCachedExternalMcpAssignments: () => ({
+    schema_version: 1,
+    assignments: [{ agent_id: 'qa', external_mcp_server_ids: ['docs'] }],
+  }),
+}));
 
 describe('buildRealignmentPrompt', () => {
   let repoRoot: string;
@@ -34,7 +43,6 @@ describe('buildRealignmentPrompt', () => {
           url: 'https://example.invalid',
           preferred_for: ['realignment analysis'],
           fallback_description: 'continue without it',
-          agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
         }],
       },
     });

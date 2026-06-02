@@ -369,6 +369,56 @@ def test_python_version_check_passes_on_current_host(tmp_path: Path) -> None:
     assert "python-version-too-old" not in _codes(result)
 
 
+def test_python_version_below_floor_emits_too_old(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    repo_root = tmp_path / "repo-old"
+    repo_root.mkdir()
+    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
+    pack_dir = tmp_path / "context-packs" / "old-python-pack"
+    pack_dir.parent.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        "src.backend.mcp.pack_preflight.sys.version_info",
+        types.SimpleNamespace(major=3, minor=11),
+    )
+
+    result = _run(_make_request(
+        context_pack_dir=pack_dir,
+        discovery_root=tmp_path,
+        answers=answers,
+    ))
+
+    assert "python-version-too-old" in _codes(result)
+
+
+def test_python_version_floor_3_12_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    repo_root = tmp_path / "repo-floor"
+    repo_root.mkdir()
+    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
+    pack_dir = tmp_path / "context-packs" / "floor-python-pack"
+    pack_dir.parent.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        "src.backend.mcp.pack_preflight.sys.version_info",
+        types.SimpleNamespace(major=3, minor=12),
+    )
+
+    result = _run(_make_request(
+        context_pack_dir=pack_dir,
+        discovery_root=tmp_path,
+        answers=answers,
+    ))
+
+    assert "python-version-too-old" not in _codes(result)
+
+
 def test_existing_flow_does_not_require_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

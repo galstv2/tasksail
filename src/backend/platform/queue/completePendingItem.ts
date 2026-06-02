@@ -162,11 +162,28 @@ async function syncRetrospectiveWithDeferral(options: {
   }
 }
 
+/**
+ * Best-effort resolution of the target repo's currently checked-out branch.
+ * Used only to backfill auto_merge.target_branch for non-child-chain closeout
+ * when auto-merge did not already capture it. Never blocks closeout: any git
+ * failure, detached HEAD ("HEAD"), or empty result yields null.
+ */
+async function resolveTargetBranchForHandoff(originalRoot: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFile('git', ['-C', originalRoot, 'rev-parse', '--abbrev-ref', 'HEAD']);
+    const branch = stdout.trim();
+    return branch && branch !== 'HEAD' ? branch : null;
+  } catch {
+    return null;
+  }
+}
+
 async function buildBranchHandoffsForArchive(options: {
   repoRoot: string;
   taskId: string;
   handoffsDir: string;
   autoMergeResult: AutoMergeResult;
+  captureFallbackTargetBranch: boolean;
 }): Promise<BranchHandoff[]> {
   const sidecarPath = resolveTaskJsonPath(options.taskId, options.repoRoot);
   if (!existsSync(sidecarPath)) {
@@ -193,6 +210,8 @@ async function buildBranchHandoffsForArchive(options: {
       if (!Number.isInteger(commitsAhead) || commitsAhead < 0) {
         throw new Error(`invalid commits_ahead value "${countStdout.trim()}"`);
       }
+      const targetBranch = autoMerge?.targetBranch
+        ?? (options.captureFallbackTargetBranch ? await resolveTargetBranchForHandoff(binding.originalRoot) : null);
       handoffs.push({
         repo_root: binding.originalRoot,
         repo_label: path.basename(binding.originalRoot),
@@ -204,7 +223,7 @@ async function buildBranchHandoffsForArchive(options: {
         auto_merge: {
           enabled: options.autoMergeResult.enabled,
           status: autoMerge?.status ?? (options.autoMergeResult.enabled ? 'skipped-source-missing' : 'disabled'),
-          target_branch: autoMerge?.targetBranch ?? null,
+          target_branch: targetBranch,
           detail: autoMerge?.detail ?? (
             options.autoMergeResult.enabled
               ? 'Auto-merge result was unavailable for this binding.'
@@ -493,6 +512,9 @@ export async function completePendingItem(
       taskId,
       handoffsDir: queuePaths.taskHandoffs(taskId),
       autoMergeResult,
+      // Best-effort target-branch backfill is for standard closeout only. Child-chain
+      // completedBranchHandoffs must keep their pre-feature targetBranch semantics.
+      captureFallbackTargetBranch: !childChainCloseout,
     });
     if (childChainCloseout && childChainCloseout.source === 'fresh') {
       childChainCloseout = attachCompletedBranchHandoffs(childChainCloseout, branchHandoffs);

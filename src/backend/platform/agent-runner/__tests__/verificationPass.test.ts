@@ -1,21 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { ExternalMcpPromptScope } from '../pipeline/mcpPromptContext.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 
 const collectSliceValidationCommands = vi.fn();
 
-const daltonRegistry: ExternalMcpRegistry = {
-  schema_version: 1,
-  external_servers: [
-    {
-      id: 'verify-helper',
-      display_name: 'Verify Helper',
-      purpose: 'checking implementation completeness',
-      enabled: true,
-      transport: 'http',
-      url: 'http://localhost:8080/mcp',
-      agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
-    },
-  ],
+// dalton-verify maps to the software-engineer-verify provider ID (no inheritance
+// from software-engineer).
+const daltonScope: ExternalMcpPromptScope = {
+  runtimeToProviderAgentId: copilotProvider.runtimeToProviderAgentId,
+  registry: {
+    schema_version: 1,
+    external_servers: [
+      {
+        id: 'verify-helper',
+        display_name: 'Verify Helper',
+        purpose: 'checking implementation completeness',
+        enabled: true,
+        transport: 'http',
+        url: 'http://localhost:8080/mcp',
+      },
+    ],
+  },
+  assignments: {
+    schema_version: 1,
+    assignments: [
+      { agent_id: 'software-engineer-verify', external_mcp_server_ids: ['verify-helper'] },
+    ],
+  },
 };
 
 vi.mock('../pipeline/testCapture.js', () => ({
@@ -46,7 +57,7 @@ describe('verification Dalton prompts', () => {
     const prompt = buildVerificationDaltonPrompt(
       ['pnpm test'],
       { primaryFocusRelativePath: 'services/sink' },
-      daltonRegistry,
+      daltonScope,
       '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
     );
 
@@ -62,7 +73,7 @@ describe('verification Dalton prompts', () => {
   it('uses dalton-verify prompt scoping while preserving Dalton-family MCP guidance', async () => {
     const { buildVerificationDaltonPrompt } = await import('../pipeline/verificationPass.js');
 
-    const prompt = buildVerificationDaltonPrompt(['pnpm test'], undefined, daltonRegistry);
+    const prompt = buildVerificationDaltonPrompt(['pnpm test'], undefined, daltonScope);
 
     expect(prompt).toContain('## External MCP Guidance');
     expect(prompt).toContain('"Verify Helper" may help with checking implementation completeness');
@@ -86,7 +97,7 @@ describe('verification Dalton prompts', () => {
       '/handoffs',
       '/implementation-steps',
       { primaryFocusRelativePath: 'services/sink' },
-      daltonRegistry,
+      daltonScope,
       '/repo/.platform-state/runtime/verification/2026-03-26T00-00-00Z/code-changes.diff',
       'The orchestrator could not stage the verification diff file.',
     );

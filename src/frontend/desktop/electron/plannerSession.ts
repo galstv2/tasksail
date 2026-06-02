@@ -73,6 +73,14 @@ type ReasoningEffortCapabilityProvider = {
   reasoningEffortCapabilities?: (repoRoot: string) => Promise<ProviderReasoningEffortCapabilities>;
 };
 
+function providerProductDisplayName(cliDisplayName: string): string {
+  return cliDisplayName.replace(/\s+CLI$/u, '') || cliDisplayName;
+}
+
+function providerAdvertisedReasoningEffortLabel(cliDisplayName: string): string {
+  return `${providerProductDisplayName(cliDisplayName)}-advertised`;
+}
+
 async function validatePlanningAgentReasoningEffort(): Promise<string | undefined> {
   const reasoningEffort = getPlanningAgentReasoningEffort();
   if (!reasoningEffort) {
@@ -82,6 +90,7 @@ async function validatePlanningAgentReasoningEffort(): Promise<string | undefine
     throw new Error(`Lily reasoning effort "${reasoningEffort}" must be lowercase letters, numbers, or hyphens.`);
   }
   const provider = getActiveProvider(REPO_ROOT);
+  const cliDisplayName = provider.cliDisplayName();
   const capabilityProvider = provider as typeof provider & ReasoningEffortCapabilityProvider;
   const capabilities = await capabilityProvider.reasoningEffortCapabilities?.(REPO_ROOT);
   if (!capabilities) {
@@ -90,10 +99,11 @@ async function validatePlanningAgentReasoningEffort(): Promise<string | undefine
       effort: reasoningEffort,
       reason: 'capability-discovery-failed',
     });
-    throw new Error('Reasoning effort options could not be loaded from the installed Copilot CLI. Update Agent Configuration to None or try again after capabilities are available.');
+    throw new Error(`Reasoning effort options could not be loaded from the installed ${cliDisplayName}. Update Agent Configuration to None or try again after capabilities are available.`);
   }
   const validation = validateReasoningEffortForCapabilities({
     providerId: provider.id,
+    cliDisplayName,
     agentId: 'Lily',
     modelId: getPlanningAgentRequiredModel(),
     effort: reasoningEffort,
@@ -107,8 +117,8 @@ async function validatePlanningAgentReasoningEffort(): Promise<string | undefine
       reason,
     });
     throw new Error(validation.reason === 'capability-discovery-failed'
-      ? 'Reasoning effort options could not be loaded from the installed Copilot CLI. Update Agent Configuration to None or try again after capabilities are available.'
-      : `Lily reasoning effort "${reasoningEffort}" is not advertised by the installed Copilot CLI. Update Agent Configuration to None or a Copilot-advertised effort.`);
+      ? `Reasoning effort options could not be loaded from the installed ${cliDisplayName}. Update Agent Configuration to None or try again after capabilities are available.`
+      : `Lily reasoning effort "${reasoningEffort}" is not advertised by the installed ${cliDisplayName}. Update Agent Configuration to None or a ${providerAdvertisedReasoningEffortLabel(cliDisplayName)} effort.`);
   }
   log.info('planner.reasoning_effort.validated', {
     providerId: provider.id,

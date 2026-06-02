@@ -504,6 +504,55 @@
   font-size: 0.74rem;
 }
 
+/* ── Local transport setup guide ───────────────────────────────────── */
+
+.mcp-form__local-guide {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-surface-alt);
+}
+
+.mcp-form__local-guide-title {
+  margin: 0;
+  font-family: var(--ts-font-sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ts-text);
+}
+
+.mcp-form__local-guide-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.mcp-form__local-guide-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 8rem) 1fr;
+  gap: 0.15rem 0.6rem;
+  align-items: baseline;
+}
+
+.mcp-form__local-guide-term {
+  margin: 0;
+  font-family: var(--ts-font-sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ts-text-muted);
+}
+
+.mcp-form__local-guide-copy {
+  margin: 0;
+  font-family: var(--ts-font-sans);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--ts-text-soft);
+  overflow-wrap: anywhere;
+}
+
 /* ── Form actions footer ───────────────────────────────────────────── */
 
 .mcp-form__actions {

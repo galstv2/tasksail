@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { canonicalRoot, createLogger, isPathWithinBoundary, resolvePath } from '../core/index.js';
+import { pathIdentityKey } from '../core/paths.js';
 import {
   readContextPackManifest,
   resolveFirstLocalPath,
@@ -20,6 +21,15 @@ import type { TaskPackSnapshot } from './taskPackSnapshot.js';
 import type { TaskRepoBinding } from '../queue/taskJson.js';
 
 const log = createLogger('platform/context-pack/taskWorktreeSelection');
+
+/**
+ * Identity key for repo/worktree roots: canonicalize (symlink-resolve) first,
+ * then case-fold for Windows so drive/segment casing does not produce a false
+ * map-key miss. Comparison key only — never persisted or displayed.
+ */
+function rootIdentityKey(root: string): string {
+  return pathIdentityKey(canonicalRoot(root));
+}
 
 export type SelectedMaterializationRole = 'primary' | 'support';
 
@@ -45,7 +55,7 @@ export async function resolveSelectedMaterializationRoots(options: {
   const roots: SelectedMaterializationRoot[] = [];
   const seen = new Set<string>();
   const addRoot = (root: SelectedMaterializationRoot): void => {
-    const key = canonicalRoot(root.originalRoot);
+    const key = rootIdentityKey(root.originalRoot);
     if (seen.has(key)) return;
     seen.add(key);
     roots.push(root);
@@ -158,12 +168,12 @@ export function assertTaskWorktreeBindingsCoverSnapshot(options: {
 }): void {
   const bindingsByRoot = new Map<string, number>();
   options.repoBindings.forEach((binding, index) => {
-    bindingsByRoot.set(canonicalRoot(binding.originalRoot), index);
+    bindingsByRoot.set(rootIdentityKey(binding.originalRoot), index);
   });
 
   const sourceRoots = collectSnapshotBranchOwnedRepoRoots(options.snapshot);
   for (const root of sourceRoots) {
-    const key = canonicalRoot(root);
+    const key = rootIdentityKey(root);
     const covered = bindingsByRoot.has(key)
       || [...bindingsByRoot.keys()].some((bindingRoot) => isPathWithinBoundary(bindingRoot, key));
     if (!covered) {
@@ -192,7 +202,7 @@ function collectSnapshotBranchOwnedRepoRoots(snapshot: TaskPackSnapshot): string
   const addRoot = (value: string | null | undefined): void => {
     const root = value?.trim();
     if (!root) return;
-    const key = canonicalRoot(root);
+    const key = rootIdentityKey(root);
     if (seen.has(key)) return;
     seen.add(key);
     roots.push(root);
@@ -276,7 +286,7 @@ function resolveGitRootForRepo(
 ): string {
   for (const rawPath of repo.local_paths ?? []) {
     const localRoot = resolveExistingManifestLocalPath(rawPath, contextPackDir);
-    if (localRoot && canonicalRoot(localRoot) === canonicalRoot(originalRoot)) {
+    if (localRoot && rootIdentityKey(localRoot) === rootIdentityKey(originalRoot)) {
       const gitRoot = resolveExistingManifestGitRoot(rawPath, contextPackDir);
       return gitRoot ?? localRoot;
     }

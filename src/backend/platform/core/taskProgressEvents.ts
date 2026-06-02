@@ -133,6 +133,7 @@ export type ReasoningEffortRejectedBeforeSpawnProgressInput = {
   modelId: string;
   effort: string;
   reason: 'unsupported-by-cli' | 'capability-discovery-failed';
+  message: string;
 };
 export type KillCleanupFailedInput = {
   cleanupAttemptCount: number;
@@ -435,6 +436,7 @@ function progressFor(event: TaskProgressEvent, taskId: string): {
           modelId: event.input.modelId,
           effort: event.input.effort,
           reason: event.input.reason,
+          message: event.input.message,
         },
         text: `[pipeline] reasoning effort rejected before spawn for ${event.input.agentId} model=${event.input.modelId} effort=${event.input.effort}`,
       };
@@ -869,6 +871,7 @@ function lifecycleExtra(event: TaskProgressEvent): Partial<Record<string, string
             modelId: event.input.modelId,
             effort: event.input.effort,
             reason: event.input.reason,
+            message: event.input.message,
           }
         : { reason: event.input.reason };
     case 'qa_remediation.cycle_started':

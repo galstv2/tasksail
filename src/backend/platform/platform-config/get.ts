@@ -119,8 +119,17 @@ export async function getPlatformConfig(repoRoot: string): Promise<PlatformConfi
 /**
  * Exposed for tests: clear the internal memoization cache and reset the read counter.
  */
-export function _clearPlatformConfigCache(): void {
+/**
+ * Clear the platform config memoization cache. Production-facing reset used by
+ * the settings save path after runtime propagation so the next getPlatformConfig
+ * call observes the rewritten runtime file.
+ */
+export function resetPlatformConfigCache(): void {
   cache.clear();
+}
+
+export function _clearPlatformConfigCache(): void {
+  resetPlatformConfigCache();
   _readCount = 0;
 }
 

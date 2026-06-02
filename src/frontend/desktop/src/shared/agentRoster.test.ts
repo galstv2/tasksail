@@ -9,6 +9,7 @@ import type { ProviderFrontendDescriptor } from './desktopContractProvider';
 
 const descriptor: ProviderFrontendDescriptor = {
   providerId: 'test',
+  cliDisplayName: 'Test CLI',
   homeDirName: 'test-home',
   registryPath: '/repo/.provider/registry.json',
   agentConfigPaths: {

@@ -42,6 +42,7 @@ import {
   normalizeText,
   readAgentIdFromSection,
 } from './matching.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import {
   retrospectiveCompletionGaps,
   type RetrospectiveGaps,
@@ -138,9 +139,19 @@ export class PolicyValidator {
     this.enforce = options.enforce ?? FAIL_CLOSED_DEFAULT_MODES.has(options.mode);
     this.phase = this.enforce ? 'fail-closed' : 'report-only';
     this.requestedContextPackDir = options.contextPackDir;
-    this.requestedAgentId = normalizeAgentId(options.requestedAgentId ?? '');
+    this.requestedAgentId = normalizeAgentId(options.requestedAgentId ?? '', this.runtimeToProviderAgentId);
     this.ruleEvaluators = { ...DEFAULT_RULE_EVALUATORS, ...(options.ruleEvaluators ?? {}) };
     this.resolveExpectedRuntimeAgent = options.resolveExpectedRuntimeAgent;
+  }
+
+  /**
+   * The active provider's runtime-nickname -> provider-agent-ID mapper, resolved
+   * from the validator's repo root. Supplied to the human-reference matching
+   * helpers (here and in rule modules) so alias mapping stays provider-owned.
+   */
+  get runtimeToProviderAgentId(): (agentId: string) => string {
+    const provider = getActiveProvider(this.rootDir);
+    return (agentId) => provider.runtimeToProviderAgentId(agentId);
   }
 
   /** The taskId passed at construction time, if any. */
@@ -396,7 +407,7 @@ export class PolicyValidator {
     remediation: string;
     severity?: Violation['severity'];
   }): string {
-    const agentId = normalizeAgentId(normalizeText(input.artifact.sections[input.sectionName] ?? []));
+    const agentId = normalizeAgentId(normalizeText(input.artifact.sections[input.sectionName] ?? []), this.runtimeToProviderAgentId);
     if (!agentId) {
       this.addViolation({
         rule_id: input.ruleId,
@@ -408,7 +419,7 @@ export class PolicyValidator {
       return '';
     }
 
-    if (!agentIdExists(agentId, this.namedAgentTeamInternal)) {
+    if (!agentIdExists(agentId, this.namedAgentTeamInternal, this.runtimeToProviderAgentId)) {
       this.addViolation({
         rule_id: input.ruleId,
         artifact: input.artifact.relativePath,
@@ -423,7 +434,7 @@ export class PolicyValidator {
   }
 
   readAgentIdSection(artifact: WorkspaceArtifact, sectionName: string): string {
-    return readAgentIdFromSection(artifact.sections, sectionName);
+    return readAgentIdFromSection(artifact.sections, sectionName, this.runtimeToProviderAgentId);
   }
 
   /**

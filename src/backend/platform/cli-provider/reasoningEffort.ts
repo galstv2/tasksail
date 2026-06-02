@@ -7,6 +7,7 @@ export interface ReasoningEffortValidationResult {
   effort?: string;
   reason?: ReasoningEffortRejectionReason;
   message?: string;
+  relaunchMessage?: string;
 }
 
 const EFFORT_PATTERN = /^[a-z][a-z0-9-]*$/u;
@@ -42,6 +43,7 @@ export function orderProviderReasoningEffortChoices(choices: readonly string[]):
 
 export function validateReasoningEffortForCapabilities(input: {
   providerId: string;
+  cliDisplayName?: string;
   agentId?: string;
   modelId: string;
   effort: unknown;
@@ -63,31 +65,51 @@ export function validateReasoningEffortForCapabilities(input: {
   // capability discovery only has stale cache data"). Update that test if
   // you ever loosen this gate.
   if (!EFFORT_PATTERN.test(effort) || input.capabilities.source === 'unavailable' || input.capabilities.stale) {
+    const cliDisplayName = input.cliDisplayName ?? input.providerId;
     return {
       ok: false,
       effort,
       reason: 'capability-discovery-failed',
       message: reasoningEffortErrorMessage({
+        cliDisplayName,
         agentId: input.agentId,
         modelId: input.modelId,
         effort,
         reason: 'capability-discovery-failed',
       }),
+      ...(input.agentId ? {
+        relaunchMessage: reasoningEffortRejectedBeforeSpawnMessage({
+          cliDisplayName,
+          agentId: input.agentId,
+          modelId: input.modelId,
+          effort,
+        }),
+      } : {}),
     };
   }
 
   const choices = new Set(orderProviderReasoningEffortChoices(input.capabilities.effortChoices));
   if (!choices.has(effort)) {
+    const cliDisplayName = input.cliDisplayName ?? input.providerId;
     return {
       ok: false,
       effort,
       reason: 'unsupported-by-cli',
       message: reasoningEffortErrorMessage({
+        cliDisplayName,
         agentId: input.agentId,
         modelId: input.modelId,
         effort,
         reason: 'unsupported-by-cli',
       }),
+      ...(input.agentId ? {
+        relaunchMessage: reasoningEffortRejectedBeforeSpawnMessage({
+          cliDisplayName,
+          agentId: input.agentId,
+          modelId: input.modelId,
+          effort,
+        }),
+      } : {}),
     };
   }
 
@@ -104,7 +126,20 @@ export function isReasoningEffortRejectionOutput(output: string): boolean {
       normalized.includes('requested'));
 }
 
+function providerProductDisplayName(cliDisplayName: string): string {
+  return cliDisplayName.replace(/\s+CLI$/u, '') || cliDisplayName;
+}
+
+export function providerAdvertisedReasoningEffortLabel(cliDisplayName: string): string {
+  return `${providerProductDisplayName(cliDisplayName)}-advertised`;
+}
+
+export function reasoningEffortConfigurationGuidance(cliDisplayName: string): string {
+  return `Update Agent Configuration to None or a ${providerAdvertisedReasoningEffortLabel(cliDisplayName)} effort before relaunching the task.`;
+}
+
 export function reasoningEffortErrorMessage(input: {
+  cliDisplayName: string;
   agentId?: string;
   modelId: string;
   effort: string;
@@ -112,7 +147,16 @@ export function reasoningEffortErrorMessage(input: {
 }): string {
   const agent = input.agentId ? `Agent ${input.agentId}` : 'The selected agent';
   const reason = input.reason === 'capability-discovery-failed'
-    ? 'Copilot reasoning effort capabilities could not be discovered'
-    : 'the installed Copilot CLI does not advertise that reasoning effort';
-  return `${agent} cannot launch model ${input.modelId} with reasoning effort ${input.effort}: ${reason}. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.`;
+    ? `${providerProductDisplayName(input.cliDisplayName)} reasoning effort capabilities could not be discovered`
+    : `the installed ${input.cliDisplayName} does not advertise that reasoning effort`;
+  return `${agent} cannot launch model ${input.modelId} with reasoning effort ${input.effort}: ${reason}. ${reasoningEffortConfigurationGuidance(input.cliDisplayName)}`;
+}
+
+export function reasoningEffortRejectedBeforeSpawnMessage(input: {
+  cliDisplayName: string;
+  agentId: string;
+  modelId: string;
+  effort: string;
+}): string {
+  return `Agent ${input.agentId} cannot launch model ${input.modelId} with reasoning effort ${input.effort}. ${reasoningEffortConfigurationGuidance(input.cliDisplayName)}`;
 }

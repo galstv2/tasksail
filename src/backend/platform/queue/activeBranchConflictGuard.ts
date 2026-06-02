@@ -8,8 +8,19 @@ import {
   type TaskRepoBinding,
 } from './taskJson.js';
 import { createLogger } from '../core/index.js';
+import { pathIdentityKey } from '../core/paths.js';
 
 const log = createLogger('platform/queue/activeBranchConflictGuard');
+
+/**
+ * Build the conflict map key from a normalized repo root and a branch name.
+ * Only the repo-root path is identity-folded (Windows drive/segment casing);
+ * the branch name stays case-sensitive. The NUL separator avoids collisions
+ * between root and branch text.
+ */
+function conflictMapKey(originalRoot: string, worktreeBranch: string): string {
+  return `${pathIdentityKey(originalRoot)}\0${worktreeBranch}`;
+}
 
 export interface BranchConflictKey {
   originalRoot: string;
@@ -95,7 +106,7 @@ export function findActivationBranchConflicts(args: {
         originalRoot: binding.originalRoot,
         worktreeBranch: binding.worktreeBranch,
       });
-      const mapKey = `${key.originalRoot}\0${key.worktreeBranch}`;
+      const mapKey = conflictMapKey(key.originalRoot, key.worktreeBranch);
       const existing = activeKeys.get(mapKey);
       if (existing) {
         existing.push(owner);
@@ -111,7 +122,7 @@ export function findActivationBranchConflicts(args: {
       originalRoot: plan.originalRoot,
       worktreeBranch: plan.worktreeBranch,
     });
-    const matchingOwners = activeKeys.get(`${key.originalRoot}\0${key.worktreeBranch}`) ?? [];
+    const matchingOwners = activeKeys.get(conflictMapKey(key.originalRoot, key.worktreeBranch)) ?? [];
     for (const owner of matchingOwners) {
       conflicts.push({
         candidateTaskId: args.candidateTaskId,

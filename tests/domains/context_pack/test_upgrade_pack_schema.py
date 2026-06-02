@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,7 +30,7 @@ class UpgradePackSchemaTests(unittest.TestCase):
         env = os.environ.copy()
         env["LOG_DIR"] = str(log_dir)
         return subprocess.run(
-            ["python3", str(self.script_path), *args],
+            [sys.executable, str(self.script_path), *args],
             cwd=self.repo_root,
             text=True,
             capture_output=True,

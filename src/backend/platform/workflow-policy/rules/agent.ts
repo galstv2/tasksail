@@ -12,7 +12,6 @@ import {
   expectedInstructionHeading,
 } from '../agents.js';
 import {
-  AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
   getAgentRegistryRelativePath,
 } from '../models.js';
@@ -27,11 +26,12 @@ interface ModelCatalogPayload {
 }
 
 async function loadCatalogModelIds(validator: PolicyValidator): Promise<Set<string> | null> {
-  const catalogPath = path.join(validator.rootDir, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+  const catalogRelativePath = getActiveProvider(validator.rootDir).modelCatalogPaths().default;
+  const catalogPath = path.join(validator.rootDir, catalogRelativePath);
   const raw = await readTextFile(catalogPath);
   if (raw === undefined) return null;
   try {
-    const payload = safeJsonParse<ModelCatalogPayload>(raw, AGENT_MODEL_CATALOG_RELATIVE_PATH);
+    const payload = safeJsonParse<ModelCatalogPayload>(raw, catalogRelativePath);
     if (!payload || !Array.isArray(payload.models)) return null;
     const ids = new Set<string>();
     for (const entry of payload.models as ModelCatalogEntry[]) {
@@ -156,7 +156,7 @@ export async function evaluateNamedAgentRules(
         artifact: profileRelativePath,
         message: `${profileRelativePath} has an invalid model value '${model}'.`,
         remediation:
-          'Use a valid agent CLI model identifier such as gpt-4.1 or gpt-5.4.',
+          'Use a valid agent CLI model identifier made of letters, numbers, dots, or hyphens.',
       });
     }
 
@@ -192,6 +192,7 @@ export async function evaluateNamedAgentRules(
   }
 
   const catalogModelIds = await loadCatalogModelIds(validator);
+  const catalogRelativePath = provider.modelCatalogPaths().default;
   if (catalogModelIds !== null) {
     for (const [agentKey, agent] of Object.entries(validator.namedAgentTeam)) {
       const model = agent.requiredModel;
@@ -200,8 +201,8 @@ export async function evaluateNamedAgentRules(
         validator.addViolation({
           rule_id: 'artifact.named-agent-model-catalog-gate',
           artifact: registryRelativePath,
-          message: `${agentLabel} requires model "${model}" which is not in ${AGENT_MODEL_CATALOG_RELATIVE_PATH}.`,
-          remediation: `Add "${model}" to ${AGENT_MODEL_CATALOG_RELATIVE_PATH} or change the agent's required_model to one that exists in the catalog.`,
+          message: `${agentLabel} requires model "${model}" which is not in ${catalogRelativePath}.`,
+          remediation: `Add "${model}" to the active provider model catalog or change the agent's required_model to one that exists in the catalog.`,
         });
       }
     }

@@ -2,19 +2,10 @@
 // desktopContractValidators.ts imports from here and acts as a thin action router only.
 
 import { isNonEmptyString, isRecord } from './desktopContractValidationCore';
-import type { AgentExtensionAgentId } from './desktopContractAgentConfig';
 
 const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const VALID_KINDS = ['skill', 'plugin'] as const;
 const VALID_SOURCE_TYPES = ['git', 'local', 'direct-attachment'] as const;
-const VALID_PROVIDER_IDS = ['copilot'] as const;
-const VALID_AGENT_IDS: readonly AgentExtensionAgentId[] = [
-  'planning-agent',
-  'product-manager',
-  'software-engineer',
-  'software-engineer-verify',
-  'qa',
-];
 
 function isValidExtensionId(value: unknown): boolean {
   return typeof value === 'string' && EXTENSION_ID_PATTERN.test(value);
@@ -39,8 +30,8 @@ export function validateAddExtensionPayload(payload: unknown): string[] {
   if (!Array.isArray(VALID_KINDS) || !VALID_KINDS.includes(payload.kind as (typeof VALID_KINDS)[number])) {
     errors.push('payload.kind must be skill or plugin.');
   }
-  if (!VALID_PROVIDER_IDS.includes(payload.provider_id as (typeof VALID_PROVIDER_IDS)[number])) {
-    errors.push('payload.provider_id must be copilot.');
+  if (!isNonEmptyString(payload.provider_id)) {
+    errors.push('payload.provider_id must be a non-empty string.');
   }
 
   if (!isRecord(payload.source)) {
@@ -129,8 +120,10 @@ export function validateSaveExtensionAssignmentsPayload(payload: unknown): strin
       errors.push(`${prefix} must be an object.`);
       continue;
     }
-    if (!VALID_AGENT_IDS.includes(item.agent_id as AgentExtensionAgentId)) {
-      errors.push(`${prefix}.agent_id must be a valid agent ID (planning-agent, product-manager, software-engineer, software-engineer-verify, qa).`);
+    // Structural-only: roster membership is enforced downstream in the Electron
+    // save handler against the provider descriptor, not against a hardcoded list.
+    if (!isNonEmptyString(item.agent_id)) {
+      errors.push(`${prefix}.agent_id must be a non-empty string.`);
     }
     if (!Array.isArray(item.extension_ids)) {
       errors.push(`${prefix}.extension_ids must be an array.`);
@@ -138,6 +131,47 @@ export function validateSaveExtensionAssignmentsPayload(payload: unknown): strin
       for (const [eIdx, extId] of item.extension_ids.entries()) {
         if (!isValidExtensionId(extId)) {
           errors.push(`${prefix}.extension_ids[${eIdx}] must match ^[a-z0-9][a-z0-9-]{0,63}$.`);
+        }
+      }
+    }
+  }
+  return errors;
+}
+
+export function validateLoadExternalMcpAssignmentsPayload(payload: unknown): string[] {
+  if (payload !== undefined) {
+    return ['payload must be omitted.'];
+  }
+  return [];
+}
+
+export function validateSaveExternalMcpAssignmentsPayload(payload: unknown): string[] {
+  if (!isRecord(payload)) {
+    return ['payload must be an object.'];
+  }
+  if (!Array.isArray(payload.assignments)) {
+    return ['payload.assignments must be an array.'];
+  }
+  const errors: string[] = [];
+  for (const [index, item] of payload.assignments.entries()) {
+    const prefix = `payload.assignments[${index}]`;
+    if (!isRecord(item)) {
+      errors.push(`${prefix} must be an object.`);
+      continue;
+    }
+    // Structural-only: roster membership is enforced downstream in the Electron
+    // save handler against the provider descriptor, not against a hardcoded list.
+    if (!isNonEmptyString(item.agent_id)) {
+      errors.push(`${prefix}.agent_id must be a non-empty string.`);
+    }
+    // External MCP server IDs come from the registry and are free-form strings,
+    // not slug-pattern-restricted like extension IDs.
+    if (!Array.isArray(item.external_mcp_server_ids)) {
+      errors.push(`${prefix}.external_mcp_server_ids must be an array.`);
+    } else {
+      for (const [sIdx, serverId] of item.external_mcp_server_ids.entries()) {
+        if (!isNonEmptyString(serverId)) {
+          errors.push(`${prefix}.external_mcp_server_ids[${sIdx}] must be a non-empty string.`);
         }
       }
     }

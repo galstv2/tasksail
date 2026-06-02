@@ -7,6 +7,10 @@
 !.env.example
 .platform-state/
 
+# Generated package-manager mirror config (TaskSail enterprise mirrors)
+.npmrc
+src/frontend/desktop/.npmrc
+
 # Canonical templates (all tracked; read-only by convention)
 !AgentWorkSpace/templates/
 

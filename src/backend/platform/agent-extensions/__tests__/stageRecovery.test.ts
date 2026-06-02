@@ -17,8 +17,8 @@ const ALL_AGENTS: AgentExtensionAgentId[] = [
   'planning-agent',
   'product-manager',
   'software-engineer',
-  'software-engineer-verify',
   'qa',
+  'software-engineer-verify',
 ];
 
 let repo: string;
@@ -27,11 +27,28 @@ beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-stage-recover-'));
   fs.mkdirSync(path.join(repo, '.platform-state'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'config'), { recursive: true });
+  writeProviderRegistry();
   fs.writeFileSync(
     path.join(repo, 'config', 'agent-extensions.default.json'),
     JSON.stringify({ schema_version: 1, extensions: [] }),
   );
 });
+
+function writeProviderRegistry(): void {
+  fs.mkdirSync(path.join(repo, '.github', 'agents'), { recursive: true });
+  fs.writeFileSync(
+    path.join(repo, '.github', 'agents', 'registry.json'),
+    JSON.stringify({
+      schema_version: 1,
+      agents: ALL_AGENTS.map((agent_id, index) => ({
+        agent_id,
+        role_name: agent_id,
+        human_name: agent_id,
+        workflow_order: index,
+      })),
+    }),
+  );
+}
 
 afterEach(() => {
   fs.rmSync(repo, { recursive: true, force: true });

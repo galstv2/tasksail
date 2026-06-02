@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { isRecord } from '../core/guards.js';
 import { createLogger } from '../core/logger.js';
-import { isValidAgentId, VALID_AGENT_IDS, assignmentFilePath } from './ids.js';
+import {
+  assignmentFilePath,
+  getActiveProviderAgentIds,
+  isValidAgentId,
+  normalizeProviderAgentIds,
+} from './ids.js';
 import type {
   AgentExtensionAgentId,
   AgentExtensionFsAdapter,
@@ -19,29 +24,41 @@ function platformStateDir(repoRoot: string): string {
   return path.join(repoRoot, '.platform-state');
 }
 
-function emptyAssignments(): AgentLaunchExtensionAssignments {
+function resolveProviderAgentIds(
+  repoRoot: string,
+  providerAgentIds?: readonly AgentExtensionAgentId[],
+): AgentExtensionAgentId[] {
+  return providerAgentIds !== undefined
+    ? normalizeProviderAgentIds(providerAgentIds)
+    : getActiveProviderAgentIds(repoRoot);
+}
+
+function emptyAssignments(providerAgentIds: readonly AgentExtensionAgentId[]): AgentLaunchExtensionAssignments {
   return {
     schema_version: 1,
-    assignments: VALID_AGENT_IDS.map((agentId) => ({
+    assignments: providerAgentIds.map((agentId) => ({
       agent_id: agentId,
       extension_ids: [],
     })),
   };
 }
 
-function parseAssignments(raw: string): AgentLaunchExtensionAssignments {
+function parseAssignments(
+  raw: string,
+  providerAgentIds: readonly AgentExtensionAgentId[],
+): AgentLaunchExtensionAssignments {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return emptyAssignments();
+    return emptyAssignments(providerAgentIds);
   }
 
   if (!isRecord(parsed) || (parsed as Record<string, unknown>).schema_version !== 1) {
-    return emptyAssignments();
+    return emptyAssignments(providerAgentIds);
   }
   if (!Array.isArray((parsed as Record<string, unknown>).assignments)) {
-    return emptyAssignments();
+    return emptyAssignments(providerAgentIds);
   }
 
   const assignments = ((parsed as Record<string, unknown>).assignments as unknown[])
@@ -50,7 +67,7 @@ function parseAssignments(raw: string): AgentLaunchExtensionAssignments {
       const e = entry as Record<string, unknown>;
       return (
         typeof e.agent_id === 'string' &&
-        isValidAgentId(e.agent_id) &&
+        isValidAgentId(e.agent_id, providerAgentIds) &&
         Array.isArray(e.extension_ids) &&
         (e.extension_ids as unknown[]).every((id) => typeof id === 'string')
       );
@@ -58,7 +75,7 @@ function parseAssignments(raw: string): AgentLaunchExtensionAssignments {
 
   // Fill in any missing agents with empty lists
   const presentIds = new Set(assignments.map((a) => a.agent_id));
-  for (const agentId of VALID_AGENT_IDS) {
+  for (const agentId of providerAgentIds) {
     if (!presentIds.has(agentId)) {
       assignments.push({ agent_id: agentId, extension_ids: [] });
     }
@@ -66,14 +83,15 @@ function parseAssignments(raw: string): AgentLaunchExtensionAssignments {
 
   return {
     schema_version: 1,
-    assignments: sortAssignments(assignments),
+    assignments: sortAssignments(assignments, providerAgentIds),
   };
 }
 
 function sortAssignments(
   assignments: Array<{ agent_id: AgentExtensionAgentId | string; extension_ids: string[] }>,
+  providerAgentIds: readonly AgentExtensionAgentId[],
 ): Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }> {
-  const agentOrder = new Map(VALID_AGENT_IDS.map((id, i) => [id, i]));
+  const agentOrder = new Map(providerAgentIds.map((id, i) => [id, i]));
   return [...assignments]
     .sort((a, b) => {
       const ai = agentOrder.get(a.agent_id as AgentExtensionAgentId) ?? 999;
@@ -86,10 +104,20 @@ function sortAssignments(
     }));
 }
 
-function serializeAssignments(assignments: AgentLaunchExtensionAssignments): string {
+function serializeAssignments(
+  assignments: AgentLaunchExtensionAssignments,
+  providerAgentIds: readonly AgentExtensionAgentId[],
+): string {
+  const filledAssignments = [...assignments.assignments];
+  const presentIds = new Set(filledAssignments.map((assignment) => assignment.agent_id));
+  for (const agentId of providerAgentIds) {
+    if (!presentIds.has(agentId)) {
+      filledAssignments.push({ agent_id: agentId, extension_ids: [] });
+    }
+  }
   const sorted = {
     schema_version: assignments.schema_version,
-    assignments: sortAssignments(assignments.assignments),
+    assignments: sortAssignments(filledAssignments, providerAgentIds),
   };
   return `${JSON.stringify(sorted, null, 2)}\n`;
 }
@@ -102,24 +130,33 @@ export async function persistAssignments(
   repoRoot: string,
   assignments: AgentLaunchExtensionAssignments,
   fs: AgentExtensionFsAdapter,
+  providerAgentIds?: readonly AgentExtensionAgentId[],
 ): Promise<void> {
+  const roster = resolveProviderAgentIds(repoRoot, providerAgentIds);
+  for (const assignment of assignments.assignments) {
+    if (!isValidAgentId(assignment.agent_id, roster)) {
+      throw new Error(`Unknown agent ID: ${assignment.agent_id}`);
+    }
+  }
   const psDir = platformStateDir(repoRoot);
   const filePath = assignmentFilePath(psDir);
   await fs.ensureDir(path.dirname(filePath));
-  await fs.writeTextFileAtomic(filePath, serializeAssignments(assignments));
+  await fs.writeTextFileAtomic(filePath, serializeAssignments(assignments, roster));
 }
 
 export async function loadAssignments(
   repoRoot: string,
   fs: AgentExtensionFsAdapter,
+  providerAgentIds?: readonly AgentExtensionAgentId[],
 ): Promise<AgentLaunchExtensionAssignments> {
+  const roster = resolveProviderAgentIds(repoRoot, providerAgentIds);
   const psDir = platformStateDir(repoRoot);
   const filePath = assignmentFilePath(psDir);
   const raw = await fs.readTextFile(filePath);
   if (raw === null) {
-    return emptyAssignments();
+    return emptyAssignments(roster);
   }
-  return parseAssignments(raw);
+  return parseAssignments(raw, roster);
 }
 
 export async function saveAssignmentsUnderLock(
@@ -127,14 +164,16 @@ export async function saveAssignmentsUnderLock(
   newAssignments: AgentLaunchExtensionAssignments,
   manifest: AgentExtensionsSourceManifest,
   fs: AgentExtensionFsAdapter,
+  providerAgentIds?: readonly AgentExtensionAgentId[],
 ): Promise<AgentLaunchExtensionAssignments> {
+  const roster = resolveProviderAgentIds(repoRoot, providerAgentIds);
   const enabledIds = new Set(
     manifest.extensions.filter((e) => e.enabled).map((e) => e.id),
   );
   const allIds = new Set(manifest.extensions.map((e) => e.id));
 
   for (const assignment of newAssignments.assignments) {
-    if (!isValidAgentId(assignment.agent_id)) {
+    if (!isValidAgentId(assignment.agent_id, roster)) {
       throw new Error(`Unknown agent ID: ${assignment.agent_id}`);
     }
     for (const extId of assignment.extension_ids) {
@@ -163,9 +202,9 @@ export async function saveAssignmentsUnderLock(
     }
   }
 
-  await persistAssignments(repoRoot, newAssignments, fs);
+  await persistAssignments(repoRoot, newAssignments, fs, roster);
 
-  const saved = parseAssignments(serializeAssignments(newAssignments));
+  const saved = parseAssignments(serializeAssignments(newAssignments, roster), roster);
 
   const count = newAssignments.assignments.reduce(
     (acc, a) => acc + a.extension_ids.length, 0,
@@ -185,7 +224,7 @@ export async function loadAgentLaunchExtensionAssignments(
   seams?: AgentExtensionMutationSeams,
 ): Promise<AgentLaunchExtensionAssignments> {
   const fs = seams?.fs ?? buildDefaultFs();
-  return loadAssignments(repoRoot, fs);
+  return loadAssignments(repoRoot, fs, seams?.providerAgentIds);
 }
 
 export async function saveAgentLaunchExtensionAssignments(
@@ -197,7 +236,7 @@ export async function saveAgentLaunchExtensionAssignments(
 
   return withAgentExtensionsLock(repoRoot, 'saveAgentLaunchExtensionAssignments', async () => {
     const manifest = await readSourceManifest(repoRoot, fs);
-    return saveAssignmentsUnderLock(repoRoot, assignments, manifest, fs);
+    return saveAssignmentsUnderLock(repoRoot, assignments, manifest, fs, seams?.providerAgentIds);
   });
 }
 

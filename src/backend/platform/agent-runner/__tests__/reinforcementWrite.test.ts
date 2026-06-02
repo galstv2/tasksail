@@ -23,6 +23,7 @@ vi.mock('../realignmentPhase/driver.js', () => ({
 
 vi.mock('../pipeline/externalMcpRegistryCache.js', () => ({
   prewarmExternalMcpRegistry: vi.fn(),
+  prewarmExternalMcpAssignments: vi.fn(),
 }));
 
 vi.mock('../reinforcementPaths.js', async (importOriginal) => {
@@ -264,7 +265,6 @@ describe('runRealignmentAnalysis', () => {
         purpose: 'reference checks',
         transport: 'http' as const,
         url: 'https://example.invalid',
-        agent_scope: { mode: 'allowlist' as const, agent_ids: ['ron'] },
       }],
     };
     mockPrewarmExternalMcpRegistry.mockResolvedValue(externalMcpRegistry);

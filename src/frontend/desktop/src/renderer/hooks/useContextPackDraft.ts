@@ -104,6 +104,9 @@ export function createRepositoryEntry(
     activationPriority: seed?.activationPriority ?? 0,
     primary: seed?.primary ?? false,
     repositoryType: seed?.repositoryType ?? 'support',
+    repoCategory: seed?.repoCategory ?? 'unknown',
+    repoCategoryAuthored: seed?.repoCategoryAuthored ?? false,
+    repoCategoryConfidence: seed?.repoCategoryConfidence,
   };
 }
 
@@ -175,12 +178,16 @@ export function normalizeDraftForMode(
 }
 
 function resolveMonolithFocusAreaPath(discoveryRoot: string, location: string): string {
-  const trimmedRoot = discoveryRoot.replace(/\/+$/, '');
+  // Strip trailing slashes/backslashes from the absolute root.
+  const trimmedRoot = discoveryRoot.replace(/[/\\]+$/, '');
   const trimmedLocation = location.trim();
   if (!trimmedLocation || trimmedLocation === '.') {
     return trimmedRoot;
   }
-  return `${trimmedRoot}/${trimmedLocation.replace(/^\.?\/*/, '')}`;
+  // Normalize the relative segment to forward slashes and strip any leading
+  // dot-slash so the absolute join is unambiguous on all OS paths.
+  const normalized = trimmedLocation.replace(/\\/g, '/').replace(/^\.?\/*/, '');
+  return normalized ? `${trimmedRoot}/${normalized}` : trimmedRoot;
 }
 
 export function buildDraftFromWizardParts(
@@ -247,7 +254,8 @@ export function buildDraftFromWizardParts(
     createFocusAreaEntry({
       focusId: ensureUniqueId(slugifyValue(part.name), seenFocusIds),
       focusName: part.name,
-      relativePath: part.location,
+      // Persist relativePath with forward-slash separators (contract form).
+      relativePath: part.location.replace(/\\/g, '/'),
       path: resolveMonolithFocusAreaPath(draft.discoveryRoot, part.location),
       focusType: ROLE_TO_FOCUS_TYPE[part.role || 'shared'] ?? 'general',
       primary: part.primary,
@@ -361,7 +369,13 @@ export function useContextPackDraft(
       updateDraft((draft) => ({
         ...draft,
         repositories: draft.repositories.map((r) =>
-          r.key === key ? { ...r, [field]: value } : r,
+          r.key === key
+            ? {
+                ...r,
+                [field]: value,
+                ...(field === 'repoCategory' ? { repoCategoryAuthored: true } : {}),
+              }
+            : r,
         ),
       }));
     },

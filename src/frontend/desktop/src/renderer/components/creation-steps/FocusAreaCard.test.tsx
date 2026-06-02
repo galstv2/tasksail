@@ -89,7 +89,7 @@ describe('FocusAreaCard', () => {
     );
 
     expect(
-      screen.getByText('Relative path should not contain "..".'),
+      screen.getByText('Relative path should not contain a ".." segment.'),
     ).toBeInTheDocument();
   });
 

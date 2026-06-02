@@ -6,12 +6,18 @@ import { PythonRunError } from './types.js';
 import type { PythonResult, PythonRunOptions } from './types.js';
 
 /**
- * Detect the Python 3 binary path.
- * Checks in order: PYTHON_BIN env var, .venv/bin/python relative to
- * repoRoot, then falls back to 'python3' on PATH.
+ * Detect the Python binary path (single source of truth for the binary to spawn).
+ * Checks in order: TASKSAIL_PYTHON_312_BIN, TASKSAIL_PYTHON_BIN, PYTHON_BIN env
+ * vars, the repo `.venv` interpreter, then 'python3' on POSIX / 'python' on
+ * Windows. TASKSAIL_PYTHON_312_BIN wins so an explicitly configured Python 3.12
+ * is preferred before compatible fallbacks. Version policy (prefer 3.12, reject
+ * below 3.12) is enforced by pythonCli/preflight, not here.
  */
 export function detectPythonBin(repoRoot?: string): string {
-  const envBin = process.env['PYTHON_BIN'];
+  const envBin =
+    process.env['TASKSAIL_PYTHON_312_BIN']
+    ?? process.env['TASKSAIL_PYTHON_BIN']
+    ?? process.env['PYTHON_BIN'];
   if (envBin) {
     return envBin;
   }

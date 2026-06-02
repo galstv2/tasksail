@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ProviderRuntimeManifestEnvVar } from '../cli-provider/index.js';
+import type { CliProvider, ProviderRuntimeManifestEnvVar } from '../cli-provider/index.js';
 import { SPEC_REQUIRED_SECTION_SPECS } from '../workflow-policy/models.js';
 import type { SliceArtifactFormat } from '../platform-config/types.js';
 
@@ -198,14 +198,15 @@ function buildQaArtifactChecklist(input: QaArtifactChecklistInput): string[] {
   ];
 }
 
-function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[] {
+function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest, provider: CliProvider): string[] {
   if (!manifest.includeRoleArtifactChecklist || manifest.launchPhase !== undefined) {
     return [];
   }
   const entryValues = new Map(manifest.entries.map((entry) => [entry.name, entry.value]));
-  const handoffsDir = entryValues.get('COPILOT_HANDOFFS_DIR');
-  const implementationStepsDir = entryValues.get('COPILOT_IMPL_STEPS_DIR');
-  const platformRepoRoot = entryValues.get('COPILOT_PLATFORM_REPO_ROOT');
+  const promptPathEnvVars = provider.promptPathEnvVars();
+  const handoffsDir = entryValues.get(promptPathEnvVars.handoffsDir);
+  const implementationStepsDir = entryValues.get(promptPathEnvVars.implStepsDir);
+  const platformRepoRoot = entryValues.get(provider.platformRepoRootEnvVar());
   if (!handoffsDir || !implementationStepsDir || !platformRepoRoot) {
     return [];
   }
@@ -213,7 +214,7 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
   // Default to markdown when the env var is absent (legacy/non-task launches).
   const rawFormat = entryValues.get('TASKSAIL_SLICE_ARTIFACT_FORMAT');
   const sliceArtifactFormat: SliceArtifactFormat = rawFormat === 'xml' ? 'xml' : 'markdown';
-  if (manifest.agentId === 'product-manager') {
+  if (provider.roleKindForAgent(manifest.agentId) === 'pm') {
     return buildProductManagerArtifactChecklist({
       taskId,
       handoffsDir,
@@ -222,7 +223,7 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
       sliceArtifactFormat,
     });
   }
-  if (manifest.agentId === 'qa') {
+  if (provider.roleKindForAgent(manifest.agentId) === 'qa') {
     return buildQaArtifactChecklist({
       taskId,
       handoffsDir,
@@ -238,6 +239,7 @@ function roleArtifactChecklistLines(manifest: AgentRuntimePathManifest): string[
 
 export function renderAgentRuntimePathManifestForPrompt(
   manifest: AgentRuntimePathManifest,
+  provider: CliProvider,
 ): string {
   const lines = [
     '## Runtime Path Manifest',
@@ -252,7 +254,7 @@ export function renderAgentRuntimePathManifestForPrompt(
   for (const entry of manifest.entries) {
     lines.push(`- ${entry.name} (${entry.kind}): ${entry.value} -- ${entry.description}`);
   }
-  const checklist = roleArtifactChecklistLines(manifest);
+  const checklist = roleArtifactChecklistLines(manifest, provider);
   if (checklist.length > 0) {
     lines.push('', ...checklist);
   }
@@ -262,6 +264,7 @@ export function renderAgentRuntimePathManifestForPrompt(
 export function prependRuntimePathManifestToPrompt(args: {
   prompt: string;
   manifest: AgentRuntimePathManifest;
+  provider: CliProvider;
 }): string {
-  return `${renderAgentRuntimePathManifestForPrompt(args.manifest)}\n\n${args.prompt.trim()}`;
+  return `${renderAgentRuntimePathManifestForPrompt(args.manifest, args.provider)}\n\n${args.prompt.trim()}`;
 }

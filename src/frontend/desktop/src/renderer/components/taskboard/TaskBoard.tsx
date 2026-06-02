@@ -8,6 +8,7 @@ import TaskBoardColumn from './TaskBoardColumn';
 import TaskBoardCard from './TaskBoardCard';
 import TaskDetailModal from './TaskDetailModal';
 import ChildChainBranchInventoryModal from './ChildChainBranchInventoryModal';
+import TaskBranchInventoryModal from './TaskBranchInventoryModal';
 import { DND_MIME_SOURCE_COLUMN, DND_MIME_MOVABLE_TO_OPEN } from './dndConstants';
 
 export type TaskBoardProps = {
@@ -52,6 +53,7 @@ type SelectedTask = {
   artifactRelativePath?: string;
   taskId?: string;
   childChain?: ArchivedTaskEntry['childChain'];
+  branchHandoffs?: ArchivedTaskEntry['branchHandoffs'];
 };
 
 type DeleteTarget = {
@@ -154,6 +156,7 @@ function TaskBoard({
   const [killTarget, setKillTarget] = useState<KillTarget | null>(null);
   const [chainInventory, setChainInventory] = useState<TaskBoardReadChildChainBranchInventoryResponse | null>(null);
   const [chainInventoryLoading, setChainInventoryLoading] = useState(false);
+  const [regularBranchInventoryOpen, setRegularBranchInventoryOpen] = useState(false);
   const sortedCompletedItems = useMemo(
     () => board.completedItems
       .map((item, index) => ({ item, index, ms: archivedAtMs(item) }))
@@ -197,13 +200,19 @@ function TaskBoard({
     (fileName: string, title: string | null, column: TaskBoardContentColumn, completedEntry?: ArchivedTaskEntry) => {
       if (!readTaskContent) return;
       // Omit artifactRelativePath so the initial completed read defaults to archive.md.
-      // Retain childChain metadata so the completed detail modal can offer View Chain
-      // without re-deriving chain membership from file names or markdown.
+      // Retain childChain and branchHandoffs metadata so the completed detail modal can
+      // offer View Chain or View Branches without re-deriving from file names or markdown.
       setSelectedTask({
         fileName,
         title,
         column,
-        ...(completedEntry ? { taskId: completedEntry.taskId, childChain: completedEntry.childChain } : {}),
+        ...(completedEntry
+          ? {
+              taskId: completedEntry.taskId,
+              childChain: completedEntry.childChain,
+              branchHandoffs: completedEntry.branchHandoffs,
+            }
+          : {}),
       });
     },
     [readTaskContent],
@@ -454,7 +463,7 @@ function TaskBoard({
           title={selectedTask.title}
           content={modalResult.content}
           column={selectedTask.column}
-          onClose={() => { setSelectedTask(null); setChainInventory(null); }}
+          onClose={() => { setSelectedTask(null); setChainInventory(null); setRegularBranchInventoryOpen(false); }}
           artifactExplorer={
             selectedTask.column === 'completed' && modalResult.artifacts
               ? {
@@ -464,15 +473,39 @@ function TaskBoard({
                 }
               : undefined
           }
-          childChainAction={
+          footerAction={
             selectedTask.column === 'completed' && selectedTask.childChain
               ? {
-                  onViewChain: handleViewChain,
+                  label: 'View Chain',
+                  ariaLabel: 'View child chain repos and branches',
+                  onClick: handleViewChain,
                   disabled: chainInventoryLoading,
                   loading: chainInventoryLoading,
                 }
-              : undefined
+              : selectedTask.column === 'completed'
+                && selectedTask.branchHandoffs
+                && selectedTask.branchHandoffs.length > 0
+                ? {
+                    label: 'View Branches',
+                    ariaLabel: 'View task source branches and target repos',
+                    onClick: () => setRegularBranchInventoryOpen(true),
+                  }
+                : undefined
           }
+        />
+      )}
+
+      {regularBranchInventoryOpen
+        && selectedTask
+        && !selectedTask.childChain
+        && selectedTask.branchHandoffs
+        && selectedTask.branchHandoffs.length > 0 && (
+        <TaskBranchInventoryModal
+          taskLabel={selectedTask.title ?? selectedTask.taskId ?? 'Task'}
+          branchHandoffs={selectedTask.branchHandoffs}
+          onClose={() => setRegularBranchInventoryOpen(false)}
+          zIndex={102}
+          escPriority={20}
         />
       )}
 

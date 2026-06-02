@@ -20,6 +20,7 @@ interface RegistryPayload {
 
 export interface ProviderFrontendDescriptor {
   providerId: string;
+  cliDisplayName: string;
   homeDirName: string;
   registryPath: string;
   agentConfigPaths: AgentConfigPaths;
@@ -87,6 +88,7 @@ export function getProviderFrontendDescriptor(repoRoot: string): ProviderFronten
 
   return {
     providerId: provider.id,
+    cliDisplayName: provider.cliDisplayName(),
     homeDirName: provider.homeDirName(),
     registryPath,
     agentConfigPaths,

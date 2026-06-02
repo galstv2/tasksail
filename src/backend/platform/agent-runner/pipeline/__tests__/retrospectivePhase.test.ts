@@ -148,21 +148,33 @@ describe('retrospectivePhase', () => {
     const prompt = await buildRetrospectivePrompt({
       repoRoot,
       bundle,
-      externalMcpRegistry: {
-        schema_version: 1,
-        external_servers: [
-          {
-            id: 'docs',
-            display_name: 'Docs',
-            enabled: true,
-            purpose: 'reference checks',
-            transport: 'http',
-            url: 'https://example.invalid',
-            preferred_for: ['documentation'],
-            fallback_description: 'continue without it',
-            agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
-          },
-        ],
+      externalMcpScope: {
+        runtimeToProviderAgentId: (agentId: string) => (({
+          lily: 'planning-agent',
+          alice: 'product-manager',
+          dalton: 'software-engineer',
+          'dalton-verify': 'software-engineer-verify',
+          ron: 'qa',
+        } as Record<string, string>)[agentId] ?? agentId),
+        registry: {
+          schema_version: 1,
+          external_servers: [
+            {
+              id: 'docs',
+              display_name: 'Docs',
+              enabled: true,
+              purpose: 'reference checks',
+              transport: 'http',
+              url: 'https://example.invalid',
+              preferred_for: ['documentation'],
+              fallback_description: 'continue without it',
+            },
+          ],
+        },
+        assignments: {
+          schema_version: 1,
+          assignments: [{ agent_id: 'qa', external_mcp_server_ids: ['docs'] }],
+        },
       },
     });
 

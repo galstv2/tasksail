@@ -107,6 +107,9 @@ describe('pure helpers', () => {
       expect(entry.systemLayer).toBe('backend');
       expect(entry.primary).toBe(false);
       expect(entry.key).toBeTruthy();
+      expect(entry.repoCategory).toBe('unknown');
+      expect(entry.repoCategoryAuthored).toBe(false);
+      expect(entry.repoCategoryConfidence).toBeUndefined();
     });
 
     it('applies seed overrides', () => {
@@ -485,6 +488,79 @@ describe('useContextPackDraft hook', () => {
     expect(result.current.draft.repositories[0].primary).toBe(true);
     expect(result.current.draft.repositories[1].primary).toBe(false);
     expect(result.current.draft.repositories[1].repositoryType).toBe('support');
+  });
+
+  it('keeps library category when operator marks the repo primary', () => {
+    const { result } = renderHook(() => useTestDraft());
+
+    act(() => {
+      result.current.updateDraft((draft) => ({
+        ...draft,
+        repositories: [
+          createRepositoryEntry({
+            key: 'repo-1',
+            repoName: 'Shared Library',
+            repoCategory: 'library',
+            primary: false,
+            repositoryType: 'support',
+          }),
+        ],
+      }));
+    });
+
+    act(() => {
+      result.current.updateRepositoryPrimary('repo-1');
+    });
+
+    expect(result.current.draft.repositories[0].primary).toBe(true);
+    expect(result.current.draft.repositories[0].repositoryType).toBe('primary');
+    expect(result.current.draft.repositories[0].repoCategory).toBe('library');
+    expect(result.current.draft.repositories[0].repoCategoryAuthored).toBe(false);
+  });
+
+  it('keeps service category when operator marks the repo support', () => {
+    const { result } = renderHook(() => useTestDraft());
+
+    act(() => {
+      result.current.updateDraft((draft) => ({
+        ...draft,
+        repositories: [
+          createRepositoryEntry({
+            key: 'repo-1',
+            repoName: 'Orders API',
+            repoCategory: 'service',
+            primary: true,
+            repositoryType: 'primary',
+          }),
+        ],
+      }));
+    });
+
+    act(() => {
+      result.current.updateRepositoryPrimary('repo-1');
+    });
+
+    expect(result.current.draft.repositories[0].primary).toBe(false);
+    expect(result.current.draft.repositories[0].repositoryType).toBe('support');
+    expect(result.current.draft.repositories[0].repoCategory).toBe('service');
+    expect(result.current.draft.repositories[0].repoCategoryAuthored).toBe(false);
+  });
+
+  it('marks repo category authored only when the operator changes category', () => {
+    const { result } = renderHook(() => useTestDraft());
+
+    act(() => {
+      result.current.addRepository();
+    });
+
+    const key = result.current.draft.repositories[0].key;
+
+    act(() => {
+      result.current.updateRepository(key, 'repoCategory', 'tool');
+    });
+
+    expect(result.current.draft.repositories[0].repoCategory).toBe('tool');
+    expect(result.current.draft.repositories[0].repoCategoryAuthored).toBe(true);
   });
 
   it('addFocusArea appends a new focus area entry', () => {

@@ -6,6 +6,8 @@ services:
     build:
       context: ../../..
       dockerfile: runtime/podman/repo-context-mcp/Containerfile
+      args:
+        TASKSAIL_PYTHON_BASE_IMAGE: ${TASKSAIL_PYTHON_BASE_IMAGE:-python:3.12-alpine}
     container_name: repo-context-mcp
     restart: unless-stopped
     env_file:

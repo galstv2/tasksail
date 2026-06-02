@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -30,6 +29,7 @@ from src.backend.mcp.pack_schemas import (
 )
 from src.backend.mcp.pack_schemas.upgrade import upgrade_v1_to_v2
 from src.backend.mcp.path_resolution import load_mount_config, resolve_container_path
+from src.backend.scripts.python.lib.locking import acquire_file_lock, release_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -78,34 +78,19 @@ class PackWriter:
     def _locked(self, timeout: float = _LOCK_TIMEOUT_S):  # type: ignore[misc]
         """Acquire the per-pack exclusive lock, raise PackWriterContended on timeout."""
         try:
-            import fcntl  # POSIX only
-        except ImportError as exc:
-            raise NotImplementedError(
-                "PackWriter file locking requires fcntl (POSIX). "
-                "Windows is not supported for concurrent pack writes."
+            fd = acquire_file_lock(
+                self._lock_path,
+                timeout_seconds=timeout,
+                poll_interval=_LOCK_POLL_S,
+            )
+        except TimeoutError as exc:
+            raise PackWriterContended(
+                f"Could not acquire pack-writer lock within {timeout}s: {self._lock_path}"
             ) from exc
-
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = open(self._lock_path, "w")  # noqa: SIM115
         try:
-            deadline = time.monotonic() + timeout
-            while True:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except (BlockingIOError, OSError):
-                    if time.monotonic() >= deadline:
-                        lock_fd.close()
-                        raise PackWriterContended(
-                            f"Could not acquire pack-writer lock within {timeout}s: {self._lock_path}"
-                        )
-                    time.sleep(_LOCK_POLL_S)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            yield
         finally:
-            lock_fd.close()
+            release_file_lock(fd)
 
     # ------------------------------------------------------------------
     # Internal helpers

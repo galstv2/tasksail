@@ -27,6 +27,7 @@ import {
 import type { SliceArtifactFormat } from '../platform-config/types.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
 import { extractBulletItems, normalizeAgentId, normalizeText } from '../workflow-policy/matching.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import { GENERATED_INTAKE_SPINE_RULE_IDS } from '../workflow-policy/rules/spec.js';
 import {
   ALLOWED_DIFFICULTY_LEVELS,
@@ -413,14 +414,15 @@ function normalizedSectionValue(artifact: WorkspaceArtifact, sectionName: string
 function qaFinalSummaryCompletionReasons(args: {
   finalSummary: WorkspaceArtifact;
   generatedRequirementIds: readonly string[];
+  runtimeToProviderAgentId: (agentId: string) => string;
 }): string[] {
-  const { finalSummary, generatedRequirementIds } = args;
+  const { finalSummary, generatedRequirementIds, runtimeToProviderAgentId } = args;
   const reasons: string[] = [];
   if (!finalSummary.exists || !hasRealContent(finalSummary)) {
     reasons.push(QA_REASON_FINAL_SUMMARY_MISSING);
   }
 
-  const owner = normalizeAgentId(sectionValue(finalSummary, 'Closeout Owner Agent ID'));
+  const owner = normalizeAgentId(sectionValue(finalSummary, 'Closeout Owner Agent ID'), runtimeToProviderAgentId);
   if (owner !== 'qa') {
     reasons.push(QA_REASON_CLOSEOUT_OWNER);
   }
@@ -543,7 +545,11 @@ async function qaArtifactCompletionDetails(options: AgentArtifactCompletionOptio
 
   const requirementIds = await generatedRequirementIds(options.handoffsDir);
   const finalSummary = await readHandoffArtifact(options.handoffsDir, 'final-summary.md');
-  reasons.push(...qaFinalSummaryCompletionReasons({ finalSummary, generatedRequirementIds: requirementIds }));
+  reasons.push(...qaFinalSummaryCompletionReasons({
+    finalSummary,
+    generatedRequirementIds: requirementIds,
+    runtimeToProviderAgentId: (id) => getActiveProvider(options.repoRoot).runtimeToProviderAgentId(id),
+  }));
   const retro = await readHandoffArtifact(options.handoffsDir, 'retrospective-input.md');
   if (!retro.exists || !hasRealContent(retro)) {
     reasons.push('retrospective-input.md missing or empty');
@@ -573,10 +579,12 @@ export async function detectParallelOk(handoffsDir: string): Promise<boolean> {
 export async function checkAgentArtifactCompletionDetails(
   options: AgentArtifactCompletionOptions,
 ): Promise<AgentArtifactCompletionDetails> {
-  const agentId = normalizeAgentId(options.agentId);
   const rootDir = options.repoRoot;
+  const provider = getActiveProvider(rootDir);
+  const agentId = normalizeAgentId(options.agentId, (id) => provider.runtimeToProviderAgentId(id));
+  const roleKind = provider.roleKindForAgent(agentId);
 
-  if (agentId === 'planning-agent') {
+  if (roleKind === 'planner') {
     const stagingDir = options.taskId
       ? path.join(rootDir, 'AgentWorkSpace', 'tasks', options.taskId, 'dropbox-staging')
       : path.join(rootDir, 'AgentWorkSpace', 'dropbox', '.staging');
@@ -592,7 +600,7 @@ export async function checkAgentArtifactCompletionDetails(
     return { complete: false, reasons: [] };
   }
 
-  if (agentId === 'product-manager') {
+  if (roleKind === 'pm') {
     const format = resolveSliceFormat(options.taskId, options.repoRoot);
     // For markdown: use listSliceFiles (all .md non-template) so invalid names are detected.
     // For XML: use listSliceArtifactFiles (pattern-matched); XML invalid-name detection is a
@@ -611,7 +619,7 @@ export async function checkAgentArtifactCompletionDetails(
   // For QA, check if issues.md has a blocking outcome first. When blocking,
   // only issues.md is required — final-summary.md and retrospective-input.md
   // must NOT be written (the remediation loop handles next steps).
-  if (agentId === 'qa') {
+  if (roleKind === 'qa') {
     return qaArtifactCompletionDetails(options);
   }
 
@@ -770,9 +778,11 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   abortSignal?: AbortSignal;
   policyViolationRuleIds?: readonly string[];
 }): Promise<string> {
-  const agentId = normalizeAgentId(options.agentId);
+  const provider = getActiveProvider(options.repoRoot);
+  const agentId = normalizeAgentId(options.agentId, (id) => provider.runtimeToProviderAgentId(id));
+  const roleKind = provider.roleKindForAgent(agentId);
 
-  if (agentId === 'product-manager') {
+  if (roleKind === 'pm') {
     const taskId = options.taskId ?? '';
     const format = resolveSliceFormat(options.taskId, options.repoRoot);
     const slices = format === 'xml'
@@ -819,7 +829,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
       : `If repairing slices, use AgentWorkSpace/templates/${sliceDesc.templateFilename} as the shape authority. Every ${sliceDesc.displayGlob.replace('*', 'N')} must preserve every seeded ## and ### heading and place content only under those headings.`;
     return [
       'You exited without completing all required artifacts. The following artifacts are still incomplete:',
-      'Product-manager artifact repair protocol: read .github/copilot/instructions/product-manager.instructions.md, edit only the listed workflow artifacts, preserve seeded template headings exactly, and do not answer with a prose-only status update.',
+      `Product-manager artifact repair protocol: read ${provider.instructionPathForRole('product-manager')}, edit only the listed workflow artifacts, preserve seeded template headings exactly, and do not answer with a prose-only status update.`,
       sliceShapeInstruction,
       'If inspecting source during repair, use task worktree roots from TASKSAIL_TASK_WORKTREES or TASKSAIL_TASK_WORKTREES_FILE. Do not inspect contextpacks/... paths as source code.',
       ...dedupeBullets(missingParts),
@@ -834,7 +844,7 @@ export async function buildAgentArtifactRemediationPrompt(options: {
   }
 
   let missingParts: string[] = [];
-  if (agentId === 'qa') {
+  if (roleKind === 'qa') {
     const details = await checkAgentArtifactCompletionDetails(options);
     missingParts = details.reasons.map((reason) => qaRemediationBulletForReason(reason, options));
     const shapeInstruction = `${toRecoveryPromptPath(options.repoRoot, renderHandoffArtifactLabel(taskId, 'final-summary.md'))}: preserve every top-level ## heading from the seeded template; populate content only under the seeded section bodies. Do not move Review Outcome or Task branches into Task Metadata or a custom summary. Leave platform-owned Closeout Owner Agent ID unchanged.`;

@@ -850,6 +850,23 @@ describe('electron preload bridge', () => {
       });
     });
 
+    it('bridges external MCP assignment actions over the approved invoke channel', async () => {
+      const { desktopShellApi } = await import('./preload');
+
+      await desktopShellApi.loadExternalMcpAssignments();
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.loadExternalMcpAssignments',
+      });
+
+      await desktopShellApi.saveExternalMcpAssignments({
+        assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }],
+      });
+      expect(invoke).toHaveBeenCalledWith(DESKTOP_SHELL_INVOKE_CHANNEL, {
+        action: 'agentConfig.saveExternalMcpAssignments',
+        payload: expect.objectContaining({ assignments: expect.any(Array) }),
+      });
+    });
+
     it('does not include COPILOT or provider-specific names in bridged extension action names', async () => {
       const { desktopShellApi } = await import('./preload');
       const bridgedKeys = Object.keys(desktopShellApi).join('\n');

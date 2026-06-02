@@ -493,6 +493,7 @@ describe('desktopShellClient', () => {
       getBootstrapInfo: vi.fn().mockResolvedValue({ appName: 'TaskSail' }),
       describeActiveProvider: vi.fn().mockResolvedValue({
         providerId: 'test-provider',
+        cliDisplayName: 'Test CLI',
         homeDirName: 'test-home',
         registryPath: '/repo/.provider/registry.json',
         agentConfigPaths: {
@@ -678,12 +679,10 @@ describe('desktopShellClient', () => {
     await desktopShellClient.addExternalMcpServer({
       id: 'test', display_name: 'Test', purpose: 'Test',
       transport: 'sse', url: 'https://x.com', enabled: true,
-      agent_scope: { mode: 'allowlist', agent_ids: ['swe'] },
     });
     await desktopShellClient.updateExternalMcpServer({
       id: 'test', display_name: 'Updated', purpose: 'Updated',
       transport: 'http', url: 'https://y.com', enabled: false,
-      agent_scope: { mode: 'allowlist', agent_ids: ['provider-qa'] },
     });
     await desktopShellClient.removeExternalMcpServer('test');
     await desktopShellClient.toggleExternalMcpServer('test');
@@ -797,6 +796,8 @@ describe('desktopShellClient', () => {
     const deleteResp = { ok: true, response: { action: 'agentConfig.deleteExtension', mode: 'deleted', message: 'Deleted.', id: 'my-skill' } };
     const loadAssignResp = { ok: true, response: { action: 'agentConfig.loadExtensionAssignments', mode: 'read-only', message: '1 agent(s).', assignments: [] } };
     const saveAssignResp = { ok: true, response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: 'Saved.', assignments: [] } };
+    const mcpLoadResp = { ok: true, response: { action: 'agentConfig.loadExternalMcpAssignments', mode: 'read-only', message: '1 agent(s).', assignments: [] } };
+    const mcpSaveResp = { ok: true, response: { action: 'agentConfig.saveExternalMcpAssignments', mode: 'mutated', message: 'Saved.', assignments: [] } };
 
     const shell = {
       listAgentExtensions: vi.fn().mockResolvedValue(listResp),
@@ -805,6 +806,8 @@ describe('desktopShellClient', () => {
       deleteAgentExtension: vi.fn().mockResolvedValue(deleteResp),
       loadAgentExtensionAssignments: vi.fn().mockResolvedValue(loadAssignResp),
       saveAgentExtensionAssignments: vi.fn().mockResolvedValue(saveAssignResp),
+      loadExternalMcpAssignments: vi.fn().mockResolvedValue(mcpLoadResp),
+      saveExternalMcpAssignments: vi.fn().mockResolvedValue(mcpSaveResp),
     } as unknown as Window['desktopShell'];
 
     const client = createDesktopShellClient(() => shell);
@@ -831,6 +834,11 @@ describe('desktopShellClient', () => {
     const savePayload = { assignments: [{ agent_id: 'software-engineer' as const, extension_ids: ['my-skill'] }] };
     await expect(client.saveAgentExtensionAssignments(savePayload)).resolves.toEqual(saveAssignResp);
     expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveAgentExtensionAssignments).toHaveBeenCalledWith(savePayload);
+
+    await expect(client.loadExternalMcpAssignments()).resolves.toEqual(mcpLoadResp);
+    const mcpSavePayload = { assignments: [{ agent_id: 'qa' as const, external_mcp_server_ids: ['vendor-docs'] }] };
+    await expect(client.saveExternalMcpAssignments(mcpSavePayload)).resolves.toEqual(mcpSaveResp);
+    expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveExternalMcpAssignments).toHaveBeenCalledWith(mcpSavePayload);
   });
 
   it('clientFactory mock returns cancelled response for pickMarkdownFile by default', async () => {
@@ -847,5 +855,37 @@ describe('desktopShellClient', () => {
         content: null,
       }),
     });
+  });
+
+  it('delegates system settings read and save through the current shell seam', async () => {
+    const shell = {
+      readSystemSettings: vi
+        .fn()
+        .mockResolvedValue({ ok: true, response: { action: 'systemSettings.read' } }),
+      saveSystemSettings: vi
+        .fn()
+        .mockResolvedValue({ ok: true, response: { action: 'systemSettings.save' } }),
+      restartTaskSail: vi
+        .fn()
+        .mockResolvedValue({ ok: true, response: { action: 'systemSettings.restart' } }),
+    } as unknown as Window['desktopShell'];
+
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      baseDefaultFileHash: 'h',
+      config: { mcp_port: 8811 },
+    } as unknown as Parameters<typeof client.saveSystemSettings>[0];
+
+    await expect(client.readSystemSettings()).resolves.toEqual({
+      ok: true,
+      response: { action: 'systemSettings.read' },
+    });
+    await client.saveSystemSettings(payload);
+
+    expect(shell.readSystemSettings).toHaveBeenCalledTimes(1);
+    expect(shell.saveSystemSettings).toHaveBeenCalledWith(payload);
+
+    await client.restartTaskSail();
+    expect(shell.restartTaskSail).toHaveBeenCalledTimes(1);
   });
 });

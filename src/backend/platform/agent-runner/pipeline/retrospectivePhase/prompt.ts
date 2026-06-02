@@ -1,15 +1,14 @@
 import path from 'node:path';
 
 import { getActiveProvider } from '../../../cli-provider/index.js';
-import type { ExternalMcpRegistry } from '../../../external-mcp-registry/index.js';
 import { readTextFile } from '../../../core/index.js';
-import { appendMcpContextBlock } from '../mcpPromptContext.js';
+import { appendMcpContextBlock, type ExternalMcpPromptScope } from '../mcpPromptContext.js';
 import type { CycleTaskContext } from '../retrospectivePhase.js';
 
 export async function buildRetrospectivePrompt(options: {
   repoRoot: string;
   bundle: CycleTaskContext[];
-  externalMcpRegistry?: ExternalMcpRegistry;
+  externalMcpScope?: ExternalMcpPromptScope;
 }): Promise<string> {
   const promptRelativePath = getActiveProvider(options.repoRoot).resolvePromptPath('retrospective-task');
   const promptPath = path.join(options.repoRoot, promptRelativePath);
@@ -20,7 +19,7 @@ export async function buildRetrospectivePrompt(options: {
 
   const parts = [anchor, renderCycleContextBlock(options.bundle)];
   const mcpParts: string[] = [];
-  appendMcpContextBlock(mcpParts, options.externalMcpRegistry, 'ron');
+  appendMcpContextBlock(mcpParts, options.externalMcpScope, 'ron');
   const mcpBlock = mcpParts.join('\n').trim();
   if (mcpBlock) parts.push(mcpBlock);
   return parts.join('\n\n---\n\n');

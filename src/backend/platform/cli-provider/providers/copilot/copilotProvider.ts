@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { isWindowsPlatform } from '../../../core/index.js';
+import type { AgentId } from '../../../core/index.js';
 import type {
   AgentConfigPaths,
   CliProvider,
@@ -17,6 +18,7 @@ import { materializeCopilotPrompt, resolveCopilotPromptPath } from './promptComp
 import { parseChatagentProfile } from './profileParser.js';
 import { buildCopilotPlannerLaunchSpec, COPILOT_PLANNER_AGENT_ID, CopilotPlannerParser } from './plannerAdapter.js';
 import { getCopilotReasoningEffortCapabilities } from './reasoningEffortCapabilities.js';
+import { readCopilotPluginManifestSummary } from './launchExtensions.js';
 
 /**
  * Project a resolved MCP server into a Copilot CLI mcp-config.json entry.
@@ -66,8 +68,29 @@ const COPILOT_ROLE_KINDS: Record<string, RoleKind> = {
   qa: 'qa',
 };
 
+// Canonical TaskSail runtime-nickname -> Copilot provider-agent-ID map. This is the
+// single source of the nickname mapping; it is intentionally separate from
+// COPILOT_ROLE_KINDS (keyed on provider-agent IDs -> RoleKind, not identity).
+const COPILOT_RUNTIME_TO_PROVIDER_AGENT_ID: Record<AgentId, string> = {
+  lily: COPILOT_PLANNER_AGENT_ID,
+  alice: 'product-manager',
+  dalton: 'software-engineer',
+  'dalton-verify': 'software-engineer-verify',
+  ron: 'qa',
+};
+
+const COPILOT_PROVIDER_TO_RUNTIME_AGENT_ID: Record<string, AgentId> = Object.fromEntries(
+  Object.entries(COPILOT_RUNTIME_TO_PROVIDER_AGENT_ID).map(
+    ([runtime, providerAgentId]) => [providerAgentId, runtime as AgentId],
+  ),
+);
+
 export const copilotProvider: CliProvider = {
   id: 'copilot',
+
+  cliDisplayName(): string {
+    return 'Copilot CLI';
+  },
 
   resolveCommand(): string {
     return isWindowsPlatform() ? 'copilot.cmd' : 'copilot';
@@ -83,8 +106,16 @@ export const copilotProvider: CliProvider = {
     return 'copilot-home';
   },
 
+  platformRepoRootEnvVar(): string {
+    return 'COPILOT_PLATFORM_REPO_ROOT';
+  },
+
   agentConfigPaths(): AgentConfigPaths {
     return { ...AGENT_CONFIG_PATHS };
+  },
+
+  instructionPathForRole(agentId: string): string {
+    return `.github/copilot/instructions/${agentId}.instructions.md`;
   },
 
   resolvePromptPath(kind) {
@@ -130,6 +161,25 @@ export const copilotProvider: CliProvider = {
     };
   },
 
+  skillDirsEnvKey(): string {
+    return 'COPILOT_SKILLS_DIRS';
+  },
+
+  modelCatalogPaths(): { default: string; runtime: string } {
+    return {
+      default: 'config/agent-model-catalog.default.json',
+      runtime: '.platform-state/agent-model-catalog.json',
+    };
+  },
+
+  requiredRegistryFields(): readonly string[] {
+    return ['instruction_path', 'agent_profile_path'];
+  },
+
+  inspectPluginMetadata(runtimePath: string) {
+    return readCopilotPluginManifestSummary(runtimePath);
+  },
+
   mcpConfigArgs,
 
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string {
@@ -150,6 +200,14 @@ export const copilotProvider: CliProvider = {
     return COPILOT_ROLE_KINDS[agentId] ?? null;
   },
 
+  runtimeToProviderAgentId(agentId: string): string {
+    return COPILOT_RUNTIME_TO_PROVIDER_AGENT_ID[agentId as AgentId] ?? agentId;
+  },
+
+  providerToRuntimeAgentId(agentId: string): AgentId | undefined {
+    return COPILOT_PROVIDER_TO_RUNTIME_AGENT_ID[agentId];
+  },
+
   runtimeManifestEnvVars() {
     return COPILOT_RUNTIME_MANIFEST_ENV_VARS;
   },
@@ -163,6 +221,9 @@ export const copilotProvider: CliProvider = {
   },
 
   reasoningEffortCapabilities(repoRoot: string) {
-    return getCopilotReasoningEffortCapabilities(repoRoot);
+    // Pass the resolved command (copilot.cmd on Windows) so the probe runs the
+    // same binary the provider launches. Avoids a circular import by sending the
+    // command string rather than the provider.
+    return getCopilotReasoningEffortCapabilities(repoRoot, this.resolveCommand());
   },
 };

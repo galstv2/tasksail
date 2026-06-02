@@ -6,6 +6,11 @@ This directory is organized by topic so setup, architecture, workflow, and QMD g
 
 - [getting-started/onboarding.md](getting-started/onboarding.md)
 
+## Reference
+
+- [reference/environment-variables.md](reference/environment-variables.md) — every supported configuration environment variable
+- [cross-os-setup.md](cross-os-setup.md) — per-OS setup, container topology, and enterprise mirrors
+
 ## Architecture
 
 - [architecture/platform-spec.md](architecture/platform-spec.md)

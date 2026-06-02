@@ -14,13 +14,13 @@ from src.backend.mcp.context_estate.constants import (
     HIGH_SIGNAL_TYPE_ALIASES,
     SKIP_DIR_NAMES,
 )
+from src.backend.mcp.repo_category_probe import classify_repo_category
 from src.backend.mcp.repo_context_mcp.utils import (
     is_within,
     slugify,
     titleize_segment,
     utc_now,
 )
-from src.backend.mcp.repo_type_probe import classify_repository_type
 
 _FOCUS_TYPE_TO_REPO_CATEGORY: dict[str, str] = {
     "service": "service",
@@ -52,6 +52,18 @@ _REPO_CATEGORY_TO_REPO_FOCUS: dict[str, str] = {
     "unknown": "support",
 }
 
+_REPO_CATEGORY_TO_SYSTEM_LAYER: dict[str, str] = {
+    "service": "backend",
+    "application": "backend",
+    "frontend": "frontend",
+    "library": "shared",
+    "data": "database",
+    "documentation": "documents",
+    "infrastructure": "infrastructure",
+    "tool": "shared",
+    "unknown": "backend",
+}
+
 
 def resolve_existing_root(
     root: Path | str,
@@ -75,6 +87,25 @@ def resolve_existing_root(
 def has_git_marker(path: Path) -> bool:
     git_path = path / ".git"
     return git_path.is_dir() or git_path.is_file()
+
+
+def is_within_git_worktree(path: Path) -> bool:
+    """True if ``path`` or any ancestor has a top-level Git marker.
+
+    Distinct from ``has_git_marker`` (repository-ROOT detection): an
+    existing-source selection may be a subtree of a larger repo (e.g. a monorepo
+    subdirectory) whose ``.git`` lives in an ancestor. Used only for
+    selected-root eligibility; candidate-repo discovery still uses
+    ``has_git_marker`` so distinct nested repos remain detectable.
+    """
+    current = path
+    while True:
+        if has_git_marker(current):
+            return True
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
 
 
 def safe_iterdir(path: Path, warnings: list[str]) -> list[Path]:
@@ -179,18 +210,18 @@ def collect_repo_high_signal_paths(repo_root: Path) -> list[str]:
 def build_repo_candidate(root: Path, repo_root: Path) -> dict[str, Any]:
     relative_path = repo_root.relative_to(root).as_posix()
     high_signal_paths = collect_repo_high_signal_paths(repo_root)
-    classification = classify_repository_type(
-        repo_root,
-        repo_name=repo_root.name,
-    )
+    repo_category, repo_category_confidence = classify_repo_category(repo_root)
     return {
         "repo_id": slugify(relative_path.replace("/", "-")),
         "repo_name": titleize_segment(repo_root.name),
         "path": str(repo_root),
         "relative_path": relative_path,
         "high_signal_paths": high_signal_paths,
-        "repository_type": classification["repository_type"],
-        "classification_confidence": classification["classification_confidence"],
+        "repo_category": repo_category,
+        "repo_category_confidence": repo_category_confidence,
+        "suggested_system_layer": (
+            _REPO_CATEGORY_TO_SYSTEM_LAYER.get(repo_category) or "backend"
+        ),
     }
 
 
@@ -227,6 +258,88 @@ def discover_candidate_repos(
 
     repos.sort(key=lambda item: item["relative_path"])
     return repos
+
+
+def build_missing_git_repo_warning(root: Path, candidate: Path) -> dict[str, str]:
+    repo_name = candidate.name
+    return {
+        "repo_name": repo_name,
+        "path": str(candidate),
+        "relative_path": candidate.relative_to(root).as_posix(),
+        "message": (
+            f"repo {repo_name} does not have .git folder, if you would like it "
+            "part of this context pack please initialize git in this repo."
+        ),
+    }
+
+
+def collect_missing_git_repo_warnings(
+    root: Path,
+    discovered_repos: list[dict[str, Any]],
+    warnings: list[str],
+    *,
+    max_depth: int = DEFAULT_DISTRIBUTED_SCAN_DEPTH,
+) -> list[dict[str, str]]:
+    """Collect repo-like folders skipped because they lack a top-level Git marker.
+
+    Mirrors ``discover_candidate_repos`` traversal (same skip names, hidden
+    filter, path-escape normalization, and max-depth boundary). Folders that
+    contain a discovered Git repo below them, and folders whose name is a
+    recognized grouping folder (``GROUP_CHILD_TYPES``), are descended into rather
+    than warned on, so their repo-like children are surfaced instead. Any other
+    non-Git repo-like leaf is warned once and not descended.
+    """
+    discovered_paths: set[Path] = set()
+    for repo in discovered_repos:
+        repo_path = repo.get("path")
+        if not isinstance(repo_path, str):
+            continue
+        try:
+            discovered_paths.add(Path(repo_path).resolve())
+        except OSError:
+            continue
+
+    grouping_dirs: set[Path] = set()
+    for repo_path in discovered_paths:
+        for parent in repo_path.parents:
+            if parent == root or not is_within(root, parent):
+                break
+            grouping_dirs.add(parent)
+
+    skipped: list[dict[str, str]] = []
+    seen_dirs: set[Path] = {root}
+    queue: deque[tuple[Path, int]] = deque([(root, 0)])
+
+    while queue:
+        current, depth = queue.popleft()
+        for child in safe_iterdir(current, warnings):
+            if child.name in SKIP_DIR_NAMES or child.name.startswith("."):
+                continue
+            normalized = normalize_directory_candidate(root, child, warnings)
+            if normalized is None or normalized in seen_dirs:
+                continue
+
+            relative_depth = len(normalized.relative_to(root).parts)
+            if relative_depth > max_depth:
+                continue
+
+            seen_dirs.add(normalized)
+            if has_git_marker(normalized) or normalized in discovered_paths:
+                continue
+
+            is_grouping_folder = (
+                normalized in grouping_dirs
+                or normalized.name.lower() in GROUP_CHILD_TYPES
+            )
+            if is_grouping_folder:
+                if depth + 1 < max_depth:
+                    queue.append((normalized, depth + 1))
+                continue
+
+            skipped.append(build_missing_git_repo_warning(root, normalized))
+
+    skipped.sort(key=lambda item: item["relative_path"])
+    return skipped
 
 
 def classify_focus_area_repo_category(focus_type: str) -> str:
@@ -388,6 +501,7 @@ def discover_estate(
 
     candidate_repos: list[dict[str, Any]] = []
     candidate_focus_areas: list[dict[str, str]] = []
+    skipped_repos_missing_git: list[dict[str, str]] = []
 
     if _canonical_scan_kind(estate_type) == "distributed":
         warnings.extend(auto_scan_warnings)
@@ -405,6 +519,12 @@ def discover_estate(
                 "No candidate git repositories were discovered under the "
                 "provided root."
             )
+        skipped_repos_missing_git = collect_missing_git_repo_warnings(
+            resolved_root,
+            candidate_repos,
+            warnings,
+        )
+        warnings.extend(item["message"] for item in skipped_repos_missing_git)
     else:
         candidate_focus_areas = discover_candidate_focus_areas(
             resolved_root,
@@ -415,6 +535,16 @@ def discover_estate(
                 "No candidate focus areas were discovered under the provided "
                 "root."
             )
+        # Existing-source monolith roots are repositories: warn once if the
+        # selected root itself lacks a Git marker. The allow_missing helper path
+        # (new-project bootstrap) creates an empty root and must not warn.
+        if not allow_missing and not is_within_git_worktree(resolved_root):
+            root_warning = build_missing_git_repo_warning(
+                resolved_root,
+                resolved_root,
+            )
+            skipped_repos_missing_git.append(root_warning)
+            warnings.append(root_warning["message"])
 
     high_signal_paths = collect_root_high_signal_paths(resolved_root, warnings)
 
@@ -425,6 +555,7 @@ def discover_estate(
         "candidate_repos": candidate_repos,
         "candidate_focus_areas": candidate_focus_areas,
         "high_signal_paths": high_signal_paths,
+        "skipped_repos_missing_git": skipped_repos_missing_git,
         "warnings": warnings,
         "discovered_at": utc_now(),
     }

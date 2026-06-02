@@ -37,8 +37,6 @@ export type BuildPlannerCliInvocationOptions = {
   launchExtensions?: PlannerLaunchExtensionDirs;
 };
 
-const PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY = ['COPILOT', 'SKILLS', 'DIRS'].join('_');
-
 let cachedPlannerRegistryEntry: { registryPath: string; plannerAgentId: string; entry: PlannerAgentRegistryEntry } | null = null;
 
 function loadProviderPlanningAgentRegistryEntry(provider: CliProvider, plannerAgentId: string): PlannerAgentRegistryEntry {
@@ -113,21 +111,21 @@ function dedupe(values: string[]): string[] {
   });
 }
 
-function inheritedPlannerEnv(controlledEnvKeys: readonly string[]): NodeJS.ProcessEnv {
+function inheritedPlannerEnv(controlledEnvKeys: readonly string[], skillDirsEnvKey: string): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of controlledEnvKeys) {
     delete env[key];
   }
-  delete env[PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY];
+  delete env[skillDirsEnvKey];
   return env;
 }
 
-function sanitizedAdditionalPlannerEnv(additionalEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
+function sanitizedAdditionalPlannerEnv(additionalEnv: NodeJS.ProcessEnv | undefined, skillDirsEnvKey: string): NodeJS.ProcessEnv | undefined {
   if (!additionalEnv) {
     return undefined;
   }
   const sanitized = { ...additionalEnv };
-  delete sanitized[PLANNER_EXTENSION_SKILL_DIRS_ENV_KEY];
+  delete sanitized[skillDirsEnvKey];
   return sanitized;
 }
 
@@ -154,6 +152,7 @@ export function buildPlannerCliInvocation(
   if (!buildLaunchSpec) {
     throw new Error(`Active provider "${provider.id}" does not support planner CLI sessions.`);
   }
+  const skillDirsEnvKey = provider.skillDirsEnvKey();
 
   const plannerLaunchOptions = {
     model,
@@ -170,7 +169,7 @@ export function buildPlannerCliInvocation(
     launchExtensions: options.launchExtensions,
   };
   const launchSpec = buildLaunchSpec(plannerLaunchOptions);
-  const additionalEnv = sanitizedAdditionalPlannerEnv(options.additionalEnv);
+  const additionalEnv = sanitizedAdditionalPlannerEnv(options.additionalEnv, skillDirsEnvKey);
 
   if (!launchSpec) {
     throw new Error(`Active provider "${provider.id}" does not support planner CLI sessions.`);
@@ -181,7 +180,7 @@ export function buildPlannerCliInvocation(
     args: launchSpec.args,
     cwd: launchSpec.launchCwd,
     env: {
-      ...inheritedPlannerEnv(provider.controlledEnvKeys()),
+      ...inheritedPlannerEnv(provider.controlledEnvKeys(), skillDirsEnvKey),
       RUN_ROLE_AGENT_ACTIVE_MODEL: model,
       ...(plannerSessionId ? { PLANNER_SESSION_ID: plannerSessionId } : {}),
       ...launchSpec.env,

@@ -1,10 +1,10 @@
 import path from 'node:path';
-import { rename, unlink, writeFile } from 'node:fs/promises';
 import {
-  ensureDir,
   readTextFile,
   safeJsonParse,
+  writeTextFileAtomic,
 } from '../core/index.js';
+import { withFileLock } from '../core/fileLock.js';
 import { resolvePlannerHistoryPath } from './paths.js';
 import type {
   PlannerConversationHistoryFile,
@@ -85,24 +85,31 @@ export async function upsertPlannerHistoryRecord(
     ...opts.record,
     contextPackDir,
   };
-  const history = await readPlannerHistory(opts);
-  const currentBucket = history.conversationsByContextPackDir[contextPackDir] ?? [];
-  const existingIndex = currentBucket.findIndex((existing) => existing.id === record.id);
-  const nextBucket = [...currentBucket];
 
-  if (existingIndex >= 0) {
-    nextBucket[existingIndex] = {
-      ...record,
-      createdAt: nextBucket[existingIndex]!.createdAt,
-    };
-  } else {
-    nextBucket.unshift(record);
-  }
+  const historyPath = resolvePlannerHistoryPath(opts.repoRoot);
+  // Serialize the whole read-modify-write under a per-file lock so two
+  // simultaneous upserts of different records cannot read the same baseline
+  // and clobber each other (atomic rename alone would lose one record).
+  await withFileLock(historyPath, async () => {
+    const history = await readPlannerHistory(opts);
+    const currentBucket = history.conversationsByContextPackDir[contextPackDir] ?? [];
+    const existingIndex = currentBucket.findIndex((existing) => existing.id === record.id);
+    const nextBucket = [...currentBucket];
 
-  history.conversationsByContextPackDir[contextPackDir] = sortByCreatedAtDesc(nextBucket)
-    .slice(0, PLANNER_HISTORY_RECORD_CAP);
+    if (existingIndex >= 0) {
+      nextBucket[existingIndex] = {
+        ...record,
+        createdAt: nextBucket[existingIndex]!.createdAt,
+      };
+    } else {
+      nextBucket.unshift(record);
+    }
 
-  await writePlannerHistory(opts.repoRoot, history);
+    history.conversationsByContextPackDir[contextPackDir] = sortByCreatedAtDesc(nextBucket)
+      .slice(0, PLANNER_HISTORY_RECORD_CAP);
+
+    await writePlannerHistory(opts.repoRoot, history);
+  });
 }
 
 function validateTranscriptCap(record: PlannerConversationRecord): void {
@@ -131,18 +138,8 @@ async function writePlannerHistory(
   history: PlannerConversationHistoryFile,
 ): Promise<void> {
   const historyPath = resolvePlannerHistoryPath(repoRoot);
-  await ensureDir(path.dirname(historyPath));
-  const tmpPath = `${historyPath}.tmp`;
-  try {
-    await writeFile(tmpPath, `${JSON.stringify(history, null, 2)}\n`, 'utf-8');
-    await rename(tmpPath, historyPath);
-  } catch (err) {
-    try {
-      await unlink(tmpPath);
-    } catch {
-      // Best-effort cleanup. The original write or rename error is authoritative.
-    }
-    throw err;
-  }
+  // Same JSON serialization and trailing newline as before; the shared helper
+  // now provides collision-resistant temp naming and atomic rename.
+  await writeTextFileAtomic(historyPath, `${JSON.stringify(history, null, 2)}\n`);
 }
 

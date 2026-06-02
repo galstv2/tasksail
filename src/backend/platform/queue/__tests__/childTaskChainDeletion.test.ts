@@ -3,6 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { FIXED_TMP_SUFFIX } = vi.hoisted(() => ({ FIXED_TMP_SUFFIX: '0011223344556677' }));
+
+// Pin writeTextFileAtomic's random temp suffix so the "propagates write
+// failures" test can occupy that temp path with a directory and force the write
+// (and its retries) to fail. Other tests are unaffected — their writes still
+// create-and-rename the temp normally.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomBytes: () => Buffer.from(FIXED_TMP_SUFFIX, 'hex') };
+});
+
 import { cleanupDeletedChildTaskChainTask } from '../childTaskChainDeletion.js';
 import { readChildTaskChains, writeChildTaskChains, type ChildTaskChainsState, type ChildTaskChainTaskState } from '../childTaskChains.js';
 
@@ -148,9 +159,8 @@ describe('cleanupDeletedChildTaskChainTask', () => {
     const before = state('pending', true);
     await writeChildTaskChains(repoRoot, before);
     const statePath = path.join(repoRoot, '.platform-state', 'child-task-chains.json');
-    const tempStatePath = `${statePath}.tmp-${process.pid}-424242`;
+    const tempStatePath = `${statePath}.tmp-${process.pid}-${FIXED_TMP_SUFFIX}`;
     await mkdir(tempStatePath, { recursive: true });
-    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(424242);
     let deleted = false;
 
     await expect(cleanupDeletedChildTaskChainTask(repoRoot, 'child', async () => { deleted = true; })).rejects.toThrow();
@@ -158,7 +168,6 @@ describe('cleanupDeletedChildTaskChainTask', () => {
     expect(deleted).toBe(true);
     expect((await readFile(statePath, 'utf-8')).includes('"child"')).toBe(true);
     expect(await readChildTaskChains(repoRoot)).toEqual(before);
-    dateNow.mockRestore();
     await rm(tempStatePath, { recursive: true, force: true });
     expect((await readFile(statePath, 'utf-8')).includes('child')).toBe(true);
   });

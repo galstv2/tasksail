@@ -27,6 +27,7 @@ export function createProviderFrontendDescriptor(
 ): ProviderFrontendDescriptor {
   return {
     providerId: 'test-provider',
+    cliDisplayName: 'Test CLI',
     homeDirName: 'test-home',
     registryPath: '/repo/.provider/registry.json',
     agentConfigPaths: {

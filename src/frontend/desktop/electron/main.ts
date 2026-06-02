@@ -7,6 +7,7 @@ if (!HAS_SINGLE_INSTANCE_LOCK) {
 
 import { schedulePipelineAutoStart } from './main.startupRecovery';
 import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';
+import { restartTaskSailApp } from './appRestart';
 import {
   handleDesktopAction as handleDesktopActionImpl,
   type DesktopActionContext,
@@ -27,6 +28,9 @@ export function handleDesktopAction(
     {
       ...createDefaultDesktopActionHandlers({
         schedulePipelineAutoStart,
+        // Full app restart so saved platform settings take effect (env-aware:
+        // a clean managed dev restart, or a production relaunch).
+        restartApp: restartTaskSailApp,
       }),
       ...handlers,
     },

@@ -4,6 +4,7 @@ import { checkAgentArtifactCompletion, detectParallelOk } from '../agent-runner/
 import { parseSemanticSections } from './artifacts.js';
 import { markdownSectionsHaveContent, normalizeAgentId, normalizeText } from './matching.js';
 import { CONTENT_SECTION_EXCLUSIONS } from './models.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 const ISSUES_MD_FILENAME = 'issues.md';
 const FINAL_SUMMARY_MD_FILENAME = 'final-summary.md';
@@ -46,7 +47,10 @@ function issuesHaveBlockingFindings(artifact: RuntimeInferenceArtifact): boolean
   return severityText.includes('blocking');
 }
 
-async function remediationNextAgent(handoffsDir: string): Promise<{ agentId: string; source: string } | null> {
+async function remediationNextAgent(
+  handoffsDir: string,
+  runtimeToProviderAgentId: (agentId: string) => string,
+): Promise<{ agentId: string; source: string } | null> {
   const artifact = await loadArtifact(path.join(handoffsDir, ISSUES_MD_FILENAME));
   if (!artifact.exists || !artifact.hasSubstantiveContent) {
     return null;
@@ -54,19 +58,22 @@ async function remediationNextAgent(handoffsDir: string): Promise<{ agentId: str
   if (!issuesHaveBlockingFindings(artifact)) {
     return null;
   }
-  const owner = normalizeAgentId(normalizeText(artifact.sections['Remediation Owner Agent ID'] ?? []));
+  const owner = normalizeAgentId(normalizeText(artifact.sections['Remediation Owner Agent ID'] ?? []), runtimeToProviderAgentId);
   if (owner) {
     return { agentId: owner, source: 'qa issues remediation owner' };
   }
   return null;
 }
 
-async function closeoutNextAgent(handoffsDir: string): Promise<{ agentId: string; source: string } | null> {
+async function closeoutNextAgent(
+  handoffsDir: string,
+  runtimeToProviderAgentId: (agentId: string) => string,
+): Promise<{ agentId: string; source: string } | null> {
   const finalSummary = await loadArtifact(path.join(handoffsDir, FINAL_SUMMARY_MD_FILENAME));
   if (!finalSummary.exists || !finalSummary.hasSubstantiveContent) {
     return null;
   }
-  const owner = normalizeAgentId(normalizeText(finalSummary.sections['Closeout Owner Agent ID'] ?? []));
+  const owner = normalizeAgentId(normalizeText(finalSummary.sections['Closeout Owner Agent ID'] ?? []), runtimeToProviderAgentId);
   if (!owner) {
     return null;
   }
@@ -150,9 +157,11 @@ export async function evaluateRuntimeInference(options: {
 }): Promise<RuntimeInferenceResult> {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   const handoffsDir = options.handoffsDir ?? paths.handoffs;
+  const provider = getActiveProvider(options.repoRoot);
+  const runtimeToProviderAgentId = (agentId: string): string => provider.runtimeToProviderAgentId(agentId);
   const completion = await computeRuntimeCompletionFacts(options);
-  const remediation = await remediationNextAgent(handoffsDir);
-  const closeout = await closeoutNextAgent(handoffsDir);
+  const remediation = await remediationNextAgent(handoffsDir, runtimeToProviderAgentId);
+  const closeout = await closeoutNextAgent(handoffsDir, runtimeToProviderAgentId);
   const nextAgent = remediation ?? closeout ?? inferNextAgentFromCompletion(completion);
 
   return {

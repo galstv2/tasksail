@@ -612,6 +612,12 @@ export async function handleDesktopAction(
       return resolvedHandlers.validateExternalMcpConnection(request.payload);
     case 'externalMcp.validateLocalCommand':
       return resolvedHandlers.validateExternalMcpLocalCommand(request.payload);
+    case 'systemSettings.read':
+      return resolvedHandlers.readSystemSettings();
+    case 'systemSettings.save':
+      return resolvedHandlers.saveSystemSettings(request.payload);
+    case 'systemSettings.restart':
+      return resolvedHandlers.restartApp();
     case 'agentConfig.loadAgents':
       return resolvedHandlers.loadAgentConfigAgents();
     case 'agentConfig.loadModelCatalog':
@@ -636,6 +642,10 @@ export async function handleDesktopAction(
       return resolvedHandlers.loadAgentExtensionAssignments();
     case 'agentConfig.saveExtensionAssignments':
       return resolvedHandlers.saveAgentExtensionAssignments(request.payload);
+    case 'agentConfig.loadExternalMcpAssignments':
+      return resolvedHandlers.loadExternalMcpAssignments();
+    case 'agentConfig.saveExternalMcpAssignments':
+      return resolvedHandlers.saveExternalMcpAssignments(request.payload);
     case 'agentInstructions.listFiles':
       return resolvedHandlers.listInstructionFiles(request);
     case 'agentInstructions.readFile':

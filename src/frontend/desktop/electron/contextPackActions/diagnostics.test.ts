@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -60,6 +60,9 @@ describe('context-pack action diagnostics', () => {
     const root = await mkdtemp(join(tmpdir(), 'context-pack-create-diagnostics-'));
     try {
       const payload = createPayload(root);
+      // Existing-source monolith create requires the root to be Git-backed for
+      // the create-time guard to pass and reach bootstrap.
+      await mkdir(join(payload.discoveryRoot, '.git'), { recursive: true });
       const { executeContextPackCreateAction } = await import('./create');
       const bootstrapRunner = vi.fn().mockResolvedValue({ stdout: '{not-json', stderr: '' });
       const planRunner = vi.fn();

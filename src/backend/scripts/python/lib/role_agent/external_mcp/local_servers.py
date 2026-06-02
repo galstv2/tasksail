@@ -1,10 +1,10 @@
 """Local (stdio) external MCP server support.
 
-Local servers are command-launched child processes (Copilot CLI ``type:
-"local"``). They are gated behind an operator opt-in flag that is off by
-default and fail-closed. This module is extracted from ``renderer.py`` to keep
-that module under the 500-line limit and to host the ``${ENV_VAR}`` resolver
-shared by header and env resolution.
+Local servers are command-launched child processes for the active CLI provider.
+They are gated behind an operator opt-in flag that is off by default and
+fail-closed. This module is extracted from ``renderer.py`` to keep that module
+under the 500-line limit and to host the ``${ENV_VAR}`` resolver shared by
+header and env resolution.
 
 This module is intentionally self-contained: it does not import from
 ``renderer`` so the import graph stays one-directional (``renderer`` imports

@@ -34,7 +34,22 @@ vi.mock('../../../backend/platform/cli-provider/index.js', async (importOriginal
         profiles: '.provider/agents',
         registry: '.provider/agents/registry.json',
       }),
+      modelCatalogPaths: () => ({
+        default: '.provider/model-catalog.default.json',
+        runtime: '.provider/state/model-catalog.json',
+      }),
     }),
+    // The save handlers validate assignment agent IDs against the descriptor roster.
+    // The real descriptor reads a registry from disk; stub a fixed roster instead.
+    getProviderFrontendDescriptor: () => ({
+      roster: [
+        { agentId: 'planning-agent' },
+        { agentId: 'product-manager' },
+        { agentId: 'software-engineer' },
+        { agentId: 'software-engineer-verify' },
+        { agentId: 'qa' },
+      ],
+    } as unknown as ReturnType<typeof actual.getProviderFrontendDescriptor>),
   };
 });
 
@@ -83,8 +98,8 @@ class MemoryFs {
 
 const repoRoot = '/repo';
 const registryPath = path.join(repoRoot, '.provider/agents/registry.json');
-const defaultCatalogPath = path.join(repoRoot, 'config/agent-model-catalog.default.json');
-const catalogPath = path.join(repoRoot, '.platform-state/agent-model-catalog.json');
+const defaultCatalogPath = path.join(repoRoot, '.provider/model-catalog.default.json');
+const catalogPath = path.join(repoRoot, '.provider/state/model-catalog.json');
 
 const registryDocument = {
   schema_version: 1,
@@ -389,7 +404,7 @@ describe('agentConfigHandlers', () => {
     expect(result).toEqual(expect.objectContaining({
       ok: false,
       action: 'agentConfig.saveAgentModels',
-      error: expect.stringContaining('not advertised'),
+      error: 'Reasoning effort "max" is not advertised by the installed Copilot CLI. Select None or a Copilot-advertised effort.',
     }));
     expect(memoryFs.files.get(registryPath)).toBe(asJson(registryDocument));
   });
@@ -454,7 +469,7 @@ describe('agentConfigHandlers', () => {
     expect(result).toEqual(expect.objectContaining({
       ok: false,
       action: 'agentConfig.saveAgentModels',
-      error: expect.stringContaining('could not be loaded'),
+      error: 'Reasoning effort options could not be loaded from the installed Copilot CLI. Set reasoning effort to None or try again after capabilities are available.',
     }));
     expect(memoryFs.files.get(registryPath)).toBe(asJson(registryDocument));
   });
@@ -884,6 +899,20 @@ describe('agentExtensionCatalog handlers', () => {
     expect(result).toEqual(
       expect.objectContaining({ ok: false, action: 'agentConfig.saveExtensionAssignments' }),
     );
+  });
+
+  it('saveExtensionAssignments rejects an unknown agent ID against the descriptor roster', async () => {
+    const handlers = createAgentExtensionCatalogHandlers({ repoRoot });
+
+    const result = await handlers.saveExtensionAssignments({
+      assignments: [{ agent_id: 'not-a-real-agent', extension_ids: ['my-skill'] }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ ok: false, action: 'agentConfig.saveExtensionAssignments' });
+    // The unknown ID is named in the failed save result; persistence is never reached.
+    expect(JSON.stringify(result)).toContain('not-a-real-agent');
+    expect(mockSaveAgentLaunchExtensionAssignments).not.toHaveBeenCalled();
   });
 
   it('existing model-save behavior is unaffected by extension handler changes', async () => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
-import { createNamedWorkflowAgentRoster, type NamedWorkflowAgentRoster } from '../../shared/agentRoster';
 import { createLogger } from '../log/logger';
 import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
@@ -37,7 +36,6 @@ export type McpServerFormDraft = {
   env: Array<{ key: string; value: string }>;
   cwd: string;
   tools: string;
-  agent_ids: string[];
   enabled: boolean;
 };
 
@@ -49,7 +47,6 @@ export type McpConfigModalProps = {
   fieldErrors: Record<string, string>;
   editingServerId: string | null;
   draft: McpServerFormDraft;
-  agentRoster?: NamedWorkflowAgentRoster;
   connectionValidation: ConnectionValidationState;
   localEnabled: boolean;
   localCommandCheck: LocalCommandCheckState;
@@ -99,12 +96,9 @@ function emptyDraft(): McpServerFormDraft {
     env: [],
     cwd: '',
     tools: '',
-    agent_ids: [],
     enabled: true,
   };
 }
-
-const EMPTY_AGENT_ROSTER: NamedWorkflowAgentRoster = {};
 
 function serverToDraft(server: ExternalMcpServerEntry): McpServerFormDraft {
   const draft = emptyDraft();
@@ -114,7 +108,6 @@ function serverToDraft(server: ExternalMcpServerEntry): McpServerFormDraft {
   draft.preferred_for = (server.preferred_for ?? []).join('\n');
   draft.fallback_description = server.fallback_description ?? '';
   draft.transport = server.transport;
-  draft.agent_ids = [...server.agent_scope.agent_ids];
   draft.enabled = server.enabled;
   draft.tools = (server.tools ?? []).join('\n');
   if (server.transport === 'local') {
@@ -137,7 +130,6 @@ function draftToEntry(draft: McpServerFormDraft): ExternalMcpServerEntry {
     purpose: draft.purpose,
     ...(preferred_for.length > 0 ? { preferred_for } : {}),
     ...(draft.fallback_description.trim() ? { fallback_description: draft.fallback_description.trim() } : {}),
-    agent_scope: { mode: 'allowlist' as const, agent_ids: draft.agent_ids },
     enabled: draft.enabled,
   };
 
@@ -190,7 +182,6 @@ export function useMcpConfigModal(
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpServerFormDraft>(emptyDraft());
-  const [agentRoster, setAgentRoster] = useState<NamedWorkflowAgentRoster>(EMPTY_AGENT_ROSTER);
   const [connectionValidation, setConnectionValidation] = useState<ConnectionValidationState>({ status: 'idle' });
   const [localEnabled, setLocalEnabled] = useState(false);
   const [localCommandCheck, setLocalCommandCheck] = useState<LocalCommandCheckState>({ status: 'idle' });
@@ -217,28 +208,16 @@ export function useMcpConfigModal(
     }
   }, [client]);
 
-  const loadProviderRoster = useCallback(async () => {
-    try {
-      const descriptor = await client.describeActiveProvider();
-      setAgentRoster(createNamedWorkflowAgentRoster(descriptor));
-    } catch (err: unknown) {
-      const message = mcpErrorMessage(err, 'Unable to load provider roster.');
-      log.warn('mcp.provider-roster.load.failed', { reason: message });
-    }
-  }, [client]);
-
   useEffect(() => {
     loadServers().catch(() => {});
-    loadProviderRoster().catch(() => {});
-  }, [loadProviderRoster, loadServers]);
+  }, [loadServers]);
 
   const openMcpConfigModal = useCallback(() => {
     setIsOpen(true);
     setView('list');
     setRemovingServerId(null);
     loadServers().catch(() => {});
-    loadProviderRoster().catch(() => {});
-  }, [loadProviderRoster, loadServers]);
+  }, [loadServers]);
 
   const onClose = useCallback(() => {
     setIsOpen(false);
@@ -277,6 +256,9 @@ export function useMcpConfigModal(
         if (result.ok && result.response.action === 'externalMcp.remove') {
           setServers(result.response.servers);
           setRemovingServerId(null);
+          // The server was removed but assignment cleanup failed; surface it so
+          // the operator knows the assignment store may need manual repair.
+          setError(result.response.warning ?? null);
           // Clear form state if the removed server was being edited.
           if (editingServerId === serverId) {
             setView('list');
@@ -537,7 +519,6 @@ export function useMcpConfigModal(
       fieldErrors: { ...descriptionFieldErrors, ...fieldErrors },
       editingServerId,
       draft,
-      agentRoster,
       connectionValidation,
       localEnabled,
       localCommandCheck,

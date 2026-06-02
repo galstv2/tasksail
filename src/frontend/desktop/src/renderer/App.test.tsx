@@ -142,7 +142,7 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole('button', { name: 'Plan with Lily' }),
+        screen.getByRole('button', { name: 'Plan Task' }),
       ).toBeInTheDocument();
     });
   });
@@ -195,12 +195,12 @@ describe("App", () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Plan with Lily' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Plan Task' })).toBeInTheDocument();
     });
 
     expect(screen.queryByRole('dialog', { name: 'Planning agent' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Plan with Lily' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Plan Task' }));
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'Planning agent' })).toBeInTheDocument();

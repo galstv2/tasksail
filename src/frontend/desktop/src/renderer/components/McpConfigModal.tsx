@@ -4,11 +4,6 @@ import type { McpConfigModalProps } from '../hooks/useMcpConfigModal';
 import { CloseIcon } from './creation-steps/icons';
 import McpServerForm from './McpServerForm';
 
-function agentScopeBadge(count: number, totalAgents: number): string {
-  if (totalAgents > 0 && count >= totalAgents) return 'all agents';
-  return `${count} agent${count !== 1 ? 's' : ''}`;
-}
-
 function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
   const {
     isOpen,
@@ -16,7 +11,6 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
     servers,
     error,
     removingServerId,
-    agentRoster = {},
     onClose,
     onToggleEnabled,
     onRemove,
@@ -84,7 +78,6 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
               fieldErrors={props.fieldErrors}
               saving={props.saving}
               saveEnabled={props.saveEnabled}
-              agentRoster={agentRoster}
               error={error}
               onDraftChange={props.onDraftChange}
               onValidateConnection={props.onValidateConnection}
@@ -120,9 +113,6 @@ function McpConfigModal(props: McpConfigModalProps): JSX.Element | null {
                         </span>
                         <span className="mcp-modal__item-pmdges">
                           <span className="mcp-modal__pmdge">{server.transport}</span>
-                          <span className="mcp-modal__pmdge">
-                            {agentScopeBadge(server.agent_scope.agent_ids.length, Object.keys(agentRoster).length)}
-                          </span>
                         </span>
                       </div>
                       <div className="mcp-modal__item-actions">

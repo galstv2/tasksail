@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { parseSourceManifest, serializeSourceManifest } from '../sourceManifest.js';
 import type { AgentExtensionSourceManifestEntry, AgentExtensionsSourceManifest } from '../types.js';
 
+const ACTIVE_PROVIDER_ID = 'copilot';
+
 const VALID_GIT_ENTRY = {
   id: 'my-skill',
   kind: 'skill',
-  provider_id: 'copilot',
+  provider_id: ACTIVE_PROVIDER_ID,
   display_name: 'My Skill',
   description: 'A test skill',
   enabled: true,
@@ -19,9 +21,13 @@ const VALID_MANIFEST = JSON.stringify({
 
 const EMPTY_MANIFEST = JSON.stringify({ schema_version: 1, extensions: [] });
 
+function parse(raw: string, context = 'test'): AgentExtensionsSourceManifest {
+  return parseSourceManifest(raw, context, ACTIVE_PROVIDER_ID);
+}
+
 describe('parseSourceManifest', () => {
   it('parses a valid manifest with a git skill entry', () => {
-    const result = parseSourceManifest(VALID_MANIFEST, 'test');
+    const result = parse(VALID_MANIFEST);
     expect(result.schema_version).toBe(1);
     expect(result.extensions).toHaveLength(1);
     expect(result.extensions[0].id).toBe('my-skill');
@@ -29,22 +35,22 @@ describe('parseSourceManifest', () => {
   });
 
   it('parses an empty extensions manifest', () => {
-    const result = parseSourceManifest(EMPTY_MANIFEST, 'test');
+    const result = parse(EMPTY_MANIFEST);
     expect(result.extensions).toHaveLength(0);
   });
 
   it('throws on wrong schema_version', () => {
     const raw = JSON.stringify({ schema_version: 2, extensions: [] });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('schema_version must be 1');
+    expect(() => parse(raw)).toThrow('schema_version must be 1');
   });
 
   it('throws on invalid JSON', () => {
-    expect(() => parseSourceManifest('{ broken', 'test')).toThrow();
+    expect(() => parse('{ broken')).toThrow();
   });
 
   it('throws if extensions is not an array', () => {
     const raw = JSON.stringify({ schema_version: 1, extensions: {} });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('extensions array');
+    expect(() => parse(raw)).toThrow('extensions array');
   });
 
   it('throws on invalid ID pattern (uppercase)', () => {
@@ -52,7 +58,7 @@ describe('parseSourceManifest', () => {
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, id: 'Invalid-ID' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('invalid id');
+    expect(() => parse(raw)).toThrow('invalid id');
   });
 
   it('throws on ID that starts with a hyphen', () => {
@@ -60,7 +66,7 @@ describe('parseSourceManifest', () => {
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, id: '-bad' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('invalid id');
+    expect(() => parse(raw)).toThrow('invalid id');
   });
 
   it('throws on duplicate IDs across skill and plugin', () => {
@@ -71,7 +77,7 @@ describe('parseSourceManifest', () => {
         {
           id: 'my-skill',
           kind: 'plugin',
-          provider_id: 'copilot',
+          provider_id: ACTIVE_PROVIDER_ID,
           display_name: 'My Plugin',
           description: 'A plugin',
           enabled: true,
@@ -79,7 +85,7 @@ describe('parseSourceManifest', () => {
         },
       ],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('Duplicate extension ID');
+    expect(() => parse(raw)).toThrow('Duplicate extension ID');
   });
 
   it('throws on plugin with direct-attachment source', () => {
@@ -89,7 +95,7 @@ describe('parseSourceManifest', () => {
         {
           id: 'my-plugin',
           kind: 'plugin',
-          provider_id: 'copilot',
+          provider_id: ACTIVE_PROVIDER_ID,
           display_name: 'My Plugin',
           description: 'A plugin',
           enabled: true,
@@ -97,7 +103,7 @@ describe('parseSourceManifest', () => {
         },
       ],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('direct-attachment');
+    expect(() => parse(raw)).toThrow('direct-attachment');
   });
 
   it('accepts a skill with direct-attachment source', () => {
@@ -107,7 +113,7 @@ describe('parseSourceManifest', () => {
         {
           id: 'my-skill',
           kind: 'skill',
-          provider_id: 'copilot',
+          provider_id: ACTIVE_PROVIDER_ID,
           display_name: 'My Skill',
           description: 'A skill',
           enabled: true,
@@ -115,7 +121,7 @@ describe('parseSourceManifest', () => {
         },
       ],
     });
-    const result = parseSourceManifest(raw, 'test');
+    const result = parse(raw);
     expect(result.extensions[0].source.type).toBe('direct-attachment');
   });
 
@@ -124,7 +130,7 @@ describe('parseSourceManifest', () => {
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, display_name: '' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('display_name');
+    expect(() => parse(raw)).toThrow('display_name');
   });
 
   it('throws on missing description', () => {
@@ -132,7 +138,7 @@ describe('parseSourceManifest', () => {
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, description: '' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('description');
+    expect(() => parse(raw)).toThrow('description');
   });
 
   it('throws on invalid kind', () => {
@@ -140,15 +146,15 @@ describe('parseSourceManifest', () => {
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, kind: 'widget' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('kind');
+    expect(() => parse(raw)).toThrow('kind');
   });
 
-  it('throws on unsupported provider_id', () => {
+  it('throws on provider_id different from the active provider', () => {
     const raw = JSON.stringify({
       schema_version: 1,
       extensions: [{ ...VALID_GIT_ENTRY, provider_id: 'openai' }],
     });
-    expect(() => parseSourceManifest(raw, 'test')).toThrow('provider_id');
+    expect(() => parse(raw)).toThrow('provider_id');
   });
 
   it('accepts local source type', () => {
@@ -162,7 +168,7 @@ describe('parseSourceManifest', () => {
         },
       ],
     });
-    const result = parseSourceManifest(raw, 'test');
+    const result = parse(raw);
     expect(result.extensions[0].source.type).toBe('local');
   });
 });
@@ -197,7 +203,7 @@ describe('serializeSourceManifest', () => {
         {
           id: 'my-skill',
           kind: 'skill',
-          provider_id: 'copilot',
+          provider_id: ACTIVE_PROVIDER_ID,
           display_name: 'My Skill',
           description: 'A test skill',
           enabled: true,
@@ -206,7 +212,7 @@ describe('serializeSourceManifest', () => {
       ],
     };
     const serialized = serializeSourceManifest(manifest);
-    const reparsed = parseSourceManifest(serialized, 'round-trip');
+    const reparsed = parse(serialized, 'round-trip');
     expect(reparsed).toEqual(manifest);
   });
 });

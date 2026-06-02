@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -42,7 +43,7 @@ def run_script(
         cmd: list[str] = ["npx", "tsx", str(script_path), *args]
     elif script_relative_path.endswith(".py"):
         script_path = workspace / script_relative_path
-        cmd = ["python3", str(script_path), *args]
+        cmd = [sys.executable, str(script_path), *args]
     else:
         script_path = workspace / script_relative_path
         cmd = [str(script_path), *args]

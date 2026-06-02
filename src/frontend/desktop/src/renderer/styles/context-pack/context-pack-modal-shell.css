@@ -90,6 +90,19 @@
   background: var(--ts-surface);
 }
 
+/* Review cards: even vertical rhythm so section labels ("Pack summary",
+   "Readiness", "Focus areas") aren't flush against their lists/chip groups.
+   Scoped to the review grid so Setup/Shape cards are unaffected. */
+.context-pack-modal__review-grid .context-pack-modal__editor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.context-pack-modal__review-grid .context-pack-modal__repo-chips {
+  margin-top: 0;
+}
+
 .context-pack-modal__path-row {
   display: flex;
   align-items: center;

@@ -21,6 +21,7 @@ export type RoleKind = 'planner' | 'pm' | 'builder' | 'verifier' | 'qa';
 
 export type ProviderFrontendDescriptor = {
   providerId: string;
+  cliDisplayName: string;
   homeDirName: string;
   registryPath: string;
   agentConfigPaths: ProviderAgentConfigPaths;

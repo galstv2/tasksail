@@ -1,7 +1,7 @@
 import { open, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { readCopilotPluginManifestSummary } from '../../../backend/platform/cli-provider/providers/copilot/launchExtensions.js';
-import type { PlannerLaunchExtensionDirs } from '../../../backend/platform/cli-provider/types.js';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
+import type { CliProvider, PlannerLaunchExtensionDirs } from '../../../backend/platform/cli-provider/types.js';
 import { canonicalRoot, isMissingPathError, isPathWithinBoundary, isRecord, readTextFile, safeJsonParse } from '../../../backend/platform/core/index.js';
 import { createLogger } from './log/logger';
 
@@ -39,7 +39,6 @@ class PocRejection extends Error {
   }
 }
 const LILY_LAUNCH_EXTENSIONS_POC_CONFIG_PATH = '.platform-state/lily-launch-extensions-poc.json';
-const PROVIDER_ID = 'copilot';
 const CONFIG_SOURCE = 'lily-poc-file';
 const MAX_DIRS = 50;
 const MAX_SKILLS = 200;
@@ -51,12 +50,13 @@ const log = createLogger('electron/plannerLaunchExtensionsPoc');
 export async function resolveLilyPlannerLaunchExtensionsPoc(
   repoRoot = process.cwd(),
 ): Promise<ResolvedLilyPlannerLaunchExtensionsPoc> {
+  const provider = getActiveProvider(repoRoot);
   try {
-    return await resolveLilyPlannerLaunchExtensionsPocUnchecked(repoRoot);
+    return await resolveLilyPlannerLaunchExtensionsPocUnchecked(repoRoot, provider);
   } catch (error) {
     if (error instanceof PocRejection) {
       log.warn('planner.launch_extensions.poc.rejected_before_session', {
-        providerId: PROVIDER_ID,
+        providerId: provider.id,
         reasonCode: error.reasonCode,
         configSource: CONFIG_SOURCE,
         ...error.extra,
@@ -68,6 +68,7 @@ export async function resolveLilyPlannerLaunchExtensionsPoc(
 
 async function resolveLilyPlannerLaunchExtensionsPocUnchecked(
   repoRoot: string,
+  provider: Pick<CliProvider, 'id' | 'inspectPluginMetadata'>,
 ): Promise<ResolvedLilyPlannerLaunchExtensionsPoc> {
   const configPath = path.join(repoRoot, LILY_LAUNCH_EXTENSIONS_POC_CONFIG_PATH);
   let raw: string | undefined;
@@ -95,7 +96,7 @@ async function resolveLilyPlannerLaunchExtensionsPocUnchecked(
   if (parsed.schema_version !== 1) {
     rejectPoc('schema-version-invalid', { fieldName: 'schema_version' });
   }
-  if (parsed.provider_id !== PROVIDER_ID) {
+  if (parsed.provider_id !== provider.id) {
     rejectPoc('provider-id-invalid', { fieldName: 'provider_id' });
   }
   if (parsed.enabled !== true) {
@@ -119,11 +120,11 @@ async function resolveLilyPlannerLaunchExtensionsPocUnchecked(
   ]);
   const uniquePlugins = dedupe(resolvedPlugins);
   const uniqueSkills = dedupe(resolvedSkills);
-  const manifests = await Promise.all(uniquePlugins.map(readPluginManifestOrReject));
+  const manifests = await Promise.all(uniquePlugins.map((pluginDir) => readPluginManifestOrReject(pluginDir, provider)));
 
   for (const [index, manifest] of manifests.entries()) {
     log.info('planner.launch_extensions.poc.plugin_components.declared', {
-      providerId: PROVIDER_ID,
+      providerId: provider.id,
       pluginIndex: index,
       declaredComponentClasses: manifest.declaredComponentClasses,
       skillPathCount: manifest.skillPathCount,
@@ -238,9 +239,12 @@ async function statSelectedDir(selectedPath: string, pathCategory: PathCategory)
   }
 }
 
-async function readPluginManifestOrReject(pluginDir: string) {
+async function readPluginManifestOrReject(
+  pluginDir: string,
+  provider: Pick<CliProvider, 'inspectPluginMetadata'>,
+) {
   try {
-    return await readCopilotPluginManifestSummary(pluginDir);
+    return await provider.inspectPluginMetadata(pluginDir);
   } catch (error) {
     const reasonCode = pluginManifestReasonCode(error);
     rejectPoc(reasonCode, { pathCategory: 'plugin' });

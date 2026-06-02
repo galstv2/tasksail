@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,7 +63,7 @@ class ActivateContextPackTests(unittest.TestCase):
         if log_dir is not None:
             env["LOG_DIR"] = str(log_dir)
         return subprocess.run(
-            ["python3", str(self.helper_path), *args],
+            [sys.executable, str(self.helper_path), *args],
             cwd=self.repo_root,
             text=True,
             input=input_text,

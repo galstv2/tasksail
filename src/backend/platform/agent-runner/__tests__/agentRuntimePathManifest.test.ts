@@ -5,8 +5,14 @@ import {
   renderAgentRuntimePathManifestForPrompt,
   type AgentRuntimePathManifestValueKind,
 } from '../agentRuntimePathManifest.js';
-import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
+import { getActiveProvider } from '../../cli-provider/index.js';
 import { SPEC_REQUIRED_SECTION_SPECS } from '../../workflow-policy/models.js';
+
+const provider = getActiveProvider(import.meta.dirname);
+
+function renderManifest(manifest: Parameters<typeof renderAgentRuntimePathManifestForPrompt>[0]): string {
+  return renderAgentRuntimePathManifestForPrompt(manifest, provider);
+}
 
 // Derives the bullet prefix `- NAME (kind): value --` from the production renderer.
 // Centralizes the format so a single template change ripples through one place
@@ -16,7 +22,7 @@ function bulletPrefix(name: string, kind: AgentRuntimePathManifestValueKind, val
     agentId: 'fixture',
     agentCwd: '/fixture',
     entries: [{ name, value, kind, description: 'fixture-description' }],
-  });
+  }, provider);
   const bullet = rendered.split('\n').find((line) => line.startsWith(`- ${name} `));
   if (!bullet) throw new Error(`renderer did not emit a bullet for ${name}`);
   return bullet.replace(/ fixture-description$/, '').trimEnd();
@@ -49,11 +55,11 @@ describe('agentRuntimePathManifest', () => {
       launchPhase: 'Artifact Cleanup',
       agentCwd: '/repo',
       env,
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
     };
 
-    const first = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest(args));
-    const second = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest(args));
+    const first = renderManifest(buildAgentRuntimePathManifest(args));
+    const second = renderManifest(buildAgentRuntimePathManifest(args));
 
     expect(first).toBe(second);
     expect(first).toContain('## Runtime Path Manifest');
@@ -87,12 +93,12 @@ describe('agentRuntimePathManifest', () => {
       providerEnvVars: [],
     });
 
-    expect(prependRuntimePathManifestToPrompt({ prompt: 'Launch prompt.', manifest }))
-      .toBe(`${renderAgentRuntimePathManifestForPrompt(manifest)}\n\nLaunch prompt.`);
+    expect(prependRuntimePathManifestToPrompt({ prompt: 'Launch prompt.', manifest, provider }))
+      .toBe(`${renderManifest(manifest)}\n\nLaunch prompt.`);
   });
 
   it('renders the first-pass product-manager artifact checklist with live paths and required sections', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'product-manager',
       agentCwd: '/repo',
       env: {
@@ -101,7 +107,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-test-001/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
@@ -127,7 +133,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('renders the first-pass qa artifact checklist with live paths and branch evidence references', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'qa',
       agentCwd: '/repo',
       env: {
@@ -138,7 +144,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-test-001/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-test-001/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## QA Artifact Checklist');
@@ -164,7 +170,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('PM markdown-mode checklist preserves slice-template.md and slice-N.md authoring rules', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'product-manager',
       agentCwd: '/repo',
       env: {
@@ -174,7 +180,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-md-001/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-md-001/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
@@ -192,7 +198,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('PM xml-mode checklist names slice-template.xml and slice-N.xml', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'product-manager',
       agentCwd: '/repo',
       env: {
@@ -202,7 +208,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-xml-001/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-xml-001/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
@@ -232,7 +238,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('QA markdown-mode checklist uses slice-*.md glob', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'qa',
       agentCwd: '/repo',
       env: {
@@ -243,7 +249,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-md/ImplementationSteps',
         TASKSAIL_TASK_BRANCHES: '[{"repoId":"platform","role":"primary","branch":"task"}]',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## QA Artifact Checklist');
@@ -253,7 +259,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('QA xml-mode checklist uses slice-*.xml glob', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'qa',
       agentCwd: '/repo',
       env: {
@@ -264,7 +270,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-qa-xml/ImplementationSteps',
         TASKSAIL_TASK_BRANCHES: '[{"repoId":"platform","role":"primary","branch":"task"}]',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## QA Artifact Checklist');
@@ -274,7 +280,7 @@ describe('agentRuntimePathManifest', () => {
   });
 
   it('manifest defaults to markdown format when TASKSAIL_SLICE_ARTIFACT_FORMAT is absent', () => {
-    const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const rendered = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'product-manager',
       agentCwd: '/repo',
       env: {
@@ -283,7 +289,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-no-format/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-no-format/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     const checklist = renderedSection(rendered, '## Product Manager Artifact Checklist');
@@ -303,7 +309,7 @@ describe('agentRuntimePathManifest', () => {
         COPILOT_HANDOFFS_DIR: '/repo/AgentWorkSpace/tasks/task-fmt/handoffs',
         COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-fmt/ImplementationSteps',
       },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
     });
     const formatEntry = manifest.entries.find((e) => e.name === 'TASKSAIL_SLICE_ARTIFACT_FORMAT');
     expect(formatEntry).toBeDefined();
@@ -319,32 +325,32 @@ describe('agentRuntimePathManifest', () => {
       COPILOT_IMPL_STEPS_DIR: '/repo/AgentWorkSpace/tasks/task-test-001/ImplementationSteps',
     };
 
-    const dalton = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const dalton = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'software-engineer',
       agentCwd: '/repo',
       env: baseEnv,
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     expect(dalton).not.toContain('## Product Manager Artifact Checklist');
     expect(dalton).not.toContain('## QA Artifact Checklist');
 
-    const missingPaths = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+    const missingPaths = renderManifest(buildAgentRuntimePathManifest({
       agentId: 'product-manager',
       agentCwd: '/repo',
       env: { TASKSAIL_TASK_ID: 'task-test-001' },
-      providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+      providerEnvVars: provider.runtimeManifestEnvVars(),
       includeRoleArtifactChecklist: true,
     }));
     expect(missingPaths).not.toContain('## Product Manager Artifact Checklist');
 
     for (const launchPhase of ['Artifact Cleanup', 'Revalidation', 'Retrospective', 'Closeout Remediation', 'Policy Remediation', 'Realignment']) {
-      const rendered = renderAgentRuntimePathManifestForPrompt(buildAgentRuntimePathManifest({
+      const rendered = renderManifest(buildAgentRuntimePathManifest({
         agentId: 'qa',
         launchPhase,
         agentCwd: '/repo',
         env: baseEnv,
-        providerEnvVars: copilotProvider.runtimeManifestEnvVars(),
+        providerEnvVars: provider.runtimeManifestEnvVars(),
         includeRoleArtifactChecklist: true,
       }));
       expect(rendered).not.toContain('## Product Manager Artifact Checklist');

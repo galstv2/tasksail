@@ -4,6 +4,7 @@ import { getActiveProvider } from '../../cli-provider/index.js';
 import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import { readTextFile } from '../../core/index.js';
 import { appendMcpContextBlock } from '../pipeline/mcpPromptContext.js';
+import { getCachedExternalMcpAssignments } from '../pipeline/externalMcpRegistryCache.js';
 import type { RealignmentBundle, RetrospectiveDigestEntry, TaskBundleEntry } from './bundle.js';
 
 export async function buildRealignmentPrompt(options: {
@@ -19,7 +20,18 @@ export async function buildRealignmentPrompt(options: {
   }
 
   const parts = [anchor, renderRealignmentContext(options.bundle)];
-  appendMcpContextBlock(parts, options.externalMcpRegistry, 'ron');
+  // The realignment chain (supervisor → reinforcementWrite → driver) threads only
+  // the registry; pair it here with the cached assignment snapshot so this 'ron'
+  // prompt uses the same assignment-based selection as the rest of the pipeline.
+  appendMcpContextBlock(
+    parts,
+    {
+      registry: options.externalMcpRegistry,
+      assignments: getCachedExternalMcpAssignments(options.repoRoot),
+      runtimeToProviderAgentId: (agentId) => getActiveProvider(options.repoRoot).runtimeToProviderAgentId(agentId),
+    },
+    'ron',
+  );
   return parts.filter((part) => part.trim()).join('\n\n---\n\n');
 }
 

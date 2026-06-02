@@ -124,6 +124,7 @@ describe('Copilot planner launch extensions', () => {
     const pluginDir = makePlugin(root, 'plugin');
     writeJson(path.join(pluginDir, manifestLocation), {
       name: 'valid-plugin',
+      description: 'Plugin-visible description.',
       version: '1.0.0',
       hooks: {},
     });
@@ -131,6 +132,7 @@ describe('Copilot planner launch extensions', () => {
     await expect(readCopilotPluginManifestSummary(pluginDir)).resolves.toMatchObject({
       manifestPath: path.join(pluginDir, manifestLocation),
       name: 'valid-plugin',
+      description: 'Plugin-visible description.',
       version: '1.0.0',
       skillPathCount: 0,
       declaredComponentClasses: ['hooks'],

@@ -12,11 +12,6 @@
 
 export type ExternalMcpTransport = 'http' | 'sse' | 'local';
 
-export interface ExternalMcpAgentScope {
-  mode: 'allowlist';
-  agent_ids: string[];
-}
-
 interface ExternalMcpServerBase {
   id: string;
   display_name: string;
@@ -24,7 +19,6 @@ interface ExternalMcpServerBase {
   preferred_for?: string[];
   fallback_description?: string;
   enabled: boolean;
-  agent_scope: ExternalMcpAgentScope;
 }
 
 /** URL-based remote MCP server (http/sse). */

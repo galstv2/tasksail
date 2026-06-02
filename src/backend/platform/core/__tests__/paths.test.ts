@@ -5,6 +5,10 @@ import {
   resolvePaths,
   resolvePath,
   ensurePathWithinDropbox,
+  isPathInsideOrEqual,
+  isPathWithinBoundary,
+  pathIdentityKey,
+  samePathIdentity,
 } from '../paths.js';
 
 describe('findRepoRoot', () => {
@@ -106,5 +110,69 @@ describe('ensurePathWithinDropbox', () => {
     expect(() =>
       ensurePathWithinDropbox('/dropbox', '/other/task.md'),
     ).toThrow('must be written through dropbox');
+  });
+});
+
+describe('isPathInsideOrEqual (POSIX shapes)', () => {
+  const posix = { impl: path.posix };
+  it('treats equal and descendant paths as inside', () => {
+    expect(isPathInsideOrEqual('/root', '/root', posix)).toBe(true);
+    expect(isPathInsideOrEqual('/root', '/root/pack/a', posix)).toBe(true);
+  });
+  it('treats prefix siblings and `..` escapes as outside', () => {
+    expect(isPathInsideOrEqual('/root', '/rootother', posix)).toBe(false);
+    expect(isPathInsideOrEqual('/root', '/root/../etc', posix)).toBe(false);
+    expect(isPathInsideOrEqual('/root', '/other', posix)).toBe(false);
+  });
+});
+
+describe('isPathInsideOrEqual (Windows shapes)', () => {
+  const win = { impl: path.win32 };
+  it('treats equal, descendant, mixed-separator, and UNC paths as inside', () => {
+    expect(isPathInsideOrEqual('C:\\root', 'C:\\root', win)).toBe(true);
+    expect(isPathInsideOrEqual('C:\\root', 'C:\\root\\pack', win)).toBe(true);
+    expect(isPathInsideOrEqual('C:\\root', 'C:/root/pack', win)).toBe(true);
+    expect(isPathInsideOrEqual('\\\\server\\share', '\\\\server\\share\\x', win)).toBe(true);
+  });
+  it('ignores drive/segment casing for identity', () => {
+    expect(isPathInsideOrEqual('C:\\Root', 'c:\\root\\pack', win)).toBe(true);
+  });
+  it('treats prefix siblings, cross-drive, and `..` escapes as outside', () => {
+    expect(isPathInsideOrEqual('C:\\root', 'C:\\rootother', win)).toBe(false);
+    expect(isPathInsideOrEqual('C:\\root', 'D:\\root\\pack', win)).toBe(false);
+    expect(isPathInsideOrEqual('C:\\root', 'C:\\root\\..\\x', win)).toBe(false);
+  });
+});
+
+describe('isPathWithinBoundary delegates to the hardened check', () => {
+  it('no longer treats a prefix sibling as inside (regression guard)', () => {
+    // path.resolve on the host normalizes these; a prefix sibling must be rejected.
+    expect(isPathWithinBoundary('/srv/app', '/srv/app-extra')).toBe(false);
+    expect(isPathWithinBoundary('/srv/app', '/srv/app/sub')).toBe(true);
+    expect(isPathWithinBoundary('/srv/app', '/srv/app')).toBe(true);
+  });
+});
+
+describe('pathIdentityKey / samePathIdentity', () => {
+  it('case-folds on Windows but preserves POSIX case sensitivity', () => {
+    expect(pathIdentityKey('C:\\Repo\\Pack', { impl: path.win32 })).toBe(
+      pathIdentityKey('c:\\repo\\pack', { impl: path.win32 }),
+    );
+    expect(pathIdentityKey('/Repo/Pack', { impl: path.posix })).not.toBe(
+      pathIdentityKey('/repo/pack', { impl: path.posix }),
+    );
+  });
+
+  it('samePathIdentity matches Windows drive/segment casing, rejects siblings', () => {
+    expect(samePathIdentity('C:\\Repo', 'c:\\repo', { impl: path.win32 })).toBe(true);
+    expect(samePathIdentity('C:\\Repo', 'C:\\Repo2', { impl: path.win32 })).toBe(false);
+    expect(samePathIdentity('/repo', '/repo', { impl: path.posix })).toBe(true);
+    expect(samePathIdentity('/repo', '/Repo', { impl: path.posix })).toBe(false);
+  });
+
+  it('does not mutate the input value (identity key is comparison-only)', () => {
+    const original = 'C:\\Repo\\Pack';
+    pathIdentityKey(original, { impl: path.win32 });
+    expect(original).toBe('C:\\Repo\\Pack');
   });
 });

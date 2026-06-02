@@ -12,7 +12,7 @@ import { assertHealthSpecsConfigured } from './healthcheck.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
-import { createSharedMcpBootstrapEnv, sweepLegacyPortAllocationsOnce } from './sharedMcp.js';
+import { createSharedMcpComposeBootstrapEnv, sweepLegacyPortAllocationsOnce } from './sharedMcp.js';
 import { stopDirectMcp } from './directRuntimeProcess.js';
 import path from 'node:path';
 
@@ -85,13 +85,14 @@ async function main(): Promise<void> {
       const buildFlag = args.includes('--build');
       const composeFileArg = extractArg(args, '--compose-file');
       const platformConfig = await getPlatformConfig(repoRoot);
+      const bootstrapEnv = await createSharedMcpComposeBootstrapEnv(platformConfig.mcp_port, repoRoot);
 
       await sweepLegacyPortAllocationsOnce(repoRoot);
       await runtime.bootstrap({
         repoRoot,
         composeFile: composeFileArg,
         build: buildFlag,
-        env: createSharedMcpBootstrapEnv(platformConfig.mcp_port),
+        env: bootstrapEnv,
       });
       writeProtocolStdout('Bootstrap complete.\n');
       break;

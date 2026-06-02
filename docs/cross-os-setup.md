@@ -29,11 +29,21 @@
 - Repo and context pack on the Windows filesystem (for example, `C:\Users\you\projects\TaskSail`)
 - To run the engine inside a named WSL distro instead, set `container_engine_host: "wsl"` and `container_engine_wsl_distro` in `.platform-state/platform.json` (see CONTAINER_ENGINE_HOST below)
 
+## Container runtime matrix
+
+| Runtime value | Supported on | Notes |
+|---|---|---|
+| `docker` (default) | macOS, Linux, Windows | Requires Docker Desktop (macOS/Windows) or native Docker (Linux). Uses the integrated `docker compose` subcommand. |
+| `podman` | macOS, Linux, Windows | Requires Podman Desktop (macOS/Windows) or native Podman (Linux). Uses the integrated `podman compose` subcommand. |
+| `direct` | macOS, Linux, Windows | Explicit operator override — starts the MCP as a local process without a container engine (no Docker/Podman needed). On Windows the daemon is terminated with `taskkill /T /F`. |
+
+TaskSail uses the integrated `docker compose` / `podman compose` subcommands. Standalone `docker-compose` and `podman-compose` are not required and are not used.
+
 ## CONTAINER_RUNTIME
 
-- Persistent operator choice lives in `.platform-state/platform.json`
+- Persistent operator choice lives in `.platform-state/platform.json`; the checked-in default is `docker`
 - `CONTAINER_RUNTIME` env var is a temporary session override (debug/CI only)
-- `container_runtime` selects Docker vs Podman only; it does not select where the engine is hosted
+- `container_runtime` selects the runtime; it does not select where the engine is hosted
 
 ## CONTAINER_ENGINE_HOST
 
@@ -56,6 +66,56 @@
 
 - Windows directory junctions that resolve unexpectedly via `realpathSync` are unsupported for context-pack internals
 - Docker Desktop 4.x+ with WSL2 backend is the supported floor on Windows
+
+## Enterprise mirrors / internal registries
+
+Air-gapped, VPN-only, or firewalled environments can route npm, PyPI, and
+container base images through an internal mirror (such as JFrog Artifactory).
+Setting none of these variables leaves the public-registry defaults in place.
+
+There are two distinct phases, and they read different variables:
+
+1. **First install (before TaskSail code runs).** Package managers do not read
+   the repo `.env` file, so export the package-manager-native variables in your
+   shell before the first install — that is, before `pnpm install`, `npm ci`, or
+   `pip install`.
+
+   ```bash
+   # macOS / Linux (POSIX shell)
+   export NPM_CONFIG_REGISTRY="https://artifactory.example.internal/api/npm/npm-virtual/"
+   export NPM_CONFIG_REPLACE_REGISTRY_HOST=npmjs
+   export PIP_INDEX_URL="https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
+   ```
+
+   ```powershell
+   # Windows (PowerShell)
+   $env:NPM_CONFIG_REGISTRY = "https://artifactory.example.internal/api/npm/npm-virtual/"
+   $env:NPM_CONFIG_REPLACE_REGISTRY_HOST = "npmjs"
+   $env:PIP_INDEX_URL = "https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
+   ```
+
+2. **Steady state (after `.env` exists).** `pnpm run setup` reads the TaskSail
+   alias variables — `TASKSAIL_NPM_REGISTRY`, `TASKSAIL_NPM_AUTH_TOKEN`,
+   `TASKSAIL_PYPI_INDEX_URL` — from `process.env` and the repo `.env`
+   (`process.env` wins) and writes the generated, git-ignored helper files
+   `.npmrc`, `src/frontend/desktop/.npmrc`, and credential-free
+   `.platform-state/pip.conf`. The npm auth token is only referenced as
+   `${TASKSAIL_NPM_AUTH_TOKEN}`; TaskSail never writes the raw token.
+   Credential-bearing PyPI URLs stay shell-exported through `PIP_INDEX_URL` and
+   are not persisted. The PyPI helper config is only consulted by `pip` when
+   `PIP_CONFIG_FILE` points at it.
+
+### Docker / Podman base images
+
+Override the build base images with `TASKSAIL_PYTHON_BASE_IMAGE` (default
+`python:3.12-alpine`, applied through TaskSail bootstrap for the repo-context-mcp
+image) and, for direct `docker build` / `podman build`,
+`TASKSAIL_ALPINE_BASE_IMAGE` (default `alpine:3.20`). Private base-image
+registries still authenticate with `docker login`, `podman login`, or your
+engine's native configuration — TaskSail does not store registry credentials.
+
+Do not hand-edit tracked lockfiles, tracked Dockerfiles, or the generated local
+config files; configure the variables above instead.
 
 ## Windows Copy-on-Write (ReFS / Dev Drive)
 

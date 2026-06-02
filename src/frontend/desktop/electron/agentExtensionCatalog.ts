@@ -10,11 +10,11 @@ import type {
   AgentExtensionRendererCatalogEntry,
   AgentLaunchExtensionAssignments,
 } from '../../../backend/platform/agent-extensions/index.js';
+import { getProviderFrontendDescriptor } from '../../../backend/platform/cli-provider/index.js';
 
 import type {
   AgentConfigAddExtensionRequest,
   AgentConfigSaveExtensionAssignmentsRequest,
-  AgentExtensionAgentId,
 } from '../src/shared/desktopContractAgentConfig';
 import type { DesktopInvokeResult } from '../src/shared/desktopContract';
 import { REPO_ROOT } from './paths';
@@ -191,10 +191,23 @@ export function createAgentExtensionCatalogHandlers(
       payload: AgentConfigSaveExtensionAssignmentsRequest['payload'],
     ): Promise<DesktopInvokeResult> => {
       try {
+        const rosterIds = new Set(
+          getProviderFrontendDescriptor(repoRoot).roster.map((entry) => entry.agentId),
+        );
+        const unknownAgentIds = payload.assignments
+          .map((a) => a.agent_id)
+          .filter((agentId) => !rosterIds.has(agentId));
+        if (unknownAgentIds.length > 0) {
+          return fail(
+            'agentConfig.saveExtensionAssignments',
+            `Unknown agent ID(s): ${unknownAgentIds.join(', ')}.`,
+            [`Valid agent IDs: ${[...rosterIds].join(', ')}.`],
+          );
+        }
         const assignments: AgentLaunchExtensionAssignments = {
           schema_version: 1,
           assignments: payload.assignments.map((a) => ({
-            agent_id: a.agent_id as AgentExtensionAgentId,
+            agent_id: a.agent_id as AgentLaunchExtensionAssignments['assignments'][number]['agent_id'],
             extension_ids: [...a.extension_ids],
           })),
         };

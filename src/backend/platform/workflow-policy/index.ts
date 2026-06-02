@@ -15,7 +15,6 @@ export type {
 } from './types.js';
 
 export {
-  AGENT_MODEL_CATALOG_RELATIVE_PATH,
   AGENT_MODEL_PATTERN,
   ALLOWED_DIFFICULTY_LEVELS,
   CONTENT_SECTION_EXCLUSIONS,
@@ -30,7 +29,7 @@ export {
   METADATA_LINE,
   MODE_CHOICES,
   OUTPUT_CHOICES,
-  REQUIRED_AGENT_REGISTRY_FIELDS,
+  PLATFORM_REQUIRED_AGENT_REGISTRY_FIELDS,
   RETROSPECTIVE_INPUT_RELATIVE_PATH,
   SECTION_HEADING,
   type SemanticSectionSpec,
@@ -45,6 +44,7 @@ export {
   policyResultToJSON,
   sortViolations,
   getAgentRegistryRelativePath,
+  getRequiredAgentRegistryFields,
 } from './models.js';
 
 export {

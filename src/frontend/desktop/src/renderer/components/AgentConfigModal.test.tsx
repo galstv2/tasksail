@@ -46,6 +46,7 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
         effortDisabled: false,
         currentModelMissing: false,
         selectedExtensionIds: [],
+        selectedExternalMcpIds: [],
       },
       {
         agent_id: 'provider-builder',
@@ -68,6 +69,7 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
         effortDisabled: false,
         currentModelMissing: true,
         selectedExtensionIds: [],
+        selectedExternalMcpIds: [],
       },
     ],
     models: [
@@ -135,6 +137,9 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
     onDeleteExtension: vi.fn().mockResolvedValue(undefined),
     onToggleExtensionAssignment: vi.fn(),
     onSaveAssignments: vi.fn().mockResolvedValue(undefined),
+    externalMcpServers: [],
+    externalMcpAssignments: {},
+    onToggleExternalMcpAssignment: vi.fn(),
     ...overrides,
   };
 }
@@ -589,5 +594,34 @@ describe('AgentConfigModal', () => {
 
     rerender(<AgentConfigModal {...defaultProps({ activeTab: 'skills-plugins', isAssignmentsDirty: true })} />);
     expect(screen.queryByText('Save Assignments')).toBeNull();
+  });
+
+  it('renders no External MCP selector when no external MCP servers exist', () => {
+    render(<AgentConfigModal {...defaultProps({ externalMcpServers: [] })} />);
+    expect(screen.queryByRole('button', { name: /Select external MCP servers for/ })).toBeNull();
+  });
+
+  it('renders an External MCP selector per agent when servers exist', () => {
+    render(<AgentConfigModal {...defaultProps({
+      externalMcpServers: [
+        { id: 'vendor-docs', display_name: 'Vendor Docs', purpose: 'Docs for billing flows.', enabled: true, transport: 'sse', url: 'https://mcp.example.com/sse' },
+      ],
+    })} />);
+    expect(screen.getByRole('button', { name: 'Select external MCP servers for Lily' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Select external MCP servers for Dalton' })).toBeTruthy();
+    expect(screen.getAllByText('Select external MCP servers...').length).toBeGreaterThan(0);
+  });
+
+  it('exposes the contract listbox and option aria labels (with transport trailing)', () => {
+    render(<AgentConfigModal {...defaultProps({
+      externalMcpServers: [
+        { id: 'vendor-docs', display_name: 'Vendor Docs', purpose: 'Docs for billing flows.', enabled: true, transport: 'sse', url: 'https://mcp.example.com/sse' },
+        { id: 'old-tool', display_name: 'Old Tool', purpose: 'Disabled server for trailing-label coverage.', enabled: false, transport: 'http', url: 'https://mcp.example.com/old' },
+      ],
+    })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Select external MCP servers for Lily' }));
+    expect(screen.getByRole('listbox', { name: 'Lily external MCP assignments' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Assign Vendor Docs (SSE) to Lily' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Assign Old Tool (Disabled) to Lily' })).toBeTruthy();
   });
 });

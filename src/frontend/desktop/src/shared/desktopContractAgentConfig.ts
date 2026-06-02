@@ -6,13 +6,11 @@
 
 export type AgentExtensionKind = 'skill' | 'plugin';
 export type AgentExtensionSourceType = 'git' | 'local' | 'direct-attachment';
-export type AgentExtensionProviderId = 'copilot';
-export type AgentExtensionAgentId =
-  | 'planning-agent'
-  | 'product-manager'
-  | 'software-engineer'
-  | 'software-engineer-verify'
-  | 'qa';
+export type AgentExtensionProviderId = string;
+// Provider-neutral: the concrete valid agent-ID set is the active provider's roster,
+// validated at the Electron save handlers against getProviderFrontendDescriptor —
+// not a frontend-hardcoded union.
+export type AgentExtensionAgentId = string;
 
 /** Renderer-safe catalog entry: no raw source paths, no runtime_path, no receipt bodies. */
 export type AgentExtensionRendererCatalogEntry = {
@@ -151,6 +149,44 @@ export type AgentConfigSaveExtensionAssignmentsResponse = {
   mode: 'mutated';
   message: string;
   assignments: AgentLaunchExtensionAssignments['assignments'];
+};
+
+// ── External MCP agent assignments ─────────────────────────────────────────────
+// Durable per-agent assignment of external MCP servers, keyed by provider
+// registry agent ID. Stored in .platform-state/external-mcp-agent-assignments.json.
+
+export type ExternalMcpAgentAssignments = {
+  schema_version: 1;
+  assignments: Array<{
+    agent_id: AgentExtensionAgentId;
+    external_mcp_server_ids: string[];
+  }>;
+};
+
+export type AgentConfigLoadExternalMcpAssignmentsRequest = {
+  action: 'agentConfig.loadExternalMcpAssignments';
+  payload?: undefined;
+};
+
+export type AgentConfigLoadExternalMcpAssignmentsResponse = {
+  action: 'agentConfig.loadExternalMcpAssignments';
+  mode: 'read-only';
+  message: string;
+  assignments: ExternalMcpAgentAssignments['assignments'];
+};
+
+export type AgentConfigSaveExternalMcpAssignmentsRequest = {
+  action: 'agentConfig.saveExternalMcpAssignments';
+  payload: {
+    assignments: ExternalMcpAgentAssignments['assignments'];
+  };
+};
+
+export type AgentConfigSaveExternalMcpAssignmentsResponse = {
+  action: 'agentConfig.saveExternalMcpAssignments';
+  mode: 'mutated';
+  message: string;
+  assignments: ExternalMcpAgentAssignments['assignments'];
 };
 
 // ── Existing agent config types ────────────────────────────────────────────────

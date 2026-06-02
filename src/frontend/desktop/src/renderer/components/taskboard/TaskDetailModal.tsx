@@ -3,8 +3,10 @@ import MarkdownView from '../MarkdownView';
 import ModalShell from '../ModalShell';
 import TerminalSelectMenu, { type TerminalSelectMenuOption } from '../TerminalSelectMenu';
 
-export type TaskDetailModalChildChainAction = {
-  onViewChain: () => void;
+export type TaskDetailModalFooterAction = {
+  label: string;
+  ariaLabel: string;
+  onClick: () => void;
   disabled?: boolean;
   loading?: boolean;
 };
@@ -22,7 +24,7 @@ export type TaskDetailModalProps = {
     onSelectArtifact: (relativePath: string) => void;
     disabled?: boolean;
   };
-  childChainAction?: TaskDetailModalChildChainAction;
+  footerAction?: TaskDetailModalFooterAction;
 };
 
 const COLUMN_LABELS: Record<TaskBoardContentColumn, string> = {
@@ -62,7 +64,7 @@ function TaskDetailModal({
   zIndex,
   escPriority,
   artifactExplorer,
-  childChainAction,
+  footerAction,
 }: TaskDetailModalProps): JSX.Element {
   const showArtifactExplorer =
     column === 'completed' && !!artifactExplorer && artifactExplorer.artifacts.length > 1;
@@ -87,16 +89,16 @@ function TaskDetailModal({
       escPriority={escPriority}
       footer={<>
         <span className="modal-shell__footer-esc">ESC to close</span>
-        {column === 'completed' && childChainAction && (
+        {column === 'completed' && footerAction && (
           <button
             type="button"
-            className="task-detail-modal__view-chain-btn"
-            onClick={childChainAction.onViewChain}
-            disabled={childChainAction.disabled || childChainAction.loading}
-            aria-busy={childChainAction.loading || undefined}
-            aria-label="View child chain repos and branches"
+            className="task-detail-modal__branch-action-btn"
+            onClick={footerAction.onClick}
+            disabled={footerAction.disabled || footerAction.loading}
+            aria-busy={footerAction.loading || undefined}
+            aria-label={footerAction.ariaLabel}
           >
-            View Chain
+            {footerAction.label}
           </button>
         )}
         <span className="task-detail-modal__column-badge" data-column={column}>

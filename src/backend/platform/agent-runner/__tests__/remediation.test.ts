@@ -2,32 +2,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { ExternalMcpPromptScope } from '../pipeline/mcpPromptContext.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 
 const runRoleAgent = vi.fn();
 
-const externalRegistry: ExternalMcpRegistry = {
-  schema_version: 1,
-  external_servers: [
-    {
-      id: 'dalton-helper',
-      display_name: 'Dalton Helper',
-      purpose: 'addressing QA findings',
-      enabled: true,
-      transport: 'http',
-      url: 'http://localhost:8080/mcp',
-      agent_scope: { mode: 'allowlist', agent_ids: ['dalton'] },
-    },
-    {
-      id: 'ron-helper',
-      display_name: 'Ron Helper',
-      purpose: 'reviewing remediation evidence',
-      enabled: true,
-      transport: 'http',
-      url: 'http://localhost:8080/mcp',
-      agent_scope: { mode: 'allowlist', agent_ids: ['ron'] },
-    },
-  ],
+// Remediation drives Dalton (software-engineer) and Ron (qa) prompts.
+const externalScope: ExternalMcpPromptScope = {
+  runtimeToProviderAgentId: copilotProvider.runtimeToProviderAgentId,
+  registry: {
+    schema_version: 1,
+    external_servers: [
+      {
+        id: 'dalton-helper',
+        display_name: 'Dalton Helper',
+        purpose: 'addressing QA findings',
+        enabled: true,
+        transport: 'http',
+        url: 'http://localhost:8080/mcp',
+      },
+      {
+        id: 'ron-helper',
+        display_name: 'Ron Helper',
+        purpose: 'reviewing remediation evidence',
+        enabled: true,
+        transport: 'http',
+        url: 'http://localhost:8080/mcp',
+      },
+    ],
+  },
+  assignments: {
+    schema_version: 1,
+    assignments: [
+      { agent_id: 'software-engineer', external_mcp_server_ids: ['dalton-helper'] },
+      { agent_id: 'qa', external_mcp_server_ids: ['ron-helper'] },
+    ],
+  },
 };
 
 vi.mock('../roleAgent.js', () => ({
@@ -94,7 +104,7 @@ describe('remediationRunQaLoop', () => {
         taskId: 'test-task-id',
         maxCycles: 1,
         focusScope: { primaryFocusRelativePath: 'services/sink' },
-        externalMcpRegistry: externalRegistry,
+        externalMcpScope: externalScope,
       }),
     ).rejects.toThrow('failed during QA revalidation');
     expect(
@@ -189,19 +199,25 @@ describe('remediationRunQaLoop', () => {
         repoRoot,
         taskId: 'test-task-id',
         maxCycles: 1,
-        externalMcpRegistry: {
-          schema_version: 1,
-          external_servers: [
-            {
-              id: 'alice-only',
-              display_name: 'Alice Only',
-              purpose: 'planning',
-              enabled: true,
-              transport: 'http',
-              url: 'http://localhost:8080/mcp',
-              agent_scope: { mode: 'allowlist', agent_ids: ['alice'] },
-            },
-          ],
+        externalMcpScope: {
+          runtimeToProviderAgentId: copilotProvider.runtimeToProviderAgentId,
+          registry: {
+            schema_version: 1,
+            external_servers: [
+              {
+                id: 'alice-only',
+                display_name: 'Alice Only',
+                purpose: 'planning',
+                enabled: true,
+                transport: 'http',
+                url: 'http://localhost:8080/mcp',
+              },
+            ],
+          },
+          assignments: {
+            schema_version: 1,
+            assignments: [{ agent_id: 'product-manager', external_mcp_server_ids: ['alice-only'] }],
+          },
         },
       }),
     ).rejects.toThrow('failed during QA revalidation');

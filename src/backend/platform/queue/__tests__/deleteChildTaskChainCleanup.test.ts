@@ -3,6 +3,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { FIXED_TMP_SUFFIX } = vi.hoisted(() => ({ FIXED_TMP_SUFFIX: '0011223344556677' }));
+
+// Pin writeTextFileAtomic's random temp suffix so the write-failure test can
+// occupy that temp path with a directory and force the write to fail.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomBytes: () => Buffer.from(FIXED_TMP_SUFFIX, 'hex') };
+});
+
 import { deleteDropboxItem } from '../deleteDropboxItem.js';
 import { deletePendingItem } from '../deletePendingItem.js';
 import { deleteErrorItem } from '../deleteErrorItem.js';
@@ -134,9 +143,8 @@ describe('delete helpers child-chain cleanup', () => {
     await writeChildTaskChains(repoRoot, before);
     await saveTaskRegistry(repoRoot, { schema_version: 2, tasks: { pack: { open: [], pending: [registryEntry('pending')], active: [], failed: [], completed: [] } } });
     const statePath = path.join(repoRoot, '.platform-state', 'child-task-chains.json');
-    const tempStatePath = `${statePath}.tmp-${process.pid}-515151`;
+    const tempStatePath = `${statePath}.tmp-${process.pid}-${FIXED_TMP_SUFFIX}`;
     mkdirSync(tempStatePath, { recursive: true });
-    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(515151);
 
     await expect(deletePendingItem({ repoRoot, queueName: 'child.md' })).rejects.toThrow();
 
@@ -145,7 +153,6 @@ describe('delete helpers child-chain cleanup', () => {
     await expect(loadTaskRegistry(repoRoot)).resolves.toEqual(expect.objectContaining({
       tasks: expect.objectContaining({ pack: expect.objectContaining({ pending: expect.arrayContaining([expect.objectContaining({ taskId: 'child' })]) }) }),
     }));
-    dateNow.mockRestore();
     rmSync(tempStatePath, { recursive: true, force: true });
   });
 

@@ -288,15 +288,19 @@ Child-task rules:
 
 ## CI and policy gates
 
-- During active implementation, prefer `make test-smoke`,
-  `make test-domain DOMAIN=<name>`, or `make test-targeted CHANGED=<path>` for
-  fast manifest-backed validation.
-- Use `make test-contracts` for docs, operating-model, prompt-contract, and CI
-  contract edits.
+- During active implementation, prefer `pnpm run test:smoke`,
+  `pnpm run test:domain -- --domain <name>`, or
+  `pnpm run test:targeted -- --changed <path>` for fast manifest-backed validation.
+  On Unix/macOS/Linux, `make test-smoke`, `make test-domain DOMAIN=<name>`, and
+  `make test-targeted CHANGED=<path>` are available as convenience aliases; `make`
+  is not available by default on native Windows — use the `pnpm run ...` forms.
+- Use `pnpm run test:contracts` (or `make test-contracts` on Unix/macOS/Linux)
+  for docs, operating-model, prompt-contract, and CI contract edits.
 - Keep tests.md quality aligned with
   `src/backend/platform/workflow-policy/rules/sweExecution.ts` so QA receives
   substantive testing evidence from Dalton.
-- Run `make local-checks` before opening a pull request.
+- Run `pnpm run local-checks` (or `make local-checks` on Unix/macOS/Linux)
+  before opening a pull request.
 - Expect pull requests to pass the `CI`, `Docs Check`, and `CodeQL` workflows
   under `.github/workflows/`.
 - The `CI` workflow separates a smoke lane, a changed-path domain lane for

@@ -1,16 +1,19 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { createLogger, findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
+import { classifyPythonVersion, formatPythonVersion, resolveRuntimePython } from '../core/pythonResolver.js';
 import { createRuntimeFromConfig } from '../container/runtime.js';
-import { sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
+import { createSharedMcpComposeBootstrapEnv, sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
 import { resolveDefaultComposeFile } from '../container/types.js';
 import { seedMcpRegistry } from '../mcp-registry/index.js';
+import { getPlatformConfig } from '../platform-config/get.js';
 import { seedPlatformConfig } from '../platform-config/seed.js';
 import { resolveContainerRuntime } from '../platform-config/resolve.js';
 import { seedDeepFocusIgnoreConfig } from '../deep-focus-ignore/seed.js';
+import { runEnterpriseMirrorsStep } from './enterpriseMirrors.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('platform/setup/setup');
@@ -72,18 +75,29 @@ async function markRuntimeFilesSkipWorktree(repoRoot: string): Promise<string> {
   }
 }
 
-export async function assertPythonOnPath(): Promise<void> {
-  const ok = await new Promise<boolean>((resolve) => {
-    const child = spawn('python3', ['--version'], { stdio: 'ignore' });
-    child.once('error', () => resolve(false));
-    child.once('exit', (code) => resolve(code === 0));
-  });
-  if (ok) return;
+export async function assertPythonOnPath(repoRoot?: string): Promise<void> {
+  let resolved;
+  try {
+    resolved = resolveRuntimePython({ repoRoot });
+  } catch {
+    log.error('python.missing', {
+      message: 'container_runtime is set to "direct", but no usable Python interpreter was found. Install Python 3.12+ (Windows: `py -3.12` or `python`), or set TASKSAIL_PYTHON_312_BIN / TASKSAIL_PYTHON_BIN / PYTHON_BIN.',
+    });
+    process.exit(1);
+  }
 
-  log.error('python3.missing', {
-    message: 'container_runtime is set to "direct", but `python3` was not found on PATH.',
-  });
-  process.exit(1);
+  const classification = classifyPythonVersion(resolved.version);
+  if (classification === 'reject') {
+    log.error('python.version_too_old', {
+      message: `container_runtime is set to "direct", but the resolved Python interpreter (${resolved.candidate.source}: "${resolved.candidate.bin}") is ${formatPythonVersion(resolved.version)}; Python 3.12 is the minimum. Install Python 3.12+ (Windows: \`py -3.12\` or \`python\`), or set TASKSAIL_PYTHON_312_BIN / TASKSAIL_PYTHON_BIN / PYTHON_BIN to a Python 3.12+ interpreter.`,
+    });
+    process.exit(1);
+  }
+  if (classification === 'compatible') {
+    log.warn('python.compatible_fallback', {
+      message: `Using compatible fallback Python ${formatPythonVersion(resolved.version)} from ${resolved.candidate.source}; Python 3.12 is preferred.`,
+    });
+  }
 }
 
 export async function startContainerServices(repoRoot: string): Promise<string> {
@@ -104,11 +118,16 @@ export async function startContainerServices(repoRoot: string): Promise<string> 
       return 'skipped';
     }
 
+    // Pass the same merged compose env as bootstrap so a repo .env
+    // TASKSAIL_PYTHON_BASE_IMAGE override is not bypassed by pnpm run setup.
+    const config = await getPlatformConfig(repoRoot);
+    const composeEnv = await createSharedMcpComposeBootstrapEnv(config.mcp_port, repoRoot);
     await sweepLegacyPortAllocationsOnce(repoRoot);
     await runtime.composeUp({
       composeFile,
       detach: true,
       build: true,
+      env: composeEnv,
     });
 
     return 'ok';
@@ -143,11 +162,22 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
     });
   }
 
+  // Apply enterprise mirror config (after ensure-env, before platform-config-seed)
+  try {
+    steps.push(await runEnterpriseMirrorsStep(root));
+  } catch (err) {
+    steps.push({
+      name: 'enterprise-mirrors',
+      status: 'failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // 3. Seed platform config
   try {
     const platformSeedResult = await seedPlatformConfig(root);
     if (platformSeedResult.action !== 'failed' && await resolveContainerRuntime(root) === 'direct') {
-      await assertPythonOnPath();
+      await assertPythonOnPath(root);
     }
     steps.push({
       name: 'platform-config-seed',

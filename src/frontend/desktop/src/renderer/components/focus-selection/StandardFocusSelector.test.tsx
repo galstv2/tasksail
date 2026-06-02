@@ -28,6 +28,8 @@ function makeTarget(overrides: Partial<ContextPackCatalogEntry['focusTargets'][n
     systemLayer: 'presentation',
     repoRole: null,
     repositoryType: null,
+    repoCategory: null,
+    repoCategoryAuthored: false,
     relativePath: null,
     focusType: null,
     group: null,
@@ -244,6 +246,40 @@ describe('StandardFocusSelector', () => {
 
     expect(onToggleRepositoryType).toHaveBeenNthCalledWith(1, 'repo-1', 'primary');
     expect(onToggleRepositoryType).toHaveBeenNthCalledWith(2, 'repo-2', 'support');
+  });
+
+  it('keeps category metadata separate from focus selection and repository type toggles', () => {
+    const onSelectWorkingFocus = vi.fn();
+    const onToggleRepositoryType = vi.fn();
+    render(
+      <StandardFocusSelector
+        {...makeProps({
+          selectedPack: makePack({
+            focusTargets: [
+              makeTarget({
+                focusId: 'orders-api',
+                repoId: 'orders-api',
+                displayName: 'Orders API',
+                repositoryType: 'support',
+                repoCategory: 'service',
+                repoCategoryAuthored: true,
+              }),
+            ],
+          }),
+          onSelectWorkingFocus,
+          onToggleRepositoryType,
+        })}
+      />,
+    );
+
+    const row = screen.getByText('Orders API').closest('.scope-focus-row')!;
+    expect(row).not.toHaveTextContent('Service');
+
+    fireEvent.click(row);
+    fireEvent.click(screen.getByRole('button', { name: 'Support' }));
+
+    expect(onSelectWorkingFocus).toHaveBeenCalledWith('orders-api');
+    expect(onToggleRepositoryType).toHaveBeenCalledWith('orders-api', 'support');
   });
 
   it('preserves saved Deep Focus fields when toggling Deep Focus mode', () => {

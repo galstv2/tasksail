@@ -10,8 +10,7 @@ import {
   resolveTestCaptureCwd,
 } from './testCapture.js';
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
-import { appendMcpContextBlock } from './mcpPromptContext.js';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import { appendMcpContextBlock, type ExternalMcpPromptScope } from './mcpPromptContext.js';
 import { getActiveProvider } from '../../cli-provider/index.js';
 import { readTaskJsonSafe } from '../../queue/taskJson.js';
 import type { SliceArtifactFormat } from '../../platform-config/types.js';
@@ -185,7 +184,7 @@ async function buildRemediationDaltonPrompt(
   issuesContent: string | undefined,
   implStepsDir: string,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
   const parts: string[] = [
@@ -202,7 +201,7 @@ async function buildRemediationDaltonPrompt(
     '',
   ];
   appendFocusBlock(parts, focusScope);
-  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
+  appendMcpContextBlock(parts, externalMcpScope, 'dalton');
 
   if (issuesContent?.trim()) {
     const handoffsEnvVar = getActiveProvider(repoRoot).promptPathEnvVars().handoffsDir;
@@ -237,7 +236,7 @@ export async function remediationRunQaLoop(options: {
   contextPackDir?: string;
   taskId: string;
   focusScope?: FocusScopePromptOptions;
-  externalMcpRegistry?: ExternalMcpRegistry;
+  externalMcpScope?: ExternalMcpPromptScope;
   abortSignal?: AbortSignal;
 }): Promise<void> {
   const maxCycles = options.maxCycles ?? 3;
@@ -267,7 +266,7 @@ export async function remediationRunQaLoop(options: {
       priorFindings,
       paths.implementationSteps,
       options.focusScope,
-      options.externalMcpRegistry,
+      options.externalMcpScope,
       frozenSliceFormat,
     );
 
@@ -311,8 +310,9 @@ export async function remediationRunQaLoop(options: {
     }
     const ronPromptOverride = buildTestCapturePrompt(
       capture.results,
+      getActiveProvider(paths.repoRoot),
       options.focusScope,
-      options.externalMcpRegistry,
+      options.externalMcpScope,
       undefined,
       frozenSliceFormat,
     );

@@ -1,7 +1,6 @@
 import { collectSliceValidationCommands } from './testCapture.js';
 import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopePrompt.js';
-import { appendMcpContextBlock } from './mcpPromptContext.js';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import { appendMcpContextBlock, type ExternalMcpPromptScope } from './mcpPromptContext.js';
 import type { SliceArtifactFormat } from '../../platform-config/types.js';
 
 /**
@@ -18,7 +17,7 @@ import type { SliceArtifactFormat } from '../../platform-config/types.js';
 export function buildVerificationDaltonPrompt(
   validationCommands: string[],
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   verificationDiffAbsolutePath?: string,
   verificationDiffWarning?: string,
 ): string {
@@ -83,7 +82,7 @@ export function buildVerificationDaltonPrompt(
     '',
   ];
   appendFocusBlock(parts, focusScope);
-  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton-verify');
+  appendMcpContextBlock(parts, externalMcpScope, 'dalton-verify');
 
   if (verificationDiffAbsolutePath || verificationDiffWarning) {
     parts.push('## Verification Diff File\n');
@@ -122,7 +121,7 @@ export async function resolveVerificationDaltonPrompt(
   _handoffsDir: string,
   implStepsDir: string,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   verificationDiffAbsolutePath?: string,
   verificationDiffWarning?: string,
   format: SliceArtifactFormat = 'markdown',
@@ -135,7 +134,7 @@ export async function resolveVerificationDaltonPrompt(
   return buildVerificationDaltonPrompt(
     commands,
     focusScope,
-    externalMcpRegistry,
+    externalMcpScope,
     verificationDiffAbsolutePath,
     verificationDiffWarning,
   );

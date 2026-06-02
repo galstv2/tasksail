@@ -31,8 +31,22 @@ import {
   windowsVolumesShareReFS,
 } from './platform.js';
 import { createLogger } from './logger.js';
+import { samePathIdentity } from './paths.js';
 
 const execFile = promisify(execFileCb);
+
+/**
+ * Parse `git worktree list --porcelain` output into per-worktree blocks of
+ * lines, tolerant of LF or CRLF endings. A plain split('\n\n') fails on CRLF
+ * (`\r\n\r\n` contains no `\n\n`), which would collapse every worktree into a
+ * single block and break collision detection on Windows / autocrlf checkouts.
+ */
+export function parseWorktreePorcelainBlocks(porcelain: string): string[][] {
+  return porcelain
+    .split(/\r?\n\r?\n/)
+    .map((block) => block.split(/\r?\n/).filter(Boolean))
+    .filter((lines) => lines.length > 0);
+}
 const log = createLogger('platform/core/worktreeMaterialization');
 
 // ---------------------------------------------------------------------------
@@ -290,12 +304,11 @@ export async function newBranchPreconditionsPass(
     resolvedWorktreePath = path.normalize(worktreePath);
   }
 
-  for (const block of porcelain.split('\n\n')) {
-    const lines = block.split('\n').filter(Boolean);
+  for (const lines of parseWorktreePorcelainBlocks(porcelain)) {
     const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length).trim();
     const branch = lines.find((l) => l.startsWith('branch '))?.slice('branch '.length).trim();
 
-    if (wtPath && path.normalize(wtPath) === resolvedWorktreePath) {
+    if (wtPath && samePathIdentity(wtPath, resolvedWorktreePath)) {
       return {
         ok: false,
         reason: 'worktree-already-bound',
@@ -352,12 +365,11 @@ export async function existingBranchPreconditionsPass(
     resolvedWorktreePath = path.normalize(worktreePath);
   }
 
-  for (const block of porcelain.split('\n\n')) {
-    const lines = block.split('\n').filter(Boolean);
+  for (const lines of parseWorktreePorcelainBlocks(porcelain)) {
     const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length).trim();
     const branch = lines.find((l) => l.startsWith('branch '))?.slice('branch '.length).trim();
 
-    if (wtPath && path.normalize(wtPath) === resolvedWorktreePath) {
+    if (wtPath && samePathIdentity(wtPath, resolvedWorktreePath)) {
       return {
         ok: false,
         reason: 'worktree-already-bound',

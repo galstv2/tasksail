@@ -3,14 +3,16 @@ import { readTextFile } from '../core/index.js';
 import path from 'node:path';
 import type { ResolvedContext } from './types.js';
 import { toRegistryId } from './metadata.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 
 /** Registry IDs of active agents that require conventions context. */
 const CONVENTIONS_AGENTS = new Set([
   'software-engineer',
 ]);
 
-export function resolveBehavioralBaseRegistryId(agentId: AgentId): string {
-  const registryId = toRegistryId(agentId);
+export function resolveBehavioralBaseRegistryId(provider: CliProvider, agentId: AgentId): string {
+  const registryId = toRegistryId(provider, agentId);
   if (registryId === 'software-engineer-verify') {
     return 'software-engineer';
   }
@@ -20,8 +22,8 @@ export function resolveBehavioralBaseRegistryId(agentId: AgentId): string {
 /**
  * Check whether an agent role requires conventions context injection.
  */
-export function roleRequiresConventions(agentId: AgentId): boolean {
-  return CONVENTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(agentId));
+export function roleRequiresConventions(provider: CliProvider, agentId: AgentId): boolean {
+  return CONVENTIONS_AGENTS.has(resolveBehavioralBaseRegistryId(provider, agentId));
 }
 
 /**
@@ -34,7 +36,7 @@ export async function resolveConventionsContext(
   contextPackDir: string | undefined,
   repoRoot: string,
 ): Promise<ResolvedContext> {
-  if (!roleRequiresConventions(agentId)) {
+  if (!roleRequiresConventions(getActiveProvider(repoRoot), agentId)) {
     return {
       status: 'not-applicable',
       reason: 'Agent role does not require conventions context by default.',

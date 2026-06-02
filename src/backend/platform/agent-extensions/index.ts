@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { createLogger } from '../core/logger.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 import {
   buildDefaultFs,
   materializeExtension,
@@ -158,6 +160,7 @@ async function deriveRendererEntry(
   repoRoot: string,
   entry: AgentExtensionSourceManifestEntry,
   fs: AgentExtensionFsAdapter,
+  provider: Pick<CliProvider, 'inspectPluginMetadata'>,
 ): Promise<AgentExtensionRendererCatalogEntry> {
   const psDir = platformStateDir(repoRoot);
   const runtimePath = runtimeCopyDir(psDir, entry.kind, entry.id);
@@ -189,9 +192,9 @@ async function deriveRendererEntry(
   // Best-effort metadata read from runtime copy
   try {
     const meta = await inspectAgentExtensionMetadata({
-      providerId: entry.provider_id,
       kind: entry.kind,
       runtimePath,
+      inspectPluginMetadata: (pluginRuntimePath) => provider.inspectPluginMetadata(pluginRuntimePath),
     });
     runtimeEntry.metadata = meta.metadata;
   } catch {
@@ -206,9 +209,10 @@ export async function listAgentExtensions(
   seams?: AgentExtensionMutationSeams,
 ): Promise<AgentExtensionRendererCatalogEntry[]> {
   const fs = seams?.fs ?? buildDefaultFs();
-  const manifest = await readSourceManifest(repoRoot, fs);
+  const provider = getActiveProvider(repoRoot);
+  const manifest = await readSourceManifest(repoRoot, fs, provider.id);
   const results = await Promise.all(
-    manifest.extensions.map((entry) => deriveRendererEntry(repoRoot, entry, fs)),
+    manifest.extensions.map((entry) => deriveRendererEntry(repoRoot, entry, fs, provider)),
   );
   return results;
 }
@@ -219,6 +223,10 @@ export async function addAgentExtension(
   seams?: AgentExtensionMutationSeams,
 ): Promise<AgentExtensionRendererCatalogEntry> {
   const fs = seams?.fs ?? buildDefaultFs();
+  const provider = getActiveProvider(repoRoot);
+  if (request.provider_id !== provider.id) {
+    throw new Error(`Unsupported provider_id "${request.provider_id}". Expected active provider "${provider.id}".`);
+  }
 
   // Reject plugin direct-attachment before any IO
   if (request.kind === 'plugin') {
@@ -235,7 +243,7 @@ export async function addAgentExtension(
   }
 
   return withAgentExtensionsLock(repoRoot, 'addAgentExtension', async () => {
-    const manifest = await readSourceManifest(repoRoot, fs);
+    const manifest = await readSourceManifest(repoRoot, fs, provider.id);
 
     // The operator supplies a stable ID slug up front; display_name is filled
     // from materialized metadata below. Validate the slug before any IO.
@@ -271,7 +279,7 @@ export async function addAgentExtension(
       const tempEntry: AgentExtensionSourceManifestEntry = {
         id: tentativeId,
         kind: request.kind,
-        provider_id: request.provider_id,
+        provider_id: provider.id,
         display_name: tentativeId,
         description: 'pending',
         enabled: true,
@@ -295,9 +303,9 @@ export async function addAgentExtension(
     let meta: Pick<AgentExtensionRuntimeCatalogEntry, 'display_name' | 'description' | 'metadata'>;
     try {
       meta = await inspectAgentExtensionMetadata({
-        providerId: request.provider_id,
         kind: request.kind,
         runtimePath: runtimeEntry.runtime_path,
+        inspectPluginMetadata: (pluginRuntimePath) => provider.inspectPluginMetadata(pluginRuntimePath),
       });
     } catch (err) {
       // Runtime copy + receipt already exist here; remove them so the failed add is inert.
@@ -314,7 +322,7 @@ export async function addAgentExtension(
     const finalEntry: AgentExtensionSourceManifestEntry = {
       id: tentativeId,
       kind: request.kind,
-      provider_id: request.provider_id,
+      provider_id: provider.id,
       display_name: meta.display_name,
       description: meta.description,
       enabled: true,
@@ -372,9 +380,10 @@ export async function reseedAgentExtension(
   seams?: AgentExtensionMutationSeams,
 ): Promise<AgentExtensionRendererCatalogEntry> {
   const fs = seams?.fs ?? buildDefaultFs();
+  const provider = getActiveProvider(repoRoot);
 
   return withAgentExtensionsLock(repoRoot, 'reseedAgentExtension', async () => {
-    const manifest = await readSourceManifest(repoRoot, fs);
+    const manifest = await readSourceManifest(repoRoot, fs, provider.id);
     const entry = manifest.extensions.find((e) => e.id === id);
     if (!entry) {
       log.progress({
@@ -409,9 +418,9 @@ export async function reseedAgentExtension(
     let meta: Pick<AgentExtensionRuntimeCatalogEntry, 'display_name' | 'description' | 'metadata'>;
     try {
       meta = await inspectAgentExtensionMetadata({
-        providerId: entry.provider_id,
         kind: entry.kind,
         runtimePath: runtimeEntry.runtime_path,
+        inspectPluginMetadata: (pluginRuntimePath) => provider.inspectPluginMetadata(pluginRuntimePath),
       });
     } catch (err) {
       log.progress({
@@ -468,9 +477,10 @@ export async function deleteAgentExtension(
 ): Promise<void> {
   const fs = seams?.fs ?? buildDefaultFs();
   const removeAssignments = options?.removeAssignments ?? false;
+  const provider = getActiveProvider(repoRoot);
 
   return withAgentExtensionsLock(repoRoot, 'deleteAgentExtension', async () => {
-    const manifest = await readSourceManifest(repoRoot, fs);
+    const manifest = await readSourceManifest(repoRoot, fs, provider.id);
     const entry = manifest.extensions.find((e) => e.id === id);
     if (!entry) {
       log.progress({
@@ -485,7 +495,7 @@ export async function deleteAgentExtension(
     const psDir = platformStateDir(repoRoot);
 
     // Fail-closed unless the same request opts into clearing assignments.
-    const currentAssignments = await loadAssignments(repoRoot, fs);
+    const currentAssignments = await loadAssignments(repoRoot, fs, seams?.providerAgentIds);
     const isAssigned = currentAssignments.assignments.some((a) => a.extension_ids.includes(id));
     if (isAssigned && !removeAssignments) {
       log.progress({
@@ -505,7 +515,7 @@ export async function deleteAgentExtension(
     // means a mid-delete crash leaves an entry that reconciliation re-materializes.
     if (isAssigned) {
       const cleared = removeExtensionFromAssignments(currentAssignments, id);
-      await persistAssignments(repoRoot, cleared, fs);
+      await persistAssignments(repoRoot, cleared, fs, seams?.providerAgentIds);
     }
 
     const runtimePath = runtimeCopyDir(psDir, entry.kind, id);

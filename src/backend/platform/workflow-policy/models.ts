@@ -72,21 +72,24 @@ export const CONTENT_SECTION_EXCLUSIONS = new Set([
   'Difficulty Assessment',
 ]);
 
-export const AGENT_MODEL_CATALOG_RELATIVE_PATH = 'config/agent-model-catalog.default.json';
-
 export function getAgentRegistryRelativePath(repoRoot: string): string {
   return getActiveProvider(repoRoot).agentConfigPaths().registry;
 }
 
-export const REQUIRED_AGENT_REGISTRY_FIELDS = new Set([
+export const PLATFORM_REQUIRED_AGENT_REGISTRY_FIELDS = new Set([
   'agent_id',
   'role_name',
   'human_name',
-  'instruction_path',
-  'agent_profile_path',
   'autonomy_profile',
   'workflow_order',
 ]);
+
+export function getRequiredAgentRegistryFields(repoRoot: string): Set<string> {
+  return new Set([
+    ...PLATFORM_REQUIRED_AGENT_REGISTRY_FIELDS,
+    ...getActiveProvider(repoRoot).requiredRegistryFields(),
+  ]);
+}
 
 export interface SemanticSectionSpec {
   key: string;

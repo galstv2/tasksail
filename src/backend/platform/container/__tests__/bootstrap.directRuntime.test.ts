@@ -26,6 +26,7 @@ vi.mock('../../core/index.js', () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    progress: vi.fn(),
     child: vi.fn().mockReturnThis(),
   }),
 }));
@@ -78,7 +79,8 @@ describe('bootstrap direct runtime gating', () => {
 
     await bootstrapServices(runtime, { repoRoot: '/repo', env: { TASKSAIL_REPO_ROOT: '/repo' } });
 
-    expect(existsSyncMock).not.toHaveBeenCalled();
+    expect(existsSyncMock).not.toHaveBeenCalledWith(expect.stringContaining('runtime/docker/compose'));
+    expect(existsSyncMock).not.toHaveBeenCalledWith(expect.stringContaining('runtime/podman/compose'));
     expect(execCommandMock).not.toHaveBeenCalled();
     expect(validateComposeConfigMock).not.toHaveBeenCalled();
     expect(runtime.composeUp).toHaveBeenCalledWith(expect.objectContaining({

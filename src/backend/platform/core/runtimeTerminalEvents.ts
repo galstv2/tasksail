@@ -380,6 +380,7 @@ export class RuntimeTerminalEvents {
     modelId: string;
     effort: string;
     reason: 'unsupported-by-cli' | 'capability-discovery-failed';
+    message: string;
   }): Promise<void> {
     return this.append({
       eventId: `pipeline.agent_reasoning_effort.rejected_before_spawn:${this.taskId}:${input.agentId}:${input.effort}`,
@@ -387,7 +388,7 @@ export class RuntimeTerminalEvents {
       role: 'pipeline',
       severity: 'error',
       visible: true,
-      message: `Agent ${input.agentId} cannot launch model ${input.modelId} with reasoning effort ${input.effort}. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.`,
+      message: input.message,
       extra: {
         agentId: input.agentId,
         modelId: input.modelId,

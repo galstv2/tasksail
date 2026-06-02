@@ -5,11 +5,18 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const spawnMock = vi.hoisted(() => vi.fn());
+const spawnSyncMock = vi.hoisted(() => vi.fn());
 const checkServiceHealthMock = vi.hoisted(() => vi.fn());
 const createServerMock = vi.hoisted(() => vi.fn());
 
-vi.mock('node:child_process', () => ({
+// Pass through the real module and override only spawn. A bare { spawn } mock
+// omits execFile, which a transitively-loaded module (agent-extensions) calls
+// via promisify() at load time — that crashes module collection before any
+// test runs.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
   spawn: spawnMock,
+  spawnSync: spawnSyncMock,
 }));
 
 vi.mock('../healthcheck.js', () => ({
@@ -40,6 +47,12 @@ describe('direct runtime process supervisor', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'direct-runtime-process-'));
     fs.writeFileSync(path.join(tmpDir, '.env'), 'FROM_DOTENV=yes\nREPO_CONTEXT_MCP_PORT=9999\n', 'utf-8');
     spawnMock.mockReset();
+    spawnSyncMock.mockReset();
+    spawnSyncMock.mockImplementation((bin: string) => ({
+      status: 0,
+      stdout: bin === 'python3.12' ? '3.12' : '3.13',
+      stderr: '',
+    }));
     checkServiceHealthMock.mockReset();
     createServerMock.mockImplementation(() => {
       const server = new EventEmitter() as EventEmitter & {
@@ -77,10 +90,11 @@ describe('direct runtime process supervisor', () => {
 
     expect(fs.readFileSync(path.join(tmpDir, '.platform-state/runtime/repo-context-mcp.pid'), 'utf-8')).toBe('4242\n');
     expect(spawnMock).toHaveBeenCalledWith(
-      'python3',
+      'python3.12',
       ['-m', 'src.backend.mcp.repo_context_mcp'],
       expect.objectContaining({
         cwd: tmpDir,
+        windowsHide: true,
         env: expect.objectContaining({
           FROM_DOTENV: 'yes',
           REPO_CONTEXT_MCP_HOST: '127.0.0.1',
@@ -91,6 +105,33 @@ describe('direct runtime process supervisor', () => {
       }),
     );
     expect(spawnMock.mock.calls[0][2].env).not.toHaveProperty('ACTIVE_CONTEXT_PACK_DIR');
+  });
+
+  it('uses a compatible fallback when Python 3.12 discovery is unavailable', async () => {
+    spawnSyncMock.mockImplementation((bin: string) => ({
+      status: bin === 'python3.12' ? 1 : 0,
+      stdout: bin === 'python3.12' ? '' : '3.13',
+      stderr: '',
+    }));
+    spawnMock.mockReturnValue(new FakeChild(4242));
+    checkServiceHealthMock.mockResolvedValue({ service: 'repo-context-mcp', healthy: true, attempts: 1 });
+
+    await spawnDirectMcp({ repoRoot: tmpDir, port: 8819, env: { TASKSAIL_REPO_ROOT: tmpDir } });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'python3',
+      ['-m', 'src.backend.mcp.repo_context_mcp'],
+      expect.anything(),
+    );
+  });
+
+  it('rejects below-floor Python before spawning the daemon', async () => {
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: '3.11', stderr: '' });
+
+    await expect(
+      spawnDirectMcp({ repoRoot: tmpDir, port: 8819, env: { TASKSAIL_REPO_ROOT: tmpDir } }),
+    ).rejects.toThrow('Python 3.12+');
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 
   it('no-ops when the PID file process is alive and healthy', async () => {
@@ -193,5 +234,42 @@ describe('direct runtime process supervisor', () => {
 
     expect(fs.existsSync(path.join(runtimeDir, 'repo-context-mcp.pid'))).toBe(false);
     expect(killSpy).toHaveBeenCalledWith(4242, 'SIGTERM');
+  });
+
+  it('stopDirectMcp kills the process tree via taskkill on Windows, not SIGTERM', async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    const runtimeDir = path.join(tmpDir, '.platform-state/runtime');
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, 'repo-context-mcp.pid'), '4242\n');
+
+    let alive = true;
+    killSpy.mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+      if (signal === 0) {
+        if (alive) return true;
+        throw Object.assign(new Error('missing'), { code: 'ESRCH' });
+      }
+      return true;
+    }) as typeof process.kill);
+    // taskkill (spawned) terminates the daemon; flip liveness when it runs.
+    spawnMock.mockImplementation(((cmd: string) => {
+      if (cmd === 'taskkill.exe') alive = false;
+      return new FakeChild(0);
+    }) as never);
+
+    try {
+      await stopDirectMcp(tmpDir);
+
+      expect(spawnMock).toHaveBeenCalledWith(
+        'taskkill.exe',
+        ['/PID', '4242', '/T', '/F'],
+        expect.anything(),
+      );
+      expect(killSpy).not.toHaveBeenCalledWith(4242, 'SIGTERM');
+      expect(killSpy).not.toHaveBeenCalledWith(4242, 'SIGKILL');
+      expect(fs.existsSync(path.join(runtimeDir, 'repo-context-mcp.pid'))).toBe(false);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
   });
 });

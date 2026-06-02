@@ -13,6 +13,7 @@ import {
   type ContextPackFocusTargetKind,
   type ContextPackFocusTarget,
   type ContextPackListResponse,
+  type ContextPackRepoCategory,
   type PackSeedState,
   type PackSeedStateInfo,
   type WorkspaceScopeMode,
@@ -60,6 +61,20 @@ type WorkspaceSyncStateSnapshot = {
 
 function repositoryTypeOrNull(value: unknown): 'primary' | 'support' | null {
   return value === 'primary' || value === 'support' ? value : null;
+}
+
+function repoCategoryOrNull(value: unknown): ContextPackRepoCategory | null {
+  return value === 'service'
+    || value === 'application'
+    || value === 'frontend'
+    || value === 'library'
+    || value === 'infrastructure'
+    || value === 'data'
+    || value === 'documentation'
+    || value === 'tool'
+    || value === 'unknown'
+    ? value
+    : null;
 }
 
 function resolveFirstLocalPath(value: unknown): string | null {
@@ -617,6 +632,8 @@ async function inspectContextPackDir(
             repoLocalPath: monolithRepoLocalPath,
             serviceName: null, systemLayer: null, repoRole: null,
             repositoryType: repositoryTypeOrNull(area.repository_type),
+            repoCategory: null,
+            repoCategoryAuthored: false,
             relativePath: stringOrNull(area.relative_path),
             focusType: stringOrNull(area.focus_type),
             group: stringOrNull(area.group),
@@ -645,6 +662,8 @@ async function inspectContextPackDir(
             systemLayer: stringOrNull(repo.system_layer),
             repoRole: stringOrNull(repo.repo_role),
             repositoryType: repositoryTypeOrNull(repo.repository_type),
+            repoCategory: repoCategoryOrNull(repo.repo_category),
+            repoCategoryAuthored: repo.repo_category_authored === true,
             relativePath: null, focusType: null, group: null,
             defaultFocusable: repo.default_focusable === true,
             activationPriority: typeof repo.activation_priority === 'number' ? repo.activation_priority : 0,

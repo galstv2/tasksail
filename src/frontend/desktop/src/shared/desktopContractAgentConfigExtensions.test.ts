@@ -161,8 +161,8 @@ describe('agentConfig.addExtension validator', () => {
     ).not.toHaveLength(0);
   });
 
-  it('rejects unknown provider_id', () => {
-    const errors = validateDesktopActionRequest({
+  it('accepts a well-formed provider_id without hardcoded membership validation', () => {
+    expect(validateDesktopActionRequest({
       action: 'agentConfig.addExtension',
       payload: {
         id: 'my-skill',
@@ -170,8 +170,20 @@ describe('agentConfig.addExtension validator', () => {
         provider_id: 'openai',
         source: { type: 'git', url: 'https://github.com/org/repo', ref: 'main' },
       },
+    })).toEqual([]);
+  });
+
+  it('rejects missing provider_id structurally', () => {
+    const errors = validateDesktopActionRequest({
+      action: 'agentConfig.addExtension',
+      payload: {
+        id: 'my-skill',
+        kind: 'skill',
+        provider_id: '',
+        source: { type: 'git', url: 'https://github.com/org/repo', ref: 'main' },
+      },
     });
-    expect(errors.length).toBeGreaterThan(0);
+    expect(errors).toContain('payload.provider_id must be a non-empty string.');
   });
 });
 
@@ -293,14 +305,30 @@ describe('agentConfig.saveExtensionAssignments validator', () => {
     }
   });
 
-  it('rejects unknown agent ID', () => {
-    const errors = validateDesktopActionRequest({
-      action: 'agentConfig.saveExtensionAssignments',
-      payload: {
-        assignments: [{ agent_id: 'super-agent', extension_ids: [] }],
-      },
-    });
-    expect(errors.length).toBeGreaterThan(0);
+  it('accepts a well-formed but unrecognized agent ID (membership enforced at the save handler)', () => {
+    // The dispatch validator is structural-only; roster membership is enforced at the
+    // Electron save handler against the provider descriptor, not here.
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveExtensionAssignments',
+        payload: { assignments: [{ agent_id: 'super-agent', extension_ids: [] }] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects a missing or empty agent_id (structural check)', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveExtensionAssignments',
+        payload: { assignments: [{ agent_id: '', extension_ids: [] }] },
+      }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveExtensionAssignments',
+        payload: { assignments: [{ extension_ids: [] }] },
+      }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('rejects invalid extension_id in the array', () => {
@@ -366,13 +394,15 @@ describe('agentConfig.saveExtensionAssignments: stable-ID contract enforcement',
     ).toEqual([]);
   });
 
-  it('rejects an unknown agent ID that is not in the canonical roster', () => {
-    const errors = validateDesktopActionRequest({
-      action: 'agentConfig.saveExtensionAssignments',
-      payload: { assignments: [{ agent_id: 'sre-agent', extension_ids: [] }] },
-    });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.join(' ')).toMatch(/agent_id/i);
+  it('accepts a well-formed unrecognized agent ID; roster membership is enforced at the save handler', () => {
+    // Structural-only dispatch validation: an unknown but well-formed agent_id passes
+    // here and is rejected downstream at the Electron save handler.
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveExtensionAssignments',
+        payload: { assignments: [{ agent_id: 'sre-agent', extension_ids: [] }] },
+      }),
+    ).toEqual([]);
   });
 
   it('rejects an extension ID that fails the slug pattern (uppercase not allowed)', () => {

@@ -11,19 +11,49 @@ vi.mock('../../../backend/platform/external-mcp-registry/load', async (orig) => 
   const actual = await orig<typeof import('../../../backend/platform/external-mcp-registry/load')>();
   return { ...actual, loadExternalMcpRegistryWithFallback: vi.fn() };
 });
+vi.mock('../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache', async (orig) => {
+  const actual = await orig<typeof import('../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache')>();
+  return { ...actual, clearExternalMcpRegistryCache: vi.fn() };
+});
+vi.mock('../../../backend/platform/external-mcp-registry/index', async (orig) => {
+  const actual = await orig<typeof import('../../../backend/platform/external-mcp-registry/index')>();
+  return {
+    ...actual,
+    removeDeletedExternalMcpServerAssignment: vi.fn(),
+    loadExternalMcpAgentAssignments: vi.fn(),
+    saveExternalMcpAgentAssignments: vi.fn(),
+  };
+});
 
 import {
   validateExternalMcpConnection,
   validateExternalMcpLocalCommand,
   addExternalMcpServer,
+  updateExternalMcpServer,
+  removeExternalMcpServer,
+  toggleExternalMcpServer,
   listExternalMcpServers,
   commandCandidates,
 } from './externalMcpHandlers';
+import {
+  loadExternalMcpAssignments,
+  saveExternalMcpAssignments,
+} from './externalMcpAssignmentHandlers';
 import { loadExternalMcpRegistryWithFallback } from '../../../backend/platform/external-mcp-registry/load';
 import { saveExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/save';
+import { clearExternalMcpRegistryCache } from '../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache';
+import {
+  removeDeletedExternalMcpServerAssignment,
+  loadExternalMcpAgentAssignments,
+  saveExternalMcpAgentAssignments,
+} from '../../../backend/platform/external-mcp-registry/index';
 
 const mockedLoad = vi.mocked(loadExternalMcpRegistryWithFallback);
 const mockedSave = vi.mocked(saveExternalMcpRegistry);
+const mockedClearCache = vi.mocked(clearExternalMcpRegistryCache);
+const mockedRemoveAssignment = vi.mocked(removeDeletedExternalMcpServerAssignment);
+const mockedLoadAssignments = vi.mocked(loadExternalMcpAgentAssignments);
+const mockedSaveAssignments = vi.mocked(saveExternalMcpAgentAssignments);
 
 let server: http.Server;
 let port: number;
@@ -321,13 +351,13 @@ describe('list + add for local servers', () => {
     const localServer = {
       id: 'local-fs',
       display_name: 'Local FS',
-      purpose: 'Local filesystem tools',
+      purpose: 'Local filesystem tools for tests',
+      preferred_for: ['local filesystem inspection'],
       enabled: true,
       transport: 'local' as const,
       command: 'npx',
       args: ['-y', '@scope/fs'],
       tools: ['read_file'],
-      agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
     };
     const result = await addExternalMcpServer({ server: localServer });
     expect(result.ok).toBe(true);
@@ -348,7 +378,6 @@ describe('list + add for local servers', () => {
         transport: 'local' as const,
         command: 'npx',
         tools: ['*'],
-        agent_scope: { mode: 'allowlist' as const, agent_ids: ['software-engineer'] },
       },
     });
     expect(result.ok).toBe(false);
@@ -381,5 +410,130 @@ describe('commandCandidates — PATH lookup candidate names', () => {
     const c = commandCandidates('node.exe', 'win32', '.EXE; ;.CMD');
     expect(new Set(c).size).toBe(c.length);
     expect(c[0]).toBe('node.exe');
+  });
+});
+
+const VALID_URL_SERVER = {
+  id: 'vendor-docs',
+  display_name: 'Vendor Docs',
+  purpose: 'Vendor API documentation for billing flows.',
+  preferred_for: ['docs'],
+  enabled: true,
+  transport: 'sse' as const,
+  url: 'https://mcp.example.com/sse',
+};
+
+describe('cache invalidation + assignment cleanup on server mutations', () => {
+  beforeEach(() => {
+    mockedLoad.mockReset();
+    mockedSave.mockReset();
+    mockedClearCache.mockReset();
+    mockedRemoveAssignment.mockReset();
+    mockedRemoveAssignment.mockResolvedValue({ schema_version: 1, assignments: [] });
+  });
+
+  it('invalidates the runtime cache after add', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [] });
+    const result = await addExternalMcpServer({ server: VALID_URL_SERVER });
+    expect(result.ok).toBe(true);
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the runtime cache after update', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [VALID_URL_SERVER] });
+    const result = await updateExternalMcpServer({
+      server: { ...VALID_URL_SERVER, display_name: 'Renamed' },
+    });
+    expect(result.ok).toBe(true);
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the runtime cache after toggle', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [VALID_URL_SERVER] });
+    const result = await toggleExternalMcpServer({ serverId: 'vendor-docs' });
+    expect(result.ok).toBe(true);
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the server ID from assignments and invalidates the cache after remove', async () => {
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [VALID_URL_SERVER] });
+    const result = await removeExternalMcpServer({ serverId: 'vendor-docs' });
+    expect(result.ok).toBe(true);
+    expect(mockedRemoveAssignment).toHaveBeenCalledWith(expect.any(String), 'vendor-docs');
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces a warning (still ok) when assignment cleanup fails with a genuine I/O error', async () => {
+    // Cleanup never throws for the benign "unknown removed ID" case, so any
+    // throw is a real persistence/registry failure that leaves stale IDs. The
+    // removal succeeded, so the response stays ok:true but carries a warning.
+    mockedLoad.mockResolvedValue({ schema_version: 1, external_servers: [VALID_URL_SERVER] });
+    mockedRemoveAssignment.mockRejectedValue(
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    );
+    const result = await removeExternalMcpServer({ serverId: 'vendor-docs' });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.response).toMatchObject({
+      action: 'externalMcp.remove',
+      mode: 'mutated',
+      warning: expect.stringContaining('EACCES'),
+    });
+    // The registry-level removal must still be committed and the cache cleared.
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('external MCP assignment handlers', () => {
+  beforeEach(() => {
+    mockedClearCache.mockReset();
+    mockedLoadAssignments.mockReset();
+    mockedSaveAssignments.mockReset();
+  });
+
+  it('loads assignments and returns them in the response', async () => {
+    mockedLoadAssignments.mockResolvedValue({
+      ok: true,
+      document: {
+        schema_version: 1,
+        assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }],
+      },
+    });
+    const result = await loadExternalMcpAssignments();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const response = result.response as { assignments: Array<{ agent_id: string }> };
+    expect(response.assignments).toHaveLength(1);
+    expect(response.assignments[0].agent_id).toBe('software-engineer');
+  });
+
+  it('fails the load when the assignment file is invalid', async () => {
+    mockedLoadAssignments.mockResolvedValue({ ok: false, errors: ['unknown agent ID "ghost".'] });
+    const result = await loadExternalMcpAssignments();
+    expect(result.ok).toBe(false);
+  });
+
+  it('saves assignments and invalidates the runtime cache', async () => {
+    mockedSaveAssignments.mockResolvedValue({
+      schema_version: 1,
+      assignments: [{ agent_id: 'qa', external_mcp_server_ids: ['vendor-docs'] }],
+    });
+    const result = await saveExternalMcpAssignments({
+      assignments: [{ agent_id: 'qa', external_mcp_server_ids: ['vendor-docs'] }],
+    });
+    expect(result.ok).toBe(true);
+    expect(mockedSaveAssignments).toHaveBeenCalledOnce();
+    expect(mockedClearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unknown agent ID against the descriptor roster before persisting', async () => {
+    const result = await saveExternalMcpAssignments({
+      assignments: [{ agent_id: 'not-a-real-agent', external_mcp_server_ids: ['vendor-docs'] }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.action).toBe('agentConfig.saveExternalMcpAssignments');
+    expect(JSON.stringify(result)).toContain('not-a-real-agent');
+    // Roster rejection short-circuits before the persistence layer is reached.
+    expect(mockedSaveAssignments).not.toHaveBeenCalled();
   });
 });

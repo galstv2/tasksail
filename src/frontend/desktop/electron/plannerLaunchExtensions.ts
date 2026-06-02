@@ -2,6 +2,7 @@ import { createAgentExtensionStage } from '../../../backend/platform/agent-exten
 import { AgentExtensionError } from '../../../backend/platform/agent-extensions/ids.js';
 import type { ResolvedAgentExtensionStage } from '../../../backend/platform/agent-extensions/types.js';
 import type { PlannerLaunchExtensionDirs } from '../../../backend/platform/cli-provider/types.js';
+import { getActiveProvider } from '../../../backend/platform/cli-provider/index.js';
 import { createLogger } from './log/logger';
 
 export type ResolvedLilyPlannerLaunchExtensions = {
@@ -41,7 +42,6 @@ export type LilyLaunchPluginComponentSummary = {
   bundledSkillCount: number;
 };
 
-const PLANNING_AGENT_ID = 'planning-agent' as const;
 const LOGGER_MODULE = 'electron/plannerLaunchExtensions';
 
 export const LILY_EXTENSIONS_UNAVAILABLE_MESSAGE =
@@ -89,10 +89,14 @@ export async function resolveLilyPlannerLaunchExtensions(
   options: ResolveLilyPlannerLaunchExtensionsOptions,
 ): Promise<ResolvedLilyPlannerLaunchExtensions> {
   const { repoRoot, plannerSessionId, providerId } = options;
+  const plannerAgentId = getActiveProvider(repoRoot).plannerAgentId();
+  if (!plannerAgentId) {
+    throw new Error('Active provider has no planner agent id; planner launch extensions are not supported.');
+  }
   const now = options.now ?? (() => new Date());
   // providerId + agentId travel through logger context so they emit as canonical
   // provider_id / agent_id structured fields, never as ad-hoc camelCase extras.
-  const logger = createLogger(LOGGER_MODULE, { providerId, agentId: PLANNING_AGENT_ID });
+  const logger = createLogger(LOGGER_MODULE, { providerId, agentId: plannerAgentId });
   const startedAtMs = now().getTime();
 
   logger.info('planner.launch_extensions.resolve.started', { plannerSessionId });
@@ -101,7 +105,7 @@ export async function resolveLilyPlannerLaunchExtensions(
   try {
     stage = await createAgentExtensionStage({
       repoRoot,
-      agentId: PLANNING_AGENT_ID,
+      agentId: plannerAgentId,
       launchId: plannerSessionId,
     });
   } catch (error: unknown) {

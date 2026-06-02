@@ -57,8 +57,10 @@ _SCARY_PARTIAL: tuple[tuple[str, tuple[str, ...]], ...] = (
 _TMP_PREFIX = "/tmp"
 _TMP_MIN_PARTS = 3
 
-# Minimum supported Python (matches repo guidance).
-PYTHON_MIN_VERSION: tuple[int, int] = (3, 13)
+# Minimum supported Python (matches repo guidance): Python 3.12 is preferred and
+# is the compatibility floor. Compatible newer versions (>3.12) also pass; this
+# is a minimum check, not an exact-version requirement.
+PYTHON_MIN_VERSION: tuple[int, int] = (3, 12)
 
 
 @dataclass(slots=True)

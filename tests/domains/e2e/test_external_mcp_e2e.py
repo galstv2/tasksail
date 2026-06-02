@@ -21,16 +21,17 @@ if str(SCRIPTS_PYTHON) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_PYTHON))
 
 from lib.role_agent.external_mcp import (
-    load_validated_external_mcp,
     prepare_launch_context,
-    select_servers_for_agent,
+    resolve_assigned_servers_for_agent,
 )
 
 TEST_MCP_SERVER_DIR = ROOT.parent / "test-mcp-server"
 TEST_MCP_ENTRYPOINT = TEST_MCP_SERVER_DIR / "__main__.py"
 RUNTIME_REGISTRY = ROOT / ".platform-state" / "mcp-registry-external.json"
+RUNTIME_ASSIGNMENTS = ROOT / ".platform-state" / "external-mcp-agent-assignments.json"
 TEST_SERVER_URL = "http://127.0.0.1:9100"
-TEST_AGENT_ID = "test-gate-agent"
+# A real provider registry agent: external MCP assignment is keyed by provider IDs.
+TEST_AGENT_ID = "software-engineer"
 
 # Inlined registry payload — keeps the test self-contained so no fixture file
 # needs to live under config/. The schema mirrors the production external MCP
@@ -56,15 +57,16 @@ TEST_REGISTRY: dict[str, object] = {
             "enabled": True,
             "transport": "sse",
             "url": "http://127.0.0.1:9100/sse",
-            "agent_scope": {
-                "mode": "allowlist",
-                "agent_ids": [
-                    "software-engineer",
-                    "qa",
-                    "test-gate-agent",
-                ],
-            },
         },
+    ],
+}
+
+# Assigns the test server to the test agent via the durable assignment store —
+# the only assignment authority (agent_scope is no longer consulted).
+TEST_ASSIGNMENTS: dict[str, object] = {
+    "schema_version": 1,
+    "assignments": [
+        {"agent_id": TEST_AGENT_ID, "external_mcp_server_ids": ["test-mcp-server"]},
     ],
 }
 _SKIP_REASON = "Requires RUN_SLOW_TESTS=1 and copilot on PATH"
@@ -128,22 +130,26 @@ def _require_test_server_fixture() -> None:
 
 
 @contextlib.contextmanager
-def _installed_test_registry() -> Iterator[None]:
-    """Install the tracked test registry as runtime state and restore it."""
-    original = None
-    if RUNTIME_REGISTRY.exists():
-        original = RUNTIME_REGISTRY.read_text(encoding="utf-8")
-
-    RUNTIME_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
-    registry_text = json.dumps(TEST_REGISTRY, indent=2)
-    RUNTIME_REGISTRY.write_text(registry_text, encoding="utf-8")
+def _stage_file(target: Path, content: str) -> Iterator[None]:
+    """Temporarily install file content at ``target`` and restore the original."""
+    original = target.read_text(encoding="utf-8") if target.exists() else None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
     try:
         yield
     finally:
         if original is None:
-            RUNTIME_REGISTRY.unlink(missing_ok=True)
+            target.unlink(missing_ok=True)
         else:
-            RUNTIME_REGISTRY.write_text(original, encoding="utf-8")
+            target.write_text(original, encoding="utf-8")
+
+
+@contextlib.contextmanager
+def _installed_test_registry() -> Iterator[None]:
+    """Install the tracked test registry and assignment store, then restore both."""
+    with _stage_file(RUNTIME_REGISTRY, json.dumps(TEST_REGISTRY, indent=2)), \
+            _stage_file(RUNTIME_ASSIGNMENTS, json.dumps(TEST_ASSIGNMENTS, indent=2)):
+        yield
 
 
 @pytest.mark.skipif(_SHOULD_SKIP, reason=_SKIP_REASON)
@@ -159,12 +165,8 @@ def test_external_mcp_pipeline_reaches_the_test_server(real_socket: object) -> N
         _wait_for_healthcheck(server_process)
 
         with _installed_test_registry():
-            registry = load_validated_external_mcp(ROOT)
-            servers = select_servers_for_agent(
-                registry["external_servers"],
-                TEST_AGENT_ID,
-            )
-            assert servers, "Expected tracked test registry to select the test MCP server"
+            servers = resolve_assigned_servers_for_agent(ROOT, TEST_AGENT_ID)
+            assert servers, "Expected the assignment store to select the test MCP server"
 
             context = prepare_launch_context(ROOT, TEST_AGENT_ID, servers)
             assert context.injection_enabled is True
@@ -260,12 +262,8 @@ def test_additional_mcp_config_flag_reaches_test_server(real_socket: object) -> 
 
     try:
         with _installed_test_registry():
-            registry = load_validated_external_mcp(ROOT)
-            servers = select_servers_for_agent(
-                registry["external_servers"],
-                TEST_AGENT_ID,
-            )
-            assert servers, "Expected tracked test registry to select the test MCP server"
+            servers = resolve_assigned_servers_for_agent(ROOT, TEST_AGENT_ID)
+            assert servers, "Expected the assignment store to select the test MCP server"
 
             context = prepare_launch_context(ROOT, TEST_AGENT_ID, servers)
             assert context.injection_enabled is True

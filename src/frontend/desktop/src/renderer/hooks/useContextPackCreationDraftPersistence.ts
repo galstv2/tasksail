@@ -1,7 +1,10 @@
 import type {
   PersistedContextPackCreation,
 } from '../contextPackCreationTypes';
-import { isPersistedContextPackCreation } from '../contextPackCreationTypes';
+import {
+  hydratePersistedContextPackCreation,
+  isPersistedContextPackCreation,
+} from '../contextPackCreationTypes';
 import { createLogger } from '../log/logger';
 
 export const CONTEXT_PACK_CREATION_DRAFT_KEY = 'context-pack-creation-draft.v1';
@@ -34,7 +37,7 @@ export function loadPersistedContextPackCreationDraft(): PersistedContextPackCre
       log.warn('context-pack.creation-draft.discarded');
       return null;
     }
-    return parsed;
+    return hydratePersistedContextPackCreation(parsed);
   } catch {
     storage.removeItem(CONTEXT_PACK_CREATION_DRAFT_KEY);
     return null;

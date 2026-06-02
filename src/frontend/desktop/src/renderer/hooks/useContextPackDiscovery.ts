@@ -4,6 +4,7 @@ import type {
   ContextPackDiscoverPrefillResponse,
   ContextPackDiscoveredFocusArea,
   ContextPackDiscoveredRepo,
+  ContextPackRepositoryType,
 } from '../../shared/desktopContract';
 import {
   isPickDirectoryResponse,
@@ -32,28 +33,65 @@ export type DiscoveryState =
   | { status: 'ready'; response: ContextPackDiscoverPrefillResponse }
   | { status: 'error'; error: string };
 
-function mapDiscoveredRepoToDraft(
+function resolveSystemLayer(
   repo: ContextPackDiscoveredRepo,
-  index: number,
-): RepositoryEntryDraft {
-  const isPrimary = repo.repositoryType === 'primary';
+): RepositoryEntryDraft['systemLayer'] {
+  if (
+    repo.suggestedSystemLayer
+    && repo.suggestedSystemLayer !== 'test'
+  ) {
+    return repo.suggestedSystemLayer;
+  }
+
   const lowerName = repo.repoName.toLowerCase();
-  const systemLayer: RepositoryEntryDraft['systemLayer'] = lowerName.includes('web')
+  return lowerName.includes('web')
     ? 'frontend'
     : lowerName.includes('infra')
       ? 'infrastructure'
       : 'backend';
+}
+
+function mapDiscoveredRepoToDraft(
+  repo: ContextPackDiscoveredRepo,
+  index: number,
+  repositoryType: ContextPackRepositoryType,
+): RepositoryEntryDraft {
+  const isPrimary = repositoryType === 'primary';
   return createRepositoryEntry({
     repoRoot: repo.path,
     repoName: repo.repoName,
     repoId: repo.repoId,
-    systemLayer,
-    repositoryType: isPrimary ? 'primary' : 'support',
+    systemLayer: resolveSystemLayer(repo),
+    repositoryType,
+    repoCategory: repo.repoCategory ?? 'unknown',
+    repoCategoryAuthored: false,
+    repoCategoryConfidence: repo.repoCategoryConfidence,
     artifactRoots: repo.highSignalPaths.join(', '),
     defaultFocusable: isPrimary,
     primary: isPrimary,
     activationPriority: Math.max(0, 100 - index * 10),
   });
+}
+
+function hasCategoryAwareDiscovery(
+  repos: ContextPackDiscoveredRepo[],
+): boolean {
+  return repos.some((repo) =>
+    repo.repoCategory !== undefined || repo.repoCategoryConfidence !== undefined,
+  );
+}
+
+function isInitialPrimaryCategory(repo: ContextPackDiscoveredRepo): boolean {
+  return repo.repoCategory === 'service'
+    || repo.repoCategory === 'application'
+    || repo.repoCategory === 'frontend';
+}
+
+function selectInitialPrimaryRepoIndex(
+  repos: ContextPackDiscoveredRepo[],
+): number {
+  const categoryPreferredIndex = repos.findIndex(isInitialPrimaryCategory);
+  return categoryPreferredIndex >= 0 ? categoryPreferredIndex : 0;
 }
 
 function mapDiscoveredFocusAreaToDraft(
@@ -108,7 +146,16 @@ export function buildDraftFromDiscovery(
   }
 
   if (isDistributedEstateMode(response.estateType)) {
-    nextDraft.repositories = response.candidateRepos.map(mapDiscoveredRepoToDraft);
+    const categoryAware = hasCategoryAwareDiscovery(response.candidateRepos);
+    const initialPrimaryIndex = categoryAware
+      ? selectInitialPrimaryRepoIndex(response.candidateRepos)
+      : -1;
+    nextDraft.repositories = response.candidateRepos.map((repo, index) => {
+      const repositoryType = categoryAware
+        ? index === initialPrimaryIndex ? 'primary' : 'support'
+        : repo.repositoryType === 'primary' ? 'primary' : 'support';
+      return mapDiscoveredRepoToDraft(repo, index, repositoryType);
+    });
     nextDraft.focusAreas = [];
     nextDraft.contextPackDir = resolveContextPackDir();
     return normalizeDraftForMode(nextDraft);

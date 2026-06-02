@@ -4,6 +4,7 @@ import type { DesktopShellClient } from '../services/desktopShellClient';
 import { desktopShellClient } from '../services/desktopShellClient';
 import { useToastContext } from '../contexts/ToastContext';
 import type { ProviderFrontendDescriptor } from '../../shared/desktopContractProvider';
+import type { ExternalMcpServerEntry } from '../../shared/desktopContract';
 import type {
   AgentExtensionRendererCatalogEntry,
   AgentExtensionAgentId,
@@ -36,6 +37,7 @@ export type AgentConfigAgentRow = AgentConfigAgent & {
   effortDisabled: boolean;
   currentModelMissing: boolean;
   selectedExtensionIds: string[];
+  selectedExternalMcpIds: string[];
 };
 
 export type AgentConfigCatalogEntry = {
@@ -115,9 +117,15 @@ export type AgentConfigModalProps = {
   onAddExtension: () => Promise<void>;
   onReseedExtension: (id: string) => Promise<void>;
   onDeleteExtension: (id: string) => Promise<void>;
-  // Assignment actions
+  // Assignment actions. The single Save Assignments action persists both
+  // Skills & Plugins and External MCP assignments; isAssignmentsDirty reflects
+  // either category being dirty.
   onToggleExtensionAssignment: (agentId: string, extensionId: string, selected: boolean) => void;
   onSaveAssignments: () => Promise<void>;
+  // External MCP server assignments (per-agent, on the Agents tab)
+  externalMcpServers: ExternalMcpServerEntry[];
+  externalMcpAssignments: Record<string, string[]>;
+  onToggleExternalMcpAssignment: (agentId: string, serverId: string, selected: boolean) => void;
 };
 
 export type UseAgentConfigModalResult = {
@@ -199,27 +207,42 @@ type AgentConfigClientWithCapabilities = DesktopShellClient & {
 
 const NO_REASONING_EFFORT = 'none';
 const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const UNAVAILABLE_CAPABILITIES_WARNING = 'Reasoning effort options could not be loaded from the installed Copilot CLI. Effort changes are blocked until capabilities can be discovered.';
-const STALE_CAPABILITIES_WARNING = 'Cached reasoning effort options may be out of date. Confirm the installed Copilot CLI supports the selected effort before saving.';
+const FALLBACK_CLI_DISPLAY_NAME = 'active provider';
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 
-const DEFAULT_ADD_FORM: ExtensionAddForm = {
-  id: '',
-  kind: 'skill',
-  provider_id: 'copilot',
-  sourceType: 'git',
-  gitUrl: '',
-  gitRef: '',
-  gitSubpath: '',
-  localPath: '',
-  localSubpath: '',
-  skillMarkdown: '',
-};
+function createDefaultAddForm(providerId: AgentExtensionProviderId): ExtensionAddForm {
+  return {
+    id: '',
+    kind: 'skill',
+    provider_id: providerId,
+    sourceType: 'git',
+    gitUrl: '',
+    gitRef: '',
+    gitSubpath: '',
+    localPath: '',
+    localSubpath: '',
+    skillMarkdown: '',
+  };
+}
 
 function normalizeEffort(value: string | null | undefined): string {
   const normalized = value?.trim().toLowerCase() ?? '';
   return normalized && normalized !== NO_REASONING_EFFORT ? normalized : NO_REASONING_EFFORT;
+}
+
+function installedProviderLabel(cliDisplayName: string): string {
+  return cliDisplayName === FALLBACK_CLI_DISPLAY_NAME
+    ? 'the active provider'
+    : `the installed ${cliDisplayName}`;
+}
+
+function formatUnavailableCapabilitiesWarning(cliDisplayName: string): string {
+  return `Reasoning effort options could not be loaded from ${installedProviderLabel(cliDisplayName)}. Effort changes are blocked until capabilities can be discovered.`;
+}
+
+function formatStaleCapabilitiesWarning(cliDisplayName: string): string {
+  return `Cached reasoning effort options may be out of date. Confirm ${installedProviderLabel(cliDisplayName)} supports the selected effort before saving.`;
 }
 
 function findPlannerAssignment(
@@ -298,6 +321,17 @@ function toAssignmentMap(
   return map;
 }
 
+// Build a stable assignment map from the external MCP assignment IPC response shape
+function toMcpAssignmentMap(
+  assignments: Array<{ agent_id: AgentExtensionAgentId; external_mcp_server_ids: string[] }>,
+): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const entry of assignments) {
+    map[entry.agent_id] = [...entry.external_mcp_server_ids];
+  }
+  return map;
+}
+
 export function useAgentConfigModal(
   client: DesktopShellClient = desktopShellClient,
 ): UseAgentConfigModalResult {
@@ -312,7 +346,11 @@ export function useAgentConfigModal(
   const [savedAssignments, setSavedAssignments] = useState<Record<string, string[]>>({});
   // Working (unsaved) assignment map
   const [workingAssignments, setWorkingAssignments] = useState<Record<string, string[]>>({});
-  const [addForm, setAddForm] = useState<ExtensionAddForm>(DEFAULT_ADD_FORM);
+  // External MCP servers + per-agent assignments (independent of Skills & Plugins)
+  const [externalMcpServers, setExternalMcpServers] = useState<ExternalMcpServerEntry[]>([]);
+  const [savedMcpAssignments, setSavedMcpAssignments] = useState<Record<string, string[]>>({});
+  const [workingMcpAssignments, setWorkingMcpAssignments] = useState<Record<string, string[]>>({});
+  const [addForm, setAddForm] = useState<ExtensionAddForm>(() => createDefaultAddForm(''));
   const [extensionSaving, setExtensionSaving] = useState(false);
   const [newModelDisplayName, setNewModelDisplayName] = useState('');
   const [newModelId, setNewModelId] = useState('');
@@ -340,20 +378,22 @@ export function useAgentConfigModal(
             response: {
               action: 'agentConfig.loadCapabilities',
               mode: 'read-only',
-              message: UNAVAILABLE_CAPABILITIES_WARNING,
+              message: formatUnavailableCapabilitiesWarning(FALLBACK_CLI_DISPLAY_NAME),
               providerId: 'unknown',
               cliVersion: null,
               effortChoices: [],
               stale: true,
             },
           });
-      const [agentResultRaw, modelResultRaw, capabilityResultRaw, descriptorResult, extensionsResultRaw, assignmentsResultRaw] = await Promise.all([
+      const [agentResultRaw, modelResultRaw, capabilityResultRaw, descriptorResult, extensionsResultRaw, assignmentsResultRaw, externalMcpServersRaw, mcpAssignmentsResultRaw] = await Promise.all([
         client.loadAgentConfig(),
         client.loadModelCatalog(),
         loadCapabilities,
         client.describeActiveProvider(),
         client.listAgentExtensions(),
         client.loadAgentExtensionAssignments(),
+        client.listExternalMcpServers(),
+        client.loadExternalMcpAssignments(),
       ]);
       const agentResult = asAgentConfigResponse(agentResultRaw);
       const modelResult = asAgentConfigResponse(modelResultRaw);
@@ -415,6 +455,24 @@ export function useAgentConfigModal(
         nextError = (assignResult.error as string) ?? 'Unable to load assignments.';
       }
 
+      // External MCP servers — populates the Agents-tab assignment selector
+      const mcpServersResult = externalMcpServersRaw as { ok: boolean; response?: { servers?: ExternalMcpServerEntry[] }; error?: string };
+      if (mcpServersResult.ok && mcpServersResult.response?.servers) {
+        setExternalMcpServers(mcpServersResult.response.servers);
+      } else if (!mcpServersResult.ok && nextError === null) {
+        nextError = (mcpServersResult.error as string) ?? 'Unable to load external MCP servers.';
+      }
+
+      // External MCP assignments — pure disk read
+      const mcpAssignResult = mcpAssignmentsResultRaw as { ok: boolean; response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; external_mcp_server_ids: string[] }> }; error?: string };
+      if (mcpAssignResult.ok && mcpAssignResult.response?.assignments) {
+        const map = toMcpAssignmentMap(mcpAssignResult.response.assignments);
+        setSavedMcpAssignments(map);
+        setWorkingMcpAssignments(map);
+      } else if (!mcpAssignResult.ok && nextError === null) {
+        nextError = (mcpAssignResult.error as string) ?? 'Unable to load external MCP assignments.';
+      }
+
       setError(nextError);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load agent configuration.');
@@ -431,6 +489,17 @@ export function useAgentConfigModal(
     setError(null);
     loadConfig().catch(() => {});
   }, [loadConfig]);
+
+  useEffect(() => {
+    if (!descriptor?.providerId) {
+      return;
+    }
+    setAddForm((current) => (
+      current.provider_id === descriptor.providerId
+        ? current
+        : { ...current, provider_id: descriptor.providerId }
+    ));
+  }, [descriptor?.providerId]);
 
   const onClose = useCallback(() => {
     setIsOpen(false);
@@ -518,7 +587,7 @@ export function useAgentConfigModal(
     [agents],
   );
 
-  const isAssignmentsDirty = useMemo(() => {
+  const isSkillsAssignmentsDirty = useMemo(() => {
     const agentIds = new Set([...Object.keys(savedAssignments), ...Object.keys(workingAssignments)]);
     for (const agentId of agentIds) {
       const saved = (savedAssignments[agentId] ?? []).slice().sort().join(',');
@@ -527,6 +596,19 @@ export function useAgentConfigModal(
     }
     return false;
   }, [savedAssignments, workingAssignments]);
+
+  const isExternalMcpAssignmentsDirty = useMemo(() => {
+    const agentIds = new Set([...Object.keys(savedMcpAssignments), ...Object.keys(workingMcpAssignments)]);
+    for (const agentId of agentIds) {
+      const saved = (savedMcpAssignments[agentId] ?? []).slice().sort().join(',');
+      const working = (workingMcpAssignments[agentId] ?? []).slice().sort().join(',');
+      if (saved !== working) return true;
+    }
+    return false;
+  }, [savedMcpAssignments, workingMcpAssignments]);
+
+  // The single Save Assignments action covers both categories.
+  const isAssignmentsDirty = isSkillsAssignmentsDirty || isExternalMcpAssignmentsDirty;
 
   const onSave = useCallback(async () => {
     if (!isDirty) {
@@ -705,19 +787,21 @@ export function useAgentConfigModal(
         effortDisabled,
         currentModelMissing: !catalogModelIds.has(agent.current_model),
         selectedExtensionIds: workingAssignments[agent.agent_id] ?? [],
+        selectedExternalMcpIds: workingMcpAssignments[agent.agent_id] ?? [],
       };
     });
-  }, [agents, capabilities.effortChoices, models, workingAssignments]);
+  }, [agents, capabilities.effortChoices, models, workingAssignments, workingMcpAssignments]);
 
   const effortWarning = useMemo(() => {
+    const cliDisplayName = descriptor?.cliDisplayName ?? FALLBACK_CLI_DISPLAY_NAME;
     if (capabilities.effortChoices.length === 0) {
-      return UNAVAILABLE_CAPABILITIES_WARNING;
+      return formatUnavailableCapabilitiesWarning(cliDisplayName);
     }
     if (capabilities.stale) {
-      return STALE_CAPABILITIES_WARNING;
+      return formatStaleCapabilitiesWarning(cliDisplayName);
     }
     return null;
-  }, [capabilities.effortChoices.length, capabilities.stale]);
+  }, [capabilities.effortChoices.length, capabilities.stale, descriptor?.cliDisplayName]);
 
   const modelRows = useMemo<AgentConfigCatalogRow[]>(
     () => models.map((model) => {
@@ -803,7 +887,7 @@ export function useAgentConfigModal(
 
       if (result.ok && result.response?.extension) {
         setExtensions((current) => [...current, result.response!.extension!]);
-        setAddForm(DEFAULT_ADD_FORM);
+        setAddForm(createDefaultAddForm(descriptor?.providerId ?? addForm.provider_id));
         addToast({ severity: 'success', message: `Extension "${result.response.extension.display_name}" added.`, duration: 4000 });
         return;
       }
@@ -814,7 +898,7 @@ export function useAgentConfigModal(
     } finally {
       setExtensionSaving(false);
     }
-  }, [addForm, addToast, client]);
+  }, [addForm, addToast, client, descriptor?.providerId]);
 
   const onReseedExtension = useCallback(async (id: string) => {
     setExtensionSaving(true);
@@ -894,40 +978,91 @@ export function useAgentConfigModal(
     });
   }, []);
 
+  const onToggleExternalMcpAssignment = useCallback((agentId: string, serverId: string, selected: boolean) => {
+    setWorkingMcpAssignments((current) => {
+      const current_ids = current[agentId] ?? [];
+      const next_ids = selected
+        ? current_ids.includes(serverId) ? current_ids : [...current_ids, serverId]
+        : current_ids.filter((sid) => sid !== serverId);
+      return { ...current, [agentId]: next_ids };
+    });
+  }, []);
+
   const onSaveAssignments = useCallback(async () => {
     if (!isAssignmentsDirty) return;
 
     setExtensionSaving(true);
     setError(null);
 
-    try {
-      // Build payload — IDs only, identity mapping agent_id
-      const assignments = Object.entries(workingAssignments).map(([agent_id, extension_ids]) => ({
-        agent_id: agent_id as AgentExtensionAgentId,
-        extension_ids: [...extension_ids].sort(),
-      }));
+    const errors: string[] = [];
+    let savedAny = false;
 
-      const result = await client.saveAgentExtensionAssignments({ assignments }) as {
-        ok: boolean;
-        response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }> };
-        error?: string;
-      };
-
-      if (result.ok && result.response?.assignments !== undefined) {
-        const map = toAssignmentMap(result.response.assignments);
-        setSavedAssignments(map);
-        setWorkingAssignments(map);
-        addToast({ severity: 'success', message: 'Agent extension assignments saved.', duration: 4000 });
-        return;
+    // Skills & Plugins — its saved snapshot updates only on its own success.
+    if (isSkillsAssignmentsDirty) {
+      try {
+        const assignments = Object.entries(workingAssignments).map(([agent_id, extension_ids]) => ({
+          agent_id: agent_id as AgentExtensionAgentId,
+          extension_ids: [...extension_ids].sort(),
+        }));
+        const result = await client.saveAgentExtensionAssignments({ assignments }) as {
+          ok: boolean;
+          response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; extension_ids: string[] }> };
+          error?: string;
+        };
+        if (result.ok && result.response?.assignments !== undefined) {
+          const map = toAssignmentMap(result.response.assignments);
+          setSavedAssignments(map);
+          setWorkingAssignments(map);
+          savedAny = true;
+        } else {
+          errors.push(result.error ?? 'Unable to save skills & plugins assignments.');
+        }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Unable to save skills & plugins assignments.');
       }
-
-      setError(result.error ?? 'Unable to save assignments.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to save assignments.');
-    } finally {
-      setExtensionSaving(false);
     }
-  }, [addToast, client, isAssignmentsDirty, workingAssignments]);
+
+    // External MCP — independent save; its snapshot updates only on its own success.
+    if (isExternalMcpAssignmentsDirty) {
+      try {
+        const assignments = Object.entries(workingMcpAssignments).map(([agent_id, external_mcp_server_ids]) => ({
+          agent_id: agent_id as AgentExtensionAgentId,
+          external_mcp_server_ids: [...external_mcp_server_ids].sort(),
+        }));
+        const result = await client.saveExternalMcpAssignments({ assignments }) as {
+          ok: boolean;
+          response?: { assignments?: Array<{ agent_id: AgentExtensionAgentId; external_mcp_server_ids: string[] }> };
+          error?: string;
+        };
+        if (result.ok && result.response?.assignments !== undefined) {
+          const map = toMcpAssignmentMap(result.response.assignments);
+          setSavedMcpAssignments(map);
+          setWorkingMcpAssignments(map);
+          savedAny = true;
+        } else {
+          errors.push(result.error ?? 'Unable to save external MCP assignments.');
+        }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Unable to save external MCP assignments.');
+      }
+    }
+
+    if (errors.length > 0) {
+      setError(errors.join(' '));
+    } else if (savedAny) {
+      addToast({ severity: 'success', message: 'Agent assignments saved.', duration: 4000 });
+    }
+
+    setExtensionSaving(false);
+  }, [
+    addToast,
+    client,
+    isAssignmentsDirty,
+    isSkillsAssignmentsDirty,
+    isExternalMcpAssignmentsDirty,
+    workingAssignments,
+    workingMcpAssignments,
+  ]);
 
   return {
     agentConfigModalProps: {
@@ -970,6 +1105,9 @@ export function useAgentConfigModal(
       onDeleteExtension,
       onToggleExtensionAssignment,
       onSaveAssignments,
+      externalMcpServers,
+      externalMcpAssignments: workingMcpAssignments,
+      onToggleExternalMcpAssignment,
     },
     openAgentConfigModal,
   };

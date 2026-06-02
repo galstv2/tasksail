@@ -11,6 +11,9 @@ import type {
   TaskNotificationSnapshot,
   TaskBoardReadBoardResponse,
   TerminalSetTaskScopeResponse,
+  SystemSettingsPlatformConfig,
+  SystemSettingsReadResponse,
+  SystemSettingsSaveRequest,
 } from './desktopContract';
 import { DESKTOP_ACTION_NAMES, DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
@@ -271,6 +274,10 @@ describe('desktopContract', () => {
                 repoId: 'orders-api',
                 systemLayer: 'backend',
                 repositoryType: 'primary',
+                repoFocus: 'primary',
+                repoFocusAuthored: true,
+                repoCategory: 'service',
+                repoCategoryAuthored: false,
                 languages: ['python'],
                 artifactRoots: ['src'],
                 documentPaths: ['docs'],
@@ -324,6 +331,10 @@ describe('desktopContract', () => {
                   repoRoot: 'relative/repo',
                   repoName: '',
                   repositoryType: 'leader',
+                  repoFocus: 'leader',
+                  repoFocusAuthored: 'true',
+                  repoCategory: 'worker',
+                  repoCategoryAuthored: 'false',
                   systemLayer: 'unknown',
                   languages: ['python', ''],
                 },
@@ -345,6 +356,10 @@ describe('desktopContract', () => {
       'payload.bootstrapAnswers.repositories[0].repoRoot must be an absolute path string.',
       'payload.bootstrapAnswers.repositories[0].repoName must be a non-empty string.',
       'payload.bootstrapAnswers.repositories[0].repositoryType must be primary or support when provided.',
+      'payload.bootstrapAnswers.repositories[0].repoFocus must be primary or support when provided.',
+      'payload.bootstrapAnswers.repositories[0].repoFocusAuthored must be a boolean when provided.',
+      'payload.bootstrapAnswers.repositories[0].repoCategory must be service, application, frontend, library, infrastructure, data, documentation, tool, or unknown when provided.',
+      'payload.bootstrapAnswers.repositories[0].repoCategoryAuthored must be a boolean when provided.',
       'payload.bootstrapAnswers.repositories[0].systemLayer must be backend, frontend, infrastructure, database, documents, or shared.',
       'payload.bootstrapAnswers.repositories[0].languages[1] must be a non-empty string.',
       'payload.bootstrapAnswers.focusableAreas[0] must include focusId, relativePath, or an absolute path.',
@@ -637,6 +652,52 @@ describe('desktopContract', () => {
     for (const action of extensionActions) {
       expect(DESKTOP_ACTION_NAMES).toContain(action);
     }
+  });
+
+  it('registers the systemSettings read and save actions with typed DTOs', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('systemSettings.read');
+    expect(DESKTOP_ACTION_NAMES).toContain('systemSettings.save');
+    expect(DESKTOP_ACTION_NAMES).toContain('systemSettings.restart');
+
+    const config: SystemSettingsPlatformConfig = {
+      schema_version: 1,
+      cli_provider: 'copilot',
+      slice_artifact_format: 'markdown',
+      container_runtime: 'direct',
+      container_engine_host: 'auto',
+      container_engine_wsl_distro: null,
+      max_parallel_tasks: 10,
+      retain_failed_task_worktrees: true,
+      max_retained_failed_task_worktrees: 10,
+      max_retry_generations_per_slug: 5,
+      completed_task_runtime_retention_ms: 3600000,
+      auto_merge: false,
+      external_mcp_local_enabled: true,
+      mcp_port: 8811,
+      repo_context_mcp_external_mount_roots: [],
+    };
+    const readResponse: SystemSettingsReadResponse = {
+      action: 'systemSettings.read',
+      mode: 'read-only',
+      message: 'Loaded platform settings.',
+      defaultConfigPath: '/repo/config/platform.default.json',
+      runtimeConfigPath: '/repo/.platform-state/platform.json',
+      defaultFileHash: 'h1',
+      runtimeFileHash: 'h2',
+      config,
+      runtimeConfig: config,
+      runtimeStatus: 'valid',
+      runtimeWarning: null,
+      tasksActive: false,
+      envOverrides: [],
+    };
+    const saveRequest: SystemSettingsSaveRequest = {
+      action: 'systemSettings.save',
+      payload: { baseDefaultFileHash: 'h1', config },
+    };
+
+    expect(readResponse.runtimeStatus).toBe('valid');
+    expect(validateDesktopActionRequest(saveRequest)).toEqual([]);
   });
 
 });

@@ -7,7 +7,14 @@ import {
   saveAgentLaunchExtensionAssignments,
 } from '../assignment.js';
 import type { AgentExtensionMutationSeams, AgentLaunchExtensionAssignments } from '../types.js';
-import { VALID_AGENT_IDS } from '../ids.js';
+
+const PROVIDER_AGENT_IDS = [
+  'planning-agent',
+  'product-manager',
+  'software-engineer',
+  'qa',
+  'software-engineer-verify',
+];
 
 let tmpDir: string;
 
@@ -42,13 +49,13 @@ function makeManifestWith(ids: string[], enabled = true): void {
 }
 
 const NOW = '2026-01-01T00:00:00.000Z';
-const seams: AgentExtensionMutationSeams = { now: () => NOW };
+const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
 
 describe('loadAgentLaunchExtensionAssignments', () => {
   it('returns empty assignments for all agents when no file exists', async () => {
     const result = await loadAgentLaunchExtensionAssignments(tmpDir, seams);
     expect(result.schema_version).toBe(1);
-    expect(result.assignments).toHaveLength(VALID_AGENT_IDS.length);
+    expect(result.assignments).toHaveLength(PROVIDER_AGENT_IDS.length);
     for (const a of result.assignments) {
       expect(a.extension_ids).toHaveLength(0);
     }
@@ -165,6 +172,21 @@ describe('saveAgentLaunchExtensionAssignments', () => {
     );
   });
 
+  it('rejects unknown agent IDs from the active provider roster', async () => {
+    makeManifestWith(['skill-a']);
+
+    const assignments: AgentLaunchExtensionAssignments = {
+      schema_version: 1,
+      assignments: [
+        { agent_id: 'unknown-agent', extension_ids: ['skill-a'] },
+      ],
+    };
+
+    await expect(saveAgentLaunchExtensionAssignments(tmpDir, assignments, seams)).rejects.toThrow(
+      /Unknown agent ID: unknown-agent/,
+    );
+  });
+
   it('produces stable-sorted output (agent IDs and extension IDs sorted)', async () => {
     makeManifestWith(['z-skill', 'a-skill']);
     const assignments: AgentLaunchExtensionAssignments = {
@@ -184,7 +206,7 @@ describe('saveAgentLaunchExtensionAssignments', () => {
     // Agent IDs in canonical order
     const agentIds = result.assignments.map((a) => a.agent_id);
     expect(agentIds[0]).toBe('planning-agent');
-    expect(agentIds[agentIds.length - 1]).toBe('qa');
+    expect(agentIds).toEqual(PROVIDER_AGENT_IDS);
   });
 
   it('writes atomically (file exists after save)', async () => {
@@ -221,7 +243,7 @@ describe('saveAgentLaunchExtensionAssignments event emission', () => {
     makeManifestWith(['skill-a']);
     const assignments: AgentLaunchExtensionAssignments = {
       schema_version: 1,
-      assignments: VALID_AGENT_IDS.map((id) => ({ agent_id: id, extension_ids: id === 'planning-agent' ? ['skill-a'] : [] })),
+      assignments: PROVIDER_AGENT_IDS.map((id) => ({ agent_id: id, extension_ids: id === 'planning-agent' ? ['skill-a'] : [] })),
     };
     await saveAgentLaunchExtensionAssignments(tmpDir, assignments, seams);
 
@@ -239,7 +261,7 @@ describe('saveAgentLaunchExtensionAssignments event emission', () => {
     makeManifestWith(['skill-a']);
     const bad: AgentLaunchExtensionAssignments = {
       schema_version: 1,
-      assignments: VALID_AGENT_IDS.map((id) => ({
+      assignments: PROVIDER_AGENT_IDS.map((id) => ({
         agent_id: id,
         extension_ids: id === 'planning-agent' ? ['ghost-id'] : [],
       })),
@@ -253,7 +275,7 @@ describe('saveAgentLaunchExtensionAssignments event emission', () => {
     makeManifestWith(['disabled-x'], false);
     const bad: AgentLaunchExtensionAssignments = {
       schema_version: 1,
-      assignments: VALID_AGENT_IDS.map((id) => ({
+      assignments: PROVIDER_AGENT_IDS.map((id) => ({
         agent_id: id,
         extension_ids: id === 'software-engineer' ? ['disabled-x'] : [],
       })),

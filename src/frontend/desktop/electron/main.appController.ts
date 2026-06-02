@@ -29,6 +29,7 @@ import {
 import { recoverPlannerParentBranchViewsOnStartup } from './plannerParentBranchView';
 import { refreshTerminalScopeCaches } from './main.terminalScopeRefresh';
 import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';
+import { restartTaskSailApp } from './appRestart';
 import { DesktopActionRouter } from './main.desktopActionRouter';
 import { DesktopIpcContract } from './main.ipcContract';
 import {
@@ -85,6 +86,10 @@ export class ElectronAppController {
         new DesktopActionRouter(createDefaultDesktopActionHandlers({
           getRecoveryController: () => this.recoveryController,
           schedulePipelineAutoStart,
+          // Full TaskSail restart after a confirmed System Settings save so the
+          // saved platform settings take effect (env-aware: a clean managed dev
+          // restart, or a production relaunch).
+          restartApp: restartTaskSailApp,
         })),
       ).register();
       registerIpcLogHandler();

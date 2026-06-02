@@ -232,6 +232,7 @@ describe('artifactCompletion', () => {
     expect(prompt).toContain('Validation Commands / Validation');
     expect(prompt).toContain('Acceptance and Validation');
     expect(prompt).toContain('Product-manager artifact repair protocol');
+    expect(prompt).toContain('read .github/copilot/instructions/product-manager.instructions.md');
     expect(prompt).toContain('rebuild this malformed slice');
     expect(prompt).toContain(path.join(repoRoot, 'AgentWorkSpace', 'templates', 'slice-template.md'));
     expect(prompt).toContain('preserve every seeded ## and ### heading');

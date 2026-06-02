@@ -142,6 +142,19 @@ describe('CLI boundary integration', () => {
     expect(source).toContain('_isCloseoutFailure');
   });
 
+  it('runtime modules do not import the Python CLI entrypoint', () => {
+    const runtimeSources = [
+      'src/backend/platform/container/directRuntimeProcess.ts',
+      'src/backend/platform/setup/setup.ts',
+    ];
+
+    for (const relativePath of runtimeSources) {
+      const source = readRepoFile(relativePath);
+      expect(source).toContain('../core/pythonResolver.js');
+      expect(source).not.toContain('../core/pythonCli.js');
+    }
+  });
+
   it('external MCP registry preserves bridge divergence and protocol output', () => {
     const source = readRepoFile('src/backend/platform/external-mcp-registry/cli.ts');
 

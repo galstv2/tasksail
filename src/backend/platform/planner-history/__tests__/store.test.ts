@@ -200,6 +200,27 @@ describe('planner conversation history store', () => {
     ]);
   });
 
+  it('serializes concurrent upserts of different records so both survive', async () => {
+    // Without a per-file lock both upserts read the same (empty) baseline and
+    // the second write clobbers the first, losing a record. The lock makes the
+    // read-modify-write atomic, so both records persist.
+    const contextPackDir = contextPackPath('concurrent-pack');
+
+    await Promise.all([
+      upsertPlannerHistoryRecord({
+        repoRoot,
+        record: recordFixture({ id: 'rec-a', contextPackDir, createdAt: isoMinute(1) }),
+      }),
+      upsertPlannerHistoryRecord({
+        repoRoot,
+        record: recordFixture({ id: 'rec-b', contextPackDir, createdAt: isoMinute(2) }),
+      }),
+    ]);
+
+    const records = await listPlannerHistoryForPack({ repoRoot, contextPackDir });
+    expect(records.map((record) => record.id).sort()).toEqual(['rec-a', 'rec-b']);
+  });
+
   function contextPackPath(name: string): string {
     return path.join(repoRoot, 'contextpacks', name);
   }

@@ -1,7 +1,7 @@
 import type { AgentId } from '../core/index.js';
 import { readTextFile } from '../core/io.js';
 import { createLogger } from '../core/logger.js';
-import type { AgentLaunchExtensionDirs } from '../cli-provider/types.js';
+import type { AgentLaunchExtensionDirs, CliProvider } from '../cli-provider/types.js';
 import { loadAgentLaunchExtensionAssignments } from '../agent-extensions/assignment.js';
 import { AgentExtensionError } from '../agent-extensions/ids.js';
 import { createAgentExtensionStage } from '../agent-extensions/stage.js';
@@ -11,6 +11,7 @@ import type {
   AgentExtensionFsAdapter,
 } from '../agent-extensions/types.js';
 import { toRegistryId } from './metadata.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 const log = createLogger('platform/agent-runner/roleLaunchExtensions');
 
@@ -61,9 +62,10 @@ export type ResolveRoleAgentLaunchExtensionsOptions = {
  * not define its own agent-id map — the registry-id source of truth stays single.
  */
 export function roleAgentToExtensionAgentId(
+  provider: CliProvider,
   runtimeAgentId: AgentId,
 ): AgentExtensionAgentId | undefined {
-  const registryId = toRegistryId(runtimeAgentId);
+  const registryId = toRegistryId(provider, runtimeAgentId);
   return ROLE_EXTENSION_AGENT_IDS.has(registryId as AgentExtensionAgentId)
     ? (registryId as AgentExtensionAgentId)
     : undefined;
@@ -97,13 +99,17 @@ export async function resolveRoleAgentLaunchExtensions(
 ): Promise<RoleAgentLaunchExtensionResolution> {
   const { repoRoot, runtimeAgentId, stageLaunchId } = options;
 
-  // Map the runtime agent first. toRegistryId is read defensively: some legacy
-  // role-agent test harnesses partially mock metadata.js without toRegistryId, and
-  // an unavailable mapping is treated as unmapped (no extensions). In production
+  // Resolve the active provider up front so a provider-resolution failure surfaces
+  // instead of being swallowed by the legacy defensive catch below.
+  const provider = getActiveProvider(repoRoot);
+
+  // Map the runtime agent. toRegistryId is read defensively: some legacy role-agent
+  // test harnesses partially mock metadata.js without toRegistryId, and an
+  // unavailable mapping is treated as unmapped (no extensions). In production
   // toRegistryId is always present, so this catch is inert there.
   let assignmentAgentId: AgentExtensionAgentId | undefined;
   try {
-    assignmentAgentId = roleAgentToExtensionAgentId(runtimeAgentId);
+    assignmentAgentId = roleAgentToExtensionAgentId(provider, runtimeAgentId);
   } catch {
     return noopResolution(stageLaunchId, undefined);
   }

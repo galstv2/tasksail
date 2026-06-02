@@ -49,7 +49,19 @@ def ensure_path_within(base_dir: Path, candidate: Path, field_name: str) -> Path
     return resolved_candidate
 
 
+# Windows drive-absolute (C:\..., C:/...) and UNC (\\server\share) shapes. On
+# POSIX these are not Path.is_absolute(), so without this guard they would be
+# treated as relative filenames and silently sandboxed instead of rejected —
+# making a Windows-authored manifest behave differently across host OSes.
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^([A-Za-z]:[\\/]|\\\\)")
+
+
 def resolve_path_within(base_dir: Path, value: str, field_name: str) -> Path:
+    if _WINDOWS_ABSOLUTE_RE.match(value):
+        raise ValueError(
+            f"Field '{field_name}' must be a repo-relative path, not a Windows "
+            f"drive or UNC path: {value!r}"
+        )
     return ensure_path_within(
         base_dir,
         resolve_path(base_dir, value),

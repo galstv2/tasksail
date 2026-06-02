@@ -1336,10 +1336,7 @@ describe('externalMcp validators', () => {
       const errors = validateDesktopActionRequest({
         action: 'externalMcp.add',
         payload: {
-          server: {
-            id: 'test', display_name: 'Test', purpose: 'Test',
-            transport: 'sse', url: 'https://x.com', enabled: true,
-          },
+          server: { id: 'test', display_name: 'Test', purpose: 'Use this server for test fixtures.', preferred_for: ['test fixtures'], transport: 'sse', url: 'https://x.com', enabled: true },
         },
       });
       expect(errors).toEqual([]);
@@ -1356,10 +1353,7 @@ describe('externalMcp validators', () => {
       const errors = validateDesktopActionRequest({
         action: 'externalMcp.update',
         payload: {
-          server: {
-            id: 'test', display_name: 'Test', purpose: 'Test',
-            transport: 'sse', url: 'https://x.com', enabled: true,
-          },
+          server: { id: 'test', display_name: 'Test', purpose: 'Use this server for test fixtures.', preferred_for: ['test fixtures'], transport: 'sse', url: 'https://x.com', enabled: true },
         },
       });
       expect(errors).toEqual([]);
@@ -1435,15 +1429,13 @@ describe('contextPack.setRepoCategory', () => {
     ).toEqual([]);
   });
 
-  it('rejects missing repoCategory', () => {
-    const errors = validateDesktopActionRequest({
-      action: 'contextPack.setRepoCategory',
-      payload: {
-        contextPackDir: '/tmp/my-pack',
-        repoId: 'api',
-      },
-    });
-    expect(errors).toContain('payload.repoCategory must be a non-empty string.');
+  it('rejects missing or non-canonical repoCategory', () => {
+    for (const payload of [
+      { contextPackDir: '/tmp/my-pack', repoId: 'api' },
+      { contextPackDir: '/tmp/my-pack', repoId: 'api', repoCategory: 'worker' },
+    ]) {
+      expect(validateDesktopActionRequest({ action: 'contextPack.setRepoCategory', payload })).toContain('payload.repoCategory must be service, application, frontend, library, infrastructure, data, documentation, tool, or unknown.');
+    }
   });
 
   it('rejects relative contextPackDir', () => {

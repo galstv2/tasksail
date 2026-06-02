@@ -22,6 +22,7 @@ const NON_SKILL_COMPONENT_CLASSES = ['agents', 'hooks', 'lsp', 'mcp'] as const;
 export type CopilotPluginManifestSummary = {
   manifestPath: string;
   name: string;
+  description?: string;
   version?: string;
   skillPathCount: number;
   declaredComponentClasses: string[];
@@ -223,6 +224,9 @@ function parseManifestSummary(
   return {
     manifestPath,
     name: parsed.name,
+    description: typeof parsed.description === 'string' && parsed.description.trim() !== ''
+      ? parsed.description.trim()
+      : undefined,
     version: typeof parsed.version === 'string' ? parsed.version : undefined,
     skillPathCount: skillPaths.length,
     declaredComponentClasses,

@@ -16,7 +16,9 @@ import {
   RUNTIME_REGISTRY_PATH,
 } from '../../../backend/platform/external-mcp-registry/load';
 import { saveExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/save';
+import { removeDeletedExternalMcpServerAssignment } from '../../../backend/platform/external-mcp-registry/index';
 import type { ExternalMcpRegistry } from '../../../backend/platform/external-mcp-registry/types';
+import { clearExternalMcpRegistryCache } from '../../../backend/platform/agent-runner/pipeline/externalMcpRegistryCache';
 import { getPlatformConfig } from '../../../backend/platform/platform-config/get';
 
 import type {
@@ -116,6 +118,7 @@ export async function addExternalMcpServer(
   if (errors.length > 0) {
     return { ok: false, error: errors.join('; '), action: 'externalMcp.add', details: errors };
   }
+  clearExternalMcpRegistryCache(REPO_ROOT);
   return {
     ok: true,
     response: {
@@ -140,6 +143,7 @@ export async function updateExternalMcpServer(
   if (errors.length > 0) {
     return { ok: false, error: errors.join('; '), action: 'externalMcp.update', details: errors };
   }
+  clearExternalMcpRegistryCache(REPO_ROOT);
   return {
     ok: true,
     response: {
@@ -164,6 +168,20 @@ export async function removeExternalMcpServer(
   if (errors.length > 0) {
     return { ok: false, error: errors.join('; '), action: 'externalMcp.remove', details: errors };
   }
+  // Drop the deleted server from every assignment row. Cleanup is lenient about
+  // the (now-unknown) removed server ID and never throws for that reason, so any
+  // error here is a genuine I/O or registry failure that left the assignment
+  // store stale. The removal itself already succeeded, so we keep ok:true but
+  // surface a warning — stale IDs make a later launch selection fail closed.
+  let assignmentCleanupWarning: string | undefined;
+  try {
+    await removeDeletedExternalMcpServerAssignment(REPO_ROOT, payload.serverId);
+  } catch (err) {
+    assignmentCleanupWarning = `Server removed, but clearing it from agent assignments failed: ${
+      err instanceof Error ? err.message : String(err)
+    }. The assignment store may be stale.`;
+  }
+  clearExternalMcpRegistryCache(REPO_ROOT);
   return {
     ok: true,
     response: {
@@ -171,6 +189,7 @@ export async function removeExternalMcpServer(
       mode: 'mutated',
       message: `Server "${payload.serverId}" removed.`,
       servers: registry.external_servers as ExternalMcpServerEntry[],
+      ...(assignmentCleanupWarning ? { warning: assignmentCleanupWarning } : {}),
     },
   };
 }
@@ -188,6 +207,7 @@ export async function toggleExternalMcpServer(
   if (errors.length > 0) {
     return { ok: false, error: errors.join('; '), action: 'externalMcp.toggleEnabled', details: errors };
   }
+  clearExternalMcpRegistryCache(REPO_ROOT);
   return {
     ok: true,
     response: {
@@ -413,7 +433,7 @@ export async function validateExternalMcpConnection(
 // effects, hang, or behave differently under a probe. It resolves the command
 // against process.env.PATH (plus PATHEXT on Windows) using fs stat/access and
 // never spawns any process. The configured command runs only at agent launch,
-// spawned by the Copilot CLI.
+// spawned by the active provider CLI.
 // ---------------------------------------------------------------------------
 
 function isExecutableFile(candidate: string): boolean {

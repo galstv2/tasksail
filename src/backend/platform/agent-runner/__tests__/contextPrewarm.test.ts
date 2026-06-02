@@ -4,6 +4,7 @@ const resolveConventionsContext = vi.fn();
 const resolveCorrectionsContext = vi.fn();
 const resolveReinforcementContext = vi.fn();
 const loadExternalMcpRegistryWithFallback = vi.fn();
+const loadExternalMcpAgentAssignments = vi.fn();
 
 vi.mock('../conventions.js', () => ({
   resolveConventionsContext,
@@ -19,7 +20,9 @@ vi.mock('../reinforcement.js', () => ({
 
 vi.mock('../../external-mcp-registry/index.js', () => ({
   CURRENT_SCHEMA_VERSION: 1,
+  EXTERNAL_MCP_ASSIGNMENTS_SCHEMA_VERSION: 1,
   loadExternalMcpRegistryWithFallback,
+  loadExternalMcpAgentAssignments,
 }));
 
 const { prewarmPipelineContext } = await import('../pipeline/contextPrewarm.js');

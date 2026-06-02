@@ -90,9 +90,12 @@ export async function getQueueStatus(
     }
   }
 
-  // Deprecated back-compat getter: returns first active task's marker filename
+  // Deprecated back-compat getter: returns first active task's marker filename.
+  // Derive the task dir with path.dirname/path.basename so the separator-aware
+  // logic works on Windows (a POSIX "/handoffs" string strip silently no-ops
+  // against native "\handoffs" segments).
   const activeItem: string | null = activeTasks.length > 0
-    ? (path.basename(queuePaths.taskHandoffs(activeTasks[0]!.taskId).replace('/handoffs', '')) + '.md')
+    ? path.basename(path.dirname(queuePaths.taskHandoffs(activeTasks[0]!.taskId))) + '.md'
     : null;
 
   // Workspace readiness: under per-task workbench there is no singleton

@@ -175,7 +175,107 @@ describe('buildDraftFromDiscovery', () => {
     expect(result.repositories[2].activationPriority).toBe(80);
   });
 
-  it('respects repositoryType when discovery marks a non-first repo as primary', () => {
+  it('maps repo category and confidence from category-aware discovery output', () => {
+    const response = makeDiscoveryResponse({
+      candidateRepos: [
+        {
+          repoId: 'orders-api',
+          repoName: 'Orders API',
+          path: '/orders-api',
+          relativePath: 'orders-api',
+          highSignalPaths: ['src'],
+          repoCategory: 'service',
+          repoCategoryConfidence: 'high',
+          suggestedSystemLayer: 'backend',
+          repositoryType: 'support',
+        },
+      ],
+    });
+
+    const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
+
+    expect(result.repositories[0]).toEqual(expect.objectContaining({
+      repoCategory: 'service',
+      repoCategoryAuthored: false,
+      repoCategoryConfidence: 'high',
+      systemLayer: 'backend',
+    }));
+  });
+
+  it('computes one initial primary for category-aware discovery', () => {
+    const response = makeDiscoveryResponse({
+      candidateRepos: [
+        {
+          repoId: 'orders-api',
+          repoName: 'Orders API',
+          path: '/orders-api',
+          relativePath: 'orders-api',
+          highSignalPaths: [],
+          repoCategory: 'service',
+          repositoryType: 'primary',
+        },
+        {
+          repoId: 'billing-api',
+          repoName: 'Billing API',
+          path: '/billing-api',
+          relativePath: 'billing-api',
+          highSignalPaths: [],
+          repoCategory: 'service',
+          repositoryType: 'primary',
+        },
+        {
+          repoId: 'common-lib',
+          repoName: 'Common Lib',
+          path: '/common-lib',
+          relativePath: 'common-lib',
+          highSignalPaths: [],
+          repoCategory: 'library',
+          repositoryType: 'primary',
+        },
+      ],
+    });
+
+    const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
+
+    expect(result.repositories.map((repo) => repo.primary)).toEqual([true, false, false]);
+    expect(result.repositories.map((repo) => repo.repositoryType)).toEqual([
+      'primary',
+      'support',
+      'support',
+    ]);
+  });
+
+  it('uses the first repo as category-aware primary when no app-like category exists', () => {
+    const response = makeDiscoveryResponse({
+      candidateRepos: [
+        {
+          repoId: 'common-lib',
+          repoName: 'Common Lib',
+          path: '/common-lib',
+          relativePath: 'common-lib',
+          highSignalPaths: [],
+          repoCategory: 'library',
+        },
+        {
+          repoId: 'deploy',
+          repoName: 'Deploy',
+          path: '/deploy',
+          relativePath: 'deploy',
+          highSignalPaths: [],
+          repoCategory: 'infrastructure',
+        },
+      ],
+    });
+
+    const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
+
+    expect(result.repositories.map((repo) => repo.repositoryType)).toEqual([
+      'primary',
+      'support',
+    ]);
+  });
+
+  it('respects repositoryType for legacy discovery when a non-first repo is primary', () => {
     const response = makeDiscoveryResponse({
       candidateRepos: [
         { repoId: 'a', repoName: 'Alpha', path: '/a', relativePath: 'a', highSignalPaths: [], repositoryType: 'support' },
@@ -188,6 +288,26 @@ describe('buildDraftFromDiscovery', () => {
     expect(result.repositories[0].primary).toBe(false);
     expect(result.repositories[1].primary).toBe(true);
     expect(result.repositories[1].defaultFocusable).toBe(true);
+  });
+
+  it('falls back from suggested test systemLayer without storing test in the draft', () => {
+    const response = makeDiscoveryResponse({
+      candidateRepos: [
+        {
+          repoId: 'web-tests',
+          repoName: 'Web Tests',
+          path: '/web-tests',
+          relativePath: 'web-tests',
+          highSignalPaths: [],
+          repoCategory: 'unknown',
+          suggestedSystemLayer: 'test',
+        },
+      ],
+    });
+
+    const result = buildDraftFromDiscovery({ ...INITIAL_DRAFT }, response);
+
+    expect(result.repositories[0].systemLayer).toBe('frontend');
   });
 
   it('infers frontend systemLayer for web-named repos', () => {

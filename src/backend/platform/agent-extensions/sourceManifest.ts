@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { isRecord } from '../core/guards.js';
 import { safeJsonParse } from '../core/io.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import type {
   AgentExtensionFsAdapter,
   AgentExtensionKind,
+  AgentExtensionProviderId,
   AgentExtensionSource,
   AgentExtensionSourceManifestEntry,
   AgentExtensionsSourceManifest,
@@ -46,7 +48,11 @@ function validateSource(source: unknown): source is AgentExtensionSource {
   return false;
 }
 
-function validateEntry(value: unknown, index: number): AgentExtensionSourceManifestEntry {
+function validateEntry(
+  value: unknown,
+  index: number,
+  activeProviderId: AgentExtensionProviderId,
+): AgentExtensionSourceManifestEntry {
   if (!isRecord(value)) {
     throw new Error(`Extension entry at index ${index} must be an object.`);
   }
@@ -61,8 +67,11 @@ function validateEntry(value: unknown, index: number): AgentExtensionSourceManif
   if (kind !== 'skill' && kind !== 'plugin') {
     throw new Error(`Extension entry "${id}" has invalid kind "${String(kind)}".`);
   }
-  if (provider_id !== 'copilot') {
-    throw new Error(`Extension entry "${id}" has unsupported provider_id "${String(provider_id)}".`);
+  if (provider_id !== activeProviderId) {
+    throw new Error(
+      `Extension entry "${id}" has unsupported provider_id "${String(provider_id)}". ` +
+      `Expected active provider "${activeProviderId}".`,
+    );
   }
   if (typeof display_name !== 'string' || display_name.trim() === '') {
     throw new Error(`Extension entry "${id}" is missing a valid display_name.`);
@@ -87,7 +96,7 @@ function validateEntry(value: unknown, index: number): AgentExtensionSourceManif
   return {
     id,
     kind: kind as AgentExtensionKind,
-    provider_id: 'copilot',
+    provider_id: activeProviderId,
     display_name: display_name.trim(),
     description: description.trim(),
     enabled,
@@ -95,7 +104,11 @@ function validateEntry(value: unknown, index: number): AgentExtensionSourceManif
   };
 }
 
-export function parseSourceManifest(raw: string, context: string): AgentExtensionsSourceManifest {
+export function parseSourceManifest(
+  raw: string,
+  context: string,
+  activeProviderId: AgentExtensionProviderId,
+): AgentExtensionsSourceManifest {
   const parsed = safeJsonParse<unknown>(raw, context);
   if (!isRecord(parsed)) {
     throw new Error(`Source manifest in ${context} must be a JSON object.`);
@@ -109,7 +122,7 @@ export function parseSourceManifest(raw: string, context: string): AgentExtensio
     throw new Error('Source manifest must have an extensions array.');
   }
 
-  const entries = parsed.extensions.map((entry, i) => validateEntry(entry, i));
+  const entries = parsed.extensions.map((entry, i) => validateEntry(entry, i, activeProviderId));
 
   // Validate global ID namespace: no duplicate IDs across skill+plugin
   const seen = new Map<string, number>();
@@ -135,13 +148,14 @@ export function serializeSourceManifest(manifest: AgentExtensionsSourceManifest)
 export async function readSourceManifest(
   repoRoot: string,
   fs: AgentExtensionFsAdapter,
+  activeProviderId = getActiveProvider(repoRoot).id,
 ): Promise<AgentExtensionsSourceManifest> {
   const filePath = sourceManifestPath(repoRoot);
   const raw = await fs.readTextFile(filePath);
   if (raw === null) {
     return { schema_version: 1, extensions: [] };
   }
-  return parseSourceManifest(raw, SOURCE_MANIFEST_RELATIVE);
+  return parseSourceManifest(raw, SOURCE_MANIFEST_RELATIVE, activeProviderId);
 }
 
 export async function writeSourceManifest(

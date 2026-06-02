@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ToastProvider } from '../contexts/ToastContext';
 import { createMockClient } from '../../test/factories/clientFactory';
+import { createProviderFrontendDescriptor } from '../../test/factories/fixtureFactory';
 import { useAgentConfigModal } from './useAgentConfigModal';
 
 function wrapper({ children }: { children: ReactNode }): JSX.Element {
@@ -289,7 +290,7 @@ describe('useAgentConfigModal', () => {
     await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
 
     const lily = result.current.agentConfigModalProps.agents.find((agent) => agent.agent_id === 'provider-planner');
-    expect(result.current.agentConfigModalProps.effortWarning).toMatch(/could not be loaded/);
+    expect(result.current.agentConfigModalProps.effortWarning).toBe('Reasoning effort options could not be loaded from the installed Test CLI. Effort changes are blocked until capabilities can be discovered.');
     expect(lily?.effortDisabled).toBe(true);
     expect(lily?.effortOptions).toEqual(['none', 'xhigh']);
   });
@@ -469,6 +470,60 @@ describe('useAgentConfigModal', () => {
     expect(result.current.agentConfigModalProps.extensionAssignments['provider-planner']).toEqual(['my-skill']);
   });
 
+  it('uses the active provider descriptor as the default add-extension provider_id', async () => {
+    const addAgentExtension = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.addExtension',
+        mode: 'mutated',
+        message: 'Added.',
+        extension: {
+          id: 'descriptor-skill',
+          kind: 'skill',
+          provider_id: 'descriptor-provider',
+          display_name: 'Descriptor Skill',
+          description: '',
+          enabled: true,
+          source_type: 'git',
+          status: 'available',
+          metadata: {},
+        },
+      },
+    });
+    const client = createMockClient({
+      describeActiveProvider: vi.fn().mockResolvedValue(createProviderFrontendDescriptor({
+        providerId: 'descriptor-provider',
+      })),
+      addAgentExtension,
+    });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+
+    act(() => { result.current.openAgentConfigModal(); });
+
+    await waitFor(() => expect(result.current.agentConfigModalProps.addForm.provider_id).toBe('descriptor-provider'));
+
+    act(() => {
+      result.current.agentConfigModalProps.onAddFormChange({
+        id: 'descriptor-skill',
+        gitUrl: 'https://github.com/org/repo',
+        gitRef: 'main',
+      });
+    });
+
+    await act(async () => {
+      await result.current.agentConfigModalProps.onAddExtension();
+    });
+
+    expect(addAgentExtension).toHaveBeenCalledWith({
+      id: 'descriptor-skill',
+      kind: 'skill',
+      provider_id: 'descriptor-provider',
+      source: { type: 'git', url: 'https://github.com/org/repo', ref: 'main' },
+    });
+    expect(result.current.agentConfigModalProps.addForm.provider_id).toBe('descriptor-provider');
+  });
+
   it('does NOT trigger a rescan (no reseed/rescan call) on modal open', async () => {
     // The client has listAgentExtensions (pure read) but no reseed should be called
     const reseedAgentExtension = vi.fn();
@@ -567,6 +622,112 @@ describe('useAgentConfigModal', () => {
     act(() => {
       result.current.agentConfigModalProps.onToggleExtensionAssignment('provider-planner', 'sk-1', true);
     });
+    expect(result.current.agentConfigModalProps.isAssignmentsDirty).toBe(false);
+  });
+
+  it('loads external MCP servers and assignments into the modal', async () => {
+    const listExternalMcpServers = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'externalMcp.list',
+        mode: 'read-only',
+        message: '',
+        servers: [{ id: 'vendor-docs', display_name: 'Vendor Docs', purpose: 'Docs for billing flows.', enabled: true, transport: 'sse', url: 'https://mcp.example.com/sse' }],
+        localEnabled: false,
+      },
+    });
+    const loadExternalMcpAssignments = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadExternalMcpAssignments',
+        mode: 'read-only',
+        message: '',
+        assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }],
+      },
+    });
+    const client = createMockClient({ listExternalMcpServers, loadExternalMcpAssignments });
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    expect(listExternalMcpServers).toHaveBeenCalledTimes(1);
+    expect(result.current.agentConfigModalProps.externalMcpServers).toHaveLength(1);
+    expect(result.current.agentConfigModalProps.externalMcpAssignments['software-engineer']).toEqual(['vendor-docs']);
+  });
+
+  it('toggling an external MCP assignment marks dirty without changing skills assignments', async () => {
+    const client = createMockClient({});
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    expect(result.current.agentConfigModalProps.isAssignmentsDirty).toBe(false);
+    const skillsBefore = JSON.stringify(result.current.agentConfigModalProps.extensionAssignments);
+
+    act(() => { result.current.agentConfigModalProps.onToggleExternalMcpAssignment('software-engineer', 'vendor-docs', true); });
+
+    expect(result.current.agentConfigModalProps.isAssignmentsDirty).toBe(true);
+    expect(JSON.stringify(result.current.agentConfigModalProps.extensionAssignments)).toEqual(skillsBefore);
+    expect(result.current.agentConfigModalProps.externalMcpAssignments['software-engineer']).toEqual(['vendor-docs']);
+  });
+
+  it('onSaveAssignments saves external MCP only when only MCP assignments are dirty', async () => {
+    const saveExternalMcpAssignments = vi.fn().mockResolvedValue({
+      ok: true,
+      response: { action: 'agentConfig.saveExternalMcpAssignments', mode: 'mutated', message: 'Saved.', assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }] },
+    });
+    const saveAgentExtensionAssignments = vi.fn();
+    const client = createMockClient({ saveExternalMcpAssignments, saveAgentExtensionAssignments });
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => { result.current.agentConfigModalProps.onToggleExternalMcpAssignment('software-engineer', 'vendor-docs', true); });
+    await act(async () => { await result.current.agentConfigModalProps.onSaveAssignments(); });
+
+    expect(saveExternalMcpAssignments).toHaveBeenCalledTimes(1);
+    expect(saveAgentExtensionAssignments).not.toHaveBeenCalled();
+    expect(result.current.agentConfigModalProps.isAssignmentsDirty).toBe(false);
+  });
+
+  it('onSaveAssignments saves both categories when both are dirty', async () => {
+    const saveExternalMcpAssignments = vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveExternalMcpAssignments', mode: 'mutated', message: '', assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }] } });
+    const saveAgentExtensionAssignments = vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: '', assignments: [{ agent_id: 'software-engineer', extension_ids: ['my-skill'] }] } });
+    const client = createMockClient({ saveExternalMcpAssignments, saveAgentExtensionAssignments });
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => {
+      result.current.agentConfigModalProps.onToggleExtensionAssignment('software-engineer', 'my-skill', true);
+      result.current.agentConfigModalProps.onToggleExternalMcpAssignment('software-engineer', 'vendor-docs', true);
+    });
+    await act(async () => { await result.current.agentConfigModalProps.onSaveAssignments(); });
+
+    expect(saveAgentExtensionAssignments).toHaveBeenCalledTimes(1);
+    expect(saveExternalMcpAssignments).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists the succeeding category even when the other category save fails', async () => {
+    const saveExternalMcpAssignments = vi.fn().mockResolvedValue({ ok: false, error: 'MCP save failed.' });
+    const saveAgentExtensionAssignments = vi.fn().mockResolvedValue({ ok: true, response: { action: 'agentConfig.saveExtensionAssignments', mode: 'mutated', message: '', assignments: [{ agent_id: 'software-engineer', extension_ids: ['my-skill'] }] } });
+    const client = createMockClient({ saveExternalMcpAssignments, saveAgentExtensionAssignments });
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => {
+      result.current.agentConfigModalProps.onToggleExtensionAssignment('software-engineer', 'my-skill', true);
+      result.current.agentConfigModalProps.onToggleExternalMcpAssignment('software-engineer', 'vendor-docs', true);
+    });
+    await act(async () => { await result.current.agentConfigModalProps.onSaveAssignments(); });
+
+    expect(saveAgentExtensionAssignments).toHaveBeenCalledTimes(1);
+    expect(saveExternalMcpAssignments).toHaveBeenCalledTimes(1);
+    expect(result.current.agentConfigModalProps.error).toContain('MCP save failed.');
+
+    // Skills snapshot persisted (no longer dirty); only the failed MCP edit remains.
+    act(() => { result.current.agentConfigModalProps.onToggleExternalMcpAssignment('software-engineer', 'vendor-docs', false); });
     expect(result.current.agentConfigModalProps.isAssignmentsDirty).toBe(false);
   });
 

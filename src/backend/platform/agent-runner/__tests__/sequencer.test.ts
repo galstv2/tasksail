@@ -11,7 +11,8 @@ import {
   detectParallelOk,
   getAgentOrder,
 } from '../pipeline/sequencer.js';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
+import type { ExternalMcpPromptScope } from '../pipeline/mcpPromptContext.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 
 function makeTmpDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'sequencer-test-'));
@@ -99,20 +100,39 @@ function writeRegularDaltonOverlayFixture(
   }
 }
 
-function createExternalMcpRegistry(agentIds: string[]): ExternalMcpRegistry {
+const RUNTIME_TO_PROVIDER: Record<string, string> = {
+  lily: 'planning-agent',
+  alice: 'product-manager',
+  dalton: 'software-engineer',
+  'dalton-verify': 'software-engineer-verify',
+  ron: 'qa',
+};
+
+// Build a prompt scope assigning a single server to the provider IDs that the
+// given runtime agent nicknames map to. Selection reads assignments, not agent_scope.
+function createExternalMcpScope(runtimeAgentIds: string[]): ExternalMcpPromptScope {
   return {
-    schema_version: 1,
-    external_servers: [
-      {
-        id: 'prompt-guide',
-        display_name: 'Prompt Guide',
-        purpose: 'triaging implementation work',
-        enabled: true,
-        transport: 'http',
-        url: 'http://localhost:8080/mcp',
-        agent_scope: { mode: 'allowlist', agent_ids: agentIds },
-      },
-    ],
+    runtimeToProviderAgentId: copilotProvider.runtimeToProviderAgentId,
+    registry: {
+      schema_version: 1,
+      external_servers: [
+        {
+          id: 'prompt-guide',
+          display_name: 'Prompt Guide',
+          purpose: 'triaging implementation work',
+          enabled: true,
+          transport: 'http',
+          url: 'http://localhost:8080/mcp',
+        },
+      ],
+    },
+    assignments: {
+      schema_version: 1,
+      assignments: runtimeAgentIds.map((id) => ({
+        agent_id: RUNTIME_TO_PROVIDER[id] ?? id,
+        external_mcp_server_ids: ['prompt-guide'],
+      })),
+    },
   };
 }
 
@@ -208,7 +228,7 @@ describe('buildFleetPrompt', () => {
       implStepsDir,
       handoffsDir,
       { primaryFocusRelativePath: 'services/sink' },
-      createExternalMcpRegistry(['dalton']),
+      createExternalMcpScope(['dalton']),
       { repoRoot: dir, contextPackDir },
     );
     expect(prompt).toContain('fleet mode');
@@ -275,7 +295,7 @@ describe('buildFleetDaltonCleanupPrompt', () => {
         'blocking',
       ].join('\n'),
       { primaryFocusRelativePath: 'services/sink' },
-      createExternalMcpRegistry(['dalton']),
+      createExternalMcpScope(['dalton']),
     );
     expect(prompt).toContain('did not leave the workflow ready for QA');
     expect(prompt).toContain('## Monolith Focus Scope');
@@ -353,7 +373,7 @@ describe('buildSimpleDaltonPrompt', () => {
       implStepsDir,
       handoffsDir,
       { primaryFocusRelativePath: 'services/sink' },
-      createExternalMcpRegistry(['dalton']),
+      createExternalMcpScope(['dalton']),
       { repoRoot: dir, contextPackDir },
     );
 
@@ -428,7 +448,7 @@ describe('buildSimpleDaltonPrompt', () => {
       dir,
       dir,
       undefined,
-      createExternalMcpRegistry(['ron']),
+      createExternalMcpScope(['ron']),
     );
 
     expect(prompt).not.toContain('## External MCP Guidance');

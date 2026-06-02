@@ -105,6 +105,11 @@ export function windowsVolumeFilesystemType(
 /**
  * True when both paths resolve to the same Windows volume root and that volume
  * is formatted as ReFS. Returns false on non-Windows hosts.
+ *
+ * Best-effort: UNC roots (`\\server\share`, Dev Drive UNC) are not recognized as
+ * ReFS volumes here, so the CoW reflink optimization is skipped for them and the
+ * code falls back to a plain copy. That is a performance/experience limitation,
+ * not a correctness one — the copy fallback preserves correct behavior.
  */
 export function windowsVolumesShareReFS(
   srcPath: string,

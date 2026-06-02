@@ -11,20 +11,14 @@ function emptyDraft(): McpServerFormDraft {
     id: '', display_name: '', purpose: '', preferred_for: '',
     fallback_description: '', transport: 'sse', url: '', headers: [],
     command: '', args: '', env: [], cwd: '', tools: '',
-    agent_ids: [], enabled: true,
+    enabled: true,
   };
 }
 
 type FormProps = Pick<
   McpConfigModalProps,
-  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'agentRoster' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
+  'draft' | 'editingServerId' | 'connectionValidation' | 'localEnabled' | 'localCommandCheck' | 'fieldErrors' | 'saving' | 'saveEnabled' | 'error' | 'onDraftChange' | 'onValidateConnection' | 'onCheckLocalCommand' | 'onSave' | 'onCancel'
 >;
-
-const TEST_AGENT_ROSTER = {
-  'provider-builder': { role: 'Software Engineer', humanName: 'Dalton', displayName: 'Dalton (Software Engineer)' },
-  'provider-qa': { role: 'QA and Closeout', humanName: 'Ron', displayName: 'Ron (QA and Closeout)' },
-  'provider-pm': { role: 'Product Manager', humanName: 'Alice', displayName: 'Alice (Product Manager)' },
-};
 
 function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
   return {
@@ -36,7 +30,6 @@ function defaultProps(overrides: Partial<FormProps> = {}): FormProps {
     fieldErrors: {},
     saving: false,
     saveEnabled: false,
-    agentRoster: TEST_AGENT_ROSTER,
     error: null,
     onDraftChange: vi.fn(),
     onValidateConnection: vi.fn(),
@@ -54,7 +47,6 @@ describe('McpServerForm', () => {
     expect(screen.getByText('Purpose *')).toBeTruthy();
     expect(screen.getByText('URL *')).toBeTruthy();
     expect(screen.getByText('Transport')).toBeTruthy();
-    expect(screen.getByText('Agent Scope')).toBeTruthy();
   });
 
   it('renders Preferred For guidance field', () => {
@@ -158,13 +150,6 @@ describe('McpServerForm', () => {
     expect(screen.getByText(/cannot be changed after creation/i)).toBeTruthy();
   });
 
-  it('renders agent scope checkboxes with human names', () => {
-    render(<McpServerForm {...defaultProps()} />);
-    expect(screen.getByText(/Dalton \(Software Engineer\)/)).toBeTruthy();
-    expect(screen.getByText(/Ron \(QA and Closeout\)/)).toBeTruthy();
-    expect(screen.getByText(/Alice \(Product Manager\)/)).toBeTruthy();
-  });
-
   it('renders header add button', () => {
     render(<McpServerForm {...defaultProps()} />);
     expect(screen.getByText('+ Add header')).toBeTruthy();
@@ -248,5 +233,38 @@ describe('McpServerForm', () => {
     expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(true);
     rerender(<McpServerForm {...defaultProps({ draft, localEnabled: true, saveEnabled: true })} />);
     expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('renders the Local transport setup guide when transport is local', () => {
+    const draft = { ...emptyDraft(), transport: 'local' as const };
+    render(<McpServerForm {...defaultProps({ draft, localEnabled: true })} />);
+    expect(screen.getByText('Local transport setup')).toBeTruthy();
+    expect(screen.getByText(/Put only the executable in Command/)).toBeTruthy();
+  });
+
+  it('guide spells out the Command/Arguments, env-ref, tools, and Check command rules', () => {
+    const draft = { ...emptyDraft(), transport: 'local' as const };
+    render(<McpServerForm {...defaultProps({ draft, localEnabled: true })} />);
+    // Arguments: one argv item per line.
+    expect(screen.getByText(/One argv item per line/)).toBeTruthy();
+    // Environment: prefer env references, do not paste raw secrets.
+    expect(screen.getByText(/avoid pasting raw secrets/)).toBeTruthy();
+    // Tools: exact names, "*" rejected for local servers.
+    expect(screen.getByText(/is rejected for local servers/)).toBeTruthy();
+    // Check command: PATH lookup only, does not start the server.
+    expect(screen.getByText(/PATH lookup only\. It does not start the server/)).toBeTruthy();
+  });
+
+  it('guide defers per-agent assignment to Agent Configuration with no Agent Scope control', () => {
+    const draft = { ...emptyDraft(), transport: 'local' as const };
+    render(<McpServerForm {...defaultProps({ draft, localEnabled: true })} />);
+    expect(screen.getByText(/Managed separately in Agent Configuration/)).toBeTruthy();
+    expect(screen.queryByText(/Agent Scope/i)).toBeNull();
+  });
+
+  it('does not render the Local transport setup guide for remote transports', () => {
+    render(<McpServerForm {...defaultProps()} />);
+    expect(screen.queryByText('Local transport setup')).toBeNull();
+    expect(screen.queryByText(/PATH lookup only/)).toBeNull();
   });
 });

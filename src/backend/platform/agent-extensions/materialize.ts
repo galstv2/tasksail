@@ -7,6 +7,8 @@ import path from 'node:path';
 import { ensureDir, readTextFile, writeTextFileAtomic } from '../core/io.js';
 import { rm, rename } from 'node:fs/promises';
 import { canonicalRoot, isPathWithinBoundary } from '../core/paths.js';
+import { getActiveProvider } from '../cli-provider/index.js';
+import type { CliProvider } from '../cli-provider/index.js';
 import { inspectAgentExtensionMetadata } from './metadata.js';
 import {
   extensionError,
@@ -177,9 +179,24 @@ async function copyLocalSource(
 async function validateRuntimeCopy(
   kind: AgentExtensionKind,
   runtimePath: string,
-  providerId: AgentExtensionProviderId,
+  provider: Pick<CliProvider, 'inspectPluginMetadata'>,
 ): Promise<Pick<AgentExtensionRuntimeCatalogEntry, 'display_name' | 'description' | 'metadata'>> {
-  return inspectAgentExtensionMetadata({ providerId, kind, runtimePath });
+  return inspectAgentExtensionMetadata({
+    kind,
+    runtimePath,
+    inspectPluginMetadata: (pluginRuntimePath) => provider.inspectPluginMetadata(pluginRuntimePath),
+  });
+}
+
+function assertActiveProviderEntry(
+  entryProviderId: AgentExtensionProviderId,
+  activeProviderId: string,
+): void {
+  if (entryProviderId !== activeProviderId) {
+    throw new Error(
+      `Extension entry has unsupported provider_id "${entryProviderId}". Expected active provider "${activeProviderId}".`,
+    );
+  }
 }
 
 // Crash-safe cross-platform dir replacement: materialize → validate → rm existing → rename temp in.
@@ -205,6 +222,8 @@ export async function materializeExtension(
   const fs = seams?.fs ?? buildDefaultFs();
   const execFile = seams?.execFile ?? buildDefaultExecFile();
   const now = seams?.now ?? (() => new Date().toISOString());
+  const provider = getActiveProvider(repoRoot);
+  assertActiveProviderEntry(entry.provider_id, provider.id);
   const psDir = platformStateDir(repoRoot);
   const targetDir = runtimeCopyDir(psDir, entry.kind, entry.id);
   const tempDir = tempDirForId(psDir, entry.id);
@@ -246,7 +265,7 @@ export async function materializeExtension(
       await cp(skillMdSrc, skillMdDst);
     }
 
-    const meta = await validateRuntimeCopy(entry.kind, tempDir, entry.provider_id);
+    const meta = await validateRuntimeCopy(entry.kind, tempDir, provider);
     const sourceDigest = await computeSourceDigest(tempDir);
 
     await safeDirReplace(tempDir, targetDir, fs);
@@ -292,6 +311,8 @@ export async function reseedExtension(
   const fs = seams?.fs ?? buildDefaultFs();
   const execFile = seams?.execFile ?? buildDefaultExecFile();
   const now = seams?.now ?? (() => new Date().toISOString());
+  const provider = getActiveProvider(repoRoot);
+  assertActiveProviderEntry(entry.provider_id, provider.id);
   const psDir = platformStateDir(repoRoot);
   const targetDir = runtimeCopyDir(psDir, entry.kind, entry.id);
   const tempDir = tempDirForId(psDir, entry.id);
@@ -330,7 +351,7 @@ export async function reseedExtension(
       await cp(skillMdSrc, skillMdDst);
     }
 
-    const meta = await validateRuntimeCopy(entry.kind, tempDir, entry.provider_id);
+    const meta = await validateRuntimeCopy(entry.kind, tempDir, provider);
     const sourceDigest = await computeSourceDigest(tempDir);
 
     await safeDirReplace(tempDir, targetDir, fs);

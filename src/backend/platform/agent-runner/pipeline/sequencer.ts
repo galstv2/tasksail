@@ -24,8 +24,13 @@ import {
 } from '../../workflow-policy/sliceArtifacts.js';
 import type { SliceArtifactFormat } from '../../platform-config/types.js';
 import { prewarmPipelineContext } from './contextPrewarm.js';
-import { getCachedExternalMcpRegistry, getCachedExternalMcpRegistryHealth } from './externalMcpRegistryCache.js';
-import { appendMcpContextBlock } from './mcpPromptContext.js';
+import {
+  getCachedExternalMcpAssignments,
+  getCachedExternalMcpRegistry,
+  getCachedExternalMcpRegistryHealth,
+} from './externalMcpRegistryCache.js';
+import { appendMcpContextBlock, type ExternalMcpPromptScope } from './mcpPromptContext.js';
+import { getActiveProvider } from '../../cli-provider/index.js';
 import { formatRegularDaltonOverlaySections } from './regularDaltonOverlays.js';
 import { remediationHasBlockingFindings, remediationRunQaLoop, remediationClearCloseoutArtifacts } from './remediation.js';
 import { resolveVerificationDaltonPrompt } from './verificationPass.js';
@@ -51,7 +56,6 @@ import {
   readPipelineKillRequest,
 } from './runtimeControl.js';
 import { resolveSelectedPrimaryRepoRoot } from '../../context-pack/focusedRepo.js';
-import type { ExternalMcpRegistry } from '../../external-mcp-registry/index.js';
 import type { AgentMcpLaunchStatus } from '../types.js';
 import { captureCodeDiff } from '../pythonHelpers.js';
 
@@ -236,14 +240,14 @@ function extractPolicyFailureDetails(
 export function buildFleetDaltonCleanupPrompt(
   cleanupContext: string,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
 ): string {
   const sections = [
     'Your previous Dalton fleet run did not leave the workflow ready for QA.',
     '',
   ];
   appendFocusBlock(sections, focusScope);
-  appendMcpContextBlock(sections, externalMcpRegistry, 'dalton');
+  appendMcpContextBlock(sections, externalMcpScope, 'dalton');
   if (cleanupContext.trim()) {
     sections.push(cleanupContext.trim(), '');
   } else {
@@ -442,7 +446,7 @@ export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   regularDaltonContext?: RegularDaltonPromptContext,
   format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
@@ -459,7 +463,7 @@ export async function buildFleetPrompt(
     '',
   ];
   appendFocusBlock(parts, focusScope);
-  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
+  appendMcpContextBlock(parts, externalMcpScope, 'dalton');
 
   const implSpec = await readImplSpec(handoffsDir);
   if (implSpec?.trim()) {
@@ -494,7 +498,7 @@ export async function buildSimpleDaltonPrompt(
   implStepsDir: string,
   handoffsDir: string,
   focusScope?: FocusScopePromptOptions,
-  externalMcpRegistry?: ExternalMcpRegistry,
+  externalMcpScope?: ExternalMcpPromptScope,
   regularDaltonContext?: RegularDaltonPromptContext,
   format: SliceArtifactFormat = 'markdown',
 ): Promise<string> {
@@ -504,7 +508,7 @@ export async function buildSimpleDaltonPrompt(
 
   const parts: string[] = [];
   appendFocusBlock(parts, focusScope);
-  appendMcpContextBlock(parts, externalMcpRegistry, 'dalton');
+  appendMcpContextBlock(parts, externalMcpScope, 'dalton');
 
   if (implSpec?.trim()) {
     parts.push('## Implementation Spec\n');
@@ -737,7 +741,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
   repoRoot: string;
   contextPackDir?: string;
   currentTaskId: string;
-  externalMcpRegistry?: ExternalMcpRegistry;
+  externalMcpScope?: ExternalMcpPromptScope;
   abortSignal: AbortSignal;
   agentMcpStatuses: NonNullable<PipelineReceipt['externalMcp']>['agents'];
   agentTimings: Record<string, number>;
@@ -767,7 +771,7 @@ async function runRetrospectivePhaseIfNeeded(options: {
   const retrospectivePrompt = await buildRetrospectivePrompt({
     repoRoot: options.repoRoot,
     bundle,
-    externalMcpRegistry: options.externalMcpRegistry,
+    externalMcpScope: options.externalMcpScope,
   });
   const retrospectiveStart = Date.now();
   await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.started' } });
@@ -840,7 +844,11 @@ export async function runPipelineSequence(
       paths.repoRoot,
     );
     prewarmSeconds = Math.round((Date.now() - prewarmStart) / 1000);
-    const externalMcpRegistry = getCachedExternalMcpRegistry(paths.repoRoot);
+    const externalMcpScope: ExternalMcpPromptScope = {
+      registry: getCachedExternalMcpRegistry(paths.repoRoot),
+      assignments: getCachedExternalMcpAssignments(paths.repoRoot),
+      runtimeToProviderAgentId: (agentId) => getActiveProvider(paths.repoRoot).runtimeToProviderAgentId(agentId),
+    };
     const externalMcpRegistryHealth = getCachedExternalMcpRegistryHealth(paths.repoRoot);
     pipelineLog.info('external_mcp_registry.status', { health: externalMcpRegistryHealth });
 
@@ -892,7 +900,7 @@ export async function runPipelineSequence(
             paths.handoffs,
             paths.implementationSteps,
             focusScope,
-            externalMcpRegistry,
+            externalMcpScope,
             stagedVerificationDiff.staged ? verificationDiffStage.verificationDiffAbsolutePath : undefined,
             joinVerificationWarnings(diffGenerationWarning, stagedVerificationDiff.warning),
             frozenSliceFormat,
@@ -989,7 +997,7 @@ export async function runPipelineSequence(
             paths.implementationSteps,
             paths.handoffs,
             focusScope,
-            externalMcpRegistry,
+            externalMcpScope,
             {
               repoRoot: paths.repoRoot,
               contextPackDir: effectiveContextPackDir,
@@ -1020,7 +1028,7 @@ export async function runPipelineSequence(
             const cleanupPrompt = buildFleetDaltonCleanupPrompt(
               cleanupContext,
               focusScope,
-              externalMcpRegistry,
+              externalMcpScope,
             );
             const cleanupResult = await runRoleAgent({
               agentId: 'dalton',
@@ -1052,7 +1060,7 @@ export async function runPipelineSequence(
           paths.implementationSteps,
           paths.handoffs,
           focusScope,
-          externalMcpRegistry,
+          externalMcpScope,
           {
             repoRoot: paths.repoRoot,
             contextPackDir: effectiveContextPackDir,
@@ -1062,8 +1070,9 @@ export async function runPipelineSequence(
       } else if (agentId === 'ron') {
         agentPromptOverride = buildTestCapturePrompt(
           testCaptureResults,
+          getActiveProvider(paths.repoRoot),
           focusScope,
-          externalMcpRegistry,
+          externalMcpScope,
           testCaptureWarning,
           frozenSliceFormat,
         );
@@ -1100,7 +1109,7 @@ export async function runPipelineSequence(
             repoRoot: paths.repoRoot,
             contextPackDir: effectiveContextPackDir,
             focusScope,
-            externalMcpRegistry,
+            externalMcpScope,
             abortSignal: abortController.signal,
           });
         }
@@ -1110,7 +1119,7 @@ export async function runPipelineSequence(
           repoRoot: paths.repoRoot,
           contextPackDir: effectiveContextPackDir,
           currentTaskId: pipelineTaskId,
-          externalMcpRegistry,
+          externalMcpScope,
           abortSignal: abortController.signal,
           agentMcpStatuses,
           agentTimings,

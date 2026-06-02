@@ -11,7 +11,6 @@
 
 export type {
   ExternalMcpTransport,
-  ExternalMcpAgentScope,
   ExternalMcpServer,
   ExternalMcpUrlServer,
   ExternalMcpLocalServer,
@@ -37,7 +36,6 @@ export {
   loadExternalMcpRegistry,
   loadDefaultExternalRegistry,
   validateExternalMcpRegistry,
-  getExternalServersForAgent,
   loadExternalMcpRegistryWithFallback,
   ENV_VAR_REF_PATTERN,
   FILE_NOT_FOUND_FIELD,
@@ -49,3 +47,20 @@ export { saveExternalMcpRegistry } from './save.js';
 
 export type { ExternalMcpSeedResult } from './seed.js';
 export { seedExternalMcpRegistry } from './seed.js';
+
+export type {
+  ExternalMcpAgentAssignment,
+  ExternalMcpAgentAssignmentsDocument,
+  ExternalMcpAssignmentsLoadResult,
+  ExternalMcpRuntimeSelection,
+} from './assignments.js';
+export {
+  EXTERNAL_MCP_ASSIGNMENTS_SCHEMA_VERSION,
+  EXTERNAL_MCP_ASSIGNMENTS_PATH,
+  validateAssignmentsDocument,
+  loadExternalMcpAgentAssignments,
+  saveExternalMcpAgentAssignments,
+  removeDeletedExternalMcpServerAssignment,
+  selectAssignedExternalMcpServers,
+  selectExternalMcpServersForAgent,
+} from './assignments.js';

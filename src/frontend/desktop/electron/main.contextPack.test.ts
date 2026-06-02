@@ -264,7 +264,7 @@ describe('electron main bootstrap — context pack operations', () => {
     ]);
   });
 
-  it('assigns repositoryType defaults during discovery prefill normalization', async () => {
+  it('normalizes discovery repo category fields and preserves older responses without category', async () => {
     const { executeContextPackDiscoveryAction } = await import('./main');
 
     const result = await executeContextPackDiscoveryAction(
@@ -281,6 +281,9 @@ describe('electron main bootstrap — context pack operations', () => {
               path: '/tmp/estate-root/orders-api',
               relative_path: 'orders-api',
               high_signal_paths: ['src'],
+              repo_category: 'service',
+              repo_category_confidence: 'high',
+              suggested_system_layer: 'backend',
               repository_type: 'primary',
               classification_confidence: 'high',
             },
@@ -307,10 +310,16 @@ describe('electron main bootstrap — context pack operations', () => {
         candidateRepos: [
           expect.objectContaining({
             repoId: 'orders-api',
+            repoCategory: 'service',
+            repoCategoryConfidence: 'high',
+            suggestedSystemLayer: 'backend',
             repositoryType: 'primary',
           }),
           expect.objectContaining({
             repoId: 'orders-web',
+            repoCategory: undefined,
+            repoCategoryConfidence: undefined,
+            suggestedSystemLayer: undefined,
             repositoryType: 'support',
           }),
         ],
@@ -350,6 +359,8 @@ describe('electron main bootstrap — context pack operations', () => {
     try {
       const contextPackDir = join(tempRoot, 'context-packs', 'mono-pack');
       const discoveryRoot = join(tempRoot, 'brand-new-monolith');
+      // Existing-source monolith create requires a top-level Git marker.
+      await mkdir(join(discoveryRoot, '.git'), { recursive: true });
       const bootstrapRunner = vi.fn().mockResolvedValue({
         stdout: JSON.stringify({
           context_pack_id: 'mono-pack',
@@ -436,6 +447,8 @@ describe('electron main bootstrap — context pack operations', () => {
     try {
       const contextPackDir = join(tempRoot, 'context-packs', 'orders-estate');
       const discoveryRoot = join(tempRoot, 'orders-estate-root');
+      // Existing-source distributed create requires each repo to be Git-backed.
+      await mkdir(join(discoveryRoot, 'orders-api', '.git'), { recursive: true });
       const bootstrapRunner = vi.fn().mockResolvedValue({
         stdout: JSON.stringify({
           context_pack_id: 'orders-estate',
@@ -479,6 +492,9 @@ describe('electron main bootstrap — context pack operations', () => {
                 repoName: 'Orders API',
                 repoId: 'orders-api',
                 systemLayer: 'backend',
+                repositoryType: 'primary',
+                repoCategory: 'service',
+                repoCategoryAuthored: false,
               },
             ],
           },
@@ -502,6 +518,14 @@ describe('electron main bootstrap — context pack operations', () => {
         }),
       });
       expect(seedRunner).toHaveBeenCalledTimes(1);
+      const bootstrapStdin = JSON.parse(
+        bootstrapRunner.mock.calls[0]?.[1]?.stdin as string,
+      ) as { repositories: Array<Record<string, unknown>> };
+      expect(bootstrapStdin.repositories[0]).toEqual(expect.objectContaining({
+        repository_type: 'primary',
+        repo_category: 'service',
+        repo_category_authored: false,
+      }));
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

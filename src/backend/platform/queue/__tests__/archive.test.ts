@@ -118,7 +118,11 @@ describe('fileTaskArchive', () => {
     expect(mockRunPython.mock.calls[0]![2]).toEqual({
       cwd: '/fake/repo',
       timeout: 60_000,
-      env: { TASKSAIL_TASK_ID: 'task-abc' },
+      env: {
+        TASKSAIL_CLI_HOME_DIR_NAME: 'copilot-home',
+        TASKSAIL_AGENT_REGISTRY_PATH: '/fake/repo/.github/agents/registry.json',
+        TASKSAIL_TASK_ID: 'task-abc',
+      },
     });
   });
 
@@ -142,7 +146,37 @@ describe('fileTaskArchive', () => {
       expect.objectContaining({
         cwd: '/fake/repo',
         timeout: 60_000,
-        env: { TASKSAIL_TASK_ID: 'task-abc' },
+        env: {
+          TASKSAIL_CLI_HOME_DIR_NAME: 'copilot-home',
+          TASKSAIL_AGENT_REGISTRY_PATH: '/fake/repo/.github/agents/registry.json',
+          TASKSAIL_TASK_ID: 'task-abc',
+        },
+      }),
+    );
+  });
+
+  it('passes the active provider registry path into the archive helper', async () => {
+    mockRunPython.mockResolvedValue({
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    await fileTaskArchive({
+      contextPackDir: '/packs/pack-a',
+      taskId: 'task-abc',
+      repoRoot: '/fake/repo',
+    });
+
+    expect(mockRunPython).toHaveBeenCalledWith(
+      expect.stringContaining('file-task-archive.py'),
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          TASKSAIL_CLI_HOME_DIR_NAME: 'copilot-home',
+          TASKSAIL_AGENT_REGISTRY_PATH: '/fake/repo/.github/agents/registry.json',
+          TASKSAIL_TASK_ID: 'task-abc',
+        }),
       }),
     );
   });

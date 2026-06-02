@@ -92,9 +92,9 @@ function fromCache(cache: CopilotCliCapabilitiesCache, stale: boolean): Provider
   };
 }
 
-async function runCopilotCli(args: readonly string[]): Promise<string> {
+async function runCopilotCli(command: string, args: readonly string[]): Promise<string> {
   const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    execFile('copilot', [...args], {
+    execFile(command, [...args], {
       encoding: 'utf8',
       windowsHide: true,
       timeout: 10_000,
@@ -192,10 +192,10 @@ function capabilityErrorCode(err: unknown): CapabilityDiscoveryErrorCode {
     : 'probe-failed';
 }
 
-async function probeCapabilities(repoRoot: string): Promise<ProviderReasoningEffortCapabilities> {
+async function probeCapabilities(repoRoot: string, command: string): Promise<ProviderReasoningEffortCapabilities> {
   const [cliVersion, helpText] = await Promise.all([
-    runCopilotCli(['--version']),
-    runCopilotCli(['--help']),
+    runCopilotCli(command, ['--version']),
+    runCopilotCli(command, ['--help']),
   ]);
   const effortChoices = parseCopilotReasoningEffortChoices(helpText);
   if (effortChoices.length === 0) {
@@ -225,7 +225,7 @@ async function probeCapabilities(repoRoot: string): Promise<ProviderReasoningEff
   };
 }
 
-async function loadCapabilities(repoRoot: string): Promise<ProviderReasoningEffortCapabilities> {
+async function loadCapabilities(repoRoot: string, command: string): Promise<ProviderReasoningEffortCapabilities> {
   const existingCache = parseCache(await readTextFile(cachePath(repoRoot)));
   if (existingCache && isFresh(existingCache)) {
     log.info('provider.copilot.capabilities.loaded', {
@@ -236,7 +236,7 @@ async function loadCapabilities(repoRoot: string): Promise<ProviderReasoningEffo
   }
 
   try {
-    return await probeCapabilities(repoRoot);
+    return await probeCapabilities(repoRoot, command);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const errorCode = capabilityErrorCode(err);
@@ -266,13 +266,14 @@ async function loadCapabilities(repoRoot: string): Promise<ProviderReasoningEffo
 
 export function getCopilotReasoningEffortCapabilities(
   repoRoot: string,
+  command: string,
 ): Promise<ProviderReasoningEffortCapabilities> {
   const key = path.resolve(repoRoot);
   const pending = pendingByRepoRoot.get(key);
   if (pending) {
     return pending;
   }
-  const next = loadCapabilities(key).finally(() => {
+  const next = loadCapabilities(key, command).finally(() => {
     pendingByRepoRoot.delete(key);
   });
   pendingByRepoRoot.set(key, next);

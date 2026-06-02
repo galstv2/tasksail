@@ -99,8 +99,8 @@ async function runStandaloneRoleAgentInner(
 ): Promise<StandaloneRoleAgentResult> {
   const startTime = Date.now();
   const registry = await loadAgentRegistry(options.repoRoot);
-  const profile = resolveAgentProfile(registry, options.agentId);
   const provider = getActiveProvider(options.repoRoot);
+  const profile = resolveAgentProfile(provider, registry, options.agentId);
   const prompt = options.promptOverride.trim();
   if (!prompt) {
     throw new Error('Standalone role-agent launch requires a non-empty promptOverride.');
@@ -225,6 +225,7 @@ async function runStandaloneRoleAgentInner(
         availabilityNote: ext.launchExtensionResolution.availabilityNote,
       }),
       manifest,
+      provider,
     }),
     promptPath: null,
     promptSource: 'override',

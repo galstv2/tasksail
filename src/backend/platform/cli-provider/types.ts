@@ -288,6 +288,15 @@ export interface ProviderRuntimeManifestEnvVar {
   description: string;
 }
 
+export interface PluginMetadataSummary {
+  manifestPath: string;
+  name: string;
+  description?: string;
+  version?: string;
+  skillPathCount: number;
+  declaredComponentClasses: string[];
+}
+
 export interface ProviderReasoningEffortCapabilities {
   providerId: string;
   cliVersion: string | null;
@@ -307,12 +316,15 @@ export type RoleKind = 'planner' | 'pm' | 'builder' | 'verifier' | 'qa';
 
 export interface CliProvider {
   readonly id: string;
+  cliDisplayName(): string;
   resolveCommand(): string;
   buildArgs(profile: ProviderAgentProfile, intent: AutonomyIntent, options: BuildArgsOptions): BuildArgsResult;
   buildEnv(generic: GenericAgentEnv): Record<string, string>;
   formatCommand(args: string[]): string;
   homeDirName(): string;
+  platformRepoRootEnvVar(): string;
   agentConfigPaths(): AgentConfigPaths;
+  instructionPathForRole(agentId: string): string;
   resolvePromptPath(kind: ProviderPromptKind): string;
   materializePrompt(options: PromptMaterializationOptions): PromptMaterializationResult;
   parseAgentProfile(text: string): AgentProfileParseResult;
@@ -322,10 +334,22 @@ export interface CliProvider {
   controlledEnvKeys(): string[];
   promptPathEnvVars(): { handoffsDir: string; implStepsDir: string };
   contextPackEnvVars(): { paths: string; searchRoots: string };
+  skillDirsEnvKey(): string;
+  modelCatalogPaths(): { default: string; runtime: string };
+  requiredRegistryFields(): readonly string[];
+  inspectPluginMetadata(runtimePath: string): Promise<PluginMetadataSummary>;
   mcpConfigArgs(configFilePath: string): string[];
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string;
   plannerAgentId(): string | null;
   roleKindForAgent(agentId: string): RoleKind | null;
+  /**
+   * Map a TaskSail runtime nickname (lily, alice, dalton, dalton-verify, ron) to
+   * its provider-agent ID. Idempotent: a value that is already a provider-agent ID
+   * passes through unchanged.
+   */
+  runtimeToProviderAgentId(agentId: string): string;
+  /** Invert a provider-agent ID back to its runtime nickname, or undefined if unknown. */
+  providerToRuntimeAgentId(agentId: string): AgentId | undefined;
   runtimeManifestEnvVars(): readonly ProviderRuntimeManifestEnvVar[];
   createPlannerParser?(): PlannerChunkParser | null;
   buildPlannerLaunchSpec?(options: PlannerLaunchOptions): PlannerLaunchSpec | null;

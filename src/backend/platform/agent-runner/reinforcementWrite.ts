@@ -5,7 +5,10 @@ import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { resolveQueuePaths } from '../queue/index.js';
 import type { ExternalMcpRegistry } from '../external-mcp-registry/index.js';
 import { readJsonSafe, readStoreJsonSafe } from './reinforcementPaths.js';
-import { prewarmExternalMcpRegistry } from './pipeline/externalMcpRegistryCache.js';
+import {
+  prewarmExternalMcpAssignments,
+  prewarmExternalMcpRegistry,
+} from './pipeline/externalMcpRegistryCache.js';
 import {
   executeRealignmentSession,
   type RealignmentExecutionResult,
@@ -370,6 +373,9 @@ export async function runRealignmentAnalysis(options: {
   });
   const externalMcpRegistry = options.externalMcpRegistry
     ?? await prewarmExternalMcpRegistry(repoRoot);
+  // Warm the assignment cache so buildRealignmentPrompt can pair the registry
+  // with assignments for the 'ron' realignment prompt (prompt/launch parity).
+  await prewarmExternalMcpAssignments(repoRoot);
 
   return executeRealignmentSession({
     repoRoot,

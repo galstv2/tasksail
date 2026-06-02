@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { dirname, join, posix, sep, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
 
@@ -20,6 +20,35 @@ export function validateDevServerUrl(url: string): string | null {
   } catch {
     return 'VITE_DEV_SERVER_URL must be a valid URL.';
   }
+}
+
+/**
+ * Pure path-level check: is `senderPath` equal to or a direct descendant of
+ * `distPath`? Containment is computed with path.relative (not a startsWith
+ * boundary). On Windows the comparison is case-insensitive for the WHOLE path
+ * (the Windows filesystem is case-insensitive), so differing drive/segment
+ * casing — e.g. C:\\App\\Dist vs c:\\app\\dist\\index.html — does not reject a
+ * legitimate renderer; POSIX stays case-sensitive. A prefix-sibling (e.g.
+ * dist-extra) and a cross-drive path are NOT authorized.
+ *
+ * Exported for unit testing; production callers use isAuthorizedDesktopSenderUrl.
+ */
+export function isFileUrlInsideDist(senderPath: string, distPath: string, pathSep: string): boolean {
+  // path.relative-based containment (no raw startsWith boundary). path.win32 is
+  // case-insensitive across the whole path — matching the Windows filesystem —
+  // so differing drive/segment casing never rejects a legitimate renderer; POSIX
+  // stays case-sensitive. Prefix-siblings and cross-drive paths resolve to an
+  // absolute or "../" relative result, and ".." escapes resolve to a ".." first
+  // segment; all are rejected.
+  const impl = pathSep === '\\' ? win32 : posix;
+  const relative = impl.relative(impl.resolve(distPath), impl.resolve(senderPath));
+  if (relative === '') {
+    return true;
+  }
+  if (impl.isAbsolute(relative)) {
+    return false;
+  }
+  return relative.split(impl.sep)[0] !== '..';
 }
 
 function isAuthorizedDesktopSenderUrl(senderUrl: string): boolean {
@@ -46,8 +75,9 @@ function isAuthorizedDesktopSenderUrl(senderUrl: string): boolean {
     if (parsed.protocol !== 'file:') {
       return false;
     }
+    // isFileUrlInsideDist resolves/normalizes both paths internally.
     const senderPath = fileURLToPath(parsed);
-    return senderPath.startsWith(RENDERER_DIST);
+    return isFileUrlInsideDist(senderPath, RENDERER_DIST, sep);
   } catch {
     return false;
   }

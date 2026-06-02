@@ -69,7 +69,7 @@ export function buildAgentEnvironment(
   const paths = resolvePaths({ repoRoot: effectiveRepoRoot, taskId: taskId ?? '' });
   const providerEnv = provider.buildEnv({
     model: activeModel,
-    agentId: toRegistryId(profile.id),
+    agentId: toRegistryId(provider, profile.id),
     ...(options?.launchExtensions ? { launchExtensions: options.launchExtensions } : {}),
     wallClockTimeoutS: options?.wallClockTimeoutS ?? profile.wallClockTimeoutS,
     idleTimeoutS: profile.idleTimeoutS,

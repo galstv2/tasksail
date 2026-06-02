@@ -1,8 +1,8 @@
-"""Shared registry loader — single source of truth for agent metadata.
+"""Shared registry loader - single source of truth for agent metadata.
 
 All agent properties (role names, human names, workflow order, model pins)
-live in ``.github/agents/registry.json``.  Import helpers from this module
-instead of hardcoding agent metadata elsewhere.
+live in the active CLI provider's injected agent registry. Import helpers from
+this module instead of hardcoding agent metadata elsewhere.
 """
 from __future__ import annotations
 
@@ -11,14 +11,17 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
+_REGISTRY_PATH_ENV_VAR = "TASKSAIL_AGENT_REGISTRY_PATH"
 
 
 def _resolve_registry_path() -> Path:
-    configured_path = os.environ.get("TASKSAIL_AGENT_REGISTRY_PATH", "").strip()
+    configured_path = os.environ.get(_REGISTRY_PATH_ENV_VAR, "").strip()
     if configured_path:
         return Path(configured_path)
-    return _REPO_ROOT / ".github" / "agents" / "registry.json"  # direct-execution/test fallback
+    raise RuntimeError(
+        f"{_REGISTRY_PATH_ENV_VAR} is required; set it to the active CLI "
+        "provider agent registry path."
+    )
 
 
 @lru_cache(maxsize=1)

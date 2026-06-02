@@ -1,5 +1,6 @@
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { isWindowsPlatform } from './platform.js';
 import type { PlatformPaths } from './types.js';
 
 /** Options accepted by {@link resolvePaths}. */
@@ -104,20 +105,77 @@ export function resolvePath(pmseDir: string, pathValue: string): string {
   return path.join(pmseDir, cleaned);
 }
 
+/** Path implementation override for deterministic cross-platform tests. */
+export interface PathBoundaryOptions {
+  /** Path implementation to use; defaults to the active platform's `path`. */
+  impl?: path.PlatformPath;
+}
+
+/** Identity-key options: path implementation plus explicit Windows casing. */
+export interface PathIdentityOptions extends PathBoundaryOptions {
+  /** Force Windows-style case-folding; defaults to platform/impl detection. */
+  windows?: boolean;
+}
+
 /**
  * Return true when `candidate` is equal to or nested under `boundary`.
- * Both paths are resolved before comparison.
+ *
+ * Uses `path.relative` so prefix-adjacent siblings (`/root` vs `/rootother`),
+ * cross-drive Windows paths (`C:` vs `D:`), and `..` escapes are correctly
+ * treated as outside. Windows drive/segment casing and mixed separators are
+ * normalized by `path.win32.relative`. Pass `{ impl: path.win32 }` or
+ * `{ impl: path.posix }` for deterministic cross-platform tests.
+ */
+export function isPathInsideOrEqual(
+  boundary: string,
+  candidate: string,
+  options: PathBoundaryOptions = {},
+): boolean {
+  const impl = options.impl ?? path;
+  const relative = impl.relative(impl.resolve(boundary), impl.resolve(candidate));
+  if (relative === '') {
+    return true;
+  }
+  if (impl.isAbsolute(relative)) {
+    return false;
+  }
+  return relative !== '..' && !relative.startsWith('..' + impl.sep);
+}
+
+/**
+ * Return true when `candidate` is equal to or nested under `boundary`.
+ * Delegates to {@link isPathInsideOrEqual}; retained as the established public
+ * name used by security-sensitive boundary call sites.
  */
 export function isPathWithinBoundary(
   boundary: string,
   candidate: string,
 ): boolean {
-  const resolvedBoundary = path.resolve(boundary);
-  const resolvedCandidate = path.resolve(candidate);
-  return (
-    resolvedCandidate === resolvedBoundary ||
-    resolvedCandidate.startsWith(resolvedBoundary + path.sep)
-  );
+  return isPathInsideOrEqual(boundary, candidate);
+}
+
+/**
+ * Build a comparison key for path identity. Normalizes separators and `.`/`..`
+ * segments via `path.resolve`, and case-folds only on Windows so drive/segment
+ * casing never produces a false mismatch. The result is a comparison key only —
+ * never persist or display it, as it may be lower-cased.
+ */
+export function pathIdentityKey(value: string, options: PathIdentityOptions = {}): string {
+  const impl = options.impl ?? path;
+  const windows =
+    options.windows ??
+    (impl === path.win32 ? true : impl === path.posix ? false : isWindowsPlatform());
+  const normalized = impl.resolve(value);
+  return windows ? normalized.toLowerCase() : normalized;
+}
+
+/** True when two paths refer to the same location (Windows-case-insensitive). */
+export function samePathIdentity(
+  left: string,
+  right: string,
+  options: PathIdentityOptions = {},
+): boolean {
+  return pathIdentityKey(left, options) === pathIdentityKey(right, options);
 }
 
 /**

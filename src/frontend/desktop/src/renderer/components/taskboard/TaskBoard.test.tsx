@@ -625,3 +625,201 @@ describe('TaskBoard View Chain', () => {
     expect(screen.getByRole('button', { name: VIEW_CHAIN_LABEL })).toBeInTheDocument();
   });
 });
+
+describe('TaskBoard View Branches', () => {
+  afterEach(() => cleanup());
+
+  const VIEW_BRANCHES_LABEL = 'View task source branches and target repos';
+  const VIEW_CHAIN_LABEL = 'View child chain repos and branches';
+
+  type BranchHandoff = NonNullable<ArchivedTaskEntry['branchHandoffs']>[number];
+
+  function branchHandoff(overrides: Partial<BranchHandoff> = {}): BranchHandoff {
+    return {
+      repoRoot: '/repos/platform',
+      repoLabel: 'platform',
+      branch: 'task/feature-1',
+      baseCommitSha: 'base0000000000000000',
+      headCommitSha: 'head1234567890abcdef',
+      commitsAhead: 2,
+      status: 'ready-for-operator-review',
+      autoMerge: {
+        enabled: false,
+        status: 'disabled',
+        targetBranch: 'main',
+        detail: 'Auto-merge is disabled.',
+      },
+      ...overrides,
+    };
+  }
+
+  function standaloneWithHandoffs(handoffs: BranchHandoff[]): ArchivedTaskEntry {
+    const entry = archivedTask('REG-1', 'Regular One', '2026-05-23T03:58:37Z');
+    entry.branchHandoffs = handoffs;
+    return entry;
+  }
+
+  function renderRegular(entry: ArchivedTaskEntry, readChildChain?: ReturnType<typeof vi.fn>) {
+    return render(
+      <TaskBoard
+        board={board([entry])}
+        onReorderPending={vi.fn()}
+        onRequeueErrorItem={vi.fn()}
+        readTaskContent={vi.fn(async () => ({ content: 'ARCHIVE_BODY' }))}
+        readChildChainBranchInventory={readChildChain}
+      />,
+    );
+  }
+
+  async function openCard(container: HTMLElement, fileName: string) {
+    fireEvent.click(container.querySelector<HTMLElement>(`[data-filename="${fileName}"]`)!);
+    await screen.findByText('ARCHIVE_BODY');
+  }
+
+  it('shows View Branches for a completed standalone task with branch handoffs', async () => {
+    const { container } = renderRegular(standaloneWithHandoffs([branchHandoff()]));
+    await openCard(container, 'REG-1.md');
+    expect(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: VIEW_CHAIN_LABEL })).not.toBeInTheDocument();
+  });
+
+  it('shows View Chain not View Branches for a completed child-chain task that also has branch handoffs', async () => {
+    const entry = archivedTask('CHILD-1', 'Child One', '2026-05-23T03:58:37Z');
+    entry.childChain = childChainMetadata('CHILD-1', 'ROOT-1', true);
+    entry.branchHandoffs = [branchHandoff()];
+    const { container } = renderRegular(entry, vi.fn(async () => null));
+    await openCard(container, 'CHILD-1.md');
+    expect(screen.getByRole('button', { name: VIEW_CHAIN_LABEL })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: VIEW_BRANCHES_LABEL })).not.toBeInTheDocument();
+  });
+
+  it('shows no branch footer action for a completed task without branch handoffs', async () => {
+    const { container } = renderRegular(archivedTask('PLAIN', 'Plain', '2026-05-23T03:58:37Z'));
+    await openCard(container, 'PLAIN.md');
+    expect(screen.queryByRole('button', { name: VIEW_BRANCHES_LABEL })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: VIEW_CHAIN_LABEL })).not.toBeInTheDocument();
+  });
+
+  it('does not show View Branches for open, pending, or failed task detail modals', async () => {
+    const nonCompleted: Array<[string, TaskBoardState]> = [
+      ['OPEN', { dropboxItems: [{ fileName: 'OPEN.md', taskId: 'OPEN', title: 'Open' }], pendingItems: [], errorItems: [], completedItems: [] }],
+      ['PEND', { dropboxItems: [], pendingItems: [{ fileName: 'PEND.md', taskId: 'PEND', title: 'Pend', state: 'pending' }], errorItems: [], completedItems: [] }],
+      ['FAIL', { dropboxItems: [], pendingItems: [], errorItems: [{ fileName: 'FAIL.md', taskId: 'FAIL', title: 'Fail' }], completedItems: [] }],
+    ];
+    for (const [name, boardState] of nonCompleted) {
+      const r = render(
+        <TaskBoard
+          board={boardState}
+          onReorderPending={vi.fn()}
+          onRequeueErrorItem={vi.fn()}
+          readTaskContent={vi.fn(async () => ({ content: `${name}_BODY` }))}
+        />,
+      );
+      fireEvent.click(r.container.querySelector<HTMLElement>(`[data-filename="${name}.md"]`)!);
+      expect(await screen.findByText(`${name}_BODY`)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: VIEW_BRANCHES_LABEL })).not.toBeInTheDocument();
+      r.unmount();
+    }
+  });
+
+  it('opens Task Branches and renders every row field without a git or IPC call', async () => {
+    const readChildChain = vi.fn(async () => null);
+    const { container } = renderRegular(standaloneWithHandoffs([branchHandoff()]), readChildChain);
+    await openCard(container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+
+    expect(await screen.findByText('Task Branches')).toBeInTheDocument();
+    expect(screen.getByText('Archived branch handoff for this completed task.')).toBeInTheDocument();
+    expect(screen.getByText('platform')).toBeInTheDocument();
+    expect(screen.getByText('/repos/platform')).toBeInTheDocument();
+    expect(screen.getByText('task/feature-1')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
+    const head = screen.getByText('head123');
+    expect(head).toHaveAttribute('title', 'head1234567890abcdef');
+    expect(screen.getByText('+2 ahead')).toBeInTheDocument();
+    expect(screen.getByText('Manual review')).toBeInTheDocument();
+    // The regular branch view is sourced from ArchivedTaskEntry.branchHandoffs only.
+    expect(readChildChain).not.toHaveBeenCalled();
+  });
+
+  it('renders Not captured for a null target branch and makes no IPC call', async () => {
+    const readChildChain = vi.fn(async () => null);
+    const handoff = branchHandoff({
+      autoMerge: { enabled: false, status: 'disabled', targetBranch: null, detail: 'Auto-merge is disabled.' },
+    });
+    const { container } = renderRegular(standaloneWithHandoffs([handoff]), readChildChain);
+    await openCard(container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+    expect(await screen.findByText('Not captured')).toBeInTheDocument();
+    expect(readChildChain).not.toHaveBeenCalled();
+  });
+
+  it('maps archived auto-merge status into operator review language', async () => {
+    const applied = standaloneWithHandoffs([branchHandoff({
+      status: 'auto-merged-to-target',
+      autoMerge: { enabled: true, status: 'applied', targetBranch: 'main', detail: 'Applied task branch patch to the target index.' },
+    })]);
+    const first = renderRegular(applied);
+    await openCard(first.container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+    expect(await screen.findByText('Staged into target')).toBeInTheDocument();
+    expect(screen.getByText('Applied task branch patch to the target index.')).toBeInTheDocument();
+    first.unmount();
+
+    const skipped = standaloneWithHandoffs([branchHandoff({
+      autoMerge: { enabled: true, status: 'skipped-source-missing', targetBranch: 'main', detail: 'Source branch was missing.' },
+    })]);
+    const second = renderRegular(skipped);
+    await openCard(second.container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+    expect(await screen.findByText('Auto-merge skipped')).toBeInTheDocument();
+    second.unmount();
+
+    const manual = standaloneWithHandoffs([branchHandoff({ autoMerge: undefined })]);
+    const third = renderRegular(manual);
+    await openCard(third.container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+    expect(await screen.findByText('Manual review')).toBeInTheDocument();
+  });
+
+  it('renders multiple handoffs in deterministic repo label, repo root, source branch order', async () => {
+    const entry = standaloneWithHandoffs([
+      branchHandoff({ repoLabel: 'tools', repoRoot: '/repos/tools', branch: 'task/tools' }),
+      branchHandoff({ repoLabel: 'platform', repoRoot: '/repos/platform', branch: 'task/feature-1' }),
+    ]);
+    const { container } = renderRegular(entry);
+    await openCard(container, 'REG-1.md');
+    fireEvent.click(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL }));
+    await screen.findByText('Task Branches');
+    // ModalShell renders through a portal, so query the whole document, not container.
+    const labels = Array.from(document.querySelectorAll('.task-branch-inventory__repo-label')).map((n) => n.textContent);
+    expect(labels).toEqual(['platform', 'tools']);
+  });
+
+  it('keeps View Branches available after switching artifacts (branchHandoffs retained)', async () => {
+    const MULTI = [
+      { relativePath: 'archive.md', label: 'archive.md', sizeBytes: 10 },
+      { relativePath: 'handoffs/final-summary.md', label: 'handoffs/final-summary.md', sizeBytes: 20 },
+    ];
+    const readTaskContent = vi.fn(async (_fileName: string, _column: string, rel?: string) =>
+      rel === 'handoffs/final-summary.md'
+        ? { content: 'FINAL_SUMMARY', artifactRelativePath: 'handoffs/final-summary.md', artifacts: MULTI }
+        : { content: 'ARCHIVE_BODY', artifactRelativePath: 'archive.md', artifacts: MULTI });
+    const { container } = render(
+      <TaskBoard
+        board={board([standaloneWithHandoffs([branchHandoff()])])}
+        onReorderPending={vi.fn()}
+        onRequeueErrorItem={vi.fn()}
+        readTaskContent={readTaskContent}
+      />,
+    );
+    fireEvent.click(container.querySelector<HTMLElement>('[data-filename="REG-1.md"]')!);
+    expect(await screen.findByText('ARCHIVE_BODY')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Artifact Explorer' }));
+    fireEvent.click(screen.getByRole('option', { name: 'handoffs/final-summary.md' }));
+    expect(await screen.findByText('FINAL_SUMMARY')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: VIEW_BRANCHES_LABEL })).toBeInTheDocument();
+  });
+});

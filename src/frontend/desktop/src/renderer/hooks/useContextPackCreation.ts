@@ -143,11 +143,12 @@ export function useContextPackCreation(
       if (!normalizedContextPackId) {
         return '';
       }
-      const parent = options.defaultContextPackParentDir?.trim().replace(/\/+$/, '');
+      // Strip trailing slashes/backslashes so Windows paths are handled safely.
+      const parent = options.defaultContextPackParentDir?.trim().replace(/[/\\]+$/, '');
       if (parent) {
         return `${parent}/${normalizedContextPackId}`;
       }
-      const normalizedDiscoveryRoot = discoveryRoot.trim().replace(/\/+$/, '');
+      const normalizedDiscoveryRoot = discoveryRoot.trim().replace(/[/\\]+$/, '');
       return normalizedDiscoveryRoot ? `${normalizedDiscoveryRoot}/${normalizedContextPackId}` : '';
     },
     [options.defaultContextPackParentDir],
@@ -526,6 +527,9 @@ export function useContextPackCreation(
             boundedContext: r.boundedContext || undefined,
             serviceName: r.serviceName || undefined,
             repoRole: r.repoRole || undefined,
+            repositoryType: r.primary ? 'primary' : 'support',
+            repoCategory: r.repoCategory,
+            repoCategoryAuthored: r.repoCategoryAuthored,
             workspaceActivationGroup: r.workspaceActivationGroup || undefined,
             defaultFocusable: r.defaultFocusable,
             activationPriority: r.activationPriority,
@@ -535,7 +539,9 @@ export function useContextPackCreation(
               ? normalizedDraft.focusAreas.map((f) => ({
                   focusId: f.focusId || undefined,
                   focusName: f.focusName || undefined,
-                  relativePath: f.relativePath || undefined,
+                  // Persist the repo-relative path in contract form (forward
+                  // slashes), even if the field was edited with backslashes.
+                  relativePath: f.relativePath ? f.relativePath.replace(/\\/g, '/') : undefined,
                   path: f.path || undefined,
                   focusType: f.focusType || undefined,
                   group: f.group || undefined,
@@ -577,6 +583,7 @@ export function useContextPackCreation(
         message: '',
         canGoBack: false,
         canGoNext: false,
+        gitRepositoryWarnings: [],
         onClose: closeModal,
         onDiscardDraft: discardDraft,
         onBrowseContextPackDir: () => Promise.resolve(),
@@ -615,6 +622,11 @@ export function useContextPackCreation(
             ? 'Scanning selected root…'
             : 'No discovery results loaded yet.';
 
+    const gitRepositoryWarnings =
+      state.discovery.status === 'ready' && state.draft.creationOrigin === 'existing'
+        ? state.discovery.response.skippedReposMissingGit ?? []
+        : [];
+
     const stepGuard = checkStepGuard(state.step, state.draft);
 
     return {
@@ -631,6 +643,7 @@ export function useContextPackCreation(
       canGoNextReason: state.kind === 'open' && !stepGuard.ok
         ? stepGuard.reason
         : undefined,
+      gitRepositoryWarnings,
       onClose: closeModal,
       onDiscardDraft: discardDraft,
       onBrowseContextPackDir: () => browsePath('context-pack-destination'),

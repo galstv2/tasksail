@@ -67,9 +67,9 @@ describe('parallel end-to-end — shared MCP isolation contracts', () => {
     const urlB = await getSharedMcpUrl(repoRoot);
     const healthUrl = await getSharedMcpHealthUrl(repoRoot);
 
-    expect(urlA).toBe('http://localhost:8811/sse');
+    expect(urlA).toBe('http://127.0.0.1:8811/sse');
     expect(urlB).toBe(urlA);
-    expect(healthUrl).toBe('http://localhost:8811/health');
+    expect(healthUrl).toBe('http://127.0.0.1:8811/health');
 
     expect(
       resolveContextPackContainerPath(

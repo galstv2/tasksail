@@ -23,16 +23,25 @@ function FocusAreaCard({
   onRemoveFocusArea,
 }: FocusAreaCardProps): JSX.Element {
   const trimmedRelativePath = focusArea.relativePath.trim();
+  const hasTraversalSegment = focusArea.relativePath
+    .split(/[\\/]/)
+    .some((segment) => segment === '..');
   const relativePathWarning =
     focusArea.relativePath.startsWith('/')
       ? 'Relative path should not start with "/".'
-      : focusArea.relativePath.includes('..')
-        ? 'Relative path should not contain "..".'
-        : trimmedRelativePath.endsWith('/')
-          ? 'Relative path should not end with "/".'
-          : focusArea.primary && !trimmedRelativePath
-            ? 'The working folder needs a relative path.'
-            : null;
+      : focusArea.relativePath.startsWith('\\')
+        ? 'Relative path should not start with "\\".'
+        : /^[A-Za-z]:[\\/]/.test(focusArea.relativePath)
+          ? 'Relative path should not be a Windows drive path.'
+          : hasTraversalSegment
+            ? 'Relative path should not contain a ".." segment.'
+            : trimmedRelativePath.endsWith('/')
+              ? 'Relative path should not end with "/".'
+              : trimmedRelativePath.endsWith('\\')
+                ? 'Relative path should not end with "\\".'
+                : focusArea.primary && !trimmedRelativePath
+                  ? 'The working folder needs a relative path.'
+                  : null;
 
   return (
     <article className="context-pack-modal__editor-card">

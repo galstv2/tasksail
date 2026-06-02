@@ -207,6 +207,11 @@ def test_manifest_v2_distributed_roundtrip() -> None:
     assert api_repo.get("repo_focus") == "primary"
     assert api_repo.get("repo_category_authored") is False
     assert api_repo.get("repo_focus_authored") is False
+    web_repo = next(r for r in repos if r.get("repo_id") == "web")
+    assert web_repo.get("repo_category") == "frontend"
+    assert web_repo.get("repo_focus") == "primary"
+    assert web_repo.get("repo_category_authored") is False
+    assert web_repo.get("repo_focus_authored") is False
 
 
 def test_manifest_v2_legacy_local_paths_normalize_to_structured() -> None:

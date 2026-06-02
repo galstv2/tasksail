@@ -344,7 +344,7 @@ function ContextPackSidebarExpanded({
               data-testid="planner-open-btn"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-              <span>Plan with Lily</span>
+              <span>Plan Task</span>
             </button>
           </div>
         </div>

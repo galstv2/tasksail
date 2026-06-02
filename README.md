@@ -23,12 +23,12 @@ You watch the progress in a desktop app that shows what each agent is doing in r
 - **Git** installed ([download here](https://git-scm.com/downloads))
 - **Node.js 20+** installed ([download here](https://nodejs.org/))
 - **pnpm** installed (run `npm install -g pnpm` after installing Node.js)
-- **Python 3.11+** installed ([download here](https://www.python.org/downloads/))
-- **Docker Desktop** or **Podman** (≥ 4.0) with `podman-compose` (≥ 1.0.6) installed and running
+- **Python 3.12** (preferred) installed ([download here](https://www.python.org/downloads/)) — Python 3.12+ is compatible
+- **Docker Desktop** or **Podman** (≥ 4.0) installed and running — TaskSail uses the integrated `docker compose` / `podman compose` subcommands (not standalone `docker-compose` or `podman-compose`)
 - **GitHub Copilot CLI** access for your GitHub account (the shipped TaskSail CLI provider is `copilot`)
 
 See [docs/cross-os-setup.md](docs/cross-os-setup.md) for macOS / Linux / Windows setup details.
-Windows operators: see the [Dev Drive / ReFS section](docs/cross-os-setup.md#windows-copy-on-write-refs--dev-drive) to enable Copy-on-Write task activation.
+Windows operators: see the [Dev Drive / ReFS section](docs/cross-os-setup.md#windows-copy-on-write-refs-dev-drive) to enable Copy-on-Write task activation.
 
 ## Installation
 
@@ -50,8 +50,12 @@ pnpm install
 pnpm run setup
 
 # Create Python virtual environment and install dev tools
+# macOS/Linux:
 python3 -m venv .venv
-source .venv/bin/activate        # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
+# Windows (PowerShell or cmd):
+# python -m venv .venv
+# .venv\Scripts\activate
 pip install -r requirements-dev.txt
 
 # Install frontend (Electron/React) dependencies
@@ -59,6 +63,47 @@ cd src/frontend/desktop
 npm install
 cd ../../..
 ```
+
+### Enterprise mirrors / internal registries (optional)
+
+Air-gapped or firewalled environments can route npm, PyPI, and container base
+images through an internal mirror (such as JFrog Artifactory) instead of the
+public registries. If you set none of these variables, TaskSail uses the public
+defaults and behavior is unchanged.
+
+Package managers do not read the repo `.env` file before dependencies exist, so
+export the package-manager-native variables in your shell before the first
+install (before `pnpm install`, `npm ci`, or `pip install`):
+
+```bash
+# macOS / Linux (POSIX shell)
+export NPM_CONFIG_REGISTRY="https://artifactory.example.internal/api/npm/npm-virtual/"
+export NPM_CONFIG_REPLACE_REGISTRY_HOST=npmjs
+export PIP_INDEX_URL="https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
+```
+
+```powershell
+# Windows (PowerShell)
+$env:NPM_CONFIG_REGISTRY = "https://artifactory.example.internal/api/npm/npm-virtual/"
+$env:NPM_CONFIG_REPLACE_REGISTRY_HOST = "npmjs"
+$env:PIP_INDEX_URL = "https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
+```
+
+Once `.env` exists, `pnpm run setup` reads the TaskSail alias variables
+(`TASKSAIL_NPM_REGISTRY`, `TASKSAIL_NPM_AUTH_TOKEN`, `TASKSAIL_PYPI_INDEX_URL`)
+and writes the generated, git-ignored helper files (`.npmrc`,
+`src/frontend/desktop/.npmrc`, and credential-free `.platform-state/pip.conf`).
+Credential-bearing PyPI URLs stay shell-exported through `PIP_INDEX_URL` and are
+not persisted. `process.env` always wins over `.env`. For Docker/Podman, override the build base images with
+`TASKSAIL_PYTHON_BASE_IMAGE` (default `python:3.12-alpine`) and, for direct
+`docker build` / `podman build`, `TASKSAIL_ALPINE_BASE_IMAGE` (default
+`alpine:3.20`); private base-image registries still authenticate with
+`docker login` / `podman login`. Do not hand-edit tracked lockfiles, tracked
+Dockerfiles, or the generated local config files. See
+[`docs/cross-os-setup.md`](docs/cross-os-setup.md) for the full enterprise-mirror
+walkthrough, and
+[`docs/reference/environment-variables.md`](docs/reference/environment-variables.md)
+for every supported environment variable.
 
 ### 2. Verify everything works
 
@@ -86,8 +131,10 @@ npx tsx src/backend/platform/container/cli.ts healthcheck
 ```
 
 The active container runtime is controlled by `.platform-state/platform.json`
-(`container_runtime`). Use `CONTAINER_RUNTIME=...` only as a temporary session
-override.
+(`container_runtime`). The checked-in default is `docker`; `podman` is also
+supported. `direct` is an explicit operator override (runs the MCP as a local
+process without a container engine) and is supported on Windows, macOS, and
+Linux. Use `CONTAINER_RUNTIME=...` only as a temporary session override.
 
 The active CLI provider defaults to `copilot`, which is the only provider shipped
 in this repository. Advanced operators may set `cli_provider` in
@@ -120,7 +167,9 @@ Run `npx tsx src/backend/platform/container/cli.ts bootstrap`, then `npx tsx src
 
 ## How to validate local setup
 
-Use `make test-smoke`, `make test-domain DOMAIN=...`, `make test-contracts`, and `make local-checks`. CI mirrors this with a changed-path domain lane for pull requests, the full Python suite, and Docs Check.
+Use `pnpm run test:smoke`, `pnpm run test:domain -- --domain <name>`, `pnpm run test:contracts`, and `pnpm run local-checks`. CI mirrors this with a changed-path domain lane for pull requests, the full Python suite, and Docs Check.
+
+On Unix/macOS/Linux, `make` shim aliases are also available (e.g. `make test-smoke`, `make local-checks`). These `make` targets are not available by default on native Windows — use the `pnpm run ...` forms instead.
 
 ## How to start the queue and seed a starter task
 
@@ -152,10 +201,10 @@ For out-of-tree context packs, bind the host directory through the bootstrap lay
 | Layer | Technology | Third-party dependencies |
 |---|---|---|
 | Backend platform | TypeScript 5.8, Node.js | **None** — pure stdlib |
-| Backend services | Python 3.13, http.server, SSE | **None** — pure stdlib |
+| Backend services | Python 3.12, http.server, SSE | **None** — pure stdlib |
 | Frontend | React 18, TypeScript, Electron 35, Vite 6 | React only — no UI framework, no state library, plain CSS |
 | Testing | Vitest (TS), pytest (Python) | Dev-only |
-| Services | Docker Compose / Podman Compose | Podman supported (configure via `.platform-state/platform.json`) |
+| Services | `docker compose` / `podman compose` (integrated subcommands) | Podman supported (configure via `.platform-state/platform.json`) |
 
 The platform is intentionally dependency-free at runtime to stay enterprise-safe.
 
@@ -216,8 +265,8 @@ tasksail/
 
 | Command | What it does |
 |---|---|
-| `python3 -m venv .venv` | Create virtual environment |
-| `source .venv/bin/activate` | Activate virtual environment |
+| `python3 -m venv .venv` (macOS/Linux) or `python -m venv .venv` (Windows) | Create virtual environment |
+| `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows) | Activate virtual environment |
 | `pip install -r requirements-dev.txt` | Install Python dev tools |
 | `pnpm run lint:python` | Run ruff linter on Python files |
 | `pnpm run test:domain -- --domain <name>` | Test a specific Python domain |
@@ -283,10 +332,7 @@ pnpm run local-checks
 ```
 
 **Python linting or tests failing?**
-Make sure the virtual environment is active:
-```bash
-source .venv/bin/activate
-```
+Make sure the virtual environment is active (macOS/Linux: `source .venv/bin/activate`; Windows: `.venv\Scripts\activate`).
 
 ## More documentation
 

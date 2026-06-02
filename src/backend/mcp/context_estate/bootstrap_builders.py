@@ -26,6 +26,10 @@ from src.backend.mcp.context_estate_discovery import (
     collect_repo_high_signal_paths,
     discover_candidate_focus_areas,
 )
+from src.backend.mcp.repo_category_probe import (
+    classify_repo_category,
+    repo_category_for_wizard_role,
+)
 from src.backend.mcp.repo_context_mcp.utils import (
     is_within,
     normalize_optional_string,
@@ -33,6 +37,49 @@ from src.backend.mcp.repo_context_mcp.utils import (
     titleize_segment,
 )
 from src.backend.mcp.repo_type_probe import classify_repository_type
+
+
+def _authoritative_answer_category(repository: dict[str, Any]) -> tuple[str, bool] | None:
+    answer_category = normalize_optional_string(repository.get("repo_category"))
+    answer_authored = bool(repository.get("repo_category_authored"))
+    if answer_category and (answer_category.lower() != "unknown" or answer_authored):
+        return answer_category, answer_authored
+    return None
+
+
+def _category_from_answer_candidate_or_layer(
+    repository: dict[str, Any],
+    candidate: dict[str, Any] | None,
+    system_layer: str,
+) -> tuple[str, bool]:
+    answer_category = _authoritative_answer_category(repository)
+    if answer_category:
+        return answer_category
+
+    if candidate:
+        candidate_category = normalize_optional_string(candidate.get("repo_category"))
+        if candidate_category:
+            return candidate_category, False
+
+    return repo_category_for_wizard_role(system_layer) or "unknown", False
+
+
+def _category_from_answer_probe_or_layer(
+    repository: dict[str, Any],
+    repo_path: Path,
+    system_layer: str,
+) -> tuple[str, bool]:
+    answer_category = _authoritative_answer_category(repository)
+    if answer_category:
+        return answer_category
+
+    probed_category = "unknown"
+    if repo_path.exists():
+        probed_category, _ = classify_repo_category(repo_path)
+    if probed_category != "unknown":
+        return probed_category, False
+
+    return repo_category_for_wizard_role(system_layer) or "unknown", False
 
 
 def _synthesize_candidate_repo(
@@ -205,12 +252,19 @@ def _build_distributed_review_payload(
             document_paths = _detect_document_paths(repo_path)
 
         system_layer = _detect_system_layer(repo_path, repository["system_layer"])
+        repo_category, repo_category_authored = _category_from_answer_candidate_or_layer(
+            repository,
+            candidate,
+            system_layer,
+        )
 
         review_entry = {
             "repo_id": approved_repo_id,
             "path": str(repo_path),
             "repo_name": repository["repo_name"],
             "system_layer": system_layer,
+            "repo_category": repo_category,
+            "repo_category_authored": repo_category_authored,
             "repo_role": repository["repo_role"] or _repo_role_for_layer(system_layer),
             "default_focusable": repository["default_focusable"],
             "activation_priority": repository["activation_priority"],
@@ -221,17 +275,19 @@ def _build_distributed_review_payload(
             "artifact_roots": artifact_roots,
             "document_paths": document_paths,
         }
-        # Forward v2 category fields when provided by the operator
-        for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+        # Forward v2 focus fields when provided by the operator.
+        for v2_field in ("repo_focus", "repo_focus_authored"):
             if repository.get(v2_field) is not None:
                 review_entry[v2_field] = repository[v2_field]
 
         if repository.get("repository_type"):
             review_entry["repository_type"] = repository["repository_type"]
+            review_entry["repository_type_authored"] = True
         elif candidate.get("repository_type"):
             # Reuse the classification from the discovery phase to avoid
             # re-probing the same repo's filesystem.
             review_entry["repository_type"] = candidate["repository_type"]
+            review_entry["repository_type_authored"] = False
             if candidate.get("classification_confidence"):
                 review_entry["classification_confidence"] = candidate["classification_confidence"]
         else:
@@ -241,6 +297,7 @@ def _build_distributed_review_payload(
                 repo_name=repository["repo_name"],
             )
             review_entry["repository_type"] = probe["repository_type"]
+            review_entry["repository_type_authored"] = False
             review_entry["classification_confidence"] = probe["classification_confidence"]
         for field_name in (
             "owner",
@@ -262,13 +319,7 @@ def _build_distributed_review_payload(
         repo_id for repo_id in answers.get("primary_working_repo_ids", []) if repo_id in approved_repo_ids
     ]
     if not primary_working_repo_ids and approved_repo_ids:
-        probe_primaries = [
-            entry["repo_id"]
-            for entry in review_repositories
-            if entry.get("repository_type") == "primary"
-            and entry.get("classification_confidence") in ("high", "medium")
-        ]
-        primary_working_repo_ids = probe_primaries if probe_primaries else [approved_repo_ids[0]]
+        primary_working_repo_ids = [approved_repo_ids[0]]
 
     return {
         "context_pack_id": answers["context_pack_id"],
@@ -390,9 +441,17 @@ def _build_monolith_infrastructure_repository(
         "artifact_roots": artifact_roots,
         "document_paths": document_paths,
     }
+    repo_category, repo_category_authored = _category_from_answer_probe_or_layer(
+        repository,
+        repo_path,
+        entry["system_layer"],
+    )
+    entry["repo_category"] = repo_category
+    entry["repo_category_authored"] = repo_category_authored
     if repository.get("repository_type"):
         entry["repository_type"] = repository["repository_type"]
-    for v2_field in ("repo_focus", "repo_focus_authored", "repo_category", "repo_category_authored"):
+        entry["repository_type_authored"] = True
+    for v2_field in ("repo_focus", "repo_focus_authored"):
         if repository.get(v2_field) is not None:
             entry[v2_field] = repository[v2_field]
     for field_name in (
@@ -440,6 +499,11 @@ def _build_monolith_review_payload(
         document_paths = _detect_document_paths(repo_path)
 
     system_layer = _detect_system_layer(repo_path, repository["system_layer"])
+    repo_category, repo_category_authored = _category_from_answer_probe_or_layer(
+        repository,
+        repo_path,
+        system_layer,
+    )
 
     focusable_areas = _build_monolith_focusable_areas(answers, discovery_payload)
     known_focus_ids = [area["focus_id"] for area in focusable_areas]
@@ -460,6 +524,8 @@ def _build_monolith_review_payload(
             "repo_id": repository["repo_id"],
             "repo_name": repository["repo_name"],
             "system_layer": system_layer,
+            "repo_category": repo_category,
+            "repo_category_authored": repo_category_authored,
             "languages": languages,
             "artifact_roots": artifact_roots,
             "document_paths": document_paths,
@@ -477,16 +543,6 @@ def _build_monolith_review_payload(
             **(
                 {"repo_focus_authored": repository["repo_focus_authored"]}
                 if repository.get("repo_focus_authored") is not None
-                else {}
-            ),
-            **(
-                {"repo_category": repository["repo_category"]}
-                if repository.get("repo_category")
-                else {}
-            ),
-            **(
-                {"repo_category_authored": repository["repo_category_authored"]}
-                if repository.get("repo_category_authored") is not None
                 else {}
             ),
             **(

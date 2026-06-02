@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { createLogger } from '../core/logger.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import {
   buildDefaultFs,
   materializeExtension,
@@ -93,6 +94,7 @@ export async function reconcileAgentExtensions(
   options?: AgentExtensionReconcileOptions,
 ): Promise<AgentExtensionReconcileResult> {
   const fs = options?.fs ?? buildDefaultFs();
+  const provider = getActiveProvider(repoRoot);
   const seams: AgentExtensionMutationSeams = {
     fs,
     execFile: options?.execFile,
@@ -117,7 +119,7 @@ export async function reconcileAgentExtensions(
     await withAgentExtensionsLock(repoRoot, 'reconcileAgentExtensions', async () => {
       let manifest;
       try {
-        manifest = await readSourceManifest(repoRoot, fs);
+        manifest = await readSourceManifest(repoRoot, fs, provider.id);
       } catch (err) {
         const reasonCode = (err instanceof Error && typeof (err as { code?: unknown }).code === 'string') ? (err as unknown as { code: string }).code : 'manifest-read-failed';
         log.progress({

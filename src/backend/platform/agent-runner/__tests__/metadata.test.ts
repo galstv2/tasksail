@@ -11,6 +11,7 @@ import {
   fromRegistryId,
   findRegistryEntry,
 } from '../metadata.js';
+import { copilotProvider } from '../../cli-provider/providers/copilot/index.js';
 import type { RegistryJson } from '../types.js';
 
 const MOCK_REGISTRY: RegistryJson = {
@@ -77,43 +78,43 @@ describe('toRegistryId / fromRegistryId', () => {
   });
 
   it('maps dalton to software-engineer', () => {
-    expect(toRegistryId('dalton')).toBe('software-engineer');
+    expect(toRegistryId(copilotProvider, 'dalton')).toBe('software-engineer');
   });
 
   it('maps dalton-verify to software-engineer-verify', () => {
-    expect(toRegistryId('dalton-verify')).toBe('software-engineer-verify');
+    expect(toRegistryId(copilotProvider, 'dalton-verify')).toBe('software-engineer-verify');
   });
 
   it('maps software-engineer pmck to dalton', () => {
-    expect(fromRegistryId('software-engineer')).toBe('dalton');
+    expect(fromRegistryId(copilotProvider, 'software-engineer')).toBe('dalton');
   });
 
   it('maps software-engineer-verify back to dalton-verify', () => {
-    expect(fromRegistryId('software-engineer-verify')).toBe('dalton-verify');
+    expect(fromRegistryId(copilotProvider, 'software-engineer-verify')).toBe('dalton-verify');
   });
 
   it('returns undefined for unknown registry id', () => {
-    expect(fromRegistryId('nonexistent')).toBeUndefined();
+    expect(fromRegistryId(copilotProvider, 'nonexistent')).toBeUndefined();
   });
 });
 
 describe('findRegistryEntry', () => {
   it('finds dalton in the registry', () => {
-    const entry = findRegistryEntry(MOCK_REGISTRY, 'dalton');
+    const entry = findRegistryEntry(copilotProvider, MOCK_REGISTRY, 'dalton');
     expect(entry).toBeDefined();
     expect(entry!.agent_id).toBe('software-engineer');
     expect(entry!.human_name).toBe('Dalton');
   });
 
   it('returns undefined for unknown agent', () => {
-    const entry = findRegistryEntry(MOCK_REGISTRY, 'lily');
+    const entry = findRegistryEntry(copilotProvider, MOCK_REGISTRY, 'lily');
     expect(entry).toBeUndefined();
   });
 });
 
 describe('resolveAgentProfile', () => {
   it('resolves dalton profile with correct fields', () => {
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
+    const profile = resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'dalton');
     expect(profile.id).toBe('dalton');
     expect(profile.registryId).toBe('software-engineer');
     expect(profile.displayName).toBe('Dalton');
@@ -123,18 +124,20 @@ describe('resolveAgentProfile', () => {
     expect(profile.autonomyProfile).toBe('repo-executor');
     expect(profile.allowedDirs).toEqual(['src/', 'tests/', 'packages/']);
     expect(profile.denyRules).toEqual(['git add', 'git commit', 'git push', 'rm -rf']);
+    expect(profile.instructionPath).toBe('.github/copilot/instructions/software-engineer.instructions.md');
+    expect(profile.agentProfilePath).toBe('.github/agents/software-engineer.md');
     expect(profile.workflowOrder).toBe(4);
   });
 
   it('resolves alice profile as artifact-author', () => {
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'alice');
+    const profile = resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'alice');
     expect(profile.autonomyProfile).toBe('artifact-author');
     expect(profile.requiredModel).toBe('gpt-5.4');
     expect(profile.reasoningEffort).toBeUndefined();
   });
 
   it('normalizes registry none effort to no runtime effort', () => {
-    const profile = resolveAgentProfile({
+    const profile = resolveAgentProfile(copilotProvider, {
       ...MOCK_REGISTRY,
       agents: MOCK_REGISTRY.agents.map((entry) => entry.agent_id === 'product-manager'
         ? { ...entry, reasoning_effort: 'none' }
@@ -145,7 +148,7 @@ describe('resolveAgentProfile', () => {
   });
 
   it('resolves dalton-verify profile with its verification registry entry', () => {
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton-verify');
+    const profile = resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'dalton-verify');
     expect(profile.id).toBe('dalton-verify');
     expect(profile.registryId).toBe('software-engineer-verify');
     expect(profile.displayName).toBe('Dalton (Verify)');
@@ -157,20 +160,33 @@ describe('resolveAgentProfile', () => {
   });
 
   it('throws for agent not in registry', () => {
-    expect(() => resolveAgentProfile(MOCK_REGISTRY, 'lily')).toThrow(
+    expect(() => resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'lily')).toThrow(
       /not found in registry/,
+    );
+  });
+
+  it('fails closed when Copilot provider-required registry metadata is missing', () => {
+    const registry = {
+      ...MOCK_REGISTRY,
+      agents: MOCK_REGISTRY.agents.map((entry) => entry.agent_id === 'software-engineer'
+        ? { ...entry, instruction_path: undefined }
+        : entry),
+    };
+
+    expect(() => resolveAgentProfile(copilotProvider, registry, 'dalton')).toThrow(
+      /provider-required registry field "instruction_path"/,
     );
   });
 });
 
 describe('resolveActiveModel', () => {
   it('returns profile.requiredModel (registry-authoritative, ignores env)', () => {
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
+    const profile = resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'dalton');
     expect(resolveActiveModel('dalton', profile)).toBe('gpt-4.1');
   });
 
   it('throws role-registry-model-missing when profile.requiredModel is empty', () => {
-    const profile = resolveAgentProfile(MOCK_REGISTRY, 'dalton');
+    const profile = resolveAgentProfile(copilotProvider, MOCK_REGISTRY, 'dalton');
     const missingModelProfile = { ...profile, requiredModel: '' };
     expect(() => resolveActiveModel('dalton', missingModelProfile)).toThrow(
       /role-registry-model-missing/,

@@ -4,6 +4,7 @@ import { cp, lstat, readdir } from 'node:fs/promises';
 import { createLogger } from '../core/logger.js';
 import { isMissingPathError } from '../core/index.js';
 import { canonicalRoot, isPathWithinBoundary } from '../core/paths.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import { buildDefaultFs, readImportReceipt } from './materialize.js';
 import { readSourceManifest } from './sourceManifest.js';
 import { loadAssignments } from './assignment.js';
@@ -70,7 +71,8 @@ export async function loadAgentExtensionRuntimeCatalogForStaging(
   repoRoot: string,
 ): Promise<AgentExtensionRuntimeCatalogEntry[]> {
   const fs = buildDefaultFs();
-  const manifest = await readSourceManifest(repoRoot, fs);
+  const provider = getActiveProvider(repoRoot);
+  const manifest = await readSourceManifest(repoRoot, fs, provider.id);
   const psDir = platformStateDir(repoRoot);
 
   const entries: AgentExtensionRuntimeCatalogEntry[] = [];
@@ -81,9 +83,9 @@ export async function loadAgentExtensionRuntimeCatalogForStaging(
     if (await fs.pathExists(runtimePath)) {
       try {
         const meta = await inspectAgentExtensionMetadata({
-          providerId: entry.provider_id,
           kind: entry.kind,
           runtimePath,
+          inspectPluginMetadata: (pluginRuntimePath) => provider.inspectPluginMetadata(pluginRuntimePath),
         });
         metadata = meta.metadata;
       } catch {

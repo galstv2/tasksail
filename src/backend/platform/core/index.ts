@@ -4,6 +4,9 @@ export {
   resolvePath,
   ensurePathWithinDropbox,
   isPathWithinBoundary,
+  isPathInsideOrEqual,
+  pathIdentityKey,
+  samePathIdentity,
   canonicalRoot,
   logsDir,
   logFile,
@@ -11,7 +14,7 @@ export {
   logFileWithSuffix,
 } from './paths.js';
 
-export type { ResolvePathsOptions } from './paths.js';
+export type { ResolvePathsOptions, PathBoundaryOptions, PathIdentityOptions } from './paths.js';
 
 export {
   isWindowsPlatform,
@@ -97,6 +100,10 @@ export {
   sleep,
   safeJsonParse,
 } from './io.js';
+
+export { withFileLock } from './fileLock.js';
+
+export { terminateProcessTree, killWindowsProcessTree } from './processTree.js';
 
 export {
   RuntimeTerminalEvents,

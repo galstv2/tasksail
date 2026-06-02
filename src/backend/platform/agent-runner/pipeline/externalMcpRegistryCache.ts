@@ -1,6 +1,9 @@
 import {
   CURRENT_SCHEMA_VERSION,
+  EXTERNAL_MCP_ASSIGNMENTS_SCHEMA_VERSION,
+  loadExternalMcpAgentAssignments,
   loadExternalMcpRegistryWithFallback,
+  type ExternalMcpAgentAssignmentsDocument,
   type ExternalMcpRegistry,
 } from '../../external-mcp-registry/index.js';
 import { createLogger } from '../../core/index.js';
@@ -14,6 +17,8 @@ const log = createLogger('platform/agent-runner/pipeline/externalMcpRegistryCach
 const externalMcpRegistryCache = new Map<string, ExternalMcpRegistry>();
 const externalMcpRegistryLoads = new Map<string, Promise<ExternalMcpRegistry>>();
 const externalMcpRegistryHealthCache = new Map<string, ExternalMcpRegistryHealth>();
+const externalMcpAssignmentsCache = new Map<string, ExternalMcpAgentAssignmentsDocument>();
+const externalMcpAssignmentsLoads = new Map<string, Promise<ExternalMcpAgentAssignmentsDocument>>();
 
 function emptyExternalMcpRegistry(): ExternalMcpRegistry {
   return {
@@ -22,8 +27,21 @@ function emptyExternalMcpRegistry(): ExternalMcpRegistry {
   };
 }
 
+function emptyAssignmentsDocument(): ExternalMcpAgentAssignmentsDocument {
+  return {
+    schema_version: EXTERNAL_MCP_ASSIGNMENTS_SCHEMA_VERSION,
+    assignments: [],
+  };
+}
+
 export function getCachedExternalMcpRegistry(repoRoot: string): ExternalMcpRegistry | undefined {
   return externalMcpRegistryCache.get(repoRoot);
+}
+
+export function getCachedExternalMcpAssignments(
+  repoRoot: string,
+): ExternalMcpAgentAssignmentsDocument | undefined {
+  return externalMcpAssignmentsCache.get(repoRoot);
 }
 
 export function getCachedExternalMcpRegistryHealth(repoRoot: string): ExternalMcpRegistryHealth {
@@ -82,15 +100,64 @@ export async function prewarmExternalMcpRegistry(repoRoot: string): Promise<Exte
   return loadPromise;
 }
 
+export async function prewarmExternalMcpAssignments(
+  repoRoot: string,
+): Promise<ExternalMcpAgentAssignmentsDocument> {
+  const cached = externalMcpAssignmentsCache.get(repoRoot);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = externalMcpAssignmentsLoads.get(repoRoot);
+  if (pending) {
+    return pending;
+  }
+
+  const loadPromise = (async () => {
+    try {
+      const result = await loadExternalMcpAgentAssignments(repoRoot);
+      // Fail closed: an invalid assignment file yields no assignments (and thus
+      // no external servers), never a crash and never the wrong servers.
+      const document = result.ok ? result.document : emptyAssignmentsDocument();
+      if (!result.ok) {
+        log.warn('external_mcp_assignments.prewarm.invalid', {
+          repoRoot,
+          errors: result.errors,
+        });
+      }
+      externalMcpAssignmentsCache.set(repoRoot, document);
+      return document;
+    } catch (error) {
+      const document = emptyAssignmentsDocument();
+      externalMcpAssignmentsCache.set(repoRoot, document);
+      log.warn('external_mcp_assignments.prewarm.failed', {
+        repoRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return document;
+    } finally {
+      externalMcpAssignmentsLoads.delete(repoRoot);
+    }
+  })();
+
+  // Same synchronous-set-before-await dedup contract as prewarmExternalMcpRegistry.
+  externalMcpAssignmentsLoads.set(repoRoot, loadPromise);
+  return loadPromise;
+}
+
 export function clearExternalMcpRegistryCache(repoRoot?: string): void {
   if (repoRoot) {
     externalMcpRegistryCache.delete(repoRoot);
     externalMcpRegistryLoads.delete(repoRoot);
     externalMcpRegistryHealthCache.delete(repoRoot);
+    externalMcpAssignmentsCache.delete(repoRoot);
+    externalMcpAssignmentsLoads.delete(repoRoot);
     return;
   }
 
   externalMcpRegistryCache.clear();
   externalMcpRegistryLoads.clear();
   externalMcpRegistryHealthCache.clear();
+  externalMcpAssignmentsCache.clear();
+  externalMcpAssignmentsLoads.clear();
 }

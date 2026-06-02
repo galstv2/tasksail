@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextPackCreationModalProps } from '../contextPackCreationTypes';
@@ -306,5 +306,82 @@ describe('ContextPackCreationModal', () => {
     const button = screen.getByText('Continue to details →');
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('title', 'Add at least one part with a role and language');
+  });
+
+  it('renders multiple git repository warnings under "Some folders were skipped"', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          gitRepositoryWarnings: [
+            {
+              repoName: 'tools',
+              path: '/estate/tools',
+              relativePath: 'tools',
+              message:
+                'repo tools does not have .git folder, if you would like it part of this context pack please initialize git in this repo.',
+            },
+            {
+              repoName: 'docs',
+              path: '/estate/docs',
+              relativePath: 'docs',
+              message:
+                'repo docs does not have .git folder, if you would like it part of this context pack please initialize git in this repo.',
+            },
+          ],
+        })}
+      />,
+    );
+
+    const callout = screen.getByRole('status');
+    expect(callout).toHaveTextContent('Some folders were skipped');
+    expect(callout).toHaveAttribute('aria-live', 'polite');
+    const items = within(callout).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('repo tools does not have .git folder');
+    expect(items[1]).toHaveTextContent('repo docs does not have .git folder');
+  });
+
+  it('does not render the skipped-folders callout when there are no warnings', () => {
+    const { rerender } = render(
+      <ContextPackCreationModal {...makeProps({ gitRepositoryWarnings: [] })} />,
+    );
+    expect(screen.queryByText('Some folders were skipped')).toBeNull();
+
+    // An omitted prop behaves the same as an empty list.
+    rerender(<ContextPackCreationModal {...makeProps()} />);
+    expect(screen.queryByText('Some folders were skipped')).toBeNull();
+  });
+
+  it('does not show skipped-folder warnings for new-project creation', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          draft: { ...makeProps().draft, creationOrigin: 'new' },
+          gitRepositoryWarnings: [],
+        })}
+      />,
+    );
+    expect(screen.queryByText('Some folders were skipped')).toBeNull();
+  });
+
+  it('renders the error callout and skipped-folder warnings together', () => {
+    render(
+      <ContextPackCreationModal
+        {...makeProps({
+          error: 'Something went wrong',
+          gitRepositoryWarnings: [
+            {
+              repoName: 'tools',
+              path: '/estate/tools',
+              relativePath: 'tools',
+              message:
+                'repo tools does not have .git folder, if you would like it part of this context pack please initialize git in this repo.',
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('Some folders were skipped')).toBeInTheDocument();
   });
 });

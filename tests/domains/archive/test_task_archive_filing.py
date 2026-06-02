@@ -484,6 +484,9 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
 
             _env_child = os.environ.copy()
             _env_child["TASKSAIL_TASK_ID"] = "CAP-2001"
+            _env_child["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+                repo_root / ".github" / "agents" / "registry.json"
+            )
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -599,6 +602,9 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
 
             _env_std = os.environ.copy()
             _env_std["TASKSAIL_TASK_ID"] = "CAP-2001"
+            _env_std["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+                repo_root / ".github" / "agents" / "registry.json"
+            )
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -912,6 +918,9 @@ class TaskArchiveFilingTests(TaskArchiveFilingTestBase):
             env.pop("TASKSAIL_TASK_ID", None)
         else:
             env["TASKSAIL_TASK_ID"] = task_env
+        env["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+            repo_root / ".github" / "agents" / "registry.json"
+        )
         return subprocess.run(
             [
                 sys.executable,

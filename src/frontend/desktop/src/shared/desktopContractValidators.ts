@@ -7,9 +7,15 @@ import {
   validateDeleteExtensionPayload,
   validateListExtensionsPayload,
   validateLoadExtensionAssignmentsPayload,
+  validateLoadExternalMcpAssignmentsPayload,
   validateReseedExtensionPayload,
   validateSaveExtensionAssignmentsPayload,
+  validateSaveExternalMcpAssignmentsPayload,
 } from './desktopContractAgentConfigValidators';
+import {
+  validateSystemSettingsReadPayload,
+  validateSystemSettingsSavePayload,
+} from './desktopContractSystemSettingsValidators';
 import {
   PLANNER_FOCUS_FALLBACK_MESSAGE,
   PLANNER_FOCUS_VALID_MESSAGE,
@@ -18,6 +24,7 @@ import {
   COMPOSER_STAGES,
   CONTEXT_PACK_DIRECTORY_PURPOSES,
   CONTEXT_PACK_DISCOVERY_MODES,
+  CONTEXT_PACK_REPO_CATEGORIES,
   PLANNER_FOCUS_VALIDATION_MODES,
   PLANNER_LILY_PERSONALITY_IDS,
   REINFORCEMENT_FEEDBACK_TYPES,
@@ -39,6 +46,7 @@ import {
   validatePlannerFocusSnapshot,
   validatePlannerFocusValidationIssue,
   validatePlannerLilyPlanningReloadScope,
+  validateRepoRelativePath,
 } from './desktopContractValidationCore';
 
 export {
@@ -217,16 +225,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         errors.push('payload.repoLocalPath must be an absolute path string.');
       }
       if (request.payload.relativePath !== undefined) {
-        if (!isString(request.payload.relativePath)) {
-          errors.push('payload.relativePath must be a string when provided.');
-        } else if (
-          request.payload.relativePath.startsWith('/')
-          || request.payload.relativePath.startsWith('\\')
-          || /^[A-Za-z]:[\\/]/.test(request.payload.relativePath)
-          || request.payload.relativePath.includes('..')
-        ) {
-          errors.push('payload.relativePath must be a repo-root-relative path without traversal.');
-        }
+        errors.push(...validateRepoRelativePath(request.payload.relativePath, 'payload.relativePath'));
       }
       return errors;
     }
@@ -533,8 +532,8 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isNonEmptyString(request.payload.repoId)) {
         errors.push('payload.repoId must be a non-empty string.');
       }
-      if (!isNonEmptyString(request.payload.repoCategory)) {
-        errors.push('payload.repoCategory must be a non-empty string.');
+      if (!isOneOf(request.payload.repoCategory, CONTEXT_PACK_REPO_CATEGORIES)) {
+        errors.push('payload.repoCategory must be service, application, frontend, library, infrastructure, data, documentation, tool, or unknown.');
       }
       return errors;
     }
@@ -650,6 +649,11 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       return [];
     case 'agentConfig.saveAgentModels':
       return validateAgentConfigAssignments(request.payload);
+    case 'systemSettings.read':
+    case 'systemSettings.restart':
+      return validateSystemSettingsReadPayload(request.payload);
+    case 'systemSettings.save':
+      return validateSystemSettingsSavePayload(request.payload);
     case 'agentConfig.addModel': {
       if (!isRecord(request.payload)) {
         return ['payload must be an object.'];
@@ -684,6 +688,10 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       return validateLoadExtensionAssignmentsPayload(request.payload);
     case 'agentConfig.saveExtensionAssignments':
       return validateSaveExtensionAssignmentsPayload(request.payload);
+    case 'agentConfig.loadExternalMcpAssignments':
+      return validateLoadExternalMcpAssignmentsPayload(request.payload);
+    case 'agentConfig.saveExternalMcpAssignments':
+      return validateSaveExternalMcpAssignmentsPayload(request.payload);
     case 'externalMcp.add':
     case 'externalMcp.update': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];

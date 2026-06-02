@@ -35,7 +35,6 @@ function makeServer(overrides: Partial<ExternalMcpUrlServerEntry> = {}): Externa
     enabled: true,
     transport: 'sse',
     url: 'https://mcp.example.com/sse',
-    agent_scope: { mode: 'allowlist', agent_ids: ['swe'] },
     ...overrides,
   };
 }
@@ -208,28 +207,6 @@ describe('useMcpConfigModal', () => {
     });
   });
 
-  it('logs provider roster load rejections without blocking server load', async () => {
-    const client = createMockClient({
-      listExternalMcpServers: vi.fn().mockResolvedValue({
-        ok: true,
-        response: { action: 'externalMcp.list', mode: 'read-only', message: '', servers: [makeServer()] },
-      }),
-      describeActiveProvider: vi.fn().mockRejectedValue(new Error('Provider unavailable.')),
-    });
-
-    const { result } = renderHook(() => useMcpConfigModal(client));
-
-    await waitFor(() => {
-      expect(result.current.enabledServerCount).toBe(1);
-      expect(result.current.mcpConfigModalProps.error).toBeNull();
-      expect(logEmit).toHaveBeenCalledWith(expect.objectContaining({
-        msg: 'mcp.provider-roster.load.failed',
-        level: 'warn',
-        extra: { reason: 'Provider unavailable.' },
-      }));
-    });
-  });
-
   it('logs and surfaces MCP toggle rejections', async () => {
     const client = createMockClient({
       toggleExternalMcpServer: vi.fn().mockRejectedValue(new Error('Toggle failed.')),
@@ -303,7 +280,6 @@ describe('useMcpConfigModal', () => {
       result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE);
       result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR);
       result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse');
-      result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']);
     });
     await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
     await act(async () => { await result.current.mcpConfigModalProps.onSave(); });
@@ -408,7 +384,6 @@ describe('useMcpConfigModal — integration round-trips', () => {
     act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('url', 'https://mcp.example.com/sse'); });
-    act(() => { result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']); });
 
     await act(async () => { await result.current.mcpConfigModalProps.onValidateConnection(); });
     expect(result.current.mcpConfigModalProps.connectionValidation.status).toBe('success');
@@ -468,7 +443,6 @@ describe('useMcpConfigModal — integration round-trips', () => {
     act(() => { result.current.mcpConfigModalProps.onDraftChange('display_name', 'Test MCP'); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('purpose', VALID_PURPOSE); });
     act(() => { result.current.mcpConfigModalProps.onDraftChange('preferred_for', VALID_PREFERRED_FOR); });
-    act(() => { result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['swe']); });
     expect(result.current.mcpConfigModalProps.connectionValidation.status).toBe('idle');
 
     // Re-validate succeeds.
@@ -528,7 +502,6 @@ describe('useMcpConfigModal — integration round-trips', () => {
       result.current.mcpConfigModalProps.onDraftChange('command', 'npx');
       result.current.mcpConfigModalProps.onDraftChange('args', '-y\n@scope/fs');
       result.current.mcpConfigModalProps.onDraftChange('tools', 'read_file\nlist_dir');
-      result.current.mcpConfigModalProps.onDraftChange('agent_ids', ['provider-builder']);
     });
 
     // The local gate is satisfied by command + tools without any connection probe.

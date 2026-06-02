@@ -23,7 +23,7 @@
     "test:integration": "tsx src/backend/platform/validation/cli.ts local-checks --profile integration",
     "test:contracts": "tsx src/backend/platform/validation/cli.ts local-checks --profile contracts",
     "check-sizes": "tsx src/backend/platform/validation/cli.ts check-sizes",
-    "lint:python": "python3 -m ruff check .",
+    "lint:python": "tsx src/backend/platform/core/pythonCli.ts -m ruff check .",
     "new-task": "tsx src/backend/platform/queue/cli.ts init",
     "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",
     "queue-status": "tsx src/backend/platform/queue/cli.ts status",
@@ -33,8 +33,8 @@
     "qmd:seed-dry-run": "tsx src/backend/platform/context-pack/qmdSeedDryRun.ts",
     "agent": "tsx src/backend/platform/agent-runner/cli.ts run",
     "agent:pipeline": "tsx src/backend/platform/agent-runner/cli.ts pipeline",
-    "upgrade-pack-schema": "python3 src/backend/scripts/python/upgrade-pack-schema.py",
-    "update-pack-manifest": "python3 src/backend/scripts/python/update-pack-manifest.py"
+    "upgrade-pack-schema": "tsx src/backend/platform/core/pythonCli.ts src/backend/scripts/python/upgrade-pack-schema.py",
+    "update-pack-manifest": "tsx src/backend/platform/core/pythonCli.ts src/backend/scripts/python/update-pack-manifest.py"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

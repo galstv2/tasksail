@@ -254,7 +254,7 @@ function checkRoutingAgentIds(
     if (!agentId) {
       continue;
     }
-    if (!agentIdExists(agentId, validator.namedAgentTeam)) {
+    if (!agentIdExists(agentId, validator.namedAgentTeam, validator.runtimeToProviderAgentId)) {
       validator.addViolation({
         rule_id: 'qa.routing-agent-ids-valid',
         artifact: ISSUES_MD_RELATIVE_PATH,

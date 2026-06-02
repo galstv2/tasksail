@@ -71,7 +71,7 @@ export async function loadPlatformConfig(
   return validatePlatformConfig(parsed, raw);
 }
 
-function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadResult {
+export function validatePlatformConfig(data: unknown, raw: string): PlatformConfigLoadResult {
   const errors: PlatformConfigValidationError[] = [];
 
   if (!isRecord(data)) {

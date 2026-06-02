@@ -38,11 +38,13 @@ describe('DirectRuntime', () => {
     expect(runtime.wslDistro).toBeNull();
   });
 
-  it('throws on Windows', async () => {
+  it('constructs on Windows (direct runtime is supported there now)', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
     const { DirectRuntime } = await import('../directRuntime.js');
 
-    expect(() => new DirectRuntime()).toThrow('not supported on Windows');
+    const runtime = new DirectRuntime();
+    expect(runtime.backend).toBe('direct');
+    expect(runtime.requiresComposeFile).toBe(false);
   });
 
   it('composeUp requires TASKSAIL_REPO_ROOT', async () => {

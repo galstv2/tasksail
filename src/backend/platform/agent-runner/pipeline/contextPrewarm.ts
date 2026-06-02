@@ -2,7 +2,10 @@ import type { AgentId } from '../../core/index.js';
 import { resolveConventionsContext } from '../conventions.js';
 import { resolveCorrectionsContext } from '../corrections.js';
 import { resolveReinforcementContext } from '../reinforcement.js';
-import { prewarmExternalMcpRegistry } from './externalMcpRegistryCache.js';
+import {
+  prewarmExternalMcpAssignments,
+  prewarmExternalMcpRegistry,
+} from './externalMcpRegistryCache.js';
 
 /**
  * Pre-resolve conventions, corrections, and reinforcement context
@@ -20,7 +23,10 @@ export async function prewarmPipelineContext(
   contextPackDir: string | undefined,
   repoRoot: string,
 ): Promise<void> {
-  await prewarmExternalMcpRegistry(repoRoot);
+  await Promise.all([
+    prewarmExternalMcpRegistry(repoRoot),
+    prewarmExternalMcpAssignments(repoRoot),
+  ]);
 
   if (!contextPackDir) {
     return;

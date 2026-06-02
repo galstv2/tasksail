@@ -13,6 +13,7 @@ import {
   useContextPackCreation,
   type UseContextPackCreationOptions,
 } from './useContextPackCreation';
+import { CONTEXT_PACK_CREATION_DRAFT_KEY } from './useContextPackCreationDraftPersistence';
 
 afterEach(() => {
   cleanup();
@@ -147,6 +148,62 @@ describe('useContextPackCreation', () => {
     expect(result.current.contextPackCreationModalProps.draft.estateName).toBe('Persisted Estate');
     expect(result.current.contextPackCreationModalProps.draft.creationOrigin).toBe('new');
     expect(result.current.contextPackCreationModalProps.wizardStep).toBe('project-name');
+  });
+
+  it('hydrates persisted v1 draft repositories without category fields', () => {
+    window.localStorage.setItem(CONTEXT_PACK_CREATION_DRAFT_KEY, JSON.stringify({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      draft: {
+        contextPackDir: '/tmp/pack',
+        discoveryRoot: '/tmp/root',
+        mode: 'distributed',
+        contextPackId: 'persisted-pack',
+        estateName: 'Persisted Pack',
+        defaultScopeMode: 'focused',
+        creationOrigin: 'existing',
+        repositories: [
+          {
+            key: 'repo-1',
+            repoRoot: '/tmp/root/repo-1',
+            repoName: 'Repo One',
+            repoId: 'repo-1',
+            owner: '',
+            systemLayer: 'backend',
+            languages: '',
+            artifactRoots: '',
+            documentPaths: '',
+            boundedContext: '',
+            serviceName: '',
+            repoRole: '',
+            workspaceActivationGroup: '',
+            defaultFocusable: true,
+            activationPriority: 100,
+            primary: true,
+            repositoryType: 'primary',
+          },
+        ],
+        focusAreas: [],
+      },
+      modalStep: 'shape',
+      wizardStep: null,
+      wizardParts: [],
+      creationOrigin: 'existing',
+    }));
+
+    const { result } = renderCreationHook(createClient());
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    expect(result.current.contextPackCreationModalProps.draft.repositories[0]).toEqual(
+      expect.objectContaining({
+        repoCategory: 'unknown',
+        repoCategoryAuthored: false,
+      }),
+    );
+    expect(result.current.contextPackCreationModalProps.draft.repositories[0].repoCategoryConfidence).toBeUndefined();
   });
 
   it('prefills from repo intent when no persisted draft exists', async () => {
@@ -360,6 +417,45 @@ describe('useContextPackCreation', () => {
     });
     expect(onCreated).toHaveBeenCalled();
     expect(result.current.contextPackCreationModalProps.isOpen).toBe(false);
+  });
+
+  it('serializes repo category fields without standalone repo focus fields', async () => {
+    const client = createClient();
+    const { result } = renderCreationHook(client);
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onOpen();
+    });
+
+    act(() => {
+      result.current.contextPackCreationModalProps.onDraftFieldChange('contextPackDir', '/tmp/pack');
+      result.current.contextPackCreationModalProps.onDraftFieldChange('discoveryRoot', '/tmp/root');
+      result.current.contextPackCreationModalProps.onDraftFieldChange('estateName', 'Test Estate');
+    });
+
+    act(() => {
+      const repoKey = result.current.contextPackCreationModalProps.draft.repositories[0]?.key;
+      if (repoKey) {
+        result.current.contextPackCreationModalProps.onRepositoryFieldChange(repoKey, 'repoRoot', '/tmp/repo');
+        result.current.contextPackCreationModalProps.onRepositoryFieldChange(repoKey, 'repoName', 'Test Repo');
+        result.current.contextPackCreationModalProps.onRepositoryFieldChange(repoKey, 'repoCategory', 'tool');
+      }
+    });
+
+    await act(async () => {
+      await result.current.contextPackCreationModalProps.onCreate();
+    });
+
+    const createCall = vi.mocked(client.createContextPack).mock.calls[0]?.[0];
+    const repository = createCall?.bootstrapAnswers.repositories[0];
+
+    expect(repository).toEqual(expect.objectContaining({
+      repositoryType: 'primary',
+      repoCategory: 'tool',
+      repoCategoryAuthored: true,
+    }));
+    expect(repository).not.toHaveProperty('repoFocus');
+    expect(repository).not.toHaveProperty('repoFocusAuthored');
   });
 
   it('derives stable new-project metadata and materializes wizard parts on setup → shape', async () => {

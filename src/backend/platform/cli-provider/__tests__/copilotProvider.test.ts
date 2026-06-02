@@ -38,6 +38,44 @@ afterEach(() => {
 });
 
 describe('copilotProvider', () => {
+  it('exposes provider-owned Class-2 literals exactly', () => {
+    expect(copilotProvider.cliDisplayName()).toBe('Copilot CLI');
+    expect(copilotProvider.platformRepoRootEnvVar()).toBe('COPILOT_PLATFORM_REPO_ROOT');
+    expect(copilotProvider.instructionPathForRole('qa')).toBe('.github/copilot/instructions/qa.instructions.md');
+    expect(copilotProvider.instructionPathForRole('software-engineer')).toBe('.github/copilot/instructions/software-engineer.instructions.md');
+    expect(copilotProvider.skillDirsEnvKey()).toBe('COPILOT_SKILLS_DIRS');
+    expect(copilotProvider.modelCatalogPaths()).toEqual({
+      default: 'config/agent-model-catalog.default.json',
+      runtime: '.platform-state/agent-model-catalog.json',
+    });
+    expect(copilotProvider.requiredRegistryFields()).toEqual(['instruction_path', 'agent_profile_path']);
+  });
+
+  it('inspects plugin metadata through the Copilot plugin manifest reader', async () => {
+    const pluginDir = path.join(repoRoot, 'plugin');
+    fs.mkdirSync(path.join(pluginDir, 'skills'), { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({
+        name: 'metadata-plugin',
+        description: 'Metadata plugin description.',
+        version: '1.2.3',
+        skills: ['skills'],
+        mcp: {},
+      }),
+      'utf-8',
+    );
+
+    await expect(copilotProvider.inspectPluginMetadata(pluginDir)).resolves.toEqual({
+      manifestPath: path.join(pluginDir, 'plugin.json'),
+      name: 'metadata-plugin',
+      description: 'Metadata plugin description.',
+      version: '1.2.3',
+      skillPathCount: 1,
+      declaredComponentClasses: ['mcp'],
+    });
+  });
+
   it('exposes Copilot command, paths, env keys, and prompt paths', () => {
     expect(copilotProvider.resolveCommand()).toBe(process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
     expect(copilotProvider.homeDirName()).toBe('copilot-home');
@@ -524,5 +562,42 @@ describe('copilotProvider', () => {
     fs.writeFileSync(balancedPath, 'Balanced after failures', 'utf-8');
     expect(applyCopilotPlannerPersonality('Plan this.', 'balanced', repoRoot))
       .toContain('Balanced after failures');
+  });
+
+  describe('runtime nickname <-> provider-agent-ID mapping', () => {
+    const NICKNAME_TO_PROVIDER: Record<string, string> = {
+      lily: 'planning-agent',
+      alice: 'product-manager',
+      dalton: 'software-engineer',
+      'dalton-verify': 'software-engineer-verify',
+      ron: 'qa',
+    };
+
+    it('maps all five runtime nicknames to their provider-agent IDs', () => {
+      for (const [nickname, providerId] of Object.entries(NICKNAME_TO_PROVIDER)) {
+        expect(copilotProvider.runtimeToProviderAgentId(nickname)).toBe(providerId);
+      }
+    });
+
+    it('inverts all five provider-agent IDs back to their runtime nicknames', () => {
+      for (const [nickname, providerId] of Object.entries(NICKNAME_TO_PROVIDER)) {
+        expect(copilotProvider.providerToRuntimeAgentId(providerId)).toBe(nickname);
+      }
+    });
+
+    it('passes existing provider-agent IDs through runtimeToProviderAgentId unchanged (idempotent)', () => {
+      for (const providerId of Object.values(NICKNAME_TO_PROVIDER)) {
+        expect(copilotProvider.runtimeToProviderAgentId(providerId)).toBe(providerId);
+      }
+    });
+
+    it('returns undefined from providerToRuntimeAgentId for an unknown provider-agent ID', () => {
+      expect(copilotProvider.providerToRuntimeAgentId('not-a-real-agent')).toBeUndefined();
+    });
+
+    it('maps dalton-verify to software-engineer-verify and never to software-engineer', () => {
+      expect(copilotProvider.runtimeToProviderAgentId('dalton-verify')).toBe('software-engineer-verify');
+      expect(copilotProvider.runtimeToProviderAgentId('dalton-verify')).not.toBe('software-engineer');
+    });
   });
 });

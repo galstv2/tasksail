@@ -44,6 +44,26 @@ function createAgentConfigFixtureAgents() {
     }));
 }
 
+function createSystemSettingsFixtureConfig() {
+  return {
+    schema_version: 1,
+    cli_provider: 'copilot',
+    slice_artifact_format: 'markdown' as const,
+    container_runtime: 'direct' as const,
+    container_engine_host: 'auto' as const,
+    container_engine_wsl_distro: null,
+    max_parallel_tasks: 10,
+    retain_failed_task_worktrees: true,
+    max_retained_failed_task_worktrees: 10,
+    max_retry_generations_per_slug: 5,
+    completed_task_runtime_retention_ms: 3600000,
+    auto_merge: false,
+    external_mcp_local_enabled: true,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [] as string[],
+  };
+}
+
 export function createMockClient(
   overrides: MockClientOverrides = {},
 ): DesktopShellClient {
@@ -395,6 +415,56 @@ export function createMockClient(
           mode: 'validated',
           found: false,
           message: 'Command not found on PATH.',
+        },
+      }),
+    readSystemSettings: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.read',
+          mode: 'read-only',
+          message: 'Loaded platform settings.',
+          defaultConfigPath: '/repo/config/platform.default.json',
+          runtimeConfigPath: '/repo/.platform-state/platform.json',
+          defaultFileHash: 'fixture-default-hash',
+          runtimeFileHash: 'fixture-runtime-hash',
+          config: createSystemSettingsFixtureConfig(),
+          runtimeConfig: createSystemSettingsFixtureConfig(),
+          runtimeStatus: 'valid',
+          runtimeWarning: null,
+          tasksActive: false,
+          envOverrides: [],
+        },
+      }),
+    saveSystemSettings: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.save',
+          mode: 'saved',
+          message: 'Saved platform settings.',
+          defaultConfigPath: '/repo/config/platform.default.json',
+          runtimeConfigPath: '/repo/.platform-state/platform.json',
+          defaultFileHash: 'fixture-default-hash-2',
+          runtimeFileHash: 'fixture-runtime-hash-2',
+          config: createSystemSettingsFixtureConfig(),
+          runtimeConfig: createSystemSettingsFixtureConfig(),
+          runtimeStatus: 'valid',
+          runtimeWarning: null,
+          tasksActive: false,
+          envOverrides: [],
+        },
+      }),
+    restartTaskSail: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        response: {
+          action: 'systemSettings.restart',
+          mode: 'restarting',
+          message: 'Restarting TaskSail to apply settings…',
         },
       }),
     loadAgentConfig: vi
@@ -849,6 +919,24 @@ export function createMockClient(
         action: 'agentConfig.saveExtensionAssignments',
         mode: 'mutated',
         message: 'Saved extension assignments for 0 agent(s).',
+        assignments: [],
+      },
+    }),
+    loadExternalMcpAssignments: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.loadExternalMcpAssignments',
+        mode: 'read-only',
+        message: '0 agent assignment(s) loaded.',
+        assignments: [],
+      },
+    }),
+    saveExternalMcpAssignments: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.saveExternalMcpAssignments',
+        mode: 'mutated',
+        message: 'Saved external MCP assignments for 0 agent(s).',
         assignments: [],
       },
     }),

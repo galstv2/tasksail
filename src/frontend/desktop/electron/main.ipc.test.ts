@@ -7,6 +7,24 @@ import {
   PLANNER_FOCUS_VALID_MESSAGE,
 } from './plannerFocusValidation';
 
+const SYSTEM_SETTINGS_CONFIG = {
+  schema_version: 1,
+  cli_provider: 'copilot',
+  slice_artifact_format: 'markdown' as const,
+  container_runtime: 'direct' as const,
+  container_engine_host: 'auto' as const,
+  container_engine_wsl_distro: null,
+  max_parallel_tasks: 10,
+  retain_failed_task_worktrees: true,
+  max_retained_failed_task_worktrees: 10,
+  max_retry_generations_per_slug: 5,
+  completed_task_runtime_retention_ms: 3600000,
+  auto_merge: false,
+  external_mcp_local_enabled: true,
+  mcp_port: 8811,
+  repo_context_mcp_external_mount_roots: [] as string[],
+};
+
 const loadURL = vi.fn(async () => undefined);
 const loadFile = vi.fn(async () => undefined);
 const show = vi.fn();
@@ -32,6 +50,7 @@ BrowserWindowMock.getAllWindows = vi.fn(() => []);
 const appMock = {
   on: vi.fn(),
   quit: vi.fn(),
+  relaunch: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
@@ -671,5 +690,96 @@ describe('electron main bootstrap — IPC dispatch', () => {
         error: 'validator boom',
       });
     });
+  });
+
+  it('dispatches systemSettings.read and systemSettings.save to injected handlers', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    const readSystemSettings = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'systemSettings.read' as const,
+        mode: 'read-only' as const,
+        message: 'Loaded platform settings.',
+        defaultConfigPath: '/repo/config/platform.default.json',
+        runtimeConfigPath: '/repo/.platform-state/platform.json',
+        defaultFileHash: 'h1',
+        runtimeFileHash: 'rt1',
+        config: SYSTEM_SETTINGS_CONFIG,
+        runtimeConfig: SYSTEM_SETTINGS_CONFIG,
+        runtimeStatus: 'valid' as const,
+        runtimeWarning: null,
+        tasksActive: false,
+        envOverrides: [],
+      },
+    }));
+    const saveSystemSettings = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'systemSettings.save' as const,
+        mode: 'saved' as const,
+        message: 'Saved platform settings.',
+        defaultConfigPath: '/repo/config/platform.default.json',
+        runtimeConfigPath: '/repo/.platform-state/platform.json',
+        defaultFileHash: 'h2',
+        runtimeFileHash: 'rt2',
+        config: SYSTEM_SETTINGS_CONFIG,
+        runtimeConfig: SYSTEM_SETTINGS_CONFIG,
+        runtimeStatus: 'valid' as const,
+        runtimeWarning: null,
+        tasksActive: false,
+        envOverrides: [],
+      },
+    }));
+
+    const readResult = await handleDesktopAction({ action: 'systemSettings.read' }, { readSystemSettings });
+    expect(readSystemSettings).toHaveBeenCalledTimes(1);
+    expect(readResult.ok).toBe(true);
+
+    const savePayload = { baseDefaultFileHash: 'h1', config: SYSTEM_SETTINGS_CONFIG };
+    const saveResult = await handleDesktopAction(
+      { action: 'systemSettings.save', payload: savePayload },
+      { saveSystemSettings },
+    );
+    expect(saveSystemSettings).toHaveBeenCalledWith(savePayload);
+    expect(saveResult.ok).toBe(true);
+  });
+
+  it('dispatches systemSettings.restart to the injected restart handler', async () => {
+    const { handleDesktopAction } = await import('./main');
+    const restartApp = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'systemSettings.restart' as const,
+        mode: 'restarting' as const,
+        message: 'Restarting TaskSail to apply settings…',
+      },
+    }));
+
+    const result = await handleDesktopAction({ action: 'systemSettings.restart' }, { restartApp });
+
+    expect(restartApp).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+  });
+
+  it('drives a real app relaunch for systemSettings.restart via the default app handlers', async () => {
+    const { handleDesktopAction } = await import('./main');
+
+    const result = await handleDesktopAction({ action: 'systemSettings.restart' });
+
+    expect(result.ok).toBe(true);
+    expect(appMock.relaunch).toHaveBeenCalledTimes(1);
+    expect(appMock.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports restart unavailable when no restartApp dependency is wired', async () => {
+    const { createDefaultDesktopActionHandlers } = await import('./main.desktopActionHandlers');
+
+    const result = await createDefaultDesktopActionHandlers().restartApp();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('not available');
+    }
   });
 });

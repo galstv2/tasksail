@@ -155,6 +155,39 @@ describe('completePendingItem child-chain closeout wiring', () => {
     );
   });
 
+  it('does not backfill target_branch for child-chain branch handoffs even when the target repo has a branch', async () => {
+    const taskId = 'child';
+    // Both target repos are checked out on main. A standard (non-child-chain)
+    // closeout would backfill auto_merge.target_branch to "main" via the best-effort
+    // resolver. Child-chain closeout must keep its pre-feature null targetBranch.
+    const platformRepo = await createRepo(repoRoot, 'platform', 'task/root');
+    const toolsRepo = await createRepo(repoRoot, 'tools', 'task/root');
+    await seedActiveTask(repoRoot, taskId, childMarkdown());
+    await seedTaskJson(repoRoot, taskId, [{
+      originalRoot: platformRepo.root,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace/tasks/child/worktrees/platform'),
+      worktreeBranch: 'task/root',
+      baseCommitSha: platformRepo.baseCommitSha,
+    }, {
+      originalRoot: toolsRepo.root,
+      worktreeRoot: path.join(repoRoot, 'AgentWorkSpace/tasks/child/worktrees/tools'),
+      worktreeBranch: 'task/root',
+      baseCommitSha: toolsRepo.baseCommitSha,
+    }]);
+
+    await completePendingItem({ repoRoot, taskId, skipValidation: true, contextPackDir: path.join(repoRoot, 'context-pack') });
+
+    expect(attachCompletedBranchHandoffsMock).toHaveBeenCalledTimes(1);
+    const branchHandoffsArg = attachCompletedBranchHandoffsMock.mock.calls[0][1] as Array<{
+      repo_root: string;
+      auto_merge: { target_branch: string | null };
+    }>;
+    expect(branchHandoffsArg).toHaveLength(2);
+    for (const handoff of branchHandoffsArg) {
+      expect(handoff.auto_merge.target_branch).toBeNull();
+    }
+  });
+
   it('leaves the sentinel and blocks queue activation when child-chain state advance fails', async () => {
     const taskId = 'child';
     await seedActiveTask(repoRoot, taskId, childMarkdown());

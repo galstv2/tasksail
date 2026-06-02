@@ -1,0 +1,143 @@
+/* System Settings modal body. Mounts inside ModalShell's .modal-shell__body, so
+ * it owns only the grouped form layout — overlay/chrome/footer come from
+ * modalShell.css. Matches the compact mcp-form / agent-config control language. */
+
+.system-settings {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.system-settings__alert {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--ts-radius-md);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.system-settings__alert--error {
+  background: var(--ts-danger-tint);
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 22%, transparent);
+  color: var(--ts-danger);
+}
+
+.system-settings__alert--success {
+  background: color-mix(in srgb, var(--ts-success) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ts-success) 25%, transparent);
+  color: var(--ts-success);
+}
+
+.system-settings__alert--warning {
+  background: var(--ts-warning-tint);
+  border: 1px solid color-mix(in srgb, var(--ts-warning) 25%, transparent);
+  color: var(--ts-warning);
+}
+
+.system-settings__env {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.system-settings__env-line {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-warning-tint);
+  border: 1px solid color-mix(in srgb, var(--ts-warning) 22%, transparent);
+  color: var(--ts-warning);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.system-settings__loading {
+  margin: 0.5rem 0;
+  color: var(--ts-text-soft);
+  font-size: 0.82rem;
+}
+
+.system-settings__groups {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.system-settings__group {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.55rem 0.7rem 0.7rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+}
+
+.system-settings__group:disabled {
+  opacity: 0.55;
+}
+
+.system-settings__group-title {
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ts-text-muted);
+}
+
+.system-settings__field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.system-settings__field--checkbox {
+  grid-auto-flow: column;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  justify-content: start;
+  gap: 0.45rem;
+}
+
+.system-settings__label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ts-text-muted);
+}
+
+.system-settings__input,
+.system-settings__textarea {
+  padding: 0.38rem 0.5rem;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  font-size: 0.78rem;
+  background: var(--ts-surface-alt);
+  color: var(--ts-text);
+  font-family: var(--ts-font-sans);
+}
+
+.system-settings__textarea {
+  resize: vertical;
+  min-height: 2.8rem;
+  line-height: 1.45;
+  font-family: var(--ts-font-mono);
+  font-size: 0.74rem;
+}
+
+.system-settings__input:focus,
+.system-settings__textarea:focus {
+  outline: none;
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 2px var(--ts-accent-subtle);
+}
+
+.system-settings__input--error {
+  border-color: var(--ts-danger);
+}
+
+.system-settings__readonly {
+  font-family: var(--ts-font-mono);
+  font-size: 0.78rem;
+  color: var(--ts-text-soft);
+}
+
+.system-settings__error {
+  font-size: 0.7rem;
+  color: var(--ts-danger);
+}

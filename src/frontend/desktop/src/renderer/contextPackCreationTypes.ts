@@ -1,4 +1,11 @@
-import type { ContextPackDiscoveryMode, ContextPackRepositoryType, WorkspaceScopeMode } from '../shared/desktopContract';
+import type {
+  ContextPackClassificationConfidence,
+  ContextPackDiscoveryMode,
+  ContextPackRepoCategory,
+  ContextPackRepositoryType,
+  ContextPackSkippedRepoMissingGit,
+  WorkspaceScopeMode,
+} from '../shared/desktopContract';
 import { isRecord } from '../shared/desktopContractValidators';
 
 export type RepositoryEntryDraft = {
@@ -25,6 +32,9 @@ export type RepositoryEntryDraft = {
   activationPriority: number;
   primary: boolean;
   repositoryType: ContextPackRepositoryType;
+  repoCategory: ContextPackRepoCategory;
+  repoCategoryAuthored: boolean;
+  repoCategoryConfidence?: ContextPackClassificationConfidence;
 };
 
 export type FocusAreaEntryDraft = {
@@ -102,7 +112,29 @@ function isRepositoryEntryDraft(value: unknown): value is RepositoryEntryDraft {
     && typeof value.defaultFocusable === 'boolean'
     && typeof value.activationPriority === 'number'
     && typeof value.primary === 'boolean'
-    && typeof value.repositoryType === 'string';
+    && typeof value.repositoryType === 'string'
+    && (
+      value.repoCategory === undefined
+      || value.repoCategory === 'service'
+      || value.repoCategory === 'application'
+      || value.repoCategory === 'frontend'
+      || value.repoCategory === 'library'
+      || value.repoCategory === 'infrastructure'
+      || value.repoCategory === 'data'
+      || value.repoCategory === 'documentation'
+      || value.repoCategory === 'tool'
+      || value.repoCategory === 'unknown'
+    )
+    && (
+      value.repoCategoryAuthored === undefined
+      || typeof value.repoCategoryAuthored === 'boolean'
+    )
+    && (
+      value.repoCategoryConfidence === undefined
+      || value.repoCategoryConfidence === 'high'
+      || value.repoCategoryConfidence === 'medium'
+      || value.repoCategoryConfidence === 'low'
+    );
 }
 
 function isFocusAreaEntryDraft(value: unknown): value is FocusAreaEntryDraft {
@@ -167,6 +199,29 @@ export function isPersistedContextPackCreation(
     && (value.creationOrigin === 'existing' || value.creationOrigin === 'new');
 }
 
+function hydrateRepositoryEntryDraft(
+  repository: RepositoryEntryDraft,
+): RepositoryEntryDraft {
+  return {
+    ...repository,
+    repoCategory: repository.repoCategory ?? 'unknown',
+    repoCategoryAuthored: repository.repoCategoryAuthored ?? false,
+    repoCategoryConfidence: repository.repoCategoryConfidence,
+  };
+}
+
+export function hydratePersistedContextPackCreation(
+  persisted: PersistedContextPackCreation,
+): PersistedContextPackCreation {
+  return {
+    ...persisted,
+    draft: {
+      ...persisted.draft,
+      repositories: persisted.draft.repositories.map(hydrateRepositoryEntryDraft),
+    },
+  };
+}
+
 export type ContextPackCreationModalProps = {
   isOpen: boolean;
   busy: boolean;
@@ -179,6 +234,7 @@ export type ContextPackCreationModalProps = {
   canGoBack: boolean;
   canGoNext: boolean;
   canGoNextReason?: string;
+  gitRepositoryWarnings?: ContextPackSkippedRepoMissingGit[];
   onOpen: OpenContextPackCreationModal;
   onClose: () => void;
   onDiscardDraft: () => void;

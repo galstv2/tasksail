@@ -34,6 +34,9 @@ class TaskArchiveFilingTestBase(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["TASKSAIL_TASK_ID"] = task_id
+        env["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+            repo_root / ".github" / "agents" / "registry.json"
+        )
         return subprocess.run(
             [
                 sys.executable,

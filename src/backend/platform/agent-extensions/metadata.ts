@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { isRecord } from '../core/guards.js';
-import { safeJsonParse } from '../core/io.js';
+import type { PluginMetadataSummary } from '../cli-provider/index.js';
 import { extensionError } from './ids.js';
 import type { AgentExtensionKind, AgentExtensionRuntimeCatalogEntry } from './types.js';
 
 type MetadataResult = Pick<AgentExtensionRuntimeCatalogEntry, 'display_name' | 'description' | 'metadata'>;
+type PluginMetadataInspector = (runtimePath: string) => Promise<PluginMetadataSummary & { description?: string }>;
 
 // Minimal YAML frontmatter extractor — only handles simple key: value lines
 function extractYamlFrontmatter(content: string): Record<string, string> | null {
@@ -55,28 +55,15 @@ async function inspectSkillMetadata(runtimePath: string): Promise<MetadataResult
   };
 }
 
-async function inspectPluginMetadata(runtimePath: string): Promise<MetadataResult> {
-  const { readCopilotPluginManifestSummary } = await import(
-    '../cli-provider/providers/copilot/launchExtensions.js'
-  );
-  const summary = await readCopilotPluginManifestSummary(runtimePath);
-
-  // Read description from manifest JSON directly
-  const manifestPath = summary.manifestPath;
-  let description = '';
-  try {
-    const raw = await readFile(manifestPath, 'utf-8');
-    const parsed = safeJsonParse<unknown>(raw, manifestPath);
-    if (isRecord(parsed) && typeof parsed.description === 'string' && parsed.description.trim() !== '') {
-      description = parsed.description.trim();
-    }
-  } catch {
-    // fall through to fail-closed check
-  }
-
-  if (!description) {
-    throw new Error('Plugin manifest is missing a non-empty description field.');
-  }
+async function inspectPluginMetadata(
+  runtimePath: string,
+  inspect: PluginMetadataInspector,
+): Promise<MetadataResult> {
+  const summary = await inspect(runtimePath);
+  const description =
+    typeof summary.description === 'string' && summary.description.trim() !== ''
+      ? summary.description.trim()
+      : `Plugin ${summary.name}.`;
 
   return {
     display_name: summary.name,
@@ -89,12 +76,15 @@ async function inspectPluginMetadata(runtimePath: string): Promise<MetadataResul
 }
 
 export async function inspectAgentExtensionMetadata(input: {
-  providerId: 'copilot';
   kind: AgentExtensionKind;
   runtimePath: string;
+  inspectPluginMetadata?: PluginMetadataInspector;
 }): Promise<MetadataResult> {
   if (input.kind === 'skill') {
     return inspectSkillMetadata(input.runtimePath);
   }
-  return inspectPluginMetadata(input.runtimePath);
+  if (!input.inspectPluginMetadata) {
+    throw new Error('Plugin metadata inspection requires an active provider inspector.');
+  }
+  return inspectPluginMetadata(input.runtimePath, input.inspectPluginMetadata);
 }

@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 # Path to the CLI entry point relative to repo root.
 _CLI_SCRIPT = "src/backend/platform/external-mcp-registry/cli.ts"
 
+# Repo root that contains this package, used to locate the CLI script and tsx
+# regardless of the data --root passed to a command. In production the data root
+# IS this repo; in tests the data root is an isolated workspace while the CLI
+# code still resolves from the real checkout.
+_PACKAGE_REPO_ROOT = Path(__file__).resolve().parents[7]
+
 
 class ExternalMcpLoadError(Exception):
     """Raised when the external MCP registry cannot be loaded."""
@@ -51,9 +57,19 @@ def _find_tsx(root_dir: Path) -> str:
     return "npx"
 
 
-def _run_cli(root: Path, subcommand: str) -> dict[str, Any]:
-    """Run the TypeScript CLI with the given subcommand and return parsed JSON."""
-    cli_path = root / _CLI_SCRIPT
+def _run_cli(
+    code_root: Path,
+    subcommand: str,
+    data_root: Path | None = None,
+    extra_args: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run the TypeScript CLI and return parsed JSON.
+
+    ``code_root`` locates the CLI script and the tsx binary; ``data_root``
+    (defaulting to ``code_root``) is passed as ``--root`` so the CLI reads
+    registry/assignment state from there.
+    """
+    cli_path = code_root / _CLI_SCRIPT
 
     if not cli_path.exists():
         raise ExternalMcpLoadError([{
@@ -62,20 +78,23 @@ def _run_cli(root: Path, subcommand: str) -> dict[str, Any]:
             "fix": "Ensure the platform TypeScript is built.",
         }])
 
-    tsx = _find_tsx(root)
+    tsx = _find_tsx(code_root)
+    root_arg = str(data_root if data_root is not None else code_root)
 
     cmd: list[str]
     if tsx == "npx":
-        cmd = ["npx", "tsx", str(cli_path), subcommand, "--root", str(root)]
+        cmd = ["npx", "tsx", str(cli_path), subcommand, "--root", root_arg]
     else:
-        cmd = [tsx, str(cli_path), subcommand, "--root", str(root)]
+        cmd = [tsx, str(cli_path), subcommand, "--root", root_arg]
+    if extra_args:
+        cmd.extend(extra_args)
 
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            cwd=str(root),
+            cwd=str(code_root),
             timeout=30,
         )
     except subprocess.TimeoutExpired:
@@ -168,22 +187,43 @@ def load_validated_external_mcp(root_dir: str | Path) -> dict[str, Any]:
     return data
 
 
-def resolve_behavioral_base_mcp_agent_id(agent_id: str) -> str:
-    """Resolve the effective MCP scope agent ID for Dalton-family agents."""
-    return "dalton" if agent_id == "dalton-verify" else agent_id
-
-
-def select_servers_for_agent(
-    servers: list[dict[str, Any]],
+def resolve_assigned_servers_for_agent(
+    root_dir: str | Path,
     agent_id: str,
 ) -> list[dict[str, Any]]:
     """
-    Filter external servers to those that are enabled and whose
-    agent_scope includes the given agent ID.
+    Resolve the enabled external MCP servers assigned to an agent.
+
+    Delegates entirely to the TypeScript selection boundary
+    (cli.ts select-for-agent), which reads the durable assignment store and
+    never consults a server's stale agent_scope field. The agent ID may be a
+    runtime nickname (e.g. ``dalton``) or a provider registry ID; the TypeScript
+    helper performs the mapping. Returns the raw registry records for the
+    assigned, enabled servers, ready for ``prepare_launch_context``.
     """
-    effective_agent_id = resolve_behavioral_base_mcp_agent_id(agent_id)
-    return [
-        s for s in servers
-        if s.get("enabled", False)
-        and effective_agent_id in s.get("agent_scope", {}).get("agent_ids", [])
-    ]
+    data_root = Path(root_dir).resolve()
+    result = _run_cli(
+        _PACKAGE_REPO_ROOT,
+        "select-for-agent",
+        data_root=data_root,
+        extra_args=["--agent-id", agent_id],
+    )
+    # The TS selection boundary only emits warnings on fail-closed error
+    # conditions (invalid JSON, bad schema_version, unknown agent/server IDs,
+    # registry load failure); the success path always returns an empty list.
+    # Surface them as a load failure so the launch path reports status
+    # "malformed" instead of masquerading as an ordinary "no assignment".
+    warnings = result.get("warnings", [])
+    if warnings:
+        messages = warnings if isinstance(warnings, list) else [str(warnings)]
+        raise ExternalMcpLoadError([
+            {
+                "field": "(assignments)",
+                "message": str(message),
+                "fix": "Repair the assignment store at "
+                ".platform-state/external-mcp-agent-assignments.json.",
+            }
+            for message in messages
+        ])
+    servers = result.get("servers", [])
+    return servers if isinstance(servers, list) else []

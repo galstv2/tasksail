@@ -1,6 +1,5 @@
-import path from 'node:path';
 import { readdir, unlink, readFile } from 'node:fs/promises';
-import { ensureDir, writeTextFile } from '../core/index.js';
+import { writeTextFileAtomic } from '../core/index.js';
 import { deriveQueueStatePaths } from './paths.js';
 
 export async function readQueueOrderManifest(
@@ -19,8 +18,9 @@ export async function writeQueueOrderManifest(
   queueOrderPath: string,
   order: string[],
 ): Promise<void> {
-  await ensureDir(path.dirname(queueOrderPath));
-  await writeTextFile(queueOrderPath, JSON.stringify({ order }, null, 2) + '\n');
+  // Atomic write; the queue dir lock (acquireDirLockOrThrow) serializes the
+  // read-modify-write callers, so no extra per-file lock is needed here.
+  await writeTextFileAtomic(queueOrderPath, JSON.stringify({ order }, null, 2) + '\n');
 }
 
 export async function insertIntoQueueManifest(

@@ -182,6 +182,8 @@ export const DESKTOP_ACTION_NAMES = [
   'agentConfig.deleteExtension',
   'agentConfig.loadExtensionAssignments',
   'agentConfig.saveExtensionAssignments',
+  'agentConfig.loadExternalMcpAssignments',
+  'agentConfig.saveExternalMcpAssignments',
   'agentInstructions.listFiles',
   'agentInstructions.readFile',
   'agentInstructions.writeFile',
@@ -213,6 +215,9 @@ export const DESKTOP_ACTION_NAMES = [
   'contextPackSidebarState.save',
   'terminal.setTaskScope',
   'cancel-task',
+  'systemSettings.read',
+  'systemSettings.save',
+  'systemSettings.restart',
 ] as const;
 
 export type DesktopActionName = (typeof DESKTOP_ACTION_NAMES)[number];
@@ -696,10 +701,9 @@ type ExternalMcpServerEntryBase = {
   preferred_for?: string[];
   fallback_description?: string;
   enabled: boolean;
-  agent_scope: {
-    mode: 'allowlist';
-    agent_ids: string[];
-  };
+  // Per-agent assignment moved to Agent Configuration
+  // (.platform-state/external-mcp-agent-assignments.json). Server entries no
+  // longer carry agent_scope.
 };
 
 export type ExternalMcpUrlServerEntry = ExternalMcpServerEntryBase & {
@@ -771,6 +775,9 @@ export type ExternalMcpRemoveResponse = {
   mode: 'mutated';
   message: string;
   servers: ExternalMcpServerEntry[];
+  // Present only when the server was removed but clearing it from the agent
+  // assignment store failed (genuine I/O/registry error); stale IDs may remain.
+  warning?: string;
 };
 
 export type ExternalMcpToggleEnabledRequest = {
@@ -840,12 +847,16 @@ import type {
   AgentConfigDeleteExtensionRequest,
   AgentConfigLoadExtensionAssignmentsRequest,
   AgentConfigSaveExtensionAssignmentsRequest,
+  AgentConfigLoadExternalMcpAssignmentsRequest,
+  AgentConfigSaveExternalMcpAssignmentsRequest,
   AgentConfigListExtensionsResponse,
   AgentConfigAddExtensionResponse,
   AgentConfigReseedExtensionResponse,
   AgentConfigDeleteExtensionResponse,
   AgentConfigLoadExtensionAssignmentsResponse,
   AgentConfigSaveExtensionAssignmentsResponse,
+  AgentConfigLoadExternalMcpAssignmentsResponse,
+  AgentConfigSaveExternalMcpAssignmentsResponse,
 } from './desktopContractAgentConfig';
 
 export type {
@@ -881,7 +892,42 @@ export type {
   AgentConfigLoadExtensionAssignmentsResponse,
   AgentConfigSaveExtensionAssignmentsRequest,
   AgentConfigSaveExtensionAssignmentsResponse,
+  ExternalMcpAgentAssignments,
+  AgentConfigLoadExternalMcpAssignmentsRequest,
+  AgentConfigLoadExternalMcpAssignmentsResponse,
+  AgentConfigSaveExternalMcpAssignmentsRequest,
+  AgentConfigSaveExternalMcpAssignmentsResponse,
 } from './desktopContractAgentConfig';
+
+// ---------------------------------------------------------------------------
+// System Settings (types in desktopContractSystemSettings.ts)
+// ---------------------------------------------------------------------------
+
+// Private import for use in DesktopActionRequest and DesktopActionResponse unions below.
+import type {
+  SystemSettingsReadRequest,
+  SystemSettingsReadResponse,
+  SystemSettingsSaveRequest,
+  SystemSettingsSaveResponse,
+  SystemSettingsRestartRequest,
+  SystemSettingsRestartResponse,
+} from './desktopContractSystemSettings';
+
+export type {
+  SystemSettingsContainerRuntime,
+  SystemSettingsContainerEngineHost,
+  SystemSettingsSliceArtifactFormat,
+  SystemSettingsPlatformConfig,
+  SystemSettingsEnvOverrideScope,
+  SystemSettingsEnvOverride,
+  SystemSettingsRuntimeStatus,
+  SystemSettingsReadRequest,
+  SystemSettingsReadResponse,
+  SystemSettingsSaveRequest,
+  SystemSettingsSaveResponse,
+  SystemSettingsRestartRequest,
+  SystemSettingsRestartResponse,
+} from './desktopContractSystemSettings';
 
 export type { InstructionFileEntry, InstructionDirectory } from './desktopContractAgentInstructions';
 import type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse } from './desktopContractAgentInstructions';
@@ -1198,6 +1244,11 @@ export type DesktopActionRequest =
   | AgentConfigDeleteExtensionRequest
   | AgentConfigLoadExtensionAssignmentsRequest
   | AgentConfigSaveExtensionAssignmentsRequest
+  | AgentConfigLoadExternalMcpAssignmentsRequest
+  | AgentConfigSaveExternalMcpAssignmentsRequest
+  | SystemSettingsReadRequest
+  | SystemSettingsSaveRequest
+  | SystemSettingsRestartRequest
   | AgentInstructionsListFilesRequest
   | AgentInstructionsReadFileRequest
   | AgentInstructionsWriteFileRequest
@@ -1296,6 +1347,11 @@ export type DesktopActionResponse =
   | AgentConfigDeleteExtensionResponse
   | AgentConfigLoadExtensionAssignmentsResponse
   | AgentConfigSaveExtensionAssignmentsResponse
+  | AgentConfigLoadExternalMcpAssignmentsResponse
+  | AgentConfigSaveExternalMcpAssignmentsResponse
+  | SystemSettingsReadResponse
+  | SystemSettingsSaveResponse
+  | SystemSettingsRestartResponse
   | AgentInstructionsListFilesResponse
   | AgentInstructionsReadFileResponse
   | AgentInstructionsWriteFileResponse

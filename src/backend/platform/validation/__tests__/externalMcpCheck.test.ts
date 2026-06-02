@@ -37,6 +37,13 @@ function writeAgentRegistry(agentIds: string[]): void {
   fs.writeFileSync(p, JSON.stringify({ agents }, null, 2), 'utf-8');
 }
 
+function writeAssignments(content: unknown): void {
+  const p = path.join(tmpDir, '.platform-state', 'external-mcp-agent-assignments.json');
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const raw = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  fs.writeFileSync(p, raw, 'utf-8');
+}
+
 // ---------------------------------------------------------------------------
 // No registry exists
 // ---------------------------------------------------------------------------
@@ -70,7 +77,8 @@ describe('valid external MCP registry', () => {
       external_servers: [{
         id: 'runtime-mcp',
         display_name: 'Runtime MCP',
-        purpose: 'Test',
+        purpose: 'Runtime registry server preferred over default.',
+        preferred_for: ['testing'],
         enabled: true,
         transport: 'sse',
         url: 'https://mcp.example.com/sse',
@@ -99,91 +107,98 @@ describe('invalid external MCP registry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent scope warnings
+// Stale agent_scope is no longer advisory data
 // ---------------------------------------------------------------------------
 
-describe('agent scope advisory warnings', () => {
-  it('warns on unknown agent IDs', async () => {
-    writeDefaultRegistry({
+describe('stale agent_scope', () => {
+  it('does not warn when a server carries a stale agent_scope referencing unknown agents', async () => {
+    writeRuntimeRegistry({
       schema_version: 1,
       external_servers: [{
-        id: 'test-mcp',
-        display_name: 'Test MCP',
-        purpose: 'Test',
+        id: 'vendor-docs',
+        display_name: 'Vendor Docs MCP',
+        purpose: 'Vendor API documentation for billing flows.',
+        preferred_for: ['docs'],
         enabled: true,
         transport: 'sse',
         url: 'https://mcp.example.com/sse',
         agent_scope: { mode: 'allowlist', agent_ids: ['nonexistent-agent'] },
       }],
     });
-    writeAgentRegistry(['software-engineer', 'qa']);
-
-    const result = await checkExternalMcpRegistry(tmpDir);
-    expect(result.valid).toBe(true);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain('nonexistent-agent');
-    expect(result.warnings[0]).toContain('unknown agent ID');
-    expect(result.warnings[0]).toContain('.github/agents/registry.json');
-  });
-
-  it('does not warn on known agent IDs', async () => {
-    writeDefaultRegistry({
-      schema_version: 1,
-      external_servers: [{
-        id: 'test-mcp',
-        display_name: 'Test MCP',
-        purpose: 'Test',
-        enabled: true,
-        transport: 'sse',
-        url: 'https://mcp.example.com/sse',
-        agent_scope: { mode: 'allowlist', agent_ids: ['software-engineer'] },
-      }],
-    });
-    writeAgentRegistry(['software-engineer', 'qa']);
-
-    const result = await checkExternalMcpRegistry(tmpDir);
-    expect(result.valid).toBe(true);
-    expect(result.warnings).toHaveLength(0);
-  });
-
-  it('does not fail local-checks on unknown agent IDs', async () => {
-    writeDefaultRegistry({
-      schema_version: 1,
-      external_servers: [{
-        id: 'test-mcp',
-        display_name: 'Test MCP',
-        purpose: 'Test',
-        enabled: true,
-        transport: 'sse',
-        url: 'https://mcp.example.com/sse',
-        agent_scope: { mode: 'allowlist', agent_ids: ['unknown-agent'] },
-      }],
-    });
     writeAgentRegistry(['software-engineer']);
 
     const result = await checkExternalMcpRegistry(tmpDir);
-    // Valid despite unknown agent — warnings only.
     expect(result.valid).toBe(true);
-    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings).toHaveLength(0);
   });
+});
 
-  it('skips scope check when agent registry is missing', async () => {
-    writeDefaultRegistry({
+// ---------------------------------------------------------------------------
+// External MCP assignment file validation
+// ---------------------------------------------------------------------------
+
+describe('external MCP assignment file validation', () => {
+  function seedRegistryAndRoster(): void {
+    writeRuntimeRegistry({
       schema_version: 1,
       external_servers: [{
-        id: 'test-mcp',
-        display_name: 'Test MCP',
-        purpose: 'Test',
+        id: 'vendor-docs',
+        display_name: 'Vendor Docs MCP',
+        purpose: 'Vendor API documentation for billing flows.',
+        preferred_for: ['docs'],
         enabled: true,
         transport: 'sse',
         url: 'https://mcp.example.com/sse',
-        agent_scope: { mode: 'allowlist', agent_ids: ['unknown-agent'] },
       }],
     });
-    // No agent registry written — scope check is skipped.
+    writeAgentRegistry(['software-engineer', 'qa']);
+  }
 
+  it('passes when the assignment file is absent', async () => {
+    seedRegistryAndRoster();
     const result = await checkExternalMcpRegistry(tmpDir);
     expect(result.valid).toBe(true);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('validates a well-formed assignment file', async () => {
+    seedRegistryAndRoster();
+    writeAssignments({
+      schema_version: 1,
+      assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['vendor-docs'] }],
+    });
+    const result = await checkExternalMcpRegistry(tmpDir);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('fails on an unknown assignment agent ID', async () => {
+    seedRegistryAndRoster();
+    writeAssignments({
+      schema_version: 1,
+      assignments: [{ agent_id: 'ghost-agent', external_mcp_server_ids: [] }],
+    });
+    const result = await checkExternalMcpRegistry(tmpDir);
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('ghost-agent');
+  });
+
+  it('fails on an unknown assignment server ID', async () => {
+    seedRegistryAndRoster();
+    writeAssignments({
+      schema_version: 1,
+      assignments: [{ agent_id: 'software-engineer', external_mcp_server_ids: ['does-not-exist'] }],
+    });
+    const result = await checkExternalMcpRegistry(tmpDir);
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('does-not-exist');
+  });
+
+  it('fails on malformed assignment JSON', async () => {
+    seedRegistryAndRoster();
+    writeAssignments('{ this is not json');
+    const result = await checkExternalMcpRegistry(tmpDir);
+    expect(result.valid).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
   });
 });

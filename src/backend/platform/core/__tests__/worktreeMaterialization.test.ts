@@ -42,9 +42,43 @@ import {
   withOriginLock,
   preconditionsPass,
   newBranchPreconditionsPass,
+  parseWorktreePorcelainBlocks,
   type CloneStrategy,
   type StatfsSyncFn,
 } from '../worktreeMaterialization.js';
+import { samePathIdentity } from '../paths.js';
+
+describe('parseWorktreePorcelainBlocks (CRLF-safe)', () => {
+  const LF = 'worktree /a\nHEAD abc\nbranch refs/heads/main\n\nworktree /b\nHEAD def\nbranch refs/heads/feat\n';
+  const CRLF = 'worktree /a\r\nHEAD abc\r\nbranch refs/heads/main\r\n\r\nworktree /b\r\nHEAD def\r\nbranch refs/heads/feat\r\n';
+
+  it('splits LF porcelain into one block per worktree', () => {
+    const blocks = parseWorktreePorcelainBlocks(LF);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toContain('worktree /a');
+    expect(blocks[1]).toContain('worktree /b');
+  });
+
+  it('splits CRLF porcelain into one block per worktree with no trailing \\r', () => {
+    const blocks = parseWorktreePorcelainBlocks(CRLF);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual(['worktree /a', 'HEAD abc', 'branch refs/heads/main']);
+    expect(blocks[1]).toEqual(['worktree /b', 'HEAD def', 'branch refs/heads/feat']);
+  });
+
+  it('returns no blocks for empty output', () => {
+    expect(parseWorktreePorcelainBlocks('')).toEqual([]);
+  });
+});
+
+describe('worktree path identity (Windows drive casing)', () => {
+  it('treats drive-case-mismatched worktree paths as the same so collisions are detected', () => {
+    // The porcelain collision check now uses samePathIdentity; a git-reported
+    // "c:\\..." must match a "C:\\..." resolved worktree path on Windows.
+    expect(samePathIdentity('C:\\repo\\wt', 'c:\\repo\\wt', { impl: path.win32 })).toBe(true);
+    expect(samePathIdentity('C:\\repo\\wt', 'C:\\repo\\other', { impl: path.win32 })).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

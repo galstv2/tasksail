@@ -24,10 +24,19 @@ const loggerMocks = vi.hoisted(() => {
 });
 
 const stageMocks = vi.hoisted(() => ({ createAgentExtensionStage: vi.fn() }));
+const providerMocks = vi.hoisted(() => ({
+  getActiveProvider: vi.fn((): { id: string; plannerAgentId: () => string | null } => ({
+    id: 'copilot',
+    plannerAgentId: () => 'planning-agent',
+  })),
+}));
 
 vi.mock('./log/logger', () => ({ createLogger: loggerMocks.createLogger }));
 vi.mock('../../../backend/platform/agent-extensions/stage.js', () => ({
   createAgentExtensionStage: stageMocks.createAgentExtensionStage,
+}));
+vi.mock('../../../backend/platform/cli-provider/index.js', () => ({
+  getActiveProvider: providerMocks.getActiveProvider,
 }));
 
 type FakeAvailabilityEntry = {
@@ -40,7 +49,7 @@ type FakeAvailabilityEntry = {
 
 type FakeStage = {
   launchId: string;
-  agentId: 'planning-agent';
+  agentId: string;
   stageDir: string | null;
   launchExtensions: { pluginDirs: string[]; skillDirs: string[] } | undefined;
   availabilityEntries: FakeAvailabilityEntry[];
@@ -79,6 +88,11 @@ beforeEach(() => {
   loggerMocks.warn.mockClear();
   loggerMocks.createLogger.mockClear();
   stageMocks.createAgentExtensionStage.mockReset();
+  providerMocks.getActiveProvider.mockReset();
+  providerMocks.getActiveProvider.mockReturnValue({
+    id: 'copilot',
+    plannerAgentId: () => 'planning-agent',
+  });
 });
 
 describe('resolveLilyPlannerLaunchExtensions', () => {
@@ -114,6 +128,22 @@ describe('resolveLilyPlannerLaunchExtensions', () => {
       agentId: 'planning-agent',
       launchId: 'planner-42',
     });
+  });
+
+  it('fails loudly when the active provider has no planner agent id', async () => {
+    providerMocks.getActiveProvider.mockReturnValue({
+      id: 'copilot',
+      plannerAgentId: () => null,
+    });
+
+    await expect(
+      resolveLilyPlannerLaunchExtensions({
+        repoRoot: '/repo',
+        plannerSessionId: 'planner-1',
+        providerId: 'copilot',
+      }),
+    ).rejects.toThrow('Active provider has no planner agent id; planner launch extensions are not supported.');
+    expect(stageMocks.createAgentExtensionStage).not.toHaveBeenCalled();
   });
 
   it('builds a note with only display names, Skill or Plugin kind, cached descriptions, and cached plugin bundled skill names', async () => {

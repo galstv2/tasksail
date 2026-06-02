@@ -5,7 +5,10 @@ import { defineConfig } from 'vitest/config';
 import electron from 'vite-plugin-electron/simple';
 import electronCore from 'vite-plugin-electron';
 import type { RollupLog, LoggingFunction } from 'rollup';
-import { TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE } from './electron/devRestartProtocol';
+import {
+  TASKSAIL_DEV_GRACEFUL_RESTART_MESSAGE,
+  TASKSAIL_DEV_RESTART_REQUEST_MESSAGE,
+} from './electron/devRestartProtocol';
 
 const backendRuntimeExternals = ['@reflink/reflink'];
 
@@ -126,6 +129,24 @@ async function stopElectronAppForRestart(): Promise<boolean> {
   return false;
 }
 
+// Child (Electron) → parent restart channel: the System Settings save flow asks the
+// launcher for a clean managed restart in dev. We reuse the same graceful-quit +
+// respawn the launcher uses for HMR, so the restarted Electron reconnects to the dev
+// server and re-seeds platform config (instead of app.relaunch()'s detached, black
+// screen process). Re-attached after every (re)spawn so it tracks the live child.
+let performManagedElectronRestart: (() => Promise<void>) | undefined;
+let managedRestartInFlight = false;
+
+function attachRestartRequestListener(): void {
+  const electronApp = getElectronAppProcess();
+  if (!electronApp) return;
+  electronApp.on('message', (message: unknown) => {
+    if (message === TASKSAIL_DEV_RESTART_REQUEST_MESSAGE) {
+      void performManagedElectronRestart?.();
+    }
+  });
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -133,8 +154,25 @@ export default defineConfig({
       main: {
         entry: 'electron/main.ts',
         async onstart({ startup }) {
+          performManagedElectronRestart = async () => {
+            if (managedRestartInFlight) return;
+            managedRestartInFlight = true;
+            try {
+              // vite-plugin-electron registers `electronApp.once('exit', process.exit)`
+              // in startup(), which tears down the whole dev server whenever Electron
+              // exits. Remove it before we quit Electron for the restart so only
+              // Electron restarts — not the dev session (startup() re-adds it).
+              getElectronAppProcess()?.removeAllListeners('exit');
+              await stopElectronAppForRestart();
+              await startup();
+              attachRestartRequestListener();
+            } finally {
+              managedRestartInFlight = false;
+            }
+          };
           await stopElectronAppForRestart();
           await startup();
+          attachRestartRequestListener();
         },
         vite: {
           build: {

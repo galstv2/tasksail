@@ -198,6 +198,8 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
       <div data-testid="reinforcement-has-context-pack">{String(result.reinforcementModalProps.hasActiveContextPack)}</div>
       <div data-testid="has-open-reinforcement">{String(typeof result.openReinforcementModal === 'function')}</div>
       <div data-testid="has-open-agent-config">{String(typeof result.openAgentConfigModal === 'function')}</div>
+      <div data-testid="has-open-system-settings">{String(typeof result.openSystemSettingsModal === 'function')}</div>
+      <div data-testid="system-settings-modal-open">{String(result.systemSettingsModalProps.isOpen)}</div>
       <div data-testid="notification-unseen-count">{result.notificationCenterProps.unseenCount}</div>
       <div data-testid="notification-has-open">{String(typeof result.notificationCenterProps.openPanel === 'function')}</div>
       <div data-testid="notification-has-close">{String(typeof result.notificationCenterProps.closePanel === 'function')}</div>
@@ -385,5 +387,15 @@ describe('useAppShell', () => {
       expect(screen.getByTestId('active-context-pack-dir')).toHaveTextContent('none');
     });
     expect(screen.getByTestId('delete-blocked-by-active-task')).toHaveTextContent('false');
+  });
+
+  it('exposes system settings modal props and an open handler', async () => {
+    const client = createMockClient();
+    render(<AppShellHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('has-open-system-settings')).toHaveTextContent('true');
+    });
+    expect(screen.getByTestId('system-settings-modal-open')).toHaveTextContent('false');
   });
 });

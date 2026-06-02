@@ -67,11 +67,32 @@ class PythonRegistryPathTests(unittest.TestCase):
                 (("Dalton", "Custom Software Engineer"),),
             )
 
-    def test_empty_env_uses_direct_execution_fallback(self) -> None:
+    def test_empty_env_fails_closed_with_actionable_error(self) -> None:
         with mock.patch.dict(os.environ, {"TASKSAIL_AGENT_REGISTRY_PATH": "  "}, clear=False):
-            roles = registry.agent_roles()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                (
+                    "TASKSAIL_AGENT_REGISTRY_PATH is required; set it to the "
+                    "active CLI provider agent registry path"
+                ),
+            ):
+                registry.agent_roles()
 
-        self.assertEqual(roles["software-engineer"], "Software Engineer")
+    def test_absent_env_fails_closed_with_actionable_error(self) -> None:
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "TASKSAIL_AGENT_REGISTRY_PATH"
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                (
+                    "TASKSAIL_AGENT_REGISTRY_PATH is required; set it to the "
+                    "active CLI provider agent registry path"
+                ),
+            ):
+                registry.agent_roles()
 
 
 if __name__ == "__main__":

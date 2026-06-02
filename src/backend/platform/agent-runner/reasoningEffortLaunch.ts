@@ -40,6 +40,7 @@ export async function validateRoleAgentReasoningEffortBeforeSpawn(
     : unavailableCapabilities(input.provider.id);
   const validation = validateReasoningEffortForCapabilities({
     providerId: input.provider.id,
+    cliDisplayName: input.provider.cliDisplayName(),
     agentId: input.agentId,
     modelId: input.modelId,
     effort,
@@ -61,7 +62,13 @@ export async function validateRoleAgentReasoningEffortBeforeSpawn(
       taskId: input.taskId,
       event: {
         type: 'pipeline.agent_reasoning_effort.rejected_before_spawn',
-        input: { agentId: input.agentId, modelId: input.modelId, effort, reason },
+        input: {
+          agentId: input.agentId,
+          modelId: input.modelId,
+          effort,
+          reason,
+          message: validation.relaunchMessage ?? validation.message ?? `Invalid reasoning effort: ${effort}`,
+        },
       },
     }).catch(() => {});
     throw new Error(validation.message ?? `Invalid reasoning effort: ${effort}`);

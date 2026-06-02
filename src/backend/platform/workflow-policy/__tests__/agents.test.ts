@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -102,5 +102,30 @@ describe('loadNamedAgentTeam', () => {
       'Act as Alice, the Product Manager.',
     );
     expect(errors).toEqual([]);
+  });
+
+  it('requires Copilot provider registry fields in addition to the platform floor', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-agents-'));
+    createdRoots.push(repoRoot);
+    createRegistryFixture(repoRoot);
+    const registryPath = path.join(repoRoot, '.github', 'agents', 'registry.json');
+    const registry = JSON.parse(readFileSync(registryPath, 'utf-8')) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    registry.agents = registry.agents.map((agent) => {
+      if (agent.agent_id !== 'software-engineer') return agent;
+      const nextAgent = { ...agent };
+      delete nextAgent.instruction_path;
+      delete nextAgent.agent_profile_path;
+      return nextAgent;
+    });
+    writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf-8');
+
+    const { team, errors } = await loadNamedAgentTeam(repoRoot);
+
+    expect(team['software-engineer']).toBeUndefined();
+    expect(errors).toContain(
+      "Registry entry 'software-engineer' is missing required fields: agent_profile_path, instruction_path.",
+    );
   });
 });

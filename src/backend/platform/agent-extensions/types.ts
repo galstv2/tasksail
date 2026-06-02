@@ -1,12 +1,7 @@
 export type AgentExtensionKind = 'skill' | 'plugin';
 export type AgentExtensionSourceType = 'git' | 'local' | 'direct-attachment';
-export type AgentExtensionProviderId = 'copilot';
-export type AgentExtensionAgentId =
-  | 'planning-agent'
-  | 'product-manager'
-  | 'software-engineer'
-  | 'software-engineer-verify'
-  | 'qa';
+export type AgentExtensionProviderId = string;
+export type AgentExtensionAgentId = string;
 
 export type AgentExtensionSource =
   | {
@@ -166,6 +161,7 @@ export type AgentExtensionMutationSeams = {
   now?: () => string;
   execFile?: ExtensionExecFile;
   fs?: AgentExtensionFsAdapter;
+  providerAgentIds?: readonly AgentExtensionAgentId[];
 };
 
 export type AgentExtensionReconcileOptions = AgentExtensionMutationSeams;

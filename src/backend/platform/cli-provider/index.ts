@@ -12,6 +12,7 @@ export type {
   PlannerLaunchOptions,
   PlannerLaunchSpec,
   PlannerNormalizedEvent,
+  PluginMetadataSummary,
   PreparedMcpLaunch,
   ProviderAgentProfile,
   ProviderPromptKind,

@@ -179,6 +179,113 @@ class WriteEmptyScopeTreeTests(unittest.TestCase):
             assert (scope_dir / "estate" / "shared" / "orphan" / ".gitkeep").exists()
 
 
+class QmdScopeRootContainmentTests(unittest.TestCase):
+    """Containment: qmd_scope_root must resolve inside context_pack_dir."""
+
+    def _write_manifest(self, context_pack_dir: Path, manifest: dict) -> Path:
+        qmd_dir = context_pack_dir / "qmd"
+        qmd_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = qmd_dir / "repo-sources.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return manifest_path
+
+    def test_missing_qmd_scope_root_uses_default(self) -> None:
+        """Absent qmd_scope_root falls back to qmd/context-packs/<pack-name>."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "alpha-pack"
+            manifest = {
+                "manifest_version": "qmd-repo-sources/v2",
+                "context_pack_id": "alpha-pack",
+                # qmd_scope_root intentionally omitted
+                "repositories": [],
+            }
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            result = write_empty_scope_tree(pack_dir, manifest_path)
+
+            expected_scope = pack_dir / "qmd" / "context-packs" / "alpha-pack"
+            assert result["scope_root"] == str(expected_scope.resolve())
+
+    def test_valid_relative_scope_root_resolves_inside_pack(self) -> None:
+        """A valid relative qmd_scope_root resolves inside context_pack_dir."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "beta-pack"
+            manifest = _make_v2_manifest(
+                "beta-pack",
+                "qmd/context-packs/beta-pack",
+                [],
+            )
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            result = write_empty_scope_tree(pack_dir, manifest_path)
+
+            expected_scope = pack_dir / "qmd" / "context-packs" / "beta-pack"
+            assert result["scope_root"] == str(expected_scope.resolve())
+            assert result["wrote"] is True
+
+    def test_dot_dot_escape_is_rejected(self) -> None:
+        """A qmd_scope_root with .. escaping the pack directory raises ValueError."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "gamma-pack"
+            manifest = _make_v2_manifest(
+                "gamma-pack",
+                "../../outside",
+                [],
+            )
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            with self.assertRaises(ValueError):
+                write_empty_scope_tree(pack_dir, manifest_path)
+
+    def test_posix_absolute_path_is_rejected(self) -> None:
+        """A POSIX-absolute qmd_scope_root raises ValueError."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "delta-pack"
+            manifest = _make_v2_manifest(
+                "delta-pack",
+                "/etc/passwd",
+                [],
+            )
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            with self.assertRaises(ValueError):
+                write_empty_scope_tree(pack_dir, manifest_path)
+
+    def test_windows_drive_absolute_path_rejected_on_all_os(self) -> None:
+        """Windows drive-absolute paths (C:\\...) are rejected on every host OS,
+        not silently sandboxed on POSIX."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "epsilon-pack"
+            manifest = _make_v2_manifest("epsilon-pack", "C:\\Windows\\System32", [])
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            with self.assertRaises(ValueError):
+                write_empty_scope_tree(pack_dir, manifest_path)
+
+    def test_unc_like_path_rejected_on_all_os(self) -> None:
+        """UNC-like paths (\\\\server\\share) are rejected on every host OS, not
+        silently sandboxed on POSIX."""
+        from src.backend.mcp.repo_context_mcp.services.stub_scope import write_empty_scope_tree
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack_dir = Path(tmp) / "zeta-pack"
+            manifest = _make_v2_manifest("zeta-pack", "\\\\server\\share\\data", [])
+            manifest_path = self._write_manifest(pack_dir, manifest)
+
+            with self.assertRaises(ValueError):
+                write_empty_scope_tree(pack_dir, manifest_path)
+
+
 class PackSeedStateLifecycleTests(unittest.TestCase):
     """Gate G2: seeding service updates the pack-level seed-state marker."""
 

@@ -32,6 +32,8 @@ describe('listAvailableContextPacks', () => {
             repo_id: 'orders-api',
             repo_name: 'Orders API',
             repository_type: 'primary',
+            repo_category: 'service',
+            repo_category_authored: true,
             service_name: 'orders-api',
           }],
           primary_working_repo_ids: ['orders-api'],
@@ -85,6 +87,8 @@ describe('listAvailableContextPacks', () => {
           focusTargets: [expect.objectContaining({
             repoId: 'orders-api',
             repositoryType: 'primary',
+            repoCategory: 'service',
+            repoCategoryAuthored: true,
           })],
         }),
         expect.objectContaining({
@@ -94,6 +98,8 @@ describe('listAvailableContextPacks', () => {
           focusTargets: [expect.objectContaining({
             repoId: 'orders-web',
             repositoryType: 'support',
+            repoCategory: null,
+            repoCategoryAuthored: false,
           })],
         }),
         expect.objectContaining({
@@ -105,6 +111,8 @@ describe('listAvailableContextPacks', () => {
             focusId: 'core',
             kind: 'focus-area',
             repositoryType: 'primary',
+            repoCategory: null,
+            repoCategoryAuthored: false,
           })],
         }),
       ]));
@@ -158,6 +166,49 @@ describe('listAvailableContextPacks', () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
       vi.doUnmock('./log/logger');
+    }
+  });
+
+  it('keeps repository focus and repo category as separate catalog fields', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'desktop-context-pack-categories-'));
+    try {
+      const pack = join(tempRoot, 'orders-estate');
+      await mkdir(join(pack, 'qmd'), { recursive: true });
+      await writeFile(
+        join(pack, 'qmd', 'repo-sources.json'),
+        JSON.stringify({
+          context_pack_id: 'orders-estate',
+          display_name: 'Orders Estate',
+          estate_type: 'distributed-platform',
+          repositories: [{
+            repo_id: 'orders-api',
+            repo_name: 'Orders API',
+            repository_type: 'support',
+            repo_category: 'service',
+          }],
+        }),
+      );
+
+      const contextPackEnvVars = getActiveProvider(process.cwd()).contextPackEnvVars();
+      vi.stubEnv(contextPackEnvVars.paths, pack);
+      vi.stubEnv(contextPackEnvVars.searchRoots, '');
+
+      const { listAvailableContextPacks } = await import('./main.contextPackCatalog');
+      const response = await listAvailableContextPacks();
+
+      expect(response.contextPacks).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          contextPackId: 'orders-estate',
+          focusTargets: [expect.objectContaining({
+            repoId: 'orders-api',
+            repositoryType: 'support',
+            repoCategory: 'service',
+            repoCategoryAuthored: false,
+          })],
+        }),
+      ]));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
     }
   });
 });

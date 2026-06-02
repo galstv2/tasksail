@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -7,6 +7,22 @@ import { promisify } from 'node:util';
 import { detectOS, setupRepo } from '../setup.js';
 
 const execFileAsync = promisify(execFile);
+
+// Mirror env vars that the enterprise-mirrors setup step reads from process.env.
+// Cleared per test so host/CI env cannot make the step apply config or fire a
+// live preflight fetch.
+const MIRROR_ENV_KEYS = [
+  'NPM_CONFIG_REGISTRY',
+  'npm_config_registry',
+  'NPM_CONFIG_REPLACE_REGISTRY_HOST',
+  'npm_config_replace_registry_host',
+  'PIP_INDEX_URL',
+  'TASKSAIL_NPM_REGISTRY',
+  'TASKSAIL_NPM_AUTH_TOKEN',
+  'TASKSAIL_PYPI_INDEX_URL',
+  'TASKSAIL_PYTHON_BASE_IMAGE',
+  'TASKSAIL_ALPINE_BASE_IMAGE',
+];
 
 describe('detectOS', () => {
   it('returns the current platform', () => {
@@ -18,8 +34,14 @@ describe('detectOS', () => {
 
 describe('setupRepo', () => {
   let tmpDir: string;
+  let savedMirrorEnv: Record<string, string | undefined>;
 
   beforeEach(async () => {
+    savedMirrorEnv = {};
+    for (const key of MIRROR_ENV_KEYS) {
+      savedMirrorEnv[key] = process.env[key];
+      delete process.env[key];
+    }
     tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'setup-'));
     // Initialize a real git repo so git commands work
     await execFileAsync('git', ['init'], { cwd: tmpDir });
@@ -37,6 +59,11 @@ describe('setupRepo', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
+    for (const key of MIRROR_ENV_KEYS) {
+      if (savedMirrorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedMirrorEnv[key];
+    }
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -66,6 +93,49 @@ describe('setupRepo', () => {
     const mcpRegistryIndex = result.steps.findIndex((s) => s.name === 'mcp-registry-seed');
     expect(platformConfigIndex).toBeGreaterThan(-1);
     expect(mcpRegistryIndex).toBeGreaterThan(platformConfigIndex);
+  });
+
+  it('runs enterprise-mirrors immediately after ensure-env and before platform-config-seed', async () => {
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    const ensureEnvIndex = result.steps.findIndex((s) => s.name === 'ensure-env');
+    const mirrorIndex = result.steps.findIndex((s) => s.name === 'enterprise-mirrors');
+    const platformConfigIndex = result.steps.findIndex((s) => s.name === 'platform-config-seed');
+    expect(ensureEnvIndex).toBeGreaterThan(-1);
+    expect(mirrorIndex).toBe(ensureEnvIndex + 1);
+    expect(platformConfigIndex).toBe(mirrorIndex + 1);
+  });
+
+  it('reports enterprise-mirrors skipped when no mirror vars are set', async () => {
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    const mirrorStep = result.steps.find((s) => s.name === 'enterprise-mirrors');
+    expect(mirrorStep?.status).toBe('skipped');
+    expect(fs.existsSync(path.join(tmpDir, '.npmrc'))).toBe(false);
+  });
+
+  it('applies mirror config from repo .env and reports ok when preflight succeeds', async () => {
+    await fs.promises.writeFile(
+      path.join(tmpDir, '.env.example'),
+      'NPM_CONFIG_REGISTRY=https://corp.example/npm/\n',
+    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 200 })));
+
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    const mirrorStep = result.steps.find((s) => s.name === 'enterprise-mirrors');
+    expect(mirrorStep?.status).toBe('ok');
+    // Config was applied to the generated (git-ignored) .npmrc after ensure-env.
+    expect(fs.existsSync(path.join(tmpDir, '.npmrc'))).toBe(true);
+    const npmrc = await fs.promises.readFile(path.join(tmpDir, '.npmrc'), 'utf-8');
+    expect(npmrc).toContain('registry=https://corp.example/npm/');
+  });
+
+  it('reports enterprise-mirrors failed for an invalid URL without failing platform-config-seed', async () => {
+    await fs.promises.writeFile(
+      path.join(tmpDir, '.env.example'),
+      'NPM_CONFIG_REGISTRY=:::not-a-url:::\n',
+    );
+    const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
+    expect(result.steps.find((s) => s.name === 'enterprise-mirrors')?.status).toBe('failed');
+    expect(result.steps.find((s) => s.name === 'platform-config-seed')?.status).toBe('ok');
   });
 
   it('seeds the deep focus ignore runtime file from the tracked default', async () => {

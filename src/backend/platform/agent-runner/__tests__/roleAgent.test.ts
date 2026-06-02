@@ -359,7 +359,7 @@ describe('runRoleAgent Ron requirement verification prelaunch', () => {
     await expect(runRoleAgent({ agentId, taskId: 'task-test-001', skipWorkflowValidation: true })).rejects.toThrow(/Update Agent Configuration to None or a Copilot-advertised effort/u);
     expect(mockedBuildAgentArgs).not.toHaveBeenCalled(); expect(mockedLaunchAgent).not.toHaveBeenCalled();
     expect(mockedEmitTaskProgressEvent).toHaveBeenCalledWith(expect.objectContaining({
-      taskId: 'task-test-001', event: { type: 'pipeline.agent_reasoning_effort.rejected_before_spawn', input: { agentId, modelId: 'gpt-5.4', effort: 'ultra', reason: 'unsupported-by-cli' } },
+      taskId: 'task-test-001', event: { type: 'pipeline.agent_reasoning_effort.rejected_before_spawn', input: expect.objectContaining({ agentId, modelId: 'gpt-5.4', effort: 'ultra', reason: 'unsupported-by-cli' }) },
     }));
   });
   it('validates configured reasoning effort before building launch args', async () => {

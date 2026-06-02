@@ -13,7 +13,14 @@ import {
 } from '../index.js';
 import { buildDefaultFs, materializeExtension } from '../materialize.js';
 import type { AgentExtensionFsAdapter, AgentExtensionMutationSeams, AgentExtensionSourceManifestEntry, AgentLaunchExtensionAssignments } from '../types.js';
-import { VALID_AGENT_IDS } from '../ids.js';
+
+const PROVIDER_AGENT_IDS = [
+  'planning-agent',
+  'product-manager',
+  'software-engineer',
+  'qa',
+  'software-engineer-verify',
+];
 
 // Capture every progress() event so we can assert which catalog/reconcile events fire.
 const { progressCalls } = vi.hoisted(() => ({
@@ -98,14 +105,14 @@ describe('deleteAgentExtension', () => {
     const entry = makeLocalSkillEntry('del-skill', srcDir);
 
     // Add the extension
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
     // Assign it to an agent
     const assignments: AgentLaunchExtensionAssignments = {
       schema_version: 1,
-      assignments: VALID_AGENT_IDS.map((id) => ({
+      assignments: PROVIDER_AGENT_IDS.map((id) => ({
         agent_id: id,
         extension_ids: id === 'software-engineer' ? ['del-skill'] : [],
       })),
@@ -130,7 +137,7 @@ describe('deleteAgentExtension', () => {
     const srcDir = createSkillSrc('safe-del');
     const entry = makeLocalSkillEntry('safe-del', srcDir);
 
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
@@ -164,7 +171,7 @@ describe('listAgentExtensions commit_sha status', () => {
       source: { type: 'git', url: 'https://example.com/r.git', ref: 'main' },
     };
 
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
 
     // Materialize using a fake git execFile (no subpath, just clones SKILL.md)
     const fakeExecFile = async (
@@ -209,12 +216,24 @@ describe('listAgentExtensions commit_sha status', () => {
 });
 
 describe('catalog event emission (F4)', () => {
+  it('rejects add requests whose provider_id is not the active provider', async () => {
+    const srcDir = createSkillSrc('wrong-provider');
+
+    await expect(
+      addAgentExtension(
+        tmpDir,
+        { id: 'wrong-provider', kind: 'skill', provider_id: 'openai', source: { type: 'local', path: srcDir } },
+        { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS },
+      ),
+    ).rejects.toThrow('Unsupported provider_id "openai"');
+  });
+
   it('addAgentExtension emits exactly one catalog.added and no catalog.reseeded', async () => {
     const srcDir = createSkillSrc('evt-add');
     await addAgentExtension(
       tmpDir,
       { id: 'evt-add', kind: 'skill', provider_id: 'copilot', source: { type: 'local', path: srcDir } },
-      { now: () => NOW },
+      { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS },
     );
 
     expect(eventsOf('agent_extensions.catalog.added')).toHaveLength(1);
@@ -224,11 +243,11 @@ describe('catalog event emission (F4)', () => {
   it('reseedAgentExtension emits catalog.reseeded and not catalog.added', async () => {
     const srcDir = createSkillSrc('evt-reseed');
     const entry = makeLocalSkillEntry('evt-reseed', srcDir);
-    await materializeExtension(tmpDir, entry, { now: () => NOW });
+    await materializeExtension(tmpDir, entry, { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS });
     writeManifest([entry]);
     progressCalls.length = 0; // ignore setup materialize
 
-    await reseedAgentExtension(tmpDir, 'evt-reseed', { now: () => NOW });
+    await reseedAgentExtension(tmpDir, 'evt-reseed', { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS });
 
     expect(eventsOf('agent_extensions.catalog.reseeded')).toHaveLength(1);
     expect(eventsOf('agent_extensions.catalog.added')).toHaveLength(0);
@@ -240,7 +259,7 @@ describe('catalog event emission (F4)', () => {
     writeManifest([entry]); // manifest entry present, runtime copy absent
     progressCalls.length = 0;
 
-    const result = await reconcileAgentExtensions(tmpDir, { now: () => NOW });
+    const result = await reconcileAgentExtensions(tmpDir, { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS });
     expect(result.materialized).toBe(1);
     expect(eventsOf('agent_extensions.catalog.added')).toHaveLength(0);
     expect(eventsOf('agent_extensions.catalog.reseeded')).toHaveLength(0);
@@ -255,7 +274,7 @@ describe('addAgentExtension direct-attachment (F1)', () => {
     const entry = await addAgentExtension(
       tmpDir,
       { id: 'direct-1', kind: 'skill', provider_id: 'copilot', source: { type: 'direct-attachment', skill_markdown: SKILL_MARKDOWN } },
-      { now: () => NOW },
+      { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS },
     );
 
     expect(entry.status).toBe('available');
@@ -274,7 +293,7 @@ describe('addAgentExtension direct-attachment (F1)', () => {
   it('does not write or overwrite the authored SKILL.md when the ID already exists', async () => {
     const existingDir = createSkillSrc('dup-direct');
     const existing = makeLocalSkillEntry('dup-direct', existingDir);
-    await materializeExtension(tmpDir, existing, { now: () => NOW });
+    await materializeExtension(tmpDir, existing, { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS });
     writeManifest([existing]);
 
     // Pre-create authored file with sentinel content to detect any overwrite
@@ -286,7 +305,7 @@ describe('addAgentExtension direct-attachment (F1)', () => {
       addAgentExtension(
         tmpDir,
         { id: 'dup-direct', kind: 'skill', provider_id: 'copilot', source: { type: 'direct-attachment', skill_markdown: SKILL_MARKDOWN } },
-        { now: () => NOW },
+        { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS },
       ),
     ).rejects.toThrow(/already exists/i);
 
@@ -303,7 +322,7 @@ describe('addAgentExtension direct-attachment (F1)', () => {
       addAgentExtension(
         tmpDir,
         { id: 'bad-direct', kind: 'skill', provider_id: 'copilot', source: { type: 'direct-attachment', skill_markdown: BAD_MARKDOWN } },
-        { now: () => NOW },
+        { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS },
       ),
     ).rejects.toThrow();
 
@@ -355,13 +374,13 @@ describe('deleteAgentExtension with removeAssignments (F2)', () => {
   it('clears assignments first, then removes runtime copy, receipt, and manifest entry', async () => {
     const srcDir = createSkillSrc('del-unassign');
     const entry = makeLocalSkillEntry('del-unassign', srcDir);
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
     const assignments: AgentLaunchExtensionAssignments = {
       schema_version: 1,
-      assignments: VALID_AGENT_IDS.map((id) => ({
+      assignments: PROVIDER_AGENT_IDS.map((id) => ({
         agent_id: id,
         extension_ids: id === 'software-engineer' || id === 'qa' ? ['del-unassign'] : [],
       })),
@@ -394,7 +413,7 @@ describe('listAgentExtensions receipt consistency (F3)', () => {
   it('reports unavailable when the receipt source_type does not match the entry', async () => {
     const srcDir = createSkillSrc('mismatch');
     const entry = makeLocalSkillEntry('mismatch', srcDir);
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
@@ -413,7 +432,7 @@ describe('listAgentExtensions receipt consistency (F3)', () => {
   it('reports unavailable when the receipt is missing source_digest', async () => {
     const srcDir = createSkillSrc('no-digest');
     const entry = makeLocalSkillEntry('no-digest', srcDir);
-    const seams: AgentExtensionMutationSeams = { now: () => NOW };
+    const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
